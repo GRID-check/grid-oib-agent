@@ -12,7 +12,7 @@ import { documentDisplayName } from '@/lib/documents/display-name'
 import { useSemanticSearch } from '../hooks/use-semantic-search'
 import { FileCard } from './file-card'
 import { FileGrid, FileCardSkeleton } from './file-grid'
-import { FileListView } from './file-list-view'
+import { FileListSkeleton, FileListView } from './file-list-view'
 import { FileSearchBar } from './file-search-bar'
 import { FilterChip } from './filter-chip'
 import { AssignmentFaces } from './assignment-faces'
@@ -117,7 +117,15 @@ export function FileBrowserPane({
   )
 
   if (isLoading) {
-    return (
+    // Same rule as the search skeleton below: placeholders take the shape of the
+    // view the reader chose, so the first paint is not a layout that was never
+    // going to be there.
+    return view === 'list' ? (
+      <div className="space-y-3 p-4">
+        <Skeleton className="h-9 w-full" />
+        <FileListSkeleton />
+      </div>
+    ) : (
       <div className="space-y-3 p-4">
         <Skeleton className="h-9 w-full" />
         <FileGrid>
@@ -219,13 +227,20 @@ export function FileBrowserPane({
         // evidence (snippet + page + relevance). A backend error/timeout fails
         // open to an empty result set (never a crash).
         semantic.isSearching ? (
-          <div className="p-4">
-            <FileGrid>
-              {Array.from({ length: 6 }).map((_, i) => (
-                <FileCardSkeleton key={i} />
-              ))}
-            </FileGrid>
-          </div>
+          // Placeholders shaped like the view the answer will arrive in. Card
+          // skeletons were drawn whatever the reader had chosen, so a search
+          // from the list flashed a wall of tiles and then snapped to a table.
+          view === 'list' ? (
+            <FileListSkeleton />
+          ) : (
+            <div className="p-4">
+              <FileGrid>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <FileCardSkeleton key={i} />
+                ))}
+              </FileGrid>
+            </div>
+          )
         ) : semantic.error ? (
           // A SEARCH THAT NEVER RAN IS NOT A SEARCH THAT FOUND NOTHING.
           // The hook fails open to an empty result set so this pane cannot

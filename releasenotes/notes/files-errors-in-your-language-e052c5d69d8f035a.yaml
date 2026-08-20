@@ -1,0 +1,17 @@
+---
+fixes:
+  - >
+    Upload errors are now written in the language you are using. A rejected file
+    used to put an English clause inside a German sentence — "1 Datei wird
+    hochgeladen, 1 übersprungen (\"Plan.pdf\" is 210 MB, exceeds 100 MB limit)"
+    — on the most ordinary upload failure there is. Every reason now reads as
+    one sentence: too large, wrong type, already added, or no room left.
+  - >
+    Assigning someone to a file says when it did not work. A refused assignment
+    used to change nothing on screen at all — no error, no clue — which in a
+    panel about who is responsible reads as success. It now names the person it
+    could not assign and offers to try the same thing again.
+  - >
+    The file list waits in the shape it will arrive in. Loading and searching
+    drew card placeholders even when you were in the detail view, so the list
+    appeared only after a flash of tiles that were never going to be there.

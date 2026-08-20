@@ -294,6 +294,17 @@ export const files = {
     upload: 'Upload',
   },
   errors: {
+    validation: {
+      duplicateInBatch: '“{name}” is in this selection more than once',
+      duplicateExisting: '“{name}” has already been added',
+      invalidType: '“{name}” is not a supported file type. Accepted: {accepted}',
+      fileTooLarge: '“{name}” is {size} — the limit is {limit}',
+      totalSizeExceeded: 'That would come to {total}; only {available} of the {limit} limit is free',
+      totalSizeExceededFirst: '{total} is over the {limit} limit',
+      maxFilesExceeded: 'That would be {total} files; only {available} more fit ({limit} maximum)',
+      maxFilesExceededFirst: '{total} files is over the limit of {limit}',
+      several: '{count} files have issues',
+    },
     someUploadsFailed: '{failed} of {total} documents could not be uploaded. First reason: {reason}',
     uploadingSkipped: 'Uploading {uploading} {fileLabel}, skipped {skipped} ({summary})',
     cannotRetryServerFile: 'Cannot retry server-loaded files. Please upload the file again.',
@@ -337,6 +348,8 @@ export const files = {
     loadingPeople: 'Loading people…',
     noPeople: 'No one in this project yet',
     peopleLoadError: 'Could not load people',
+    assignError: '“{name}” could not be made responsible',
+    unassignError: '“{name}” could not be removed',
     tryAgain: 'Try again',
   },
 }

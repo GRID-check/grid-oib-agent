@@ -272,6 +272,17 @@ export const files: typeof en.files = {
     upload: 'Hochladen',
   },
   errors: {
+    validation: {
+      duplicateInBatch: '„{name}“ ist mehrfach in dieser Auswahl',
+      duplicateExisting: '„{name}“ wurde bereits hinzugefügt',
+      invalidType: '„{name}“ ist kein unterstützter Dateityp. Zulässig: {accepted}',
+      fileTooLarge: '„{name}“ hat {size} — das Limit liegt bei {limit}',
+      totalSizeExceeded: 'Das ergäbe {total}; frei sind nur {available} von {limit}',
+      totalSizeExceededFirst: '{total} überschreiten das Limit von {limit}',
+      maxFilesExceeded: 'Das wären {total} Dateien; es passen nur noch {available} ({limit} maximal)',
+      maxFilesExceededFirst: '{total} Dateien überschreiten das Limit von {limit}',
+      several: '{count} Dateien haben Probleme',
+    },
     someUploadsFailed:
       '{failed} von {total} Dokumenten konnten nicht hochgeladen werden. Erster Grund: {reason}',
     uploadingSkipped:
@@ -319,6 +330,8 @@ export const files: typeof en.files = {
     loadingPeople: 'Personen werden geladen…',
     noPeople: 'Noch niemand in diesem Projekt',
     peopleLoadError: 'Personen konnten nicht geladen werden',
+    assignError: '„{name}“ konnte nicht als zuständig eingetragen werden',
+    unassignError: '„{name}“ konnte nicht entfernt werden',
     tryAgain: 'Erneut versuchen',
   },
 }

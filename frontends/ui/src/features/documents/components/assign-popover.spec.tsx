@@ -5,7 +5,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import userEvent from '@testing-library/user-event'
-import { render, screen, waitFor } from '@/test-utils'
+import { render, screen, waitFor, within } from '@/test-utils'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/mocks/server'
 import { AssignPopover } from './assign-popover'
@@ -64,6 +64,54 @@ describe('AssignPopover', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not load people')
     expect(screen.queryByText('No one in this project yet')).not.toBeInTheDocument()
+  })
+
+  it('says so when making someone responsible is refused', async () => {
+    server.use(
+      http.get('/api/assignments/document/:id/candidates', () =>
+        HttpResponse.json({ candidates: [person('user_anna', 'Anna Weber')] }),
+      ),
+      http.post('/api/assignments/document/:id', () =>
+        HttpResponse.json({ error: 'boom' }, { status: 500 }),
+      ),
+    )
+    const onChanged = vi.fn()
+
+    render(<AssignPopover documentId="doc_1" assignees={[]} onChanged={onChanged} />)
+    await openPopover()
+    await userEvent.click(await screen.findByRole('button', { name: /Anna Weber/ }))
+
+    // The write used to `return` on a non-ok response: the row simply did not
+    // change, which in a popover about who is responsible reads as success.
+    expect(await screen.findByTestId('assign-write-error')).toHaveTextContent('Anna Weber')
+    expect(onChanged).not.toHaveBeenCalled()
+  })
+
+  it('retries the SAME assignment after it failed', async () => {
+    let attempts = 0
+    server.use(
+      http.get('/api/assignments/document/:id/candidates', () =>
+        HttpResponse.json({ candidates: [person('user_anna', 'Anna Weber')] }),
+      ),
+      http.post('/api/assignments/document/:id', () => {
+        attempts += 1
+        return attempts === 1
+          ? HttpResponse.json({ error: 'boom' }, { status: 500 })
+          : HttpResponse.json({ assignees: [person('user_anna', 'Anna Weber')] })
+      }),
+    )
+    const onChanged = vi.fn()
+
+    render(<AssignPopover documentId="doc_1" assignees={[]} onChanged={onChanged} />)
+    await openPopover()
+    await userEvent.click(await screen.findByRole('button', { name: /Anna Weber/ }))
+    await screen.findByTestId('assign-write-error')
+
+    await userEvent.click(within(screen.getByTestId('assign-write-error')).getByRole('button'))
+
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1))
+    expect(attempts).toBe(2)
+    expect(screen.queryByTestId('assign-write-error')).not.toBeInTheDocument()
   })
 
   it('retries the assignment candidates route after a failure', async () => {

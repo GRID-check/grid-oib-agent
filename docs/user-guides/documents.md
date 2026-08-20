@@ -43,6 +43,12 @@ A **search field** above the grid filters the current listing client-side by fil
 
 Semantic results arrive in whichever view you are in. In the detail view the ranking is preserved rather than being re-sorted by upload date: **Relevance** is the column the list opens sorted by (and can be sorted the other way), and each row carries the passage that matched with its page number in place of the document's summary.
 
+### When an upload is refused
+
+Files are validated before anything leaves the browser: type, individual size, the batch's total size, and duplicates (both within one selection and against what is already there). A rejection names the reason in the language the interface is in — the validator itself is a pure module and keeps an English fallback for callers with no dictionary, but nothing user-facing renders it any more.
+
+A partially rejected batch still uploads: the valid files go, and the panel says how many were skipped and why.
+
 ### Supported File Types
 
 The accepted file types are configured via `FILE_UPLOAD_ACCEPTED_TYPES` (default: `.pdf,.docx,.txt,.md`).

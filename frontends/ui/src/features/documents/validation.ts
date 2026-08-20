@@ -46,21 +46,41 @@ export type BatchValidationErrorCode = 'TOTAL_SIZE_EXCEEDED' | 'MAX_FILES_EXCEED
  * images are off specifically because no vision model is configured (the
  * `image-upload` flag is on but the capability is missing).
  */
-export type FileValidationReason = 'image-vlm-unavailable'
+export type FileValidationReason = 'image-vlm-unavailable' | 'duplicate-in-batch' | 'duplicate-existing'
+
+/**
+ * The values a localized message needs, already locale-formatted where this
+ * module did the formatting (sizes go through the same `formatBytes` every file
+ * card renders through, so one screen never shows "1,5 MB" beside "1.5 MB").
+ *
+ * `message` below stays English and stays the fallback: this module is pure and
+ * has non-React callers with no dictionary to reach for. But its strings were
+ * being SPLICED INTO a localized sentence — a German reader was told
+ * «1 Datei wird hochgeladen, 1 übersprungen ("Plan.pdf" is 210 MB, exceeds 100
+ * MB limit)» — so every error now also carries the parts a caller with `t`
+ * needs to say the same thing in the reader's language.
+ */
+export type ValidationMessageParams = Record<string, string>
 
 /** Detailed error information for a single file */
 export interface FileValidationError {
   file: File
   code: FileValidationErrorCode
+  /** English fallback for callers without a dictionary. See {@link ValidationMessageParams}. */
   message: string
   /** Optional targeted reason enabling localized, specific copy in the UI. */
   reason?: FileValidationReason
+  /** Parts for the localized message the UI renders from `code`/`reason`. */
+  params: ValidationMessageParams
 }
 
 /** Batch-level error (affects the whole batch) */
 export interface BatchValidationError {
   code: BatchValidationErrorCode
+  /** English fallback for callers without a dictionary. See {@link ValidationMessageParams}. */
   message: string
+  /** Parts for the localized message the UI renders from `code`. */
+  params: ValidationMessageParams
 }
 
 /** Result of validating a batch of files */
@@ -217,7 +237,9 @@ export function validateFileUpload(
       fileErrors.push({
         file,
         code: 'DUPLICATE_FILE',
+        reason: 'duplicate-in-batch',
         message: `"${file.name}" is included multiple times`,
+        params: { name: file.name },
       })
       continue
     }
@@ -227,7 +249,9 @@ export function validateFileUpload(
       fileErrors.push({
         file,
         code: 'DUPLICATE_FILE',
+        reason: 'duplicate-existing',
         message: `"${file.name}" already exists in this session`,
+        params: { name: file.name },
       })
       continue
     }
@@ -246,6 +270,7 @@ export function validateFileUpload(
           ? `"${file.name}" needs a configured vision model (VLM) to upload.`
           : `"${file.name}" is not a supported file type. Accepted: ${config.acceptedTypes}`,
         ...(isImageBlockedByVlm ? { reason: 'image-vlm-unavailable' as const } : {}),
+        params: { name: file.name, accepted: config.acceptedTypes },
       })
       continue
     }
@@ -263,6 +288,11 @@ export function validateFileUpload(
         file,
         code: 'FILE_TOO_LARGE',
         message: `"${file.name}" is ${formatBytes(file.size, locale)}, exceeds ${formatBytes(sizeCeiling, locale)} limit`,
+        params: {
+          name: file.name,
+          size: formatBytes(file.size, locale),
+          limit: formatBytes(sizeCeiling, locale),
+        },
       })
       continue
     }
@@ -308,6 +338,13 @@ export function validateFileUpload(
         context.existingTotalSize > 0
           ? `Total size would be ${formatBytes(totalSize, locale)}. Only ${formatBytes(availableSpace, locale)} available (${formatBytes(totalCeiling, locale)} limit).`
           : `Total size ${formatBytes(totalSize, locale)} exceeds ${formatBytes(totalCeiling, locale)} limit.`,
+      params: {
+        total: formatBytes(totalSize, locale),
+        available: formatBytes(availableSpace, locale),
+        limit: formatBytes(totalCeiling, locale),
+        // Which of the two sentences above: the UI picks the same way.
+        crowded: context.existingTotalSize > 0 ? 'yes' : 'no',
+      },
     })
   }
 
@@ -321,6 +358,12 @@ export function validateFileUpload(
         context.existingFileCount > 0
           ? `Would have ${totalCount} files. Only ${availableSlots} more allowed (${config.maxFileCount} max).`
           : `${totalCount} files exceeds the ${config.maxFileCount} file limit.`,
+      params: {
+        total: String(totalCount),
+        available: String(availableSlots),
+        limit: String(config.maxFileCount),
+        crowded: context.existingFileCount > 0 ? 'yes' : 'no',
+      },
     })
   }
 

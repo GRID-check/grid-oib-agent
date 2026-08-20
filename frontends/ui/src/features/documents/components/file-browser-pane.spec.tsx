@@ -269,6 +269,28 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
     expect(await screen.findByTestId('file-list-relevance')).toHaveTextContent('87%')
   })
 
+  it('waits in the shape of the view the answer will arrive in', async () => {
+    // Held open so the searching state is observable at all.
+    let release: () => void = () => undefined
+    fetchMock.mockImplementation((url: string | URL) =>
+      String(url).includes('/api/documents/search')
+        ? new Promise((resolve) => {
+            release = () => resolve({ ok: true, json: () => Promise.resolve({ hits: [searchHit] }) })
+          })
+        : Promise.resolve({ ok: false, json: () => Promise.resolve({}) }),
+    )
+    const user = userEvent.setup()
+    renderPane({ projectId: 'proj-1', view: 'list' })
+
+    await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
+
+    // Card skeletons were drawn whatever the reader had chosen, so a search from
+    // the list flashed a wall of tiles and then snapped to a table.
+    expect(await screen.findByTestId('file-list-skeleton')).toBeInTheDocument()
+    release()
+    expect(await screen.findByTestId('file-list-view')).toBeInTheDocument()
+  })
+
   it('shows no search button (and no semantic call) without a projectId', () => {
     renderPane()
     expect(screen.queryByRole('button', { name: /^search$/i })).not.toBeInTheDocument()

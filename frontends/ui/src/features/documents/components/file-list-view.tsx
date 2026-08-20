@@ -10,6 +10,7 @@ import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime, formatBytes, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { documentDisplayName } from '@/lib/documents/display-name'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 /**
@@ -357,5 +358,32 @@ function SortHeader({
         />
       </button>
     </TableHead>
+  )
+}
+
+/**
+ * The detail view, waiting.
+ *
+ * A card grid was drawn here whatever the reader had chosen, so running a search
+ * from the list showed a wall of card skeletons and then snapped to a table —
+ * a layout flash announcing a change that was never going to happen. Shaped like
+ * the rows it stands in for, so what arrives lands where the placeholder was.
+ */
+export function FileListSkeleton({ rows = 6 }: { rows?: number }) {
+  return (
+    <div className="space-y-1 px-4 pb-4 pt-6" data-testid="file-list-skeleton">
+      {Array.from({ length: rows }).map((_, index) => (
+        <div key={index} className="flex items-center gap-2.5 px-2 py-1.5">
+          <Skeleton className="size-6 shrink-0 rounded-sm" />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <Skeleton className="h-3.5 w-1/3" />
+            <Skeleton className="h-3 w-2/3" />
+          </div>
+          <Skeleton className="h-4 w-16 shrink-0 rounded-full" />
+          <Skeleton className="hidden h-3 w-12 shrink-0 sm:block" />
+          <Skeleton className="hidden h-3 w-16 shrink-0 md:block" />
+        </div>
+      ))}
+    </div>
   )
 }
