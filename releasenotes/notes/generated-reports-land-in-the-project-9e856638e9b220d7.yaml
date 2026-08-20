@@ -1,0 +1,29 @@
+---
+features:
+  - >
+    A finished Recherchebericht now lands in your project instead of only in
+    the chat. You will find it under „Berichte", where you can open it, preview
+    it, download it and delete it like any other file — and share it with the
+    people on the project without copying anything out.
+  - >
+    Every file Piloti writes says so. In the app it carries the line „Von Piloti
+    erstellt", and the Word export opens with „KI-generiert — nicht geprüft", so
+    a document that leaves your hands still says what it is.
+  - >
+    A report arrives „Unvergeben" — it belongs to nobody until somebody takes it
+    on. Assigning it to yourself is the moment it becomes your work, and the
+    same sweep you already use before an Einreichung will find any report nobody
+    has claimed.
+issues:
+  - >
+    Piloti does not read its own reports back. They are deliberately kept out of
+    the knowledge base, so an answer can never cite something Piloti wrote as if
+    it were a document you supplied. If you want a report's content to inform
+    later answers, upload it yourself once you have checked it.
+upgrade:
+  - >
+    Reports from runs finished before this change stay where they were, in their
+    conversation. Nothing was filed retroactively.
+  - >
+    Only runs you start yourself file a report at the moment. Scheduled runs
+    still deliver into their conversation and will follow later.
