@@ -313,6 +313,13 @@ export const chat = {
       // inputs: the card did the arithmetic, so what they audit is the inputs.
       computedNote: 'The result is computed by this card from the figures above, not copied from the answer.',
     },
+    // The one card whose picture the renderer did not compute — the model wrote
+    // the mermaid. The rest of its words are shared with the mermaid FENCE
+    // (`diagrams.schematicOnly`, `diagrams.fallback`): the same claim about the
+    // same picture, said once.
+    diagram: {
+      eyebrow: 'Diagram',
+    },
     processMap: {
       eyebrow: 'Procedure',
       current: 'you are here',

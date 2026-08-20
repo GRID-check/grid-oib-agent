@@ -11,7 +11,6 @@ from aiq_agent.cards.catalog import _CARD_HONESTY
 from aiq_agent.cards.catalog import _CARD_RESTRAINT
 from aiq_agent.cards.catalog import _CARD_TRIGGER_TABLE
 from aiq_agent.cards.catalog import _MODEL_PICKER_NOTE
-from aiq_agent.cards.catalog import CONSENT_CARD_TYPES
 from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.catalog import _interactive_note
@@ -149,22 +148,26 @@ class TestToolDescription:
         # the answer becomes a pile of consent prompts.
         desc = _build_tool_description()
         assert "Cards that ask the user to CONFIRM something" in desc
-        for card_type in CONSENT_CARD_TYPES - SYSTEM_CARD_TYPES:
+        for card_type in INTERACTIVE_CARD_TYPES - SYSTEM_CARD_TYPES:
             assert f'"{card_type}"' in desc
         assert "At most one per turn" in desc
 
     def test_a_diagram_is_not_advertised_as_a_consent_prompt(self):
-        """`diagram` is interactive for the FRONTEND and not for the model.
+        """A drawing puts no question to anybody, and must not be framed as one.
 
-        It is in ``INTERACTIVE_CARD_TYPES`` because filing writes two document
-        rows and that outcome has to persist on the message. It is deliberately
-        NOT in the block that tells the model a card "asks the user to authorize
-        a real, persisted change" and must never be emitted speculatively: a
-        drawing puts no question to anybody, and that sentence would suppress the
-        card on exactly the answers it exists for.
+        Telling the model that a `diagram` "asks the user to authorize a real,
+        persisted change" and must never be emitted speculatively would suppress
+        the card on exactly the answers it exists for: the cost of a drawing is
+        screen space, not consent.
+
+        This asserted the same thing about a `CONSENT_CARD_TYPES` that no longer
+        exists. The card ships PRESENTATIONAL — it renders a Verfahren and
+        commits nothing, and filing one into the project stays on the mermaid
+        fence — so "must the frontend persist an answer?" and "does emitting it
+        ask something of the reader?" name one set again, and the guard is that
+        `diagram` is in neither.
         """
-        assert "diagram" in INTERACTIVE_CARD_TYPES
-        assert "diagram" not in CONSENT_CARD_TYPES
+        assert "diagram" not in INTERACTIVE_CARD_TYPES
         consent_block = _build_tool_description().split("Cards that ask the user to CONFIRM something")[1]
         assert '"diagram"' not in consent_block.split("\n\n")[0]
 

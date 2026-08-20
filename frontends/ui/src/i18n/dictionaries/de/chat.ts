@@ -301,6 +301,12 @@ export const chat: typeof en.chat = {
       // gerechnet hat die Karte, zu prüfen sind die Werte.
       computedNote: 'Das Ergebnis wird von dieser Karte aus den obigen Werten berechnet, nicht aus der Antwort übernommen.',
     },
+    // „Diagramm" und nicht „Grafik": das Wort steht über einer Zeichnung, die
+    // ausdrücklich nichts misst. Die übrigen Worte teilt die Karte mit dem
+    // Mermaid-Block im Fließtext (`diagrams.schematicOnly`, `diagrams.fallback`).
+    diagram: {
+      eyebrow: 'Diagramm',
+    },
     processMap: {
       eyebrow: 'Verfahrensablauf',
       current: 'hier stehen Sie',

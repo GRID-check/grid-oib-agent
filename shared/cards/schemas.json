@@ -1323,7 +1323,7 @@
           "type": "string"
         },
         "title": {
-          "description": "Heading above the drawing, e.g. 'Ablauf einer Bauanzeige \u2013 Wien'. It also becomes the NAME OF THE FILE if the reader files the diagram into the project, so write it as a document title rather than as a sentence",
+          "description": "Heading above the drawing, e.g. 'Ablauf einer Bauanzeige \u2013 Wien'. It is read on its own, above the picture, so write it as a document title rather than as a sentence",
           "minLength": 1,
           "title": "Title",
           "type": "string"

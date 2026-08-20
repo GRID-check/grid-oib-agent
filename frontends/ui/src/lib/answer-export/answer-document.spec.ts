@@ -29,6 +29,7 @@ import { de, en } from '@/i18n/dictionaries'
 import type { DocBlock } from './blocks'
 import { buildAnswerDocument, type AnswerDocumentInput } from './answer-document'
 import { CARD_EXPORT, isCheck, SKIPPED_FIELDS } from './cards'
+import { diagramLabel } from './markdown'
 import { gridCardSchema } from '@/shared/cards/schemas'
 import { previewFixtureFor } from '@/features/grid-cards/preview-fixtures'
 
@@ -586,6 +587,62 @@ describe('cards', () => {
  * their items table headed „Anforderungen“, tell a Behörde that the office
  * submitted open questions as requirements.
  */
+describe('the drawing this export cannot draw', () => {
+  const diagram = {
+    type: 'diagram',
+    title: 'Baubewilligungsverfahren – wer wem was übergibt',
+    diagram_type: 'sequence',
+    source: 'sequenceDiagram\n  BW->>BB: Einreichunterlagen',
+    caption: 'Die Fristen zeigt die Grafik nicht.',
+    reference: { document: 'Wiener Bauordnung', section: '§§ 60 ff.' },
+  }
+
+  it('reads exactly like the same drawing written as a fence', () => {
+    // A reader holding only the .docx must not get two different objects
+    // depending on whether the model reached for a card or for a ```mermaid
+    // fence. The label is `markdownToBlocks`' own (commit f21dcb5c), imported
+    // rather than restated, so the two cannot drift into two wordings.
+    const fromCard = text(buildAnswerDocument(input({ answer: '', cards: [diagram] }), german, 'de'))
+    const fromFence = text(
+      buildAnswerDocument(
+        input({ answer: '```mermaid\nsequenceDiagram\n  BW->>BB: Einreichunterlagen\n```' }),
+        german,
+        'de'
+      )
+    )
+
+    expect(fromCard).toContain(diagramLabel('mermaid'))
+    expect(fromFence).toContain(diagramLabel('mermaid'))
+    // And the source itself is KEPT: whoever holds only this file is exactly
+    // the person who might need to regenerate the drawing.
+    expect(fromCard).toContain('BW->>BB: Einreichunterlagen')
+  })
+
+  it('carries the words around the drawing that the picture cannot', () => {
+    // The title heads it, the caption says what the drawing leaves out, and the
+    // Fundstelle is what makes it a Verfahren from somewhere rather than from
+    // nowhere. `diagram_type` is deliberately absent: the source declares its
+    // own grammar on line one, and „Diagrammtyp: Sequence“ is noise beside it.
+    const output = text(buildAnswerDocument(input({ answer: '', cards: [diagram] }), german, 'de'))
+
+    expect(output).toContain(diagram.title)
+    expect(output).toContain('Die Fristen zeigt die Grafik nicht.')
+    expect(output).toContain('Wiener Bauordnung, §§ 60 ff.')
+    expect(output).not.toContain('sequence"')
+  })
+
+  it('puts the label BEFORE the source', () => {
+    // A caption that arrives after the thing it explains is a caption the
+    // reader has already misread — the same order `markdown.spec.ts` pins for
+    // the fence.
+    const output = text(buildAnswerDocument(input({ answer: '', cards: [diagram] }), german, 'de'))
+
+    expect(output.indexOf(diagramLabel('mermaid'))).toBeLessThan(
+      output.indexOf('BW->>BB: Einreichunterlagen')
+    )
+  })
+})
+
 describe('cards that are the app talking, not the answer', () => {
   const followUps = {
     type: 'follow_ups',

@@ -43,7 +43,7 @@ answer it has just written.
 | `document_checklist` | „Welche Unterlagen brauche ich" — each entry a STATE (`required` / `conditional` with its condition, and whether the reader already holds it), not a name in a list | `title`, `items[]` (`label`, `requirement`, `condition`, `issuer`, `status`, `note`, `reference`), `reference` |
 | `deadline_timeline` | Several Fristen in sequence, each with the event that starts its clock and what happens when it runs out. Carries the Bestimmung's own wording („binnen vier Wochen"), never a calendar date | `title`, `deadlines[]` (`label`, `period`, `starts_from`, `actor`, `consequence`, `reference`) |
 | `change_impact` | „Was passiert, wenn X sich ändert" — one moving fact, its two values, and what each consequence COSTS, each marked as tightening or relaxing | `title`, `factor`, `from_value`, `to_value`, `consequences[]`, `reference`, `note` |
-| `diagram` **(interactive)** | A relationship prose cannot hold — a Verfahren that forks and rejoins, several Stellen exchanging in order, a Nachweis others depend on — drawn as mermaid and filed into the project as SVG + PDF. Never anything measured; see [The `diagram` card](#the-diagram-card-the-one-drawing-whose-renderer-cannot-check-it) | `title`, `diagram_type` (`flowchart` / `sequence` / `state` / `pie`), `source`, `caption`, `reference` |
+| `diagram` | A relationship prose cannot hold — a Verfahren that forks and rejoins, several Stellen exchanging in order, a Nachweis others depend on — drawn as mermaid. Never anything measured, and the card renders rather than files; see [The `diagram` card](#the-diagram-card-the-one-drawing-whose-renderer-cannot-check-it) | `title`, `diagram_type` (`flowchart` / `sequence` / `state` / `pie`), `source`, `caption`, `reference` |
 
 **Schematic cards** — fifteen programmatically-drawn technical diagrams (SVG kit
 in `features/grid-cards/schematics/`, Rough.js sketch stroke). The model emits
@@ -182,15 +182,27 @@ refuses a `journey` by name, which would otherwise pass every other check and
 then be refused in the reader's browser, because mermaid emits `<foreignObject>`
 for it whatever `htmlLabels` says and the SVG allow-list refuses that element.
 
-**Why it is interactive.** Filing writes two `documents` rows (SVG + PDF) through
-`POST /api/projects/{id}/diagrams`. The write is idempotent — the run id is the
-answer id plus a hash of the source — so ADR-0030's third and worst consequence,
-the duplicate row, is already closed. The first two are not: a reloaded thread
-brings the card back pixel-perfect with a live „Im Projekt ablegen", the reader
-cannot tell what they already filed, and the id of the filed document — the
-answer's one pointer into the Files pane — died with the component state that
-held it. ADR-0030's own test is "a decision the user would be annoyed to make
-twice", not "a write that duplicates".
+**Why it is presentational, and where filing lives.** The card renders the
+drawing and commits nothing. It was designed with an „Im Projekt ablegen" button
+of its own, which would have made it interactive — and that button is not in v1,
+for a reason that is worth keeping rather than re-litigating. A decision stored
+on a message is a `CardDecision` plus a timestamp and **nothing else**
+(`CardInteraction`), and the thing worth remembering about a filed diagram is the
+ID of the document it became — the answer's one pointer into the Files pane.
+Storing `filed` would record that filing happened and lose where it went,
+permanently, because the card would then stop offering the button that returns
+the id. Filing is idempotent (the run id is the answer id plus a hash of the
+source), so *not* persisting leaves a reader who reloads with a live button that
+hands the link back — a recoverable loss where the other is not, and ADR-0030's
+own test is "a decision the user would be annoyed to make twice".
+
+So filing stays where it already works: on the **fence**. `MermaidDiagram`
+offers „Im Projekt ablegen" wherever a surface supplies a `DiagramFilingTarget`
+(`AgentResponse` supplies one for any answer inside a project), and the route,
+the SVG validator, the PDF conversion and migration 0065 are all reached from
+there. The day `CardInteraction` can carry a payload, the card can have the
+button and `CARD_INTERACTIVITY` flips to `'interactive'` — that entry in
+`card-decision.ts` carries this same note.
 
 **The markdown fence stays.** A ```` ```mermaid ```` fence in an answer is still
 drawn (`MarkdownRenderer` → `MermaidDiagram`) and is the fallback for everything
@@ -604,20 +616,22 @@ answer's card array on its own.
 > which writes something.**
 
 Most cards are pure presentation: same payload in, same pixels out, nothing to
-remember. **Three are not.** `project_profile_patch` and `memory_proposal` ask
-the user to authorize a write (`propose, never auto-apply` —
+remember. **Two are not.** `project_profile_patch` and `memory_proposal` ask the
+user to authorize a write (`propose, never auto-apply` —
 `project-memory-design.md` §11.7), which makes the user's click the only place
-that outcome exists. `diagram` files its drawing into the project as two
-`documents` rows, which makes the click the only place the filed document's id
-exists.
+that outcome exists.
 
-Those are two different reasons and the catalog now names them separately.
-`INTERACTIVE_CARD_TYPES` answers "must the frontend persist an answer on this
-card?"; `CONSENT_CARD_TYPES` (both patch cards, not `diagram`) answers "does
-emitting it cost the reader a decision?", and it is the one the MODEL is told
-about. A drawing puts no question to anybody — telling the model a `diagram`
-"asks the user to authorize a real, persisted change" and must never be emitted
-speculatively would suppress the card on exactly the answers it exists for.
+`diagram` was briefly a third and is deliberately not one — see
+[the card's own section](#the-diagram-card-the-one-drawing-whose-renderer-cannot-check-it)
+for why the drawing ships without a filing button and what would have to change
+first. A `CONSENT_CARD_TYPES` was split out of `INTERACTIVE_CARD_TYPES` at the
+same time, to keep the model from being told a drawing "asks the user to
+authorize a real, persisted change" — true then, and it would have suppressed the
+card on exactly the answers it exists for. It left with the button: "must the
+frontend persist an answer?" and "does emitting it cost the reader a decision?"
+only ever named different sets while `diagram` sat between them, and two
+constants equal by construction are two things to keep in sync, of which one
+stops being maintained.
 
 If that click lives in component-local `useState`, it dies on reload — and
 because the card *payload* persists perfectly, the card comes back looking

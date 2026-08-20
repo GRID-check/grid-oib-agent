@@ -398,7 +398,10 @@ export const SCREENSHOT_TARGETS = [
     path: '/dev/cards',
     description:
       'Full Grid card gallery — every card type with fixture data, pinned to German so a translated string cannot render in English beside the cards whose copy is hardcoded. Captured on a phone as well, because the schematics are drawn geometry rather than styled boxes: a drawing that outgrows the card is clipped at its edge with the dimension number on the wrong side of the cut, and only the mobile shot shows it.',
-    waitFor: 'main',
+    // `main` alone photographed the `diagram` card as a skeleton: it is the one
+    // card in the gallery whose picture is laid out by a dynamically imported
+    // mermaid rather than drawn synchronously from its own payload.
+    waitFor: 'main:not(:has([data-state="drawing"]))',
   },
   {
     id: 'card-reveals',
@@ -407,6 +410,19 @@ export const SCREENSHOT_TARGETS = [
     description:
       "The cards whose value is behind a click, driven into that state before the shot. The Rechenweg with its sources open (provenance tag, ± band and where each figure is written down, plus the line saying the card computed the result rather than copying it); the same card on a derivation whose exact result would ROUND onto the other side of its limit, which is the shot that proves the printed number and the printed verdict cannot disagree; and the Verfahrensablauf with a step opened AGAINST the one the project is at — dashed chrome, the correcting sentence inside the panel, while the current row keeps its node and its \u201Ehier stehen Sie\u201C chip. Then the three later cards in the state that carries their point: a conditional Einreichunterlage opened onto the case that makes it necessary, under a tally the card counted from its own rows (including the three documents nobody has asked about); a Frist opened onto what happens when it lapses, over a footer saying the rail is not to scale and no date is computed; and a change-impact card with NO known starting point, which says so in the header and again where the before/after pair would sit. None of it is visible in the gallery, which photographs every one of them folded.",
     waitFor: '[data-testid="card-reveals-preview"]',
+  },
+  {
+    id: 'diagram-card',
+    mobile: true,
+    path: '/dev/diagram-card',
+    description:
+      "The `diagram` card in the two states a shot can pin. Drawn: three Stellen handing an Akt to each other — the GRAPH shape neither the process map's rail nor the condition tree's fan can hold — on a light plate in both themes, because it is a preview of a document that is filed, converted to PDF and attached on white. Under it the caption, then „Schematisch — ohne Maßangabe.\u201C, the same sentence a mermaid fence prints, because the model's text IS the geometry here and nothing can catch it disagreeing with itself. Then the state the card meets most: the model wrote an unclosed bracket, so there is no picture — the source in a code block and one quiet line, never a red box, with the title, the caption and the Fundstelle still standing, because a Verfahren without its Fundstelle is a Verfahren from nowhere. The third state, the skeleton held while mermaid lays the graph out, ends when the dynamic import resolves and is pinned in DiagramCard.spec.tsx instead.",
+    // Not the preview root: mermaid is dynamically imported (~214 KB gz on the
+    // first diagram of a session) and in `next dev` that took ~2–4 s here, so
+    // waiting on the container photographed two skeletons. This waits until NO
+    // card on the page is still in `drawing` — the one selector that is true
+    // only once both the drawn and the failed panel have settled.
+    waitFor: '[data-testid="diagram-card-preview"]:not(:has([data-state="drawing"]))',
   },
   {
     id: 'condition-tree',

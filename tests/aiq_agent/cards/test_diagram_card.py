@@ -13,7 +13,6 @@ import pytest
 from pydantic import ValidationError
 
 from aiq_agent.cards.catalog import CARD_EXAMPLES
-from aiq_agent.cards.catalog import CONSENT_CARD_TYPES
 from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
 from aiq_agent.cards.catalog import model_facing_card_types
 from aiq_agent.cards.catalog import render_card_details
@@ -140,13 +139,22 @@ class TestTheCatalogTeachesTheBoundary:
     def test_it_is_advertised_to_the_model(self):
         assert "diagram" in model_facing_card_types()
 
-    def test_it_is_interactive_for_the_frontend_but_asks_the_reader_nothing(self):
-        """Filing writes two document rows, so the decision persists (ADR-0030).
+    def test_it_is_presentational_and_this_half_must_match_the_frontend(self):
+        """The card renders a drawing and commits nothing (ADR-0030).
 
-        It is not a CONSENT card: the body is a drawing and the filing button is
-        an affordance beside it. Telling the model it "asks the user to authorize
-        a real, persisted change" would suppress the card on the answers it is
-        for.
+        It arrived here classified interactive, for an „Im Projekt ablegen"
+        button on the card that v1 does not ship. A decision on a card is a
+        `CardDecision` plus a timestamp and nothing else, so storing `filed`
+        would record that filing happened and lose WHERE it went — the id of the
+        filed document is the answer's one pointer into the Files pane. Filing
+        is idempotent (answer id + source hash), so leaving the decision
+        unpersisted leaves a reader who reloads with a live button that gives
+        the link back; the other way is a permanent loss. Filing therefore stays
+        on the mermaid FENCE, which already offers it wherever a surface
+        supplies a target.
+
+        This must agree with `CARD_INTERACTIVITY` in `card-decision.ts` —
+        `test_interactive_card_parity.py` is what holds the two together, and
+        this asserts the backend's own half so the reason survives with it.
         """
-        assert "diagram" in INTERACTIVE_CARD_TYPES
-        assert "diagram" not in CONSENT_CARD_TYPES
+        assert "diagram" not in INTERACTIVE_CARD_TYPES

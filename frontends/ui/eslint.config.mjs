@@ -50,6 +50,7 @@ const CARDS_ON_THE_TYPE_RAMP = [
   'src/features/grid-cards/components/SummaryCard.tsx',
   'src/features/grid-cards/components/CalloutCard.tsx',
   'src/features/grid-cards/components/ProposalShell.tsx',
+  'src/features/grid-cards/components/DiagramCard.tsx',
 ]
 
 /** @type {import('eslint').Linter.Config[]} */

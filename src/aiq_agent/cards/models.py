@@ -2023,9 +2023,8 @@ class DiagramCard(CardModel):
     title: str = Field(
         min_length=1,
         description=(
-            "Heading above the drawing, e.g. 'Ablauf einer Bauanzeige – Wien'. It also becomes the "
-            "NAME OF THE FILE if the reader files the diagram into the project, so write it as a "
-            "document title rather than as a sentence"
+            "Heading above the drawing, e.g. 'Ablauf einer Bauanzeige – Wien'. It is read on its "
+            "own, above the picture, so write it as a document title rather than as a sentence"
         ),
     )
     diagram_type: DiagramGrammar = Field(

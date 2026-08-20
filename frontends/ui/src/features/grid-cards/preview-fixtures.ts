@@ -423,6 +423,35 @@ const RAW_FIXTURES: CardInput[] = [
     ],
   },
   {
+    // `CARD_EXAMPLES['diagram']` in `src/aiq_agent/cards/catalog.py`, which is
+    // the shape the MODEL is shown — so the gallery photographs the card the
+    // agent was actually taught to emit rather than a prettier one.
+    //
+    // A `sequence` and not a flowchart on purpose: it is the grammar whose
+    // rendered SVG carries the most that must survive the pipeline (an actor
+    // icon library in the `<defs>`, dashed return arrows), so a gallery shot of
+    // it is the one that shows a mermaid upgrade breaking the drawing. Note
+    // what it does NOT carry — no Frist, no duration, no measurement — because
+    // this is the card for the drawings that make no dimensional claim.
+    type: 'diagram',
+    title: 'Baubewilligungsverfahren – wer wem was übergibt',
+    diagram_type: 'sequence',
+    source: [
+      'sequenceDiagram',
+      '  participant BW as Bauwerber',
+      '  participant BB as Baubehörde',
+      '  participant ASV as Amtssachverständige',
+      '  BW->>BB: Einreichunterlagen',
+      '  BB->>ASV: Befassung zur Begutachtung',
+      '  ASV-->>BB: Gutachten',
+      '  BB-->>BW: Verbesserungsauftrag',
+      '  BW->>BB: ergänzte Unterlagen',
+      '  BB-->>BW: Baubewilligungsbescheid',
+    ].join('\n'),
+    caption: 'Die Fristen zeigt die Grafik nicht — sie steht für die Reihenfolge der Übergaben.',
+    reference: { document: 'Wiener Bauordnung', section: '§§ 60 ff.' },
+  },
+  {
     type: 'project_profile_patch',
     title: 'Projektkontext aktualisieren: Fluchtniveau',
     rationale:

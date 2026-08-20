@@ -200,6 +200,13 @@ const isDiagramFence = (lang: string | undefined): boolean =>
   (DIAGRAM_SOURCE_KINDS as readonly string[]).includes(lang.trim().toLowerCase())
 
 /**
+ * The label a drawing this export cannot render carries instead of a picture.
+ *
+ * Exported because the `diagram` CARD prints the same thing
+ * (`CARD_EXPORT` in `./cards.ts`): a drawing in a fence and a drawing in a card
+ * are the same drawing to whoever holds the .docx, and two labels for it would
+ * tell that reader they are two different objects.
+ *
  * The label is not localized, and that is a deliberate limit rather than an
  * oversight: `markdownToBlocks` takes markdown and nothing else, and threading a
  * translator through the lexer to caption one rare block would put a locale
@@ -208,7 +215,7 @@ const isDiagramFence = (lang: string | undefined): boolean =>
  * currently zero — and if a third locale arrives, the fix is a labels argument
  * here, not a rewrite.
  */
-const diagramLabel = (lang: string | undefined): string =>
+export const diagramLabel = (lang: string | undefined): string =>
   `Diagramm (${(lang ?? '').trim().toLowerCase()}) — hier als Quelltext, im Original als Zeichnung.`
 
 /** Lex markdown into document blocks. Empty input yields no blocks, not an empty one. */

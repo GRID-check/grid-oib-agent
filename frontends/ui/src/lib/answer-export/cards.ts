@@ -69,6 +69,7 @@ import type { Translator } from '@/i18n/translate'
 import { answerExport as canonicalDictionary } from '@/i18n/dictionaries/en/answer-export'
 import type { GridCard } from '@/shared/cards/schemas'
 import { compact, type DocBlock, type DocRun } from './blocks'
+import { diagramLabel } from './markdown'
 
 /** A stored card: validated upstream, but read here as untrusted jsonb. */
 type CardRecord = Record<string, unknown>
@@ -133,10 +134,17 @@ const VOCABULARIES = new Map<string, Set<string>>(
  *     `ifc_schedule` with a `storey` set still has no areas in it, and guessing
  *     from the payload would start exporting these the day one of them grows a
  *     scalar field.
+ *   - `diagram` — a drawing this export cannot draw. Mermaid lays a graph out
+ *     against a DOM and this runs server-side, which is the same constraint
+ *     that put diagram rendering in the browser to begin with. Exported the way
+ *     a mermaid FENCE already is (`diagramLabel` in `./markdown.ts`): the
+ *     labelled source, so the reader holding only the file can tell a drawing
+ *     from prose and can regenerate it. Walking it instead would print the
+ *     mermaid under „Origin“ as if the answer had meant to state it.
  *   - `chrome` — the app addressing the reader, not the answer recording a
  *     finding. Emitted as nothing at all.
  */
-type ExportKind = 'content' | 'live' | 'chrome'
+type ExportKind = 'content' | 'live' | 'diagram' | 'chrome'
 
 /**
  * ⚠️ ADDING A CARD TYPE? YOU MUST CLASSIFY IT HERE. ⚠️
@@ -172,6 +180,12 @@ export const CARD_EXPORT: Record<GridCard['type'], ExportKind> = {
   // change to the brief that may never have been applied.
   memory_proposal: 'chrome',
   project_profile_patch: 'chrome',
+
+  // The drawing whose source the model wrote. Same treatment as a mermaid fence
+  // in the prose, deliberately: a reader must not get two different things for
+  // the same picture depending on whether the model reached for a card or a
+  // fence (`markdown.ts`, commit f21dcb5c).
+  diagram: 'diagram',
 
   // Read live from the project's model; exported as a title plus `liveCard`.
   ifc_viewer: 'live',
@@ -718,6 +732,29 @@ export function cardBlocks(value: unknown, t: Translator): DocBlock[] {
   if (kind === 'chrome') return []
 
   const heading: DocBlock = { kind: 'heading', level: 3, text: cardHeading(card, type, t) }
+
+  if (kind === 'diagram') {
+    const source = typeof card.source === 'string' ? card.source.trim() : ''
+    const caption = typeof card.caption === 'string' ? card.caption.trim() : ''
+    const reference = isReference(card.reference) ? referenceText(card.reference) : ''
+    return compact([
+      heading,
+      // BEFORE the source, not after: a caption that arrives after the thing it
+      // explains is a caption the reader has already misread.
+      { kind: 'paragraph', runs: [{ text: diagramLabel('mermaid'), italic: true }], style: 'meta' },
+      source ? { kind: 'paragraph', runs: [{ text: source, mono: true }] } : null,
+      caption ? { kind: 'paragraph', runs: [{ text: caption }] } : null,
+      // The Fundstelle, in the two-paragraph form the walker gives every other
+      // card's reference — a procedure differs by Bundesland, so a drawing of
+      // one without it is a procedure from nowhere.
+      ...(reference
+        ? [
+            { kind: 'paragraph' as const, runs: [{ text: fieldLabel('diagram.reference', 'reference', t, card), bold: true }] },
+            { kind: 'paragraph' as const, runs: [{ text: reference }], style: 'body' as const },
+          ]
+        : []),
+    ])
+  }
 
   if (kind === 'live') {
     const note = typeof card.note === 'string' ? card.note.trim() : ''

@@ -522,6 +522,19 @@ through `apiRoute` with `sessionOnly` and the factory's default mutation budget.
 `src/pages/` no longer exists, which is what stops the next handler from landing
 in the same blind spot.
 
+**The move also dropped a limit nobody had written down.** The Pages handler
+declared no `config`, so Next's `api.bodyParser.sizeLimit` default of 1mb
+bounded every request to it. App Router handlers inherit no such default —
+`serverActions.bodySizeLimit` governs Server Actions only — so after the move a
+`markdown: z.string().min(1)` stood alone in front of `renderToStream`, whose
+cost is superlinear in the input: measured here, 32 KiB renders in 2.9 s, 64 KiB
+in 10.9 s, 128 KiB in 61 s, and a 2 MB body had not finished after ten minutes,
+against a budget that admits 300 mutations per member per minute. Both bounds
+are now explicit in the route (1 MiB body, 64 KiB markdown), each with its
+measurement. The general lesson is the same one the authz hole taught, from the
+other side: **what a framework move deletes is not always a line — it can be a
+default**, and a default leaves no diff to review.
+
 ## Open questions
 
 1. ~~Which folder?~~ **Resolved:** a fixed `Berichte` folder, with finding

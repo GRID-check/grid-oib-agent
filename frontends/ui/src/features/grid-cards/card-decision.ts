@@ -72,6 +72,29 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   condition_tree: 'presentational',
   typed_table: 'presentational',
   norm_chain: 'presentational',
+  // The one drawing the renderer does not compute (`components/DiagramCard.tsx`).
+  // Presentational, and the decision is worth stating because the card ARRIVED
+  // classified `'interactive'`: it was designed with an „Im Projekt ablegen"
+  // button of its own, and that button is not in v1.
+  //
+  // It would not be enough to add it and flip this line. A decision here is a
+  // `CardDecision` plus a timestamp and NOTHING ELSE (see `CardInteraction`),
+  // and the thing worth persisting about a filed diagram is the id of the
+  // document it became — the answer's one pointer into the Files pane. Storing
+  // `filed` would record that it happened and lose where it went, permanently,
+  // because the card would then stop offering the button that returns the id.
+  // Filing keys on (answer, source hash, producer), so pressing it twice files
+  // nothing twice: not persisting leaves a reader who reloads with a live
+  // button that idempotently gives them the link back, which is a recoverable
+  // loss where the other is not. ADR-0030's own test is "a decision the user
+  // would be annoyed to make twice", and this write is not one.
+  //
+  // So filing stays where it already works — on the mermaid FENCE
+  // (`features/diagrams/components/mermaid-diagram.tsx`), whose affordance
+  // appears wherever a surface supplies a `DiagramFilingTarget`. The day
+  // `CardInteraction` can carry a payload, this card can have the button and
+  // this line becomes `'interactive'`.
+  diagram: 'presentational',
   // The two generic polish cards: expanding a takeaway or a callout's
   // background is view state for one reader, not a decision — nothing is
   // written and nothing would be annoying to redo.

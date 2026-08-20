@@ -70,29 +70,23 @@ SYSTEM_CARD_TYPES = frozenset({"memory_proposal", "document_grid", "follow_ups"}
 # (a memory write, a profile patch). If the action is idempotent and cheap,
 # prefer a presentational card — there is then nothing to remember.
 #
-# `diagram` is the member that had to argue its way in, because its write IS
-# idempotent: filing keys on (answer, source hash, producer), so pressing the
-# button twice files nothing twice. What the idempotency closes is only the
-# THIRD consequence ADR-0030 lists, the duplicate row. The first two stand — a
-# reloaded thread brings the card back pixel-perfect with a live „Im Projekt
-# ablegen", the reader cannot tell what they already filed, and the id of the
-# filed document (the answer's one pointer into the Files pane) is gone with the
-# component state that held it. The ADR's own test is "a decision the user would
-# be annoyed to make twice", not "a write that duplicates".
-INTERACTIVE_CARD_TYPES = frozenset({"project_profile_patch", "memory_proposal", "diagram"})
-
-# The interactive cards that put a QUESTION to the reader — the subset the MODEL
-# needs told about, and it is not the same set as the one above.
+# `diagram` was briefly a member and is deliberately not one. It was added for a
+# filing button beside the drawing („Im Projekt ablegen" → two `documents` rows),
+# and the release review cut that button from v1: the card SHOWS a drawing and
+# offers nothing, so there is no answer to persist. The route, the SVG validator,
+# the PDF conversion and migration 0065 stay in the tree unreached, and the day
+# the button comes back this set is the first thing that has to change — together
+# with `CARD_INTERACTIVITY` in `card-decision.ts`, which
+# `tests/aiq_agent/cards/test_interactive_card_parity.py` holds to this one.
 #
-# `INTERACTIVE_CARD_TYPES` answers "must the frontend persist an answer on this
-# card?". This one answers "does emitting it cost the reader a decision?", and
-# `diagram` separates them: its card body is a drawing and its filing button is
-# an affordance beside it, not a question put to anybody. Telling the model that
-# a diagram "asks the user to authorize a real, persisted change" and must never
-# be emitted speculatively would suppress exactly the card this catalog just
-# gained — the interactive note is emission economics, and a drawing costs
-# screen space, not consent.
-CONSENT_CARD_TYPES = frozenset({"project_profile_patch", "memory_proposal"})
+# There is no second set here (a `CONSENT_CARD_TYPES` briefly existed for the
+# same reason and left with the button). "Must the frontend persist an answer?"
+# and "does emitting it cost the reader a decision?" only ever named different
+# sets while `diagram` sat between them, and two constants that are equal by
+# construction are two things to keep in sync, of which one stops being
+# maintained. A card that is genuinely one and not the other is the reason to
+# split them again — and then the split has to be argued at that card.
+INTERACTIVE_CARD_TYPES = frozenset({"project_profile_patch", "memory_proposal"})
 
 # Card types whose fields must be COPIED from a tool result and cannot be
 # derived from prose: every one of them is addressed by IFC GlobalId, rule id
@@ -1080,7 +1074,7 @@ def _interactive_note() -> str:
     # speculatively, which turns the answer into a pile of consent prompts.
     # System cards are excluded here for the same reason they are excluded above
     # — the model must not learn they exist.
-    interactive = sorted(CONSENT_CARD_TYPES - SYSTEM_CARD_TYPES)
+    interactive = sorted(INTERACTIVE_CARD_TYPES - SYSTEM_CARD_TYPES)
     return (
         "\n\nCards that ask the user to CONFIRM something (" + ", ".join(f'"{t}"' for t in interactive) + "):\n"
         "  These are not presentation — they ask the user to authorize a real, persisted change, and\n"
