@@ -61,6 +61,14 @@
             {
               "en": "A note that research was cut off, or that an answer came out weaker than usual, now stays with the answer when you reopen the conversation later. Previously that caveat was visible only while the run was live, so a partial answer read as a complete one the next morning.",
               "de": "A note that research was cut off, or that an answer came out weaker than usual, now stays with the answer when you reopen the conversation later. Previously that caveat was visible only while the run was live, so a partial answer read as a complete one the next morning."
+            },
+            {
+              "en": "The file preview can be made much wider than before — the old ceiling was narrower than an A3 plan at a readable zoom — and the width you set is remembered, so the next file opens the way you left the last one. Drag the seam shut and the preview closes like the ✕ does, keeping the question in the composer.",
+              "de": "The file preview can be made much wider than before — the old ceiling was narrower than an A3 plan at a readable zoom — and the width you set is remembered, so the next file opens the way you left the last one. Drag the seam shut and the preview closes like the ✕ does, keeping the question in the composer."
+            },
+            {
+              "en": "The navigation rail can be resized. Drag its right edge to give the project navigation as much or as little room as you want, and the width you choose is the width it opens at next time. Dragging it all the way in still folds it to the icon column, and a click on the edge still folds and unfolds it. The edge always showed a resize cursor; now it does what the cursor said.",
+              "de": "The navigation rail can be resized. Drag its right edge to give the project navigation as much or as little room as you want, and the width you choose is the width it opens at next time. Dragging it all the way in still folds it to the icon column, and a click on the edge still folds and unfolds it. The edge always showed a resize cursor; now it does what the cursor said."
             }
           ]
         },
@@ -78,6 +86,10 @@
             {
               "en": "A source could be shown as cited before it had been checked, and stayed marked that way even when the check later removed it from the answer. The panel now reports only what survived verification.",
               "de": "A source could be shown as cited before it had been checked, and stayed marked that way even when the check later removed it from the answer. The panel now reports only what survived verification."
+            },
+            {
+              "en": "The file preview beside a chat could not really be resized. The seam moved about twenty pixels and then stopped, whichever way you pulled it, so the document stayed at the width it opened at. It now follows the pointer for the full width of the row.",
+              "de": "The file preview beside a chat could not really be resized. The seam moved about twenty pixels and then stopped, whichever way you pulled it, so the document stayed at the width it opened at. It now follows the pointer for the full width of the row."
             }
           ]
         }
