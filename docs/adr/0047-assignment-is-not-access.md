@@ -107,8 +107,81 @@ independent of access grants and of upload provenance.**
   that make a second type expensive are paid down in the same change (see
   the design spec) — they are not a reason to avoid the registry.
 
+## Addendum, 2026-08-20: a fourth relation, because the author is not a person
+
+Documents are now created by something that is not a human being. A commissioned
+deep-research run is rendered by the BFF and filed into the project as an
+ordinary `documents` row — `authored_by = 'agent'`, `authored_by_run_id` naming
+the run, `status = 'stored'`, and **zero assignees**. The design is
+[../superpowers/specs/2026-08-20-agent-authored-documents-design.md](../superpowers/specs/2026-08-20-agent-authored-documents-design.md).
+
+Four things this ADR has to say about it.
+
+**1. Provenance is now two questions, and neither is responsibility.** The
+"Decision" above names three relations. There are four:
+
+| Question | Column / table | Rule |
+|---|---|---|
+| Who caused these bytes to exist? | `documents.createdBy` | The commissioning **human**. Unchanged. The export and the audit both need a person to name. |
+| Whose hand wrote them? | `documents.authored_by` (+ `authored_by_run_id`) | `user` or `agent`. New. |
+| Who may open it? | visibility + `resource_shares` (ADR-0032) | Unchanged. |
+| Who is on the hook? | `resource_assignments` | Unchanged. **Empty on arrival.** |
+
+`createdBy` and `authored_by` are deliberately not collapsed: a report Piloti
+wrote for Anna is *caused by* Anna and *written by* a machine, and a schema that
+can only record one of those has to lie about the other.
+
+**Decision §1's rule extends to the new column without amendment: the UI must
+not render `authored_by` as „verantwortlich" either.** It is rendered as a quiet
+`Von Piloti erstellt` byline, never as a face, never in the assignment row, and
+never in a way that could be read as somebody having accepted the document. This
+is not a stylistic preference. A Ziviltechniker carries the liability for what
+leaves the office, and a machine cannot hold it — so „nobody yet" is the only
+honest state a generated report can arrive in, and `Unvergeben` (§3, cardinality
+0..n, *empty is valid*) is exactly the word for it. `Zuweisen` is the act that
+makes it somebody's, and no new gesture was invented for the purpose.
+
+**2. The risk this ADR called "UI collapse" now has a second face.** The original
+risk was a face on a card being read as access-ownership. The new one is a
+*byline* being read as responsibility — "Piloti wrote it, so Piloti is
+answerable for it", which is worse, because there is nobody there. The mitigation
+is the same shape as before and lives in the same place: the Files surfaces, the
+copy, and the visual evidence
+([../ux/visual-screenshots.md](../ux/visual-screenshots.md), targets
+`agent-authored` and `research-filing`).
+
+**3. The `document` purger is still unimplemented, and that limits which
+lifecycle promises hold for these rows.** `frontends/ui/purger/index.js`
+registers exactly one entity type — `project` — with `document`, `conversation`,
+`organization` and `user` marked "later phases". So:
+
+- **Immediate erasure works today.** `deleteDocument`
+  (`frontends/ui/src/lib/documents/service.ts`) purges collaboration rows,
+  assignments, chunks, the object, the thumbnail and the BIM siblings. An
+  agent-authored document is erasable on day one, and its zero assignments make
+  the assignment cascade trivially correct.
+- **The queued, graced, legal-hold path does not.** Everything ADR-0011's
+  deletion pipeline promises about a *scheduled* document purge — a grace
+  window, a hold that suspends it, a retryable worker — is unreachable for a
+  `document` row, because the queue would find no purger and fail the row
+  permanently. That is true of every document, not only generated ones; this
+  change neither causes it nor fixes it. It is written down here so the gap is
+  read rather than assumed away by the presence of a pipeline ADR.
+
+**4. ADR-0042's backup posture remains Proposed, and this change does not move
+it.** [ADR-0042](0042-object-storage-durability-and-quota.md) is still
+**Proposed** — the documents bucket's backup story is a deployment decision that
+has not been taken. A generated report is bytes in the *same* store, admitted
+through the *same* path (`admitOrDiscard`, one admitting path, so the quota
+ledger sees it), so it inherits that posture exactly: no better, no worse, and no
+second store was introduced that would have to be backed up separately. The
+honest statement is that an agent-authored document is as durable as every other
+document in the deployment, which is a sentence about ADR-0042 and not about this
+feature.
+
 ## References
 
 - ../superpowers/specs/2026-08-13-file-native-ownership-design.md
+- ../superpowers/specs/2026-08-20-agent-authored-documents-design.md
 - ../architecture/adding-a-shareable-resource-type.md
 - ../design/collaboration-sharing-and-inbox-spec.md §5, Phase 3

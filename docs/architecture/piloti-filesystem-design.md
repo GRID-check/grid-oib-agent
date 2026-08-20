@@ -4,12 +4,37 @@
 > write side as a substrate rather than a tool: one namespace, one write path,
 > one authorization decision, one lifecycle — mounted under every agent, not
 > only the deep researcher.
-> Status: **EXPLORATION.** Narrowed for build purposes by
-> [`docs/superpowers/specs/2026-08-20-agent-authored-documents-design.md`](../superpowers/specs/2026-08-20-agent-authored-documents-design.md),
-> which is the thing to build. What survived review: §2's threat analysis, the
-> work/estate line, and the invariants. What was cut: the node/version/blob
-> store, mounts as an implementation, saved selectors, the digest, and the
-> `/work` tier — see that spec's "What this is not".
+> Status: **EXPLORATION — superseded in scope, and the narrowed part is now
+> BUILT.** The build spec is
+> [`docs/superpowers/specs/2026-08-20-agent-authored-documents-design.md`](../superpowers/specs/2026-08-20-agent-authored-documents-design.md);
+> it shipped on branch `claude/piloti-filesystem-write-design-mftg4d`. What
+> survived review: §2's threat analysis, the work/estate line, and the
+> invariants. What was cut: the node/version/blob store, mounts as an
+> implementation, saved selectors, the digest, and the `/work` tier — see that
+> spec's "What this is not".
+>
+> **What actually got built is one thin slice of §0's sentence, and the rest of
+> this document is still unbuilt exploration.** Piloti still cannot write a file
+> — the *BFF* writes one, in the commissioning user's session, at the completion
+> of a deep-research run, into a fixed `Berichte` folder. There is no namespace,
+> no `fs_*` tool surface, no mount table, no versioning and no `run:/`. Read §5
+> and §11 as ideas, not as a plan of record; read the build spec for what the
+> code does.
+>
+> Three things in here are now decided differently by the code, and reading them
+> as open questions would be reading a document that has been overtaken:
+>
+> - **Promotion is not a new gesture.** §0.05 already corrected this; the built
+>   feature confirms it. A generated report is a document with zero assignees
+>   and `Zuweisen` is the promotion primitive. See
+>   [ADR-0047's 2026-08-20 addendum](../adr/0047-assignment-is-not-access.md).
+> - **Authorship is a column, and it is not responsibility.** `authored_by` /
+>   `authored_by_run_id` on `documents`, rendered as a quiet byline and never as
+>   a face.
+> - **Machine-authored documents are never ingested.** The safety invariant that
+>   the exploration argued for as a filter is enforced at the *dispatch site*
+>   instead: no ingest call is made, so no chunks exist and self-citation is
+>   unrepresentable rather than filtered.
 >
 > **This document contained four factual errors about the infrastructure.** They
 > are corrected in place and marked `[CORRECTED]` so the reasoning that depended

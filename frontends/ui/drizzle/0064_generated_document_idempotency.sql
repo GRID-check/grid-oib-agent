@@ -99,12 +99,14 @@
 -- ## Locks
 --
 -- Plain `CREATE UNIQUE INDEX` takes a SHARE lock, blocking writes to `documents`
--- for the build. The partial predicate means the index covers a handful of rows
--- and the build is a scan the planner satisfies from
--- `documents_agent_authored_idx`; CONCURRENTLY is deliberately not used because
--- it cannot run inside the transaction the migration runner wraps each file in,
--- and a failed concurrent build leaves an INVALID index behind that nothing here
--- would notice.
+-- for the build. The build still reads the whole table — a partial predicate
+-- decides what is STORED, not what is scanned — so on a large `documents` this
+-- is a table-length write pause, and it is accepted rather than engineered
+-- around: CONCURRENTLY cannot run inside the transaction the migration runner
+-- wraps each file in, and a failed concurrent build leaves an INVALID index
+-- behind that nothing here would notice. If a deployment is ever big enough for
+-- that pause to matter, the answer is a hand-run CONCURRENTLY build outside the
+-- runner, not a weaker index.
 --
 -- ## RLS
 --

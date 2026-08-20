@@ -6,6 +6,14 @@ features:
     it, download it and delete it like any other file — and share it with the
     people on the project without copying anything out.
   - >
+    You are told where the report will go before it is written, not after. While
+    a Tiefenrecherche is starting, the banner in the chat names the destination —
+    „Der fertige Bericht wird in diesem Projekt unter „Berichte" abgelegt." — so
+    the one moment you can still stop the run is also the moment you know what it
+    will leave behind. When it finishes, the banner names the file and offers
+    „Im Projekt öffnen" beside „Bericht anzeigen". If nothing could be filed, it
+    says nothing about a file rather than promising one.
+  - >
     Every file Piloti writes says so. In the app it carries the line „Von Piloti
     erstellt", and the Word export opens with „KI-generiert — nicht geprüft", so
     a document that leaves your hands still says what it is.

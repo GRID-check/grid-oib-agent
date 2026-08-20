@@ -27,7 +27,8 @@
  * with the run's file system and becomes a `documents` row the project can
  * find, assign, preview and delete (`fileReportIfCommissioned` below).
  *
- * @see docs/api.md - Deep Research API section
+ * @see docs/api/bff-routes.md - Deep Research / Async Jobs, incl. the additive
+ *      `filed` object this route adds to the report response
  */
 
 import { NextResponse } from 'next/server'

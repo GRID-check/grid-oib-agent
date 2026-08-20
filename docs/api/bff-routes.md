@@ -221,9 +221,50 @@ Source: `frontends/ui/src/app/api/v1/[...path]/route.ts`
 | `POST` | `/api/jobs/async/job/{job_id}/cancel` | Varies | Cancel a running job. Proxies to `POST /v1/jobs/async/job/{id}/cancel`. | — | `{ job_id, status, task_cancelled }` |
 | `DELETE` | `/api/jobs/async/job/{job_id}/cancel` | Varies | Same as POST cancel. | — | `{ job_id, status, task_cancelled }` |
 | `GET` | `/api/jobs/async/job/{job_id}/state` | Varies | Get job artifacts (tool calls, outputs, sources). Proxies to `GET /v1/jobs/async/job/{id}/state`. | — | `{ job_id, has_state, artifacts }` |
-| `GET` | `/api/jobs/async/job/{job_id}/report` | Varies | Get final report. Proxies to `GET /v1/jobs/async/job/{id}/report`. | — | `{ job_id, has_report, report }` |
+| `GET` | `/api/jobs/async/job/{job_id}/report` | Varies | Get final report. Proxies to `GET /v1/jobs/async/job/{id}/report`. **2026-08-20**: this is also where the BFF observes a commissioned run finishing and files the report into the project as a `documents` row (`fileResearchReport` → `fileGeneratedDocument`), which is why the response gained the additive `filed` object below. | `projectId` (query, optional) — the project to file into; without it nothing is filed | `{ job_id, has_report, report, filed? }` |
 
 SSE streams pass through the response body unmodified. The `?token=` query parameter provides an auth fallback for `EventSource` connections that cannot set custom headers (token is extracted and forwarded as `Authorization: Bearer`, not passed to the backend in the URL).
+
+### `filed` on the report response (additive, 2026-08-20)
+
+```jsonc
+{
+  "job_id": "…",
+  "has_report": true,
+  "report": "# Fluchtweglängen …",
+  "filed": {                       // present ONLY when a document now exists
+    "documentId": "…",             // the `/files?doc=` deep-link target
+    "filename": "fluchtweglaengen-gk4-2026-08-20.docx",
+    "alreadyFiled": false          // false on the fetch that created the row
+  }
+}
+```
+
+**Additive, and absence is a normal answer.** Every field the response already
+had is untouched, so a client that has never heard of filing keeps working. A
+client that has must treat a missing `filed` as "no document exists" rather than
+as "not yet" — the filing is skipped or refused whenever:
+
+- the request carried no `projectId` (a chat outside a project, or a client that
+  does not send it), or there is no session — which is also the scheduled-run
+  guard, since a cron run has no live principal whose permission could authorize
+  a write (design decision 10);
+- the caller lacks `project:documents:write` (ADR-0038 §3 — a capability an
+  organization can withhold);
+- storage admission refused the bytes (`admitOrDiscard`, quota) or the audit
+  write failed, in which case the document is un-filed again, row and object
+  both.
+
+None of these fail the request: the user waited minutes for the report and gets
+it regardless. The failure is logged server-side and reported as the *absence*
+of `filed`. `alreadyFiled` distinguishes the fetch that created the row from the
+re-reads that follow — a report is fetched again every time its tab is opened,
+and filing is idempotent per run.
+
+The document is written with `authored_by = 'agent'`, `status = 'stored'` and
+**zero assignees**, and is **never ingested** — see
+[../superpowers/specs/2026-08-20-agent-authored-documents-design.md](../superpowers/specs/2026-08-20-agent-authored-documents-design.md)
+and [../user-guides/agent-authored-reports.md](../user-guides/agent-authored-reports.md).
 
 Source: `frontends/ui/src/app/api/jobs/async/[...path]/route.ts`
 
