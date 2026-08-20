@@ -65,13 +65,12 @@ export interface FileResearchReportInput {
    * Optional, and `unknown[]` rather than a card type, for two separate
    * reasons. It is UNKNOWN because these are jsonb that crossed a process
    * boundary and `@/lib/pdf/legal-basis` is the module that narrows them. It is
-   * OPTIONAL because the backend's `JobReportResponse`
-   * (`frontends/aiq_api/src/aiq_api/routes/jobs.py`) returns `job_id`,
-   * `has_report` and `report` and nothing else — the runner persists
-   * `output["cards"]` alongside the report (`jobs/runner.py`), but no field
-   * exposes them, so today's only caller has none to pass. A section that
-   * cannot be built prints nothing at all rather than an empty heading, which
-   * is why this can ship ahead of the field that fills it.
+   * OPTIONAL because a run need not have produced any — `JobReportResponse`
+   * (`frontends/aiq_api/src/aiq_api/routes/jobs.py`) now returns `cards`
+   * alongside the report, but returns it null when the run generated none, and
+   * a scheduled or replayed run may pass none at all. A section that cannot be
+   * built prints nothing rather than an empty heading, so absent is a
+   * first-class value here, not a gap waiting to be filled.
    */
   cards?: unknown[]
   request?: Request

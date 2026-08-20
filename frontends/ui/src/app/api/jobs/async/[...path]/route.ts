@@ -156,6 +156,25 @@ function readReportMarkdown(data: unknown): string | null {
 }
 
 /**
+ * The run's cards off the same body, for the filed PDF's „Rechtsgrundlagen".
+ *
+ * Only shape is checked, not card identity: the backend already validated these
+ * at generation (`aiq_agent.cards.validate_cards`) and `legalBasisSection`
+ * narrows them again at render, so a third opinion here could only reject a
+ * card both of those accept. What it does do is refuse a non-array, so a
+ * malformed body cannot reach `fileResearchReport` as something to iterate.
+ *
+ * Absent rather than empty when there is nothing: the section prints no heading
+ * at all for an absent value, which is the state a report with no legal basis
+ * should reach.
+ */
+function readReportCards(data: unknown): unknown[] | undefined {
+  if (typeof data !== 'object' || data === null) return undefined
+  const { cards } = data as { cards?: unknown }
+  return Array.isArray(cards) && cards.length > 0 ? cards : undefined
+}
+
+/**
  * File a finished run's report into the project, if this is one.
  *
  * ## Why the failure is swallowed
@@ -202,6 +221,7 @@ async function fileReportIfCommissioned(
       projectId,
       runId,
       report,
+      cards: readReportCards(data),
       request: req,
     })
     return { documentId: filed.documentId, filename: filed.filename, alreadyFiled: filed.alreadyFiled }

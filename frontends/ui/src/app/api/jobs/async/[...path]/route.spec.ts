@@ -491,6 +491,45 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
     })
   })
 
+  it('passes the run’s cards through, so the filed PDF can render Rechtsgrundlagen', async () => {
+    const cards = [{ type: 'legal_basis', title: 'OIB-Richtlinie 2', lane: 'oib' }]
+    fetchSpy.mockResolvedValue(reportResponse({ ...REPORT_BODY, cards }))
+
+    await GET(
+      getRequest('https://grid.example/api/jobs/async/job/job-1/report?projectId=proj-1'),
+      streamParams(['job', 'job-1', 'report'])
+    )
+
+    expect(fileResearchReport).toHaveBeenCalledWith(expect.objectContaining({ cards }))
+  })
+
+  it('passes no cards rather than an empty list when the run produced none', async () => {
+    // `legalBasisSection` prints no heading for an absent value; an empty array
+    // would be a promise of a section that then has nothing under it.
+    fetchSpy.mockResolvedValue(reportResponse({ ...REPORT_BODY, cards: [] }))
+
+    await GET(
+      getRequest('https://grid.example/api/jobs/async/job/job-1/report?projectId=proj-1'),
+      streamParams(['job', 'job-1', 'report'])
+    )
+
+    expect(vi.mocked(fileResearchReport).mock.calls[0][0].cards).toBeUndefined()
+  })
+
+  it('files the report anyway when `cards` is malformed', async () => {
+    // The user waited minutes for the report. A display enhancement arriving in
+    // a shape nobody expects may cost its own section, never the filing.
+    fetchSpy.mockResolvedValue(reportResponse({ ...REPORT_BODY, cards: 'nonsense' }))
+
+    const res = await GET(
+      getRequest('https://grid.example/api/jobs/async/job/job-1/report?projectId=proj-1'),
+      streamParams(['job', 'job-1', 'report'])
+    )
+
+    expect(res.status).toBe(200)
+    expect(fileResearchReport).toHaveBeenCalledWith(expect.objectContaining({ cards: undefined }))
+  })
+
   it('still returns the report when filing fails — the answer is not the filing’s to lose', async () => {
     vi.mocked(fileResearchReport).mockRejectedValue(new Error('quota exceeded'))
 
