@@ -378,6 +378,54 @@ describe('FilePreviewHost', () => {
     })
   })
 
+  describe('no gesture on this surface is one-way', () => {
+    const renderSplit = () =>
+      render(
+        <FilePreviewBridge>
+          <div>chat transcript</div>
+        </FilePreviewBridge>,
+      )
+
+    beforeEach(() => {
+      nav.pathname = '/app/projects/p1/chat'
+      useFilePreviewStore.getState().open(FILE, 'peek', { projectId: 'p1' })
+    })
+
+    it('leaves a way back at the edge the document went out through', async () => {
+      const { rerender } = renderSplit()
+      expect(screen.queryByTestId('file-peek-restore')).not.toBeInTheDocument()
+
+      // However it was dismissed — ✕, Escape, or the seam dragged shut — the
+      // reader looks for the pane where they last saw it.
+      useFilePreviewStore.getState().hide()
+      rerender(
+        <FilePreviewBridge>
+          <div>chat transcript</div>
+        </FilePreviewBridge>,
+      )
+      const restore = screen.getByTestId('file-peek-restore')
+      expect(restore).toBeInTheDocument()
+
+      await act(async () => {
+        fireEvent.click(restore)
+      })
+
+      expect(useFilePreviewStore.getState().hidden).toBe(false)
+      expect(screen.getByRole('complementary')).toBeInTheDocument()
+      expect(screen.queryByTestId('file-peek-restore')).not.toBeInTheDocument()
+    })
+
+    it('does not leave one where the pane could not have been anyway', () => {
+      // Nothing was dismissed on Files — the pane is parked because the reader
+      // walked away from the conversation, and a tab there would offer to undo
+      // something nobody did.
+      nav.pathname = '/app/projects/p1/files'
+      renderSplit()
+
+      expect(screen.queryByTestId('file-peek-restore')).not.toBeInTheDocument()
+    })
+  })
+
   describe('useFilePeekBesideChat — the one answer to "is the file on screen?"', () => {
     const Probe = (): JSX.Element => (
       <span data-testid="beside">{String(useFilePeekBesideChat())}</span>

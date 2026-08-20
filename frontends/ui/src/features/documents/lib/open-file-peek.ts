@@ -9,6 +9,7 @@
  * See `file-preview-store` hide/close and `messages-store` setComposerSubject.
  */
 
+import { toast } from 'sonner'
 import { useChatStore } from '@/features/chat/store'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import type { FileItem } from '../components/project-file-workspace'
@@ -74,6 +75,45 @@ export function openFilePeek(options: OpenFilePeekOptions): void {
     title: documentDisplayName(options.file),
     filename: options.file.filename,
     ...(shelf ? { shelf } : {}),
+  })
+}
+
+/**
+ * Stop asking about the open file — and hand back the way to undo it.
+ *
+ * The ✕ on the composer's "Asking about …" bar is the only control in this
+ * flow that ENDS things rather than putting them away: it drops the retrieval
+ * subject and closes the viewer together, and the way back used to be
+ * remembering which document it had been and finding it again in Dateien.
+ * Everything it destroys is in memory at the moment it is pressed, so the undo
+ * is a snapshot and two setters.
+ *
+ * It lives here because this module already owns the other half of the
+ * relationship — `openFilePeek` is what BINDS a subject to a peek, and the
+ * rule that close (not hide) clears it is stated at the top of this file.
+ */
+export function dropFileSubject(labels: { cleared: string; undo: string }): void {
+  const preview = useFilePreviewStore.getState()
+  const previous = {
+    file: preview.file,
+    mode: preview.mode,
+    context: preview.context,
+    subject: useChatStore.getState().composerSubject,
+  }
+
+  useChatStore.getState().setComposerSubject(null)
+  preview.close()
+
+  toast(labels.cleared, {
+    action: {
+      label: labels.undo,
+      onClick: () => {
+        if (previous.file) {
+          useFilePreviewStore.getState().open(previous.file, previous.mode, previous.context)
+        }
+        if (previous.subject) useChatStore.getState().setComposerSubject(previous.subject)
+      },
+    },
   })
 }
 

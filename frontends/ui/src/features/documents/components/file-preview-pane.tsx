@@ -480,7 +480,18 @@ export function FilePreviewPane({
           className={cn(
             'flex min-w-0 justify-center overflow-hidden bg-gradient-to-b from-muted/25 to-muted/60',
             peeking
-              ? 'h-full min-h-0 flex-1 p-3'
+              // THE GROUND IS THE DOCUMENT'S, and the document sits centred on
+              // it. A drawing fitted to the width of a 320px pane is a quarter
+              // of its height and the well cannot make it bigger — width is the
+              // binding constraint, so the leftover vertical space exists
+              // whatever this element does. Top-aligned, the document read as
+              // having fallen to the top of a box. Handing the slack to the
+              // summary below was worse: that block's content is four lines
+              // whatever the pane's height, so the emptiness simply moved under
+              // it and changed colour. Centred on its own ground, with the
+              // summary as a footer band beneath, is the composition that reads
+              // as deliberate at every height.
+              ? 'h-full min-h-0 flex-1 items-center p-3'
               : 'h-[50dvh] min-h-[50dvh] shrink-0 p-5 @2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:p-7',
           )}
         >
@@ -499,7 +510,11 @@ export function FilePreviewPane({
                 src={previewUrl}
                 className={cn(
                   'h-full w-full rounded-lg border bg-background',
-                  peeking ? 'shadow-xs' : 'shadow-lg',
+                  // `shadow-sm` is the CARD step of the elevation ramp; `xs`
+                  // dresses chips and buttons, and under a document it did not
+                  // read as a page on a ground at all. `lg` is the modal step,
+                  // which is what the enlarged view is.
+                  peeking ? 'shadow-sm' : 'shadow-lg',
                 )}
                 title={actions.name}
               />
@@ -535,7 +550,10 @@ export function FilePreviewPane({
                   setPreviewImageUrl(null)
                   setPreviewFailed(true)
                 }}
-                className="h-fit w-auto max-h-full max-w-full rounded-lg border bg-background object-contain shadow-lg @2xl:max-h-none"
+                className={cn(
+                  'h-fit w-auto max-h-full max-w-full rounded-lg border bg-background object-contain @2xl:max-h-none',
+                  peeking ? 'shadow-sm' : 'shadow-lg',
+                )}
               />
             )
           ) : (
@@ -547,11 +565,58 @@ export function FilePreviewPane({
                     <RotateCcw className="size-3.5" aria-hidden />
                     {t('preview.tryAgain')}
                   </Button>
-                ) : undefined
+                ) : (
+                  // "No inline preview for this file type" used to end there:
+                  // a sentence about a document, in the middle of the surface
+                  // that exists to show it, with nothing to do next. The
+                  // sentence already names the way out ("download it to view
+                  // the full document") — so the way out is here, rather than
+                  // an icon the reader has to go and find in the chrome.
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => void actions.download()}
+                    disabled={actions.isDownloading}
+                  >
+                    <Download className="size-3.5" aria-hidden />
+                    {t('preview.download')}
+                  </Button>
+                )
               }
             />
           )}
         </div>
+
+        {/* WHAT PILOTI MADE OF IT, in the peek.
+            The peek dropped the whole rail — properties, tags, the lot — which
+            is right: a 320px column beside a conversation is not where a
+            reader edits metadata. But it dropped the SUMMARY with it, and the
+            summary is the one line of that rail this surface is actually about:
+            the peek exists because this document is what the next question is
+            about, so "does Piloti understand it, and as what" is the question
+            the reader has, and the answer was two clicks away in the enlarged
+            view.
+            It also lands where there was nothing. A portrait plan fitted to a
+            320px pane is half its height, so the well below the drawing was
+            several hundred pixels of empty ground — the reader's eye had
+            nowhere to go and nothing to do. Capped and scrollable so a
+            twelve-line ingestion summary cannot take the document's place, and
+            absent entirely when there is no summary yet. */}
+        {peeking && file.summary && (
+          <section
+            aria-label={t('preview.indexed.title')}
+            className="border-base bg-surface-sunken scroll-fade-bottom max-h-[38%] shrink-0 overflow-y-auto overscroll-contain border-t px-3 py-2.5"
+          >
+            <SectionLabel as="p" icon={Sparkles} className="font-semibold tracking-[0.05em]">
+              {t('preview.indexed.title')}
+            </SectionLabel>
+            <div className="mt-1.5">
+              <IndexedSummary key={file.id} summary={file.summary} />
+            </div>
+          </section>
+        )}
 
         {/* Right: indexed-metadata panel (files-metadata-panel flag, FB-8).
             The AI summary that grounds the agent's answers, the ingestion-detected

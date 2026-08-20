@@ -50,6 +50,8 @@
  *                  one surface whose entire reason is "this is what you are
  *                  asking about" — where a file the agent cannot cite yet used
  *                  to look exactly like one it can.
+ *   - `failed`   — indexing failed. The one state on this surface that does not
+ *                  resolve itself, so it is the one that carries a way out.
  *   - `wide`     — the peek at a width the reader dragged it to and the split
  *                  remembered. Until the seam was fixed this state was
  *                  unreachable: the drag fought back after ~20px and the old
@@ -67,20 +69,21 @@ import {
   FILE_PEEK_WIDTH_STORAGE_KEY,
   useFilePreviewStore,
 } from '@/features/documents/stores/file-preview-store'
+import { FLOOR_PLAN_DATA_URI } from '../../_fixtures/floor-plan'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
 
 const FILE: FileItem = {
   id: 'doc-brandschutz',
-  filename: 'Brandschutzplan_EG.pdf',
+  filename: 'Grundriss_EG_Baufeld_D12.svg',
   displayName: null,
   fileSize: 2_458_112,
-  contentType: 'application/pdf',
+  contentType: 'image/svg+xml',
   status: 'ready',
   folderId: null,
   createdAt: '2026-04-02T09:00:00.000Z',
   errorMessage: null,
   summary:
-    'Brandschutzkonzept Erdgeschoss, Fluchtwege und Feuerwiderstand der tragenden Wände.',
+    'Grundriss des Erdgeschosses, Baufeld D12, Maßstab 1:100. Zeigt vier Nutzungseinheiten (Foyer, Büro 01, Technik, Lager) mit Flächenangaben, die beiden voneinander unabhängigen Fluchtwege und die Feuerwiderstandsklasse REI 90 der tragenden Wände. Stand 04/2026.',
   pageCount: 12,
   chunkCount: 48,
   contentTypes: ['text', 'drawing'],
@@ -88,6 +91,33 @@ const FILE: FileItem = {
 }
 
 const CONTEXT = { projectId: 'proj-1', projectName: 'Seestadt Baufeld', scope: 'files' } as const
+
+/**
+ * The preview endpoint, answered locally.
+ *
+ * `/dev` has no backend, so `/api/documents/:id/preview` 403s and every shot of
+ * this route was taken against the pane's FAILURE state — a grey box where the
+ * drawing should be. The seams this route exists to review (the ground under
+ * the document, the card's shadow, what the well does as the pane is dragged
+ * from 280px to 960px) cannot be judged against an error message. Module scope
+ * for the same reason as the storage seeds below: the pane fetches in an effect
+ * that runs before this page's own would.
+ */
+if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+  const realFetch = window.fetch.bind(window)
+  window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    if (url.includes('/preview')) {
+      return Promise.resolve(
+        new Response(JSON.stringify({ url: FLOOR_PLAN_DATA_URI }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+    }
+    return realFetch(input as RequestInfo, init)
+  }) as typeof window.fetch
+}
 
 // Module scope, not an effect — `FilePreviewSplit` sizes its file panel in a
 // `useLayoutEffect` that runs BEFORE this page's own effects would, so a seed
@@ -110,7 +140,12 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   }
   if (seed !== 'arrive') {
     useFilePreviewStore.setState({
-      file: seed === 'indexing' ? { ...FILE, status: 'processing' } : FILE,
+      file:
+        seed === 'indexing'
+          ? { ...FILE, status: 'processing' }
+          : seed === 'failed'
+            ? { ...FILE, status: 'failed', errorMessage: 'Seite 3: Text-Layer konnte nicht gelesen werden.' }
+            : FILE,
       mode: 'peek',
       hidden: seed === 'hidden',
       context: CONTEXT,

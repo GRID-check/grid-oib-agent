@@ -136,7 +136,8 @@ export const files: typeof en.files = {
     dialogLabel: 'Dateivorschau: {name}',
     resizePeek: 'Breite der Dateivorschau ändern',
     peekIndexingHint: 'Piloti kann diese Datei erst nach der Indizierung zitieren.',
-    peekFailedHint: 'Piloti kann diese Datei nicht zitieren.',
+    peekFailedHint: 'Indizierung fehlgeschlagen — Piloti kann diese Datei nicht zitieren.',
+    peekFailedAction: 'Details',
   },
   browser: {
     folderEmptyTitle: 'Dieser Ordner ist leer',

@@ -74,6 +74,7 @@ import { ComposerSubjectBar } from '@/features/documents/components/composer-sub
 import type { ResolvedSubjectIdentity } from '@/features/documents/components/composer-subject-bar'
 import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 import { useFilePeekBesideChat } from '@/features/documents/components/file-preview-host'
+import { dropFileSubject } from '@/features/documents/lib/open-file-peek'
 import { AddresseeIndicator } from '@/features/collaboration/components/AddresseeIndicator'
 import {
   MentionPicker,
@@ -1301,10 +1302,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         <ComposerSubjectBar
           subject={composerSubject}
           projectId={projectId}
-          onClear={() => {
-            setComposerSubject(null)
-            useFilePreviewStore.getState().close()
-          }}
+          // NO ONE-WAY DOORS. Ending the subject also closes the viewer, so it
+          // is the one control here that cannot be walked back by pressing it
+          // again — `dropFileSubject` carries the undo with it.
+          onClear={() =>
+            dropFileSubject({
+              cleared: t('inputArea.subjectCleared'),
+              undo: t('inputArea.subjectClearedUndo'),
+            })
+          }
           onShowFile={
             !fileDockVisible && composerSubject
               ? () => {

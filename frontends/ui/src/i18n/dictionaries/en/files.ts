@@ -146,7 +146,9 @@ export const files = {
      * about to ask for will not use this file.
      */
     peekIndexingHint: 'Piloti cannot cite this file until it is indexed.',
-    peekFailedHint: 'Piloti cannot cite this file.',
+    peekFailedHint: 'Indexing failed — Piloti cannot cite this file.',
+    /** The way out of that: the enlarged view carries the error and the retry. */
+    peekFailedAction: 'Details',
   },
   browser: {
     folderEmptyTitle: 'This folder is empty',

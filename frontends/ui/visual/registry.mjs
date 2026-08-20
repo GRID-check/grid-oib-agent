@@ -900,6 +900,20 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-ask-split-preview"]',
   },
   {
+    id: 'file-ask-split-failed',
+    path: '/dev/file-ask-split/chat?variant=failed',
+    description:
+      "The peek on a document whose indexing failed — the one state here that will not resolve itself, and therefore the one that carries a way out rather than only the bad news. Destructive tint (the indexing strip stays on the quiet ground, since that one settles on its own), and a Details control that opens the enlarged view where the ingestion error and its retry live. Held as its own shot because 'we told you and left you there' is exactly the state a screenshot review would otherwise never see.",
+    waitFor: '[data-testid="file-ask-split-preview"]',
+  },
+  {
+    id: 'file-ask-split-dismissed',
+    path: '/dev/file-ask-split/chat?variant=hidden',
+    description:
+      'The peek put away — and the tab it left on the edge it went out through. Dragging the seam shut, Escape and the ✕ all land here, and until this shot existed the state had no picture at all: the chat simply reclaimed the row and the only way back was a control in the composer that belongs to the question rather than to the viewer. The tab reopens the document at the width the reader had chosen. It is the state that proves no gesture on this surface is one-way.',
+    waitFor: '[data-testid="file-ask-split-preview"]',
+  },
+  {
     id: 'projects-home',
     mobile: true,
     path: '/dev/projects-home',

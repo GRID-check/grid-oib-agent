@@ -231,21 +231,35 @@ arrow keys). Drag it all the way shut and the peek is dismissed exactly as the
 **×** dismisses it: the viewer goes away, the composer keeps *Asking about …*,
 and **Show file** brings it back.
 
-**Dismissing it, and getting it back.** The **×** and **Escape** (pressed with
+**Dismissing it, and getting it back.** The **×**, **Escape** (pressed with
 focus inside the pane — the peek sits beside the conversation rather than over
-it, so Escape typed in the composer is the composer's) both *hide* the file
-without ending the question: the composer keeps saying what you are asking
-about, and focus moves to the **Show file** control that undoes it, so the next
-Tab is not a walk from the top of the page. **Show file** works from wherever
-you are — with the research panel across that half of the row it steps aside
-first, since the request was to see the file.
+it, so Escape typed in the composer is the composer's) and dragging the seam
+shut all do the same thing: they *hide* the file without ending the question.
+The composer keeps saying what you are asking about, and focus moves to the
+**Show file** control that undoes it, so the next Tab is not a walk from the top
+of the page.
+
+Whichever way you put it away, a **tab stays on the edge it went out through** —
+click it and the document comes back at the width you had chosen. Nothing here
+is one-way: **Show file** in the composer does the same from the other side of
+the screen (and with the research panel across that half of the row, the panel
+steps aside, since the request was to see the file), and the **×** on the
+*Asking about …* bar — the one control that ends the question as well as the
+viewer — offers **Undo** in the confirmation that follows it.
+
+**What is in the peek.** The document, and under it what Piloti made of it —
+the indexed summary, clamped to a few lines with the rest one click away. That
+is the answer to "does Piloti understand this file, and as what", which is the
+question worth asking before you ask it anything else; it used to live only in
+the enlarged view. A document with no summary yet shows only itself.
 
 **When the file is not ready.** The peek exists because that document is what
 your next question is about, so it says when it cannot be one: a document still
 being indexed (or one whose indexing failed) carries a line under its name
 saying that Piloti cannot cite it. It clears itself the moment indexing
 finishes — the peek re-asks while the status can still change — so the strip is
-never stale.
+never stale. A failure will not clear itself, so that one carries **Details**,
+which opens the enlarged view where the ingestion error and its retry live.
 
 Clicking a source chip opens a preview of the source instead of doing nothing:
 

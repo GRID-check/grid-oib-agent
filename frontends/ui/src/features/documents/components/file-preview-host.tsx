@@ -11,16 +11,18 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
 import { usePanelRef } from 'react-resizable-panels'
-import { Download, Maximize2, X } from 'lucide-react'
+import { AlertCircle, Download, Maximize2, PanelRight, X } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import { cn } from '@/lib/utils'
+import { FOCUS_RING } from '@/components/ui/focus-ring'
+import { Spinner } from '@/components/ui/spinner'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { useLayoutStore } from '@/features/layout/store'
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { useDocumentActions, type DocumentScope } from './document-actions'
-import { DocumentStatusBadge, isCitableStatus, isFailedStatus } from './document-status'
+import { isCitableStatus, isFailedStatus } from './document-status'
 import { FilePreviewPane } from './file-preview-pane'
 import type { FileItem } from './project-file-workspace'
 import {
@@ -201,7 +203,14 @@ export function FilePreviewHost({
           'flex flex-col overflow-hidden outline-none',
           parked &&
             'invisible pointer-events-none fixed top-0 left-[-120vw] z-[-1] h-[80vh]',
-          peeking && 'group h-full min-h-0 min-w-0 border-l border-border bg-card',
+          peeking && 'group h-full min-h-0 min-w-0 bg-card',
+          // The seam is ONE hairline. This pane carried a `border-l` and the
+          // resize handle beside it is itself a 1px line in the same colour —
+          // so the join between the conversation and the document was drawn
+          // twice, 2px of chrome where every other divider in the app is 1.
+          // The handle wins: it is the one that can respond to a pointer. Off
+          // the split (no handle to lean on) the pane draws its own edge.
+          peeking && !inSplit && 'border-l border-border',
           // The pane's WIDTH is set in one pass by the panel around it — the
           // design language's binding constraint, and the reason nothing here
           // tweens a layout property. What arrives is the CONTENT: a fade and a
@@ -268,6 +277,34 @@ export function FilePreviewHost({
 }
 
 /**
+ * Where the file peek stands relative to the conversation.
+ *
+ * `beside`     — on screen, in the split.
+ * `dismissed`  — it WOULD be on screen; the reader put it away. Everything that
+ *                offers to bring it back keys off this, and something always
+ *                must: a dismissal that cannot be undone from where it happened
+ *                is a door that only opens one way.
+ * `away`       — no file, or the reader is somewhere the peek does not belong
+ *                (Files, a phone, the research panel across the same half of
+ *                the row, the enlarged view already covering the page).
+ */
+export type FilePeekPlacement = 'beside' | 'dismissed' | 'away'
+
+export function useFilePeekPlacement(): FilePeekPlacement {
+  const pathname = usePathname()
+  const isMobile = useIsMobile()
+  const researchOpen = useLayoutStore((state) => state.rightPanel === 'research')
+  const file = useFilePreviewStore((state) => state.file)
+  const mode = useFilePreviewStore((state) => state.mode)
+  const hidden = useFilePreviewStore((state) => state.hidden)
+
+  const roomForIt =
+    file !== null && mode === 'peek' && Boolean(pathname?.includes('/chat')) && !isMobile && !researchOpen
+  if (!roomForIt) return 'away'
+  return hidden ? 'dismissed' : 'beside'
+}
+
+/**
  * Whether the peek is ON SCREEN beside the conversation right now.
  *
  * Six conditions, and the point of exporting it is that they are six: a file
@@ -280,20 +317,7 @@ export function FilePreviewHost({
  * restored the file was the control being hidden.
  */
 export function useFilePeekBesideChat(): boolean {
-  const pathname = usePathname()
-  const isMobile = useIsMobile()
-  const researchOpen = useLayoutStore((state) => state.rightPanel === 'research')
-  const file = useFilePreviewStore((state) => state.file)
-  const mode = useFilePreviewStore((state) => state.mode)
-  const hidden = useFilePreviewStore((state) => state.hidden)
-  return (
-    file !== null &&
-    mode === 'peek' &&
-    !hidden &&
-    Boolean(pathname?.includes('/chat')) &&
-    !isMobile &&
-    !researchOpen
-  )
+  return useFilePeekPlacement() === 'beside'
 }
 
 /**
@@ -312,6 +336,8 @@ function FilePreviewSplit({
   const setPeekWidth = useFilePreviewStore((state) => state.setPeekWidth)
   const restorePeekWidth = useFilePreviewStore((state) => state.restorePeekWidth)
   const hide = useFilePreviewStore((state) => state.hide)
+  const peek = useFilePreviewStore((state) => state.peek)
+  const dismissed = useFilePeekPlacement() === 'dismissed'
   const filePanelRef = usePanelRef()
   const peekWidthRef = useRef(peekWidth)
   peekWidthRef.current = peekWidth
@@ -398,9 +424,43 @@ function FilePreviewSplit({
         id="grid-file-ask-chat"
         defaultSize="100"
         minSize="40"
-        className="min-h-0 min-w-0 overflow-hidden"
+        className="relative min-h-0 min-w-0 overflow-hidden"
       >
         {children}
+        {/* THE UNDO, AT THE EDGE THE DOCUMENT LEFT BY.
+            Dragging the seam shut, pressing Escape, clicking the ✕ — three
+            gestures, one result, and the only way back was a control in the
+            composer that belongs to the QUESTION rather than to the viewer. A
+            reader who has just pulled a pane off the screen looks for it where
+            they pulled it, so that is where it waits: a tab on the edge it went
+            out through, which opens it again at the width they had chosen.
+            It costs 20px of a row it only occupies while something is
+            recoverable, and it means no gesture on this surface is one-way. */}
+        {dismissed && (
+          <button
+            type="button"
+            data-testid="file-peek-restore"
+            onClick={peek}
+            aria-label={t('assignment.showFile')}
+            title={t('assignment.showFile')}
+            className={cn(
+              'group/restore bg-card text-muted-foreground hover:text-foreground hover:bg-accent border-base absolute top-1/2 right-0 z-20 flex h-16 w-6 -translate-y-1/2 items-center justify-center rounded-l-lg border border-r-0 shadow-sm',
+              'transition-colors duration-quick ease-out motion-reduce:transition-none',
+              'animate-in fade-in-0 slide-in-from-right-2 duration-base ease-entrance motion-reduce:animate-none',
+              FOCUS_RING,
+            )}
+          >
+            {/* `PanelRight`, not a bare chevron: the rail on the other side of
+                the app opens with `PanelLeft`, so a reader who has met one
+                already knows what this is. It leans out on approach — a tab you
+                pull, not a button you press; one pixel, and it is the whole
+                difference between "something is here" and "take hold of this". */}
+            <PanelRight
+              className="size-3.5 transition-transform duration-quick ease-out group-hover/restore:-translate-x-px motion-reduce:transition-none"
+              aria-hidden
+            />
+          </button>
+        )}
       </ResizablePanel>
       {split ? (
         <ResizableHandle
@@ -475,8 +535,21 @@ function dismissPeek(hide: () => void): void {
   })
 }
 
-const peekIconButtonClass =
-  'text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex size-7 shrink-0 items-center justify-center rounded-md opacity-70 transition-opacity duration-quick ease-out hover:bg-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 group-hover:opacity-100'
+/**
+ * The peek's own actions, built to the chat's proportions.
+ *
+ * `size-9` and `rounded-md` are the pill buttons' across the seam, so the two
+ * halves of the row are the same control size rather than 28px against 36px.
+ * The ring is the app's shared recipe (`FOCUS_RING`) instead of a third
+ * hand-rolled variant — `grid-design-language.md` allows exactly two, and a
+ * control that invents its own teaches the reader that the ring means nothing.
+ */
+const peekIconButtonClass = cn(
+  'text-muted-foreground hover:text-foreground hover:bg-accent flex size-9 shrink-0 items-center justify-center rounded-md',
+  'opacity-70 transition-[opacity,color,background-color] duration-quick ease-out motion-reduce:transition-none',
+  'focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100',
+  FOCUS_RING,
+)
 
 function PeekToolbar({
   file,
@@ -507,9 +580,12 @@ function PeekToolbar({
         session's title sit on one line across the seam instead of missing each
         other by fourteen pixels. `DockedPanel` matches the same band for the
         same reason. */}
-    <div className="mt-2.5 flex h-12 shrink-0 items-center gap-1 px-2.5">
+    <div className="mt-2.5 flex h-12 shrink-0 items-center gap-0.5 px-3">
       <p
-        className="text-foreground min-w-0 flex-1 truncate text-xs font-medium tracking-[-0.01em]"
+        // `text-sm`, like the session title in the pills across the seam. At
+        // `text-xs` the two names sat on one line in two different sizes, which
+        // reads as two unrelated surfaces that happen to be adjacent.
+        className="text-foreground min-w-0 flex-1 truncate px-1 text-sm font-medium tracking-[-0.01em]"
         // The pane is 280px at its narrowest and a plan's filename is not.
         title={name}
       >
@@ -523,7 +599,7 @@ function PeekToolbar({
         title={t('preview.download')}
         className={`${peekIconButtonClass} disabled:opacity-40`}
       >
-        <Download className="size-3.5" />
+        <Download className="size-4" />
       </button>
       <button
         type="button"
@@ -532,7 +608,7 @@ function PeekToolbar({
         title={t('assignment.expandFile')}
         className={peekIconButtonClass}
       >
-        <Maximize2 className="size-3.5" />
+        <Maximize2 className="size-4" />
       </button>
       <button
         type="button"
@@ -540,7 +616,7 @@ function PeekToolbar({
         aria-label={t('preview.closePreview')}
         className={peekIconButtonClass}
       >
-        <X className="size-3.5" />
+        <X className="size-4" />
       </button>
     </div>
     {/* A STRIP, not a chip beside the name.
@@ -560,18 +636,61 @@ function PeekToolbar({
     {unreadable && (
       <div
         role="status"
-        // `items-start`, not centre: the sentence wraps to two lines in the
-        // narrow pane, and a badge floating against the middle of a paragraph
-        // reads as unrelated to it. Aligned to the first line it reads as the
-        // sentence's subject, which is what it is.
-        className="border-base flex shrink-0 items-start gap-2 border-b px-2.5 pb-2 text-xs"
+        className={cn(
+          // `items-start`, not centre: the sentence wraps to two lines in the
+          // narrow pane, and a badge floating against the middle of a paragraph
+          // reads as unrelated to it. Aligned to the first line it reads as the
+          // sentence's subject, which is what it is.
+          'flex shrink-0 items-start gap-2 border-b px-3 pb-2.5 text-xs',
+          // TWO REGISTERS, because they are two different pieces of news.
+          // "Still being read" is the ordinary state of a document somebody
+          // just uploaded: it resolves itself, so it sits on the quiet ground
+          // and lets the badge carry the only colour. A failure will not
+          // resolve itself, so it takes the destructive tint and the reader's
+          // attention — the same register `project-danger-zone` uses.
+          isFailedStatus(file.status)
+            ? 'border-destructive/25 bg-destructive/[0.05]'
+            : 'border-base bg-surface-sunken',
+        )}
       >
-        <DocumentStatusBadge status={file.status} />
+        {/* ONE carrier of state per strip. A solid destructive badge on a
+            destructive ground said "failed" twice and shouted the second time,
+            next to the control the reader actually needs; and a badge plus a
+            sentence that already names the state is the same word rendered at
+            two weights. So the mark is a mark: a spinner while the document is
+            being read — which is the honest answer to "what do I do about
+            this", since the answer is "nothing, it is happening" — and an alert
+            glyph when it will not resolve on its own. */}
+        {isFailedStatus(file.status) ? (
+          <AlertCircle className="text-destructive mt-0.5 size-3.5 shrink-0" aria-hidden />
+        ) : (
+          <Spinner size="xs" aria-hidden className="text-muted-foreground mt-0.5 shrink-0" />
+        )}
         <p className="text-muted-foreground min-w-0 flex-1 text-pretty leading-snug">
           {isFailedStatus(file.status)
             ? t('preview.peekFailedHint')
             : t('preview.peekIndexingHint')}
         </p>
+        {/* NO DEAD ENDS. "Piloti cannot cite this file" was a statement with
+            nothing after it — the worst kind of message, because it tells the
+            reader the question they are about to ask is already compromised
+            and then leaves them holding it. The enlarged view is where this
+            document's own account of the failure lives: the ingestion error in
+            full, and the retry for whoever may run it. So the strip opens it.
+            The indexing case needs no control — it resolves itself, and the
+            poll above is what makes that visible. */}
+        {isFailedStatus(file.status) && (
+          <button
+            type="button"
+            onClick={onExpand}
+            className={cn(
+              'text-foreground hover:bg-accent shrink-0 rounded-md px-1.5 py-0.5 font-medium underline-offset-2 hover:underline',
+              FOCUS_RING,
+            )}
+          >
+            {t('preview.peekFailedAction')}
+          </button>
+        )}
       </div>
     )}
     </>
