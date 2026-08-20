@@ -60,13 +60,53 @@ function safeDecode(name: string): string {
  * exists and must not be treated as an orphan). Collections with no rows at all
  * — e.g. the separately-managed OIB base corpus, or a fully-purged project —
  * are absent by construction and are never touched by the sweep.
+ *
+ * ## A machine-authored row keeps its collection, but contributes no live name
+ *
+ * The two halves of that map answer two different questions, and an
+ * agent-authored row answers only one of them.
+ *
+ * It answers "is this collection still in use" — yes, the project exists, and a
+ * collection dropping out of the map is how the sweep stops touching a purged
+ * project. So the row keeps its collection scanned. Losing that would be a
+ * REGRESSION in cleanup: a project whose human uploads were all deleted but
+ * which still holds one of Piloti's reports would stop being swept entirely,
+ * and the orphaned chunks of those deleted uploads — the exact thing this
+ * module exists to recover — would survive forever.
+ *
+ * It does NOT answer "which filenames legitimately own chunks here". Nothing
+ * machine-authored is ever dispatched to `/v1/ingest` (see
+ * `lib/documents/service.ts`'s dispatch guard), so an agent row owns no chunks
+ * by construction, and a stored chunk carrying its filename is never explained
+ * by it. Letting it into the live set makes it a SHIELD: the orphaned chunks of
+ * a deleted document stay in retrieval because an unrelated row happens to
+ * share their name.
+ *
+ * That collision is reachable, not theoretical. `generatedFilename` builds
+ * `slug(title)-YYYY-MM-DD.ext` from a title the model itself wrote, so a report
+ * about a Sicherheitskonzept lands on the filename of the Sicherheitskonzept it
+ * was written from. The failure is quiet and it defeats deletion: somebody
+ * deletes a document, the chunk delete misses (the historical bug in the header
+ * comment), the recovery sweep is disarmed by a name collision, and the deleted
+ * document keeps answering questions. For a file removed on legal instruction
+ * that is the worst version of this bug.
+ *
+ * The rule is the one three other call sites now hold: filename is not an
+ * identity across authorship. Ask the row.
  */
 async function liveFilenamesByCollection(): Promise<Map<string, Set<string>>> {
   const db = getDb()
   const rows = (await withPlatformAccess(
     'vector reconciliation sweep: every collection in the deployment, across organizations',
-    () => db.select({ collectionName: documents.collectionName, filename: documents.filename }).from(documents),
-  )) as { collectionName: string; filename: string }[]
+    () =>
+      db
+        .select({
+          collectionName: documents.collectionName,
+          filename: documents.filename,
+          authoredBy: documents.authoredBy,
+        })
+        .from(documents),
+  )) as { collectionName: string; filename: string; authoredBy?: string }[]
 
   const byCollection = new Map<string, Set<string>>()
   for (const row of rows) {
@@ -75,7 +115,11 @@ async function liveFilenamesByCollection(): Promise<Map<string, Set<string>>> {
       names = new Set<string>()
       byCollection.set(row.collectionName, names)
     }
-    names.add(row.filename)
+    // `undefined` is admitted for the same reason the document search join
+    // admits it: it means the column was not selected, not that the row is
+    // machine-authored, and defaulting it OUT here would delete every chunk in
+    // the deployment.
+    if (row.authoredBy === undefined || row.authoredBy === 'user') names.add(row.filename)
   }
   return byCollection
 }
