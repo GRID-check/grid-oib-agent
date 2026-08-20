@@ -73,6 +73,12 @@ class AgentGroup(StrEnum):
     DEEP_RESEARCH = "deep_research"
     DEEP_RESEARCH_ROUTER = "deep_research_router"
     MEMORY_REFLECTION = "memory_reflection"
+    # The post-answer follow-up-questions stage. Its own group and not
+    # MEMORY_REFLECTION's, for two independent reasons: the two stages must have
+    # separate capability bits (unsetting reflection's model must not also
+    # silence follow-ups) and the `llms` map a stage runs on is keyed by group,
+    # so sharing a key would force them onto one model instance.
+    FOLLOW_UPS = "follow_ups"
     # Ingestion-plane VLM (image captioning + rendered-drawing description).
     # Re-points the vision model used during document ingestion. Unlike the
     # chat groups it is resolved by org id in a detached ingest thread (no

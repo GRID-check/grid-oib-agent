@@ -1,38 +1,37 @@
-"""Async post-answer memory reflection.
+"""The memory-reflection pass itself: prompt, sanitisation, and the writes.
 
 The in-turn ``remember`` tool captures findings while the agent is still
 answering, but a busy answer often ends before the agent pauses to consolidate
-what the exchange actually established. This module adds a **reflection stage**
-that runs in the *post-processing phase* — scheduled AFTER the user already has
-their answer, as a fire-and-forget background task, so it never adds latency to
-the reply.
+what the exchange actually established. This module reads the just-finished
+exchange and the project's EXISTING memory digest (the ``x-grid-project-memory``
+the BFF injects), asks a small LLM whether the turn established any NEW durable
+finding the in-turn tool missed, and writes each qualifying item through the same
+token-guarded internal endpoint the ``remember`` tool uses (``grid_app`` stays
+single-writer).
 
-The stage reads the just-finished exchange and the project's EXISTING memory
-digest (the ``x-grid-project-memory`` the BFF injects), asks a small LLM whether
-the turn established any NEW durable finding the in-turn tool missed, and writes
-each qualifying item through the same token-guarded internal endpoint the
-``remember`` tool uses (``grid_app`` stays single-writer).
+**Scheduling does not live here.** Reflection is a *post-answer stage*, and how a
+stage is gated, bounded, made concurrent and recorded is the primitive's job, not
+this module's — see ``aiq_agent/stages/memory_reflection.py`` for the
+declaration and ``aiq_agent/stages/runner.py`` for the timeout, the shared
+semaphore, the pending cap and the outcome span. This module is the body of the
+handler and nothing else.
 
-Design guarantees:
-- **Never blocks the answer.** Callers schedule via :func:`schedule_memory_reflection`
-  which returns immediately; the work runs on the event loop afterwards.
+Design guarantees kept here:
 - **Never crashes the turn.** Every failure path is caught and logged; the worst
   outcome is that no memory is recorded.
-- **Opt-in.** With no reflection LLM configured the scheduler is a no-op.
 - **Context-free execution.** All request-scoped values (ids, digest, text) are
-  captured by the caller and passed explicitly, so the task is safe to run after
-  the request context has been torn down.
+  passed in explicitly, so the pass is safe to run after the request context has
+  been torn down.
 
-See docs/architecture/project-memory-design.md.
+See docs/architecture/project-memory-design.md and
+docs/architecture/post-answer-stages.md.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
-import weakref
 from typing import Any
 from typing import Literal
 
@@ -298,12 +297,19 @@ async def run_memory_reflection(
     organization_id: str | None,
     conversation_id: str | None,
     memory_digest: str | None,
-) -> list[str]:
+) -> list[dict[str, str]]:
     """Run one reflection pass and record any qualifying findings.
 
-    Returns the ids of the memory items written (empty when nothing qualified or
-    on any recoverable failure). Intended to be awaited inside a guarded
-    background task; it never raises for expected failure modes.
+    Returns the memory items written — ``id``, ``kind`` and ``content`` each —
+    empty when nothing qualified or on any recoverable failure. Intended to be
+    awaited inside a guarded background task; it never raises for expected
+    failure modes.
+
+    The return carries what was WRITTEN and not merely how much, because the
+    post-answer stage wrapping this call puts it on the wire: the chip that
+    tells a reader "Piloti noted this" renders the item's own words, and a list
+    of ids would make the browser ask the database for text the writer already
+    had in hand (``docs/architecture/post-answer-stages.md`` §5.1).
     """
     from langchain_core.messages import HumanMessage
     from langchain_core.messages import SystemMessage
@@ -336,7 +342,7 @@ async def run_memory_reflection(
         logger.info("Memory reflection: no new durable findings for this turn")
         return []
 
-    recorded: list[str] = []
+    recorded: list[dict[str, str]] = []
     for item in items:
         scope = item["scope"]  # always "project" — org-wide writes are excluded (S1)
         try:
@@ -360,123 +366,10 @@ async def run_memory_reflection(
             logger.exception("Memory reflection: failed to record a %s finding", item["kind"])
             continue
         if item_id:
-            recorded.append(item_id)
+            recorded.append({"id": item_id, "kind": item["kind"], "content": item["content"]})
             if item.get("supersedes"):
                 logger.info("Memory reflection: recorded %s item %s as a correction", item["kind"], item_id)
 
     if recorded:
         logger.info("Memory reflection recorded %d new memory item(s)", len(recorded))
     return recorded
-
-
-# Strong references to in-flight tasks so the event loop's weak bookkeeping does
-# not garbage-collect a reflection mid-run.
-_background_tasks: set[asyncio.Task] = set()
-
-# Reflections share the event loop with live chat turns. Without a bound, a
-# burst of qualifying turns schedules an unbounded amount of background LLM
-# traffic that competes with in-flight answers. Reflections are a best-effort
-# safety net, so beyond the pending cap they are dropped, not queued.
-_MAX_CONCURRENT_REFLECTIONS = int(os.environ.get("MEMORY_REFLECTION_MAX_CONCURRENCY", "4"))
-_MAX_PENDING_REFLECTIONS = int(os.environ.get("MEMORY_REFLECTION_MAX_PENDING", "16"))
-
-# Semaphores are loop-bound; keyed weakly per loop (chat process and Dask
-# workers run separate loops).
-_reflection_semaphores: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore] = (
-    weakref.WeakKeyDictionary()
-)
-
-
-def _loop_semaphore(loop: asyncio.AbstractEventLoop) -> asyncio.Semaphore:
-    semaphore = _reflection_semaphores.get(loop)
-    if semaphore is None:
-        semaphore = asyncio.Semaphore(_MAX_CONCURRENT_REFLECTIONS)
-        _reflection_semaphores[loop] = semaphore
-    return semaphore
-
-
-def schedule_memory_reflection(
-    *,
-    llm: Any,
-    query: str,
-    answer: str,
-    project_id: str | None,
-    organization_id: str | None,
-    conversation_id: str | None,
-    memory_digest: str | None,
-) -> asyncio.Task | None:
-    """Schedule a reflection pass as a fire-and-forget background task.
-
-    Returns the created task, or ``None`` when reflection is skipped (no LLM, no
-    project in scope, empty turn, or no running loop). Never blocks; never raises.
-
-    Requires a ``project_id``: the autonomous stage writes project-scoped memory
-    only, so an org-only (project-less) conversation has nothing it may safely
-    write (audit finding S1). ``organization_id`` is still forwarded for the
-    row's tenant column but never widens the write scope.
-    """
-    if llm is None:
-        return None
-    if not project_id:
-        # The autonomous stage only writes project-scoped memory; nothing to do.
-        return None
-    if not (query and answer):
-        return None
-
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        logger.debug("Memory reflection skipped: no running event loop")
-        return None
-
-    if len(_background_tasks) >= _MAX_PENDING_REFLECTIONS:
-        logger.warning(
-            "Memory reflection skipped: %d reflections already pending (cap %d)",
-            len(_background_tasks),
-            _MAX_PENDING_REFLECTIONS,
-        )
-        return None
-
-    async def _guarded() -> None:
-        try:
-            # Own cost-tracking activation: the turn's tracker is flushed by
-            # the time this fires and the request headers are gone, so the
-            # identity captured at schedule time is passed explicitly. Empty
-            # budget snapshot: a background reflection is never hard-stopped.
-            from aiq_agent.common.cost_tracking import BudgetSnapshot
-            from aiq_agent.common.cost_tracking import track_llm_costs
-            from aiq_agent.common.profiler import track_agent_profile
-
-            async with _loop_semaphore(loop):
-                with (
-                    track_agent_profile(
-                        agent_name="project_memory_reflection",
-                        identity={"organization_id": organization_id, "conversation_id": conversation_id},
-                    ),
-                    track_llm_costs(
-                        identity={
-                            "organization_id": organization_id,
-                            "user_id": None,
-                            "project_id": project_id,
-                            "conversation_id": conversation_id,
-                        },
-                        budget=BudgetSnapshot(),
-                    ),
-                ):
-                    await run_memory_reflection(
-                        llm=llm,
-                        query=query,
-                        answer=answer,
-                        project_id=project_id,
-                        organization_id=organization_id,
-                        conversation_id=conversation_id,
-                        memory_digest=memory_digest,
-                    )
-        except Exception:
-            # A background reflection must never surface as a user-facing failure.
-            logger.exception("Memory reflection task failed (non-fatal)")
-
-    task = loop.create_task(_guarded())
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-    return task

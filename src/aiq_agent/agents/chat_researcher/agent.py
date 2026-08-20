@@ -47,6 +47,7 @@ except ImportError:
     _AuthError = None  # type: ignore[assignment,misc]
 
 from .models import ChatResearcherState
+from .models import DepthDecision
 from .models import ShallowResult
 from .utils import trim_message_history
 
@@ -390,18 +391,38 @@ class ChatResearcherAgent:
                 )
                 result = await self.clarifier_fn(clarifier_state)
 
-                # Check if plan was rejected
+                # A rejected plan is not a cancelled question. The question is
+                # right there in ``state.messages`` — the rejection reply went
+                # into the CLARIFIER's own state, never this graph's — and the
+                # shallow agent can answer it. Ending here told a user who had
+                # just said "no" twice to "start a new research query", i.e. to
+                # retype the question the product was already holding.
+                #
+                # So: fall through to shallow, and remember the rejection for
+                # the rest of the conversation (see
+                # ``ChatResearcherState.deep_research_declined``) so neither the
+                # classifier nor ``should_escalate`` offers another plan.
+                # ``depth_decision`` is rewritten to shallow with it, because
+                # the model's "deep" and its reasoning are what the user just
+                # refused — left standing they would put "deep" in the
+                # transparency panel of an answer shallow wrote.
                 if result.plan_rejected:
-                    logger.info("ChatResearcher: Plan rejected by user, ending workflow")
+                    logger.info("ChatResearcher: Plan rejected by user, answering on the shallow path instead")
+                    try:
+                        from aiq_agent.common.turn_status import emit_routing
+
+                        emit_routing(intent="research", depth="shallow", reason=None)
+                    except Exception:  # noqa: BLE001 — transparency must never take a turn down
+                        logger.debug("Fallback routing status not emitted", exc_info=True)
                     return Command(
-                        goto=END,
+                        goto="shallow_research",
                         update={
-                            "messages": [
-                                AIMessage(
-                                    content="Research plan was rejected. Please start a new research query when ready."
-                                )
-                            ],
                             "original_query": original_query,
+                            "deep_research_declined": True,
+                            "depth_decision": DepthDecision(decision="shallow", raw_reasoning=None),
+                            # A decline is not an escalation; never narrate one.
+                            "escalation_reason": None,
+                            "shallow_result": None,
                         },
                     )
 
@@ -741,12 +762,30 @@ class ChatResearcherAgent:
             # that lacks the `remember` tool and hallucinates a filesystem write.
             if state.user_intent and state.user_intent.intent == "meta":
                 return "shallow_research"
+            # The classifier already downgrades "deep" to "shallow" when the
+            # user has rejected a plan (so the live status line and the
+            # transparency panel agree with the agent that runs). This is the
+            # graph-level backstop for the paths that reach here with a
+            # depth_decision the classifier never wrote — a restored checkpoint,
+            # or a caller that seeds the state directly.
             if state.depth_decision and state.depth_decision.decision == "deep":
+                if state.deep_research_declined:
+                    logger.info("Deep route suppressed: the user rejected a research plan in this conversation")
+                    return "shallow_research"
                 return "clarifier"
             return "shallow_research"
 
         def should_escalate(state: ChatResearcherState) -> str:
             if not self.enable_escalation:
+                return "END"
+
+            # The user rejected a research plan in this conversation. Escalating
+            # would route straight back into the clarifier and put a THIRD plan
+            # in front of them — and on the rejection turn itself it would be a
+            # cycle: clarifier -> shallow -> clarifier. The answer shallow just
+            # wrote is the product's reply either way.
+            if state.deep_research_declined:
+                logger.info("Escalation suppressed: the user rejected a research plan in this conversation")
                 return "END"
 
             # Conversational (meta) turns are answered by the shallow agent but

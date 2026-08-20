@@ -567,6 +567,62 @@ class TestClarifierAgentApprovalParsing:
         assert rejected is False
         assert feedback == "Bitte einen Abschnitt zum Brandschutz ergänzen"
 
+    @pytest.mark.parametrize(
+        "response",
+        [
+            # The words from the live transcript, verbatim (typo included).
+            "no i dont want a deep research pla",
+            "no i dont want a deep research plan",
+            "I don't want a research plan",
+            "ich will keinen deep research plan",
+            "kein Plan bitte",
+            "i just want an answer",
+            "gib mir einfach eine Antwort",
+            "no thanks",
+            "nein danke",
+            "nope",
+        ],
+    )
+    def test_parse_approval_prose_refusal_is_a_rejection(self, agent, response):
+        """A refusal written as a sentence is a refusal, not plan feedback.
+
+        The exact-match sets test the WHOLE message (``normalized in
+        REJECTION_KEYWORDS``), so every one of these used to fall through to the
+        feedback branch — and the feedback branch REGENERATES THE PLAN. That is
+        why the live transcript's user, having said "no i dont want a deep
+        research pla", was shown a second plan instead of being let go.
+        """
+        approved, rejected, feedback = agent._parse_approval(response)
+        assert approved is False
+        assert rejected is True, f"{response!r} refuses the plan; treating it as feedback re-plans at the user"
+        assert feedback is None
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            # Opens with "no" but says what to do INSTEAD — a revision.
+            "no, focus only on Wien",
+            "make it about OIB 2 instead",
+            # Refuses a piece of the plan, not the plan.
+            "dont include costs in the plan",
+            "I don't want costs in there",
+            "Bitte einen Abschnitt zum Brandschutz ergänzen",
+            "shorter please",
+        ],
+    )
+    def test_parse_approval_revisions_are_not_refusals(self, agent, response):
+        """The widened refusal check must not swallow genuine plan feedback.
+
+        Plan revision is a real feature and these are revisions. The two shapes
+        that matter most are the near-misses: a message may OPEN with "no" and
+        still be a revision, and it may refuse something ("don't include costs")
+        without refusing the plan.
+        """
+        approved, rejected, feedback = agent._parse_approval(response)
+        assert approved is False
+        assert rejected is False, f"{response!r} is a plan revision; cancelling on it would discard the user's edit"
+        assert feedback == response
+
     def test_parse_approval_feedback(self, agent):
         """Test feedback response is captured."""
         approved, rejected, feedback = agent._parse_approval("Please add a section about security")

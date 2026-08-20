@@ -126,6 +126,45 @@ describe('LegalBasisCard primary source', () => {
   })
 })
 
+describe('LegalBasisCard text fields are plain text', () => {
+  // A production card put „[OIB-Richtlinie ansehen](https://www.oib.or.at/de/
+  // oib-richtlinien)“ on screen as literal brackets, beside this card's own
+  // working link to that same page. The markup is stripped on the way in, by
+  // `CardModel` in `src/aiq_agent/cards/models.py` — and it stays stripped
+  // THERE. These pin the half of that decision that lives here: the renderer
+  // must not acquire the ability to parse it. A card is what gets screenshotted
+  // into an Einreichung, and a renderer that quietly read markdown in a field
+  // nobody declared as markdown would be a way for the model to put an
+  // arbitrary link, or emphasis, into a legal citation.
+
+  it('sets a text field as text, never as markup', () => {
+    const summary = 'Siehe **§ 3** und [RIS](https://ris.bka.gv.at)'
+    const { container } = render(<LegalBasisCard {...card({ lane: 'baurecht_oib', summary })} />)
+
+    expect(screen.getByText(summary)).toBeInTheDocument()
+    expect(container.innerHTML).not.toContain('<strong>')
+    expect(container.innerHTML).not.toContain('<em>')
+  })
+
+  it('links only where the schema says a link goes', () => {
+    // Every anchor on this card is one the card BUILT from `law`/`lane`, so the
+    // set of links is decided by the schema and not by what a text field holds.
+    render(
+      <LegalBasisCard
+        {...card({
+          lane: 'baurecht_oib',
+          summary: '[anderswo](https://example.invalid/smuggled)',
+          original_text: '[auch hier](https://example.invalid/also)',
+        })}
+      />
+    )
+
+    const links = screen.getAllByRole('link')
+    expect(links).toHaveLength(1)
+    expect(links[0]).toHaveAttribute('href', 'https://www.oib.or.at/de/oib-richtlinien')
+  })
+})
+
 describe('the gallery pair', () => {
   it('ships a statute fixture whose lane and missing Ausgabe contrast with the OIB one', () => {
     // The map is keyed by card type and can hold one `legal_basis`; the pair is

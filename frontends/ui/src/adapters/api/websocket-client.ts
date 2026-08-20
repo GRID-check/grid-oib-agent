@@ -18,6 +18,7 @@ import {
   type NATHumanPrompt,
   type NATIntermediateStepContent,
   type NATErrorContent,
+  type NATStageMessage,
   NATIncomingMessageSchema,
   NATMessageType,
   NATSchemaType,
@@ -145,6 +146,20 @@ export interface NATWebSocketClientCallbacks {
   onIntermediateStep?: (content: NATIntermediateStepContent | string, status: string, parentId?: string) => void
   /** Called when a human prompt arrives (clarification, approval, etc.) */
   onHumanPrompt?: (promptId: string, parentId: string, prompt: NATHumanPrompt) => void
+  /**
+   * Called when a POST-ANSWER STAGE frame arrives for a turn
+   * (`docs/architecture/post-answer-stages.md` §4.3).
+   *
+   * Its own callback, and not a branch of `onResponse`, for one reason that is
+   * the whole justification of the frame type: a stage frame arrives by
+   * definition when the turn is no longer streaming, and the response path
+   * drops everything that arrives then.
+   *
+   * The frame handed over is envelope-valid — right version, known stage, known
+   * status, and a payload only where a payload is allowed. What the payload
+   * CONTAINS is the stage's own business and is validated downstream.
+   */
+  onStage?: (frame: NATStageMessage) => void
   /** Called when an error occurs */
   onError?: (error: NATErrorContent) => void
   /** Called when connection status changes */
@@ -675,6 +690,21 @@ export class NATWebSocketClient {
           break
         }
 
+        case NATMessageType.STAGE: {
+          // A payload may ride ONLY a `ready` frame (§4.1). A payload beside
+          // `empty`/`failed` means the two halves disagree about what happened,
+          // and rendering it would show a stage's output for a turn the stage
+          // declined — so the frame is dropped rather than half-believed. The
+          // union member cannot say this itself: a discriminated-union option
+          // may not carry a refinement.
+          if (message.status !== 'ready' && message.payload !== undefined) {
+            console.warn('[WS] Dropping stage frame: payload on a non-ready status', message.stage)
+            break
+          }
+          this.options.callbacks.onStage?.(message)
+          break
+        }
+
         case NATMessageType.SYSTEM_INTERMEDIATE: {
           this.options.callbacks.onIntermediateStep?.(message.content, message.status, message.parent_id)
           break
@@ -776,3 +806,6 @@ export const createNATWebSocketClient = (
 export { NATMessageType, NATSchemaType, HumanPromptType }
 export type { NATHumanPrompt, NATIntermediateStepContent, NATErrorContent }
 export type { ResponseTransparency as NATResponseTransparency }
+// Re-exported so a consumer of `onStage` types its handler from the same module
+// it registers the callback on.
+export type { NATStageMessage }

@@ -77,6 +77,7 @@ happens to work.
 | `docs/architecture/` | Architecture docs (see `backend-deep-dive.md`, `project-memory-design.md`, `citation-system-audit-2026-07.md` for the citation pipeline as built) |
 | `skills/` | API-consumer skill examples |
 | `scripts/` | Utility scripts, including `scripts/ingest_oib.py` |
+| `releasenotes/` | reno release notes — one YAML file per user-visible change, published to piloti.at/changelog |
 | `data/oib/` | OIB Richtlinien PDFs, tracked with Git LFS |
 
 ## Verification workflow
@@ -98,6 +99,7 @@ in the root `Taskfile.yml` and is run with [go-task](https://taskfile.dev)
 | Infra typecheck (Pulumi + policy pack) | `task infra:types` |
 | Web check (Astro typecheck + build) | `task web:verify` |
 | Repo lint (pre-commit, all files) | `task lint:repo` |
+| Release notes (house rules + `reno lint`) | `task release:lint` |
 | UI screenshot evidence | `task fe:screenshots [-- <id>]` → PNGs in `frontends/ui/visual/screenshots/` |
 | Tenant-isolation suite (throwaway Postgres, restricted role) | `task db:test:rls` |
 | WorkOS authz drift | `WORKOS_API_KEY=sk_… task fe:provision:authz` (read-only; `-- --apply` reconciles) |
@@ -137,6 +139,65 @@ component without that evidence — opt out non-visual components with a
 **`docs/ux/visual-screenshots.md`**.
 
 **Security & static analysis (free, runs entirely in CI).** `.github/workflows/security.yml` runs on push/PR + weekly: **Semgrep** (SAST for Python/TS/JS/Actions — replaces CodeQL and Sonar's security rules), **OSV-Scanner** (dependency CVEs from lockfiles — replaces Sonar SCA), **pip-audit + npm audit**, **gitleaks** (secret scan, full history), and **trivy** (`image-scan` job: blocks on **fixable** HIGH/CRITICAL findings — it runs with `--ignore-unfixed` — in the digest-pinned observability and Langfuse images from `deploy/pulumi/src/config.ts` — five of them as of ADR-0044, and the job asserts that exact count so a new pin fails CI until it is added to the scan list rather than going unscanned forever; the vulnerability DB is downloaded **once** into a shared cache and the five scans reuse it with `--skip-db-update`, because five fresh `docker run --rm` pulls of `trivy-db` from GCR 429 and fail the job with `failed=0`; findings inside those upstream images that no digest bump can clear go in `.trivyignore.yaml` as time-boxed exceptions with a justification and an `expired_at`, never by loosening the gate). No GitHub Advanced Security licence or SonarQube Cloud subscription needed. Semgrep and OSV-Scanner are currently non-blocking (Phase 1: findings in the job log while noise is tuned via `.semgrepignore` / `.gitleaks.toml`); drop their `continue-on-error` to make them required checks. **Dependabot** (`.github/dependabot.yml`) opens the dependency fix PRs. Code smells / maintainability are covered by the native linters and the coverage gate in `ci.yml` (ruff, eslint, `--cov-fail-under`); note this drops Sonar's **clean-as-you-code** gate, so the `PLR09xx` refactor rules ruff ignores (too-many-arguments/branches/statements) are no longer reported on new code.
+
+## Release notes are mandatory (obligation)
+
+**A change a customer can notice does not merge without a release note.** Not a
+commit message, not a PR description — a note file, in the same pull request,
+written for the person using Piloti.
+
+This is an obligation rather than a convention because the note is the only
+artifact of a change that a customer ever reads, and it is the first thing that
+gets dropped under time pressure. Retrofitting one a week later means writing it
+from a diff, by whoever is available, about a change nobody remembers — so it
+either does not happen or it reads like a commit log. The one moment the note is
+cheap and correct is while the change is still in your head.
+
+The mechanics are [reno](https://docs.openstack.org/reno/latest/), the same tool
+OpenStack uses: one YAML file per change under `releasenotes/notes/`, named by
+the tool so two branches never collide, and attributed to a release from **git
+history** rather than from what the file claims.
+
+```bash
+task release:note -- re-index-projects   # creates the note
+task release:lint                        # the check CI runs
+```
+
+```yaml
+---
+features:
+  - >
+    Projects can now be re-indexed from the settings page. Documents that failed
+    to process the first time are picked up without contacting support.
+```
+
+Three things follow from the note being **published, verbatim, to a public
+page** ([piloti.at/changelog](https://piloti.at/changelog), German and English):
+
+1. **It is customer copy, not developer copy.** Plain sentences about what the
+   reader can now do or what stopped going wrong for them. No issue numbers, no
+   file names, no component names, no reStructuredText, no backticks — the lint
+   rejects all of those, and it rejects "Improved performance." for saying
+   nothing.
+2. **It ships in English.** The German version is machine-translated once at
+   publish time and cached; write the English as though it were the only one.
+3. **Publishing is automatic.** On merge to `develop`,
+   `.github/workflows/release-notes.yml` regenerates
+   `frontends/web/src/data/changelog.json` and commits it, which rebuilds the web
+   image and puts the note on the site. Nobody publishes by hand, so nothing is
+   waiting on anybody. `frontends/web/src/data/changelog.json` is generated — on
+   a conflict, run `task release:changelog`, never hand-merge it.
+
+Enforcement is the **Release note** job in `ci.yml`: it lints every note on every
+PR, and it fails a PR that touches `src/aiq_agent/`, `sources/*/src/`,
+`frontends/aiq_api/src/`, `frontends/ui/src/` or `frontends/cli/src/` without
+adding one. Tests, specs, docs, infrastructure and the marketing site itself are
+exempt automatically. For the genuinely invisible change — an internal refactor,
+a build tweak — put the `no-release-note` label on the PR; that is the escape
+hatch, and using it is a claim that no user can observe the change.
+
+Full playbook, including the translation cache and the one-time repository
+setup: [`docs/contributing/release-notes.md`](docs/contributing/release-notes.md).
 
 ## Authorization (RBAC)
 

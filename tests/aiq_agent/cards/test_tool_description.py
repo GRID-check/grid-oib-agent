@@ -10,12 +10,12 @@ import pytest
 from aiq_agent.cards.catalog import _CARD_HONESTY
 from aiq_agent.cards.catalog import _CARD_RESTRAINT
 from aiq_agent.cards.catalog import _CARD_TRIGGER_TABLE
-from aiq_agent.cards.catalog import _FOLLOW_UPS_RULE
 from aiq_agent.cards.catalog import _MODEL_PICKER_NOTE
 from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.catalog import _interactive_note
 from aiq_agent.cards.catalog import model_facing_card_types
+from aiq_agent.cards.catalog import render_card_catalog
 from aiq_agent.cards.catalog import render_card_details
 from aiq_agent.cards.catalog import render_card_doctrine
 from aiq_agent.cards.catalog import render_card_index
@@ -126,6 +126,22 @@ class TestToolDescription:
         assert "DimensionCheck = {" not in desc
         assert "Worked examples" not in desc
 
+    def test_says_the_fields_are_plain_text_wherever_the_shapes_are_shown(self):
+        # A shipped `legal_basis` card wrote a markdown link into a text field
+        # and the card printed the brackets. `CardModel` strips them, so this
+        # rule is not what makes the card correct — it is what keeps the field
+        # holding what the model meant instead of the wreckage of a link.
+        #
+        # It rides with the SHAPES, not with the doctrine, for the same reason
+        # the measured-numbers rule does: the doctrine is paid on every turn
+        # whether or not a card is emitted, and a model that has just been handed
+        # the shapes is the one about to write these strings.
+        for shown in (render_card_details(["legal_basis"]), render_card_catalog()):
+            assert "Every text field is PLAIN TEXT" in shown
+            assert "no [text](url) links" in shown
+        assert "PLAIN TEXT" not in render_card_doctrine()
+        assert "PLAIN TEXT" not in render_card_index()
+
     def test_flags_cards_that_ask_the_user_to_confirm(self):
         # An interactive card costs the user a DECISION, not just screen space
         # (ADR-0030). Without saying so, the model emits them speculatively and
@@ -170,7 +186,17 @@ class TestTheDoctrineStaysCalibrated:
     #: Deliberately excludes the trigger rows and the card index: those are
     #: vocabulary, and counting them would swamp the prose that sets the
     #: disposition. Measured at 1.42 : 1 when written (invitation 167,
-    #: restraint 237).
+    #: restraint 237), and 1.48 : 1 after the naming clause and the
+    #: form-versus-facts discriminator went in together (invitation 198,
+    #: restraint 293) — both edges of the band untouched, because each half of
+    #: that pass pushes the opposite way.
+    #:
+    #: Retiring the ``follow_ups`` card took spans off BOTH sides at once —
+    #: ``_FOLLOW_UPS_RULE``'s "closes a subject-matter answer by default" was
+    #: invitation, its "Two narrow exceptions" was restraint, and the volume
+    #: rule's exemption went with them — landing at 1.44 : 1 (invitation 163,
+    #: restraint 234). That the band held through a removal this size is the
+    #: point of pinning a ratio rather than a token count.
     MIN_RESTRAINT_RATIO = 1.15
     MAX_RESTRAINT_RATIO = 1.75
 
@@ -183,15 +209,10 @@ class TestTheDoctrineStaysCalibrated:
         count = lambda text: len(encoding.encode(text))  # noqa: E731
 
         head = _CARD_TRIGGER_TABLE.split("The trigger, then the card:")[0]
-        follow_ups_default, follow_ups_exceptions = _FOLLOW_UPS_RULE.split("Two narrow exceptions:")
         picker_invitation = _MODEL_PICKER_NOTE.split("It renders")[0]
 
-        invitation = count(head) + count(follow_ups_default) + count(picker_invitation)
-        restraint = (
-            count("Two narrow exceptions:" + follow_ups_exceptions)
-            + count(_CARD_RESTRAINT)
-            + count(_interactive_note())
-        )
+        invitation = count(head) + count(picker_invitation)
+        restraint = count(_CARD_RESTRAINT) + count(_interactive_note())
         return invitation, restraint
 
     def test_the_doctrine_sits_inside_its_calibration_band(self):
@@ -223,6 +244,35 @@ class TestTheDoctrineStaysCalibrated:
         assert "Not emitting on a match is" not in doctrine
         assert "one failure mode" not in doctrine
 
+    def test_the_naming_clause_converts_recognition_into_emission(self):
+        # What commit a5488b1c took out and this puts back, minus the framing it
+        # was right to remove. The deleted sentence read "if you can NAME the
+        # card that fits, emit it: knowing which one fits and writing the answer
+        # as prose anyway is this tool's one failure mode" — a naming clause
+        # welded to an obligation, deleted whole. Every other line of the head
+        # is about RECOGNISING the card; both field transcripts show recognition
+        # working (asked again in plainer words, the model named the right card
+        # and built it well first try) and emission not following. That step is
+        # the only one the rest of the doctrine cannot reach.
+        doctrine = render_card_doctrine()
+        assert "Naming the card IS the decision" in doctrine
+        # Restored as a consequence, not a duty: the obligation half stays out,
+        # which the sibling test below re-asserts.
+        assert "not a second judgement" in doctrine
+
+    def test_the_restatement_veto_discriminates_form_from_facts(self):
+        # The veto is real and stays: a card that repeats the prose beside it
+        # cannot be made good, only bigger (anti-goal D.8). What it lacked was a
+        # SCOPE. "Says what the prose says" reads on any answer whose prose
+        # already enumerates its cases — which is both observed transcripts —
+        # and cuts exactly the card that helps most. A table of three Lagen with
+        # their Anforderung and Fundstelle is not three sentences said again.
+        assert "about FORM, not" in _CARD_RESTRAINT
+        assert "is not a restatement of three" in _CARD_RESTRAINT
+        assert "Shared facts alone never cut a card" in _CARD_RESTRAINT
+        # The veto itself is untouched: same words, same shape still loses.
+        assert "says in the same words" in _CARD_RESTRAINT
+
     def test_the_default_is_not_scoped_to_one_class_of_card(self):
         # The original defect, and the one thing the rewrite must not give back:
         # a default naming only measurements left `process_map` matching its
@@ -238,10 +288,16 @@ class TestTheDoctrineStaysCalibrated:
         # which is the difference between fixing a miss and raising the rate.
         index = render_card_index()
         assert '"process_map": Emit for' in index
-        assert '"follow_ups": Emit at the END' in index
         assert '"key_takeaways": Emit for' in index
         assert '"callout": Emit for' in index
         assert '"calculation": Emit for' in index
+        # Added with 0061: `typed_table` is where BOTH the doctrine's
+        # "rows that are all true at once" row and `condition_tree`'s own
+        # docstring redirect, and its L1 line was pure description — "A generic
+        # table whose columns declare their type so cells render right" — while
+        # every card around it said "Emit for". A redirect does not land if the
+        # destination never asks to be emitted.
+        assert '"typed_table": Emit for' in index
 
     def test_the_anti_fabrication_rule_stands_apart_and_outranks_the_triggers(self):
         # The one rule that must NOT be softened to get more cards. It was a
@@ -265,20 +321,11 @@ class TestTheDoctrineStaysCalibrated:
         assert "ceiling" in _CARD_RESTRAINT
         assert "there to be SPENT" not in _CARD_RESTRAINT
         assert "budget" not in _CARD_RESTRAINT
-        # What the same pass added and this keeps: the follow_ups exemption (a
-        # model counting it against the two has one slot left for the card the
-        # answer was about) and the two cases where none is right.
-        assert "follow_ups does not count against it" in _CARD_RESTRAINT
+        # What the same pass added and this keeps: the two cases where none is
+        # right. The `follow_ups` exemption that used to sit here went with the
+        # retired card — see TestTheFollowUpsCardIsRetired.
         assert "only repeats the sentence above it" in _CARD_RESTRAINT
         assert "says in the same words" in _CARD_RESTRAINT
-
-    def test_follow_ups_leads_with_its_default_before_its_exceptions(self):
-        # The card the user has never seen, and the one place a general push was
-        # NOT the answer: its own rule was three prohibitions with no default in
-        # front of them. Kept even as the head was moderated, because it rests
-        # on an observation rather than on the broad-shyness theory.
-        default = _FOLLOW_UPS_RULE.index("closes a subject-matter answer by default")
-        assert default < _FOLLOW_UPS_RULE.index("Two narrow exceptions")
 
     def test_looking_a_shape_up_is_not_framed_as_a_cost(self):
         # Cause two, addressed for 20 tokens instead of the ~693 it costs to

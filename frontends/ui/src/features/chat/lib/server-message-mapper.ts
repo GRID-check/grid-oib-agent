@@ -34,6 +34,7 @@
 
 import type { Message } from '@/lib/db/schema'
 import { CAPPED_REASONS } from '@/lib/conversations/message-provenance'
+import { sanitizeStages } from '@/lib/conversations/message-stages'
 
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
 import type { ChatMessage, ErrorCardData, FileCardData, MessageType, ThinkingStep } from '../types'
@@ -144,6 +145,14 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
     ...(Array.isArray(metadata.messageFiles)
       ? { messageFiles: metadata.messageFiles as Array<{ id: string; fileName: string }> }
       : {}),
+    // What a post-answer stage computed for this turn. Re-sanitised on the way
+    // OUT as well as in, for the same reason `cards` is re-validated here: this
+    // jsonb blob is the only stage state not written by the current build, and a
+    // row written under an older bound is still whatever it was.
+    ...(() => {
+      const stages = sanitizeStages(metadata.stages)
+      return stages ? { stages } : {}
+    })(),
     // What the answer rested on. Spread last so a future metadata key cannot
     // silently shadow one of the fields above.
     ...restoreProvenance(metadata.provenance),

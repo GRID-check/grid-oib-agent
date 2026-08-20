@@ -42,14 +42,17 @@
  * `mt-5` is the block's own 20px of air. The trailing offer stands away from
  * the evidence above it — that separation is doing the work the border used to
  * do, and it is the only thing this card has instead.
+ *
+ * The chips themselves live in `FollowUpChips`, because a post-answer STAGE now
+ * renders the same offer BELOW the answer (`FollowUpsRail`,
+ * `docs/architecture/post-answer-stages.md` §6). This card is the form stored
+ * threads keep forever — retired, never deleted (§7.10) — so the two must never
+ * drift apart: a reader scrolling across the migration should see one
+ * affordance, in two places, not two affordances.
  */
 
 import { type FC } from 'react'
-import { CornerDownRight, MessageCircleQuestion } from 'lucide-react'
-import { SectionLabel } from '@/components/ui/section-label'
-import { useChatStore } from '@/features/chat/store'
-import { useTranslations } from '@/i18n'
-import { cn } from '@/lib/utils'
+import { FollowUpChips } from './FollowUpChips'
 import type { FollowUpData } from '../schematics/types'
 
 interface FollowUpsCardProps {
@@ -57,63 +60,6 @@ interface FollowUpsCardProps {
   items: FollowUpData[]
 }
 
-/**
- * The chip chrome, copied from the welcome chips so the two offers read as one
- * affordance: the reader who learnt on the empty canvas that a quiet hairline
- * chip fills the composer should not have to learn it twice.
- */
-const CHIP = cn(
-  'group inline-flex h-8 max-w-full items-center gap-1.5 rounded-md border px-[13px]',
-  // On a phone a chip is given a floor of 12rem and the row wraps, so each
-  // question gets a line of its own: „Wie wird das Hauptgeschoß…" is still a
-  // usable offer where „Wie…" is not. On desktop the chips size to their
-  // content, because four of them fit across 636px and a set the eye takes in
-  // at once is the whole affordance.
-  'max-sm:min-w-[12rem] bg-card text-foreground/85 shadow-xs card-caption font-medium',
-  'transition-colors duration-quick ease-out motion-reduce:transition-none',
-  'hover:bg-accent hover:text-foreground',
-  'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-2',
-  'pointer-coarse:h-11',
+export const FollowUpsCard: FC<FollowUpsCardProps> = ({ title, items }) => (
+  <FollowUpChips title={title} items={items} className="mt-5" />
 )
-
-export const FollowUpsCard: FC<FollowUpsCardProps> = ({ title, items }) => {
-  const t = useTranslations('chat')
-  const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
-  // An empty set renders NOTHING — not an eyebrow over an empty row. An offer
-  // with nothing in it is an unkept promise, and with no frame there is not
-  // even a box left to explain the gap.
-  const questions = items.filter((item) => Boolean(item?.question))
-
-  if (questions.length === 0) return null
-
-  return (
-    <div className="mt-5 flex flex-col gap-2.5">
-      <SectionLabel icon={MessageCircleQuestion}>{t('cards.followUps.eyebrow')}</SectionLabel>
-      {title && <p className="card-title text-foreground">{title}</p>}
-
-      <div
-        className="flex flex-wrap items-center gap-2"
-        role="group"
-        aria-label={t('cards.followUps.groupAria')}
-      >
-        {questions.map((item, index) => (
-          <button
-            key={`${item.question}-${index}`}
-            type="button"
-            // The whole question in the tooltip, so nothing is lost to the
-            // one-line truncation; the hint follows it rather than replacing it.
-            title={item.hint ? `${item.question} — ${item.hint}` : item.question}
-            onClick={() => setComposerPrefill(item.question)}
-            className={CHIP}
-          >
-            <CornerDownRight
-              className="text-subtle group-hover:text-foreground size-3.5 shrink-0 transition-colors duration-quick ease-out motion-reduce:transition-none"
-              aria-hidden="true"
-            />
-            <span className="truncate">{item.question}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}

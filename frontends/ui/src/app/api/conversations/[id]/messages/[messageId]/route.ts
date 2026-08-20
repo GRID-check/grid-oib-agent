@@ -55,13 +55,25 @@ const updateMessageSchema = z
     provenance: z.unknown().optional(),
     /** The answer to a human-in-the-loop prompt, bounded by `sanitizePromptState`. */
     promptState: z.unknown().optional(),
+    /**
+     * What a POST-ANSWER STAGE computed for this turn
+     * (`docs/architecture/post-answer-stages.md` §4.3).
+     *
+     * `unknown` for the same reason `provenance` is: `sanitizeStages` in
+     * `lib/conversations/message-stages` is the single authority on what may
+     * reach the column, and it is a whitelist — an unknown stage is dropped, the
+     * item list is truncated and every string is capped. The stage set will grow;
+     * two definitions of it would drift.
+     */
+    stages: z.unknown().optional(),
   })
   .refine(
     (body) =>
       body.cardInteractions !== undefined ||
       body.provenance !== undefined ||
-      body.promptState !== undefined,
-    { message: 'Provide cardInteractions, provenance or promptState' }
+      body.promptState !== undefined ||
+      body.stages !== undefined,
+    { message: 'Provide cardInteractions, provenance, promptState or stages' }
   )
 
 export const PATCH = apiRoute<Params>(
@@ -74,6 +86,7 @@ export const PATCH = apiRoute<Params>(
       cardInteractions: body.cardInteractions,
       provenance: body.provenance,
       promptState: body.promptState,
+      stages: body.stages,
     })
   },
   { authz: { enforcedBy: 'updateMessageDetail (requireResourceAccess)' } }

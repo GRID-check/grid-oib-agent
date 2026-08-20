@@ -58,7 +58,8 @@ _CLASSIFY_NOW_INSTRUCTION = (
 
 _JSON_RETRY_INSTRUCTION = (
     "That response was not the required JSON. Respond again with ONLY the raw JSON object "
-    '({"intent": ..., "research_depth": ..., "depth_reasoning": ...}) — nothing else.'
+    '({"intent": ..., "research_depth": ..., "report_requested": ..., "depth_reasoning": ...}) '
+    "— nothing else."
 )
 
 # OpenAI-style structured-output request, supported by OpenRouter and other
@@ -77,13 +78,71 @@ _INTENT_RESPONSE_FORMAT = {
                 "research_depth": {
                     "anyOf": [{"type": "string", "enum": ["shallow", "deep"]}, {"type": "null"}],
                 },
+                # The SECOND of the two signals the deep route requires. Asked
+                # as its own question, not folded into research_depth, so the
+                # AND can be taken in code — see ``_gate_deep_route``.
+                "report_requested": {"type": "boolean"},
                 "depth_reasoning": {"anyOf": [{"type": "string"}, {"type": "null"}]},
             },
-            "required": ["intent", "research_depth", "depth_reasoning"],
+            "required": ["intent", "research_depth", "report_requested", "depth_reasoning"],
             "additionalProperties": False,
         },
     },
 }
+
+
+_MISSING = object()
+
+
+def _gate_deep_route(research_depth: str, parsed: dict[str, Any]) -> tuple[str, str | None]:
+    """Take the AND of the classifier's two signals, IN CODE.
+
+    Deep research is the one route that does not answer the user — it stops the
+    turn and asks them to approve a plan first — so it is the one route worth
+    making two independent judgments agree on. ``research_depth`` says "this
+    needs several rounds"; ``report_requested`` says "the user commissioned a
+    document rather than asking a question". Deep requires both.
+
+    Why the AND lives here and not in the prompt: the prompt ALREADY argued for
+    this policy in prose ("Choose it only when BOTH of these hold"), and prose
+    is not enforceable on this surface. The model behind this role is not the
+    one in the YAML — ``apply_model_override(self.llm, AgentGroup.INTENT)``
+    re-points it at whatever the platform owner picked in Platform -> Models, so
+    the boundary can move with a dashboard click and no deploy. Measured over
+    eight models an admin could plausibly select, three of them routed plain
+    single-topic OIB questions to deep on the prose-only prompt and five did
+    not; the AND taken here brought all eight to the same boundary. A policy
+    that is only written down is a policy that holds for the models that happen
+    to agree with it.
+
+    Returns the (possibly downgraded) depth and a reason to log, or ``None``.
+
+    FAIL DIRECTION, deliberately open: an ABSENT ``report_requested`` leaves the
+    depth untouched, i.e. exactly the pre-gate contract. The structured-output
+    path marks the field ``required``, so it is present on every response that
+    honoured the schema; absence means a provider dropped the schema and the
+    turn fell back to prose parsing. Failing CLOSED there would silently delete
+    deep research for that provider — the same class of invisible breakage as a
+    sampling parameter the gateway drops — so the gate steps aside instead, and
+    says so in the log rather than doing it quietly. An explicit ``false`` is
+    honoured; only a missing key is a pass.
+    """
+    if research_depth != "deep":
+        return research_depth, None
+    raw = parsed.get("report_requested", _MISSING)
+    if raw is _MISSING:
+        logger.warning(
+            "Depth gate inert: the classifier response carried no 'report_requested' field, "
+            "so 'deep' stands on the depth signal alone"
+        )
+        return research_depth, None
+    if isinstance(raw, str):
+        raw = raw.strip().lower() not in ("", "false", "no", "0", "null", "none")
+    if not raw:
+        return "shallow", (
+            "Depth 'deep' downgraded to 'shallow': the request reads as a question to answer, not a report to write"
+        )
+    return research_depth, None
 
 
 def _is_llm_api_unavailable(err: BaseException) -> bool:
@@ -191,9 +250,13 @@ class IntentClassifier:
             from aiq_agent.knowledge.inventory import set_listing_shelf
 
             set_listing_shelf(None)
+            # No query at all is the weakest possible evidence for the most
+            # expensive route: "deep" here spent minutes and a plan-approval
+            # interrupt on nothing. Degenerate input takes the cheap path, like
+            # every other unclear case below.
             return {
                 "user_intent": IntentResult(intent="research", raw=None),
-                "depth_decision": DepthDecision(decision="deep", raw_reasoning="No query"),
+                "depth_decision": DepthDecision(decision="shallow", raw_reasoning="No query"),
             }
 
         user_info = state.user_info or {}
@@ -288,6 +351,32 @@ class IntentClassifier:
             intent = raw_intent if raw_intent in ("meta", "research", "out_of_scope") else "research"
             research_depth = (parsed.get("research_depth") or "shallow").strip().lower()
             depth_reasoning = parsed.get("depth_reasoning") or ""
+
+            # Both signals must say deep. See ``_gate_deep_route``.
+            research_depth, gate_note = _gate_deep_route(research_depth, parsed)
+            if gate_note:
+                logger.info("%s", gate_note)
+                # The model argued for a route we are not taking; its sentence is
+                # rendered to the reader as the reason for THIS route, so it goes
+                # with the decision it defended.
+                depth_reasoning = ""
+
+            # The user rejected a research plan earlier in this conversation.
+            # That is a durable statement about what they want, so the deep
+            # route is off for the rest of the thread and the model's "deep"
+            # is downgraded HERE — before the status line is emitted and
+            # before ``depth_decision`` reaches ``route_after_orchestration``
+            # or ``derive_routing_decision``. Downgrading in one place is what
+            # keeps the live line, the routing_decision on the answer and the
+            # agent that actually ran from disagreeing with each other.
+            #
+            # ``depth_reasoning`` is dropped with it: it is rendered to the
+            # reader as the model's own words for why this route, and the
+            # model's words argue for a route we are not taking.
+            if research_depth == "deep" and state.deep_research_declined:
+                logger.info("Depth 'deep' downgraded to 'shallow': plan already rejected in this conversation")
+                research_depth = "shallow"
+                depth_reasoning = ""
 
             # Say which way the turn is going, NOW. This decision is settled
             # about a second into the turn, and until this line it only ever

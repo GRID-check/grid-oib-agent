@@ -1,0 +1,95 @@
+{
+  "$comment": "GENERATED FILE — do not edit. Written by scripts/release_notes.py from releasenotes/notes/ and committed by .github/workflows/release-notes.yml on merge to develop. Regenerate with `task release:changelog`.",
+  "sectionTitles": {
+    "features": {
+      "en": "New features",
+      "de": "Neue Funktionen"
+    },
+    "improvements": {
+      "en": "Improvements",
+      "de": "Verbesserungen"
+    },
+    "fixes": {
+      "en": "Fixes",
+      "de": "Fehlerbehebungen"
+    },
+    "security": {
+      "en": "Security",
+      "de": "Sicherheit"
+    },
+    "deprecations": {
+      "en": "Deprecations",
+      "de": "Auslaufende Funktionen"
+    },
+    "upgrade": {
+      "en": "Upgrade notes",
+      "de": "Hinweise zur Umstellung"
+    },
+    "other": {
+      "en": "Other",
+      "de": "Sonstiges"
+    }
+  },
+  "releases": [
+    {
+      "id": "2026-08-19",
+      "kind": "date",
+      "version": null,
+      "date": "2026-08-19",
+      "summary": null,
+      "sections": [
+        {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Piloti now publishes a changelog. Every change you can notice in the product is written down in plain language and appears at piloti.at/changelog, in German and English, on the day it ships.",
+              "de": "Piloti veröffentlicht jetzt ein Changelog. Jede Änderung, die Sie im Produkt bemerken, wird in verständlicher Sprache dokumentiert und erscheint am Tag der Veröffentlichung auf piloti.at/changelog auf Deutsch und Englisch."
+            },
+            {
+              "en": "Follow-up questions now appear under every substantive answer, instead of only on the answers Piloti happened to offer them on. They arrive a moment after the answer and sit below it rather than inside it, so they never move the text you are reading.",
+              "de": "Follow-up questions now appear under every substantive answer, instead of only on the answers Piloti happened to offer them on. They arrive a moment after the answer and sit below it rather than inside it, so they never move the text you are reading."
+            }
+          ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Cards no longer show stray formatting characters in their text. A card that cited a Richtlinie could print a link as raw brackets and a web address, right next to the card's own working link to the same document. Card text is now always the plain sentence it was meant to be, and the only links a card offers are the ones it builds from the source it names.",
+              "de": "Cards no longer show stray formatting characters in their text. A card that cited a Richtlinie could print a link as raw brackets and a web address, right next to the card's own working link to the same document. Card text is now always the plain sentence it was meant to be, and the only links a card offers are the ones it builds from the source it names."
+            },
+            {
+              "en": "„Piloti hat sich gemerkt\" now belongs to the answer it appeared under. It used to count everything noted anywhere in the conversation, so an early answer ended up claiming notes that were taken much later; each answer now shows only what that answer produced, and an answer that produced nothing shows nothing.",
+              "de": "„Piloti hat sich gemerkt\" now belongs to the answer it appeared under. It used to count everything noted anywhere in the conversation, so an early answer ended up claiming notes that were taken much later; each answer now shows only what that answer produced, and an answer that produced nothing shows nothing."
+            },
+            {
+              "en": "Notes taken after an answer show up as soon as they exist. Piloti used to look for them a few times right after the answer arrived and then stop, so a note that took a moment longer stayed invisible until something else on the page changed.",
+              "de": "Notes taken after an answer show up as soon as they exist. Piloti used to look for them a few times right after the answer arrived and then stop, so a note that took a moment longer stayed invisible until something else on the page changed."
+            },
+            {
+              "en": "Piloti no longer keeps project notes from an answer that was cut short. A question that ran out of research budget before it was fully answered used to leave notes behind that read like settled facts.",
+              "de": "Piloti no longer keeps project notes from an answer that was cut short. A question that ran out of research budget before it was fully answered used to leave notes behind that read like settled facts."
+            },
+            {
+              "en": "A slow model provider can no longer stop Piloti from taking notes at all. The step that records what a conversation established now gives up on its own and works again on the very next question, instead of going quiet for everyone until the service was restarted.",
+              "de": "A slow model provider can no longer stop Piloti from taking notes at all. The step that records what a conversation established now gives up on its own and works again on the very next question, instead of going quiet for everyone until the service was restarted."
+            }
+          ]
+        },
+        {
+          "key": "upgrade",
+          "notes": [
+            {
+              "en": "Follow-up questions in older conversations stay exactly where they were, inside the answer. Nothing was regenerated and nothing was removed — the two positions are simply what changed, and old threads keep their chips.",
+              "de": "Follow-up questions in older conversations stay exactly where they were, inside the answer. Nothing was regenerated and nothing was removed — the two positions are simply what changed, and old threads keep their chips."
+            },
+            {
+              "en": "A finished deep-research report no longer carries follow-up questions. The new step runs on chat answers, and a report is written after the chat turn has already ended.",
+              "de": "A finished deep-research report no longer carries follow-up questions. The new step runs on chat answers, and a report is written after the chat turn has already ended."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

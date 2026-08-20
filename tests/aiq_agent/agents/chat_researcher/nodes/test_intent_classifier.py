@@ -124,7 +124,22 @@ class TestIntentClassifier:
 
     @pytest.mark.asyncio
     async def test_run_empty_messages_returns_dict_no_llm_call(self, mock_llm):
-        """Test run() with empty messages returns dict with research + depth_decision, no LLM call."""
+        """No messages at all short-circuits to research/SHALLOW, with no LLM call.
+
+        The depth here was ``deep`` until this change, and that was an accident
+        rather than a decision: no query is the WEAKEST possible evidence, and
+        it was being answered with the most expensive route the product has.
+        ``deep`` does not merely cost minutes — it does not answer at all, it
+        interrupts the user with a research plan they must approve first, so a
+        turn carrying no question would have opened a plan-approval interrupt
+        over nothing.
+
+        Nothing routes on the old value: this branch's ``DepthDecision`` is read
+        only by ``route_after_orchestration``, and every other unclear case in
+        this classifier (unparseable JSON, a missing ``research_depth``, the
+        prompt's own "Unclear depth -> shallow" tie-break) already lands on
+        ``shallow``. This one disagreed with all of them.
+        """
         classifier = IntentClassifier(llm=mock_llm)
         state = ChatResearcherState(messages=[])
 
@@ -132,8 +147,125 @@ class TestIntentClassifier:
 
         assert isinstance(result, dict)
         assert result["user_intent"].intent == "research"
-        assert result["depth_decision"].decision == "deep"
+        assert result["depth_decision"].decision == "shallow"
         mock_llm.ainvoke.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_declined_conversation_downgrades_deep_here(self, mock_llm):
+        """A rejection earlier in the thread is honoured AT THE CLASSIFIER.
+
+        The graph has its own backstop, but the downgrade has to happen here or
+        the turn narrates one route while running another: ``emit_routing`` fires
+        a few lines below with whatever this variable holds, and the live status
+        line would announce Deep Research for a turn the shallow agent answers.
+        """
+        mock_response = MagicMock()
+        mock_response.content = (
+            '{"intent":"research","research_depth":"deep","report_requested":true,'
+            '"depth_reasoning":"Umfassende Studie nötig."}'
+        )
+        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+
+        classifier = IntentClassifier(llm=mock_llm)
+        state = ChatResearcherState(
+            messages=[HumanMessage(content="Erstelle eine umfassende Studie zum Holzbau.")],
+            deep_research_declined=True,
+        )
+
+        result = await classifier.run(state)
+
+        assert result["depth_decision"].decision == "shallow", (
+            "the user already refused a plan in this conversation; offering another is the loop "
+            "the transcript got stuck in"
+        )
+        assert result["depth_decision"].raw_reasoning == ""
+
+    @pytest.mark.asyncio
+    async def test_deep_requires_report_requested_too(self, mock_llm):
+        """Depth alone cannot open the deep route; the AND is taken in code.
+
+        The classifier says "deep" and argues for it, but reports that the user
+        asked a question rather than commissioning a document. Deep research is
+        the one route that does not answer — it interrupts with a plan to
+        approve — so it takes both signals.
+        """
+        mock_response = MagicMock()
+        mock_response.content = (
+            '{"intent":"research","research_depth":"deep","report_requested":false,'
+            '"depth_reasoning":"Mehrere Regelungsbereiche betroffen."}'
+        )
+        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+
+        classifier = IntentClassifier(llm=mock_llm)
+        state = ChatResearcherState(
+            messages=[HumanMessage(content="Wie läuft das Baubewilligungsverfahren in Wien ab?")]
+        )
+
+        result = await classifier.run(state)
+
+        assert result["depth_decision"].decision == "shallow"
+        assert result["depth_decision"].raw_reasoning == "", (
+            "the model argued for a route we are not taking; that sentence is shown to the reader "
+            "as the reason for the route we DID take"
+        )
+
+    @pytest.mark.asyncio
+    async def test_deep_survives_when_both_signals_agree(self, mock_llm):
+        """The gate is a gate, not a ban: a commissioned report still routes deep."""
+        mock_response = MagicMock()
+        mock_response.content = (
+            '{"intent":"research","research_depth":"deep","report_requested":true,'
+            '"depth_reasoning":"Umfassende Studie mit Marktanalyse."}'
+        )
+        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+
+        classifier = IntentClassifier(llm=mock_llm)
+        state = ChatResearcherState(
+            messages=[HumanMessage(content="Erstelle eine umfassende Studie zum Holzbau in der DACH-Region.")]
+        )
+
+        result = await classifier.run(state)
+
+        assert result["depth_decision"].decision == "deep"
+        assert result["depth_decision"].raw_reasoning == "Umfassende Studie mit Marktanalyse."
+
+    @pytest.mark.asyncio
+    async def test_absent_report_requested_leaves_depth_alone(self, mock_llm):
+        """FAIL-OPEN, deliberately: a missing field must not delete deep research.
+
+        The structured-output path marks ``report_requested`` required, so it is
+        absent only when a provider dropped the schema and the turn fell back to
+        prose parsing. Failing closed there would silently remove the deep route
+        for that provider — the same invisible breakage as a sampling parameter
+        the gateway drops.
+        """
+        mock_response = MagicMock()
+        mock_response.content = '{"intent":"research","research_depth":"deep","depth_reasoning":"Mehrteilig."}'
+        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+
+        classifier = IntentClassifier(llm=mock_llm)
+        state = ChatResearcherState(messages=[HumanMessage(content="Erstelle einen Bericht über X, Y und Z.")])
+
+        result = await classifier.run(state)
+
+        assert result["depth_decision"].decision == "deep"
+
+    @pytest.mark.asyncio
+    async def test_report_requested_does_not_promote_shallow(self, mock_llm):
+        """Both signals are required for deep; neither one alone can force it."""
+        mock_response = MagicMock()
+        mock_response.content = (
+            '{"intent":"research","research_depth":"shallow","report_requested":true,'
+            '"depth_reasoning":"Eine Rechercherunde genügt."}'
+        )
+        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+
+        classifier = IntentClassifier(llm=mock_llm)
+        state = ChatResearcherState(messages=[HumanMessage(content="Kurzer Bericht zur Fluchtweglänge?")])
+
+        result = await classifier.run(state)
+
+        assert result["depth_decision"].decision == "shallow"
 
     @pytest.mark.asyncio
     async def test_run_handles_llm_error(self, mock_llm):

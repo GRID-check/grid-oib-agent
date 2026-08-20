@@ -1,0 +1,146 @@
+{
+  "$comment": [
+    "The post-answer stage WIRE CONTRACT, as fixtures. Authority: docs/architecture/post-answer-stages.md §4.",
+    "Read by BOTH halves (§9): the Python frame-builder test asserts build_stage_frame() produces `delivered`,",
+    "and the TypeScript NATStageMessageSchema test asserts it parses them. The fixture is the contract; if the",
+    "two halves drift, one of them fails. `timestamp` is stamped at send time, so a producer test compares every",
+    "field EXCEPT that one.",
+    "`rejected` is the client half only — frames a producer must never emit and a client must therefore drop.",
+    "There is nothing for the frame builder to assert about them.",
+    "Additive only: a new stage adds a `delivered` entry and a payload shape. The envelope never changes; `v` is",
+    "bumped only on a breaking change to it."
+  ],
+  "v": 1,
+  "type": "grid_stage_message",
+  "delivered": {
+    "follow_ups.ready": {
+      "type": "grid_stage_message",
+      "v": 1,
+      "conversation_id": "5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11",
+      "parent_id": "msg_1755600000000_3",
+      "stage": "follow_ups",
+      "status": "ready",
+      "payload": {
+        "items": [
+          {
+            "question": "Wie wird das Fluchtniveau genau gemessen?",
+            "hint": "Messpunkt und Bezugsebene"
+          },
+          { "question": "Was wäre bei Gebäudeklasse 5 anders?" }
+        ]
+      },
+      "timestamp": "2026-08-19T10:31:02.114Z"
+    },
+    "follow_ups.empty": {
+      "type": "grid_stage_message",
+      "v": 1,
+      "conversation_id": "5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11",
+      "parent_id": "msg_1755600000000_3",
+      "stage": "follow_ups",
+      "status": "empty",
+      "timestamp": "2026-08-19T10:31:02.114Z"
+    },
+    "follow_ups.failed": {
+      "type": "grid_stage_message",
+      "v": 1,
+      "conversation_id": "5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11",
+      "parent_id": "msg_1755600000000_3",
+      "stage": "follow_ups",
+      "status": "failed",
+      "timestamp": "2026-08-19T10:31:02.114Z"
+    },
+    "memory_reflection.ready": {
+      "type": "grid_stage_message",
+      "v": 1,
+      "conversation_id": "5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11",
+      "parent_id": "msg_1755600000000_3",
+      "stage": "memory_reflection",
+      "status": "ready",
+      "payload": {
+        "items": [
+          {
+            "id": "9d2f6b41-7c3e-4a58-9f0b-6a1c2d3e4f50",
+            "kind": "constraint",
+            "content": "Das Projekt liegt in Wien; für Fluchtwege gilt die Wiener Bauordnung ergänzend zur OIB-Richtlinie 2."
+          },
+          {
+            "id": "1a7c9e02-5b64-4d19-8e3a-0f5b6c7d8e91",
+            "kind": "derived_fact",
+            "content": "Das oberste Fluchtniveau des Bauvorhabens beträgt 9,80 m, das Gebäude liegt damit in Gebäudeklasse 4."
+          }
+        ]
+      },
+      "timestamp": "2026-08-19T10:31:02.114Z"
+    },
+    "memory_reflection.empty": {
+      "type": "grid_stage_message",
+      "v": 1,
+      "conversation_id": "5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11",
+      "parent_id": "msg_1755600000000_3",
+      "stage": "memory_reflection",
+      "status": "empty",
+      "timestamp": "2026-08-19T10:31:02.114Z"
+    },
+    "memory_reflection.failed": {
+      "type": "grid_stage_message",
+      "v": 1,
+      "conversation_id": "5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11",
+      "parent_id": "msg_1755600000000_3",
+      "stage": "memory_reflection",
+      "status": "failed",
+      "timestamp": "2026-08-19T10:31:02.114Z"
+    }
+  },
+  "rejected": {
+    "unknown-stage": {
+      "why": "A client that does not know a `stage` value drops the frame — which is exactly what an old tab should do.",
+      "frame": {
+        "type": "grid_stage_message",
+        "v": 1,
+        "conversation_id": "5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11",
+        "parent_id": "msg_1755600000000_3",
+        "stage": "a_stage_from_the_future",
+        "status": "ready",
+        "payload": { "items": [] },
+        "timestamp": "2026-08-19T10:31:02.114Z"
+      }
+    },
+    "unknown-status": {
+      "why": "Only ready/empty/failed reach the wire; `timeout` is mapped to `failed` and the rest never leave the runner.",
+      "frame": {
+        "type": "grid_stage_message",
+        "v": 1,
+        "conversation_id": "5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11",
+        "parent_id": "msg_1755600000000_3",
+        "stage": "follow_ups",
+        "status": "timeout",
+        "timestamp": "2026-08-19T10:31:02.114Z"
+      }
+    },
+    "wrong-version": {
+      "why": "`v` is the contract version. A frame from a future envelope is dropped rather than half-read.",
+      "frame": {
+        "type": "grid_stage_message",
+        "v": 2,
+        "conversation_id": "5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11",
+        "parent_id": "msg_1755600000000_3",
+        "stage": "follow_ups",
+        "status": "empty",
+        "timestamp": "2026-08-19T10:31:02.114Z"
+      }
+    },
+    "payload-on-a-non-ready-frame": {
+      "why": "`payload` is absent unless status is `ready`. A payload beside `empty` means the two halves disagree about what happened, and rendering it would show chips for a turn the stage declined.",
+      "frame": {
+        "type": "grid_stage_message",
+        "v": 1,
+        "conversation_id": "5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11",
+        "parent_id": "msg_1755600000000_3",
+        "stage": "follow_ups",
+        "status": "empty",
+        "payload": { "items": [{ "question": "Wie wird das Fluchtniveau gemessen?" }] },
+        "timestamp": "2026-08-19T10:31:02.114Z"
+      }
+    }
+  }
+}

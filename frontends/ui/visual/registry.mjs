@@ -130,6 +130,14 @@ export const SCREENSHOT_TARGETS = [
   // an inline card misaligned with the prose column, or a fallback block
   // colliding with the sources row. These four capture the answer at the
   // thread's real 680px column, in the turn it actually ships in.
+  //
+  // `answer-follow-ups` is the odd one out and deliberately so: it is the only
+  // target here whose subject is NOT inside the answer. It used to be — the
+  // entry read "the chips have to still read as part of the answer rather than
+  // as footer chrome", which was a committed argument for the placement this
+  // change reverses. The chips now live below the message, so the target
+  // captures the new truth and the old rationale is gone rather than left
+  // contradicting the code.
   {
     id: 'answer-lede-card',
     mobile: true,
@@ -149,9 +157,17 @@ export const SCREENSHOT_TARGETS = [
   {
     id: 'answer-follow-ups',
     mobile: true,
-    path: '/dev/chat-turn?variant=follow-ups',
+    path: '/dev/chat-turn?variant=follow-ups-rail',
     description:
-      'An inline callout mid-answer and a follow_ups card ENDING the answer, with the provenance footer directly beneath it — the chips have to still read as part of the answer rather than as footer chrome.',
+      'The follow-up chips BELOW the answer rather than inside it (docs/architecture/post-answer-stages.md §6, §8). The same turn twice — once as the answer lands, once with the rail a post-answer stage delivered two seconds later — because the comparison is the evidence: the rail reserves no space, so everything above it must be pixel-identical in the two panels. Cover the rail; if the answer card, the provenance footer and the meta row do not line up, the licence to arrive late is void. The other thing to judge is what the rail must NOT read as: a second answer. It carries no frame and no surface of its own, sits outside the answer card in the same 680px column, and on the phone shot the four chips wrap one per line at the 12rem floor.',
+    waitFor: '[data-testid="answer-layer-preview"]',
+  },
+  {
+    id: 'answer-memory-chip',
+    mobile: true,
+    path: '/dev/chat-turn?variant=memory-chip',
+    description:
+      'The „Piloti hat sich gemerkt" chip as a fact about ONE TURN (docs/architecture/post-answer-stages.md §1.7, §5.1). The same answer twice, as two turns of one thread: above, the reflection stage ran and recorded nothing — its most common correct outcome — and there is no chip; below, it recorded two things and the chip says two. That difference is the change: the chip used to be fed by a three-shot poll of the whole conversation\'s memory fired by every rendered answer, so BOTH panels would have carried it and both would have shown the thread\'s running total. The second thing to judge is the meta row. The chip lands seconds after the answer and reserves nothing, which is only safe because it arrives into a row that is already on screen — confidence, copy, thumbs and timestamp are in it from the start. Cover the chip: the two footers must line up to the pixel, and on the phone shot the row must not gain a line. What a screenshot cannot show is the popover, which is where the in-turn write and the post-answer one are labelled apart; that distinction is held by MemoryNotedChip.spec.tsx.',
     waitFor: '[data-testid="answer-layer-preview"]',
   },
   {

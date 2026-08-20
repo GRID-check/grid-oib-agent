@@ -36,6 +36,19 @@ without it."""
 # instruction about writing one, compressed to the tests and stripped of the worked examples that
 # are where the skill's tokens actually go. Each line below is something the model can decide by
 # reading the report it was handed.
+#
+# The `follow_ups` paragraph was removed when the card was retired
+# (`SYSTEM_CARD_TYPES`, docs/architecture/post-answer-stages.md §7.10). It had to go rather than
+# stay: `validate_cards` drops every system/retired type, so the paragraph would have been an
+# instruction to build a card this path's own validator silently throws away — the worst kind of
+# dead prompt weight, because the model spends output on it and nothing says the output was
+# discarded.
+#
+# What that costs, stated rather than glossed: a finished deep-research REPORT now carries no
+# follow-up questions at all. The post-answer stage does not fill the gap — its gate skips a turn
+# with a `deep_research_job_id`, because the chat turn is only a stub and the report exists when
+# the job finishes, not when the turn does (§7.6). Covering the report path means declaring a
+# stage on the job runner, which is separate work and is not in this change.
 _POST_HOC_CRAFT = """\
 WHICH ONE EARNS ITS PLACE. A long report is exactly where a card pays off and exactly where they
 pile up, so each has to pass its own test against the report you were given:
@@ -50,12 +63,6 @@ pile up, so each has to pass its own test against the report you were given:
     deviation, a condition that is easy to skim past. Not the most interesting sentence, the most
     consequential one. A second callout puts both back at the weight of ordinary prose, which is
     the one weight they must not have.
-  follow_ups — two to four questions THIS report made askable. Each must NAME something the report
-    introduced (a term it defined, a number it gave, an exception it raised), and the set must be
-    different KINDS of move: deeper on one term, narrower onto this project, the alternative the
-    report ruled out, the next concrete step. "Erzähl mir mehr" teaches the reader that the chips
-    are decoration, after which the good sets are lost too. Two anchored questions beat four with
-    two of them filler.
   condition_tree, typed_table and comparison_table all look like a table of cases and are
     routinely confused. Ask what the reader does with the rows: exactly one row applies to this
     project (condition_tree), all rows apply at once (typed_table), or the reader chooses one
@@ -67,12 +74,12 @@ its own."""
 # Ordering, which is the whole of what this path controls about placement. The runner attaches the
 # returned list to the finished report as-is (see `aiq_api.jobs.runner`), so list order IS render
 # order and there is no marker, no anchor and no way to put a card beside the paragraph it belongs
-# to. Saying so is not pedantry: the doctrine's follow_ups rule says "put it LAST", and without
-# this sentence the only reading of "last" available here is "last thing you thought of".
+# to. Saying so is not pedantry: without this sentence the model has no way to know that the list it
+# returns is the order the reader reads.
 _POST_HOC_ORDERING = """\
 WHERE THEY GO. The cards are attached after the whole report, in the order you list them — there
 is no marker and no way to place one beside a paragraph. So list them in the order the answer is
-built: the verdict first, the substance in the middle, follow_ups last."""
+built: the verdict first, the substance after it."""
 
 
 def build_card_generation_prompt() -> str:

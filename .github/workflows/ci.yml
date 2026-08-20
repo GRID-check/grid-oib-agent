@@ -45,6 +45,10 @@ jobs:
               - 'tests/**'
               - 'ci/**'
               - 'configs/**'
+              # `scripts/release_notes.py` is covered by tests/test_release_notes.py;
+              # without this a change to it merges without those tests running.
+              - 'scripts/**'
+              - 'releasenotes/**'
               - 'pyproject.toml'
               - 'uv.lock'
               - 'Taskfile.yml'
@@ -382,6 +386,43 @@ jobs:
       - run: task infra:test
         working-directory: .
 
+  release-note:
+    name: Release note
+    # Deliberately NOT behind a paths filter, and deliberately not part of the
+    # backend tier: this job answers "does this change need a note, and does the
+    # note read like something a customer can use?", which is a question about
+    # the whole PR.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The require-a-note check diffs against the merge base, so the base
+          # branch has to be there. Shallow-by-default checkout has neither.
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      # The house rules on note prose (plain sentences, no internal references,
+      # no reStructuredText) — the notes are published verbatim to piloti.at.
+      - name: Lint the notes
+        run: uv run --no-project --with reno==4.1.0 python scripts/release_notes.py lint
+
+      - name: reno lint
+        run: uv run --no-project --with reno==4.1.0 reno --rel-notes-dir releasenotes lint .
+
+      # AGENTS.md: a change a customer can notice ships with its note in the same
+      # PR. Enforced here rather than trusted, because the note is the first thing
+      # that gets dropped under time pressure and the only thing the customer sees.
+      # Escape hatch: the `no-release-note` label, for a PR that genuinely changes
+      # nothing a user can observe.
+      - name: Require a note for user-visible changes
+        if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'no-release-note')
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 ci/require_release_note.py "$BASE_SHA" "$HEAD_SHA"
+
   ci-ok:
     name: CI OK
     if: always()
@@ -395,7 +436,7 @@ jobs:
     # `tenant-isolation` IS here, and must stay: it is the only check that proves
     # the row-level-security boundary actually holds (ADR-0041). The unit shards
     # cannot — the integration suite self-skips without a database.
-    needs: [changes, backend-lint, backend-test, frontend, frontend-test, tenant-isolation, web, infra, repo-lint]
+    needs: [changes, backend-lint, backend-test, frontend, frontend-test, tenant-isolation, web, infra, repo-lint, release-note]
     runs-on: ubuntu-latest
     steps:
       - name: Require needed jobs to have passed (skipped is fine)

@@ -100,7 +100,13 @@ def _shelf_label(shelf: str | None) -> str | None:
 # happens to prefix-match a declared data-source group, so a "remember this"
 # turn — which the orchestrator routes to this agent precisely for `remember` —
 # never loses the tool it was routed here to use.
-_INTERACTION_TOOL_BASENAMES = frozenset({"remember", "emit_card"})
+# `describe_card` is here for the same reason `emit_card` is, and it has to be
+# EXPLICIT rather than surviving by having no data source: a meta turn may emit
+# a card (the prompt's `<turn_classification>` says so), it is not given the
+# `piloti-cards` body, and so the only shapes it can reach are the ones
+# `describe_card` hands it. Dropping it would leave the model able to name the
+# right card and unable to fill it in.
+_INTERACTION_TOOL_BASENAMES = frozenset({"remember", "emit_card", "describe_card"})
 
 # Tool-name base resolution lives with the retrieval that also needs it
 # (``tool_search.tool_basename``) so both the meta partition and the
@@ -545,10 +551,15 @@ class ShallowResearcherAgent:
         """LLM bound to interaction-only tools + the matching tool list, for meta turns.
 
         The deterministic complement to the prompt's meta output contract
-        ("no tool calls"): the search tools are simply not offered, so a weak
-        model cannot fire one against the instruction. The prompt's tool list
-        is narrowed to match, so the model is not told it has search it cannot
-        use.
+        ("no search"): the search tools are simply not offered, so a weak model
+        cannot fire one against the instruction. The prompt's tool list is
+        narrowed to match, so the model is not told it has search it cannot use.
+
+        What survives is the interaction set — `remember`, `emit_card`,
+        `describe_card`. The contract used to read "no tool calls", which was
+        never true of this binding and cost a user two turns: a Baurecht question
+        that classified as meta was told it could call nothing, while the tool it
+        needed sat bound and offered.
         """
         self._ensure_meta_partition()
         meta_names = self._meta_tool_names or set()

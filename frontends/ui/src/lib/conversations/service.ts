@@ -60,6 +60,7 @@ import {
   type EngagementState,
 } from './engagement'
 import { sanitizeProvenance } from './message-provenance'
+import { sanitizeStages } from './message-stages'
 import { sanitizePromptDetail, sanitizePromptState } from './message-prompt'
 import { CONVERSATION_TAG_KEYS, normalizeConversationTags } from './tags'
 import {
@@ -584,6 +585,8 @@ export async function updateMessageDetail(
     provenance?: unknown
     /** The answer to a human-in-the-loop prompt on this message (ADR-0037). */
     promptState?: unknown
+    /** What a post-answer stage computed for this turn (post-answer-stages §4.3). */
+    stages?: unknown
   },
 ): Promise<Message> {
   // Answering a card, or recording what an answer rested on, is contributing to
@@ -609,6 +612,22 @@ export async function updateMessageDetail(
   if (patch.promptState !== undefined) {
     const promptState = sanitizePromptState(patch.promptState)
     if (promptState) metadata.promptState = promptState
+  }
+
+  if (patch.stages !== undefined) {
+    // Whitelisted and bounded HERE, like everything else that reaches this jsonb
+    // column from a browser: a closed stage set, a truncated item list, capped
+    // strings (post-answer-stages §7.8).
+    const stages = sanitizeStages(patch.stages)
+    if (stages) {
+      metadata.stages = stages
+      // Deep-merged per STAGE key, for the reason `cardInteractions` is: two
+      // stages address the same turn independently and each PATCHes only its own
+      // output, so a plain top-level merge would let the second erase the first
+      // (post-answer-stages §7.7). Last-writer-wins still applies per stage,
+      // which is correct — a stage produces at most one payload per turn.
+      deepMergeKeys.push('stages')
+    }
   }
 
   // Nothing survived sanitisation and no cards were sent — the row is already

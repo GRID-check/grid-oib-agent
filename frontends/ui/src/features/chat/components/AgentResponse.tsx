@@ -32,9 +32,10 @@ import {
   ANSWER_DEGRADED_REASONS,
   TRUNCATION_REASONS,
 } from '@/lib/conversations/message-provenance'
+import type { MessageStages } from '@/lib/conversations/message-stages'
+import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks'
-import { useConversationMemory } from '../hooks/use-conversation-memory'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   answerDocuments,
@@ -46,6 +47,7 @@ import { AnswerCitations } from './AnswerCitations'
 import { SkillsUsedDisclosure } from '@/features/skills/components/SkillsUsedDisclosure'
 import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
+import { turnMemoryItems } from '../lib/turn-memory'
 import { ConfidenceChip } from './ConfidenceChip'
 import { AnswerFeedback } from './AnswerFeedback'
 import { AnswerActions } from './AnswerActions'
@@ -116,8 +118,23 @@ export interface AgentResponseProps {
    * the "Belegt durch" chip row — renders nothing when absent (no fake chips).
    */
   citations?: CitationSource[]
-  /** Conversation this response belongs to (for the "Piloti noted N" memory chip) */
+  /** Conversation this response belongs to (keys the per-answer feedback row) */
   conversationId?: string | null
+  /**
+   * The reader's answer to each interactive card of this answer, keyed by
+   * `cardKey`. Needed HERE, not only inside the cards, because a
+   * `memory_proposal` only becomes something Piloti remembered once the reader
+   * says yes — and the „Piloti hat sich gemerkt" chip must not claim a write
+   * that has not happened.
+   */
+  cardInteractions?: CardInteractions
+  /**
+   * What a POST-ANSWER STAGE computed for this turn
+   * (`docs/architecture/post-answer-stages.md` §4.3). Only
+   * `memoryReflection` is read here; the follow-ups rail is a SIBLING of this
+   * component in the thread column, not part of the answer card (§6.1).
+   */
+  stages?: MessageStages
   /** The assistant's guarded self-assessed answer confidence (shallow answers only) */
   answerConfidence?: 'low' | 'medium' | 'high'
   /**
@@ -448,6 +465,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   cards,
   citations,
   conversationId,
+  cardInteractions,
+  stages,
   answerConfidence,
   answerConfidenceCappedReason,
   answerConfidenceReason,
@@ -551,11 +570,23 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   })))
   const reconnectToActiveJob = useChatStore((s) => s.reconnectToActiveJob)
   const { loadResearchPanelTab, isLoading, error } = useLoadJobData()
-  // Fetched here, not inside MemoryNotedChip: the merged footer's meta row only
+  // Computed here, not inside MemoryNotedChip: the merged footer's meta row only
   // renders when it has something to hold, and "Piloti noted N" is one of those
   // things — a memory-only turn (both chip flags off, no timestamp) must still
   // show it rather than have the row unmount around it.
-  const { items: memoryItems } = useConversationMemory(projectId, conversationId)
+  //
+  // Read off THIS MESSAGE. It used to be `useConversationMemory(projectId,
+  // conversationId)`, a three-shot poll of the project's memory endpoint fired
+  // by every rendered answer: thirty GETs in a ten-answer thread, on a fixed
+  // `[0, 1500, 4000]` ms schedule that was a guess about how long an LLM takes,
+  // and scoped to the CONVERSATION, so every answer in the thread showed every
+  // item — turn one's answer read „Piloti hat sich 5 gemerkt" after turn five.
+  // The reflection stage now delivers a frame addressed to the turn it belongs
+  // to, so the chip can finally be what it always claimed to be.
+  const memoryItems = useMemo(
+    () => turnMemoryItems({ stages, cards, cardInteractions }),
+    [stages, cards, cardInteractions]
+  )
 
   // Determine if we should show the action button
   // Show "View Progress" for active jobs, "View Report" for completed jobs

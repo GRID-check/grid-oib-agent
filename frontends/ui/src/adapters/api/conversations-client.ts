@@ -188,6 +188,37 @@ export const conversationsClient = {
   },
 
   /**
+   * Record what a POST-ANSWER STAGE computed for this turn
+   * (`docs/architecture/post-answer-stages.md` §4.3).
+   *
+   * The browser is what persists it, and that is not an implementation detail:
+   * the agent tier holds the WS turn id and the browser holds the message row
+   * id, and there is no id that is both (§1.6). The half that owns the row does
+   * the writing.
+   *
+   * Best-effort, like every other mirror on this route — the chips are already
+   * rendered from the store, so losing this costs a colleague's view and the
+   * cross-device replay, not the turn. The server whitelists and bounds the
+   * payload (`sanitizeStages`).
+   */
+  async updateMessageStages(
+    conversationId: string,
+    messageId: string,
+    stages: Record<string, unknown>,
+  ): Promise<Message> {
+    const res = await fetch(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stages }),
+      },
+    )
+    if (!res.ok) throw new Error('Failed to update message stages')
+    return res.json()
+  },
+
+  /**
    * Record the answer to a human-in-the-loop prompt on its message row, so the
    * transcript says what was DECIDED rather than only that something was asked.
    *

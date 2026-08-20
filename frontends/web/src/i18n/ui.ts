@@ -168,6 +168,7 @@ const de = {
     usage: 'Nutzung',
     data: 'Datengrundlage',
     blog: 'Blog',
+    changelog: 'Neuerungen',
     privacy: 'Datenschutz',
     imprint: 'Impressum',
   },
@@ -181,6 +182,21 @@ const de = {
     empty: 'Noch keine Beiträge — der erste Artikel ist in Arbeit.',
     readMore: 'Weiterlesen →',
     allPosts: '← Alle Beiträge',
+  },
+  // The changelog page. Its ENTRIES are not here: they come from
+  // src/data/changelog.json, generated from releasenotes/notes/ on merge — see
+  // docs/contributing/release-notes.md. Only the page chrome is translated here.
+  changelog: {
+    metaTitle: 'Neuerungen — Piloti',
+    metaDescription:
+      'Was sich in Piloti geändert hat: neue Funktionen, Verbesserungen und Fehlerbehebungen, laufend aktualisiert.',
+    tag: 'Neuerungen',
+    heading: 'Was sich in Piloti getan hat.',
+    intro:
+      'Jede Änderung, die Sie in der Anwendung bemerken — neue Funktionen, Verbesserungen, behobene Fehler. Neueste zuerst.',
+    empty: 'Noch keine Einträge — die erste Änderung erscheint hier, sobald sie ausgeliefert ist.',
+    unreleased: 'In Kürze',
+    versionLabel: 'Version',
   },
   notFound: {
     metaTitle: 'Seite nicht gefunden — Piloti',
@@ -388,6 +404,7 @@ const en: typeof de = {
     usage: 'Usage',
     data: 'Data foundation',
     blog: 'Blog',
+    changelog: "What's new",
     privacy: 'Privacy',
     imprint: 'Imprint',
   },
@@ -401,6 +418,18 @@ const en: typeof de = {
     empty: 'No posts yet — the first article is in the works.',
     readMore: 'Read on →',
     allPosts: '← All posts',
+  },
+  changelog: {
+    metaTitle: "What's new — Piloti",
+    metaDescription:
+      'What changed in Piloti: new features, improvements and fixes, updated continuously.',
+    tag: "What's new",
+    heading: 'What has changed in Piloti.',
+    intro:
+      'Every change you can notice in the product — new features, improvements, fixes. Newest first.',
+    empty: 'Nothing here yet — the first change appears the day it ships.',
+    unreleased: 'Coming up',
+    versionLabel: 'Version',
   },
   notFound: {
     metaTitle: 'Page not found — Piloti',

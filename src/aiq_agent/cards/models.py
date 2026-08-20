@@ -1,4 +1,23 @@
-"""Pydantic models for Grid response cards."""
+"""Pydantic models for Grid response cards.
+
+## Every text field on every card is PLAIN TEXT
+
+No card renderer parses markup. The frontend sets each string into JSX, where
+React escapes it, so a field that arrives holding ``[OIB-Richtlinie ansehen](
+https://www.oib.or.at/de/oib-richtlinien)`` puts those brackets on screen — next
+to the card's own working source link, which is what a production ``legal_basis``
+card did. The contract was never written down anywhere, which is why the model
+could not be said to have broken it.
+
+It is written down here, and :class:`CardModel` enforces it: the delimiters are
+removed at validation time, on every emission path, so a card cannot display raw
+markup. The enforcement deliberately does NOT live in the renderer. A card is the
+part that gets screenshotted into an Einreichung; a renderer that quietly parses
+markdown in a field nobody declared as markdown would hand the model a way to put
+an arbitrary link, or emphasis the schema never sanctioned, into a legal
+citation. Flattening on the way in removes the markup without ever granting that
+power.
+"""
 
 import re
 from typing import Annotated
@@ -13,8 +32,94 @@ from pydantic import TypeAdapter
 from pydantic import field_validator
 from pydantic import model_validator
 
+# The three inline constructs that are UNAMBIGUOUSLY markup: a link or image
+# target, a doubled emphasis delimiter, and a code span. Each is meaningless as
+# literal text in an Austrian legal citation, and each is something an LLM writes
+# into a JSON string without noticing that the string is not prose.
+#
+# What is deliberately NOT here is the ambiguous half of markdown. Single `*`
+# and `_` emphasis, a leading `- ` or `#`, and `<https://…>` autolinks all occur
+# for their own reasons in the text these fields carry — footnote markers in an
+# OIB table, a dash inside „§ 3 - Abs. 1“, a heading character in a Bescheid
+# reference. `original_text` is documented as a LITERAL excerpt from the source,
+# and mangling a verbatim legal quotation is a worse defect than an asterisk.
+# Doubled delimiters have no such second reading, which is why the line is drawn
+# there rather than at "everything CommonMark would call emphasis".
+_MD_LINK = re.compile(r"!?\[([^\]\n]*)\]\(\s*<?([^)\s]*)>?(?:\s+\"[^\"\n]*\")?\s*\)")
+_MD_STRONG = re.compile(r"(\*\*|__)(?=\S)(.+?)(?<=\S)\1", re.DOTALL)
+_MD_CODE = re.compile(r"`+([^`\n]+)`+")
 
-class SummaryCard(BaseModel):
+
+def _unwrap_link(match: re.Match[str]) -> str:
+    """Render a markdown link as the text a reader would have seen, plus its target.
+
+    The URL is KEPT, as literal text. Dropping it would be the one thing a
+    sanitiser of a legal citation must not do — silently delete part of what the
+    citation asserted — and keeping it as text is not a link: nothing downstream
+    turns a bare URL in a card field into an anchor. So the reader loses the
+    brackets and nothing else.
+    """
+    label = match.group(1).strip()
+    target = match.group(2).strip()
+    if not target or target == label:
+        return label
+    if not label:
+        return target
+    return f"{label} ({target})"
+
+
+def flatten_card_markup(value: str) -> str:
+    """Strip inline markdown delimiters from one card text value.
+
+    Idempotent, and a no-op on text that carries no markup — which is almost all
+    of it, so the common case costs three failed regex scans.
+    """
+    flattened = _MD_LINK.sub(_unwrap_link, value)
+    flattened = _MD_STRONG.sub(lambda m: m.group(2), flattened)
+    return _MD_CODE.sub(lambda m: m.group(1), flattened)
+
+
+def _flatten_markup_deep(value: Any) -> Any:
+    """Apply :func:`flatten_card_markup` to a string, or to the strings in a list.
+
+    Recurses through lists because ``TypedTableCard.rows`` is ``list[list[str]]``
+    — a table cell is as much on-screen text as a title is. Nested card models
+    are left alone here: they are :class:`CardModel` subclasses and have already
+    flattened their own fields by the time the parent validates. Anything else
+    (numbers, enums, dicts) passes through untouched.
+    """
+    if isinstance(value, str):
+        return flatten_card_markup(value)
+    if isinstance(value, list):
+        return [_flatten_markup_deep(item) for item in value]
+    return value
+
+
+class CardModel(BaseModel):
+    """Base for every card and every building block inside one.
+
+    Carries the plain-text guarantee described in the module docstring, in the
+    one place that covers all of it: a wildcard field validator, inherited by
+    every subclass, so a card type added next sprint is covered by BEING a card
+    rather than by someone remembering to annotate its fields. There are 177
+    free-text fields across 71 models here; an ``Annotated[str, …]`` per field
+    would be 177 chances to forget one.
+
+    It runs on EVERY emission path, because all of them go through
+    ``grid_card_adapter`` or :func:`validate_cards` — the ``emit_card`` tool, the
+    post-hoc batch generator, the shallow-researcher DSML path, project memory
+    and surfaced documents. Identifier-shaped fields (IFC GlobalIds, model file
+    names, JSON-pointer paths) inherit it too and are unaffected: none of the
+    three constructs can occur in one.
+    """
+
+    @field_validator("*", mode="after")
+    @classmethod
+    def _flatten_text_markup(cls, value: Any) -> Any:
+        return _flatten_markup_deep(value)
+
+
+class SummaryCard(CardModel):
     """A concise overview of the answer for the user."""
 
     type: Literal["summary"]
@@ -23,7 +128,7 @@ class SummaryCard(BaseModel):
     key_points: list[str] | None = Field(default=None, description="Bullet points highlighting key facts")
 
 
-class LegalBasisCard(BaseModel):
+class LegalBasisCard(CardModel):
     """A legal norm, regulation, or OIB Richtlinie that grounds the answer.
 
     ## Why `lane` is a lane key and not `'oib' | 'law'`
@@ -126,7 +231,7 @@ PROFILE_FACT_VOCABULARY = (
 )
 
 
-class ProjectProfilePatchOperation(BaseModel):
+class ProjectProfilePatchOperation(CardModel):
     """A JSON Patch operation targeting a project profile section."""
 
     op: Literal["add", "replace", "remove"]
@@ -157,7 +262,7 @@ class ProjectProfilePatchOperation(BaseModel):
         return v
 
 
-class ProjectProfilePatchPreviewItem(BaseModel):
+class ProjectProfilePatchPreviewItem(CardModel):
     """A before/after preview for a single patched field."""
 
     label: str
@@ -165,7 +270,7 @@ class ProjectProfilePatchPreviewItem(BaseModel):
     after: str
 
 
-class ProjectProfilePatchCard(BaseModel):
+class ProjectProfilePatchCard(CardModel):
     """Propose an update to the project brief (hard project facts) — applied only if the user accepts."""
 
     type: Literal["project_profile_patch"] = "project_profile_patch"
@@ -185,7 +290,7 @@ class ProjectProfilePatchCard(BaseModel):
     )
 
 
-class MemoryProposalCard(BaseModel):
+class MemoryProposalCard(CardModel):
     """A proposal to save a finding to long-term memory, confirmed by the user.
 
     System-emitted by the `remember` tool when an org-scoped write needs human
@@ -226,7 +331,7 @@ DimStatus = Literal["pass", "fail", "warning", "needs_input"]
 Provenance = Literal["declared", "computed", "inferred"]
 
 
-class NormReference(BaseModel):
+class NormReference(CardModel):
     """A verifiable pointer into a regulation (the atom of grounding).
 
     Every required value MUST carry one so the architect can verify it against
@@ -239,7 +344,7 @@ class NormReference(BaseModel):
     excerpt: str | None = Field(default=None, description="Literal quoted sentence grounding the value (<= ~200 chars)")
 
 
-class DimensionCheck(BaseModel):
+class DimensionCheck(CardModel):
     """One measured dimension drawn on a schematic and checked against a limit.
 
     `value` is the project's actual measurement (drawn to scale); `required` is
@@ -299,7 +404,7 @@ class DimensionCheck(BaseModel):
     )
 
 
-class SectionStorey(BaseModel):
+class SectionStorey(CardModel):
     """One storey in a building cross-section, drawn as a band to scale."""
 
     label: str = Field(min_length=1, description="Storey label, e.g. 'EG', '1.OG', 'KG'")
@@ -307,7 +412,7 @@ class SectionStorey(BaseModel):
     below_grade: bool = Field(default=False, description="True for basements/underground storeys")
 
 
-class SectionMarker(BaseModel):
+class SectionMarker(CardModel):
     """A horizontal reference line at a given height in the section."""
 
     label: str = Field(min_length=1, description="What the line marks, e.g. 'Fluchtniveau', 'GK4-Grenze'")
@@ -315,7 +420,7 @@ class SectionMarker(BaseModel):
     kind: Literal["fluchtniveau", "threshold", "reference"] = Field(default="reference", description="Styling role")
 
 
-class SetbackSide(BaseModel):
+class SetbackSide(CardModel):
     """A required distance from the building footprint to one parcel edge."""
 
     side: Literal["front", "back", "left", "right"] = Field(description="Which edge")
@@ -324,7 +429,7 @@ class SetbackSide(BaseModel):
     status: DimStatus = Field(description="Verdict for this side")
 
 
-class EgressSegment(BaseModel):
+class EgressSegment(CardModel):
     """One straight run of an escape path, drawn end-to-end with the next."""
 
     label: str = Field(min_length=1, description="Segment label, e.g. 'Raum → Gang', 'Gang → Treppenhaus'")
@@ -335,7 +440,7 @@ class EgressSegment(BaseModel):
 # ── Schematic cards ──────────────────────────────────────────────────────────
 
 
-class BuildingSectionCard(BaseModel):
+class BuildingSectionCard(CardModel):
     """A to-scale building cross-section (schematic) drawn from storey heights.
 
     Emit for height/Gebäudeklasse/Fluchtniveau questions where seeing the
@@ -352,7 +457,7 @@ class BuildingSectionCard(BaseModel):
     note: str | None = Field(default=None, description="Optional clarification")
 
 
-class StairDiagramCard(BaseModel):
+class StairDiagramCard(CardModel):
     """A staircase drawn to scale (schematic section) with step-geometry checks.
 
     Emit for stair questions (e.g. 'does a flight of 17 steps with 18 cm
@@ -371,7 +476,7 @@ class StairDiagramCard(BaseModel):
     reference: NormReference = Field(description="Source of the step-geometry limits")
 
 
-class DimensionDiagramCard(BaseModel):
+class DimensionDiagramCard(CardModel):
     """A parametric accessibility/geometry schematic with dimension arrows.
 
     Emit for clearance questions (door width, ramp gradient, turning circle,
@@ -390,7 +495,7 @@ class DimensionDiagramCard(BaseModel):
     note: str | None = Field(default=None, description="Optional clarification")
 
 
-class SetbackPlanCard(BaseModel):
+class SetbackPlanCard(CardModel):
     """A top-down site plan (schematic): parcel, footprint, and setback envelopes.
 
     Emit for Abstandsflächen/Bauwich questions ('does the building keep the
@@ -408,7 +513,7 @@ class SetbackPlanCard(BaseModel):
     reference: NormReference = Field(description="Source of the setback requirements")
 
 
-class EgressDiagramCard(BaseModel):
+class EgressDiagramCard(CardModel):
     """A schematic escape-route (Fluchtweg) path with the total length checked.
 
     Emit for escape-route-length questions ('is a Fluchtweg of 12 m + 26 m
@@ -428,7 +533,7 @@ class EgressDiagramCard(BaseModel):
 # ── Schematic cards (wave 2) ─────────────────────────────────────────────────
 
 
-class Obstruction(BaseModel):
+class Obstruction(CardModel):
     """An object blocking daylight (opposing building, own projection)."""
 
     distance_m: float = Field(gt=0, description="Horizontal distance from the window in metres")
@@ -436,7 +541,7 @@ class Obstruction(BaseModel):
     label: str = Field(min_length=1, description="What it is, e.g. 'Gegenüberliegendes Gebäude'")
 
 
-class DaylightIncidenceCard(BaseModel):
+class DaylightIncidenceCard(CardModel):
     """A daylight (Belichtung) schematic: the 45° free-light line vs obstructions.
 
     Emit for daylight/Belichtung questions (OIB 3). Draws a window section, the
@@ -456,7 +561,7 @@ class DaylightIncidenceCard(BaseModel):
     note: str | None = Field(default=None, description="Optional clarification")
 
 
-class GuardrailCheckCard(BaseModel):
+class GuardrailCheckCard(CardModel):
     """An Absturzsicherung (guardrail) elevation with the interacting limits.
 
     Emit for guardrail/railing questions (OIB 4). Draws the railing to scale and
@@ -476,7 +581,7 @@ class GuardrailCheckCard(BaseModel):
     note: str | None = Field(default=None, description="Optional clarification")
 
 
-class DensityCheckCard(BaseModel):
+class DensityCheckCard(CardModel):
     """A site-density schematic: parcel + footprint + coverage/density bars.
 
     Emit for Bebauungsdichte/Bebauungsgrad/GFZ questions. Draws the parcel with
@@ -496,7 +601,7 @@ class DensityCheckCard(BaseModel):
     note: str | None = Field(default=None, description="Optional clarification")
 
 
-class AufstellflaechePlan(BaseModel):
+class AufstellflaechePlan(CardModel):
     """The fire-brigade Aufstellfläche geometry."""
 
     width: DimensionCheck = Field(description="Aufstellfläche width (m)")
@@ -504,7 +609,7 @@ class AufstellflaechePlan(BaseModel):
     distance_to_facade: DimensionCheck | None = Field(default=None, description="Distance to the facade (m)")
 
 
-class FireAccessPlanCard(BaseModel):
+class FireAccessPlanCard(CardModel):
     """A fire-brigade access (Feuerwehrzufahrt) site plan schematic.
 
     Emit for fire-access questions (OIB 2 / TRVB). Top-down plan: access route
@@ -528,7 +633,7 @@ class FireAccessPlanCard(BaseModel):
     note: str | None = Field(default=None, description="Optional clarification")
 
 
-class AcousticCheckItem(BaseModel):
+class AcousticCheckItem(CardModel):
     """One sound-insulation check between two building parts."""
 
     path_label: str = Field(min_length=1, description="What is separated, e.g. 'Wohnungstrennwand Top 3/Top 4'")
@@ -537,7 +642,7 @@ class AcousticCheckItem(BaseModel):
     reference: NormReference = Field(description="Source of the dB limit (OIB 5 / ÖNORM B 8115-2)")
 
 
-class AcousticCheckCard(BaseModel):
+class AcousticCheckCard(CardModel):
     """Sound-insulation (Schallschutz) gauges — direction-aware dB checks.
 
     Emit for Schallschutz questions (OIB 5). One gauge per building-part pair:
@@ -556,7 +661,7 @@ class AcousticCheckCard(BaseModel):
 # ── Schematic cards (wave 3) ─────────────────────────────────────────────────
 
 
-class FireCompartment(BaseModel):
+class FireCompartment(CardModel):
     """One Brandabschnitt (fire compartment) drawn as a band, area-checked."""
 
     label: str = Field(min_length=1, description="Compartment name, e.g. 'BA 1 – Wohnungen OG'")
@@ -564,7 +669,7 @@ class FireCompartment(BaseModel):
     use: str | None = Field(default=None, description="Nutzung, e.g. 'Wohnen', 'Büro', 'Tiefgarage'")
 
 
-class FireCompartmentCard(BaseModel):
+class FireCompartmentCard(CardModel):
     """A fire-compartment (Brandabschnitt) plan: a storey split into compartments.
 
     Emit for Brandabschnitt questions (OIB 2): draws the storey outline divided
@@ -582,7 +687,7 @@ class FireCompartmentCard(BaseModel):
     note: str | None = Field(default=None, description="Optional clarification")
 
 
-class EnvelopeComponent(BaseModel):
+class EnvelopeComponent(CardModel):
     """One thermal-envelope component with its U-value checked against a limit."""
 
     label: str = Field(min_length=1, description="Component, e.g. 'Außenwand', 'Dach', 'Fenster'")
@@ -590,7 +695,7 @@ class EnvelopeComponent(BaseModel):
     u_value: DimensionCheck = Field(description="U-Wert W/(m²K) vs the max U-value (lower is better, '<=')")
 
 
-class ThermalEnvelopeCard(BaseModel):
+class ThermalEnvelopeCard(CardModel):
     """A thermal-envelope (Wärmeschutz) schematic: U-values per building part.
 
     Emit for U-Wert / Wärmeschutz questions (OIB 6). Draws a simple building
@@ -606,7 +711,7 @@ class ThermalEnvelopeCard(BaseModel):
     note: str | None = Field(default=None, description="Optional clarification")
 
 
-class EnergyPerformanceCard(BaseModel):
+class EnergyPerformanceCard(CardModel):
     """An energy-performance (Energieausweis) card: HWB on the A–G class ladder.
 
     Emit for Energieausweis / Heizwärmebedarf questions (OIB 6). Draws the
@@ -623,7 +728,7 @@ class EnergyPerformanceCard(BaseModel):
     note: str | None = Field(default=None, description="Optional clarification")
 
 
-class ElevatorRequirementCard(BaseModel):
+class ElevatorRequirementCard(CardModel):
     """A barrier-free-elevator (Aufzug) card: requirement + cabin dimensions.
 
     Emit for Aufzug / barrierefreie-Erschließung questions (OIB 4). Draws the
@@ -645,7 +750,7 @@ class ElevatorRequirementCard(BaseModel):
     note: str | None = Field(default=None, description="Optional clarification")
 
 
-class ParkingRequirementCard(BaseModel):
+class ParkingRequirementCard(CardModel):
     """A parking-provision (Stellplatznachweis) card: required vs provided count.
 
     Emit for Stellplatz / Fahrradabstellplatz questions (Bauordnung /
@@ -666,7 +771,7 @@ class ParkingRequirementCard(BaseModel):
 # ── Structured non-schematic cards ───────────────────────────────────────────
 
 
-class ChecklistItem(BaseModel):
+class ChecklistItem(CardModel):
     """One requirement in a checklist, with its verdict and grounding."""
 
     label: str = Field(min_length=1, description="The requirement, e.g. 'Zweiter Fluchtweg vorhanden'")
@@ -675,7 +780,7 @@ class ChecklistItem(BaseModel):
     reference: NormReference | None = Field(default=None, description="Where this requirement comes from")
 
 
-class RequirementChecklistCard(BaseModel):
+class RequirementChecklistCard(CardModel):
     """A requirement checklist: several pass/fail criteria for one question.
 
     Emit when an answer boils down to a list of criteria read against the
@@ -691,7 +796,7 @@ class RequirementChecklistCard(BaseModel):
     note: str | None = Field(default=None, description="Optional clarification")
 
 
-class ComparisonRow(BaseModel):
+class ComparisonRow(CardModel):
     """One criterion compared across the options (one value per option)."""
 
     label: str = Field(min_length=1, description="Criterion, e.g. 'max. Brandabschnittsfläche'")
@@ -701,7 +806,7 @@ class ComparisonRow(BaseModel):
     )
 
 
-class ComparisonTableCard(BaseModel):
+class ComparisonTableCard(CardModel):
     """A side-by-side comparison of a small number of options.
 
     Emit when the user weighs alternatives (GK 4 vs GK 5, two escape-route
@@ -737,7 +842,7 @@ class ComparisonTableCard(BaseModel):
         return self
 
 
-class VerdictHeaderCard(BaseModel):
+class VerdictHeaderCard(CardModel):
     """The answer's verdict (TL;DR) rendered as a structural header on top.
 
     Emit at the very TOP of an answer whose core is a single headline result —
@@ -769,7 +874,7 @@ class VerdictHeaderCard(BaseModel):
     )
 
 
-class ConditionBranch(BaseModel):
+class ConditionBranch(CardModel):
     """One branch of a condition tree: a case and the answer that holds under it."""
 
     condition: str = Field(min_length=1, description="The case this branch covers, e.g. 'GK 1–3'")
@@ -783,7 +888,7 @@ class ConditionBranch(BaseModel):
     )
 
 
-class ConditionTreeCard(BaseModel):
+class ConditionTreeCard(CardModel):
     """A decision tree (Bedingungsbaum) for an answer that turns on one factor.
 
     Emit for the domain's most common answer shape — 'it depends on the
@@ -835,7 +940,7 @@ class ConditionTreeCard(BaseModel):
         return self
 
 
-class TypedColumn(BaseModel):
+class TypedColumn(CardModel):
     """One column of a typed table, declaring how its cells are rendered."""
 
     label: str = Field(min_length=1, description="Column header, e.g. 'Bauteil', 'Mindestmaß'")
@@ -852,13 +957,26 @@ class TypedColumn(BaseModel):
     )
 
 
-class TypedTableCard(BaseModel):
-    """A generic table whose columns declare their type so cells render right.
+# The opening line of this docstring IS the always-on L1 index entry
+# (`catalog.render_card_index` takes the first line and nothing else), so it is
+# written as an imperative in the same register as `process_map`, `callout` and
+# `key_takeaways`. It read as pure description — "A generic table whose columns
+# declare their type so cells render right" — while being the card TWO doctrine
+# rows and the `condition_tree` docstring both redirect to. A redirect only lands
+# if the destination says "emit me" as loudly as the card doing the redirecting;
+# the field case was an answer that took `condition_tree` because that card's
+# shape was already in context and its own line told the model to emit it.
+class TypedTableCard(CardModel):
+    """Emit for rows that are all true at once, and for any table no card covers.
 
-    Emit for a tabular answer no purpose-built card covers — one card for the
-    long tail instead of a bespoke type per table. Each column names its `type`
-    so the frontend right-aligns measurements and dates, renders a verdict as a
-    status chip and a norm as emphasised, rather than every cell as flat text.
+    Rows that hold SIMULTANEOUSLY — the topmost storey AND the other storeys AND
+    the basement, three parts of one building rather than three cases of one
+    project — belong here and not in a `condition_tree`, whose branches are
+    mutually exclusive. This is also the long tail: a tabular answer no
+    purpose-built card covers gets this one card instead of a bespoke type per
+    table. Each column names its `type` so the frontend right-aligns measurements
+    and dates, renders a verdict as a status chip and a norm as emphasised,
+    rather than every cell as flat text.
     """
 
     type: Literal["typed_table"]
@@ -887,7 +1005,7 @@ class TypedTableCard(BaseModel):
         return self
 
 
-class NormChainLink(BaseModel):
+class NormChainLink(CardModel):
     """One link in a norm hierarchy, with the rank that sets its visual weight."""
 
     label: str = Field(min_length=1, description="The norm's name, e.g. 'OIB-Richtlinie 2', 'ÖNORM B 1600'")
@@ -908,7 +1026,7 @@ class NormChainLink(BaseModel):
     )
 
 
-class NormChainCard(BaseModel):
+class NormChainCard(CardModel):
     """The norm hierarchy (Normenkette) for this answer, binding vs interpretive.
 
     Emit when the answer rests on a CHAIN of norms rather than a single one — a
@@ -933,7 +1051,7 @@ class NormChainCard(BaseModel):
 # find for themselves.
 
 
-class KeyTakeaway(BaseModel):
+class KeyTakeaway(CardModel):
     """One takeaway: the line the reader leaves with, plus the detail behind it."""
 
     text: str = Field(
@@ -949,7 +1067,7 @@ class KeyTakeaway(BaseModel):
     )
 
 
-class KeyTakeawaysCard(BaseModel):
+class KeyTakeawaysCard(CardModel):
     """Emit for the two to five points the reader must take away from any answer.
 
     The generic upgrade over a markdown bullet list, and the one card that fits
@@ -972,7 +1090,7 @@ class KeyTakeawaysCard(BaseModel):
     )
 
 
-class CalloutCard(BaseModel):
+class CalloutCard(CardModel):
     """Emit for the single caveat, deadline or tip that must not drown in a paragraph.
 
     One framed remark, deliberately small and domain-free. `kind` sets the tone
@@ -1007,7 +1125,7 @@ class CalloutCard(BaseModel):
     )
 
 
-class FollowUp(BaseModel):
+class FollowUp(CardModel):
     """One next question, written out in full so it can be sent as it stands."""
 
     question: str = Field(
@@ -1029,7 +1147,7 @@ class FollowUp(BaseModel):
     )
 
 
-class FollowUpsCard(BaseModel):
+class FollowUpsCard(CardModel):
     """Emit at the END of an answer: the two to four questions this answer just made askable.
 
     The reader who now knows what a Fluchtniveau is has a next question and no
@@ -1109,7 +1227,7 @@ referencing an earlier one's result (:attr:`CalculationOperand.step`).
 """
 
 
-class CalculationOperand(BaseModel):
+class CalculationOperand(CardModel):
     """One number entering a step of the derivation, with where it came from.
 
     Either a literal ``value`` or a reference to an earlier ``step`` — never
@@ -1193,7 +1311,7 @@ class CalculationOperand(BaseModel):
         return self
 
 
-class CalculationStep(BaseModel):
+class CalculationStep(CardModel):
     """One line of the Rechenweg: an operation over its operands.
 
     The step states no result. The renderer evaluates ``operation`` over
@@ -1234,7 +1352,7 @@ class CalculationStep(BaseModel):
         return self
 
 
-class CalculationLimit(BaseModel):
+class CalculationLimit(CardModel):
     """The Bestimmung the derived result is held against.
 
     The comparator and the bound are the model's to supply — they are read out
@@ -1268,7 +1386,7 @@ class CalculationLimit(BaseModel):
         return self
 
 
-class CalculationCard(BaseModel):
+class CalculationCard(CardModel):
     """Emit for the arithmetic behind a number — the Rechenweg a Ziviltechniker re-checks.
 
     Whenever the answer computes something (the Schrittmaßregel, a GFZ, a
@@ -1319,7 +1437,7 @@ class CalculationCard(BaseModel):
         return self
 
 
-class ProcessStep(BaseModel):
+class ProcessStep(CardModel):
     """One station of a Verfahren, with what it needs and what it produces."""
 
     label: str = Field(min_length=1, description="The step's name, e.g. 'Einreichung', 'Bauverhandlung'")
@@ -1349,7 +1467,7 @@ class ProcessStep(BaseModel):
     )
 
 
-class ProcessMapCard(BaseModel):
+class ProcessMapCard(CardModel):
     """Emit for „wie läuft das ab" — the ordered Verfahren, with where this project stands.
 
     Einreichung → Bauverhandlung → Baubewilligung → Baubeginnsanzeige →
@@ -1420,7 +1538,7 @@ is to say something the conversation established.
 """
 
 
-class RequiredDocument(BaseModel):
+class RequiredDocument(CardModel):
     """One document on the Einreichliste, with the state a bare list drops.
 
     „Was brauche ich für die Einreichung?" is one of the most common questions
@@ -1486,7 +1604,7 @@ class RequiredDocument(BaseModel):
         return self
 
 
-class DocumentChecklistCard(BaseModel):
+class DocumentChecklistCard(CardModel):
     """Emit for „welche Unterlagen brauche ich" — the Einreichliste as a worked list.
 
     The answer to that question is not a list of names, it is a list of STATES:
@@ -1529,7 +1647,7 @@ class DocumentChecklistCard(BaseModel):
 _CALENDAR_DATE = re.compile(r"\d{1,2}\.\s?\d{1,2}\.\s?\d{2,4}|\d{4}-\d{2}-\d{2}")
 
 
-class Deadline(BaseModel):
+class Deadline(CardModel):
     """One Frist of a Bauverfahren: how long it runs, and what starts the clock.
 
     `starts_from` is required, and that is the design. A period without its
@@ -1585,7 +1703,7 @@ class Deadline(BaseModel):
         return self
 
 
-class DeadlineTimelineCard(BaseModel):
+class DeadlineTimelineCard(CardModel):
     """Emit for the FRISTEN of a Verfahren — several clocks, in the order they run.
 
     `callout` carries one Frist. A Bauverfahren has several in sequence —
@@ -1629,7 +1747,7 @@ changed) or mislabelling it.
 """
 
 
-class ChangeConsequence(BaseModel):
+class ChangeConsequence(CardModel):
     """One requirement that moves when the trigger fact moves, with its Fundstelle.
 
     `reference` is required here and optional almost everywhere else. This card
@@ -1681,7 +1799,7 @@ class ChangeConsequence(BaseModel):
         return self
 
 
-class ChangeImpactCard(BaseModel):
+class ChangeImpactCard(CardModel):
     """Emit for „was passiert, wenn X sich ändert" — one changed fact, and what it costs.
 
     The card a planner needs while the design is still moving: „was passiert,
@@ -1735,7 +1853,7 @@ class ChangeImpactCard(BaseModel):
 # render the same rich file-explorer card the Files page uses.
 
 
-class SurfacedDocument(BaseModel):
+class SurfacedDocument(CardModel):
     """One real document surfaced by a corpus search, with its match evidence."""
 
     file_name: str = Field(min_length=1, description="Exact indexed file name (resolves to the live document row)")
@@ -1748,7 +1866,7 @@ class SurfacedDocument(BaseModel):
     )
 
 
-class DocumentGridCard(BaseModel):
+class DocumentGridCard(CardModel):
     """Project/Büroarchiv files the user asked to see.
 
     System-emitted by ``surface_documents``. One file or a short browse
@@ -1777,7 +1895,7 @@ class DocumentGridCard(BaseModel):
 # and says how many highlights it could not resolve, rather than pretending.
 
 
-class IfcPropertyMatch(BaseModel):
+class IfcPropertyMatch(CardModel):
     """One property predicate, in ifc_query's own filter grammar."""
 
     name: str = Field(min_length=1, description="Property name, e.g. 'IsExternal' or 'FireRating'")
@@ -1794,7 +1912,7 @@ class IfcPropertyMatch(BaseModel):
     )
 
 
-class IfcElementMatch(BaseModel):
+class IfcElementMatch(CardModel):
     """The SET of elements to highlight, as a filter rather than a list of ids.
 
     Exactly the ``filters`` object passed to ``ifc_query`` — the browser re-runs
@@ -1842,7 +1960,7 @@ class IfcElementMatch(BaseModel):
         )
 
 
-class IfcHighlight(BaseModel):
+class IfcHighlight(CardModel):
     """One set of model elements to call out, with a verdict.
 
     EXACTLY ONE of ``match`` or ``global_ids`` — never both, never neither.
@@ -1898,7 +2016,7 @@ class IfcHighlight(BaseModel):
         return self
 
 
-class IfcViewerCard(BaseModel):
+class IfcViewerCard(CardModel):
     """The project's IFC model, rendered in 3D, with findings highlighted on it.
 
     Use when the answer is ABOUT specific parts of the building and seeing them
@@ -1924,7 +2042,7 @@ class IfcViewerCard(BaseModel):
     note: str | None = Field(default=None, description="Optional one-line clarification under the viewer")
 
 
-class IfcScheduleCard(BaseModel):
+class IfcScheduleCard(CardModel):
     """The project's Raumbuch (room schedule) straight from the model.
 
     The card names WHICH table to show; the frontend fetches the numbers from
@@ -1948,7 +2066,7 @@ class IfcScheduleCard(BaseModel):
     note: str | None = Field(default=None, description="Optional one-line clarification")
 
 
-class IfcComplianceCard(BaseModel):
+class IfcComplianceCard(CardModel):
     """The Prüfbuch: OIB requirements with their verdict against this model.
 
     Carries only WHICH requirements to show; the frontend runs the catalogue and
@@ -1984,7 +2102,7 @@ class IfcComplianceCard(BaseModel):
     note: str | None = Field(default=None, description="Optional one-line clarification")
 
 
-class IfcElementCard(BaseModel):
+class IfcElementCard(CardModel):
     """One element of the model, in full, with a link into the 3D view.
 
     Use when the answer is ABOUT a specific element the user will want to look
@@ -2004,7 +2122,7 @@ class IfcElementCard(BaseModel):
     note: str | None = Field(default=None, description="Why this element matters to the answer")
 
 
-class IfcDiffCard(BaseModel):
+class IfcDiffCard(CardModel):
     """What changed between two revisions of the model.
 
     Names the two files; the frontend computes the comparison by IFC GlobalId.
@@ -2021,7 +2139,7 @@ class IfcDiffCard(BaseModel):
     note: str | None = Field(default=None, description="Optional one-line clarification")
 
 
-class IfcModelPickerCard(BaseModel):
+class IfcModelPickerCard(CardModel):
     """A clickable list of the project's IFC models — pick one to open in the viewer.
 
     Emit for "zeig mir das Modell" / "welches Modell" when the user wants to SEE
@@ -2094,6 +2212,7 @@ __all__ = [
     "CalculationOperand",
     "CalculationStep",
     "CalloutCard",
+    "CardModel",
     "ChangeConsequence",
     "ChangeImpactCard",
     "ChecklistItem",
@@ -2133,6 +2252,7 @@ __all__ = [
     "TypedColumn",
     "TypedTableCard",
     "VerdictHeaderCard",
+    "flatten_card_markup",
     "grid_card_adapter",
     "validate_cards",
 ]

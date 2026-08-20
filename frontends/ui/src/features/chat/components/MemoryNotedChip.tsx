@@ -14,16 +14,19 @@ import {
 import { Chip, ChipCount } from '@/components/ui/chip'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useTranslations } from '@/i18n'
-import type { ConversationMemoryItem } from '../hooks/use-conversation-memory'
+import type { TurnMemoryItem } from '../lib/turn-memory'
 
 interface MemoryNotedChipProps {
   /**
-   * The items recorded during this conversation. Fetched ONCE by the answer that
-   * owns the footer, because the answer also needs to know whether any exist to
-   * decide whether the meta row renders at all — a second `useConversationMemory`
-   * here would poll the same endpoint twice per answer.
+   * What was recorded during THIS TURN — derived from the message itself by
+   * `turnMemoryItems`, not fetched. Computed by the answer that owns the footer
+   * because the answer also needs to know whether any exist to decide whether
+   * the meta row renders at all.
+   *
+   * It used to be the whole conversation's memory, polled per rendered answer,
+   * so after turn five turn one's answer also read „Piloti hat sich 5 gemerkt".
    */
-  items: ConversationMemoryItem[]
+  items: TurnMemoryItem[]
 }
 
 const KIND_META: Record<string, { icon: LucideIcon; labelKey: string }> = {
@@ -35,17 +38,17 @@ const KIND_META: Record<string, { icon: LucideIcon; labelKey: string }> = {
 }
 
 /**
- * "Piloti noted N" — surfaces the memory items recorded during a
- * conversation turn (both the in-turn `remember` tool and the async
- * post-answer reflection stage), which otherwise land silently. Renders nothing
+ * "Piloti noted N" — what this ONE TURN recorded, which otherwise lands
+ * silently: the in-turn `remember` tool's writes and the post-answer reflection
+ * stage's, labelled apart because they are different promises. Renders nothing
  * until at least one item exists.
  */
 export const MemoryNotedChip: FC<MemoryNotedChipProps> = ({ items }) => {
   const t = useTranslations('chat')
 
-  /** In-turn `remember` vs the async reflection stage (provenance 'distillation'). */
-  const provenanceLabel = (provenanceType: string): string =>
-    provenanceType === 'distillation'
+  /** In-turn `remember` vs the async reflection stage. */
+  const provenanceLabel = (provenance: string): string =>
+    provenance === 'distillation'
       ? t('memory.provenance.distillation')
       : t('memory.provenance.inTurn')
 
@@ -72,7 +75,7 @@ export const MemoryNotedChip: FC<MemoryNotedChipProps> = ({ items }) => {
             const meta = KIND_META[item.kind]
             const Icon = meta?.icon ?? FileText
             const label = meta ? t(meta.labelKey) : item.kind
-            const fromReflection = item.provenanceType === 'distillation'
+            const fromReflection = item.provenance === 'distillation'
             return (
               <li key={item.id} className="flex gap-2.5 px-4 py-2.5">
                 <Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -83,7 +86,7 @@ export const MemoryNotedChip: FC<MemoryNotedChipProps> = ({ items }) => {
                     <span aria-hidden="true">·</span>
                     <span className="inline-flex items-center gap-1">
                       {fromReflection && <Sparkles className="size-3" aria-hidden="true" />}
-                      {provenanceLabel(item.provenanceType)}
+                      {provenanceLabel(item.provenance)}
                     </span>
                   </p>
                 </div>

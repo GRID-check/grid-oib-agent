@@ -248,6 +248,13 @@ class GridCostTracker(BaseCallbackHandler):
         self._pending: list[UsageEvent] = []
         self._events_recorded = 0
         self._turn_cost_usd = 0.0
+        # Token totals alongside the cost total. The ledger keeps the per-call
+        # detail; these exist so an in-process caller that wraps a bounded piece
+        # of work — a post-answer stage — can put what it spent on its own
+        # telemetry, which `llm_usage_events` cannot answer because it has no
+        # stage dimension.
+        self._prompt_tokens = 0
+        self._completion_tokens = 0
         # Requested model per LLM run: deep research fires concurrent LLM
         # calls (possibly on different models), so a single shared slot would
         # attribute one call's usage to whichever model started last. Keyed by
@@ -309,6 +316,8 @@ class GridCostTracker(BaseCallbackHandler):
             self._pending.append(event)
             self._events_recorded += 1
             self._turn_cost_usd += event.cost_usd
+            self._prompt_tokens += event.prompt_tokens
+            self._completion_tokens += event.completion_tokens
             should_flush = len(self._pending) >= _FLUSH_BATCH_SIZE
         if should_flush:
             self.flush(wait=False)
@@ -329,6 +338,16 @@ class GridCostTracker(BaseCallbackHandler):
     @property
     def events_recorded(self) -> int:
         return self._events_recorded
+
+    @property
+    def prompt_tokens(self) -> int:
+        """Prompt tokens across every call tracked in this scope."""
+        return self._prompt_tokens
+
+    @property
+    def completion_tokens(self) -> int:
+        """Completion tokens (reasoning included) across every call tracked."""
+        return self._completion_tokens
 
     def flush(self, *, wait: bool) -> None:
         """Send pending events to the internal ledger endpoint.

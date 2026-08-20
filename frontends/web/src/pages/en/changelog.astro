@@ -1,0 +1,16 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import Changelog from '../../components/organisms/Changelog.astro'
+import { ui } from '../../i18n/ui'
+
+const t = ui.en.changelog
+---
+
+<BaseLayout locale="en" title={t.metaTitle} description={t.metaDescription}>
+  <Changelog locale="en" />
+</BaseLayout>
+
+<script>
+  import { initReveals } from '../../scripts/reveal'
+  initReveals()
+</script>

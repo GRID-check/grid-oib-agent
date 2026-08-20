@@ -103,7 +103,7 @@ The schema generator flattens **every** `$ref` to `z.any()` — not only arrays 
 
 ### 0.7 Doctrine that shapes the design
 
-Two content cards is a turn's budget, one is usual, three is too many, and `follow_ups` does not count (catalog.py `_CARD_RESTRAINT`). **So the set is rarely seen together. Design each card for solo appearance beside prose, not for a gallery.** The gallery is a debugging tool, not the product.
+Two content cards is a turn's budget, one is usual, three is too many (catalog.py `_CARD_RESTRAINT`). **So the set is rarely seen together. Design each card for solo appearance beside prose, not for a gallery.** The gallery is a debugging tool, not the product.
 
 ---
 
@@ -473,7 +473,9 @@ All three landed in commit `67c2ee03`. **They are well-built**: derived tallies 
 
 ## C. Ranking
 
-Axis: **(visual poverty today) × (how often the model emits it)**. Frequency is read off the trigger table (catalog.py:80–107) and the doctrine: `follow_ups` closes *every* subject-matter answer by default; the generic answer shapes fire on almost any OIB question; a schematic fires only when the question names its geometry; IFC cards fire only with a model loaded.
+Axis: **(visual poverty today) × (how often the model emits it)**. Frequency is read off the trigger table (catalog.py:80–107) and the doctrine: `follow_ups` closes *every* subject-matter answer by default; the generic answer shapes fire on almost any OIB question;
+
+> **Since this was written:** `follow_ups` is retired — the model emits none, and the post-answer STAGE produces the questions instead, rendered below the answer rather than inside it (`docs/architecture/post-answer-stages.md` §7.10). The ranking below is left as the record of a decision already taken and shipped; `FollowUpsCard.tsx` still draws every stored card and the rail, so §B1's flat register is still what a reader sees. a schematic fires only when the question names its geometry; IFC cards fire only with a model loaded.
 
 Poverty was assessed by reading the JSX **and by looking at the captured gallery** (`visual/screenshots/cards-gallery.{light,dark}.png`, desktop and mobile) — the three-newest-cards finding in §0.2 came from looking, not from reading.
 
@@ -529,8 +531,8 @@ The acceptance test for every design here: **a reader extracts the card's headli
 **5. No meaning that lives only in the pixels.**
 `src/lib/answer-export/cards.ts` is a generic field walker: it turns each card into tables and labelled blocks for .docx and markdown. **Anything expressed only through drawn geometry, colour, or spatial arrangement is lost on export.** Every concept in §B must therefore name a field or a word that carries its meaning in the export. Worked examples of the rule being satisfied:
 
-- `change_impact`'s struck-through `before` → `direction` is a wire field and its German word („verschärft") exports.
-- `norm_chain`'s stepped terrace → `rank` is a wire field and the „bindend"/„auslegend" tag exports.
+- `change_impact`'s struck-through `before` → `direction` is a wire field, and the export translates it through `answerExport.values.direction`, so „verschärft" — not `tightens` — reaches the document. The same map covers every other closed vocabulary a card carries (`operation`, `requirement`, `provenance`, `status`, …), and `label-coverage.spec.ts` derives the members from the card schema, so a member added to a `Literal` fails the build rather than shipping an English word.
+- `norm_chain`'s stepped terrace → `rank` is a wire field, and its word carries the tag with it: `answerExport.values.rank` spells `verordnung` as „Verordnung (bindend)" and `oenorm` as „ÖNORM (auslegend)". The terrace is a picture of that parenthesis; the export states it.
 - `requirement_checklist`'s tally bar → the derived sentence „3 von 7 offen" is text and exports; the bar is redundant reinforcement.
 - `deadline_timeline`'s dashed spine → the footer sentence saying the rail is not to scale exports.
 - `condition_tree`'s active branch → carried four ways including the Konjunktiv/Indikativ distinction in the German itself, which survives export, greyscale and cropping.
@@ -545,6 +547,8 @@ A new card uses the shell and picks one of three registers, or it does not ship.
 
 **8. No card that restates the prose beside it.**
 Already doctrine (catalog.py `_CARD_RESTRAINT`) and also a design rule: a card that is a restatement cannot be made beautiful, only bigger. If a proposed redesign only works by giving the card more to say, the card should not have been emitted.
+
+The test is FORM, not facts — a scope the doctrine states out loud since two field transcripts were cut by the broad reading. An answer whose prose already enumerates its cases shares every fact with the card that would show them, so "says what the prose says" vetoed exactly the answers a card helps most. Three Lagen with their Anforderung and Fundstelle as a table is not three sentences said again; it is three sentences the reader no longer has to align by hand. Same words in the same shape still loses the card.
 
 **9. No sketch stroke on anything that is not physical geometry** — and no crisp stroke on physical geometry inside the schematics. The rule cuts both ways, which is why `parking_requirement` is on the fix list and `energy_performance` is exempted by name.
 

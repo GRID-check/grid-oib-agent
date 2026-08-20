@@ -1,0 +1,16 @@
+---
+features:
+  - >
+    Follow-up questions now appear under every substantive answer, instead of
+    only on the answers Piloti happened to offer them on. They arrive a moment
+    after the answer and sit below it rather than inside it, so they never move
+    the text you are reading.
+upgrade:
+  - >
+    Follow-up questions in older conversations stay exactly where they were,
+    inside the answer. Nothing was regenerated and nothing was removed — the
+    two positions are simply what changed, and old threads keep their chips.
+  - >
+    A finished deep-research report no longer carries follow-up questions. The
+    new step runs on chat answers, and a report is written after the chat turn
+    has already ended.

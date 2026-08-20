@@ -1,8 +1,16 @@
 """Tests for the async post-answer memory-reflection stage."""
 
+import asyncio
+import dataclasses
+
 import pytest
 
 from aiq_agent.agents.project_memory import reflection as R
+from aiq_agent.common import AgentGroup
+from aiq_agent.stages import TurnFacts
+from aiq_agent.stages import registry as stage_registry
+from aiq_agent.stages import schedule_post_answer_stages
+from aiq_agent.stages.memory_reflection import MEMORY_REFLECTION
 
 
 class _FakeResponse:
@@ -293,7 +301,9 @@ class TestRunMemoryReflection:
             memory_digest="(none)",
         )
 
-        assert ids == ["id-1"]
+        # What it wrote, not merely how much: the id, the kind and the words —
+        # the post-answer stage puts these on the wire, and the chip renders them.
+        assert ids == [{"id": "id-1", "kind": "decision", "content": "Client chose a flat roof."}]
         assert recorded[0]["scope"] == "project"
         assert recorded[0]["project_id"] == "proj-1"
         assert recorded[0]["kind"] == "decision"
@@ -331,7 +341,7 @@ class TestRunMemoryReflection:
             memory_digest=digest,
         )
 
-        assert ids == ["id-1"]
+        assert [item["id"] for item in ids] == ["id-1"]
         assert recorded[0]["supersedes_content"] == "OIB-RL 2.1 ist nicht anwendbar"
 
     @pytest.mark.asyncio
@@ -424,89 +434,83 @@ class TestRunMemoryReflection:
         assert ids == []  # error swallowed, nothing recorded
 
 
-class TestScheduleMemoryReflection:
+class TestMemoryReflectionAsAStage:
+    """The same behaviours the bespoke scheduler used to guarantee, now going
+    through the post-answer stage runner. This is the migration's own test: what
+    reflection does must be unchanged, only how it is wired and bounded."""
+
+    def _facts(self, **overrides):
+        base = TurnFacts(
+            conversation_id="c",
+            organization_id=None,
+            project_id="proj-1",
+            query="q",
+            answer="a",
+            intent="research",
+            enabled_stages=frozenset({"memory_reflection"}),
+        )
+        return dataclasses.replace(base, **overrides)
+
+    async def _run(self, facts, llm):
+        tasks = schedule_post_answer_stages(facts, llms={AgentGroup.MEMORY_REFLECTION: llm})
+        outcomes = await asyncio.gather(*tasks)
+        return {outcome.stage_id: outcome for outcome in outcomes}
+
     @pytest.mark.asyncio
     async def test_schedules_and_runs(self, monkeypatch):
         recorded = []
         monkeypatch.setattr(R, "insert_memory_item", lambda **k: recorded.append(k) or "id-1")
         llm = _FakeLLM('{"findings": [{"kind": "decision", "content": "Chose district heating."}]}')
 
-        task = R.schedule_memory_reflection(
-            llm=llm,
-            query="q",
-            answer="a",
-            project_id="proj-1",
-            organization_id=None,
-            conversation_id="c",
-            memory_digest=None,
-        )
-        assert task is not None
-        await task
+        outcomes = await self._run(self._facts(), llm)
+
         assert len(recorded) == 1
+        assert outcomes["memory_reflection"].status == "ready"
+        assert outcomes["memory_reflection"].payload == {
+            "items": [{"id": "id-1", "kind": "decision", "content": "Chose district heating."}]
+        }
 
     @pytest.mark.asyncio
     async def test_no_llm_is_noop(self):
-        assert (
-            R.schedule_memory_reflection(
-                llm=None,
-                query="q",
-                answer="a",
-                project_id="proj-1",
-                organization_id=None,
-                conversation_id="c",
-                memory_digest=None,
-            )
-            is None
-        )
+        outcomes = await self._run(self._facts(), None)
+        assert outcomes["memory_reflection"].status == "disabled"
+        assert outcomes["memory_reflection"].reason == "no_llm"
 
     @pytest.mark.asyncio
     async def test_no_scope_is_noop(self):
-        assert (
-            R.schedule_memory_reflection(
-                llm=_FakeLLM("{}"),
-                query="q",
-                answer="a",
-                project_id=None,
-                organization_id=None,
-                conversation_id="c",
-                memory_digest=None,
-            )
-            is None
-        )
+        outcomes = await self._run(self._facts(project_id=None), _FakeLLM("{}"))
+        assert outcomes["memory_reflection"].status == "skipped"
+        assert outcomes["memory_reflection"].reason == "no_project"
 
     @pytest.mark.asyncio
     async def test_org_only_is_noop(self):
-        # No project in scope → the project-only autonomous stage has nothing to
+        # No project in scope -> the project-only autonomous stage has nothing to
         # write, even when an organization is known (audit finding S1).
-        assert (
-            R.schedule_memory_reflection(
-                llm=_FakeLLM("{}"),
-                query="q",
-                answer="a",
-                project_id=None,
-                organization_id="org-1",
-                conversation_id="c",
-                memory_digest=None,
-            )
-            is None
-        )
+        outcomes = await self._run(self._facts(project_id=None, organization_id="org-1"), _FakeLLM("{}"))
+        assert outcomes["memory_reflection"].status == "skipped"
+        assert outcomes["memory_reflection"].reason == "no_project"
 
     @pytest.mark.asyncio
-    async def test_failing_task_never_raises(self, monkeypatch):
+    async def test_failing_pass_never_raises(self, monkeypatch):
         async def boom(**kwargs):
             raise RuntimeError("llm exploded")
 
         monkeypatch.setattr(R, "run_memory_reflection", boom)
-        task = R.schedule_memory_reflection(
-            llm=_FakeLLM("{}"),
-            query="q",
-            answer="a",
-            project_id="proj-1",
-            organization_id=None,
-            conversation_id="c",
-            memory_digest=None,
+        outcomes = await self._run(self._facts(), _FakeLLM("{}"))
+        assert outcomes["memory_reflection"].status == "failed"
+        assert outcomes["memory_reflection"].reason == "RuntimeError"
+
+    @pytest.mark.asyncio
+    async def test_a_stalled_provider_no_longer_holds_the_slot_for_minutes(self, monkeypatch):
+        """The defect the primitive closes: reflection had no asyncio timeout, so
+        a stalled provider held one of four concurrency slots for ~6 minutes."""
+
+        async def never_returns(**kwargs):
+            await asyncio.sleep(30)
+
+        monkeypatch.setattr(R, "run_memory_reflection", never_returns)
+        monkeypatch.setitem(
+            stage_registry._STAGES, "memory_reflection", dataclasses.replace(MEMORY_REFLECTION, timeout_s=0.05)
         )
-        assert task is not None
-        # The guard swallows the error; awaiting the task must not raise.
-        await task
-        assert task.done()
+        outcomes = await self._run(self._facts(), _FakeLLM("{}"))
+        assert outcomes["memory_reflection"].status == "timeout"
