@@ -393,6 +393,54 @@ services:
       postgres:
         condition: service_healthy
 
+  # One-shot audit-schema reconciler — the Coolify half of what the Kubernetes
+  # Job `grid-app-audit-schemas` does (deploy/pulumi/src/app/audit-schemas-job.ts).
+  # WorkOS rejects an Audit Log event whose action has no schema in the
+  # environment, and rejects one whose registered schema has the wrong targets
+  # or metadata keys identically.
+  #
+  # It BLOCKS the frontend, which the Kubernetes Job deliberately does not, and
+  # the difference is this stack rather than a difference of opinion:
+  #
+  #   1. `document.generated` is emitted with the THROWING emitter, so a
+  #      rejected event does not thin the trail — it unfiles the document, row
+  #      and object (frontends/ui/src/lib/documents/generated.ts). An
+  #      unreconciled environment serves a Piloti that files nothing, and says
+  #      nothing about it.
+  #   2. There is no rolling update to protect. Kubernetes keeps the previous
+  #      ReplicaSet serving while a Job runs and shows a failed Job as an object
+  #      an operator can find; here the stack comes up as a unit and a one-shot
+  #      container that failed is a line in a deploy log nobody reads.
+  #   3. It adds no new single point of failure. REQUIRE_AUTH defaults to true
+  #      in this compose, so WorkOS being reachable is already the condition for
+  #      anyone logging in at all.
+  #   4. Nothing else would ever run it. This stack deploys from git per PR with
+  #      no operator shell in the loop, and a "run this once per environment"
+  #      step is exactly the shape that left nine actions broken behind a
+  #      runbook (issues #255/#256).
+  #
+  # No key, no reconcile, exit 0 — a preview deployed with REQUIRE_AUTH=false
+  # and no WorkOS keys still boots, matching `if (cfg.auth.requireAuth)` in
+  # deploy/pulumi/index.ts. `--apply` reconciles rather than re-creates, so a
+  # redeploy against an unchanged registry writes nothing (schema versions are
+  # append-only in WorkOS).
+  grid-audit-schemas:
+    build:
+      context: ./frontends/ui
+      dockerfile: deploy/Dockerfile
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - >
+        if [ -z "$${WORKOS_API_KEY}" ]; then
+        echo "WORKOS_API_KEY is unset - no WorkOS environment to reconcile, skipping.";
+        exit 0;
+        fi;
+        node scripts/provision-workos-audit-schemas.mjs --apply
+    environment:
+      - WORKOS_API_KEY=${WORKOS_API_KEY:-}
+
   frontend:
     build:
       context: ./frontends/ui
@@ -484,6 +532,10 @@ services:
       - "3000"
     depends_on:
       grid-migrate:
+        condition: service_completed_successfully
+      # A rejected `document.generated` unfiles the document it was about, so
+      # the schemas are reconciled before this container serves.
+      grid-audit-schemas:
         condition: service_completed_successfully
       aiq-agent:
         condition: service_healthy

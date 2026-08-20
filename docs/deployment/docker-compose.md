@@ -1,6 +1,11 @@
 # Docker Compose Service Reference
 
-The Docker Compose file is at `deploy/compose/docker-compose.yaml`. It defines 5 services, 4 named volumes, and 1 bridge network.
+The Docker Compose file is at `deploy/compose/docker-compose.yaml`. It defines
+15 services, several named volumes, and 1 bridge network. This page describes
+the core ones; the observability stack (`dragonfly`, `clickhouse`, the three
+`langfuse-*` services) and the two background workers (`purger`,
+`skill-scheduler`) are defined in the compose file with their own comments and
+are not covered here.
 
 ## Quick Start
 
@@ -154,6 +159,42 @@ inside the very process the boundary is meant to constrain. `frontend`,
 
 Runbook: [row-level security](../database/row-level-security.md), ADR-0041.
 
+### grid-audit-schemas
+
+One-shot reconciler for the **WorkOS Audit Log schemas**, from the same frontend
+image, and the compose equivalent of the Kubernetes Job `grid-app-audit-schemas`
+(`deploy/pulumi/src/app/audit-schemas-job.ts`). It runs
+`node scripts/provision-workos-audit-schemas.mjs --apply`, which reads the
+environment first and writes only the actions whose schema is missing or
+different — so re-running it on every `up` writes nothing when the registry
+(`frontends/ui/src/lib/audit/schemas.mjs`) has not changed.
+
+**`frontend` waits on it** (`service_completed_successfully`), which the
+Kubernetes Job is deliberately not waited on. The reason is
+`document.generated`: it is emitted with the *throwing* audit emitter, so a
+rejected event does not merely lose an audit line — the document it was about is
+unfiled again, row and object both, and the user sees a report with no file and
+no error. WorkOS rejects an event whose action has no schema **and** one whose
+registered schema has the wrong targets or metadata keys, so this matters after
+a registry change as much as on a fresh environment.
+
+**With `WORKOS_API_KEY` unset the container prints one line and exits 0.** The
+default stack is anonymous (`REQUIRE_AUTH=false`) and has no WorkOS environment
+to reconcile against, so nothing is blocked. Set the key — as any stack with
+login does — and WorkOS becomes a boot dependency of `frontend`, which it
+already was for authentication.
+
+| Property | Value |
+|----------|-------|
+| Image | `${FRONTEND_IMAGE:-…/aiq-frontend:2.0.0}` (the frontend image) |
+| Container name | `aiq-blueprint-audit-schemas` |
+| Environment | `WORKOS_API_KEY` (optional) |
+| Depends on | nothing — it only needs egress to WorkOS |
+| Restart | `"no"` |
+
+Runbook: [WorkOS provisioning](workos-provisioning.md) §5,
+[agent-authored documents rollout](agent-authored-documents-rollout.md) §3.
+
 ### frontend
 
 The Next.js UI application.
@@ -176,12 +217,12 @@ The Next.js UI application.
 | `GRID_APP_DATABASE_URL` | `${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}` — the least-privilege role, subject to row-level security (ADR-0041). Migrations use the owner credential in `GRID_APP_MIGRATION_DATABASE_URL`, set only on `grid-migrate`. |
 | `WORKOS_CLIENT_ID` | `${WORKOS_CLIENT_ID}` |
 | `WORKOS_API_KEY` | `${WORKOS_API_KEY}` |
-| `WORKOS_REDIRECT_URI` | `${WORKOS_REDIRECT_URI:-http://localhost:3000/api/auth/callback}` |
+| `NEXT_PUBLIC_WORKOS_REDIRECT_URI` | `${NEXT_PUBLIC_WORKOS_REDIRECT_URI:-${WORKOS_REDIRECT_URI:-http://localhost:3000/api/auth/callback}}` |
 | `WORKOS_COOKIE_PASSWORD` | `${WORKOS_COOKIE_PASSWORD}` |
 | `FILE_UPLOAD_ACCEPTED_TYPES` | `${FILE_UPLOAD_ACCEPTED_TYPES:-.pdf,.docx,.txt,.md}` |
 | `SEAWEED_ENDPOINT` | `http://seaweedfs:8333` (hardcoded in compose) |
 | `SEAWEED_ACCESS_KEY` | `seaweedadmin` (hardcoded in compose) |
-| `SEAWEED_SECRET_KEY` | `seaweedadmin` (hardcoded in compose) |
+| `SEAWEED_SECRET_KEY` | `${SEAWEED_SECRET_KEY:?}` — **required**; the deploy fails fast if it is unset (see `deploy/.env.example`) |
 | `SEAWEED_BUCKET` | `grid-documents` (hardcoded in compose) |
 | `SEAWEED_PRESIGNED_URL_TTL_SECONDS` | `600` (hardcoded in compose) |
 
@@ -192,9 +233,9 @@ The Next.js UI application.
 | CPU | 0.5 | 0.1 |
 | Memory | 512M | 256M |
 
-**Healthcheck**: `curl -f http://localhost:3000/` — interval 30s, timeout 10s, start period 30s, retries 3.
+**Healthcheck**: `curl -f http://localhost:3000/api/healthz` — interval 15s, timeout 10s, start period 60s, retries 5. The dependency-free `/api/healthz`, not `/` (a full SSR render) and not `/api/health` (which proxies the backend and reports 502 while the agent boots).
 
-**Depends on**: `grid-migrate` (completed successfully), `aiq-agent` (healthy), `seaweedfs` (healthy), `postgres` (healthy).
+**Depends on**: `grid-migrate` (completed successfully), `grid-audit-schemas` (completed successfully), `aiq-agent` (healthy), `seaweedfs` (healthy), `seaweedfs-init` (completed successfully), `postgres` (healthy).
 
 **Restart**: `unless-stopped`.
 

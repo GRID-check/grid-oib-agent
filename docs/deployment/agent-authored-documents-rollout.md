@@ -77,13 +77,27 @@ Verified against the real database, not inferred:
 
 ## 3. Register the audit schema — this one fails silently if skipped
 
+Every deployment path now runs the reconcile for you. Check that it did:
+
+| Path | What runs it | Where to look |
+|---|---|---|
+| Kubernetes (Pulumi) | Job `grid-app-audit-schemas`, per deploy, when `requireAuth` is on. **The frontend does not wait for it**, so a rollout can serve filing requests for as long as the Job takes. | `kubectl get job grid-app-audit-schemas` — within 5 minutes of finishing, `ttlSecondsAfterFinished` reaps it |
+| Docker Compose / Coolify | one-shot service `grid-audit-schemas`; `frontend` waits on it, so a failure stops the stack instead of serving a Piloti that files nothing | the deploy log for that container |
+
+By hand, from `frontends/ui` — for a fresh environment, a key the deployment does
+not hold, or to check for drift without writing:
+
 ```bash
-npm run provision:audit-schemas -- --apply
+WORKOS_API_KEY=sk_… npm run provision:audit-schemas            # read-only drift check
+WORKOS_API_KEY=sk_… npm run provision:audit-schemas -- --apply
 ```
 
-`document.generated` and its `agent_run` target must exist in WorkOS **before the
-first real emit.** This step is not optional and its failure mode is the worst
-kind:
+`document.generated` and its `agent_run` **and `answer_artifact`** targets must
+exist in WorkOS **before the first real emit.** A schema that is present but
+STALE fails exactly like a missing one: migration 0066 added `answer_artifact`
+to that action's targets, so an environment provisioned before it rejects every
+emit — check reports `DRIFT`, not `MISSING`, and both are fatal here. Its failure
+mode is the worst kind:
 
 `fileGeneratedDocument` uses the **throwing** audit emitter on purpose — a
 document whose audit record does not exist must not be presented as filed. So an
@@ -94,8 +108,10 @@ development from a single unregistered metadata key, and made the feature a
 complete no-op while every test stayed green.
 
 Nothing in CI can catch it, because the registration lives in WorkOS and not in
-the repository. **Verify after deploy** by filing one report and confirming a
-`document.generated` event appears in the audit log.
+the repository — `schemas.spec.ts` only proves the registry is internally
+consistent, never that the environment matches it. **Verify after deploy** by
+filing one report and confirming a `document.generated` event appears in the
+audit log.
 
 ## 4. Rollback, and what it will refuse to do
 
