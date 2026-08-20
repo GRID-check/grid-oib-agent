@@ -1,0 +1,256 @@
+---
+import SectionTag from '../atoms/SectionTag.astro'
+import Pill from '../atoms/Pill.astro'
+import { CONTACT_EMAIL } from '../../consts'
+import { ui, type Locale } from '../../i18n/ui'
+import {
+  computeRoi,
+  RESEARCH_SHARE,
+  ROI_DEFAULTS,
+  SEAT_COST_MONTHLY,
+  TIME_SAVED,
+  WEEK_HOURS,
+} from '../../lib/roi'
+import { formatEuro, formatShare, formatRoi, type RoiText } from '../../lib/roi-format'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale]
+
+// Rendered for the default office on the server, so the section states a real
+// figure before a single byte of script runs — and keeps stating one if none
+// ever does.
+const text = formatRoi(ROI_DEFAULTS, computeRoi(ROI_DEFAULTS), locale, t.roi.units)
+
+// Only the office's own two numbers are adjustable. The share of the week spent
+// searching and the share Piloti gives back are claims we make, so they are
+// stated below as claims — a slider would hand the visitor our promise to
+// author, and the number they landed on would be worth nothing to them.
+const sliders: {
+  key: keyof RoiText
+  label: string
+  min: number
+  max: number
+  step: number
+  value: number
+}[] = [
+  { key: 'seats', label: t.roi.fields.seats, min: 1, max: 60, step: 1, value: ROI_DEFAULTS.seats },
+  {
+    key: 'salary',
+    label: t.roi.fields.salary,
+    min: 40_000,
+    max: 90_000,
+    step: 2_500,
+    value: ROI_DEFAULTS.salary,
+  },
+]
+
+const fill = (s: (typeof sliders)[number]) => `${((s.value - s.min) / (s.max - s.min)) * 100}%`
+
+// Every claim reads its figure from the constant the model actually computes
+// with, so the stated case and the arithmetic cannot drift apart.
+const claims = [
+  { label: t.roi.claims.week, value: `${WEEK_HOURS} h` },
+  { label: t.roi.claims.research, value: formatShare(locale, RESEARCH_SHARE) },
+  { label: t.roi.claims.saved, value: formatShare(locale, TIME_SAVED) },
+  { label: t.roi.claims.price, value: formatEuro(locale, SEAT_COST_MONTHLY) },
+]
+
+// `live` marks a note that is itself a computed figure and has to be repainted;
+// `note` is fixed copy.
+const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?: string }[] = [
+  { key: 'hours', label: t.roi.metrics.hours, live: 'fte' },
+  { key: 'payback', label: t.roi.metrics.payback, note: t.roi.metrics.paybackNote },
+  { key: 'ratio', label: t.roi.metrics.ratio, note: t.roi.metrics.ratioNote },
+]
+---
+
+<section
+  id="wert"
+  data-screen-label={t.sheets.wert}
+  class="mx-auto box-border flex min-h-screen max-w-[85rem] flex-col justify-center px-4 py-24 sm:px-10"
+>
+  <div
+    data-roi
+    class="box-border rounded-panel bg-accent-900 px-6 py-14 text-surface sheet-dark sm:px-16 sm:py-20"
+  >
+    <div class="grid grid-cols-[5fr_7fr] items-start gap-x-16 gap-y-12 max-lg:grid-cols-1">
+      <!-- The claim stays on the left and the visitor's own two numbers answer
+           it on the right: the figure that convinces is the one they set. -->
+      <div data-reveal class="lg:sticky lg:top-28 lg:self-start">
+        <SectionTag tone="dark" class="mb-5">{t.roi.tag}</SectionTag>
+        <h2 class="m-0 mb-6 font-display text-h2 text-surface" style="text-wrap: balance">
+          {t.roi.title}
+        </h2>
+        <p class="m-0 text-lg leading-relaxed text-on-dark" style="text-wrap: pretty">
+          {t.roi.body}
+        </p>
+
+        <p class="m-0 mt-9 font-mono text-2xs uppercase tracking-widest text-on-dark-label">
+          {t.roi.claimsLabel}
+        </p>
+        <dl class="m-0 mt-3">
+          {
+            claims.map((c) => (
+              <div class="flex items-baseline justify-between gap-4 border-t border-surface/15 py-2.5">
+                <dt class="m-0 text-sm text-on-dark">{c.label}</dt>
+                <dd class="m-0 font-mono text-sm tabular-nums text-surface">{c.value}</dd>
+              </div>
+            ))
+          }
+        </dl>
+
+        <Pill
+          href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(t.roi.subject)}`}
+          variant="light"
+          size="md"
+          class="mt-8"
+        >
+          {t.roi.cta}
+        </Pill>
+      </div>
+
+      <div data-reveal class="rounded-card border border-surface/15 bg-accent-800/70 p-6 sm:p-8">
+        <div class="mb-2 flex items-baseline justify-between gap-4">
+          <p class="m-0 font-mono text-2xs uppercase tracking-widest text-on-dark-label">
+            {t.roi.inputsLabel}
+          </p>
+          <span
+            class="rounded-full border border-surface/25 px-2.5 py-1 font-mono text-2xs uppercase tracking-widest text-on-dark-tag"
+          >
+            {t.roi.badge}
+          </span>
+        </div>
+
+        {
+          sliders.map((s) => (
+            <div class="grid grid-cols-[1fr_auto] items-baseline gap-x-4 border-t border-surface/15 py-5">
+              <label for={`roi-${s.key}`} class="text-sm leading-snug text-on-dark">
+                {s.label}
+              </label>
+              <output
+                for={`roi-${s.key}`}
+                data-roi-out={s.key}
+                class="font-mono text-sm tabular-nums text-surface"
+              >
+                {text[s.key]}
+              </output>
+              <input
+                type="range"
+                id={`roi-${s.key}`}
+                data-roi-field={s.key}
+                min={s.min}
+                max={s.max}
+                step={s.step}
+                value={s.value}
+                aria-valuetext={text[s.key]}
+                style={`--fill: ${fill(s)}`}
+                class="col-span-2 mt-4"
+              />
+            </div>
+          ))
+        }
+
+        <!-- aria-live on the result, not on the readouts: dragging a slider
+             already announces its own value, and the thing worth hearing is
+             what it did to the total. -->
+        <div
+          class="mt-7 rounded-card border border-surface/15 bg-accent-900/80 p-6"
+          aria-live="polite"
+        >
+          <p class="m-0 font-mono text-2xs uppercase tracking-widest text-on-dark-label">
+            {t.roi.resultLabel}
+          </p>
+          <p data-roi-out="net" class="m-0 mt-2 font-display text-h2 tabular-nums text-surface">
+            {text.net}
+          </p>
+          <p class="m-0 mt-2 text-sm leading-relaxed text-on-dark">{t.roi.resultNote}</p>
+
+          <!-- Subgrid, so label / figure / note keep a shared baseline across
+               the three columns however a translation wraps the label. -->
+          <dl
+            class="m-0 mt-7 grid grid-cols-3 grid-rows-[auto_auto_auto] gap-x-px gap-y-0 border-t border-surface/20 bg-surface/15 pt-px max-sm:grid-cols-1 max-sm:grid-rows-none"
+          >
+            {
+              metrics.map((m) => (
+                <div class="grid bg-accent-900 pt-5 max-sm:pb-5 sm:row-span-3 sm:grid-rows-subgrid sm:px-5 sm:first:pl-0">
+                  <dt class="m-0 font-mono text-2xs uppercase tracking-widest text-on-dark-label">
+                    {m.label}
+                  </dt>
+                  <dd
+                    data-roi-out={m.key}
+                    class="m-0 mt-2 font-display text-xl font-semibold tabular-nums text-surface"
+                  >
+                    {text[m.key]}
+                  </dd>
+                  <dd class="m-0 mt-1 text-2xs leading-relaxed text-on-dark">
+                    {m.live ? <span data-roi-out={m.live}>{text[m.live]}</span> : m.note}
+                  </dd>
+                </div>
+              ))
+            }
+          </dl>
+        </div>
+
+        <p class="m-0 mt-6 text-2xs leading-relaxed text-on-dark/80" style="text-wrap: pretty">
+          {t.roi.footnote}
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  /* A drafting slider: a hairline track with a small square marker, filled to
+     the left of the thumb so the setting reads at a glance. The fill point is
+     a custom property the server sets for the default and the script keeps in
+     step — no repaint of the whole control on every frame. */
+  input[type='range'] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 2px;
+    border-radius: 999px;
+    background: linear-gradient(
+      to right,
+      var(--color-accent-400) var(--fill, 0%),
+      rgb(238 242 228 / 0.22) var(--fill, 0%)
+    );
+    cursor: pointer;
+  }
+
+  input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 0.875rem;
+    height: 0.875rem;
+    border: none;
+    border-radius: 0.1875rem;
+    background: var(--color-accent-400);
+    transition: transform 0.15s ease;
+  }
+  input[type='range']::-moz-range-thumb {
+    width: 0.875rem;
+    height: 0.875rem;
+    border: none;
+    border-radius: 0.1875rem;
+    background: var(--color-accent-400);
+    transition: transform 0.15s ease;
+  }
+
+  input[type='range']:hover::-webkit-slider-thumb,
+  input[type='range']:active::-webkit-slider-thumb {
+    transform: scale(1.2);
+  }
+  input[type='range']:hover::-moz-range-thumb,
+  input[type='range']:active::-moz-range-thumb {
+    transform: scale(1.2);
+  }
+
+  input[type='range']:focus-visible {
+    outline: 2px solid var(--color-accent-400);
+    outline-offset: 0.5rem;
+  }
+</style>

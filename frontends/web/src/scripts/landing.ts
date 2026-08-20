@@ -1,6 +1,7 @@
 import { animate, inView, scrollInfo, type AnimationPlaybackControls } from 'motion'
 import { landingScript } from '../i18n/ui'
 import { initReveals } from './reveal'
+import { initRoi } from './roi'
 import { initSheetIndex } from './sheet-index'
 
 const L = document.documentElement.lang.startsWith('en') ? landingScript.en : landingScript.de
@@ -802,3 +803,4 @@ initPins()
 initReveals()
 initSheetIndex()
 initChain()
+initRoi()
