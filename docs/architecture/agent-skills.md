@@ -71,7 +71,7 @@ card the product treats as trustworthy). It costs nothing until the skill is
 activated, at which point `SkillRuntime._preferred_cards_block` appends a short
 block naming those types to the loaded body — **and their full shapes with it**,
 by calling the card catalog's `render_card_details()`. A skill that names its
-cards is the moment we know which of the 27 card shapes this turn could possibly
+cards is the moment we know which of the 38 card shapes this turn could possibly
 need, so it is the moment to spend context on them, and it saves the activated
 turn the `describe_card` round-trip it would otherwise always pay (see
 `cards.md` § The vocabulary is two levels). The block stays phrased as a
@@ -134,7 +134,7 @@ says nothing about its audience is one an organization may take or leave. A
 published standard row is the only combination that imposes anything, and it
 takes two deliberate acts to reach.
 
-That is what replaced **clone**. The Skills tab used to list all five builtins
+That is what replaced **clone**. The Skills tab used to list every builtin
 as equal cards with a "Clone" button, which copied the whole instruction into
 the org as a `platform-clone` row — leaving the tenant maintaining an
 instruction nobody there wrote and missing every improvement shipped afterwards.
@@ -321,8 +321,8 @@ frontmatter metadata:
 
 Machinery is the default deliberately: a new builtin that says nothing about
 itself stays invisible, and exposing one to every tenant has to be a sentence
-somebody wrote. **All five builtins shipping today are machinery** — none
-declares this key. The door exists so a builtin can become org-facing without
+somebody wrote. **Every builtin shipping today is machinery** — none declares
+this key. The door exists so a builtin can become org-facing without
 first becoming a database row; day to day, curation happens in `platform_skills`.
 
 The split is enforced on both tiers, and both must agree:
@@ -410,14 +410,28 @@ name is gone from the skills path entirely, because two vocabularies for one
 agent meant a `grid-agents` value that was correct in one file and inert in
 the other.
 
-All five builtin skills declare `grid-agents: deep_researcher` **and nothing
-else** in their frontmatter metadata. They are DeepAgents subagent skills:
-their instructions call `execute`, read and write `/shared/` and return
-`ResearchNotes`, none of which exists in a chat turn. That one key is what
-keeps the shallow chat researcher from being offered a procedure it cannot
-carry out — shallow chat resolves none of the five, deep research resolves all
-five — and since it is now the ONLY thing doing so, `platform-skills.spec.ts`
-asserts every builtin still declares it. The BFF forwards platform metadata
+Every builtin declares `grid-agents`, and the value splits the corpus in two.
+
+The five in `research/` and `synthesis/` declare `deep_researcher` **and nothing
+else**. They are DeepAgents subagent skills: their instructions call `execute`,
+read and write `/shared/` and return `ResearchNotes`, none of which exists in a
+chat turn. That one key is what keeps the shallow chat researcher from being
+offered a procedure it cannot carry out.
+
+The six in `bim/`, `oib/` and `presentation/` are chat skills and say so.
+`ifc-spatial-reasoning` and the four `oib/` domain skills name both agents;
+`verfahrensdiagramm` names **`shallow_researcher` alone**, and the reason is
+worth stating because it looks like an omission. A builtin FILE does not reach
+deep research through `grid-agents` at all: `resolve_served_skills` keeps only
+BFF-served rows (`origin == "org"`), and the builtins reach deep subagents
+through the collection assignment in `deep_research_skills` instead — which
+today names `research` and `synthesis` and nothing else. So naming
+`deep_researcher` on a file in a new collection would claim a channel that does
+not exist. The four `oib/` skills carry it harmlessly; a skill added now should
+not copy it without checking.
+
+Since `grid-agents` is the ONLY thing doing the targeting,
+`platform-skills.spec.ts` asserts every builtin still declares it. The BFF forwards platform metadata
 **verbatim** on the resolve endpoint (an empty `metadata: {}` would merge over
 the backend's own filesystem copy and erase this targeting), and the agent
 filter applies to platform rows as well as org rows.

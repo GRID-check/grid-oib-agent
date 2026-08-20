@@ -11,6 +11,7 @@ from aiq_agent.cards.catalog import _CARD_HONESTY
 from aiq_agent.cards.catalog import _CARD_RESTRAINT
 from aiq_agent.cards.catalog import _CARD_TRIGGER_TABLE
 from aiq_agent.cards.catalog import _MODEL_PICKER_NOTE
+from aiq_agent.cards.catalog import CONSENT_CARD_TYPES
 from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.catalog import _interactive_note
@@ -143,14 +144,29 @@ class TestToolDescription:
         assert "PLAIN TEXT" not in render_card_index()
 
     def test_flags_cards_that_ask_the_user_to_confirm(self):
-        # An interactive card costs the user a DECISION, not just screen space
+        # A consent card costs the user a DECISION, not just screen space
         # (ADR-0030). Without saying so, the model emits them speculatively and
         # the answer becomes a pile of consent prompts.
         desc = _build_tool_description()
         assert "Cards that ask the user to CONFIRM something" in desc
-        for card_type in INTERACTIVE_CARD_TYPES - SYSTEM_CARD_TYPES:
+        for card_type in CONSENT_CARD_TYPES - SYSTEM_CARD_TYPES:
             assert f'"{card_type}"' in desc
         assert "At most one per turn" in desc
+
+    def test_a_diagram_is_not_advertised_as_a_consent_prompt(self):
+        """`diagram` is interactive for the FRONTEND and not for the model.
+
+        It is in ``INTERACTIVE_CARD_TYPES`` because filing writes two document
+        rows and that outcome has to persist on the message. It is deliberately
+        NOT in the block that tells the model a card "asks the user to authorize
+        a real, persisted change" and must never be emitted speculatively: a
+        drawing puts no question to anybody, and that sentence would suppress the
+        card on exactly the answers it exists for.
+        """
+        assert "diagram" in INTERACTIVE_CARD_TYPES
+        assert "diagram" not in CONSENT_CARD_TYPES
+        consent_block = _build_tool_description().split("Cards that ask the user to CONFIRM something")[1]
+        assert '"diagram"' not in consent_block.split("\n\n")[0]
 
 
 class TestTheDoctrineStaysCalibrated:

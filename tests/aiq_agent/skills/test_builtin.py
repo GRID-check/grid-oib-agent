@@ -1,4 +1,4 @@
-"""Builtin skill discovery — the 5 shipped SKILL.md files, strictly parsed."""
+"""Builtin skill discovery — every shipped SKILL.md file, strictly parsed."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ EXPECTED = {
     ("oib", "brandschutz"),
     ("oib", "nutzungssicherheit"),
     ("oib", "waermeschutz"),
+    ("presentation", "verfahrensdiagramm"),
     ("research", "data-table-analysis"),
     ("research", "forecast-analysis"),
     ("research", "lightweight-calculation"),

@@ -150,7 +150,7 @@ class Skill(BaseModel):
             switch it off, so it is applied on every run that resolves it (see
             ``SkillRuntime``) rather than waiting to be chosen.
         collection: Mid-level collection dir name for builtin files
-            (research|synthesis); ``None`` for org rows.
+            (bim|oib|presentation|research|synthesis); ``None`` for org rows.
         license: Optional license string.
         compatibility: Optional compatibility note (<=500 chars).
         allowed_tools: Optional tool allowlist string.

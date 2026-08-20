@@ -1845,6 +1845,275 @@ class ChangeImpactCard(CardModel):
     note: str | None = Field(default=None, description="Optional one-line caveat, e.g. what the list does not cover")
 
 
+# ── The graph the other cards cannot hold ────────────────────────────────────
+# `process_map` draws a LINE and `condition_tree` draws a FAN, and each is the
+# right card the moment an answer is that shape. What neither can hold is a
+# GRAPH: a path that forks and rejoins, three parties handing things back and
+# forth in order, a stage a Verfahren can RETURN to, a Nachweis two others
+# depend on. Those answers were coming back as prose — or as a ```mermaid fence,
+# which this product has drawn and been able to file into a project as SVG + PDF
+# for a while now (`docs/architecture/diagrams.md`) without a single prompt,
+# tool or skill ever telling the model it could draw one.
+#
+# This card is that fence, catalogued. The fence stays as the fallback for
+# everything the card refuses; what the card adds is the three things a fence
+# cannot have. It has a CATALOG entry, which is how the model learns a card
+# exists at all — a fence has to win attention from prompt text instead. It is
+# VALIDATED here, before it reaches a browser, where a fence is unvalidated
+# until mermaid chokes on it in front of the reader. And filing the drawing
+# WRITES two `documents` rows, which makes the reader's click a decision that
+# ADR-0030 says has to persist on the message rather than in component-local
+# React state — which is exactly where the fence's filing button holds it.
+#
+# What this card CANNOT have is the invariant every other drawing card in this
+# module is built on: the renderer does the geometry, so a card cannot show a
+# diagram that disagrees with its own numbers. Mermaid text IS the geometry —
+# whatever the model writes is what is drawn, with no arithmetic in between and
+# therefore nothing to catch a disagreement. So the boundary is drawn around the
+# SUBJECT instead: a diagram that makes no dimensional claim has nothing on it
+# that can be measurably wrong. Everything measured belongs to the fifteen
+# schematic cards above, and that seam is stated in three places that must
+# agree — here, `docs/architecture/diagrams.md`, and the frontend's own
+# `lib/diagrams/diagram-sources.ts`.
+
+
+DiagramGrammar = Literal["flowchart", "sequence", "state", "pie"]
+"""The four mermaid grammars verified end to end: drawn, filed AND printed.
+
+Not "the four we like" — the four that survive the whole pipeline. A diagram in
+this product is rendered in the browser, re-serialised through the SERVER's SVG
+allow-list before it is even shown, and then converted to PDF for an
+Einreichung; a grammar that fails at any of those three is a card that renders
+as a grey code block in an answer.
+
+`journey` is the instructive exclusion. Mermaid emits `<foreignObject>` for it
+whatever `htmlLabels` says, and `<foreignObject>` is arbitrary HTML inside a
+file that gets served back to browsers, so the SVG validator refuses it — in the
+browser, before the drawing is shown, which is why a journey degrades to its own
+source text rather than drawing and then failing to file. `gantt`, `erDiagram`,
+`classDiagram` and `mindmap` are simply unverified: nobody has put one through
+the PDF converter, and a diagram that previews and then prints blank is worse
+than one that never drew.
+"""
+
+# The declaration keywords mermaid accepts, mapped to the grammar they select.
+# Both spellings of each are real: `graph TD` is the legacy flowchart header
+# that most training data still carries, and `stateDiagram-v2` is the version
+# mermaid's own docs steer you to. Refusing either would refuse a diagram that
+# draws perfectly, which is the one direction this validator must not fail in.
+_DIAGRAM_DECLARATIONS: dict[str, str] = {
+    "flowchart": "flowchart",
+    "graph": "flowchart",
+    "sequencediagram": "sequence",
+    "statediagram": "state",
+    "statediagram-v2": "state",
+    "pie": "pie",
+}
+
+#: `--- title: … ---` front matter, the one preamble mermaid allows above the
+#: declaration. Stripped before the declaration is read, not refused: it is
+#: valid mermaid and the model will occasionally write it.
+_MERMAID_FRONT_MATTER = re.compile(r"\A\s*---\s*\r?\n.*?\r?\n\s*---\s*(?:\r?\n|\Z)", re.DOTALL)
+
+#: `%%{init: {...}}%%` — a directive, not a comment, and it may sit on the line
+#: above the declaration or run across several lines.
+_MERMAID_DIRECTIVE = re.compile(r"%%\{.*?\}%%", re.DOTALL)
+
+
+#: Mermaid grammars this pipeline does NOT carry, kept by name so the refusal
+#: can say which one was written instead of "no diagram type". A model that
+#: reaches for `gantt` has understood the request and picked a grammar we cannot
+#: file; telling it that is a different instruction from telling it the source
+#: has no header, and the two failures have different fixes.
+_UNSUPPORTED_DECLARATIONS = frozenset(
+    {
+        "journey",
+        "gantt",
+        "erdiagram",
+        "classdiagram",
+        "classdiagram-v2",
+        "mindmap",
+        "timeline",
+        "gitgraph",
+        "quadrantchart",
+        "requirementdiagram",
+        "c4context",
+        "sankey-beta",
+        "xychart-beta",
+        "block-beta",
+        "architecture-beta",
+    }
+)
+
+
+def _first_statement(source: str) -> str | None:
+    """The first line of ``source`` that mermaid actually reads, or None.
+
+    "First line mermaid reads" is the one thing worth being careful about:
+    mermaid lets front matter, an init directive and `%%` comments precede the
+    declaration, and a validator that took line one literally would refuse
+    sources that draw perfectly. None means there is nothing but preamble — the
+    source declares no grammar, which is the single most common way a
+    model-written diagram fails, because mermaid then has nothing to parse the
+    rest with and the whole block collapses.
+
+    The raw line is returned rather than the keyword so a refusal can quote what
+    the model actually wrote; the keyword is derived by the one caller.
+    """
+    body = _MERMAID_DIRECTIVE.sub("", _MERMAID_FRONT_MATTER.sub("", source))
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("%%"):
+            continue
+        return stripped
+    return None
+
+
+class DiagramCard(CardModel):
+    """Emit for a fork that rejoins, an ordered exchange or a dependency — drawn as mermaid, never a measurement.
+
+    A relationship prose cannot hold: a Verfahren whose stages fork and come back
+    together, several Stellen handing something to each other in order, a
+    Nachweis that other Nachweise wait on.
+
+    It is the residue after the purpose-built cards have taken their shapes.
+    `process_map` owns the ordered Verfahren, which is a LINE; `condition_tree`
+    owns the fork on one factor, which is a FAN. Reach for this card only when
+    the answer is a GRAPH neither of them can draw — a branch that comes back
+    together, a Bescheid that returns a stage, three parties passing an Akt
+    between them, a dependency between requirements. If the answer does fit a
+    line or a fan, that card draws it better, because there the renderer decides
+    what the picture looks like.
+
+    ## The boundary, and why it is about subject rather than quality
+
+    Every other drawing in this catalog is a schematic card: the model emits
+    parameters and the renderer computes the geometry, so a card cannot show a
+    diagram that disagrees with its own numbers. Here the source IS the geometry.
+    Nothing stands between what the model types and what is drawn, so nothing can
+    catch a disagreement — which is why the rule is that there must be nothing to
+    disagree WITH. A Verfahrensablauf, an Einreichungssequenz, a
+    Zuständigkeitskarte: none of them claims a measurement, so none of them can
+    be measurably wrong.
+
+    Anything carrying a measurement — a section, a stair, an escape route, a fire
+    compartment, a setback — belongs to the fifteen schematic cards, where the
+    renderer draws to scale. A mermaid box with „40 m" typed inside it is
+    precisely the artefact the card system exists to prevent, and it is the one
+    that gets screenshotted into an Einreichung.
+
+    Naming a threshold in a branch condition („Fluchtniveau > 22 m → GK 5") is
+    not that artefact and is not refused: the reader cannot mistake a rounded
+    rectangle for a section, and the number there is a label the answer has
+    already grounded. What is refused is the drawing that asks to be read as
+    scaled. No regular expression is going to tell those apart — the same „22 m"
+    appears in both — so the line is drawn in words, in the catalog, where the
+    model reads it before it writes.
+
+    ## One per answer
+
+    A diagram earns its place when it shows something prose cannot: a fork, an
+    ordering, a dependency. Most answers have none of those, and a decorative
+    diagram in a compliance answer costs the reader trust in every drawing beside
+    it. At most one per answer, for the same reason `callout` says so: a second
+    puts both back at the weight of the prose around them.
+    """
+
+    type: Literal["diagram"]
+    title: str = Field(
+        min_length=1,
+        description=(
+            "Heading above the drawing, e.g. 'Ablauf einer Bauanzeige – Wien'. It also becomes the "
+            "NAME OF THE FILE if the reader files the diagram into the project, so write it as a "
+            "document title rather than as a sentence"
+        ),
+    )
+    diagram_type: DiagramGrammar = Field(
+        description=(
+            "Which mermaid grammar `source` is written in: 'flowchart' (a path that forks and "
+            "rejoins, or a dependency), 'sequence' (parties exchanging things in order), 'state' (a "
+            "stage that can be returned to), 'pie' (a split the answer has already established). "
+            "These four are verified end to end; every other mermaid type either fails to draw or "
+            "fails to file, so an answer needing one writes prose instead"
+        )
+    )
+    source: str = Field(
+        min_length=1,
+        max_length=4000,
+        description=(
+            "The mermaid source, starting with its own declaration line ('flowchart TD', "
+            "'sequenceDiagram', 'stateDiagram-v2', 'pie') — a source that declares nothing draws "
+            "nothing. Labels in the answer's language and in Sie-Form; no label may carry a claim "
+            "the answer has not grounded, because the drawing leaves the page without the paragraph "
+            "that qualified it. Five to nine nodes: past that nobody reads the picture"
+        ),
+    )
+    caption: str | None = Field(
+        default=None,
+        description=(
+            "One line under the drawing saying what it shows that the prose does not — which "
+            "Bundesland's Verfahren this is, which case is drawn, what it leaves out. Omit it rather "
+            "than restating the title"
+        ),
+    )
+    reference: NormReference | None = Field(
+        default=None,
+        description=(
+            "The Bestimmung the depicted Verfahren rests on, e.g. the Land's Bauordnung. A procedure "
+            "differs by Bundesland, so a drawing of one without its Fundstelle is a procedure from "
+            "nowhere"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _source_declares_the_grammar_it_says_it_does(self) -> "DiagramCard":
+        """Refuse a source that declares nothing, or declares something else.
+
+        This is the one invariant available to a card whose renderer cannot do
+        the geometry, and it catches the failure that actually bites. A missing
+        declaration is the most common way a model-written diagram fails: mermaid
+        has no grammar to parse the rest with, so the whole block collapses to a
+        grey code box in the middle of an answer, which reads as this product
+        being unable to draw. And a `journey` or a `gantt` smuggled in under a
+        declared 'flowchart' would pass every other check here and then be
+        refused by the SVG validator in the reader's browser.
+
+        Refused rather than repaired: `emit_card` hands the message back to the
+        model, which fixes the source and calls again, and every refusal is
+        logged with the card type — so a doctrine that keeps producing
+        undeclared diagrams is visible instead of silently patched over.
+        """
+        statement = _first_statement(self.source)
+        if statement is None:
+            raise ValueError(
+                "`source` declares no diagram type: it is nothing but front matter, a directive or "
+                "comments. Its first real line must be the mermaid declaration itself — "
+                "'flowchart TD', 'sequenceDiagram', 'stateDiagram-v2' or 'pie'."
+            )
+        keyword = statement.split()[0].lower().rstrip(":")
+        if keyword in _UNSUPPORTED_DECLARATIONS:
+            raise ValueError(
+                f"`source` is a '{keyword}' diagram, which this product cannot draw or file: only "
+                "flowchart, sequence, state and pie survive rendering, the SVG allow-list and the "
+                "PDF conversion. Rewrite it as one of those four, or write the answer as prose."
+            )
+        declared = _DIAGRAM_DECLARATIONS.get(keyword)
+        if declared is None:
+            raise ValueError(
+                f"`source` declares no diagram type: it opens with {statement[:60]!r}. The first "
+                "real line must be the declaration itself — 'flowchart TD', 'sequenceDiagram', "
+                "'stateDiagram-v2' or 'pie'. Without it mermaid has no grammar to read the rest "
+                "with and nothing is drawn."
+            )
+        if declared != self.diagram_type:
+            raise ValueError(
+                f"`diagram_type` is '{self.diagram_type}' but `source` declares '{declared}'. "
+                "Make them agree, and note that only flowchart, sequence, state and pie are "
+                "supported — any other mermaid type is refused before it reaches the reader."
+            )
+        return self
+
+
 # ── Document-surfacing card (system-emitted) ─────────────────────────────────
 # Surfaced by the `surface_documents` tool from a REAL vector search over the
 # project + Büroarchiv corpus — never fabricated by the model (it is a system
@@ -2177,6 +2446,7 @@ GridCard = (
     | DocumentChecklistCard
     | DeadlineTimelineCard
     | ChangeImpactCard
+    | DiagramCard
     | FollowUpsCard
     | BuildingSectionCard
     | StairDiagramCard
@@ -2222,6 +2492,7 @@ __all__ = [
     "ConditionTreeCard",
     "Deadline",
     "DeadlineTimelineCard",
+    "DiagramCard",
     "DocumentChecklistCard",
     "DocumentGridCard",
     "FollowUp",

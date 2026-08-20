@@ -181,6 +181,41 @@ document that is filed, converted to PDF and attached on white — the Files pan
 already previews a PDF the same way — and a themed render would mean the reader
 is not looking at what gets filed.
 
+### Two ways in: the fence, and the `diagram` card
+
+The fence above is the *rendering* path and it has always worked. What it never
+had was a way for the model to learn it existed: a fence has no catalog entry,
+so telling the model it may draw meant prompt text competing for attention on
+every turn, and for a long time nobody wrote that text at all — `grep -rn
+mermaid src/` returned nothing, and the capability shipped unreachable.
+
+The `diagram` **card** is that entry (`cards/models.py`,
+[cards.md](cards.md#the-diagram-card-the-one-drawing-whose-renderer-cannot-check-it)).
+It carries the same mermaid source and renders through the same component, and
+it adds the three things a fence cannot have:
+
+- **A catalog entry.** `render_card_index()` puts one line per card type in
+  front of the model on every turn, and the trigger table says which content
+  takes which card. That is how every other renderer in this product gets
+  reached, and the fifteen schematic cards are the proof of what happens without
+  it — they sat unused behind a disclaimer until the doctrine named them.
+- **Backend validation.** `validate_cards()` checks the payload before it
+  reaches a browser: the four supported grammars are a closed set on the card,
+  and a model validator reads the source's own declaration line back, so a
+  source declaring nothing (the commonest failure, and the one that collapses
+  the whole block to a grey code box) is refused with a message the model can
+  act on. A fence is unvalidated until mermaid chokes on it in front of the
+  reader.
+- **A filing decision that survives a reload.** Filing writes two `documents`
+  rows, and ADR-0030 says the answer to a card that writes something is
+  conversation history and belongs on the `ChatMessage`. `MermaidDiagram` holds
+  its filing state in component-local `useState` — the exact defect ADR-0030 was
+  written about — so the card is classified `interactive` and its renderer must
+  drive the lifecycle from `useCardDecision`.
+
+The fence stays, and stays supported: it is the fallback for everything the card
+refuses, and every diagram already stored in a thread is one.
+
 ## Measured cost of the dependency
 
 Bundled with esbuild, minified, gzipped, in this repository:

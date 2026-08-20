@@ -28,7 +28,12 @@ from nat.data_models.function import FunctionBaseConfig
 logger = logging.getLogger(__name__)
 
 # Builtin skills moved to the shared substrate layout (src/aiq_agent/skills/builtin):
-# collection = mid-level dir name (research|synthesis), skill = leaf dir name.
+# collection = mid-level dir name, skill = leaf dir name. Only the collections
+# NAMED in `deep_research_skills.agents` are mounted for a subagent — today
+# `research` and `synthesis`. The chat-side collections (`bim`, `oib`,
+# `presentation`) live under the same root and reach the shallow researcher
+# through `SkillResolver` instead, so adding one here is not a deep-research
+# change and mounting one would hand the writer instructions it cannot carry out.
 BUILTIN_SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills" / "builtin"
 BUILTIN_SKILL_SOURCE = "/skills/"
 SHARED_ROUTE = "/shared/"
