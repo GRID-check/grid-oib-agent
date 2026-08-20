@@ -102,12 +102,40 @@ Two failure modes make the naive fix worse than the gap:
    grey chip is chrome; the block is the artifact — and the artifact is what
    reaches the Behörde, which is where liability starts.
 
-8. **One destination, named before the run.** The deep-research submit form
-   shows the folder the report will land in. Authorization is **commissioned**
-   — the user asked for a report and was told where it goes — not confirmed by
-   a modal afterwards that is only ever answered yes.
+8. **One destination: a fixed `Berichte` folder, created on first use.** The
+   deep-research submit form names it before the run, so authorization is
+   **commissioned** — the user asked for a report and was told where it goes —
+   rather than confirmed afterwards by a modal that is only ever answered yes.
 
-9. **Interactive runs only.** A scheduled job (`jobs.schedule_cron`) has no live
+   Build note: `project_folders` has **no uniqueness on `(project_id,
+   parent_id, name)`** — the only unique constraint is `(id, project_id)`,
+   which exists to satisfy the composite foreign keys. A naive get-or-create
+   therefore duplicates the folder under two runs finishing at once. Add the
+   unique index in this change and make the create an upsert; it is a
+   one-line migration and the alternative is a project with two `Berichte`
+   folders and no way to say which is real.
+
+9. **The folder is a convenience; `authored_by` is the index.** How a report is
+   *filed* and how it is *found* are different questions, and tying the second
+   to the first is what makes a folder convention load-bearing. Every "show me
+   what Piloti wrote" surface queries the column:
+
+   - a partial index `documents_agent_authored_idx ON documents (project_id,
+     created_at DESC) WHERE authored_by = 'agent'` — partial for the same
+     reason `documents_conversation_idx` is, since agent rows are the small
+     minority;
+   - a `Von Piloti` filter chip beside the existing `Alle · Meine ·
+     Unvergeben` strip, ANDed with folder and search like the others;
+   - `authoredBy` as a listing filter on the documents API.
+
+   So moving, renaming or abandoning `Berichte` later costs nothing, and a
+   future "everything Piloti has written for this project" view is a query
+   that already works rather than a migration. Cross-**project** aggregation is
+   deliberately out of v1 — there is no cross-project document surface today
+   (`cross-project-rag-vision.md` is a vision doc, not a feature) — but the
+   column is what makes it a listing change rather than a data change.
+
+10. **Interactive runs only.** A scheduled job (`jobs.schedule_cron`) has no live
    session, so its write would have to resolve `triggered_by`'s permission in
    the scheduler worker. That is a real design, and it is v1.1.
 
@@ -140,9 +168,15 @@ ALTER TABLE documents
   CHECK (authored_by <> 'agent' OR authored_by_run_id IS NOT NULL);
 ```
 
-No index in v1: the only query is "show me this project's documents", which
-`documents_project_idx` already serves, and `authored_by` is not selective
-enough to earn one until agent output is common.
+Plus the partial index from decision 9 — `WHERE authored_by = 'agent'` — which
+carries no entry for the overwhelming majority of rows and is what makes "show
+me everything Piloti wrote" a point query rather than a scan. And the folder
+uniqueness the fixed destination needs:
+
+```sql
+CREATE UNIQUE INDEX uniq_project_folders_parent_name
+  ON project_folders (project_id, COALESCE(parent_id, '00000000-0000-0000-0000-000000000000'::uuid), name);
+```
 
 `createdBy` stays the commissioning user — they caused the bytes to exist, and
 the export and the audit both need a human to name. `authored_by` says whose
@@ -242,12 +276,10 @@ week.
 
 ## Open questions
 
-1. **Which folder?** A fixed `Berichte` folder per project, or the folder the
-   user picks at submit? Fixed is one less decision at commission time; picked
-   is one less surprise. Leaning fixed, created on first use.
-2. **Re-runs.** A second run on the same question produces a second document.
-   Acceptable (a report is dated), or does it want the first one superseded?
-   Leaning acceptable — supersession is where versioning creeps back in.
+1. ~~Which folder?~~ **Resolved:** a fixed `Berichte` folder, with finding
+   them driven by `authored_by` rather than by the folder (decisions 8–9).
+2. ~~Re-runs.~~ **Resolved:** a second run makes a second document. A report is
+   dated; supersession is where versioning creeps back in.
 3. **Should `stored` documents be searchable by *filename* in the Files pane?**
    Yes — they are files. Confirm this does not leak them into any retrieval
    surface that reads the same index.
