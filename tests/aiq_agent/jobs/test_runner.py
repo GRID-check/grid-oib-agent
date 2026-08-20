@@ -2166,3 +2166,309 @@ class TestCitedSourceEmission:
         ):
             callback._emit_cited_documents(self.REPORT)
         assert emitted == []
+
+
+class _StubMessage:
+    """Minimal LLM message shape ``_extract_llm_response`` understands.
+
+    A MagicMock cannot stand in here: every ``hasattr`` on it is true, so the
+    handler would read a Mock as a tool call and skip the output path entirely.
+    """
+
+    def __init__(self, content: str) -> None:
+        self.content = content
+        self.tool_calls: list = []
+        self.additional_kwargs: dict = {}
+        self.response_metadata: dict = {}
+
+
+class _StubGeneration:
+    def __init__(self, content: str) -> None:
+        self.message = _StubMessage(content)
+
+
+class _StubLLMResult:
+    def __init__(self, content: str) -> None:
+        self.generations = [[_StubGeneration(content)]]
+
+
+def _kb_registry():
+    """A registry holding one OIB document and one web page, as a run would."""
+    from aiq_agent.common.citation_verification import SourceEntry
+    from aiq_agent.common.citation_verification import SourceRegistry
+
+    registry = SourceRegistry()
+    registry.add(
+        SourceEntry(
+            citation_key="oib-rl_2_ausgabe_mai_2023.pdf, p.12",
+            title="OIB-Richtlinie 2",
+            source_type="knowledge_layer",
+            collection="oib_knowledge",
+            tool_name="knowledge_search",
+        )
+    )
+    registry.add(SourceEntry(url="https://example.com/a", source_type="generic", tool_name="web_search_tool"))
+    return registry
+
+
+def _capture_artifacts(callback):
+    """Patch ``_emit_artifact`` and collect every emitted artifact as a dict."""
+    emitted: list[dict] = []
+    patcher = patch.object(
+        callback,
+        "_emit_artifact",
+        side_effect=lambda artifact_type, content, **kw: emitted.append(
+            {"type": artifact_type, "content": content, **kw}
+        ),
+    )
+    return emitted, patcher
+
+
+def _cited(emitted: list[dict]) -> list[dict]:
+    return [item for item in emitted if item["type"] == ArtifactType.CITATION_USE]
+
+
+REPORT_CITING_BOTH = (
+    "Brandabschnitte sind zu begrenzen [1]. Ergänzend gilt [2].\n\n"
+    "## Quellen\n"
+    "- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12\n"
+    "- [2] [Web] Beispiel: https://example.com/a\n"
+)
+
+
+class TestCitedSourceRegistryResolution:
+    """A knowledge-base citation must be markable as cited INSIDE A JOB.
+
+    ``_get_source_registry`` used to read the session-scoped contextvar only,
+    and nothing binds that inside a Dask worker — only the synchronous chat
+    paths call ``set_session_registry``. So in a deep-research job the lookup
+    always returned None, ``_emit_cited_documents`` early-returned, and no OIB
+    document could ever be marked cited: the live panel showed a run's four
+    Richtlinien as merely "discovered" next to the one web page it cited.
+    """
+
+    def test_an_attached_registry_marks_a_document_cited(self):
+        callback = DeepResearchEventCallback(source_registry=_kb_registry())
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.emit_final_report(REPORT_CITING_BOTH)
+
+        keys = [item.get("citation_key") for item in _cited(emitted)]
+        assert "oib-rl_2_ausgabe_mai_2023.pdf, p.12" in keys
+
+    def test_an_attached_registry_still_marks_the_web_source_cited(self):
+        callback = DeepResearchEventCallback(source_registry=_kb_registry())
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.emit_final_report(REPORT_CITING_BOTH)
+
+        assert any(item.get("url") == "https://example.com/a" for item in _cited(emitted))
+
+    def test_a_provider_callable_is_resolved_at_emit_time(self):
+        """The wiring hands over an accessor, not a snapshot.
+
+        ``SourceRegistryMiddleware.active_registry`` prefers a session registry
+        when one exists, so calling it late is what keeps the callback pointed
+        at the registry ``verify_citations`` will actually use.
+        """
+        registry = _kb_registry()
+        calls: list[int] = []
+
+        def provider():
+            calls.append(1)
+            return registry
+
+        callback = DeepResearchEventCallback()
+        callback.set_source_registry(provider)
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.emit_final_report(REPORT_CITING_BOTH)
+
+        assert calls, "the provider was never called"
+        assert any(item.get("citation_key") for item in _cited(emitted))
+
+    def test_a_broken_provider_falls_back_to_the_session_registry(self):
+        """Transparency artifacts never fail a job — not even on bad wiring."""
+        from aiq_agent.common.citation_verification import reset_session_registry
+        from aiq_agent.common.citation_verification import set_session_registry
+
+        def provider():
+            raise RuntimeError("registry handle went away")
+
+        callback = DeepResearchEventCallback(source_registry=provider)
+        emitted, patcher = _capture_artifacts(callback)
+        token = set_session_registry(_kb_registry())
+        try:
+            with patcher:
+                callback.emit_final_report(REPORT_CITING_BOTH)
+        finally:
+            reset_session_registry(token)
+
+        assert any(item.get("citation_key") for item in _cited(emitted))
+
+    def test_tool_results_alone_are_enough_to_mark_a_document_cited(self):
+        """No wiring at all: the mirror built from the run's own tool results.
+
+        This is the tier that makes a job truthful with no change outside the
+        callback — the same parser the SourceRegistryMiddleware uses, over the
+        same tool output, so the mirror cannot drift in shape from the real
+        registry.
+        """
+        callback = DeepResearchEventCallback()
+        tool_output = (
+            "Found 1 relevant document(s):\n\n"
+            "--- Result 1 ---\n"
+            "Source: oib-rl_2_ausgabe_mai_2023.pdf\n"
+            "Page: 12\n"
+            "Citation: oib-rl_2_ausgabe_mai_2023.pdf, p.12\n"
+            "Collection: oib_knowledge\n\n"
+            "Brandabschnitte sind zu begrenzen."
+        )
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.on_tool_end(tool_output, run_id="run-kb", name="knowledge_search")
+            callback.emit_final_report(REPORT_CITING_BOTH)
+
+        keys = [item.get("citation_key") for item in _cited(emitted)]
+        assert "oib-rl_2_ausgabe_mai_2023.pdf, p.12" in keys
+
+    def test_a_document_no_tool_ever_returned_is_not_guessed(self):
+        """An empty mirror is "no registry", not "a registry that knows nothing".
+
+        Treating it as a registry would make every document citation
+        unverifiable-but-unchecked instead of simply undecided.
+        """
+        callback = DeepResearchEventCallback()
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.emit_final_report(REPORT_CITING_BOTH)
+
+        assert [item.get("citation_key") for item in _cited(emitted) if item.get("citation_key")] == []
+
+
+class TestVerifiedCitedSourceStream:
+    """ "Cited" is claimed only for citations the FINAL, verified report carries.
+
+    ``_emit_cited_sources`` used to run on raw ``on_llm_end`` content, which is
+    produced before ``verify_citations`` (in ``DeepResearcherAgent._finalize``)
+    strips fabricated or unverifiable citations — and before the writer decides
+    which of an intermediate agent's sources reach the answer at all. The
+    frontend's merge is monotonic (``isCited`` is sticky once true), so a
+    premature claim could never be taken back.
+    """
+
+    def test_raw_streaming_output_claims_nothing_as_cited(self):
+        callback = DeepResearchEventCallback(source_registry=_kb_registry())
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.on_llm_end(_StubLLMResult(REPORT_CITING_BOTH + "x" * 200), run_id="run-1")
+
+        assert _cited(emitted) == []
+        # The output artifact itself still streams — only the "cited" claim waits.
+        assert any(item["type"] == ArtifactType.OUTPUT for item in emitted)
+
+    def test_the_verified_report_is_what_announces_cited_sources(self):
+        callback = DeepResearchEventCallback(source_registry=_kb_registry())
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.on_llm_end(_StubLLMResult(REPORT_CITING_BOTH + "x" * 200), run_id="run-1")
+            callback.emit_final_report(REPORT_CITING_BOTH)
+
+        cited = _cited(emitted)
+        assert any(item.get("citation_key") for item in cited)
+        assert any(item.get("url") == "https://example.com/a" for item in cited)
+
+    def test_a_citation_verification_stripped_is_never_announced(self):
+        """The real verifier decides; the stream only reports its verdict.
+
+        The stripped citation here is a DOCUMENT the run genuinely retrieved,
+        not an invented URL, and that distinction is the whole test. A
+        fabricated URL is refused by the callback's own registry check on its
+        own, so a draft-driven stream would decline to announce it anyway and
+        the assertion would hold whether or not the emit site was ever fixed —
+        false comfort, in the shape of a passing test.
+
+        So the never-retrieved URL is hung off the line naming the real OIB
+        Richtlinie. Verification reads the URL, finds it unbacked, and drops
+        the whole line, so the verified report no longer claims that document —
+        while the DRAFT still names it and the callback's document matcher
+        would happily accept it, because the run really did retrieve it. That
+        is a stripped citation the old code announced.
+        """
+        from aiq_agent.common.citation_verification import verify_citations
+
+        registry = _kb_registry()
+        draft = (
+            "Brandabschnitte sind zu begrenzen [1]. Weiters [2].\n\n"
+            "## Quellen\n"
+            "- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12: "
+            "https://fabricated.example.org/nie-abgerufen\n"
+            "- [2] [Web] Beispiel: https://example.com/a\n"
+        )
+        verification = verify_citations(draft, registry)
+        assert verification.removed_citations, "fixture no longer exercises a stripped citation"
+        assert "oib-rl_2_ausgabe_mai_2023.pdf" not in verification.verified_report, (
+            "fixture no longer strips the RETRIEVED document, so it cannot discriminate"
+        )
+
+        callback = DeepResearchEventCallback(source_registry=registry)
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.on_llm_end(_StubLLMResult(draft + "x" * 200), run_id="run-1")
+            callback.emit_final_report(verification.verified_report)
+
+        cited = _cited(emitted)
+        cited_urls = [item.get("url") for item in cited]
+        cited_keys = [item.get("citation_key") for item in cited]
+        # The retrieved-but-stripped document: announcing it is the real bug.
+        assert "oib-rl_2_ausgabe_mai_2023.pdf, p.12" not in cited_keys
+        assert "https://fabricated.example.org/nie-abgerufen" not in cited_urls
+        assert "https://example.com/a" in cited_urls
+
+    def test_a_source_only_an_intermediate_agent_cited_is_not_announced(self):
+        """The writer drops sources; the panel must drop them too.
+
+        A researcher's notes cite everything that worker retrieved. Announcing
+        those as cited marked sources the finished answer never carries — and
+        with `isCited` sticky in the frontend, permanently.
+        """
+        from aiq_agent.common.citation_verification import SourceEntry
+
+        registry = _kb_registry()
+        registry.add(SourceEntry(url="https://example.com/b", source_type="generic", tool_name="web_search_tool"))
+        notes = (
+            "Recherchenotizen: Beides ist einschlägig [1][2].\n\n"
+            "## Quellen\n"
+            "- [1] [Web] Beispiel A: https://example.com/a\n"
+            "- [2] [Web] Beispiel B: https://example.com/b\n"
+        ) + "x" * 200
+        final_report = (
+            "Brandabschnitte sind zu begrenzen [1].\n\n## Quellen\n- [1] [Web] Beispiel A: https://example.com/a\n"
+        )
+
+        callback = DeepResearchEventCallback(source_registry=registry)
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.on_llm_end(_StubLLMResult(notes), run_id="run-researcher")
+            callback.emit_final_report(final_report)
+
+        cited_urls = [item.get("url") for item in _cited(emitted)]
+        assert cited_urls == ["https://example.com/a"]
+
+    def test_the_runners_second_emit_does_not_duplicate_citations(self):
+        """The runner re-emits the same report with Grid cards attached."""
+        callback = DeepResearchEventCallback(source_registry=_kb_registry())
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.emit_final_report(REPORT_CITING_BOTH)
+            callback.emit_final_report(REPORT_CITING_BOTH, cards=[{"type": "legal_basis"}])
+
+        assert len(_cited(emitted)) == 2  # one document + one URL, each once
+
+    def test_a_citation_failure_never_costs_the_user_the_report(self):
+        callback = DeepResearchEventCallback(source_registry=_kb_registry())
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher, patch.object(callback, "_emit_cited_sources", side_effect=RuntimeError("boom")):
+            callback.emit_final_report(REPORT_CITING_BOTH)
+
+        assert [item["type"] for item in emitted] == [ArtifactType.OUTPUT]

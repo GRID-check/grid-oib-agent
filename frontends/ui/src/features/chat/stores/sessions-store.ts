@@ -1558,6 +1558,13 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
         provenance.citationsRemoved = assistantMessage.citationsRemoved
       }
       if (assistantMessage.researchTruncated) provenance.researchTruncated = true
+      // Mirrored so a reload of a LIVE turn shows what the turn showed. The
+      // sanitizer in message-provenance already accepts both; nothing was
+      // calling it with them.
+      if (assistantMessage.truncationReason)
+        provenance.truncationReason = assistantMessage.truncationReason
+      if (assistantMessage.degradedReasons?.length)
+        provenance.degradedReasons = assistantMessage.degradedReasons
       // The POINTER, not the report: a colleague fetches the document through the
       // path that already serves it rather than being handed a copy in a message
       // row.

@@ -266,6 +266,16 @@ const restoreProvenance = (value: unknown): Partial<ChatMessage> => {
   if (provenance.researchTruncated === true) {
     out.researchTruncated = true
   }
+  // The cause and the degradations restore INDEPENDENTLY of the flag, the way
+  // the backend extracts them: a run can be degraded without being truncated.
+  if (typeof provenance.truncationReason === 'string' && provenance.truncationReason) {
+    out.truncationReason = provenance.truncationReason
+  }
+  if (Array.isArray(provenance.degradedReasons) && provenance.degradedReasons.length > 0) {
+    out.degradedReasons = provenance.degradedReasons.filter(
+      (reason): reason is string => typeof reason === 'string' && reason.length > 0
+    )
+  }
   if (typeof provenance.deepResearchJobId === 'string') {
     out.deepResearchJobId = provenance.deepResearchJobId
   }

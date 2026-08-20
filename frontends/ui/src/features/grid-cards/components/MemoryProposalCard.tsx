@@ -20,6 +20,12 @@ interface MemoryProposalCardProps {
   messageId?: string
   /** Stable identity of this card within that message (`cardKey`). */
   cardKey: string
+  /**
+   * Whether this surface requires the answer to be persisted. With no owning
+   * message the card then shows WHAT is proposed and offers nothing — see
+   * `GridCards.decisionsMustPersist`.
+   */
+  decisionsMustPersist?: boolean
 }
 
 /**
@@ -42,11 +48,14 @@ export function MemoryProposalCard({
   confidence = 'medium',
   messageId,
   cardKey,
+  decisionsMustPersist,
 }: MemoryProposalCardProps) {
   const t = useTranslations('chat')
   // Same source as ProjectProfilePatchCard's projectId: the active chat store.
   const projectId = useChatStore((s) => s.projectId)
-  const { decision, decide } = useCardDecision(messageId, cardKey)
+  const { decision, decide, canDecide } = useCardDecision(messageId, cardKey, {
+    mustPersist: decisionsMustPersist,
+  })
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -112,26 +121,36 @@ export function MemoryProposalCard({
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      {/* Project action is its own row so its target scope reads distinctly from
-          the org-wide Yes/No group. Hidden when there is no project in scope. */}
-      {projectId && (
-        <div className="flex items-center">
-          <Button type="button" variant="outline" size="sm" onClick={handleSaveProject} disabled={isSubmitting}>
-            {t('memoryProposal.saveToProject')}
-          </Button>
-        </div>
-      )}
+      {/* NOTHING TO PRESS when the answer could not be kept (`canDecide`): the
+          proposal still reads — this is what the run wants remembered — but a
+          Yes here would POST a memory row and then forget it had, and
+          `/api/organization/memory` inserts unconditionally. The card is asked
+          again where the answer has a home, which is the thread. */}
+      {canDecide && (
+        <>
+          {/* Project action is its own row so its target scope reads distinctly
+              from the org-wide Yes/No group. Hidden when there is no project in
+              scope. */}
+          {projectId && (
+            <div className="flex items-center">
+              <Button type="button" variant="outline" size="sm" onClick={handleSaveProject} disabled={isSubmitting}>
+                {t('memoryProposal.saveToProject')}
+              </Button>
+            </div>
+          )}
 
-      {/* Org-wide prompt with Yes/No grouped together to the right. */}
-      <div className="flex items-center justify-end gap-2">
-        <p className="mr-auto text-sm text-muted-foreground">{t('memoryProposal.prompt')}</p>
-        <Button type="button" size="sm" onClick={handleSaveOrg} disabled={isSubmitting}>
-          {isSubmitting ? t('memoryProposal.saving') : t('memoryProposal.yes')}
-        </Button>
-        <Button type="button" variant="outline" size="sm" onClick={handleDismiss} disabled={isSubmitting}>
-          {t('memoryProposal.no')}
-        </Button>
-      </div>
+          {/* Org-wide prompt with Yes/No grouped together to the right. */}
+          <div className="flex items-center justify-end gap-2">
+            <p className="mr-auto text-sm text-muted-foreground">{t('memoryProposal.prompt')}</p>
+            <Button type="button" size="sm" onClick={handleSaveOrg} disabled={isSubmitting}>
+              {isSubmitting ? t('memoryProposal.saving') : t('memoryProposal.yes')}
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={handleDismiss} disabled={isSubmitting}>
+              {t('memoryProposal.no')}
+            </Button>
+          </div>
+        </>
+      )}
     </ProposalShell>
   )
 }

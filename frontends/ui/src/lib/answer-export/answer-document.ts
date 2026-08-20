@@ -40,8 +40,14 @@ export interface AnswerDocumentInput {
   question?: string | null
   /** The answer's prose, as markdown. */
   answer: string
-  /** When the answer was written — never "now". */
-  createdAt: Date
+  /**
+   * When the answer was written — never "now", and absent rather than guessed.
+   * A caller that does not know the instant (an export assembled from a report
+   * the client is holding, rather than from a stored message) must leave this
+   * out: the honesty rule above applies to the date more than to anything else,
+   * because a wrong date on a project document is the error nobody catches.
+   */
+  createdAt?: Date | null
   /** `metadata.citations`, in the stored wire shape. */
   citations?: unknown
   /** `metadata.cards`, in the stored card shape. */
@@ -57,7 +63,7 @@ export interface AnswerDocumentInput {
  * citation reads the locator first and the URL only if the locator is not
  * enough.
  */
-const referenceParagraph = (entry: ReferenceEntry): DocBlock => {
+export const referenceParagraph = (entry: ReferenceEntry): DocBlock => {
   const runs: DocRun[] = [{ text: `[${entry.number}] `, bold: true }, { text: entry.label }]
   if (entry.page) runs.push({ text: `, ${entry.page}` })
   if (entry.note) runs.push({ text: ` — ${entry.note}`, italic: true })
@@ -86,29 +92,66 @@ const confidenceBlocks = (confidence: AnswerConfidence, t: Translator): DocBlock
 }
 
 /**
- * Build the document for one answer.
+ * One header fact: the small `Label: value` line under the document's title.
+ *
+ * Kept as data rather than pre-rendered into a paragraph because the two
+ * exporters put the header in different PLACES. Word wants it inline, as the
+ * first lines of the body — that is what a reader edits. The PDF puts it on a
+ * cover, in a ruled label/value column, where a `Projekt: …` paragraph would
+ * look like body text that escaped upward.
+ */
+export interface DocumentFact {
+  label: string
+  value: string
+}
+
+/**
+ * An answer, split into the parts a document is assembled from.
+ *
+ * The split exists so a second output format can present the header its own way
+ * without re-deriving the header FACTS — which is where the honesty rule at the
+ * top of this file lives, and therefore the one part that must not be written
+ * twice.
+ */
+export interface AnswerSections {
+  /** The document's own name; already fallen back, so never empty. */
+  title: string
+  /** Project and date, in reading order. Empty when the answer stated neither. */
+  facts: DocumentFact[]
+  /** Everything below the header: question, answer, findings, sources. */
+  body: DocBlock[]
+}
+
+/**
+ * Assemble one answer into title, header facts and body.
  *
  * The prose's own written sources section is lifted out before the answer is
  * rendered, and used as the reference list only when no structured citations
  * were stored — otherwise the document would state the answer's sources twice,
  * in two lists with no guarantee of agreeing.
  */
-export function buildAnswerDocument(
+export function buildAnswerSections(
   input: AnswerDocumentInput,
   t: Translator,
   locale: Locale
-): DocBlock[] {
+): AnswerSections {
   const { body, references: written } = splitProse(input.answer ?? '')
   const stored = referencesFromStored(input.citations, t)
   const references = stored.length > 0 ? stored : written
 
   const title = input.conversationTitle?.trim() || t('documentTitle')
-  const date = new Intl.DateTimeFormat(locale, { dateStyle: 'long' }).format(input.createdAt)
 
-  const header: (DocBlock | null)[] = [
-    { kind: 'heading', level: 1, text: title },
-    input.projectName?.trim() ? labelled(t('project'), input.projectName.trim()) : null,
-    labelled(t('createdAt'), date),
+  const projectName = input.projectName?.trim()
+  const facts: DocumentFact[] = [
+    ...(projectName ? [{ label: t('project'), value: projectName }] : []),
+    ...(input.createdAt
+      ? [
+          {
+            label: t('createdAt'),
+            value: new Intl.DateTimeFormat(locale, { dateStyle: 'long' }).format(input.createdAt),
+          },
+        ]
+      : []),
   ]
 
   const question = input.question?.trim()
@@ -137,12 +180,35 @@ export function buildAnswerDocument(
         ]
       : []
 
+  return {
+    title,
+    facts,
+    body: compact([
+      ...questionSection,
+      ...answerSection,
+      ...confidence,
+      ...cardSection,
+      ...sourceSection,
+    ]),
+  }
+}
+
+/**
+ * Build the document for one answer, as one flat block list.
+ *
+ * The header is folded back in at the top — a heading and one `Label: value`
+ * paragraph per fact — which is the shape Word wants and the shape every
+ * existing caller of this function already renders.
+ */
+export function buildAnswerDocument(
+  input: AnswerDocumentInput,
+  t: Translator,
+  locale: Locale
+): DocBlock[] {
+  const { title, facts, body } = buildAnswerSections(input, t, locale)
   return compact([
-    ...header,
-    ...questionSection,
-    ...answerSection,
-    ...confidence,
-    ...cardSection,
-    ...sourceSection,
+    { kind: 'heading', level: 1, text: title },
+    ...facts.map((fact) => labelled(fact.label, fact.value)),
+    ...body,
   ])
 }

@@ -10,6 +10,30 @@ export interface UseCardDecisionResult {
   decision: CardDecision | null
   /** Record the outcome. Persisted whenever the card knows its owning message. */
   decide: (decision: CardDecision) => void
+  /**
+   * Whether this card may offer its decision at all. False only where the
+   * caller demanded persistence and no message owns the card — see
+   * {@link UseCardDecisionOptions.mustPersist}. A card reading false must draw
+   * itself WITHOUT its actions: it may still show what is being proposed, but
+   * it must not take an answer it cannot keep.
+   */
+  canDecide: boolean
+}
+
+export interface UseCardDecisionOptions {
+  /**
+   * Refuse the decision outright when no owning message is known, instead of
+   * falling back to mount-local state.
+   *
+   * The fallback is right where nothing COULD be persisted and nothing is at
+   * stake — the `/dev/cards` gallery, a preview — and it is wrong on a real
+   * surface, where it produces a button that applies a patch or writes a memory
+   * and then forgets it did. The deep-research report tab is the second kind:
+   * its cards come from a job output whose owning message may not be loaded (or
+   * may not exist yet), so it asks for persistence and takes no answer without
+   * it. See `card-owner.ts`.
+   */
+  mustPersist?: boolean
 }
 
 /**
@@ -45,8 +69,12 @@ const selectCardDecision = (
  */
 export function useCardDecision(
   messageId: string | undefined,
-  cardKey: string
+  cardKey: string,
+  options?: UseCardDecisionOptions
 ): UseCardDecisionResult {
+  // No owning message on a surface that requires one: the card is read-only.
+  // Computed before the store reads so `decide` and the renderer agree.
+  const canDecide = Boolean(messageId) || !options?.mustPersist
   // Returns a primitive, so it is referentially stable and cannot loop.
   const persisted = useChatStore((state) => selectCardDecision(state, messageId, cardKey))
   const setCardDecision = useChatStore((state) => state.setCardDecision)
@@ -71,6 +99,11 @@ export function useCardDecision(
   const decide = useCallback(
     (decision: CardDecision) => {
       if (!messageId) {
+        // Nothing owns this card. Where the caller asked for persistence that
+        // is a refusal, not a fallback — the card should not have offered the
+        // action, and swallowing a stray call is cheaper than trusting every
+        // caller to have hidden every button.
+        if (!canDecide) return
         setLocal(decision)
         return
       }
@@ -79,9 +112,9 @@ export function useCardDecision(
         setLocal(decision)
       }
     },
-    [messageId, cardKey, setCardDecision]
+    [messageId, cardKey, setCardDecision, canDecide]
   )
 
   // Persisted wins when present: it is the copy that survives a reload.
-  return { decision: persisted ?? local, decide }
+  return { decision: persisted ?? local, decide, canDecide }
 }

@@ -152,7 +152,10 @@ const blockFrom = (token: Token): DocBlock[] => {
       ]
     }
     case 'hr':
-      return []
+      // A `---` an author typed is a section break they meant, so it becomes a
+      // real rule rather than nothing: dropping it joins two parts of an answer
+      // the author deliberately kept apart.
+      return [{ kind: 'rule' }]
     default: {
       const raw = ((token as InlineHost).text ?? (token as InlineHost).raw ?? '').trim()
       return raw ? [{ kind: 'paragraph', runs: [{ text: raw }] }] : []

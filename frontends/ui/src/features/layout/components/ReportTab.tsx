@@ -33,7 +33,8 @@ import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { useChatStore } from '@/features/chat'
 import { ReportSourcePreviewChip, SourcePreviewChip } from '@/features/chat/components/SourcePreview'
 import { buildCitationModel, refKey, type CitationRef } from '@/features/chat/lib/citations'
-import { GridCards } from '@/features/grid-cards'
+import { GridCards, useCardOwnerMessageId } from '@/features/grid-cards'
+import { ReportPreviewSplit } from '@/features/report-preview'
 import { useTranslations } from '@/i18n'
 import {
   REPORT_SOURCE_ANCHOR_PREFIX,
@@ -150,6 +151,7 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
     currentStatus,
     deepResearchCards,
     deepResearchCitations,
+    deepResearchJobId,
     projectId,
   } = useChatStore(
     useShallow((s) => ({
@@ -159,12 +161,36 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
       currentStatus: s.currentStatus,
       deepResearchCards: s.deepResearchCards,
       deepResearchCitations: s.deepResearchCitations,
+      deepResearchJobId: s.deepResearchJobId,
       projectId: s.projectId,
     }))
   )
 
   const reportContentStr = typeof reportContent === 'string' ? reportContent : ''
   const cards = deepResearchCards ?? []
+
+  /**
+   * The message these report cards belong to.
+   *
+   * The cards on this panel come from the finished job's output, but they are
+   * not homeless: `write_job_turn` writes the run into its conversation as an
+   * assistant message carrying the SAME `metadata.cards`, and that message is
+   * what the thread draws them from. So the answer to "who owns this card" is
+   * looked up rather than invented — `useCardOwnerMessageId` matches the run
+   * and the card array against the loaded threads, which is what makes a
+   * decision made here and the same decision seen in the thread ONE fact
+   * instead of two (`features/grid-cards/card-owner.ts` carries the rule and
+   * why byte-identical cards are part of it).
+   *
+   * It can come back null — a run still in flight, a thread not loaded on this
+   * device, a job with no conversation at all. `decisionsMustPersist` is how
+   * this panel says what to do then: an interactive card draws WITHOUT its
+   * buttons rather than accepting an answer that has nowhere to go. That is the
+   * trade this surface wants — neither endpoint behind those buttons is
+   * idempotent, so a forgotten Yes is a duplicated memory row the next time the
+   * card is offered.
+   */
+  const cardOwnerMessageId = useCardOwnerMessageId(deepResearchJobId, cards)
   const isEmpty = !reportContentStr.trim()
   const isGeneratingReport = isStreaming && currentStatus === 'writing'
   const isResearchNotes = reportContentCategory === 'research_notes'
@@ -287,103 +313,118 @@ export const ReportTab: FC<ReportTabProps> = ({ children, showSourceBadges = tru
 
   return (
     <div className="flex h-full flex-col">
-      {/* Scrollable content area */}
-      <div
-        ref={scrollRef}
-        className="flex flex-1 flex-col gap-4 overflow-y-auto overscroll-contain"
-      >
-        {children ? (
-          children
-        ) : isEmpty ? (
-          <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-            <FileText className="mb-3 size-8 text-muted-foreground" aria-hidden="true" />
-            <p className="text-sm text-muted-foreground">
-              {t('reportTab.contentWhenAvailable')}
-            </p>
-          </div>
-        ) : isResearchNotes ? (
-          /* Research notes: preview treatment */
-          <div className="flex flex-1 flex-col gap-3">
-            <div className="flex shrink-0 items-center gap-2 rounded-md border border-warning bg-warning-subtle px-3 py-2">
-              <div className="size-2 animate-pulse rounded-full bg-warning motion-reduce:animate-none" />
-              <span className="text-sm text-warning">
-                {t('reportTab.notesBanner')}
-              </span>
+      {/* The report and, on demand, the PDF it exports as — one resizable row.
+          `ReportPreviewSplit` makes the room for the pane itself, so nothing
+          here subtracts a width for it (see the comment in that file, and the
+          one in MainLayout it comes from). Mounted unconditionally: the group
+          has to exist before the reader asks for the pane, because a
+          `collapsible` panel that appears at the same moment it is expanded
+          brings its mount-time bounds — all zero — with it. */}
+      <ReportPreviewSplit>
+        {/* Scrollable content area */}
+        <div
+          ref={scrollRef}
+          className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain"
+        >
+          {children ? (
+            children
+          ) : isEmpty ? (
+            <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
+              <FileText className="mb-3 size-8 text-muted-foreground" aria-hidden="true" />
+              <p className="text-sm text-muted-foreground">
+                {t('reportTab.contentWhenAvailable')}
+              </p>
             </div>
-            <div className="flex-1 opacity-80">
+          ) : isResearchNotes ? (
+            /* Research notes: preview treatment */
+            <div className="flex flex-1 flex-col gap-3">
+              <div className="flex shrink-0 items-center gap-2 rounded-md border border-warning bg-warning-subtle px-3 py-2">
+                <div className="size-2 animate-pulse rounded-full bg-warning motion-reduce:animate-none" />
+                <span className="text-sm text-warning">
+                  {t('reportTab.notesBanner')}
+                </span>
+              </div>
+              <div className="flex-1 opacity-80">
+                <MarkdownRenderer
+                  content={reportContentStr}
+                  isStreaming={false}
+                  className="max-w-none"
+                />
+              </div>
+            </div>
+          ) : (
+            /* Final report: full prominence, with Grid cards when available */
+            <div className="flex flex-1 flex-col gap-4">
+              <ReportOutline entries={outline} scrollRootRef={scrollRef} />
+              {/* `messageId` is the run's own answer message, resolved above —
+                  never `activeDeepResearchMessageId`, which ADR-0030 rightly
+                  refused to trust: it is null after a session switch + "View
+                  report", and `restoreSessionState` re-points it at the LAST
+                  agent_response, which may be an unrelated later answer. */}
+              {cards.length > 0 && (
+                <GridCards
+                  cards={cards}
+                  projectId={projectId}
+                  messageId={cardOwnerMessageId ?? undefined}
+                  decisionsMustPersist
+                />
+              )}
+              {/* The outline bar is sticky at the top of this scroll box, so a
+                  heading jumped to with `block: 'start'` would land underneath
+                  it. The renderer's own `scroll-mt-4` is sized for a container
+                  with nothing on top; this raises it to clear the bar. */}
               <MarkdownRenderer
-                content={reportContentStr}
-                isStreaming={false}
-                className="max-w-none"
+                content={body}
+                isStreaming={isGeneratingReport}
+                className="max-w-none [&_h2]:scroll-mt-12 [&_h3]:scroll-mt-12"
+                remarkPlugins={markerPlugins}
               />
+              {sourceEntries.length > 0 && (
+                <ReportSourcesList
+                  heading={sourcesSectionHeading ?? t('reportTab.sourcesTitle')}
+                  headingId={sourcesHeadingId ?? ''}
+                  entries={sourceEntries}
+                  sourceBadgeLabel={(kind) => t(`reportTab.sourceBadge.${kind}`)}
+                  showSourceBadges={showSourceBadges}
+                />
+              )}
+              {citedFallbackSources.length > 0 && (
+                <section aria-label={t('reportTab.sourcesTitle')}>
+                  <h2
+                    id={sourcesHeadingId ?? undefined}
+                    className="mb-2 mt-5 scroll-mt-12 text-xl font-semibold tracking-tight text-foreground"
+                  >
+                    {t('reportTab.sourcesTitle')}
+                  </h2>
+                  {/* Rendered through the same citation component as every other
+                      surface. This list used to print `citation.url` as its only
+                      content, which was blank for a knowledge-base source — a
+                      latent hole that only became reachable once KB sources could
+                      be marked cited at all. */}
+                  {/* No list marker: the card already prints the source's `[N]`
+                      from the answer's prose, and a positional marker is a
+                      DIFFERENT number. Cited sources 2 and 5 sit at positions 1
+                      and 2, so the row would show two numbers that disagree. The
+                      `[N]` is what an inline marker points at, so the card keeps
+                      it and the list drops its own. */}
+                  <ol className="list-none space-y-2 pl-0">
+                    {citedFallbackSources.map((ref) => (
+                      <li key={refKey(ref)} className="text-sm text-foreground">
+                        <SourcePreviewChip citation={ref} variant="card" />
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              )}
             </div>
-          </div>
-        ) : (
-          /* Final report: full prominence, with Grid cards when available */
-          <div className="flex flex-1 flex-col gap-4">
-            <ReportOutline entries={outline} scrollRootRef={scrollRef} />
-            {/* No `messageId`: report cards are rendered from transient
-                `deepResearchCards`, which has no reliable owning message —
-                `activeDeepResearchMessageId` is null after a session switch +
-                "View report", and `restoreSessionState` re-points it at the
-                LAST agent_response, which may be an unrelated later answer.
-                Binding decisions to it would record them onto the wrong
-                message, so an interactive card here keeps the old local-state
-                behaviour until the report owns a stable message id.
-                See ADR-0030 §Open Questions. */}
-            {cards.length > 0 && <GridCards cards={cards} projectId={projectId} />}
-            {/* The outline bar is sticky at the top of this scroll box, so a
-                heading jumped to with `block: 'start'` would land underneath
-                it. The renderer's own `scroll-mt-4` is sized for a container
-                with nothing on top; this raises it to clear the bar. */}
-            <MarkdownRenderer
-              content={body}
-              isStreaming={isGeneratingReport}
-              className="max-w-none [&_h2]:scroll-mt-12 [&_h3]:scroll-mt-12"
-              remarkPlugins={markerPlugins}
-            />
-            {sourceEntries.length > 0 && (
-              <ReportSourcesList
-                heading={sourcesSectionHeading ?? t('reportTab.sourcesTitle')}
-                headingId={sourcesHeadingId ?? ''}
-                entries={sourceEntries}
-                sourceBadgeLabel={(kind) => t(`reportTab.sourceBadge.${kind}`)}
-                showSourceBadges={showSourceBadges}
-              />
-            )}
-            {citedFallbackSources.length > 0 && (
-              <section aria-label={t('reportTab.sourcesTitle')}>
-                <h2
-                  id={sourcesHeadingId ?? undefined}
-                  className="mb-2 mt-5 scroll-mt-12 text-xl font-semibold tracking-tight text-foreground"
-                >
-                  {t('reportTab.sourcesTitle')}
-                </h2>
-                {/* Rendered through the same citation component as every other
-                    surface. This list used to print `citation.url` as its only
-                    content, which was blank for a knowledge-base source — a
-                    latent hole that only became reachable once KB sources could
-                    be marked cited at all. */}
-                {/* No list marker: the card already prints the source's `[N]`
-                    from the answer's prose, and a positional marker is a
-                    DIFFERENT number. Cited sources 2 and 5 sit at positions 1
-                    and 2, so the row would show two numbers that disagree. The
-                    `[N]` is what an inline marker points at, so the card keeps
-                    it and the list drops its own. */}
-                <ol className="list-none space-y-2 pl-0">
-                  {citedFallbackSources.map((ref) => (
-                    <li key={refKey(ref)} className="text-sm text-foreground">
-                      <SourcePreviewChip citation={ref} variant="card" />
-                    </li>
-                  ))}
-                </ol>
-              </section>
-            )}
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      </ReportPreviewSplit>
 
-      {/* Export footer - only meaningful for the final report */}
+      {/* Export footer - only meaningful for the final report. Spans the whole
+          row, below both panes: the export actions (and the preview toggle
+          that opens the pane in the first place) belong to the report, not to
+          either column of it. */}
       <ExportFooter />
     </div>
   )

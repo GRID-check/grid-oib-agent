@@ -16,6 +16,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { useShallow } from 'zustand/react/shallow'
 import type { PluggableList } from 'unified'
 import { useLocale, useTranslations } from '@/i18n'
+import type { Translator } from '@/i18n'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { remarkCitationMarkers } from '@/features/layout/lib/citation-markers'
 import { formatTime } from '@/shared/utils/format-time'
@@ -27,6 +28,10 @@ import { MarkdownSlotProvider } from '@/shared/components/MarkdownRenderer/slot-
 import type { GridCard } from '@/shared/cards/schemas'
 import type { CitationSource } from '../types'
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
+import {
+  ANSWER_DEGRADED_REASONS,
+  TRUNCATION_REASONS,
+} from '@/lib/conversations/message-provenance'
 import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import { useChatStore } from '../store'
@@ -159,6 +164,25 @@ export interface AgentResponseProps {
    */
   researchTruncated?: true
   /**
+   * WHY it was cut off, as the backend's stable token (`wall_clock`,
+   * `step_limit`). Appended to the line above as a short parenthetical.
+   *
+   * Typed `string`, not the union, deliberately: this crosses a version
+   * boundary — a newer backend can name a cutoff cause this build has never
+   * heard of — and the component's contract is that it renders only tokens it
+   * has a sentence for. An unknown one renders NOTHING; it is never shown raw,
+   * because `wall_clock` under an answer about Fluchtwegbreiten is noise that
+   * looks like a defect.
+   */
+  truncationReason?: string
+  /**
+   * Ways this answer is weaker than one from a finished run, as stable tokens
+   * (`no_report_file`, `no_valid_citations`). Same token contract as above:
+   * de-duplicated, unknown entries dropped, an empty list rendering nothing —
+   * "degraded in zero ways" is the ordinary case and is not stated.
+   */
+  degradedReasons?: string[]
+  /**
    * Skills whose full instructions the agent loaded while writing this answer
    * (`use_skill`), in activation order. Absent on a turn that activated none,
    * which is the common case — availability is not activation.
@@ -224,6 +248,67 @@ const StreamingCaret: FC = () => (
 )
 
 /**
+ * The verification's own vocabulary for dropping a citation
+ * (`common/citation_verification.py`). Listed here because THIS is the file
+ * that owns the words for them — see {@link localizeToken}.
+ */
+const CITATION_REMOVAL_REASONS = [
+  'url_not_in_registry',
+  'citation_key_not_in_registry',
+  'unverifiable',
+  'duplicate',
+  'ungrounded',
+  'quote_unverified',
+] as const
+
+/**
+ * One stable backend token, in the reader's language — or nothing.
+ *
+ * The backend states these as tokens ON PURPOSE: it has no locale, and a
+ * sentence composed in the agent tier would arrive in whichever language that
+ * turn happened to think in. So the frontend owns the words, which makes the
+ * unknown-token case the one that matters. It is not hypothetical — a token is
+ * added on the producer's release train, not ours, and it also arrives from a
+ * jsonb row written by a build that is not this one.
+ *
+ * The allow-list is checked BEFORE `t()` rather than trusting the dictionary to
+ * miss: `createTranslator` falls back to the key itself, so an unmapped token
+ * would not render nothing, it would render
+ * `answerSources.truncationReason.tool_budget` under an answer about building
+ * law. Silence is the honest rendering of "the system said something this build
+ * cannot put into words" — the FACT (the run was cut off, N citations were
+ * dropped) is carried by the line the token only qualifies, and that line still
+ * renders.
+ */
+function localizeToken(
+  t: Translator,
+  group: string,
+  token: string,
+  known: readonly string[]
+): string | null {
+  return known.includes(token) ? t(`${group}.${token}`) : null
+}
+
+/**
+ * The same, for a LIST of tokens: localized, de-duplicated, order preserved.
+ * Duplicates are dropped by the rendered SENTENCE rather than by the token, so
+ * two tokens that this build words identically still produce one line.
+ */
+function localizeTokens(
+  t: Translator,
+  group: string,
+  tokens: string[] | undefined,
+  known: readonly string[]
+): string[] {
+  const lines: string[] = []
+  for (const token of tokens ?? []) {
+    const line = typeof token === 'string' ? localizeToken(t, group, token, known) : null
+    if (line && !lines.includes(line)) lines.push(line)
+  }
+  return lines
+}
+
+/**
  * Muted note under the "Belegt durch" row: citation verification removed one or
  * more citations from this answer as unverifiable (WP-A `citations_removed`).
  * The de-duplicated reasons hang off a tooltip so the row stays quiet by
@@ -236,7 +321,16 @@ const CitationsRemovedNote: FC<{ citationsRemoved?: { count: number; reasons: st
   if (!citationsRemoved || citationsRemoved.count <= 0) return null
 
   const label = t('answerSources.citationsRemoved', { count: citationsRemoved.count })
-  const reasons = citationsRemoved.reasons?.filter((r) => r.trim().length > 0) ?? []
+  // Localized, not passed through. These are verification TOKENS
+  // (`url_not_in_registry`), and the tooltip used to print them verbatim — which
+  // nobody outside this repository can read. A token with no sentence here is
+  // left out; the count above is the fact and it is unaffected.
+  const reasons = localizeTokens(
+    t,
+    'answerSources.citationsRemovedReason',
+    citationsRemoved.reasons,
+    CITATION_REMOVAL_REASONS
+  )
 
   const text = (
     <span className="text-xs leading-relaxed text-muted-foreground" role="note">
@@ -292,21 +386,67 @@ const CitationsRemovedNote: FC<{ citationsRemoved?: { count: number; reasons: st
  * `role="note"`, muted, no icon, no tint, no border: truncation is a property
  * of the EVIDENCE, not an error state and not a verdict on the answer.
  */
-const ResearchTruncatedNote: FC<{ researchTruncated?: true; hasSources: boolean }> = ({
-  researchTruncated,
-  hasSources,
-}) => {
+const ResearchTruncatedNote: FC<{
+  researchTruncated?: true
+  truncationReason?: string
+  hasSources: boolean
+}> = ({ researchTruncated, truncationReason, hasSources }) => {
   const t = useTranslations('chat')
   if (!researchTruncated) return null
+  const sentence = t(
+    hasSources
+      ? 'answerSources.researchTruncated'
+      : 'answerSources.researchTruncatedWithoutSources'
+  )
+  // The cause rides the same line as a parenthetical rather than claiming one of
+  // its own: "it ran out of time" is not a second statement, it is the first one
+  // finished. Absent (or unknown) leaves the sentence exactly as it was before
+  // this field existed, which is what every turn before today's backend has.
+  const cause = truncationReason
+    ? localizeToken(t, 'answerSources.truncationReason', truncationReason, TRUNCATION_REASONS)
+    : null
   return (
     <div className="mt-1.5">
       <span className="text-xs leading-relaxed text-muted-foreground" role="note">
-        {t(
-          hasSources
-            ? 'answerSources.researchTruncated'
-            : 'answerSources.researchTruncatedWithoutSources'
-        )}
+        {cause ? `${sentence} (${cause})` : sentence}
       </span>
+    </div>
+  )
+}
+
+/**
+ * What the cutoff COST — one muted line per degradation, under the truncation
+ * line and in the same register.
+ *
+ * Separate lines rather than one joined sentence because the two known
+ * degradations ask for different things: "no report was filed" tells the reader
+ * this thread is the only copy, "nothing survived verification" tells them to
+ * check the figures before they use them. Joining them would make one of the two
+ * a subordinate clause of the other.
+ *
+ * Still `role="note"`, still no icon, tint or border. A salvaged answer can be
+ * perfectly well-grounded in what it did reach, and this must not turn a good
+ * one into an alarm — but it must also never be silent about the way the answer
+ * is weaker, which is precisely what it was before this rendered at all.
+ */
+const AnswerDegradedNote: FC<{ degradedReasons?: string[] }> = ({ degradedReasons }) => {
+  const t = useTranslations('chat')
+  const lines = localizeTokens(
+    t,
+    'answerSources.degradedReason',
+    degradedReasons,
+    ANSWER_DEGRADED_REASONS
+  )
+  // An empty list is not a claim: a turn that degraded in none of the known ways
+  // — and one whose every token this build cannot word — says nothing here.
+  if (lines.length === 0) return null
+  return (
+    <div className="mt-1.5 flex flex-col gap-0.5">
+      {lines.map((line) => (
+        <span key={line} className="text-xs leading-relaxed text-muted-foreground" role="note">
+          {line}
+        </span>
+      ))}
     </div>
   )
 }
@@ -332,6 +472,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   answerConfidenceReason,
   citationsRemoved,
   researchTruncated,
+  truncationReason,
+  degradedReasons,
   skillsActivated,
   skillsHidden,
   showReasoning = false,
@@ -606,7 +748,12 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           routingDecision={routingDecision}
           isStreaming={isStreaming}
         />
-        <ResearchTruncatedNote researchTruncated={researchTruncated} hasSources={hasAnswerSources} />
+        <ResearchTruncatedNote
+          researchTruncated={researchTruncated}
+          truncationReason={truncationReason}
+          hasSources={hasAnswerSources}
+        />
+        <AnswerDegradedNote degradedReasons={degradedReasons} />
         <CitationsRemovedNote citationsRemoved={citationsRemoved} />
         <SkillsUsedDisclosure
           skillsActivated={skillsActivated}
@@ -773,7 +920,12 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             isStreaming={isStreaming}
             withDivider={false}
           />
-          <ResearchTruncatedNote researchTruncated={researchTruncated} hasSources={hasAnswerSources} />
+          <ResearchTruncatedNote
+            researchTruncated={researchTruncated}
+            truncationReason={truncationReason}
+            hasSources={hasAnswerSources}
+          />
+          <AnswerDegradedNote degradedReasons={degradedReasons} />
           <CitationsRemovedNote citationsRemoved={citationsRemoved} />
           <SkillsUsedDisclosure
           skillsActivated={skillsActivated}

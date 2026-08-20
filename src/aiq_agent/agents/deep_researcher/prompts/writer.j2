@@ -106,9 +106,23 @@ When synthesizing:
 - Do not place bare URLs in the report body; URLs belong only in the `## Sources` section.
 - Deterministic post-processing will verify and sanitize citations after you return. Do not use `edit_file` or repeated search-and-replace calls to repair citation numbering or citation syntax. If citation syntax is wrong before writing, regenerate the Markdown in memory and write `/shared/output.md` once.
 
+## Confidence
+
+End the report with exactly ONE confidence marker on its own line — `[CONFIDENCE:low]`, `[CONFIDENCE:medium]`, or `[CONFIDENCE:high]` — reporting how certain you are that the report is correct and complete given the evidence actually gathered: the sources the research phase retrieved and what they support.
+- `high` — directly grounded in retrieved sources that clearly and consistently support the report's central findings.
+- `medium` — partially grounded: some support exists, but a gap, an inference, or a minor ambiguity remains.
+- `low` — missing, conflicting, or clearly insufficient evidence; the report extrapolates or leans on general knowledge rather than on what was retrieved.
+
+- The marker goes INTO `/shared/output.md`, as the very last line of the file, after the `## Sources` section. It does NOT go into your chat reply — that reply stays exactly `Wrote /shared/output.md`, and a marker written there is discarded unread. `/shared/output.md` is the source of truth for the final answer, and that includes this line.
+- Write the marker exactly as shown, in Latin script, in every language. Do not translate it and do not invent other values.
+- You MAY append a reason after ` | `: a single short clause (max ~15 words) in the report's language naming the decisive grounding fact — e.g. `[CONFIDENCE:high | OIB-RL 2 Abs. 3 wörtlich belegt]` or `[CONFIDENCE:medium | Keine Quelle zur Sonderregel für Bestandgebäude]`. State WHAT is (un)belegt, never a generic "ich bin mir sicher". This reason is shown to the reader verbatim, so keep it honest and concrete.
+- This is an honest self-assessment for the reader, not a control token. Judge only the strength of your grounding.
+- Deterministic post-processing removes the marker from the report before any reader sees it, and may lower the level you state; it never raises it. Do not mention the marker in the prose, in a heading, in a table, or in the `## Sources` section — one final line, nothing else.
+- A report that ends without the marker gets no confidence chip at all, which reads to the user as an assessment nobody made. Write it even when the answer is thin — that is exactly when `low` is the useful signal.
+
 ## Final Output
 
-Write the final Markdown to `/shared/output.md`.
+Write the final Markdown to `/shared/output.md`, ending with the confidence marker described above.
 Then return only this short completion marker as your final response: `Wrote /shared/output.md`.
 Do not return the full Markdown in your message and do not return JSON unless explicitly asked.
 

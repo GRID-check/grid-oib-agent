@@ -215,17 +215,17 @@ describe('deriveLiveActivity — turn events', () => {
     const english = steps.map((_, i) => deriveLiveActivity(steps.slice(0, i + 1), tEn))
     expect(english).toEqual([
       'Reviewing documents from the office archive …',
-      'Preparing a quick lookup',
+      'Quick lookup: searching the relevant provisions',
       'Searching RIS (Austrian law) …',
-      'Checking the citations …',
+      'Checking every citation against the sources …',
       'A quick lookup is not enough — starting deep research',
     ])
     const german = steps.map((_, i) => deriveLiveActivity(steps.slice(0, i + 1), tDe))
     expect(german).toEqual([
       'Unterlagen aus dem Büroarchiv werden gesichtet …',
-      'Kurzrecherche wird vorbereitet',
+      'Kurzrecherche: einschlägige Stellen werden gesucht',
       'Sucht im RIS …',
-      'Belege werden geprüft …',
+      'Belege werden gegen die Quellen geprüft …',
       'Kurzrecherche reicht nicht — Tiefenrecherche startet',
     ])
   })
@@ -239,7 +239,7 @@ describe('deriveLiveActivity — turn events', () => {
       ],
       tDe
     )
-    expect(phrase).toBe('Belege werden geprüft …')
+    expect(phrase).toBe('Belege werden gegen die Quellen geprüft …')
   })
 
   test('a tool step never overwrites the richer sentence that announced it', () => {
@@ -268,7 +268,7 @@ describe('deriveLiveActivity — turn events', () => {
       }),
     ]
     // Falls back to the newest event that MAY speak.
-    expect(deriveLiveActivity(steps, tDe)).toBe('Kurzrecherche wird vorbereitet')
+    expect(deriveLiveActivity(steps, tDe)).toBe('Kurzrecherche: einschlägige Stellen werden gesucht')
   })
 
   test('an unknown key falls back to the previous phrase, never to the key', () => {
@@ -278,7 +278,7 @@ describe('deriveLiveActivity — turn events', () => {
       status('routing', 'status.routing.shallow'),
       status('somethingNew', 'status.somethingNew'),
     ]
-    expect(deriveLiveActivity(steps, tEn)).toBe('Preparing a quick lookup')
+    expect(deriveLiveActivity(steps, tEn)).toBe('Quick lookup: searching the relevant provisions')
     // And with nothing older to fall back to, the caller's generic copy wins.
     expect(deriveLiveActivity([status('somethingNew', 'status.somethingNew')], tEn)).toBeNull()
   })

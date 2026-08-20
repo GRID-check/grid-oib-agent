@@ -1,431 +1,56 @@
+/**
+ * The exported document, as a react-pdf element.
+ *
+ * ## What used to be here
+ *
+ * This file was a second markdown renderer: it lexed the report with `marked`
+ * and mapped the tokens straight onto react-pdf primitives, with its own inline
+ * emphasis parser, its own table code and its own copy of the design tokens.
+ * That made it a fourth place — after the app, the Word exporter and the block
+ * vocabulary — where "what a heading looks like" was decided, and it is why the
+ * PDF was the one export that could not show a card: teaching it to would have
+ * meant porting the shape-walker in `lib/answer-export/cards.ts` into a file
+ * that had no idea cards existed.
+ *
+ * So the rendering moved to {@link BlocksDocument}, which consumes the same
+ * `DocBlock[]` the Word exporter consumes, and this file became what it should
+ * always have been: the two-line adapter from a request to a document. The
+ * markdown reader it used to own is `lib/answer-export/markdown.ts`, which was
+ * already lexing the same markdown with the same library for the other format.
+ *
+ * `MarkdownPDF` keeps its name and its props because it is the published entry
+ * point of this module — the endpoint's original `{ markdown }` contract still
+ * resolves through it, and now arrives branded.
+ */
+
 import React from 'react'
-import { Document, Page, Text, View, StyleSheet, Font, Link } from '@react-pdf/renderer'
-import { marked } from 'marked'
+import { BlocksDocument } from './blocks-to-pdf'
+import { documentSections, type PdfRequest } from './report-document'
 
-type Token = ReturnType<typeof marked.lexer>[number]
-type HeadingToken = Extract<Token, { type: 'heading' }>
-type ParagraphToken = Extract<Token, { type: 'paragraph' }>
-type ListToken = Extract<Token, { type: 'list' }>
-type TableToken = Extract<Token, { type: 'table' }>
-type CodeToken = Extract<Token, { type: 'code' }>
-type BlockquoteToken = Extract<Token, { type: 'blockquote' }>
-type HtmlToken = Extract<Token, { type: 'html' }>
-
-Font.register({
-  family: 'Helvetica',
-  fonts: [{ src: 'Helvetica' }, { src: 'Helvetica-Bold', fontWeight: 'bold' }],
-})
-
-// Disable hyphenation — react-pdf's default English hyphenation inserts
-// hyphens into long words (including URLs), making them unusable when copied.
-Font.registerHyphenationCallback((word) => [word])
-
-// PDF palette — derived from the GRID design tokens in src/styles/tokens.css.
-// react-pdf's StyleSheet does not support CSS custom properties, so we keep a
-// small, named, print-safe mapping that mirrors the system colors.
-const PDF_THEME = {
-  ink: '#1d1d1f',
-  hairline: '#d2d2d7',
-  surface: '#f2f2f2',
-  codeSurface: '#f5f5f5',
-  codeBorder: '#d2d2d7',
-  link: '#0071e3',
+interface ReportPDFProps {
+  /** The parsed request body. Every field but the prose is optional. */
+  request: PdfRequest
 }
 
-const styles = StyleSheet.create({
-  page: {
-    padding: 56.69,
-    fontFamily: 'Helvetica',
-    fontSize: 10,
-    lineHeight: 1.5,
-  },
-  h1: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginTop: 16,
-    marginBottom: 12,
-    lineHeight: 1.2,
-  },
-  h2: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginTop: 14,
-    marginBottom: 8,
-    lineHeight: 1.3,
-  },
-  h3: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    marginTop: 12,
-    marginBottom: 6,
-    lineHeight: 1.4,
-  },
-  paragraph: {
-    marginBottom: 8,
-    textAlign: 'left',
-  },
-  listItem: {
-    flexDirection: 'row',
-    marginBottom: 4,
-  },
-  listItemWithNested: {
-    flexDirection: 'row',
-    marginBottom: 4,
-  },
-  listItemBullet: {
-    width: 20,
-    marginRight: 5,
-    flexShrink: 0,
-  },
-  listItemText: {
-    flex: 1,
-    flexDirection: 'column',
-  },
-  table: {
-    marginTop: 10,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: PDF_THEME.hairline,
-  },
-  tableRow: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: PDF_THEME.hairline,
-    minHeight: 30,
-  },
-  tableHeaderRow: {
-    flexDirection: 'row',
-    backgroundColor: PDF_THEME.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: PDF_THEME.hairline,
-    minHeight: 30,
-  },
-  tableCell: {
-    flex: 1,
-    padding: 8,
-    borderRightWidth: 1,
-    borderRightColor: PDF_THEME.hairline,
-    justifyContent: 'center',
-  },
-  tableCellLast: {
-    flex: 1,
-    padding: 8,
-    justifyContent: 'center',
-  },
-  tableHeaderCell: {
-    fontWeight: 'bold',
-  },
-  codeBlock: {
-    backgroundColor: PDF_THEME.codeSurface,
-    border: `1px solid ${PDF_THEME.codeBorder}`,
-    padding: 10,
-    marginTop: 10,
-    marginBottom: 10,
-    fontFamily: 'Courier',
-    fontSize: 9,
-  },
-  preBlock: {
-    fontFamily: 'Courier',
-    fontSize: 9,
-    marginTop: 8,
-    marginBottom: 8,
-  },
-  blockquote: {
-    borderLeftWidth: 3,
-    borderLeftColor: PDF_THEME.codeBorder,
-    paddingLeft: 10,
-    marginLeft: 10,
-    marginTop: 8,
-    marginBottom: 8,
-    fontStyle: 'italic',
-  },
-  hr: {
-    borderBottomWidth: 1,
-    borderBottomColor: PDF_THEME.codeBorder,
-    marginTop: 10,
-    marginBottom: 10,
-  },
-  link: {
-    color: PDF_THEME.link,
-    textDecoration: 'underline',
-  },
-})
+/**
+ * A branded document built from the full request: cover, running chrome, the
+ * report body, the answer's cards and its reference list.
+ */
+export const ReportPDF: React.FC<ReportPDFProps> = ({ request }) => {
+  const { sections } = documentSections(request)
+  return (
+    <BlocksDocument
+      cover={{ title: sections.title, facts: sections.facts }}
+      blocks={sections.body}
+    />
+  )
+}
 
 interface MarkdownPDFProps {
   markdown: string
 }
 
-export const MarkdownPDF: React.FC<MarkdownPDFProps> = ({ markdown }) => {
-  const tokens = marked.lexer(markdown)
-
-  return (
-    <Document>
-      <Page size="A4" style={styles.page}>
-        {tokens.map((token, index) => renderToken(token, index))}
-      </Page>
-    </Document>
-  )
-}
-
-function renderToken(token: Token, index: number): React.ReactNode {
-  switch (token.type) {
-    case 'heading':
-      return renderHeading(token as HeadingToken, index)
-    case 'paragraph':
-      return renderParagraph(token as ParagraphToken, index)
-    case 'list':
-      return renderList(token as ListToken, index)
-    case 'table':
-      return renderTable(token as TableToken, index)
-    case 'code':
-      return renderCode(token as CodeToken, index)
-    case 'blockquote':
-      return renderBlockquote(token as BlockquoteToken, index)
-    case 'hr':
-      return <View key={index} style={styles.hr} />
-    case 'html':
-      return renderHtml(token as HtmlToken, index)
-    case 'space':
-      return null
-    default:
-      return null
-  }
-}
-
-function renderHeading(token: HeadingToken, index: number): React.ReactNode {
-  const styleMap: Record<number, typeof styles.h1> = {
-    1: styles.h1,
-    2: styles.h2,
-    3: styles.h3,
-  }
-
-  return (
-    <Text key={index} style={styleMap[token.depth] || styles.h3}>
-      {parseInlineFormatting(token.text)}
-    </Text>
-  )
-}
-
-function renderParagraph(token: ParagraphToken, index: number): React.ReactNode {
-  return (
-    <Text key={index} style={styles.paragraph}>
-      {parseInlineFormatting(token.text)}
-    </Text>
-  )
-}
-
-function renderList(token: ListToken, index: number, _nested: boolean = false): React.ReactNode {
-  return token.items.map((item, itemIndex) => {
-    const bullet = token.ordered ? `${itemIndex + 1}.` : '•'
-    const textTokens: Token[] = []
-    const nestedLists: Token[] = []
-
-    if (item.tokens?.length) {
-      item.tokens.forEach((t: Token) => {
-        if (t.type === 'list') {
-          nestedLists.push(t)
-        } else {
-          textTokens.push(t)
-        }
-      })
-    }
-
-    const mainText = textTokens.length
-      ? textTokens
-          .map((t) => {
-            if ('text' in t) {
-              return stripHtml(preserveHtmlLinks(t.text as string))
-            }
-            if ('raw' in t) {
-              return stripHtml(preserveHtmlLinks(t.raw as string))
-            }
-            return ''
-          })
-          .join(' ')
-      : stripHtml(preserveHtmlLinks(item.text))
-
-    const hasNestedContent = nestedLists.length > 0
-
-    return (
-      <View
-        key={`${index}-${itemIndex}`}
-        style={hasNestedContent ? styles.listItemWithNested : styles.listItem}
-        wrap={!hasNestedContent}
-      >
-        <Text style={styles.listItemBullet}>{bullet}</Text>
-        <View style={styles.listItemText}>
-          <Text>{parseInlineFormatting(mainText)}</Text>
-          {nestedLists.map((nestedList, nlIndex) =>
-            renderList(nestedList as ListToken, nlIndex, true)
-          )}
-        </View>
-      </View>
-    )
-  })
-}
-
-function renderTable(token: TableToken, index: number): React.ReactNode {
-  const getCellText = (cell: unknown): string => {
-    if (typeof cell === 'string') {
-      return cell
-    }
-    if (cell && typeof cell === 'object' && 'text' in cell) {
-      return (
-        (cell as { text?: string; raw?: string }).text ||
-        (cell as { text?: string; raw?: string }).raw ||
-        String(cell)
-      )
-    }
-    return ''
-  }
-
-  const isSmallTable = token.rows.length <= 3
-
-  return (
-    <View key={index} style={styles.table} wrap={!isSmallTable}>
-      <View style={styles.tableHeaderRow} wrap={false}>
-        {token.header.map((cell, cellIndex) => {
-          const isLast = cellIndex === token.header.length - 1
-          return (
-            <View key={cellIndex} style={isLast ? styles.tableCellLast : styles.tableCell}>
-              <Text style={styles.tableHeaderCell}>{parseInlineFormatting(getCellText(cell))}</Text>
-            </View>
-          )
-        })}
-      </View>
-
-      {token.rows.map((row, rowIndex) => (
-        <View key={rowIndex} style={styles.tableRow} wrap={false}>
-          {row.map((cell, cellIndex) => {
-            const isLast = cellIndex === row.length - 1
-            return (
-              <View key={cellIndex} style={isLast ? styles.tableCellLast : styles.tableCell}>
-                <Text>{parseInlineFormatting(getCellText(cell))}</Text>
-              </View>
-            )
-          })}
-        </View>
-      ))}
-    </View>
-  )
-}
-
-function renderCode(token: CodeToken, index: number): React.ReactNode {
-  const lineCount = token.text.split('\n').length
-  const isSmallCodeBlock = lineCount <= 5
-
-  return (
-    <View key={index} style={styles.codeBlock} wrap={!isSmallCodeBlock}>
-      <Text>{token.text}</Text>
-    </View>
-  )
-}
-
-function renderBlockquote(token: BlockquoteToken, index: number): React.ReactNode {
-  return (
-    <View key={index} style={styles.blockquote}>
-      {token.tokens.map((subToken: Token, subIndex: number) => renderToken(subToken, subIndex))}
-    </View>
-  )
-}
-
-function renderHtml(token: HtmlToken, index: number): React.ReactNode {
-  const preMatch = token.raw?.match(/<pre>([\s\S]*?)<\/pre>/i)
-
-  if (preMatch) {
-    const content = preMatch[1].trim()
-    const lineCount = content.split('\n').length
-    const charCount = content.length
-    const isSmall = lineCount <= 5 && charCount <= 500
-
-    return (
-      <Text key={index} style={styles.preBlock} wrap={!isSmall}>
-        {content}
-      </Text>
-    )
-  }
-
-  return null
-}
-
-function stripHtml(text: string): string {
-  // A single <[^>]*> pass is not idempotent: `<<a>x` loses one tag and the
-  // remainder still ends in bare markup. Re-apply until no tag remains so
-  // nothing strikes-through into the PDF (js/incomplete-multi-character-sanitization).
-  let stripped = text
-  let next = text
-  do {
-    stripped = next
-    next = stripped.replace(/<[^>]*>/g, '')
-  } while (next !== stripped)
-  return stripped
-}
-
-/** Convert HTML <a> tags to markdown link syntax so they survive stripHtml. */
-function preserveHtmlLinks(text: string): string {
-  return text.replace(/<a\s[^>]*href=["']([^"']*)["'][^>]*>(.*?)<\/a>/gi, '[$2]($1)')
-}
-
-function parseInlineFormatting(text: string): React.ReactNode {
-  text = preserveHtmlLinks(text)
-  text = stripHtml(text)
-
-  const parts: React.ReactNode[] = []
-  // Links: [text](url) — supports balanced parens in URLs (e.g. Wikipedia)
-  // Bold: **text** or __text__ | Italic: *text* or _text_
-  const inlineRegex =
-    /(\[([^\]]+)\]\(((?:[^()\s]|\([^)]*\))+)\)|\*\*(.+?)\*\*|\*(.+?)\*|__(.+?)__|_(.+?)_)/g
-  let key = 0
-  let lastIndex = 0
-  let match
-
-  while ((match = inlineRegex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(<Text key={`text-${key++}`}>{text.substring(lastIndex, match.index)}</Text>)
-    }
-
-    const fullMatch = match[0]
-
-    if (fullMatch.startsWith('[') && match[2] && match[3]) {
-      const linkText = match[2]
-      const linkUrl = match[3]
-
-      if (linkUrl.startsWith('#')) {
-        // Anchor links have no destination in a PDF — render as styled text
-        parts.push(
-          <Text key={`anchor-${key++}`} style={{ fontWeight: 'bold' }}>
-            {linkText}
-          </Text>
-        )
-      } else {
-        parts.push(
-          <Link key={`link-${key++}`} src={linkUrl} style={styles.link}>
-            {linkText}
-          </Link>
-        )
-      }
-    } else if (fullMatch.startsWith('**') || fullMatch.startsWith('__')) {
-      const content = match[4] || match[6]
-      parts.push(
-        <Text key={`bold-${key++}`} style={{ fontWeight: 'bold' }}>
-          {content}
-        </Text>
-      )
-    } else {
-      const content = match[5] || match[7]
-      parts.push(
-        <Text key={`italic-${key++}`} style={{ fontStyle: 'italic' }}>
-          {content}
-        </Text>
-      )
-    }
-
-    lastIndex = match.index + fullMatch.length
-  }
-
-  if (lastIndex < text.length) {
-    parts.push(<Text key={`text-${key++}`}>{text.substring(lastIndex)}</Text>)
-  }
-
-  return parts.length > 0 ? parts : text
-}
+/** The markdown-only document — the endpoint's original contract. */
+export const MarkdownPDF: React.FC<MarkdownPDFProps> = ({ markdown }) => (
+  <ReportPDF request={{ markdown }} />
+)

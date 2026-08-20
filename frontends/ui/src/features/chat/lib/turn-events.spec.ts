@@ -25,6 +25,8 @@ import { de, en } from '@/i18n/dictionaries'
 import { createTranslator, getByPath } from '@/i18n/translate'
 import { TURN_EVENT_KEYS } from '@/adapters/api/step-event-schemas'
 import {
+  answerDegradations,
+  deepResearchCutoff,
   isStatusStepName,
   isTurnEventStepName,
   researchTruncation,
@@ -102,9 +104,9 @@ describe('turnEventLiveText', () => {
       // for the secondary "why this route?" row, which attributes it.
       reason: 'Mehrere klar getrennte Teilfragen.',
     })
-    expect(turnEventLiveText(step, tEn)).toBe('Preparing deep research')
+    expect(turnEventLiveText(step, tEn)).toBe('Deep research: working through several sources')
     expect(turnEventLiveText(step, tEn)).not.toContain('Teilfragen')
-    expect(turnEventLiveText(step, tDe)).toBe('Tiefenrecherche wird vorbereitet')
+    expect(turnEventLiveText(step, tDe)).toBe('Tiefenrecherche: mehrere Quellen werden geprüft')
   })
 
   test('a technical event is refused even if it somehow carries a key', () => {
@@ -176,8 +178,8 @@ describe('turnEventLiveText', () => {
       values: {},
       source_count: 17,
     })
-    expect(turnEventLiveText(citations, tDe)).toBe('Belege werden geprüft …')
-    expect(turnEventLiveText(citations, tEn)).toBe('Checking the citations …')
+    expect(turnEventLiveText(citations, tDe)).toBe('Belege werden gegen die Quellen geprüft …')
+    expect(turnEventLiveText(citations, tEn)).toBe('Checking every citation against the sources …')
     expect(turnEventLiveText(citations, tEn)).not.toContain('17')
   })
 
@@ -224,7 +226,7 @@ describe('turnEventLiveText', () => {
       values: {},
       text: 'Belege werden geprüft …',
     })
-    expect(turnEventLiveText(both, tEn)).toBe('Checking the citations …')
+    expect(turnEventLiveText(both, tEn)).toBe('Checking every citation against the sources …')
   })
 })
 
@@ -330,5 +332,133 @@ describe('researchTruncation — where a cut-off turn stopped', () => {
 
   test('a non-status step is never mined for one', () => {
     expect(researchTruncation([event('knowledge_search', { slot: 'budget', truncated: true })])).toBeNull()
+  })
+})
+
+/**
+ * The deep researcher's own limits.
+ *
+ * Both records are technical-channel and both used to be a `logger.warning`
+ * beside a `return`: a deep run that ran out of clock or steps, and an answer
+ * that shipped in a known-weaker form. From the outside they looked exactly
+ * like a complete, grounded answer — which is the whole reason for reading them
+ * here rather than leaving them to an operator's log.
+ *
+ * Note the slot: `budget:deep` is NOT `budget`, and the two derivations must
+ * not read each other's records. They are separate slots on the wire precisely
+ * because the frontend dedupes steps by name.
+ */
+describe('deepResearchCutoff — a deep run that stopped early', () => {
+  const deepBudget = (extra: Record<string, unknown>) =>
+    event('status:budget:deep', {
+      kind: 'status',
+      channel: 'technical',
+      slot: 'budget:deep',
+      agent: 'deep',
+      ...extra,
+    })
+
+  test('a turn with no cutoff record was never cut off', () => {
+    expect(deepResearchCutoff([status('citations', 'status.citations')])).toBeNull()
+    // The shallow tool-ceiling record is a different fact in a different slot.
+    expect(
+      deepResearchCutoff([
+        event('status:budget', { kind: 'status', channel: 'technical', slot: 'budget', truncated: true }),
+      ])
+    ).toBeNull()
+  })
+
+  test('the wall clock, with the partial report salvaged', () => {
+    expect(
+      deepResearchCutoff([
+        deepBudget({
+          truncated: true,
+          reason: 'wall_clock',
+          salvaged: true,
+          source_count: 12,
+          report_chars: 4210,
+          elapsed_seconds: 486.4,
+        }),
+      ])
+    ).toEqual({
+      reason: 'wall_clock',
+      salvaged: true,
+      sourceCount: 12,
+      elapsedSeconds: 486.4,
+    })
+  })
+
+  test('the step limit, with nothing salvaged', () => {
+    expect(
+      deepResearchCutoff([
+        deepBudget({ truncated: true, reason: 'step_limit', salvaged: false, source_count: 0, report_chars: 0 }),
+      ])
+    ).toEqual({ reason: 'step_limit', salvaged: false, sourceCount: 0, elapsedSeconds: undefined })
+  })
+
+  test('salvage is strictly `true` — an absent field is not a rescue', () => {
+    // The difference decides whether the panel tells the reader the partial
+    // findings reached their answer. Guessing in the generous direction is the
+    // overclaim this whole area exists to prevent.
+    const found = deepResearchCutoff([deepBudget({ truncated: true, reason: 'wall_clock' })])
+    expect(found?.salvaged).toBe(false)
+  })
+
+  test('a reason token this build does not know becomes null, never the token', () => {
+    // Same rule as an unknown turn-event key: THAT it stopped early is true
+    // whatever ended it, and a raw token on a reader-facing line is noise.
+    const found = deepResearchCutoff([
+      deepBudget({ truncated: true, reason: 'quota_exhausted', salvaged: true }),
+    ])
+    expect(found).toEqual({ reason: null, salvaged: true, sourceCount: undefined, elapsedSeconds: undefined })
+  })
+
+  test('the record only counts when it says it is a truncation', () => {
+    expect(deepResearchCutoff([deepBudget({ reason: 'wall_clock', salvaged: true })])).toBeNull()
+  })
+
+  test('a non-status step carrying the same shape is never mined', () => {
+    expect(
+      deepResearchCutoff([event('deep_research', { slot: 'budget:deep', truncated: true, reason: 'wall_clock' })])
+    ).toBeNull()
+  })
+})
+
+describe('answerDegradations — an answer weaker than it looks', () => {
+  const degraded = (extra: Record<string, unknown>) =>
+    event('status:degraded', {
+      kind: 'status',
+      channel: 'technical',
+      slot: 'degraded',
+      agent: 'deep',
+      ...extra,
+    })
+
+  test('no record at all is the ordinary case', () => {
+    expect(answerDegradations([status('citations', 'status.citations')])).toEqual([])
+  })
+
+  test('both known reasons survive, in the order the backend recorded them', () => {
+    expect(
+      answerDegradations([degraded({ degraded: true, reasons: ['no_report_file', 'no_valid_citations'] })])
+    ).toEqual(['no_report_file', 'no_valid_citations'])
+  })
+
+  test('an unknown token is dropped, not surfaced', () => {
+    // A caveat line one item shorter beats a caveat line with a raw token on it.
+    expect(
+      answerDegradations([degraded({ degraded: true, reasons: ['no_report_file', 'sky_fell', 42] })])
+    ).toEqual(['no_report_file'])
+  })
+
+  test('a repeated reason is stated once', () => {
+    expect(
+      answerDegradations([degraded({ degraded: true, reasons: ['no_valid_citations', 'no_valid_citations'] })])
+    ).toEqual(['no_valid_citations'])
+  })
+
+  test('the record only counts when it says the answer degraded', () => {
+    expect(answerDegradations([degraded({ reasons: ['no_report_file'] })])).toEqual([])
+    expect(answerDegradations([degraded({ degraded: true })])).toEqual([])
   })
 })

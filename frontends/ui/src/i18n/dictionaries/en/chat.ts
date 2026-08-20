@@ -176,6 +176,43 @@ export const chat = {
     // The same fact for an answer that cites nothing: the sentence above would
     // promise evidence that is not there.
     researchTruncatedWithoutSources: 'The search stopped before it was finished, and before it had found anything',
+    // WHY it stopped, appended to whichever sentence above applies as a short
+    // parenthetical — "it stopped early" is the fact, "it ran out of time" is
+    // what tells the reader whether asking again is worth anything.
+    //
+    // Keyed by the backend's stable token VERBATIM, so the mapping can be
+    // checked against the producer by eye. A token this build has no entry for
+    // renders nothing at all: a reader must never be shown `wall_clock`.
+    truncationReason: {
+      wall_clock: 'time limit reached',
+      // A timeout from below (provider/transport), not the run's own budget. To
+      // the reader both are the same fact: research ended at a time limit. The
+      // two are only counted apart internally.
+      upstream_timeout: 'time limit reached',
+      step_limit: 'step limit reached',
+    },
+    // Ways a salvaged answer is weaker than one from a finished run. Same
+    // register as the lines above — muted, factual, about the EVIDENCE — but
+    // each one names something the reader can act on, which is why they are
+    // stated rather than folded into the truncation sentence.
+    degradedReason: {
+      no_report_file:
+        'No research report was filed — this answer is the only record of the run',
+      no_valid_citations:
+        'No citation survived verification — please check the figures yourself before relying on them',
+    },
+    // The verification's own reasons for dropping a citation, in the reader's
+    // words. The backend states them as tokens (`url_not_in_registry`, …) and
+    // they used to reach the tooltip exactly like that; an unmapped one is now
+    // left out rather than shown raw.
+    citationsRemovedReason: {
+      url_not_in_registry: 'URL not among the sources retrieved',
+      citation_key_not_in_registry: 'Document not among the sources retrieved',
+      unverifiable: 'Nothing checkable in the citation',
+      duplicate: 'Duplicate citation',
+      ungrounded: 'Claim not backed by a citation',
+      quote_unverified: 'Quotation could not be verified',
+    },
   },
   // Getting the answer OUT of the app — the paste into a report, a mail, a
   // submission. Two icon buttons in the answer's meta row; the second one only
@@ -637,8 +674,11 @@ export const chat = {
     // dressed up as a status is noise, so an unclassifiable step falls through
     // to the previous meaningful phrase, or to `working` above.
     activity: {
-      understanding: 'Understanding your question …',
-      planning: 'Planning the approach …',
+      // The same words as the chips below (`stepName.understanding` =
+      // "Classification", `stepName.routing` = "Research path"): the reader
+      // should learn one vocabulary, not two for the same thing.
+      understanding: 'Classifying your question …',
+      planning: 'Choosing the research path …',
       searchingWeb: 'Searching the web …',
       searchingKnowledge: 'Searching OIB knowledge …',
       searchingRis: 'Searching RIS (Austrian law) …',
@@ -689,11 +729,16 @@ export const chat = {
         // reason for it is free-text prose in whatever language the model
         // wrote, so it never appears here — it is quoted, attributed, in the
         // secondary `routing.line` row below.
+        // Each line names what the reader gets, not what the system is setting
+        // up: "preparing" describes an internal step, "searching the relevant
+        // provisions" describes a working method an architect already knows.
+        // `meta` uses the same word the trace does (`routing.decision.meta`) —
+        // one path, one word.
         routing: {
-          meta: 'A conversation — no research needed',
+          meta: 'Direct answer — no research needed',
           outOfScope: 'Question outside the subject area',
-          shallow: 'Preparing a quick lookup',
-          deep: 'Preparing deep research',
+          shallow: 'Quick lookup: searching the relevant provisions',
+          deep: 'Deep research: working through several sources',
         },
         // `{query}` is the reader's own words echoed back — never translated,
         // and clipped by the backend so the line still fits one narrow row.
@@ -707,7 +752,10 @@ export const chat = {
           remember: 'Saving the note …',
           card: 'Building the result card …',
         },
-        citations: 'Checking the citations …',
+        // The product's trust proposition said out loud: what is checked is not
+        // "the citations" in the abstract but every one of them, against what
+        // was actually retrieved.
+        citations: 'Checking every citation against the sources …',
         escalation: 'A quick lookup is not enough — starting deep research',
       },
     },
@@ -837,6 +885,46 @@ export const chat = {
       // When there is no step to name (the budget was gone before the first
       // tool), say less rather than invent one.
       findingsTruncated: 'The search ended here: the budget was spent',
+      // ── What the answer is NOT ──────────────────────────────────────────
+      //
+      // Two records the deep researcher keeps about its own limits, both on
+      // the technical channel, both invisible before this: a run that hit its
+      // wall clock or its step limit, and an answer that shipped in a
+      // known-weaker form. Until they were rendered, an answer cut off after
+      // two of ten planned searches looked exactly like a complete one.
+      //
+      // Written as statements an architect can act on, never as the telemetry
+      // they are derived from. The record also carries a report length in
+      // characters; there is no line for it, because a character count names a
+      // mechanism and nothing a reader can do anything with.
+      limits: {
+        label: 'Limitations',
+        deepCutoff: {
+          // Why the run stopped. `other` covers a reason token this build does
+          // not know — that it stopped early is true whatever ended it.
+          time: 'Deep research reached its time limit.',
+          steps: 'Deep research reached its step limit.',
+          other: 'Deep research stopped early.',
+          // …and whether anything survived it. This is the half that decides
+          // how much weight the answer above can carry.
+          salvaged: 'What it had established by then went into the answer.',
+          nothing: 'It had produced no findings by then.',
+          // How far it got. Only stated when there is something to state: zero
+          // sources is a true number that reads as a verdict, and `nothing`
+          // above already says the honest version.
+          sources:
+            '{count, plural, one {# source had been reviewed} other {# sources had been reviewed}} by then.',
+          after: 'It stopped after {minutes, plural, one {# minute} other {# minutes}}.',
+        },
+        // The answer shipped weaker than a clean run. These read as warnings
+        // because they are the reader's cue to check before they rely on it.
+        degraded: {
+          noReport:
+            'No research report was filed — the answer exists only here in the conversation.',
+          noCitations:
+            'No citation held up under checking. Please verify the figures yourself before using them.',
+        },
+      },
       branchesTab: 'Next steps',
       branchesSub: 'Pick one option — the answer is assembled for your choice.',
     },
