@@ -23,7 +23,13 @@ import 'server-only'
 import React from 'react'
 import { renderToStream } from '@react-pdf/renderer'
 import { aiProvenanceKeywords, AI_GENERATOR_NAME, type AiProvenance } from '@/lib/ai-provenance'
-import { MarkdownPDF, type PdfMetadata, type PdfNotice } from './ReactPdfDocument'
+import {
+  MarkdownPDF,
+  type PdfHeader,
+  type PdfMetadata,
+  type PdfNotice,
+  type PdfSection,
+} from './ReactPdfDocument'
 
 /** The MIME type a browser needs to show the bytes inline. */
 export const PDF_MEDIA_TYPE = 'application/pdf'
@@ -36,6 +42,19 @@ export interface MarkdownPdfOptions {
    * the words — see {@link PdfNotice}.
    */
   notice?: PdfNotice
+  /**
+   * The block that identifies the document and its subject, printed under the
+   * notice — never above it. Absent by default: an export of prose a person
+   * read on screen has no project to name and no run to point at, and a header
+   * with one row saying today's date is chrome.
+   */
+  header?: PdfHeader
+  /**
+   * Matter appended after the markdown, each under its own heading. Absent by
+   * default; an empty array renders nothing, so a caller with no cards to show
+   * never prints a heading standing over nothing.
+   */
+  sections?: PdfSection[]
   /**
    * Present when the content was generated and not reviewed by a human.
    *
@@ -95,6 +114,8 @@ export async function renderMarkdownPdf(
   const element = React.createElement(MarkdownPDF, {
     markdown,
     notice: options.notice,
+    header: options.header,
+    sections: options.sections,
     metadata: metadataFor(options),
   })
 

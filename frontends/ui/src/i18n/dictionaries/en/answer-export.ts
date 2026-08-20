@@ -46,6 +46,49 @@ export const answerExport = {
   createdAt: 'Created on',
   sources: 'Sources',
   findings: 'Findings',
+  /**
+   * Heading of the section a filed research report appends for its
+   * `legal_basis` cards — the cited Richtlinie, § and excerpt an architect is
+   * actually asked to produce.
+   *
+   * Plural, because the section holds every Fundstelle the answer rests on;
+   * each one inside it is headed with the singular `cardTypes.legal_basis`,
+   * which is the same word the .docx heads it with.
+   */
+  legalBasis: 'Legal basis',
+  /**
+   * The block that identifies a filed report: what it is, and what it is about.
+   *
+   * These are the words on the one page of this product that is designed to be
+   * read by somebody who does not have the app — an official with the printout
+   * in their hand. Every one of them is a LABEL in a two-column sheet, never a
+   * sentence: a cover sheet that explains itself is a cover sheet nobody reads.
+   *
+   * `project`, `createdAt` and `fields.gebaeudeklasse` are deliberately absent
+   * here and read from where they already live, so the report's cover and the
+   * exported .docx cannot end up calling the same fact two different things.
+   */
+  reportCover: {
+    /** The address the Behörde knows the Bauvorhaben by. */
+    location: 'Location',
+    /**
+     * Kept as the labelled field `platform` already spells it in English. The
+     * jurisdiction is what decides which Bauordnung and which OIB edition the
+     * report was checked against.
+     */
+    bundesland: 'Federal state',
+    /**
+     * Whose value is always the generator's name. Not the person who
+     * commissioned the run: on a document no human has reviewed, a person's
+     * name in this row would read as authorship of claims they have not seen.
+     */
+    author: 'Created by',
+    /**
+     * The run. Printed monospace, because it is transcribed rather than read,
+     * and it is the only string tying the page to the audit trail.
+     */
+    analysisId: 'Analysis ID',
+  },
   confidence: 'Confidence',
   /** Introduces the model's own one-clause justification, quoted verbatim. */
   confidenceReason: 'Assistant’s reason',
@@ -104,6 +147,7 @@ export const answerExport = {
     process_map: 'Procedure',
     document_checklist: 'Required documents',
     deadline_timeline: 'Deadlines',
+    diagram: 'Diagram',
     change_impact: 'Impact of the change',
     ifc_viewer: 'Model view',
     ifc_compliance: 'Model compliance',

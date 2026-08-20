@@ -25,6 +25,11 @@ Font.registerHyphenationCallback((word) => [word])
 // small, named, print-safe mapping that mirrors the system colors.
 const PDF_THEME = {
   ink: '#1d1d1f',
+  // The label column of a fact row, and nothing else. A cover sheet's left
+  // column is a KEY, not a statement: bolding every key makes an eight-row
+  // block shout, and this document already has one thing that must shout.
+  // Contrast against paper is 5.5:1, which survives a photocopy.
+  muted: '#6e6e73',
   hairline: '#d2d2d7',
   surface: '#f2f2f2',
   codeSurface: '#f5f5f5',
@@ -169,6 +174,73 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 4,
   },
+
+  /**
+   * The identification block: what this document is and what it is about.
+   *
+   * A hairline UNDER the block and nothing else — no fill, no border, no rule
+   * above. The notice directly above it is the page's only filled box, and a
+   * second one would compete with the one thing on this page that has to be
+   * read first. The rule is there to say where the document's own words begin.
+   */
+  header: {
+    paddingBottom: 10,
+    marginBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: PDF_THEME.hairline,
+  },
+  // `styles.h1` with its top margin removed: it follows the notice's own
+  // 16pt of space, and stacking both opens a gap the block reads as a break.
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    lineHeight: 1.2,
+  },
+  factRow: {
+    flexDirection: 'row',
+    marginBottom: 3,
+  },
+  /**
+   * `minWidth` and not `width`, which is a boundary this file learned the hard
+   * way. A fixed-width label box does not CLIP an over-long label — the glyphs
+   * paint past it — and because hyphenation is disabled repo-wide a
+   * single-word label has no break opportunity, so it ran straight into its own
+   * value with no gap between them: „BundeslandWien" on a page going to a
+   * Behörde. A minimum keeps every label of ordinary length on one column edge,
+   * which is what makes the block read as a sheet, and lets a long one push its
+   * own value right instead of colliding with it. `markdown-pdf.spec.ts`
+   * renders a label wider than the column and reads the gap back.
+   */
+  factLabel: {
+    minWidth: 110,
+    marginRight: 8,
+    flexShrink: 0,
+    color: PDF_THEME.muted,
+  },
+  factValue: {
+    flex: 1,
+  },
+  /**
+   * An identifier, set monospace.
+   *
+   * `docs/design/grid-design-language.md` §3: „Citations, legal-basis and
+   * document provenance must look verifiable and exact — monospace for
+   * identifiers". A run id is a string somebody TRANSCRIBES to look the
+   * document up; proportional Helvetica makes `1`/`l` and `0`/`O` a guess.
+   * 9pt because Courier's x-height runs large next to Helvetica at 10 — the
+   * same pairing `styles.codeBlock` already ships.
+   */
+  factValueMono: {
+    flex: 1,
+    fontFamily: 'Courier',
+    fontSize: 9,
+  },
+  /** A run-in heading over a paragraph — bold, as the .docx sets it. */
+  proseLabel: {
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
 })
 
 /**
@@ -184,6 +256,66 @@ const styles = StyleSheet.create({
 export interface PdfNotice {
   title: string
   body: string
+}
+
+/**
+ * A label and the value it names, printed as one row of a two-column block.
+ *
+ * The strings are the CALLER's, for the same reason {@link PdfNotice}'s are: a
+ * renderer that knew the words „Projekt" and „Standort" would be a second
+ * German vocabulary next to the dictionary, in the document that reaches a
+ * Behörde.
+ */
+export interface PdfFactRow {
+  label: string
+  value: string
+  /**
+   * Set for an IDENTIFIER — a run id, a file number, anything a reader
+   * transcribes rather than reads. Printed monospace; see
+   * {@link styles.factValueMono} for why that is not decoration.
+   */
+  mono?: boolean
+}
+
+/**
+ * One piece of a structured section.
+ *
+ * The same idea as `answer-export/document-model.ts`'s `DocBlock` and
+ * deliberately not the same type: that one is shaped by what OOXML can carry,
+ * this one by what this renderer draws. What the two DO share is that the
+ * producer of the blocks decides the reading order and the renderer only
+ * decides the typography.
+ */
+export type PdfBlock =
+  | { kind: 'heading'; text: string }
+  | { kind: 'rows'; rows: PdfFactRow[] }
+  | { kind: 'prose'; label: string; text: string }
+
+/**
+ * Matter appended AFTER the markdown, under a heading of its own.
+ *
+ * Appended rather than woven in: the markdown is the writer agent's document,
+ * its own „Quellen" section included, and an export that cut it open to insert
+ * a section would be re-editing a text a sanitizer already owns.
+ */
+export interface PdfSection {
+  heading: string
+  blocks: PdfBlock[]
+}
+
+/**
+ * The block that says what this document is and what it is about.
+ *
+ * Rendered between the notice and the body — never above the notice. A cover
+ * that pushed „KI-generiert — nicht geprüft" below the fold would be the one
+ * regression this whole document cannot afford, so the order is fixed here in
+ * the renderer rather than left to a caller's array.
+ */
+export interface PdfHeader {
+  /** The document's own title. Absent when the caller has none to state. */
+  title?: string
+  /** Identifying facts, in the order the caller decided to print them. */
+  rows: PdfFactRow[]
 }
 
 /**
@@ -206,6 +338,13 @@ interface MarkdownPDFProps {
   /** Printed above the markdown, on the first page. Omitted when absent. */
   notice?: PdfNotice
   /**
+   * The identification block, printed under the notice. Omitted when absent —
+   * which is what keeps `POST /api/generate-pdf`'s output unchanged.
+   */
+  header?: PdfHeader
+  /** Appended after the markdown, each under its own heading. */
+  sections?: PdfSection[]
+  /**
    * Info-dictionary fields. Omitted entirely by default, which leaves the file
    * byte-for-byte what it was before this prop existed — a marking on every
    * PDF marks nothing, exactly as `DocxOptions.aiProvenance` argues.
@@ -213,7 +352,13 @@ interface MarkdownPDFProps {
   metadata?: PdfMetadata
 }
 
-export const MarkdownPDF: React.FC<MarkdownPDFProps> = ({ markdown, notice, metadata }) => {
+export const MarkdownPDF: React.FC<MarkdownPDFProps> = ({
+  markdown,
+  notice,
+  header,
+  sections,
+  metadata,
+}) => {
   const tokens = marked.lexer(markdown)
 
   return (
@@ -237,9 +382,94 @@ export const MarkdownPDF: React.FC<MarkdownPDFProps> = ({ markdown, notice, meta
             <Text>{notice.body}</Text>
           </View>
         ) : null}
+        {renderHeader(header)}
         {tokens.map((token, index) => renderToken(token, index))}
+        {sections?.map((section, index) => renderSection(section, index))}
       </Page>
     </Document>
+  )
+}
+
+/**
+ * The two-column fact block, used by the header and by a section's `rows`.
+ *
+ * One function and not two, because a cover sheet's „Gebäudeklasse  GK 4" and a
+ * Fundstelle's „Paragraf  § 3" are the same object — a named value the reader
+ * checks — and two renderers would let them drift into looking like different
+ * kinds of claim in the same document.
+ *
+ * `wrap={false}` per ROW rather than on the block: a label orphaned at the foot
+ * of a page from the value it names is a fact the document no longer states,
+ * while a block that refuses to break at all would push a long list onto a page
+ * of its own.
+ */
+function renderFactRows(rows: PdfFactRow[], key: React.Key): React.ReactNode {
+  return (
+    <View key={key}>
+      {rows.map((row, index) => (
+        <View key={index} style={styles.factRow} wrap={false}>
+          <Text style={styles.factLabel}>{row.label}</Text>
+          <Text style={row.mono ? styles.factValueMono : styles.factValue}>{row.value}</Text>
+        </View>
+      ))}
+    </View>
+  )
+}
+
+/**
+ * The identification block.
+ *
+ * Nothing at all when the caller supplied neither a title nor a row — an empty
+ * bordered strip above the report would read as a block whose contents failed
+ * to print, which is worse than the absence it would be standing in for.
+ */
+function renderHeader(header: PdfHeader | undefined): React.ReactNode {
+  if (!header) return null
+  const hasTitle = Boolean(header.title?.trim())
+  if (!hasTitle && header.rows.length === 0) return null
+  return (
+    <View style={styles.header} wrap={false}>
+      {hasTitle ? <Text style={styles.headerTitle}>{header.title}</Text> : null}
+      {header.rows.length > 0 ? renderFactRows(header.rows, 'header-rows') : null}
+    </View>
+  )
+}
+
+/**
+ * One block of a section, verbatim.
+ *
+ * Deliberately NOT run through `parseInlineFormatting`: these strings are
+ * payload — a paragraph number, a law's name, the literal wording of a
+ * provision — and an excerpt whose `*` turned into italics would be an export
+ * silently editing the sentence a reviewer is meant to check against the
+ * regulation.
+ */
+function renderBlock(block: PdfBlock, index: number): React.ReactNode {
+  switch (block.kind) {
+    case 'heading':
+      return (
+        <Text key={index} style={styles.h3}>
+          {block.text}
+        </Text>
+      )
+    case 'rows':
+      return renderFactRows(block.rows, index)
+    case 'prose':
+      return (
+        <View key={index}>
+          <Text style={styles.proseLabel}>{block.label}</Text>
+          <Text style={styles.paragraph}>{block.text}</Text>
+        </View>
+      )
+  }
+}
+
+function renderSection(section: PdfSection, index: number): React.ReactNode {
+  return (
+    <View key={`section-${index}`}>
+      <Text style={styles.h2}>{section.heading}</Text>
+      {section.blocks.map((block, blockIndex) => renderBlock(block, blockIndex))}
+    </View>
   )
 }
 

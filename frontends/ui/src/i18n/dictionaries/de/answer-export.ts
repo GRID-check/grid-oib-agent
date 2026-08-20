@@ -29,6 +29,19 @@ export const answerExport: typeof en.answerExport = {
   createdAt: 'Erstellt am',
   sources: 'Quellen',
   findings: 'Befunde',
+  legalBasis: 'Rechtsgrundlagen',
+  // Beschriftungen eines Deckblatts, keine Sätze: „Standort“ und „Erstellt
+  // von“ stehen links in einer zweispaltigen Aufstellung, so wie es eine
+  // Amtsleserin auf dem Ausdruck erwartet. „Bundesland“ und „Analyse-ID“
+  // bleiben in beiden Sprachfassungen bei ihrem jeweiligen Fachwort — die
+  // englische Fassung folgt hier `platform`, das den Begriff dort schon
+  // beschriftet.
+  reportCover: {
+    location: 'Standort',
+    bundesland: 'Bundesland',
+    author: 'Erstellt von',
+    analysisId: 'Analyse-ID',
+  },
   confidence: 'Verlässlichkeit',
   confidenceReason: 'Begründung des Assistenten',
   confidenceLevels: {
@@ -77,6 +90,7 @@ export const answerExport: typeof en.answerExport = {
     process_map: 'Verfahrensablauf',
     document_checklist: 'Unterlagen',
     deadline_timeline: 'Fristen',
+    diagram: 'Diagramm',
     change_impact: 'Auswirkung',
     ifc_viewer: 'Modellansicht',
     ifc_compliance: 'Modellprüfung',

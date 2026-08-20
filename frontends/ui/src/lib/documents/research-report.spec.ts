@@ -39,6 +39,55 @@ vi.mock('@/i18n/server', () => ({
   getLocale: async () => 'de',
 }))
 
+/**
+ * The project row the cover block reads its facts off.
+ *
+ * Mocked at the repository and not at the database, because what this spec is
+ * about is which FACTS reach the page — and a drizzle mock would make every
+ * assertion below a statement about a query builder instead.
+ */
+const findProjectInOrg = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/projects/repository', () => ({
+  findProjectInOrg: (...args: unknown[]) => findProjectInOrg(...args),
+}))
+
+/**
+ * A project brief as `projects.profile` stores one: confirmed facts, each with
+ * its provenance. The three keys the cover prints, plus one it deliberately
+ * does not, so "the cover is a selection" is asserted rather than assumed.
+ */
+const PROFILE = {
+  facts: {
+    standort_adresse: {
+      value: 'Simmeringer Hauptstraße 24, 1110 Wien',
+      confidence: 'confirmed',
+      source: 'onboarding',
+      updatedAt: '2026-08-01T00:00:00.000Z',
+    },
+    bundesland: {
+      value: 'wien',
+      confidence: 'confirmed',
+      source: 'onboarding',
+      updatedAt: '2026-08-01T00:00:00.000Z',
+    },
+    gebaeudeklasse: {
+      value: 'GK4',
+      confidence: 'confirmed',
+      source: 'user_confirmed',
+      updatedAt: '2026-08-01T00:00:00.000Z',
+    },
+    projektphase: {
+      value: 'einreichplanung',
+      confidence: 'confirmed',
+      source: 'onboarding',
+      updatedAt: '2026-08-01T00:00:00.000Z',
+    },
+  },
+  goals: {},
+  unknowns: [],
+  assumptions: {},
+}
+
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { readPdf } from '@/test-utils/read-pdf'
 import type { GeneratedRenderContext } from './generated'
@@ -57,6 +106,7 @@ const runRenderer = () => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  findProjectInOrg.mockResolvedValue({ id: 'proj-1', name: 'Haus Anna', profile: PROFILE })
   fileGeneratedDocument.mockResolvedValue({
     documentId: 'doc-1',
     filename: 'brandschutz-2026-08-20.pdf',
@@ -145,24 +195,217 @@ describe('fileResearchReport', () => {
   })
 
   /**
-   * The header facts the .docx carried. Dropping them when the format changed
-   * would have quietly made the filed report say less than the file it replaced
-   * — and the project name is the one fact a reader cannot recover from a page
-   * that has left the app.
+   * The cover block, read back off page one in the order a person reads it.
+   *
+   * The translator is stubbed as `t:<key>`, so this is also the assertion that
+   * every word on the cover comes out of the dictionary: a renderer that spelled
+   * „Projekt" itself would print the word rather than the key.
+   *
+   * Whole-string rather than a list of `toContain`s, because ORDER is the claim
+   * — a fact sheet whose date sits between the project and its address is a
+   * different document from the one this file describes.
    */
-  it('keeps the report’s title, the project and the date on the page', async () => {
+  it('opens with the marking, then the title, then the identifying facts', async () => {
     await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: REPORT })
     const pdf = await readPdf((await runRenderer()).bytes)
 
-    expect(pdf.text).toContain('Brandschutz Straßenhäuser')
-    expect(pdf.text).toContain('t:project: Haus Anna')
-    expect(pdf.text).toContain('t:createdAt:')
-    expect(pdf.text).toContain('Der Bericht beginnt hier.')
+    expect(pdf.text).toBe(
+      't:aiNotice.title t:aiNotice.body ' +
+        'Brandschutz Straßenhäuser ' +
+        't:project Haus Anna ' +
+        't:reportCover.location Simmeringer Hauptstraße 24, 1110 Wien ' +
+        't:reportCover.bundesland Wien ' +
+        't:fields.gebaeudeklasse GK4 ' +
+        't:createdAt 20. August 2026 ' +
+        't:reportCover.author Piloti ' +
+        't:reportCover.analysisId run_7 ' +
+        'Der Bericht beginnt hier.'
+    )
     expect(pdf.info.Title).toBe('Brandschutz Straßenhäuser')
+  })
+
+  /**
+   * The Analyse-ID is set monospace, and it is the only row that is.
+   *
+   * The extracted text is identical either way, so the claim is checked where
+   * it is true — the font the file names for the bytes it draws. It is not
+   * typographic taste: a run id is the string somebody TRANSCRIBES to look the
+   * document up against the audit trail, and Helvetica makes `1`/`l` a guess.
+   */
+  it('sets the run id in monospace, and nothing else on the cover', async () => {
+    await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: REPORT })
+    const { bytes } = await runRenderer()
+
+    // `REPORT` has no code block, so `Courier` reaches this file only through
+    // the one row that asked for it.
+    expect(new TextDecoder('latin1').decode(bytes).includes('Courier')).toBe(true)
+  })
+
+  /**
+   * „wien" is the stored token; „Wien" is what the Project Brief panel shows.
+   * The cover resolves it through `buildProjectBriefView`, the same builder the
+   * Overview uses, so the two surfaces cannot end up naming one Bundesland two
+   * different ways — and a Bauakt never carries the machine vocabulary.
+   */
+  it('prints the brief’s own words for a fact, not the stored token', async () => {
+    await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: REPORT })
+    const pdf = await readPdf((await runRenderer()).bytes)
+
+    expect(pdf.text).toContain('Wien')
+    expect(pdf.text).not.toContain('wien ')
+  })
+
+  /**
+   * A cover identifies; it does not summarise. `projektphase` is a confirmed
+   * fact of the same profile and is deliberately not on the sheet — this is the
+   * assertion that the selection is a selection.
+   */
+  it('does not reprint the rest of the project brief', async () => {
+    await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: REPORT })
+    const pdf = await readPdf((await runRenderer()).bytes)
+
+    expect(pdf.text).not.toContain('Einreichplanung')
+    expect(pdf.text).not.toContain('einreichplanung')
+  })
+
+  /**
+   * A field with no value produces no line. A report filed from a project with
+   * an empty brief must not print „Bundesland" with nothing after it: a reader
+   * away from the app cannot tell that apart from a claim that there is none.
+   */
+  it('drops the facts a project has not captured, and keeps the rest', async () => {
+    findProjectInOrg.mockResolvedValue({ id: 'proj-1', name: 'Haus Anna', profile: {} })
+    await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: REPORT })
+    const pdf = await readPdf((await runRenderer()).bytes)
+
+    expect(pdf.text).toBe(
+      't:aiNotice.title t:aiNotice.body ' +
+        'Brandschutz Straßenhäuser ' +
+        't:project Haus Anna ' +
+        't:createdAt 20. August 2026 ' +
+        't:reportCover.author Piloti ' +
+        't:reportCover.analysisId run_7 ' +
+        'Der Bericht beginnt hier.'
+    )
+  })
+
+  /**
+   * The cover is ADDED MATTER. A database blip while reading a Gebäudeklasse
+   * must not cost the user the filing of a report a multi-minute run produced,
+   * so the read fails soft and the document still says what it can confirm.
+   */
+  it('still files the report when the project brief cannot be read', async () => {
+    findProjectInOrg.mockRejectedValue(new Error('connection terminated'))
+    await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: REPORT })
+    const rendering = await runRenderer()
+    const pdf = await readPdf(rendering.bytes)
+
+    expect(rendering.contentType).toBe('application/pdf')
+    expect(pdf.text).toContain('t:aiNotice.title')
+    expect(pdf.text).toContain('t:project Haus Anna')
+    expect(pdf.text).toContain('t:reportCover.analysisId run_7')
+    expect(pdf.text).not.toContain('t:reportCover.bundesland')
+  })
+
+  /**
+   * An empty run still produces a document, and the document still carries the
+   * marking and the identity. „Nothing to report" filed as a blank page is the
+   * one outcome a reader cannot interpret.
+   */
+  it('files a marked, identified document for a report with no words in it', async () => {
+    await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: '' })
+    const pdf = await readPdf((await runRenderer()).bytes)
+
+    expect(pdf.pageCount).toBe(1)
+    expect(pdf.text).toContain('t:aiNotice.title')
+    expect(pdf.text).toContain('t:documentTitle')
+    expect(pdf.text).toContain('t:reportCover.analysisId run_7')
+  })
+
+  describe('the legal basis', () => {
+    const CARDS = [
+      { type: 'summary', content: 'Die Fluchtwege sind zu prüfen.' },
+      {
+        type: 'legal_basis',
+        law: 'OIB-Richtlinie 2',
+        article: '§ 3',
+        original_text: 'Fluchtwege sind so auszubilden, dass sie im Brandfall sicher benützbar sind.',
+      },
+    ]
+
+    /**
+     * The content ask of roadmap #3, in the artifact: the cited Richtlinie, the
+     * §, and the excerpt — after the report, under a heading of their own.
+     */
+    it('appends the cited Richtlinie, § and excerpt as their own section', async () => {
+      await fileResearchReport({
+        session: SESSION,
+        projectId: 'proj-1',
+        runId: 'run_7',
+        report: REPORT,
+        cards: CARDS,
+      })
+      const pdf = await readPdf((await runRenderer()).bytes)
+
+      expect(pdf.text).toContain(
+        't:legalBasis t:cardTypes.legal_basis ' +
+          't:fields.law OIB-Richtlinie 2 t:fields.article § 3 ' +
+          't:fields.original_text Fluchtwege sind so auszubilden, dass sie im Brandfall sicher benützbar sind.'
+      )
+      // After the report's own words, never in front of them.
+      expect(pdf.text.indexOf('Der Bericht beginnt hier.')).toBeLessThan(
+        pdf.text.indexOf('t:legalBasis')
+      )
+    })
+
+    /**
+     * The report's own „Quellen" section is the writer agent's text, normalised
+     * by `citation_verification.sanitize_report` — heading spelling, one source
+     * per line, renumbering, unsafe URLs removed. The export does not re-render
+     * it, does not move it and does not add a second one: it appends after it.
+     */
+    it('leaves the report’s sanitized Quellen section exactly where it is', async () => {
+      const report =
+        '# Brandschutz Straßenhäuser\n\nDer Bericht beginnt hier.\n\n' +
+        '## Quellen\n\n[1] [OIB] OIB-Richtlinie 2, Ausgabe Mai 2023\n'
+      await fileResearchReport({
+        session: SESSION,
+        projectId: 'proj-1',
+        runId: 'run_7',
+        report,
+        cards: CARDS,
+      })
+      const pdf = await readPdf((await runRenderer()).bytes)
+
+      expect(pdf.text.match(/Quellen/g)).toHaveLength(1)
+      expect(pdf.text).toContain('[1] [OIB] OIB-Richtlinie 2, Ausgabe Mai 2023')
+      expect(pdf.text.indexOf('Quellen')).toBeLessThan(pdf.text.indexOf('t:legalBasis'))
+    })
+
+    /**
+     * Today's only caller has no cards to pass — `JobReportResponse` carries
+     * `report` and nothing else — so this is the shape that actually ships, and
+     * it must print no heading standing over nothing.
+     */
+    it('prints no section at all when the run produced no legal_basis card', async () => {
+      await fileResearchReport({
+        session: SESSION,
+        projectId: 'proj-1',
+        runId: 'run_7',
+        report: REPORT,
+      })
+      const pdf = await readPdf((await runRenderer()).bytes)
+
+      expect(pdf.text).not.toContain('t:legalBasis')
+      expect(pdf.text.endsWith('Der Bericht beginnt hier.')).toBe(true)
+    })
   })
 
   it('renders nothing until the service asks for it', async () => {
     await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: REPORT })
     expect(renderMarkdownPdf).not.toHaveBeenCalled()
+    // Not even the project read, which is inside the renderer for the same
+    // reason: a filing the service refuses must cost no query.
+    expect(findProjectInOrg).not.toHaveBeenCalled()
   })
 })

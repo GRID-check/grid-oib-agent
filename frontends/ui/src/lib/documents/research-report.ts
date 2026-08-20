@@ -42,6 +42,11 @@ import { getLocale, getTranslations } from '@/i18n/server'
 import type { Locale } from '@/i18n/config'
 import type { Translator } from '@/i18n/translate'
 import { PDF_MEDIA_TYPE, renderMarkdownPdf } from '@/lib/pdf/markdown-pdf'
+import type { PdfFactRow } from '@/lib/pdf/ReactPdfDocument'
+import { legalBasisSection } from '@/lib/pdf/legal-basis'
+import { AI_GENERATOR_NAME } from '@/lib/ai-provenance'
+import { buildProjectBriefView } from '@/lib/project-profile/brief-view'
+import { findProjectInOrg } from '@/lib/projects/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { fileGeneratedDocument, type FiledGeneratedDocument } from './generated'
 
@@ -52,6 +57,23 @@ export interface FileResearchReportInput {
   runId: string
   /** The report as the writer agent wrote it: Markdown. */
   report: string
+  /**
+   * The run's Grid cards, as `metadata.cards` stores them. The `legal_basis`
+   * ones become the „Rechtsgrundlagen" section; every other type is ignored
+   * here, because the report's prose already carries what they say.
+   *
+   * Optional, and `unknown[]` rather than a card type, for two separate
+   * reasons. It is UNKNOWN because these are jsonb that crossed a process
+   * boundary and `@/lib/pdf/legal-basis` is the module that narrows them. It is
+   * OPTIONAL because the backend's `JobReportResponse`
+   * (`frontends/aiq_api/src/aiq_api/routes/jobs.py`) returns `job_id`,
+   * `has_report` and `report` and nothing else — the runner persists
+   * `output["cards"]` alongside the report (`jobs/runner.py`), but no field
+   * exposes them, so today's only caller has none to pass. A section that
+   * cannot be built prints nothing at all rather than an empty heading, which
+   * is why this can ship ahead of the field that fills it.
+   */
+  cards?: unknown[]
   request?: Request
 }
 
@@ -74,34 +96,162 @@ export function splitReportTitle(report: string): { title: string | null; body: 
 }
 
 /**
- * The header facts the .docx carried, as markdown.
+ * The facts the cover block prints, and why each one is on it.
  *
- * The .docx got these from `buildAnswerDocument`, which assembles OOXML blocks;
- * the PDF path is markdown in, PDF out, so the same two facts are composed here
- * instead. They are the same facts read from the same `answerExport` keys, in
- * the same locale's date format — dropping them when the format changed would
- * have quietly made the filed report say less than the file it replaced.
+ * A report that reaches a Behörde with no project, no place and no date is an
+ * anonymous essay, and roadmap #3 asks for "a deliverable an architect can hand
+ * to the authority". The opposite failure is just as real: a cover sheet that
+ * reprints the intake is a second document standing in front of the first. So
+ * the rule applied here is that a row earns its place only if the reader cannot
+ * READ THE REPORT without it — either because it identifies the object, or
+ * because it decides which rules the report's claims were checked against.
  *
- * `answer-document.ts`'s rule applies unchanged: **a field that has no value
- * produces no line.** A report filed from a project with no name must not print
- * „Projekt:" with nothing after it, because a reader away from the app cannot
- * tell that apart from a claim.
+ * On the sheet:
+ *
+ *   - **Projekt** — the object, as the app names it. The one fact a reader
+ *     away from the app cannot recover; the .docx has carried it since the
+ *     saved-answer export shipped.
+ *   - **Standort** (`standort_adresse`, intake A2_adr) — the object, as a
+ *     Behörde names it. A project name is an internal label; an Einreichung is
+ *     about an address, and two projects in one office may share a name.
+ *   - **Bundesland** (`bundesland`, intake A2_land) — the jurisdiction. Each
+ *     Bundesland declares its own edition of the OIB-Richtlinien verbindlich
+ *     and has its own Bauordnung (`skills/builtin/oib/brandschutz/SKILL.md`
+ *     says the edition binds), so a compliance statement without it is not
+ *     checkable — the reader cannot tell which law it was checked against.
+ *   - **Gebäudeklasse** — the classification nearly everything hangs off.
+ *     `lib/oib/applicable-standards.ts` derives which Richtlinien apply from
+ *     it, and the brandschutz skill opens with "nearly every requirement in
+ *     OIB Richtlinie 2 hangs off the Gebäudeklasse". A fire-resistance class
+ *     printed without it is "a number with no claim attached to it".
+ *   - **Erstellt am** — when. Already carried by the .docx.
+ *   - **Erstellt von** — {@link AI_GENERATOR_NAME}, the same name the file's
+ *     `Creator` field carries. The honest answer to the authorship question,
+ *     and it makes the printed page and the metadata agree. The commissioning
+ *     human is deliberately NOT named: on a document nobody has reviewed, a
+ *     person's name in this row reads as a Verfasser claim, which is exactly
+ *     what „nicht geprüft" says is not true yet.
+ *   - **Analyse-ID** — the run, monospace. The only string that ties this page
+ *     back to the run, to the `document.generated` audit event and to the
+ *     `AIRunId` keyword in the file's own metadata. „Prüfen Sie jede Angabe"
+ *     needs an address to check against.
+ *
+ * Deliberately NOT on it, and each for a reason:
+ *
+ *   - **Nutzung** (`hauptnutzung`). It belongs by every other measure — it is
+ *     the second axis `applicable-standards.ts` reads. It is left off because
+ *     its stored values are wire tokens (`wohnen`, `produzierend`) and this
+ *     repo has no label set for them: `NUTZUNGEN` in `intake-definition.ts` is
+ *     a DIFFERENT, unexported vocabulary (`produktion`, `handel`, `gastro`),
+ *     so printing the fact would mean inventing a third list of German words
+ *     with nothing to keep it in step with the first two. „produzierend" on a
+ *     Behörde document is machine vocabulary leaking into a Bauakt, which
+ *     `brief-view.ts` warns about by name. Add the row when the vocabulary has
+ *     one home; do not add it by writing a second one here.
+ *   - **Projektphase, Katastralgemeinde, Geschosse, Fluchtniveau, Widmung** —
+ *     the rest of the brief. A cover identifies; it does not summarise. The
+ *     brief is a page in the app and a section of no document.
+ *   - **The organization's name or mark.** This is a report, not a letterhead.
  */
-function reportHeader(
-  documentTitle: string,
+const COVER_FACT_PLACEHOLDER = '—'
+
+/**
+ * A confirmed fact from the project brief, as the app itself words it.
+ *
+ * Read through `buildProjectBriefView` rather than off `profile.facts`
+ * directly, so the cover sheet and the Overview's Project Brief cannot disagree
+ * about what „wien" is called: that builder resolves option labels out of the
+ * intake definition („Wien", „Außerhalb Österreichs"), and a second resolution
+ * here would be a second answer to the same question.
+ *
+ * The em dash is what the builder prints for a fact whose value is null. It is
+ * meaningful in a fact sheet the reader can see is complete, and misleading on
+ * a cover sheet, where it would look like the report deliberately declined to
+ * state a jurisdiction — so it is filtered rather than printed.
+ */
+function briefFact(
+  facts: ReadonlyMap<string, string>,
+  key: string
+): string | undefined {
+  const value = facts.get(key)?.trim()
+  if (!value || value === COVER_FACT_PLACEHOLDER) return undefined
+  return value
+}
+
+/**
+ * The cover block's rows.
+ *
+ * `answer-document.ts`'s rule holds unchanged and is the reason every row below
+ * is its own `if`: **a field that has no value produces no line.** A report
+ * filed from a project with no Bundesland must not print „Bundesland" with
+ * nothing after it, because a reader away from the app cannot tell that apart
+ * from a claim that there is none.
+ */
+function coverRows(
   projectName: string | undefined,
+  profile: unknown,
   createdAt: Date,
+  runId: string,
   t: Translator,
   locale: Locale
-): string {
-  const date = new Intl.DateTimeFormat(locale, { dateStyle: 'long' }).format(createdAt)
-  const lines = [`# ${documentTitle}`]
-  if (projectName?.trim()) lines.push(`**${t('project')}:** ${projectName.trim()}`)
-  lines.push(`**${t('createdAt')}:** ${date}`)
-  // Blank-line separated so each is its own markdown paragraph. Joined with
-  // single newlines they are one paragraph to `marked`, and the two facts run
-  // together on one line in the PDF.
-  return lines.join('\n\n')
+): PdfFactRow[] {
+  const rows: PdfFactRow[] = []
+  if (projectName?.trim()) rows.push({ label: t('project'), value: projectName.trim() })
+
+  const brief = buildProjectBriefView(profile ?? {})
+  const facts = new Map(
+    brief.groups.flatMap((group) => group.facts.map((fact) => [fact.key, fact.value] as const))
+  )
+
+  const location = briefFact(facts, 'standort_adresse')
+  if (location) rows.push({ label: t('reportCover.location'), value: location })
+
+  const bundesland = briefFact(facts, 'bundesland')
+  if (bundesland) rows.push({ label: t('reportCover.bundesland'), value: bundesland })
+
+  // `fields.gebaeudeklasse` and not a new key: the .docx already labels this
+  // exact fact on a card, and two names for the Gebäudeklasse across the two
+  // documents an architect puts side by side is the drift `answerExport` exists
+  // to prevent.
+  const gebaeudeklasse = briefFact(facts, 'gebaeudeklasse')
+  if (gebaeudeklasse) rows.push({ label: t('fields.gebaeudeklasse'), value: gebaeudeklasse })
+
+  rows.push({
+    label: t('createdAt'),
+    value: new Intl.DateTimeFormat(locale, { dateStyle: 'long' }).format(createdAt),
+  })
+  rows.push({ label: t('reportCover.author'), value: AI_GENERATOR_NAME })
+  // `mono` because a run id is transcribed, not read — see `PdfFactRow.mono`
+  // and the design language's "monospace for identifiers".
+  rows.push({ label: t('reportCover.analysisId'), value: runId, mono: true })
+
+  return rows
+}
+
+/**
+ * The project's brief, or nothing.
+ *
+ * A SECOND read of the row `fileGeneratedDocument` already loaded, and that is
+ * deliberate: `GeneratedRenderContext` carries the project's name because the
+ * service needed the name anyway, and widening it to hand every future producer
+ * a whole profile is the service's decision to make, not this producer's.
+ *
+ * Failure is swallowed, which nothing else in this file does. The cover block
+ * is ADDED MATTER: a database blip while reading a Gebäudeklasse must not cost
+ * the user the filing of a report a multi-minute run just produced. The report
+ * still files, with a cover that states what it could confirm.
+ */
+async function loadProfile(projectId: string, organizationId: string): Promise<unknown> {
+  try {
+    const project = await findProjectInOrg(projectId, organizationId)
+    return project?.profile ?? null
+  } catch (error) {
+    console.error('[documents] could not read the project profile for a report cover', {
+      projectId,
+      cause: error instanceof Error ? error.name : 'unknown',
+    })
+    return null
+  }
 }
 
 /**
@@ -122,7 +272,7 @@ function reportHeader(
 export async function fileResearchReport(
   input: FileResearchReportInput,
 ): Promise<FiledGeneratedDocument> {
-  const { session, projectId, runId, report, request } = input
+  const { session, projectId, runId, report, cards, request } = input
   const { title, body } = splitReportTitle(report)
   const [t, locale] = await Promise.all([getTranslations('answerExport'), getLocale()])
   const documentTitle = title ?? t('documentTitle')
@@ -135,20 +285,42 @@ export async function fileResearchReport(
     title: documentTitle,
     request,
     render: async ({ projectName }) => {
-      const header = reportHeader(
-        documentTitle,
-        projectName,
-        // The instant the report is filed. Unlike a saved answer — which has
-        // its own older `createdAt` and must not be re-dated by a download —
-        // this document comes into existence now, and the run that produced
-        // it finished moments ago.
-        new Date(),
-        t,
-        locale
-      )
-      const bytes = await renderMarkdownPdf(`${header}\n\n${body}`, {
+      const profile = await loadProfile(projectId, session.organizationId)
+      const bytes = await renderMarkdownPdf(body, {
         title: documentTitle,
         notice: { title: t('aiNotice.title'), body: t('aiNotice.body') },
+        // The title moves OUT of the markdown and onto the cover block, so the
+        // document's own name and the facts identifying it are one thing rather
+        // than a heading followed by two loose paragraphs. The notice is still
+        // rendered above it — that order lives in `MarkdownPDF` and not in this
+        // call, so no caller can reorder the marking away.
+        header: {
+          title: documentTitle,
+          rows: coverRows(
+            projectName,
+            profile,
+            // The instant the report is filed. Unlike a saved answer — which
+            // has its own older `createdAt` and must not be re-dated by a
+            // download — this document comes into existence now, and the run
+            // that produced it finished moments ago.
+            new Date(),
+            runId,
+            t,
+            locale
+          ),
+        },
+        // Appended AFTER the markdown, deliberately. The writer agent's report
+        // ends with its own „Quellen" section — `citation_verification
+        // .sanitize_report` normalises the heading, strips body URLs, drops
+        // shortened and unsafe ones and renumbers what survives — and that
+        // section is the report's text, not this export's. Cutting the
+        // markdown open to slot a section in front of it would mean a second
+        // parser for a shape the backend already owns, and a re-serialised
+        // source list that has lost the `[KB]`/`[Web]`/`[RIS]` origin tokens
+        // the sanitizer put there. So the citations the answer was BUILT on go
+        // at the back, as the apparatus they are, and the sources it cites
+        // stay exactly where the sanitizer left them.
+        sections: legalBasisSection(cards, t),
         aiProvenance: { runId },
       })
       return { bytes, contentType: PDF_MEDIA_TYPE }
