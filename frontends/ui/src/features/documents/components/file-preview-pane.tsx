@@ -35,8 +35,15 @@ import { cn } from '@/lib/utils'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { DocumentActionsMenu, useDocumentActions, type DocumentScope } from './document-actions'
-import { DocumentStatusBadge, fileTypeIcon, isCitableStatus, isFailedStatus } from './document-status'
+import {
+  DocumentStatusBadge,
+  fileTypeIcon,
+  isCitableStatus,
+  isFailedStatus,
+  isNeverIndexedStatus,
+} from './document-status'
 import { AssignmentFaces } from './assignment-faces'
+import { AuthorshipLine } from './authorship-line'
 import { AssignPopover } from './assign-popover'
 import { useRouter } from 'next/navigation'
 import { askAboutFile } from '../lib/ask-about-file'
@@ -141,6 +148,15 @@ export function FilePreviewPane({
 }: FilePreviewPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
+  /**
+   * „Von Piloti indexiert" is a claim, and on a report Piloti WROTE it is a
+   * false one: that document was deliberately never dispatched to `/v1/ingest`,
+   * so there is nothing indexed to show and the eyebrow would contradict the
+   * hint on the disabled Ask button two lines above it. The rail keeps the
+   * facts that come from the file itself (type, size, project) and drops the
+   * section that describes an ingestion that never ran.
+   */
+  const showIndexedSection = showMetadataPanel && !isNeverIndexedStatus(file.status)
   const router = useRouter()
   const storeMode = useFilePreviewStore((state) => state.mode)
   const storeFileId = useFilePreviewStore((state) => state.file?.id)
@@ -306,6 +322,10 @@ export function FilePreviewPane({
           >
             {actions.name}
           </h3>
+          {/* The byline, under the name and ABOVE the type · status line, which
+              keeps it clear of the assignment row further down: provenance and
+              responsibility are two answers that must never be read as one. */}
+          <AuthorshipLine authoredBy={file.authoredBy} className="mt-0.5" />
           {/* Type AND status on one line. The status badge used to live only in
               the metadata column, below the fold on a narrow panel — so the one
               question a reader has on opening a file ("is this actually indexed,
@@ -356,8 +376,24 @@ export function FilePreviewPane({
             documentId={file.id}
           />
         )}
+        {/* Disabled rather than hidden, the way this surface already treats a
+            document that is still being read — but the HINT has to tell the
+            truth. „Sobald die Datei zitierbar ist" promises a wait; a report
+            Piloti wrote was deliberately never indexed, so there is nothing to
+            wait for, and the hint says why instead. No `Piloti dazu fragen`
+            affordance appears in any other form here: that is the design, not
+            a gap. */}
         {projectId && !isCitableStatus(file.status) && !isFailedStatus(file.status) && (
-          <Button size="sm" className="h-8 shrink-0" disabled title={t('assignment.askDisabled')}>
+          <Button
+            size="sm"
+            className="h-8 shrink-0"
+            disabled
+            title={
+              isNeverIndexedStatus(file.status)
+                ? t('authorship.notInKnowledge')
+                : t('assignment.askDisabled')
+            }
+          >
             {t('assignment.ask')}
           </Button>
         )}
@@ -586,7 +622,7 @@ export function FilePreviewPane({
               agent actually understand this file" — and it used to sit as one
               more 12.5px paragraph between an eyebrow and six key/value rows,
               read at the same weight as the MIME type. */}
-          {showMetadataPanel && (
+          {showIndexedSection && (
             <section className="space-y-2.5" aria-label={t('preview.indexed.title')}>
               <SectionLabel as="p" icon={Sparkles} className="font-semibold tracking-[0.05em]">
                 {t('preview.indexed.title')}
@@ -603,7 +639,7 @@ export function FilePreviewPane({
               with, because one group was behind a feature flag and the other
               was not. The flag now gates ROWS, which is what it was always
               about; the group is whole either way. */}
-          <section className={cn('space-y-2', showMetadataPanel && 'mt-4')}>
+          <section className={cn('space-y-2', showIndexedSection && 'mt-4')}>
             <SectionLabel as="p" icon={FileCode2} className="font-semibold tracking-[0.05em]">
               {t('preview.properties')}
             </SectionLabel>
@@ -752,7 +788,10 @@ export function FilePreviewPane({
               on this file. */}
 
           <div className="flex-1" />
-          {showMetadataPanel && (
+          {/* Same claim as the section eyebrow, in a sentence — „beim Hochladen
+              automatisch erkannt" is about an upload and an ingestion that a
+              report Piloti wrote never had. */}
+          {showIndexedSection && (
             <p className="mt-4 border-t pt-3 text-xs leading-relaxed text-muted-foreground/80">
               {t('preview.indexed.caption')}
             </p>

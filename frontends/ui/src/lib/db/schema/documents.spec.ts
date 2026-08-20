@@ -53,6 +53,7 @@ import { PgDialect, getTableConfig } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
 import { DOCUMENT_AUTHORS, documents } from './documents'
 import { projectFolders } from './project-folders'
+import { IN_FLIGHT_DOCUMENT_STATUSES } from '@/lib/documents/document-status'
 
 const CONSTRAINT = 'documents_session_requires_conversation'
 
@@ -74,17 +75,18 @@ const DOWN_MIGRATION_0063 = readFileSync(
 )
 
 /**
- * The poller's in-flight set, read out of its source rather than imported:
- * `reconcile-status` does not export it, and the module pulls in `server-only`
- * through the repository, which a schema spec has no business booting. The
- * regex throws when it stops matching, so the coupling fails loudly instead of
- * quietly asserting nothing.
+ * The poller's in-flight set.
+ *
+ * It used to be read out of `reconcile-status.ts` with a regex, because the
+ * poller declared its own Set literal and the module pulls in `server-only`
+ * through the repository, which a schema spec has no business booting. The set
+ * is now DECLARED once in `@/lib/documents/document-status` — a pure data
+ * module with no server imports — and the poller derives it from there, so the
+ * spec asks the declaration directly. That `reconcile-status.ts` really does
+ * derive rather than restate is pinned by `document-status.spec.ts`.
  */
 function inFlightStatuses(): string[] {
-  const source = readFileSync(join(process.cwd(), 'src/lib/documents/reconcile-status.ts'), 'utf8')
-  const match = source.match(/const IN_FLIGHT_STATUSES = new Set\(\[([^\]]*)\]\)/)
-  if (!match) throw new Error('reconcile-status.ts no longer declares IN_FLIGHT_STATUSES as a Set literal')
-  return [...match[1].matchAll(/'([^']+)'/g)].map((entry) => entry[1])
+  return [...IN_FLIGHT_DOCUMENT_STATUSES]
 }
 
 /**

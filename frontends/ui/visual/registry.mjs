@@ -323,6 +323,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-card"]',
   },
   {
+    id: 'agent-authored',
+    mobile: true,
+    path: '/dev/agent-authored',
+    description:
+      'What a reader meets when Piloti has written a report into the project. The filter strip with `Unvergeben` + `Von Piloti` engaged together (two questions — who is responsible, who wrote it — that AND rather than replace each other); the card grid where the generated report carries a quiet `Von Piloti erstellt` byline under its name, a NEUTRAL `Abgelegt` badge (not green: nothing can cite it; not red: nothing went wrong) and, unchanged in the footer, the word `Unvergeben`; and the preview, where the byline sits above the type line, the assignment row two lines below it, and `Piloti dazu fragen` is disabled with a hint that says the report is not in the knowledge base instead of promising a wait that never ends.',
+    waitFor: '[data-testid="file-card"]',
+  },
+  {
     id: 'archiv-library',
     mobile: true,
     path: '/dev/archiv-library',

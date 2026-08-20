@@ -12,10 +12,22 @@
  * wiped the in-memory job registry) and terminal states are written back.
  */
 
+import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
 import { setDocumentReconciledStatus } from './repository'
 
-/** DB statuses that mean "ingestion outcome not yet known". */
-const IN_FLIGHT_STATUSES = new Set(['pending', 'processing', 'ingesting'])
+/**
+ * DB statuses that mean "ingestion outcome not yet known".
+ *
+ * Derived from the one declaration of the status vocabulary rather than listed
+ * again here. The set used to be a literal, and it drifted from the badge's own
+ * table by two values without anything failing — which is exactly how `stored`
+ * could have been added to the column and quietly polled forever. A row that is
+ * in this set is asked about on EVERY read, so a value that does not belong in
+ * it (`stored`: no job was ever dispatched, so nothing will ever report on it)
+ * costs a backend round trip per read and then overwrites the status from a
+ * collection file list that will never contain the document.
+ */
+const IN_FLIGHT_STATUSES = IN_FLIGHT_DOCUMENT_STATUSES
 
 const FETCH_TIMEOUT_MS = 5000
 

@@ -61,6 +61,10 @@ export const files = {
     processing: 'Processing',
     uploading: 'Uploading',
     failed: 'Failed',
+    // A report Piloti wrote: the file is in the project but deliberately not in
+    // the knowledge base. Neither a success ("Citable" would promise a citation
+    // retrieval cannot make) nor a failure — nothing went wrong.
+    stored: 'Filed',
     unknown: 'Unknown',
   },
   toast: {
@@ -246,6 +250,25 @@ export const files = {
     imageVlmUnavailable: 'Images cannot be uploaded here: this deployment has no image recognition set up.',
     fileSingular: 'file',
     filePlural: 'files',
+  },
+  /**
+   * Provenance — who wrote the bytes. Deliberately its own group and NOT part
+   * of `assignment`: a face says who is responsible for a file, this says who
+   * made it, and the file-native design is explicit that provenance is never
+   * rendered as responsibility. A generated report is an ordinary UNASSIGNED
+   * file, so the footer still says `Unassigned` beside this line.
+   */
+  authorship: {
+    byPiloti: 'Created by Piloti',
+    /** Filter chip beside All · Mine · Unassigned. */
+    filter: 'By Piloti',
+    /**
+     * Why Ask is disabled on a generated report — and it is disabled, not
+     * hidden, following the pattern the citable-yet case already set. The
+     * difference is that there is no "yet": the report was never indexed, on
+     * purpose, so that the agent cannot cite its own writing back as evidence.
+     */
+    notInKnowledge: 'Created by Piloti — not in the knowledge base',
   },
   assignment: {
     unassigned: 'Unassigned',
