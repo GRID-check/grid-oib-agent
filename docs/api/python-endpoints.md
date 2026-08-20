@@ -26,20 +26,23 @@ These routes manage knowledge collections (logical groupings of documents for re
 
 | Method | Path | Description | Request | Response | Handler |
 |--------|------|-------------|---------|----------|---------|
-| `POST` | `/v1/ingest` | Ingest a file from a presigned URL | `{ file_ref, collection, document_id? }` | `{ job_id, status, document_id }` (202) | `add_ingest_routes` in `aiq_api.routes.ingest` (`frontends/aiq_api/src/aiq_api/routes/ingest.py`) |
+| `POST` | `/v1/ingest` | Ingest a file from a presigned URL | `{ file_ref, collection, document_id?, thumbnail_upload_url?, folder_path? }` | `{ job_id, status, document_id }` (202) | `add_ingest_routes` in `aiq_api.routes.ingest` (`frontends/aiq_api/src/aiq_api/routes/ingest.py`) |
 
 Downloads the file from `file_ref` (presigned SeaweedFS URL), saves to a temporary file, infers extension from `Content-Type` or URL path, then submits to the ingestor's `submit_job()`. The BFF upload route (`POST /api/documents/upload`) calls this endpoint after writing to SeaweedFS.
 
 **Supported formats**: PDF, TXT, MD, DOCX, PPTX.
+
+`folder_path` is the materialised project-folder path the BFF filed the document under (`Brandschutz/Fluchtwege`); omit or send `null` for the project root. It is carried into the detached ingest thread on the job config and stamped onto the document's `document_metadata` row, so the agent's inventory and `knowledge_search folder=` can see the filing. It is a PATH, not a folder id — see **ADR-0049**.
 
 ## Documents
 
 | Method | Path | Description | Request | Response | Handler |
 |--------|------|-------------|---------|----------|---------|
 | `POST` | `/v1/collections/{collection_name}/documents` | Upload documents | `multipart` with `files` | `{ job_id, file_ids, message }` (202) | `add_document_routes` in `aiq_api.routes.documents` |
-| `GET` | `/v1/collections/{collection_name}/documents` | List documents in a collection (enriched with persisted per-document summaries **and tags** from the `document_metadata` table) | — | `[FileInfo]` | Same |
+| `GET` | `/v1/collections/{collection_name}/documents` | List documents in a collection (enriched with persisted per-document summaries, **tags** and **`folder_path`** from the `document_metadata` table) | — | `[FileInfo]` | Same |
 | `PATCH` | `/v1/collections/{collection_name}/documents/{file_name}/tags` | Replace a document's controlled tags (never touches the summary). Dedups then validates against the ingestion vocabulary `ALLOWED_TAGS`. | `{ tags: [string] }` | `{ collection_name, file_name, tags }` | Same |
 | `PATCH` | `/v1/collections/{collection_name}/documents/{file_name}/display-title` | Set a document's user-facing `display_title` (the tenant-scoped twin of the OIB admin rename). UPDATE-only on the `document_metadata` row keyed by `(collection, file_name)`; a null or blank title clears the override and restores the derived default. Retrieval prefers the stored title when it builds a citation chip, so a rename shows up immediately with nothing re-ingested. `404` when the document has no metadata row (the summary is the anchor). Called by the BFF's `PATCH /api/documents/{id}`. |
+| `PATCH` | `/v1/collections/{collection_name}/folder-paths` | Re-file every document under a project-folder path — the mirror of a folder rename, move or delete (**ADR-0049**). `from_path` matches the folder itself AND everything under `from_path/`, so `Brandschutz` never carries `Brandschutzkonzepte` with it; `to_path` null or blank re-files the subtree at the project root (what a folder DELETE does to its children). One call per folder operation, not one per document. Nothing filed under the path is `{ updated: 0 }`, not an error. Called best-effort by the BFF's `mirrorFolderPathRewrite` after the folder transaction commits. | `{ from_path, to_path? }` | `{ collection_name, from_path, to_path, updated }` | Same |
 | `GET` | `/v1/collections/{collection_name}/documents/{file_name}/visual-details` | Per-page VLM descriptions of a document's visual chunks (drawings/images/charts) — the "detailed information" the summary is distilled from. Read-only; fail-open (`{ details: [] }`) when the backend lacks the method or the lookup errors. | — | `{ details: [{ page, content_type, drawing_type, scale, text }] }` | Same |
 | `DELETE` | `/v1/collections/{collection_name}/documents` | Delete files from a collection | `{ file_ids }` | `{ message, successful, failed, total_deleted }` | Same |
 | `GET` | `/v1/documents/{job_id}/status` | Get ingestion job status | — | `IngestionJobStatus` (404 if missing) | Same |

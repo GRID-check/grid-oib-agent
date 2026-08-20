@@ -2,8 +2,9 @@
 
 One row per ``(collection, filename)`` holding everything the system knows about
 an ingested document beyond its chunks: the one-sentence ``summary``, the
-controlled ``tags``, the explicit ``doc_class`` ("Dokumentart"), and the
-user-facing ``display_title``. The table is named ``document_metadata`` because
+controlled ``tags``, the explicit ``doc_class`` ("Dokumentart"), the
+user-facing ``display_title``, and the ``folder_path`` the document is filed
+under (ADR-0049). The table is named ``document_metadata`` because
 it is exactly that — the summary is only one of several columns.
 
 Historically this was the ``summaries`` table (class ``SummaryStore``). A
@@ -45,18 +46,28 @@ _LEGACY_INDEX_NAME = "idx_summaries_collection"
 #: Optional (nullable) columns added after the original schema shipped. Kept as a
 #: single list so both the fresh-create path and the in-place backfill add the
 #: exact same set — a new column is introduced by appending one entry here.
-_OPTIONAL_COLUMNS: tuple[str, ...] = ("tags", "doc_class", "display_title")
+_OPTIONAL_COLUMNS: tuple[str, ...] = ("tags", "doc_class", "display_title", "folder_path")
 
 # Every raw-SQL statement in this module interpolates ONLY trusted, code-defined
 # SQL identifiers: the table/index name constants above, and column names drawn
 # from a fixed allowlist (``_OPTIONAL_COLUMNS`` plus the literal
-# ``"tags"``/``"doc_class"``/``"display_title"`` passed by the typed accessors).
+# ``"tags"``/``"doc_class"``/``"display_title"``/``"folder_path"`` passed by the
+# typed accessors).
 # SQL identifiers cannot be bound parameters, so they must live in the statement
 # text. Every caller-supplied *value* (collection, filename, summary, tags,
 # display_title, …) is always passed as a bound ``:param`` and never interpolated.
 # The interpolation is therefore not attacker-reachable, which is why each
 # ``sqlalchemy.text()`` call below carries a ``# nosemgrep: …avoid-sqlalchemy-text``
 # marker for the taint-based SAST rule.
+
+
+def _escape_like(value: str) -> str:
+    """Escape SQL ``LIKE`` metacharacters so a path matches only itself.
+
+    The TS twin is ``escapeLikePattern`` in ``folder-service.ts``; both exist so
+    a folder called ``100 % Plans`` cannot prefix-match half the project.
+    """
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 class DocumentMetadataStore:
@@ -255,6 +266,7 @@ class DocumentMetadataStore:
                 "tags TEXT, "
                 "doc_class TEXT, "
                 "display_title TEXT, "
+                "folder_path TEXT, "
                 "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
                 "PRIMARY KEY (collection, filename))"
             )
@@ -289,38 +301,38 @@ class DocumentMetadataStore:
         conn.execute(text(f"DROP INDEX IF EXISTS {_LEGACY_INDEX_NAME}"))
 
     def register(self, collection: str, filename: str, summary: str, tags: list[str] | None = None) -> None:
-        """Store a document summary and optional controlled tags (sync)."""
+        """Store a document summary and optional controlled tags (sync).
+
+        Owns the ``summary`` and ``tags`` columns and NOTHING ELSE. The other
+        columns on the row — ``doc_class``, ``display_title``, ``folder_path`` —
+        are set by people (a reclassification, a rename, a folder move) or by the
+        BFF, and re-summarising a document must not undo any of them.
+
+        That is why both engines run the same ``ON CONFLICT … DO UPDATE`` and the
+        SQLite branch no longer uses ``INSERT OR REPLACE``: replace is a DELETE
+        plus an INSERT, so every column absent from the statement came back NULL.
+        A re-ingest silently un-renamed and un-filed the document, and the only
+        symptom was the agent describing a folder structure the user no longer
+        had. ``excluded`` is spelled the same in SQLite and Postgres.
+        """
         import json
 
         from sqlalchemy import text
 
-        # Use upsert pattern that works for both SQLite and PostgreSQL
-        is_postgres = self._is_postgres()
         tags_json = json.dumps(tags) if tags else None
 
         try:
             with self._sync_engine.connect() as conn:
-                if is_postgres:
-                    conn.execute(
-                        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
-                        text(
-                            f"INSERT INTO {TABLE_NAME} (collection, filename, summary, tags) "
-                            "VALUES (:collection, :filename, :summary, :tags) "
-                            "ON CONFLICT (collection, filename) DO UPDATE SET "
-                            "summary = EXCLUDED.summary, tags = EXCLUDED.tags"
-                        ),
-                        {"collection": collection, "filename": filename, "summary": summary, "tags": tags_json},
-                    )
-                else:
-                    # SQLite uses INSERT OR REPLACE
-                    conn.execute(
-                        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
-                        text(
-                            f"INSERT OR REPLACE INTO {TABLE_NAME} (collection, filename, summary, tags) "
-                            "VALUES (:collection, :filename, :summary, :tags)"
-                        ),
-                        {"collection": collection, "filename": filename, "summary": summary, "tags": tags_json},
-                    )
+                conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                    text(
+                        f"INSERT INTO {TABLE_NAME} (collection, filename, summary, tags) "
+                        "VALUES (:collection, :filename, :summary, :tags) "
+                        "ON CONFLICT (collection, filename) DO UPDATE SET "
+                        "summary = excluded.summary, tags = excluded.tags"
+                    ),
+                    {"collection": collection, "filename": filename, "summary": summary, "tags": tags_json},
+                )
                 conn.commit()
                 logger.debug("Registered metadata for %s in %s", filename, collection)
         except Exception as e:
@@ -390,6 +402,99 @@ class DocumentMetadataStore:
     def get_display_titles_batch(self, collection: str, filenames: list[str]) -> dict[str, str]:
         """Return stored ``display_title`` values for many documents in one query."""
         return self._get_column_batch(collection, filenames, "display_title")
+
+    def set_folder_path(self, collection: str, filename: str, folder_path: str | None) -> bool:
+        """Replace only the ``folder_path`` of an existing metadata row (sync).
+
+        The materialised folder path the document is filed under
+        (``Brandschutz/Fluchtwege``), denormalised from the BFF's
+        ``project_folders.path`` — ADR-0049. Same UPDATE-only contract as
+        :meth:`set_display_title`: returns ``False`` when no metadata row exists
+        (callers 404 / skip). ``None`` clears it, which is what "filed at the
+        project root" means.
+        """
+        return self._update_column(collection, filename, "folder_path", folder_path)
+
+    def get_folder_path(self, collection: str, filename: str) -> str | None:
+        """Return the stored ``folder_path`` for a document, or ``None`` (sync).
+
+        ``None`` covers both "no metadata row" and "row present but filed at the
+        project root" — callers treat both as "no folder".
+        """
+        return self._get_column(collection, filename, "folder_path")
+
+    def get_folder_paths_batch(self, collection: str, filenames: list[str]) -> dict[str, str]:
+        """Return stored ``folder_path`` values for many documents in one query."""
+        return self._get_column_batch(collection, filenames, "folder_path")
+
+    def rewrite_folder_paths(self, collection: str, from_path: str, to_path: str | None) -> int:
+        """Re-file a whole subtree after a folder was renamed, moved or deleted.
+
+        The BFF's ``project_folders.path`` is materialised, so one rename rewrites
+        every descendant row there (``rewriteDescendantPaths``). This is the
+        mirror of that single operation: every document whose ``folder_path`` is
+        ``from_path`` OR sits under ``from_path/`` gets that prefix replaced by
+        ``to_path``. ``to_path`` of ``None``/``""`` re-files the subtree at the
+        project root (what a delete does to the folder's direct children).
+
+        Done as two UPDATEs rather than a fetch-and-loop so the whole subtree
+        moves atomically, and NOT as a bare ``LIKE 'from_path%'``: a folder
+        called ``Plan`` must not carry ``Plangrundlagen`` with it, which is
+        exactly the boundary the ``/`` in the second statement enforces. LIKE
+        metacharacters in the caller's path are escaped for the same reason the
+        BFF escapes them — a folder named ``100 % Plans`` cannot be allowed to
+        match half the project.
+
+        Returns the number of rows re-filed (0 when nothing was under it).
+        """
+        from sqlalchemy import text
+
+        prefix = (from_path or "").strip().strip("/")
+        if not prefix:
+            return 0
+        target = (to_path or "").strip().strip("/")
+
+        updated = 0
+        try:
+            with self._sync_engine.connect() as conn:
+                exact = conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                    text(
+                        f"UPDATE {TABLE_NAME} SET folder_path = :target "
+                        "WHERE collection = :collection AND folder_path = :prefix"
+                    ),
+                    {"target": target or None, "collection": collection, "prefix": prefix},
+                )
+                updated += exact.rowcount or 0
+
+                # Descendants: replace the leading ``prefix/`` with ``target/``
+                # (or strip it entirely when the subtree lands at the root).
+                rows = conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                    text(
+                        f"SELECT filename, folder_path FROM {TABLE_NAME} "
+                        "WHERE collection = :collection AND folder_path LIKE :pattern ESCAPE '\\'"
+                    ),
+                    {"collection": collection, "pattern": f"{_escape_like(prefix)}/%"},
+                ).fetchall()
+                for filename, current in rows:
+                    tail = str(current)[len(prefix) + 1 :]
+                    moved = f"{target}/{tail}" if target else tail
+                    conn.execute(
+                        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                        text(
+                            f"UPDATE {TABLE_NAME} SET folder_path = :moved "
+                            "WHERE collection = :collection AND filename = :filename"
+                        ),
+                        {"moved": moved, "collection": collection, "filename": filename},
+                    )
+                    updated += 1
+                conn.commit()
+        except Exception as e:
+            logger.warning("Failed to rewrite folder paths under %r in %s: %s", from_path, collection, e)
+            return 0
+        logger.info("Re-filed %d document(s) from %r to %r in %s", updated, prefix, target, collection)
+        return updated
 
     # ------------------------------------------------------------------
     # Column-level helpers (shared by tags/doc_class/display_title accessors)
@@ -504,6 +609,7 @@ class DocumentMetadataStore:
             tags=self._decode_tags(row[2]),
             doc_class=row[3] or None,
             display_title=row[4] or None,
+            folder_path=row[5] or None,
             collection=collection,
         )
 
@@ -516,7 +622,7 @@ class DocumentMetadataStore:
                 result = conn.execute(
                     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(
-                        f"SELECT filename, summary, tags, doc_class, display_title FROM {TABLE_NAME} "
+                        f"SELECT filename, summary, tags, doc_class, display_title, folder_path FROM {TABLE_NAME} "
                         "WHERE collection = :collection"
                     ),
                     {"collection": collection},
@@ -537,7 +643,7 @@ class DocumentMetadataStore:
                 result = await conn.execute(
                     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(
-                        f"SELECT filename, summary, tags, doc_class, display_title FROM {TABLE_NAME} "
+                        f"SELECT filename, summary, tags, doc_class, display_title, folder_path FROM {TABLE_NAME} "
                         "WHERE collection = :collection"
                     ),
                     {"collection": collection},

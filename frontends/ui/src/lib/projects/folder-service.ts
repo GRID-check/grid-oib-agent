@@ -2,8 +2,13 @@ import { eq, and, like, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { documents, projectFolders } from '@/lib/db/schema'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { getBackendUrl } from '@/lib/backend-proxy'
+import { findProjectInOrg } from '@/lib/projects/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { validateFolderName, buildFolderPath } from './folders'
+
+/** Backend calls here are decoration on a committed write — keep them short. */
+const BACKEND_MIRROR_TIMEOUT_MS = 5_000
 
 export interface CreateFolderInput {
   projectId: string
@@ -150,6 +155,49 @@ async function rewriteDescendantPaths(
 }
 
 /**
+ * Mirror a committed path change onto the backend's document metadata.
+ *
+ * The Python side files each document under the MATERIALISED PATH, not the
+ * folder id (ADR-0049) — it has no `project_folders` table to join against, the
+ * path is what a person reads, and a prefix match over it is the whole subtree.
+ * The cost of that choice is exactly this function: a path MOVES, so every
+ * rename, re-parent and delete has to be replayed on the other side or the
+ * agent keeps describing a folder structure the user no longer has.
+ *
+ * One call, not one per document: `from_path` matches the folder itself and
+ * everything filed beneath `from_path/`, which is the same prefix
+ * {@link rewriteDescendantPaths} rewrites here. An empty `toPath` re-files the
+ * subtree at the project root — what a delete does to a folder's children.
+ *
+ * BEST-EFFORT, with the same ordering argument as the display-title mirror in
+ * `@/lib/documents/service`: the durable truth is the rows this function is
+ * called after, and a backend that is down must not fail a folder rename the
+ * user is entitled to. The bounded consequence is that the agent's inventory
+ * and its `knowledge_search folder=` filter keep the old path until the next
+ * rewrite or re-ingest — visible, and self-healing on the next move.
+ */
+export async function mirrorFolderPathRewrite(
+  projectId: string,
+  organizationId: string,
+  fromPath: string,
+  toPath: string,
+): Promise<void> {
+  if (fromPath === toPath) return
+  try {
+    const project = await findProjectInOrg(projectId, organizationId)
+    if (!project) return
+    await fetch(`${getBackendUrl()}/v1/collections/${encodeURIComponent(project.collectionName)}/folder-paths`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from_path: fromPath, to_path: toPath || null }),
+      signal: AbortSignal.timeout(BACKEND_MIRROR_TIMEOUT_MS),
+    })
+  } catch {
+    // ignore — see the note above; the folder rows are the durable truth.
+  }
+}
+
+/**
  * Rename a folder and/or move it to another parent.
  *
  * The cycle check is the part that cannot be skipped: moving a folder into its
@@ -222,6 +270,8 @@ export async function updateProjectFolder(
     return row
   })
 
+  await mirrorFolderPathRewrite(input.projectId, session.organizationId, folder.path, path)
+
   return { ok: true, folder: toFolderRow(updated) }
 }
 
@@ -263,7 +313,7 @@ export async function deleteProjectFolder(
     parentPath = parent?.path ?? ''
   }
 
-  return await db.transaction(async (tx) => {
+  const outcome = await db.transaction(async (tx) => {
     // The documents first: they are what the cascade would have destroyed.
     const moved = await tx
       .update(documents)
@@ -295,4 +345,12 @@ export async function deleteProjectFolder(
       result: { documentsMoved: moved.length, foldersMoved: children.length },
     }
   })
+
+  // The whole subtree collapsed into this folder's parent, which is a prefix
+  // rewrite from the folder's path to the parent's (empty at the project root) —
+  // `Brandschutz/Alt` becomes `Brandschutz`, carrying `Brandschutz/Alt/EG` to
+  // `Brandschutz/EG` with it, exactly as the rows above just moved.
+  await mirrorFolderPathRewrite(input.projectId, session.organizationId, folder.path, parentPath)
+
+  return outcome
 }

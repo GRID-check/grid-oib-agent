@@ -28,6 +28,13 @@ class IngestRequest(BaseModel):
     collection: str = Field(..., description="Target collection name")
     document_id: str | None = Field(None, description="Optional document tracking ID")
     thumbnail_upload_url: str | None = Field(None, description="Presigned URL for uploading a generated thumbnail")
+    folder_path: str | None = Field(
+        None,
+        description=(
+            "Materialised folder path the document is filed under "
+            "(e.g. 'Brandschutz/Fluchtwege'). Omit or null for the project root."
+        ),
+    )
 
 
 class DocumentSearchRequest(BaseModel):

@@ -19,13 +19,70 @@ from aiq_agent.knowledge.schema import AvailableDocument
 from aiq_agent.knowledge.scoping import ScopedCollection
 
 
-def _doc(name: str, *, collection: str | None = None, shelf: str | None = None, summary: str | None = None):
+def _doc(
+    name: str,
+    *,
+    collection: str | None = None,
+    shelf: str | None = None,
+    summary: str | None = None,
+    folder_path: str | None = None,
+):
     return AvailableDocument(
         file_name=name,
         summary=summary or f"Summary of {name}",
         collection=collection,
         shelf=shelf,
+        folder_path=folder_path,
     )
+
+
+class TestFoldersInTheInventory:
+    """The agent can only talk about a folder structure it can see (ADR-0049).
+
+    The inventory is where the agent learns what exists, so it is where the
+    filing has to appear: without it "die drei Dokumente in Brandschutz" is a
+    sentence the model can only guess at, and `knowledge_search folder=` has no
+    value it could legitimately pass.
+    """
+
+    def test_a_filed_document_shows_its_folder(self):
+        text = render_inventory_block(
+            [_doc("plan.pdf", collection="proj_1", shelf="project", folder_path="Brandschutz/Fluchtwege")]
+        )
+        assert "**plan.pdf** (Ordner: Brandschutz/Fluchtwege)" in text
+
+    def test_a_document_at_the_root_shows_no_folder(self):
+        text = render_inventory_block([_doc("plan.pdf", collection="proj_1", shelf="project")])
+        assert "Ordner:" not in text
+        assert "**plan.pdf**" in text
+
+    def test_the_folder_convention_is_explained_when_a_folder_is_present(self):
+        text = render_inventory_block(
+            [_doc("plan.pdf", collection="proj_1", shelf="project", folder_path="Brandschutz")]
+        )
+        assert "(Ordner: Pfad/Unterpfad)" in text
+        assert "`folder=`" in text
+
+    def test_nothing_is_said_about_folders_when_no_file_has_one(self):
+        # A base-corpus-only turn has no folders at all; explaining them there is
+        # prompt budget spent on a structure the user does not have.
+        text = render_inventory_block([_doc("oib-rl_2.pdf", collection="oib_knowledge", shelf="base")])
+        assert "Ordner" not in text
+
+    def test_the_folder_sits_before_the_tags(self):
+        text = render_inventory_block(
+            [
+                AvailableDocument(
+                    file_name="plan.pdf",
+                    summary="Ein Plan.",
+                    tags=["Grundriss"],
+                    collection="proj_1",
+                    shelf="project",
+                    folder_path="Brandschutz",
+                )
+            ]
+        )
+        assert "**plan.pdf** (Ordner: Brandschutz) [Grundriss]: Ein Plan." in text
 
 
 class TestStampDocument:

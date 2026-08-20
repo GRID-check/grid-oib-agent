@@ -199,6 +199,13 @@ class FileInfo(BaseModel):
         None,
         description="Controlled ingestion-generated tags (document type + OIB discipline), if classified.",
     )
+    folder_path: str | None = Field(
+        None,
+        description=(
+            "Materialised folder path the document is filed under "
+            "(e.g. 'Brandschutz/Fluchtwege'). None means the project root."
+        ),
+    )
     metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="File-specific metadata (e.g., page count, content types).",
@@ -282,6 +289,12 @@ class AvailableDocument(BaseModel):
         display_title: Optional user-facing document name shown on citation chips
             and in the base-corpus admin UI. When unset, callers fall back to the
             derived default (``guess_display_title``); the filename is never shown.
+        folder_path: Optional materialised folder path the document is filed
+            under, denormalised from the BFF's ``project_folders.path``
+            (ADR-0049) — e.g. ``Brandschutz/Fluchtwege``. ``None`` means the
+            project root (or a shelf that has no folders at all). It is a PATH,
+            not an id: it reads as itself, and a prefix match gives the folder's
+            whole subtree.
         collection: The RAG collection this row was loaded from.
         shelf: Wire shelf (ADR-0047). Rendering-only labels live on
             ``SHELF_QUALIFIERS``; do not infer this from ``collection``.
@@ -292,5 +305,6 @@ class AvailableDocument(BaseModel):
     tags: list[str] | None = None
     doc_class: str | None = None
     display_title: str | None = None
+    folder_path: str | None = None
     collection: str | None = None
     shelf: str | None = None

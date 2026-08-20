@@ -948,6 +948,15 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
 
                 if summary:
                     register_summary(collection_name, file_name, summary, tags=tags)
+                    # The folder the BFF filed this document in, carried on the
+                    # job config from POST /v1/ingest (ADR-0049). Parity with the
+                    # llamaindex adapter: the filing belongs to the document, not
+                    # to whichever backend happens to have indexed it.
+                    folder_path = (config.get("folder_path") or "").strip() or None
+                    if folder_path:
+                        from aiq_agent.knowledge import set_document_folder_path
+
+                        set_document_folder_path(collection_name, file_name, folder_path)
                     logger.info(f"  Summary generated ({len(summary)} chars)")
 
         # Clean up executor
