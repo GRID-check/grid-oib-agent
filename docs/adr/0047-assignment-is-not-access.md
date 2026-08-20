@@ -123,7 +123,7 @@ Four things this ADR has to say about it.
 | Question | Column / table | Rule |
 |---|---|---|
 | Who caused these bytes to exist? | `documents.createdBy` | The commissioning **human**. Unchanged. The export and the audit both need a person to name. |
-| Whose hand wrote them? | `documents.authored_by` (+ `authored_by_run_id`) | `user` or `agent`. New. |
+| Whose hand wrote them? | `documents.authored_by` (+ `authored_by_ref`, `authored_by_ref_kind`) | `user` or `agent`. New. The reference names the run for a report (`agent_run`) and the answer the drawing came from for a diagram (`answer_artifact`); migration 0066 split the two rather than calling both a run. |
 | Who may open it? | visibility + `resource_shares` (ADR-0032) | Unchanged. |
 | Who is on the hook? | `resource_assignments` | Unchanged. **Empty on arrival.** |
 
@@ -178,6 +178,127 @@ second store was introduced that would have to be backed up separately. The
 honest statement is that an agent-authored document is as durable as every other
 document in the deployment, which is a sentence about ADR-0042 and not about this
 feature.
+
+## Addendum, 2026-08-20: for a filed diagram, the client asserts the provenance
+
+The addendum above says a document can now have a non-human author. It does not
+say who the server believes when it writes that down, and the two producers
+answer that differently. A reader who assumes they are the same will read more
+into `authored_by` than it can carry.
+
+**The report's provenance is established by the server.** The BFF fetches the
+finished report from the backend's job endpoint and files it in the same request
+(`fileReportIfCommissioned`,
+`frontends/ui/src/app/api/jobs/async/[...path]/route.ts`). The bytes never pass
+through the browser: `readReportMarkdown` reads them off the upstream response,
+and `authorize_job_access` (`frontends/aiq_api/src/aiq_api/jobs/access.py`) has
+already refused a job whose owner is not the caller. Nobody can make that path
+file prose of their own choosing.
+
+**The diagram's provenance is asserted by the client.** The browser POSTs
+`runId`, `title`, `sourceKind`, `source` and `svg` to
+`/api/projects/[id]/diagrams`, and the server files two rows saying a machine
+wrote this on the strength of the request saying so. That is not an oversight —
+mermaid needs a DOM to lay a graph out and production has no browser
+(`frontends/ui/src/lib/diagrams/filing.ts` states the constraint) — but it is a
+different fact from the report's, and this ADR is where the difference belongs.
+
+### What a hand-crafted POST buys, and what it does not
+
+Assume the attacker is a member of the organization who already holds
+`project:documents:write` on the project (or the legacy `project:edit`
+umbrella). Anything short of that is refused before a byte is stored.
+
+| They can choose | Consequence |
+|---|---|
+| `svg` | Any drawing at all. It is parsed, allow-listed and **re-serialised** by `lib/diagrams/svg.ts`, so what lands is written from the allow-list rather than copied from the request — inert, but arbitrary. |
+| `source` + `sourceKind` | The server escapes it into the `<metadata>` it writes itself. Nothing checks that the source draws the SVG beside it, so the two may disagree permanently. |
+| `title` | The display name in Berichte, and the PDF's heading. |
+| `runId` (the wire name) | Lands in `authored_by_ref` with `authored_by_ref_kind = 'answer_artifact'` (migration 0066), and is half the idempotency key. It is a **client-computed string** — `{answerId}-{fnv1a32(source)}`, `diagram-filing-context.tsx` — not a foreign key to anything. It need name no answer that ever existed. |
+
+| They cannot choose | Why |
+|---|---|
+| the acting identity | `createdBy`, `organization_id` and the audit actor all come from the session (`requireAuthorizedSession`). |
+| whether they may write here | `requireProjectAccess(project:documents:write \| project:edit)`, inside the service. |
+| the producer | Fixed by the route: `diagram_svg` / `diagram_pdf`. A forged **`deep_research`** row is unreachable from here. |
+| the quota | One admitting path (`admitOrDiscard`), so the bytes are charged like every other document (ADR-0042). |
+| indexability | `fileGeneratedDocument` dispatches nothing, and `dispatchDocument` re-reads the row and refuses a non-`user` author. |
+| an unlogged write | `recordAuditEventOrThrow`; a document that could not be audited is unfiled. |
+
+So `authored_by = 'agent'` means **this row was filed through the
+generated-document path, in `createdBy`'s session, with `project:documents:write`
+in hand, and its bytes were never indexed.** It is a statement about the *path*,
+not a warrant about the *hand*. It does **not** mean the model composed these
+bytes, and `authored_by_ref` does not mean the answer it names exists or ever
+held a diagram. The audit event inherits the same split exactly: the actor is the
+session's real human, and the `answer_artifact` target beside it is whatever
+string the request carried.
+
+Two consequences that are not obvious from the row:
+
+- **The forged shelf is the *less* capable one.** Everything `authored_by <>
+  'user'` reaches is a restriction: not indexable, not joinable to a search hit
+  (`joinHitsToFiles`), not readable back by the agent by name. An attacker who
+  wants bytes in the project corpus uses the ordinary upload; this route is the
+  way to put bytes somewhere they can be *seen and not retrieved*. The only thing
+  it grants that upload does not is the byline — human-chosen bytes wearing
+  „Von Piloti erstellt".
+- **A reference can be squatted.** `uniq_documents_authored_ref_producer_per_project`
+  makes the first filing of a `(project, ref, producer)` triple the only one, and
+  a second returns it as `alreadyFiled`. Guessing the id is infeasible, but a
+  participant in a shared conversation *knows* it: they can file their own
+  drawing against a colleague's answer first, and the colleague's later press of
+  the button silently hands back the squatter's document. This is bounded to
+  people who can already read the thread and write to the project, and it is
+  visible — the file is there to open — but it is the one case where the client's
+  assertion changes what another person sees.
+
+### The mitigation this ADR already names
+
+The byline risk is the one the addendum above calls "UI collapse with a second
+face", and the answer is unchanged by any of the above: **a byline is not
+responsibility, and provenance is not evidence.** A forged agent-authored
+document is `Unvergeben` like every other, is not citable, and names a real human
+in `createdBy` and in the audit trail — the person a Ziviltechniker would go to.
+The label is weaker than it looks; the relations around it are not.
+
+### What would make the label mean more, and whether to do it now
+
+The proposal is server-side derivation: on a filing request, look the message up
+by the reference's answer id, confirm it belongs to this org, conversation and
+project, confirm it
+carries a diagram block of that `sourceKind`, and take `source` and `title` from
+**that row** rather than from the body — leaving the client to supply only the
+`svg`, which is the one thing it alone can produce.
+
+**We are not doing it now, and the reason is not cost.** It would not establish
+what it appears to establish. An assistant message is persisted by the *browser*,
+through `POST /api/conversations/{id}/messages` — ADR-0033 §3 keeps private
+conversations local-first on purpose, and the server-side writer
+(`/api/internal/conversations/{id}/messages`) is a fail-soft path that runs only
+when a client dropped mid-turn. Deriving the diagram's provenance from the
+message row would therefore re-read a claim the same client wrote a moment
+earlier, one row sideways, and buy a stricter-looking check that a hostile client
+satisfies by POSTing the message first. Worse, it would read as a verification in
+review forever after.
+
+The change that would actually make `authored_by = 'agent'` a warrant is the
+server persisting the assistant turn itself — server-authoritative messages on
+the private path, not only on the shared one (ADR-0033's explicit non-goal).
+Until that exists, derivation is theatre.
+
+Three things follow, and they are cheap:
+
+1. **Say what the column means** wherever it is read as an assurance — this
+   section is that record, and `docs/api/bff-routes.md` carries the same
+   statement on the route.
+2. **The producer set stays route-fixed.** A route that let the caller name the
+   producer would make the report's server-established provenance forgeable
+   through the diagram's client-asserted one, which is the only way this becomes
+   a real escalation.
+3. **Revisit with server-authoritative messages**, not before. At that point the
+   derivation costs one indexed lookup and buys a real fact, which is a different
+   trade from today's.
 
 ## References
 
