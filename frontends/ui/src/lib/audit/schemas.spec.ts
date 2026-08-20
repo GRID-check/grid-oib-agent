@@ -56,6 +56,18 @@ describe('audit schema coverage', () => {
     expect(AUDIT_ACTIONS).toContain('resource.ownership.escalated')
   })
 
+  it('gives document.generated its own action, with the run as a target', () => {
+    // Its own action rather than a flag on `document.uploaded`: the provenance
+    // question is different, and the run id must be a structured identity
+    // rather than an optional metadata key that is absent on almost every
+    // event of the action it would be bolted onto.
+    const generated = REGISTRY['document.generated']
+    expect(generated.targets.map((target) => target.type)).toEqual(['document', 'agent_run'])
+    // The run rides as a target, so it must NOT also be a metadata key — two
+    // carriers for one fact is how the two lists behind #255/#256 drifted.
+    expect(Object.keys(generated.metadata ?? {})).not.toContain('runId')
+  })
+
   it('names at least one target type per action — WorkOS requires one', () => {
     for (const [action, schema] of Object.entries(REGISTRY)) {
       expect(schema.targets.length, action).toBeGreaterThan(0)

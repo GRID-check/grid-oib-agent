@@ -228,6 +228,33 @@ grace/hold semantics, not a prerequisite — G5), and ADR-0042's backup posture
 (a deployment decision; this change adds no new store, so it does not worsen
 it). Both are named in the ADR addendum so neither goes unread.
 
+## Extension points
+
+The scope is one producer, one destination. The *seams* are wider than the
+scope on purpose, and only where widening is free now and expensive later. Each
+of these is a shape, not a feature: nothing below is built in v1.
+
+| Seam | Shape in v1 | What it costs to add the second one |
+|---|---|---|
+| **Who wrote it** | `authored_by` is a growable tuple (`user`, `agent` today), not a boolean. `authored_by_producer` names the producer; `authored_by_run_id` names the run. The CHECK generalises to *any non-`user` author must name both*. | A tuple member. No migration, no argument about what `agent` used to mean. A run id alone cannot tell a compliance export from a research report, and recovering the producer later is archaeology through pruned job history. |
+| **What produced it** | One service function — `fileGeneratedDocument({ producer, runId, projectId, folder, render })` — is the only way a machine-authored document is created. The jobs completion path is its first *caller*, not its implementation. | A call site. This is ADR-0042's "one admitting path" applied one level up: a second producer that copies a route handler is how the quota, the audit emit and the no-ingest rule stop being true for half the rows. |
+| **Whether it files automatically** | The commissioned-vs-confirmed choice is read from one resolver, not an `if` in the jobs route. v1's resolver returns a constant. | Replacing a constant with a lookup. Enterprise will want this per organization — the precedent is `platform_model_defaults` overridden by an org row (ADR-0014/0022): platform default, tenant override, explicit beats inherited. |
+| **Where it lands** | A fixed `Berichte` folder, resolved by the same function that will later read a policy. Finding is by `authored_by`, never by folder. | A column on that policy. Moving or renaming the folder never breaks discovery, because discovery never used it. |
+| **Whether it is retrievable** | Not ingested, so no chunks exist. | A deliberate decision with a name. If a tenant ever wants generated reports searchable, that is a *policy* granting ingestion for a producer — and it must arrive together with the labelled-citation work, never before it. |
+| **What may be generated** | A `.docx` rendered from a research report. | A renderer. The service takes a render function, so a BCF export, a Prüfbuch or a Massenermittlung is a new caller with a new renderer, not a new pipeline. |
+
+What is deliberately **not** left open: agent-authored content becoming
+instructions (`/skills`, the project profile), and any write path that does not
+pass through the one service function above. Those two closed doors are what
+keep the rest of the seams safe to open.
+
+## Operational prerequisite
+
+`document.generated` and the `agent_run` target must be registered in WorkOS
+before the first real emit, or the audit write is rejected at the API:
+`npm run provision:audit-schemas -- --apply`. This is a deploy step, not a code
+step, and it is why the audit commit lands first.
+
 ## Atomic commit sequence
 
 1. `feat(audit): the audit trail can name an agent actor` — actor kind, run id,

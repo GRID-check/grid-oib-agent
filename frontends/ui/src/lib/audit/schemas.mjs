@@ -207,6 +207,29 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'document' }],
     metadata: { projectId: 'string', filename: 'string', collectionName: 'string' },
   },
+  // A deliverable Piloti wrote, filed into the project on a human's authority
+  // (agent-authored-documents design, decision 4 — the BFF writes it in the
+  // commissioning user's session; the agent never writes).
+  //
+  // Its own action rather than a `document.uploaded` carrying a flag, for the
+  // reason `session.document.*` are their own pair: the provenance question
+  // these answer is different. `uploaded` answers "who put these bytes here";
+  // `generated` answers "which human authorized a machine to write them, and
+  // which run did it" — and that second half is not an optional embellishment
+  // of an upload, it is the whole record. Folded into `document.uploaded` it
+  // would be a key that is absent on almost every event of that action, which
+  // is exactly the shape that cannot be queried or attested to.
+  //
+  // The run id is NOT metadata: it rides as the second target, `{type:
+  // 'agent_run', id: runId}`, which `recordAuditEvent` appends for an agent
+  // actor (see `AuditActorType` in `service.ts`). Hence `agent_run` below —
+  // an emitted target type that is not registered is rejected like an
+  // unregistered action, so any future action emitted with an agent actor owes
+  // this same entry.
+  'document.generated': {
+    targets: [{ type: 'document' }, { type: 'agent_run' }],
+    metadata: { projectId: 'string', filename: 'string', fileSize: 'number' },
+  },
   // A rename changes what a document is CALLED, never which file it is, so the
   // trail records both: `filename` is the unchanged identity, the other two are
   // the label before and after.

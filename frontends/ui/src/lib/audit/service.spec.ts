@@ -15,7 +15,31 @@ vi.mock('@/lib/workos/client', () => ({
   }),
 }))
 
-import { generateAuditPortalLink, recordAuditEvent, trustedAppOrigin } from './service'
+import {
+  AuditEmitError,
+  generateAuditPortalLink,
+  recordAuditEvent,
+  recordAuditEventOrThrow,
+  trustedAppOrigin,
+} from './service'
+import { AUDIT_SCHEMAS } from './schemas.mjs'
+
+/** The parts of the WorkOS event this file asserts on. */
+interface EmittedEvent {
+  action: string
+  actor: { type: string; id: string; name?: string; metadata: Record<string, unknown> }
+  targets: { type: string; id: string }[]
+  context: { location: string; userAgent?: string }
+  metadata: Record<string, string | number | boolean>
+  occurredAt: Date
+}
+
+/**
+ * The one place the untyped mock is given a shape. `vi.fn()` records its calls
+ * as `any[]`, so reading `.mock.calls` inline would spread that `any` through
+ * every assertion below; naming the boundary once keeps the rest typed.
+ */
+const lastEvent = (): EmittedEvent => createEvent.mock.calls[0][1] as unknown as EmittedEvent
 
 describe('recordAuditEvent (WorkOS-native audit trail)', () => {
   beforeEach(() => {
@@ -98,6 +122,105 @@ describe('recordAuditEvent (WorkOS-native audit trail)', () => {
     ).resolves.toBeUndefined()
     expect(consoleError).toHaveBeenCalled()
     consoleError.mockRestore()
+  })
+})
+
+describe('agent-authored events', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    createEvent.mockResolvedValue(undefined)
+  })
+
+  // The enterprise question is "who authorized the creation of this
+  // AI-generated document", so the actor slot has to keep answering it. The
+  // run is the second fact, not a replacement for the first.
+  it('keeps the authorizing human as the actor and names the run as a second target', async () => {
+    await recordAuditEvent({
+      organizationId: 'org_1',
+      actor: { type: 'agent', userId: 'user_1', email: 'architect@acme.at', runId: 'run_7' },
+      action: 'document.generated',
+      targetType: 'document',
+      targetId: 'doc_9',
+      metadata: { projectId: 'proj_1', filename: 'Bericht.docx', fileSize: 4096 },
+    })
+
+    const event = lastEvent()
+    expect(event.actor).toEqual({ type: 'user', id: 'user_1', name: 'architect@acme.at', metadata: {} })
+    expect(event.targets).toEqual([
+      { type: 'document', id: 'doc_9' },
+      { type: 'agent_run', id: 'run_7' },
+    ])
+  })
+
+  it('adds no run target when the author is human — the default is unchanged', async () => {
+    await recordAuditEvent({
+      organizationId: 'org_1',
+      actor: { userId: 'user_1' },
+      action: 'document.uploaded',
+      targetType: 'document',
+      targetId: 'doc_9',
+      metadata: { projectId: 'proj_1', filename: 'plan.pdf', fileSize: 12 },
+    })
+    expect(lastEvent().targets).toEqual([{ type: 'document', id: 'doc_9' }])
+  })
+
+  // A target type the action does not register is rejected exactly like an
+  // unregistered action (issues #255/#256) — and this emit path is the one that
+  // must not fail, so the two files are checked against each other here.
+  it('emits only target types the action registers a schema for', async () => {
+    await recordAuditEvent({
+      organizationId: 'org_1',
+      actor: { type: 'agent', userId: 'user_1', runId: 'run_7' },
+      action: 'document.generated',
+      targetType: 'document',
+      targetId: 'doc_9',
+    })
+    const registered = AUDIT_SCHEMAS['document.generated'].targets.map((target) => target.type)
+    for (const target of lastEvent().targets) expect(registered).toContain(target.type)
+  })
+})
+
+describe('recordAuditEventOrThrow (the events whose absence is the failure)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    createEvent.mockResolvedValue(undefined)
+  })
+
+  it('emits the same event as the swallowing path', async () => {
+    await recordAuditEventOrThrow({
+      organizationId: 'org_1',
+      actor: { type: 'agent', userId: 'user_1', runId: 'run_7' },
+      action: 'document.generated',
+      targetType: 'document',
+      targetId: 'doc_9',
+    })
+    expect(createEvent).toHaveBeenCalledTimes(1)
+    expect(lastEvent().targets).toContainEqual({ type: 'agent_run', id: 'run_7' })
+  })
+
+  // The whole point of the opt-in: a record that silently does not exist is
+  // worse than none, because its absence is indistinguishable from the document
+  // never having been generated. The caller is expected to fail the write.
+  it('throws AuditEmitError, carrying the WorkOS failure as the cause', async () => {
+    const rejection = new Error('422 unknown action')
+    createEvent.mockRejectedValue(rejection)
+
+    const thrown = await recordAuditEventOrThrow({
+      organizationId: 'org_1',
+      actor: { type: 'agent', userId: 'user_1', runId: 'run_7' },
+      action: 'document.generated',
+      targetType: 'document',
+      targetId: 'doc_9',
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    )
+
+    expect(thrown).toBeInstanceOf(AuditEmitError)
+    const failure = thrown as AuditEmitError
+    expect(failure.action).toBe('document.generated')
+    expect(failure.organizationId).toBe('org_1')
+    expect(failure.cause).toBe(rejection)
   })
 })
 
