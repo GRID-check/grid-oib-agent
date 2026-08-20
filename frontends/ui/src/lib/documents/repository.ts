@@ -14,7 +14,13 @@ import 'server-only'
 import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
-import { documents, projectFolders, type Document, type ResourceVisibility } from '@/lib/db/schema'
+import {
+  documents,
+  projectFolders,
+  type Document,
+  type DocumentAuthor,
+  type ResourceVisibility,
+} from '@/lib/db/schema'
 
 /** Hard cap for unpaginated per-project document lists. */
 export const DOCUMENT_LIST_LIMIT = 500
@@ -36,10 +42,29 @@ export interface DocumentListRow {
   metadata: unknown
 }
 
+/**
+ * `authoredBy` narrows the listing to one hand — the query behind the `Von
+ * Piloti` chip (agent-authored documents design, decision 9).
+ *
+ * A trailing optional parameter rather than an options object, so every existing
+ * caller keeps compiling and keeps meaning "both hands". Omitted is not the same
+ * as `'user'`: the unfiltered listing is the whole project's estate, which is
+ * what the Files pane shows by default.
+ *
+ * It is a column filter and not a folder filter on purpose. How a report is
+ * FILED and how it is FOUND are different questions, and tying the second to the
+ * first is what turns a folder convention into a load-bearing one — moving,
+ * renaming or abandoning `Berichte` later has to cost nothing. The partial index
+ * `documents_agent_authored_idx` (migration 0063) is on
+ * `(project_id, created_at DESC) WHERE authored_by = 'agent'`, so the `'agent'`
+ * case — the one any surface actually asks for — is a point query in the
+ * listing's own sort order.
+ */
 export async function listProjectDocuments(
   projectId: string,
   organizationId: string,
   limit = DOCUMENT_LIST_LIMIT,
+  authoredBy?: DocumentAuthor,
 ): Promise<DocumentListRow[]> {
   const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), DOCUMENT_LIST_LIMIT)
   const db = getDb()
@@ -73,6 +98,7 @@ export async function listProjectDocuments(
           // non-project scope would end it silently. A project listing lists
           // project documents; that is now what it asks for.
           eq(documents.scope, 'project'),
+          ...(authoredBy ? [eq(documents.authoredBy, authoredBy)] : []),
         ),
       )
       .orderBy(desc(documents.createdAt))

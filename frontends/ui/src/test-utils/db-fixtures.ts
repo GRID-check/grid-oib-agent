@@ -80,6 +80,14 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   // ordinary project document.
   conversationId: null,
   createdBy: 'user-1',
+  // A person uploaded it, which is what every row means until a commissioned run
+  // writes one. `documents_authorship_requires_provenance` ties the other two to
+  // that choice, so an override that makes this anything but `user` has to set
+  // both of them or the fixture describes a row the database would reject
+  // (migration 0063).
+  authoredBy: 'user',
+  authoredByProducer: null,
+  authoredByRunId: null,
   filename: 'plan.pdf',
   // Not renamed — what every document is until somebody renames it.
   displayName: null,

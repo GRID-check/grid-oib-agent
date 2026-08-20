@@ -2,7 +2,14 @@
  * @vitest-environment node
  */
 /**
- * The scope partition is one rule written in two places, so this pins both.
+ * Rules about `documents` that are written in two places, pinned to each other.
+ *
+ * Every case here has the same shape: the database enforces something and the
+ * drizzle table claims to describe it, and nothing makes the two agree. A
+ * migration and a schema file that disagree is how a future `drizzle-kit
+ * generate` silently proposes to relax a constraint nobody meant to touch.
+ *
+ * ## The scope partition (migration 0049)
  *
  * `documents_session_requires_conversation` says where a session document is
  * filed: it has a conversation, nothing else does, and it has NO project. The
@@ -20,13 +27,32 @@
  * invariant is held up by one careful function, and this is what notices when
  * the constraint that replaced that convention is weakened or when the drizzle
  * mirror and the migration drift apart.
+ *
+ * ## Authorship (migration 0063)
+ *
+ * `documents_authorship_requires_provenance` says a document no person wrote can
+ * always name what wrote it and in which run. It is the columns' entire
+ * justification: a row that says a machine did this and can answer neither
+ * answers "who authorized this document" with a shrug, while looking like an
+ * audit trail.
+ *
+ * It is written against `<> 'user'` rather than against `'agent'` so that a
+ * member added to `DOCUMENT_AUTHORS` arrives constrained. That property is only
+ * real if nothing re-specialises the constraint, which is what the last test in
+ * that block is for.
+ *
+ * The index and the folder uniqueness are here for a different reason — both
+ * are unrepresentable in drizzle (one partial, one over an expression), so the
+ * only thing standing between them and a `drizzle-kit generate` that drops them
+ * is a comment. These tests are what makes that comment load-bearing.
  */
 
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PgDialect, getTableConfig } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
-import { documents } from './documents'
+import { DOCUMENT_AUTHORS, documents } from './documents'
+import { projectFolders } from './project-folders'
 
 const CONSTRAINT = 'documents_session_requires_conversation'
 
@@ -35,6 +61,31 @@ const DOWN_MIGRATION = readFileSync(
   join(process.cwd(), 'drizzle/0049_session_documents.down.sql'),
   'utf8'
 )
+
+const AUTHORSHIP_CONSTRAINT = 'documents_authorship_requires_provenance'
+
+const MIGRATION_0063 = readFileSync(
+  join(process.cwd(), 'drizzle/0063_agent_authored_documents.sql'),
+  'utf8'
+)
+const DOWN_MIGRATION_0063 = readFileSync(
+  join(process.cwd(), 'drizzle/0063_agent_authored_documents.down.sql'),
+  'utf8'
+)
+
+/**
+ * The poller's in-flight set, read out of its source rather than imported:
+ * `reconcile-status` does not export it, and the module pulls in `server-only`
+ * through the repository, which a schema spec has no business booting. The
+ * regex throws when it stops matching, so the coupling fails loudly instead of
+ * quietly asserting nothing.
+ */
+function inFlightStatuses(): string[] {
+  const source = readFileSync(join(process.cwd(), 'src/lib/documents/reconcile-status.ts'), 'utf8')
+  const match = source.match(/const IN_FLIGHT_STATUSES = new Set\(\[([^\]]*)\]\)/)
+  if (!match) throw new Error('reconcile-status.ts no longer declares IN_FLIGHT_STATUSES as a Set literal')
+  return [...match[1].matchAll(/'([^']+)'/g)].map((entry) => entry[1])
+}
 
 /**
  * One spelling for two dialects of the same expression: drizzle qualifies every
@@ -55,17 +106,17 @@ function canonical(expression: string): string {
 const EXPECTED =
   "(scope = 'session') = (conversation_id is not null) and (scope <> 'session' or project_id is null)"
 
-function migrationCheckBody(): string {
-  const match = MIGRATION.match(
-    new RegExp(`ADD CONSTRAINT "${CONSTRAINT}"\\s*CHECK\\s*\\(([\\s\\S]*?)\\)\\s*NOT VALID`)
+function migrationCheckBody(source: string, constraint: string): string {
+  const match = source.match(
+    new RegExp(`ADD CONSTRAINT "${constraint}"\\s*CHECK\\s*\\(([\\s\\S]*?)\\)\\s*NOT VALID`)
   )
-  if (!match) throw new Error(`migration 0049 declares no ${CONSTRAINT} CHECK`)
+  if (!match) throw new Error(`the migration declares no ${constraint} CHECK`)
   return match[1]
 }
 
-function schemaCheckBody(): string {
-  const check = getTableConfig(documents).checks.find((entry) => entry.name === CONSTRAINT)
-  if (!check) throw new Error(`the drizzle table declares no ${CONSTRAINT} check`)
+function schemaCheckBody(constraint: string): string {
+  const check = getTableConfig(documents).checks.find((entry) => entry.name === constraint)
+  if (!check) throw new Error(`the drizzle table declares no ${constraint} check`)
   return new PgDialect().sqlToQuery(check.value).sql
 }
 
@@ -74,21 +125,149 @@ describe('the documents scope partition', () => {
     // Without the `project_id IS NULL` half, `scope = 'session'` with a project
     // is a legal row — and deleting that project cascade-deletes it behind the
     // application's back, orphaning its object and its chunks.
-    expect(canonical(migrationCheckBody())).toBe(EXPECTED)
+    expect(canonical(migrationCheckBody(MIGRATION, CONSTRAINT))).toBe(EXPECTED)
   })
 
   it('states the same rule in the drizzle table, not a weaker one', () => {
-    expect(canonical(schemaCheckBody())).toBe(EXPECTED)
+    expect(canonical(schemaCheckBody(CONSTRAINT))).toBe(EXPECTED)
   })
 
   it('keeps the two spellings identical', () => {
     // The pair is the point: a constraint the database enforces and a schema
     // that describes a different one is how a future `drizzle-kit generate`
     // silently proposes to relax it.
-    expect(canonical(schemaCheckBody())).toBe(canonical(migrationCheckBody()))
+    expect(canonical(schemaCheckBody(CONSTRAINT))).toBe(
+      canonical(migrationCheckBody(MIGRATION, CONSTRAINT))
+    )
   })
 
   it('is dropped by the down-migration under the same name', () => {
     expect(DOWN_MIGRATION).toContain(`DROP CONSTRAINT IF EXISTS "${CONSTRAINT}"`)
+  })
+})
+
+/**
+ * The whole authorship rule, in the one form both sources must reduce to.
+ * One-directional on purpose: a `user` row carrying a producer and a run id is
+ * legal, and a biconditional here would reject a person saving an artefact a run
+ * showed them while protecting nothing.
+ */
+const EXPECTED_AUTHORSHIP =
+  "authored_by = 'user' or (authored_by_producer is not null and authored_by_run_id is not null)"
+
+describe('authorship on documents', () => {
+  it('makes a row no person wrote name its producer and its run (migration 0063)', () => {
+    // Without it, `authored_by = 'agent'` with two NULLs is a legal row: the
+    // enterprise answer to "who authorized this document" becomes "a machine",
+    // which is not an answer, and the columns stop being auditable while still
+    // looking like they are.
+    expect(canonical(migrationCheckBody(MIGRATION_0063, AUTHORSHIP_CONSTRAINT))).toBe(
+      EXPECTED_AUTHORSHIP
+    )
+  })
+
+  it('states the same rule in the drizzle table, not a weaker one', () => {
+    expect(canonical(schemaCheckBody(AUTHORSHIP_CONSTRAINT))).toBe(EXPECTED_AUTHORSHIP)
+  })
+
+  it('keeps the two spellings identical', () => {
+    expect(canonical(schemaCheckBody(AUTHORSHIP_CONSTRAINT))).toBe(
+      canonical(migrationCheckBody(MIGRATION_0063, AUTHORSHIP_CONSTRAINT))
+    )
+  })
+
+  it('is dropped by the down-migration under the same name', () => {
+    expect(DOWN_MIGRATION_0063).toContain(`DROP CONSTRAINT IF EXISTS "${AUTHORSHIP_CONSTRAINT}"`)
+  })
+
+  it('exempts the one author that IS its own provenance, and nothing else', () => {
+    // The exemption is `user` because a person is the provenance — `created_by`
+    // already names them. Every other member has to earn its row, and the tuple
+    // is what every caller enumerates, so a rename that reaches TypeScript and
+    // not the column default produces rows the constraint reads differently
+    // from the code.
+    const column = getTableConfig(documents).columns.find((entry) => entry.name === 'authored_by')
+    expect(column?.default).toBe(DOCUMENT_AUTHORS[0])
+    expect(DOCUMENT_AUTHORS[0]).toBe('user')
+  })
+
+  it('names no producer, so a new author arrives already constrained', () => {
+    // This is the growable seam, asserted rather than hoped for. The moment the
+    // constraint mentions a specific producer it stops covering the next one,
+    // and the failure is silent: a `system` row with no run id would simply be
+    // legal, and the audit answer for it would be a shrug that looks like a
+    // record.
+    const body = canonical(schemaCheckBody(AUTHORSHIP_CONSTRAINT))
+    for (const author of DOCUMENT_AUTHORS.slice(1)) {
+      expect(body).not.toContain(`'${author}'`)
+    }
+  })
+})
+
+describe('the indexes drizzle cannot declare', () => {
+  it('keeps documents_agent_authored_idx partial, and only in the migration', () => {
+    // Declaring it in the schema file is not an option — drizzle's builder has
+    // no WHERE — so declaring it there ANYWAY would produce a full index over a
+    // table that is overwhelmingly human uploads, to serve a lookup that only
+    // ever asks about the few agent rows. Same arrangement, same reason, as
+    // `documents_conversation_idx`.
+    const declared = getTableConfig(documents).indexes.map((entry) => entry.config.name)
+    expect(declared).not.toContain('documents_agent_authored_idx')
+    expect(MIGRATION_0063).toMatch(
+      /CREATE INDEX "documents_agent_authored_idx"\s*ON "documents" \("project_id", "created_at" DESC\)\s*WHERE "authored_by" = 'agent'/
+    )
+  })
+
+  it('drops it again on the way down', () => {
+    expect(DOWN_MIGRATION_0063).toContain('DROP INDEX IF EXISTS "documents_agent_authored_idx"')
+  })
+
+  it('keeps uniq_project_folders_parent_name COALESCE-keyed, and only in the migration', () => {
+    // An expression index, so drizzle cannot hold it either. The COALESCE is
+    // the part a rewrite drops: without it NULL never equals NULL, so root
+    // folders — which is where a fixed, created-on-first-use `Berichte` lands —
+    // are the one case the index would stop protecting, and it would still look
+    // like it was doing its job everywhere else.
+    const declared = [
+      ...getTableConfig(projectFolders).indexes.map((entry) => entry.config.name),
+      ...getTableConfig(projectFolders).uniqueConstraints.map((entry) => entry.name),
+    ]
+    expect(declared).not.toContain('uniq_project_folders_parent_name')
+    expect(MIGRATION_0063).toMatch(
+      /CREATE UNIQUE INDEX "uniq_project_folders_parent_name"[\s\S]*?coalesce\("parent_id"/
+    )
+  })
+
+  it('refuses to build the folder index before it has looked for duplicates', () => {
+    // Nothing has ever stopped two sibling folders sharing a name, so a
+    // deployment may already have some. Postgres would refuse with one key and
+    // leave the operator to find the rest; the guard fails first with the whole
+    // list, and deliberately does not deduplicate — deleting a folder row
+    // cascades to `documents.folder_id` and would unfile real evidence.
+    const guard = MIGRATION_0063.indexOf('RAISE EXCEPTION')
+    const create = MIGRATION_0063.indexOf('CREATE UNIQUE INDEX "uniq_project_folders_parent_name"')
+    expect(guard).toBeGreaterThan(-1)
+    expect(create).toBeGreaterThan(guard)
+  })
+
+  it('drops the folder index again on the way down', () => {
+    expect(DOWN_MIGRATION_0063).toContain('DROP INDEX IF EXISTS "uniq_project_folders_parent_name"')
+  })
+})
+
+describe('a stored document is terminal', () => {
+  it('is never polled, because the poller has no in-flight entry for it', () => {
+    // `stored` means the bytes are here and indexing was deliberately skipped,
+    // so there is no ingestion job to ask about. Putting it in the in-flight set
+    // would make every read of the row query a backend that has never heard of
+    // it and then overwrite the status from a collection file list that will
+    // never contain it — the row would flip to `failed` on its own.
+    expect(inFlightStatuses()).not.toContain('stored')
+  })
+
+  it('leaves the states that ARE in flight alone', () => {
+    // Half the assertion above is that the regex found the real set rather than
+    // an empty one, which would pass the `not.toContain` for the wrong reason.
+    expect(inFlightStatuses()).toContain('pending')
   })
 })

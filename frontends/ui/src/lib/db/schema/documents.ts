@@ -37,6 +37,40 @@ import { type ResourceVisibility } from './resource-shares'
 export const DOCUMENT_SCOPES = ['project', 'archiv', 'session'] as const
 export type DocumentScope = (typeof DOCUMENT_SCOPES)[number]
 
+/**
+ * Whose hand wrote the bytes (migration 0063). The members that exist TODAY:
+ *
+ *   - `user`  — somebody uploaded a file. Every row that predates the column.
+ *   - `agent` — a commissioned run produced it, and `authoredByProducer` /
+ *               `authoredByRunId` say what and which.
+ *
+ * A tuple for the same reason `DOCUMENT_SCOPES` is one: the set is enumerable
+ * at runtime (the listing filter validates against it) and the type is derived
+ * rather than restated, so a new author reaches every exhaustive switch as a
+ * compile error instead of as a string nobody handles.
+ *
+ * It is deliberately shaped to GROW, which is a different claim from "it will".
+ * `system` (a scheduled sync) and `import` (a partner feed, a backfill) are the
+ * shapes the design anticipated; NOTHING writes them and they are not members —
+ * read them as the reason `agent` is one value in a tuple rather than a boolean,
+ * not as a promise. What the shape buys is that the next producer is an entry
+ * here, because the column carries no CHECK on its value and
+ * `documents_authorship_requires_provenance` is written against `<> 'user'`
+ * rather than against `agent`. The alternative — a two-value flag — makes the
+ * second producer a migration plus an argument about what `agent` used to mean,
+ * held after production rows already exist.
+ *
+ * This is PROVENANCE, and provenance is never responsibility. `createdBy` stays
+ * the commissioning human — the export needs somebody to print and the audit
+ * needs somebody to hold — and who is on the hook stays in
+ * `resource_assignments`, where `Zuweisen` puts it. ADR-0047's rule is that the
+ * three are different questions; this column is the one that makes keeping them
+ * apart load-bearing rather than tidy, because it is the first time the answer
+ * to "who wrote this" is not a person at all.
+ */
+export const DOCUMENT_AUTHORS = ['user', 'agent'] as const
+export type DocumentAuthor = (typeof DOCUMENT_AUTHORS)[number]
+
 export const documents = pgTable('documents', {
   id: uuid('id').primaryKey().defaultRandom(),
   organizationId: text('organization_id').notNull(),
@@ -69,6 +103,68 @@ export const documents = pgTable('documents', {
    */
   conversationId: text('conversation_id'),
   createdBy: text('created_by').notNull(),
+  /**
+   * Who wrote the bytes — see `DOCUMENT_AUTHORS` above (migration 0063).
+   *
+   * Sits next to `createdBy` on purpose: for an agent-authored report the two
+   * disagree, and that disagreement is the point. The user commissioned the run
+   * and caused the bytes to exist; Piloti wrote them. Collapsing the pair in
+   * either direction loses a question somebody will be asked in front of a
+   * Behörde.
+   *
+   * Defaults to `user`, which is what every row written before this column
+   * means — there was no other way for a document to exist — so there is no
+   * backfill, the same reasoning `storageBucket` carries.
+   *
+   * NOTE: the database also has `documents_agent_authored_idx`, PARTIAL
+   * (`WHERE authored_by = 'agent'`) on `(project_id, created_at DESC)`, so it
+   * carries no entry for the human uploads that are the overwhelming majority
+   * while making "everything Piloti wrote in this project" a point query.
+   * Drizzle's index builder cannot express a partial index, so it lives only in
+   * migration 0063 — the same arrangement as `documents_conversation_idx`.
+   *
+   * Its predicate is the one place here that does NOT widen with the tuple: it
+   * names `'agent'`, so a second producer needs the predicate widened to
+   * `<> 'user'` or an index of its own. Deliberate — there is one producer
+   * today, and `<> 'user'` would index rows nothing asks for.
+   */
+  authoredBy: text('authored_by').$type<DocumentAuthor>().notNull().default('user'),
+  /**
+   * WHAT wrote a document no person wrote, as a producer identifier —
+   * `deep_research`, never `Tiefenrecherche` (migration 0063). NULL for
+   * everything a person uploaded.
+   *
+   * A separate column from `authoredByRunId` because a run id answers "which
+   * run" and only accidentally answers "what produced this" — it does so for
+   * exactly as long as there is one producer. The second one (a compliance
+   * export, an IFC take-off, a partner integration writing evidence) turns
+   * "what made this file" into a join through job history that may have been
+   * pruned by the time anyone asks. A nullable text column now costs nothing;
+   * recovering the producer from run ids afterwards is archaeology.
+   *
+   * An identifier and not a label because this value has to survive a
+   * translation, a rename and an export, and because the moment it renders
+   * directly somebody will change it to fix a wording and silently repartition
+   * every query that groups by it. Deliberately NOT a foreign key to a producer
+   * registry: there is no registry, and inventing one to hold two strings is the
+   * speculative version of this column.
+   */
+  authoredByProducer: text('authored_by_producer'),
+  /**
+   * The backend async job id of the run that wrote a document no person wrote;
+   * NULL for everything a person uploaded (migration 0063).
+   *
+   * `text`, not `uuid`, because it is the backend's job id and is only ever
+   * carried, never generated here — the same reason `conversations.id` is text.
+   *
+   * Required together with `authoredByProducer` whenever `authoredBy` is not
+   * `user`, as a CHECK below rather than as a convention, because the reason to
+   * record that a machine wrote a document is so somebody can later ask what
+   * wrote it, in which run, on whose budget, from which question. A row that
+   * says "not a person" and can answer neither is an audit trail in appearance
+   * only, and appearing to have one is worse than having none.
+   */
+  authoredByRunId: text('authored_by_run_id'),
   /**
    * Blanket visibility (ADR-0032). Default `project` — a file is evidence the
    * whole project can see. `private` is available once the type is registered;
@@ -109,6 +205,29 @@ export const documents = pgTable('documents', {
   collectionName: text('collection_name').notNull(),
   fileSize: integer('file_size'),
   contentType: text('content_type'),
+  /**
+   * Where ingestion got to: `pending → processing → processed | error`, plus
+   * `stored`, which is none of those (migration 0063).
+   *
+   * `stored` means "the bytes are here and indexing was deliberately skipped" —
+   * an agent-authored document, which is never dispatched to `/v1/ingest`
+   * because a report the agent wrote, embedded into the project corpus, comes
+   * back as retrievable evidence FOR the agent under a *Projektwissen* badge.
+   * The four existing states all describe a job that is running or has finished;
+   * there was no state for a job that was never started, and leaving such a row
+   * at `pending` renders a spinner that never resolves, because nothing will
+   * ever report on a job nobody dispatched.
+   *
+   * It is TERMINAL, and the load-bearing consequence lives in
+   * `@/lib/documents/reconcile-status`: `stored` must stay out of
+   * `IN_FLIGHT_STATUSES`, or every read of the row polls a backend that has
+   * never heard of it and then overwrites the status from a collection file
+   * list that will never contain it.
+   *
+   * Plain `text` with no CHECK, so a new state is a TypeScript change rather
+   * than a migration — the same arrangement `scope` has, and the reason 0063
+   * adds no DDL for this value.
+   */
   status: text('status').notNull().default('pending'),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -215,6 +334,28 @@ export const documents = pgTable('documents', {
   sessionRequiresConversation: check(
     'documents_session_requires_conversation',
     sql`(${table.scope} = 'session') = (${table.conversationId} IS NOT NULL) AND (${table.scope} <> 'session' OR ${table.projectId} IS NULL)`
+  ),
+  /**
+   * A document no person wrote can always say what wrote it and in which run
+   * (migration 0063). See `authoredByRunId` for why half of that answer is worse
+   * than none.
+   *
+   * Written against `<> 'user'` rather than against `'agent'`, which is the
+   * whole point: the invariant is true of every producer, not of this one, so a
+   * member added to `DOCUMENT_AUTHORS` arrives already constrained instead of
+   * arriving as a hole in the audit trail that nothing notices. Naming `agent`
+   * here would mean the check silently exempts the next producer — the exact
+   * failure this shape exists to foreclose.
+   *
+   * One-directional on purpose. A `user` row carrying a producer and a run id is
+   * legal — a person saving an artefact a run showed them is not a contradiction
+   * — and a biconditional would reject it while buying nothing, since the
+   * question this constraint protects is only ever asked of the rows no person
+   * wrote.
+   */
+  authorshipRequiresProvenance: check(
+    'documents_authorship_requires_provenance',
+    sql`${table.authoredBy} = 'user' OR (${table.authoredByProducer} IS NOT NULL AND ${table.authoredByRunId} IS NOT NULL)`
   ),
 }))
 
