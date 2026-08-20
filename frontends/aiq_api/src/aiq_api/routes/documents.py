@@ -16,6 +16,7 @@ from pydantic import Field
 from aiq_agent.knowledge import get_available_documents_async
 from aiq_agent.knowledge import rewrite_document_folder_paths
 from aiq_agent.knowledge import set_document_display_title
+from aiq_agent.knowledge import set_document_folder_path
 from aiq_agent.knowledge import update_document_tags
 from aiq_agent.knowledge.base import BaseIngestor
 from aiq_agent.knowledge.document_classification import ALLOWED_TAGS
@@ -321,6 +322,59 @@ def add_document_routes(router: APIRouter):
             "collection_name": collection_name,
             "file_name": file_name,
             "display_title": new_title,
+        }
+
+    class UpdateFolderPathRequest(BaseModel):
+        folder_path: str | None = Field(
+            default=None,
+            description=(
+                "The document's new folder path, e.g. 'Brandschutz/Fluchtwege'. "
+                "Null or blank files it at the project root."
+            ),
+        )
+
+    @router.patch(
+        "/v1/collections/{collection_name}/documents/{file_name}/folder-path",
+        tags=["documents"],
+        summary="Re-file ONE document into another folder",
+    )
+    async def update_document_folder_path_route(
+        collection_name: str,
+        file_name: str,
+        request: UpdateFolderPathRequest,
+        ingestor: BaseIngestor = Depends(_require_ingestor),
+    ) -> dict[str, str | None]:
+        """Set one document's ``folder_path`` — the per-document half of ADR-0049.
+
+        The subtree mirror below moves a FOLDER and everything under it; this
+        moves a DOCUMENT between folders that both already exist. Both are
+        needed and neither substitutes for the other: a document leaving
+        ``Brandschutz`` for ``Statik`` shares no path prefix with its former
+        neighbours, so a prefix rewrite cannot express it.
+
+        Same shape as the display-title mirror: UPDATE-only, nothing
+        re-ingested, and the metadata row's summary is the anchor — a document
+        that was never summarized has nothing to carry a folder, which is a 404
+        the BFF treats as non-fatal because its own ``documents.folder_id`` is
+        the durable record of where the file lives.
+
+        Follows the documents-router auth model: end-user access is enforced at
+        the BFF, which has already checked ``project:documents:write`` on the
+        project that owns this collection.
+        """
+        new_path = (request.folder_path or "").strip() or None
+
+        updated = set_document_folder_path(collection_name, file_name, new_path)
+        if not updated:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No summary found for '{file_name}' in collection '{collection_name}'",
+            )
+
+        return {
+            "collection_name": collection_name,
+            "file_name": file_name,
+            "folder_path": new_path,
         }
 
     class RewriteFolderPathRequest(BaseModel):

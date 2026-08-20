@@ -252,6 +252,9 @@ export const files = {
   // The overflow menu every document surface carries.
   actions: {
     reingest: 'Retry indexing',
+    move: 'Move to folder',
+    moved: '“{name}” moved to {folder}',
+    moveError: 'The document could not be moved. Please try again.',
     reingesting: 'Retrying…',
     reingestError: 'Indexing could not be restarted. Please try again.',
     label: 'File actions for “{name}”',

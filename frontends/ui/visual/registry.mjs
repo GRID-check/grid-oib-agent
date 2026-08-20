@@ -337,6 +337,20 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-browser-search-failed"]',
   },
   {
+    id: 'document-actions-move',
+    path: '/dev/document-actions?variant=move',
+    description:
+      'Where a document can be re-filed to. Folders were create-only for the FILE as well as for themselves: `documents.folder_id` was written at upload and had no second writer, so a document dropped in the wrong folder stayed there. Each destination is named by its whole path (two projects can both have a \u201cFluchtwege\u201d), the folder it is in now carries a check and is not offerable, and the project root is a real destination rather than the absence of one. The submenu trigger also gets shadcn\u2019s own `gap-2` and `[&_svg]` rules back \u2014 they were dropped when this file was vendored, so its icon sat flush against its label while every ordinary row beside it was spaced.',
+    waitFor: '[data-slot="dropdown-menu-sub-content"]',
+  },
+  {
+    id: 'document-actions-moved',
+    path: '/dev/document-actions?variant=moved',
+    description:
+      'The same submenu with a destination actually picked, printing what reached `onMoved`. It exists because jsdom never delivers a synthetic click to a submenu item \u2014 the unit test can assert what the menu OFFERS but not that choosing works, so this is where the selection itself is verified, in a real browser, against a shimmed PATCH.',
+    waitFor: '[data-testid="document-moved-result"]',
+  },
+  {
     id: 'file-browser-search-list',
     path: '/dev/file-browser?variant=search-list',
     description:

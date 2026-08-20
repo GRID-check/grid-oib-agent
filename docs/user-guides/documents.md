@@ -26,6 +26,8 @@ The folder tree in the left pane is the project's filing system, and it supports
 
 Renaming or moving a folder rewrites the stored path of everything beneath it in the same transaction, so a deeply nested document is never left pointing at a path that no longer exists.
 
+**Moving a document between folders** is in the document's own `⋯` menu, under `Move to folder`. Until now a file was filed once, at upload, and stayed there: a document dropped in the wrong folder — or uploaded before the folder existed — could not be re-filed at all. Each destination is listed by its full path (`Brandschutz / Fluchtwege`), because two branches of a tree can both hold a *Fluchtwege*; the folder the document is in now carries a check and cannot be picked; and **All Files** is a real destination, so a document can be taken back out of every folder. The move also re-files the document on the assistant's side, so what Piloti says about where a document lives follows it immediately (see ADR-0049).
+
 **The assistant knows your folders.** When you file a document, the folder travels
 with it into the knowledge base, so the agent can answer "welche Unterlagen habe
 ich in Brandschutz" from the actual filing rather than guessing from file names,

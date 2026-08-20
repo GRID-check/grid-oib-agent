@@ -418,6 +418,20 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, displayName } : f)))
   }, [])
 
+  /**
+   * A move is durable the moment the PATCH returns, so the corpus is updated
+   * from the answer rather than refetched — same reasoning as the rename above.
+   *
+   * The consequence worth noticing: if the reader is INSIDE a folder and moves
+   * a document out of it, the row leaves the listing under their cursor. That
+   * is the correct outcome (the filter says which folder they are looking at),
+   * and the toast names where it went, so the disappearance is explained rather
+   * than merely observed.
+   */
+  const handleMoved = useCallback((fileId: string, folderId: string | null) => {
+    setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, folderId } : f)))
+  }, [])
+
   const handleSelectFile = useCallback(
     (id: string | null) => {
       if (id === null) {
@@ -728,8 +742,10 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
                 <DocumentActionsMenu
                   document={file}
                   scope="files"
+                  folders={folders}
                   onRenamed={handleRenamed}
                   onDeleted={handleDeleted}
+                  onMoved={handleMoved}
                 />
               )}
               {...(view !== 'tree'

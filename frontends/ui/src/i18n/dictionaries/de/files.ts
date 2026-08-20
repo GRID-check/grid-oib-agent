@@ -230,6 +230,9 @@ export const files: typeof en.files = {
   },
   actions: {
     reingest: 'Erneut einlesen',
+    move: 'In Ordner verschieben',
+    moved: '„{name}“ nach {folder} verschoben',
+    moveError: 'Das Dokument konnte nicht verschoben werden. Bitte versuchen Sie es erneut.',
     reingesting: 'Wird erneut gestartet …',
     reingestError: 'Die Verarbeitung konnte nicht erneut gestartet werden. Bitte versuchen Sie es erneut.',
     label: 'Dateiaktionen für „{name}“',

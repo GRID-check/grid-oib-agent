@@ -254,3 +254,73 @@ describe('DocumentActionsMenu — renaming', () => {
     })
   })
 })
+
+/**
+ * Moving a document between folders.
+ *
+ * The one thing folders could not do: a file was filed AT UPLOAD and
+ * `documents.folder_id` had no second writer, so a document dropped in the
+ * wrong folder — or uploaded before the folder existed — stayed there for good.
+ *
+ * What is asserted here is what the menu OFFERS. Choosing a destination is NOT:
+ * jsdom does not deliver a synthetic click to a Radix submenu item (the native
+ * event fires on the node, React's synthetic one never runs), so a test of the
+ * selection would be a test of jsdom. That half is verified in a real browser by
+ * the `document-actions-moved` screenshot fixture, which drives the same click
+ * against a shimmed PATCH and prints what reached `onMoved`; the request itself
+ * is pinned in `src/lib/documents/move-to-folder.spec.ts`.
+ */
+describe('DocumentActionsMenu — moving between folders', () => {
+  const FOLDERS = [
+    { id: 'f-brand', name: 'Brandschutz', parentId: null },
+    { id: 'f-flucht', name: 'Fluchtwege', parentId: 'f-brand' },
+    { id: 'f-statik', name: 'Statik', parentId: null },
+  ]
+
+  const openMove = async (user: ReturnType<typeof userEvent.setup>) => {
+    await openMenu(user)
+    await user.click(await screen.findByTestId('document-action-move'))
+  }
+
+  it('is not offered when there is nowhere to move it to', async () => {
+    const user = userEvent.setup()
+    render(<DocumentActionsMenu document={DOCUMENT} scope="files" />)
+    await openMenu(user)
+
+    // An empty submenu is worse than no submenu: it costs a click to learn
+    // there was nothing there.
+    expect(screen.queryByTestId('document-action-move')).not.toBeInTheDocument()
+  })
+
+  it('names a nested folder by its whole path, not just its own name', async () => {
+    const user = userEvent.setup()
+    render(<DocumentActionsMenu document={DOCUMENT} scope="files" folders={FOLDERS} />)
+    await openMove(user)
+
+    // Two projects can both have a "Fluchtwege"; the path is what tells them
+    // apart without making the reader walk the tree to find out.
+    expect(await screen.findByRole('menuitem', { name: /Brandschutz \/ Fluchtwege/ })).toBeInTheDocument()
+  })
+
+  it('offers the project root, and disables whichever folder it is already in', async () => {
+    const user = userEvent.setup()
+    render(
+      <DocumentActionsMenu
+        document={{ ...DOCUMENT, folderId: 'f-statik' }}
+        scope="files"
+        folders={FOLDERS}
+        onMoved={vi.fn()}
+      />,
+    )
+    await openMove(user)
+
+    // "Move it to where it already is" is not a destination.
+    expect(await screen.findByRole('menuitem', { name: /^Statik$/ })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    )
+    // And getting a document OUT of every folder is a real destination.
+    expect(screen.getByTestId('document-move-root')).not.toHaveAttribute('aria-disabled', 'true')
+  })
+
+})
