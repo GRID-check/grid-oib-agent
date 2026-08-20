@@ -366,7 +366,7 @@ export interface PdfHeader {
  * What a machine is told about the document, as `<Document>` will accept it.
  *
  * Only Info-dictionary fields, because those are the only ones react-pdf 4.6.0
- * has — see `@/lib/ai-provenance`'s `aiProvenanceKeywords` for the check that
+ * has — see `@/lib/ai-provenance`'s `aiProvenanceMarking` for the check that
  * established that and for what it costs.
  */
 export interface PdfMetadata {

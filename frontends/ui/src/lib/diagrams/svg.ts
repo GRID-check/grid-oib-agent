@@ -864,6 +864,7 @@ export interface DiagramMarking {
   readonly provenance: string
 }
 
+/** Put the marking on the root. See {@link DiagramMarking} for why these two elements. */
 export function withDiagramMarking(root: SvgElement, marking: DiagramMarking): SvgElement {
   const element = (name: string, text: string): SvgElement => ({
     kind: 'element',
