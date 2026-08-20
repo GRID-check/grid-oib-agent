@@ -22,6 +22,11 @@
  * - GET /api/jobs/async/job/{job_id}/state - Get job artifacts
  * - GET /api/jobs/async/job/{job_id}/report - Get final report
  *
+ * The report GET is also where a commissioned run's completion is OBSERVED on
+ * the BFF, and therefore where the report stops being a chat message that dies
+ * with the run's file system and becomes a `documents` row the project can
+ * find, assign, preview and delete (`fileReportIfCommissioned` below).
+ *
  * @see docs/api.md - Deep Research API section
  */
 
@@ -47,7 +52,8 @@ import {
 } from '@/lib/backend-proxy'
 import { parseBodyContext, parseQueryContext } from '@/lib/proxy/collection-authz'
 import { buildProxyUrl, resolveSessionAndBearer } from '@/lib/proxy/proxy-request'
-import type { GridSession } from '@/lib/auth/types'
+import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
+import { fileResearchReport } from '@/lib/documents/research-report'
 
 /**
  * Per-org runtime model overrides ({agentGroup: openrouterModelId}) plus the
@@ -126,6 +132,85 @@ const traceRequest = (...args: unknown[]): void => {
 const JOBS_BASE_PATH = '/v1/jobs/async'
 
 /**
+ * What the client is told about the filing, alongside the report itself.
+ *
+ * Additive: every field the report response already had is untouched, so a
+ * client that has never heard of filing keeps working. `documentId` is what the
+ * toast's *Öffnen* and *Zuweisen* actions need; `alreadyFiled` distinguishes
+ * "this run just produced a document" from "this is the fourth time the tab was
+ * opened", which is the difference between showing that toast and not.
+ */
+interface ReportFilingResult {
+  documentId: string
+  filename: string
+  alreadyFiled: boolean
+}
+
+/** The report endpoint's body, as `JobReportResponse` on the backend defines it. */
+function readReportMarkdown(data: unknown): string | null {
+  if (typeof data !== 'object' || data === null) return null
+  const body = data as { has_report?: unknown; report?: unknown }
+  if (body.has_report !== true) return null
+  return typeof body.report === 'string' && body.report.trim() ? body.report : null
+}
+
+/**
+ * File a finished run's report into the project, if this is one.
+ *
+ * ## Why the failure is swallowed
+ *
+ * The user asked a question and waited minutes for the answer. Filing is a
+ * SECOND thing that happens to that answer, and no failure of it — a quota
+ * refusal, a revoked permission, an object store that is down — is a reason to
+ * throw the answer away. It is logged and surfaced on the response (`filed`
+ * absent) rather than raised, which is the same posture every other best-effort
+ * enrichment on this route already takes.
+ *
+ * ## Interactive runs only
+ *
+ * A scheduled run (`jobs.schedule_cron`) has no live session, and there is no
+ * BFF path today on which one reaches this handler — nothing polls a report on
+ * a user's behalf. The session check below is therefore both the anonymous-mode
+ * guard and the scheduled-run guard: with no session there is no principal
+ * whose `project:documents:write` could authorize the write, and resolving the
+ * scheduler's `triggered_by` permission at fire time is a real design that v1.1
+ * owns (design doc decision 10). Do not paper over it by falling back to a
+ * service token — the agent's principal is WIDER than the user's, which is the
+ * hole this whole feature was shaped to avoid.
+ */
+async function fileReportIfCommissioned(
+  req: Request,
+  path: string[],
+  session: GridSession | null,
+  projectId: string | undefined,
+  data: unknown
+): Promise<ReportFilingResult | null> {
+  if (path.length !== 3 || path[0] !== 'job' || path[2] !== 'report') return null
+  const runId = path[1]
+  if (!session?.organizationId || !projectId) return null
+
+  const report = readReportMarkdown(data)
+  if (!report) return null
+
+  try {
+    // Narrowed the way every other proxy-layer call to a session-taking service
+    // narrows it (`collection-scope-request.ts`): the organization is what makes
+    // a session authorized, and it has just been checked.
+    const filed = await fileResearchReport({
+      session: session as AuthorizedSession,
+      projectId,
+      runId,
+      report,
+      request: req,
+    })
+    return { documentId: filed.documentId, filename: filed.filename, alreadyFiled: filed.alreadyFiled }
+  } catch (error) {
+    console.error(`[${LOG_LABEL}] failed to file the report as a document:`, error)
+    return null
+  }
+}
+
+/**
  * Handle GET requests (status, stream, state, report)
  */
 export const GET = tenantSlotRoute(async function GET(
@@ -160,7 +245,7 @@ export const GET = tenantSlotRoute(async function GET(
     const authHeaders = buildAuthHeaders(authHeader)
     traceRequest('WorkOS access token present:', !!authHeaders.Authorization)
 
-    const { headerValue } = await buildCollectionScopeFromRequest(
+    const { headerValue, projectId } = await buildCollectionScopeFromRequest(
       session,
       parseQueryContext(searchParams)
     )
@@ -209,7 +294,13 @@ export const GET = tenantSlotRoute(async function GET(
 
     // For regular JSON responses
     const data = await response.json()
-    return NextResponse.json(data)
+
+    // This is where a run's completion is observed on the BFF: the client asks
+    // for the finished report, and until now the answer was read once, rendered
+    // into a chat message and thrown away with the run's file system.
+    const filing = await fileReportIfCommissioned(req, path, session, projectId, data)
+
+    return NextResponse.json(filing ? { ...data, filed: filing } : data)
   } catch (error) {
     if (isAuthzError(error)) {
       return handleAuthzError(error)

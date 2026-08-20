@@ -369,6 +369,31 @@ describe('uploadDocument ingest dispatch — backend fetch is time-bounded', () 
 })
 
 describe('listDocuments', () => {
+  it('pushes the author filter down to the query instead of filtering the result', async () => {
+    // The „Von Piloti" chip asks for the small minority of rows a machine
+    // wrote, and migration 0063 gave that predicate its own partial index.
+    // Filtering after the fact would read the whole corpus — then reconcile and
+    // assignment-hydrate every row of it — to return a handful, so the
+    // parameter has to reach the repository. It also has to reach it in the
+    // right ARGUMENT SLOT: `limit` sits between, and passing the author there
+    // would silently cap the listing at zero rows instead of filtering it.
+    vi.mocked(listProjectDocuments).mockResolvedValue([])
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([])
+
+    await listDocuments(session, 'proj-1', { authoredBy: 'agent' })
+
+    expect(listProjectDocuments).toHaveBeenCalledWith('proj-1', session.organizationId, undefined, 'agent')
+  })
+
+  it('asks for every author when the caller states no filter', async () => {
+    vi.mocked(listProjectDocuments).mockResolvedValue([])
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([])
+
+    await listDocuments(session, 'proj-1')
+
+    expect(listProjectDocuments).toHaveBeenCalledWith('proj-1', session.organizationId, undefined, undefined)
+  })
+
   it('carries the curated metadata subset through and strips the internal metadata column', async () => {
     vi.mocked(listProjectDocuments).mockResolvedValue([])
     // reconcile returns rows with the internal `metadata` jsonb (ingestJobId)
@@ -383,6 +408,7 @@ describe('listDocuments', () => {
         fileSize: 1024,
         contentType: 'application/pdf',
         status: 'completed',
+        authoredBy: 'user',
         collectionName: 'proj_abc',
         folderId: null,
         createdAt: new Date('2026-01-01T00:00:00Z'),

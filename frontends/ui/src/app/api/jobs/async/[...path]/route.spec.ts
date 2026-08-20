@@ -33,11 +33,20 @@ vi.mock('@/lib/project-profile/prompt-view', () => ({
   loadProjectBundesland: vi.fn().mockResolvedValue(null),
 }))
 
+// The commissioned-report filing, mocked at its own module so this suite
+// asserts the WIRING — is it called, with what, and does a failure of it reach
+// the user's answer — and not the filing's own behaviour, which
+// `lib/documents/generated.spec.ts` owns.
+vi.mock('@/lib/documents/research-report', () => ({
+  fileResearchReport: vi.fn(),
+}))
+
 import { GET, POST } from './route'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectBundesland } from '@/lib/project-profile/prompt-view'
+import { fileResearchReport } from '@/lib/documents/research-report'
 
 const originalRequireAuth = process.env.REQUIRE_AUTH
 const originalInternalToken = process.env.GRID_INTERNAL_API_TOKEN
@@ -399,5 +408,158 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
       Buffer.from(headers['X-Grid-Request-Context'], 'base64url').toString('utf8')
     )
     expect(decoded.bundesland).toBeUndefined()
+  })
+})
+
+/**
+ * A finished run's report used to be read once, rendered into a chat message
+ * and discarded with the run's whole file system. This is the point at which
+ * the BFF observes that completion, so it is where the report becomes a
+ * document the project can find, assign, preview and delete.
+ */
+describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>
+
+  const session = {
+    userId: 'user-1',
+    organizationId: 'org-1',
+    email: 'user@grid.example',
+    name: 'Test User',
+    accessToken: 'token-abc',
+    organizationMembershipId: 'membership-1',
+    role: 'member',
+    permissions: ['project:documents:write'],
+    featureFlags: null,
+  }
+
+  const reportResponse = (body: Record<string, unknown>) =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+  const REPORT_BODY = { job_id: 'job-1', has_report: true, report: '# Bericht\n\nText.' }
+
+  beforeEach(() => {
+    process.env.REQUIRE_AUTH = 'true'
+    vi.mocked(requireAuthorizedSession).mockResolvedValue(session)
+    vi.mocked(buildCollectionScopeFromRequest).mockResolvedValue({
+      headerValue: 'scope',
+      scope: [],
+      scopedCollections: [],
+      projectId: 'proj-1',
+      projectCollectionName: 'proj_abc',
+      conversationId: undefined,
+    })
+    vi.mocked(fileResearchReport).mockResolvedValue({
+      documentId: 'doc-1',
+      filename: 'bericht-2026-08-20.docx',
+      folderId: 'folder-1',
+      alreadyFiled: false,
+    })
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(reportResponse(REPORT_BODY))
+    vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    if (originalRequireAuth === undefined) {
+      delete process.env.REQUIRE_AUTH
+    } else {
+      process.env.REQUIRE_AUTH = originalRequireAuth
+    }
+  })
+
+  it('files the finished report and tells the client where it landed', async () => {
+    const res = await GET(
+      getRequest('https://grid.example/api/jobs/async/job/job-1/report?projectId=proj-1'),
+      streamParams(['job', 'job-1', 'report'])
+    )
+
+    expect(res.status).toBe(200)
+    expect(fileResearchReport).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'proj-1', runId: 'job-1', report: REPORT_BODY.report })
+    )
+    const body = await res.json()
+    // Additive: everything the report response already carried is untouched.
+    expect(body).toMatchObject(REPORT_BODY)
+    expect(body.filed).toEqual({
+      documentId: 'doc-1',
+      filename: 'bericht-2026-08-20.docx',
+      alreadyFiled: false,
+    })
+  })
+
+  it('still returns the report when filing fails — the answer is not the filing’s to lose', async () => {
+    vi.mocked(fileResearchReport).mockRejectedValue(new Error('quota exceeded'))
+
+    const res = await GET(
+      getRequest('https://grid.example/api/jobs/async/job/job-1/report'),
+      streamParams(['job', 'job-1', 'report'])
+    )
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toEqual(REPORT_BODY)
+    expect(body.filed).toBeUndefined()
+  })
+
+  it('files nothing for a run that has no report yet', async () => {
+    fetchSpy.mockResolvedValue(reportResponse({ job_id: 'job-1', has_report: false, report: null }))
+
+    await GET(
+      getRequest('https://grid.example/api/jobs/async/job/job-1/report'),
+      streamParams(['job', 'job-1', 'report'])
+    )
+
+    expect(fileResearchReport).not.toHaveBeenCalled()
+  })
+
+  it('files nothing on the status endpoint — only a report is a document', async () => {
+    fetchSpy.mockResolvedValue(reportResponse({ job_id: 'job-1', status: 'completed' }))
+
+    await GET(
+      getRequest('https://grid.example/api/jobs/async/job/job-1'),
+      streamParams(['job', 'job-1'])
+    )
+
+    expect(fileResearchReport).not.toHaveBeenCalled()
+  })
+
+  it('files nothing without a project to file into', async () => {
+    vi.mocked(buildCollectionScopeFromRequest).mockResolvedValue({
+      headerValue: 'scope',
+      scope: [],
+      scopedCollections: [],
+      projectId: undefined,
+      projectCollectionName: undefined,
+      conversationId: undefined,
+    })
+
+    await GET(
+      getRequest('https://grid.example/api/jobs/async/job/job-1/report'),
+      streamParams(['job', 'job-1', 'report'])
+    )
+
+    expect(fileResearchReport).not.toHaveBeenCalled()
+  })
+
+  /**
+   * Interactive runs only (design decision 10). A scheduled run has no live
+   * session, and the write is authorized by the commissioning human's
+   * `project:documents:write` — resolving the scheduler's `triggered_by`
+   * permission at fire time is v1.1. Anonymous mode reaches this handler with
+   * no session too, and the answer is the same one: file nothing.
+   */
+  it('files nothing when there is no live session to authorize the write', async () => {
+    delete process.env.REQUIRE_AUTH
+
+    await GET(
+      getRequest('https://grid.example/api/jobs/async/job/job-1/report'),
+      streamParams(['job', 'job-1', 'report'])
+    )
+
+    expect(fileResearchReport).not.toHaveBeenCalled()
   })
 })

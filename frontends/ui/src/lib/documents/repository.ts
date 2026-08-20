@@ -34,6 +34,17 @@ export interface DocumentListRow {
   fileSize: number | null
   contentType: string | null
   status: string
+  /**
+   * Whose hand wrote the bytes (migration 0063).
+   *
+   * On the LIST row and not only on the full document, because "Von Piloti
+   * erstellt" is a line in the Files pane and the pane never loads the full
+   * row. Serving it here rather than deriving it from `status === 'stored'` in
+   * the UI keeps the two facts separate: `stored` is what happened to the
+   * INDEXING, `authoredBy` is who wrote it, and a future producer that does get
+   * indexed would make the derivation quietly wrong.
+   */
+  authoredBy: DocumentAuthor
   collectionName: string
   folderId: string | null
   createdAt: Date
@@ -77,6 +88,7 @@ export async function listProjectDocuments(
         fileSize: documents.fileSize,
         contentType: documents.contentType,
         status: documents.status,
+        authoredBy: documents.authoredBy,
         collectionName: documents.collectionName,
         folderId: documents.folderId,
         createdAt: documents.createdAt,
@@ -186,6 +198,45 @@ export async function findDocumentInOrg(documentId: string, organizationId: stri
       .limit(1),
   )
   return row ?? null
+}
+
+/**
+ * The document a given run already filed, if it filed one.
+ *
+ * The idempotency probe behind `fileGeneratedDocument`. A report is fetched
+ * every time its tab is opened, so without this a multi-minute run's single
+ * artifact would appear once per re-read — and a duplicate of a report is
+ * indistinguishable from a second run's, which is precisely the thing an
+ * office cannot untangle later.
+ *
+ * `authored_by_run_id` is the key rather than a unique index: the index would
+ * have to be partial over three columns to leave the `user` rows (which all
+ * carry NULL) alone, and the window this closes is a person re-opening a tab,
+ * not two writers racing. Scoped by organization like every other read here, so
+ * a run id guessed from another tenant finds nothing.
+ */
+export async function findDocumentAuthoredByRun(
+  runId: string,
+  organizationId: string,
+): Promise<Pick<Document, 'id' | 'filename' | 'folderId'> | null> {
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .select({
+        id: documents.id,
+        filename: documents.filename,
+        folderId: documents.folderId,
+      })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.authoredByRunId, runId),
+          eq(documents.organizationId, organizationId),
+        ),
+      )
+      .limit(1),
+  )
+  return rows[0] ?? null
 }
 
 /**

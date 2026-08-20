@@ -39,7 +39,7 @@ import { listResourceAssignments } from '@/lib/assignments/service'
 import { deleteAssignmentsForResource } from '@/lib/assignments/repository'
 import { purgeResourceCollaboration } from '@/lib/collaboration/cleanup'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import type { Document } from '@/lib/db/schema'
+import type { Document, DocumentAuthor } from '@/lib/db/schema'
 import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
 import {
   deleteProjectDocument,
@@ -313,10 +313,25 @@ export async function dispatchIngest(
 export async function listDocuments(
   session: AuthorizedSession,
   projectId: string,
+  /**
+   * Narrowing options. `authoredBy` is pushed down to the query rather than
+   * filtered here: the „Von Piloti" chip asks for the small minority of rows a
+   * machine wrote, migration 0063 gave that predicate its own partial index,
+   * and filtering after the fact would read the whole project's corpus — plus
+   * reconcile and assignment-hydrate every row of it — to return a handful.
+   */
+  options: { authoredBy?: DocumentAuthor } = {},
 ): Promise<Array<Omit<DocumentListRow, 'metadata'> & DocumentMetadata>> {
   await requireProjectAccess(session, projectId, 'project:view')
 
-  const rows = await listProjectDocuments(projectId, session.organizationId)
+  const rows = await listProjectDocuments(
+    projectId,
+    session.organizationId,
+    // `undefined` takes the repository's own default rather than restating it
+    // here, where a second copy of the cap could drift from the real one.
+    undefined,
+    options.authoredBy,
+  )
 
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).

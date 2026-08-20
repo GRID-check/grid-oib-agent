@@ -29,6 +29,7 @@ export async function listArchivDocuments(
       fileSize: documents.fileSize,
       contentType: documents.contentType,
       status: documents.status,
+      authoredBy: documents.authoredBy,
       collectionName: documents.collectionName,
       folderId: documents.folderId,
       createdAt: documents.createdAt,
