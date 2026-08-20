@@ -51,6 +51,7 @@
 
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { getTranslations } from '@/i18n/server'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
 import { PayloadTooLargeError } from '@/lib/api/errors'
 import { MAX_MARKDOWN_PDF_CHARS, PDF_MEDIA_TYPE, renderMarkdownPdf } from '@/lib/pdf/markdown-pdf'
@@ -128,7 +129,17 @@ export const POST = apiRoute(
     // `MarkdownPdfOptions.aiProvenance` names as the reason the marking is
     // opt-in. A stamp on every PDF is a stamp that means nothing, which costs
     // exactly the documents that need one.
-    const bytes = await renderMarkdownPdf(markdown)
+    // The one string this route does have to supply. The markdown posted here
+    // is the report the user is READING — model-written, and the research
+    // panel draws its ```mermaid fences as pictures — so the file they download
+    // from that view must not be the one place the same answer prints the
+    // drawing's source instead. Read through `getTranslations` for the same
+    // reason `research-report.ts` does: the file leaves the product, and the
+    // reader's language is the one the answer was read in.
+    const t = await getTranslations('answerExport')
+    const bytes = await renderMarkdownPdf(markdown, {
+      diagramPlaceholder: t('diagramPlaceholder'),
+    })
 
     return new NextResponse(new Uint8Array(bytes), {
       status: 200,

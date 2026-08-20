@@ -318,6 +318,12 @@ export async function fileResearchReport(
       // no bound while `POST /api/generate-pdf` had one.
       const bytes = await renderMarkdownPdf(body, {
         title: documentTitle,
+        // The writer agent is not taught mermaid, but a skill scope does not
+        // stop a model from writing a fence — and when it does, the thread
+        // draws a picture while this document would otherwise print
+        // `flowchart TD` in a grey box. Same dictionary, same locale as every
+        // other word on the page.
+        diagramPlaceholder: t('diagramPlaceholder'),
         notice: { title: t('aiNotice.title'), body: t('aiNotice.body') },
         // The title moves OUT of the markdown and onto the cover block, so the
         // document's own name and the facts identifying it are one thing rather

@@ -52,28 +52,40 @@ failure looks like the new work rather than like provisioning.
 
 ## 2. Apply the migrations
 
-`0063` → `0064` → `0065`, in order, as part of the ordinary chain. Verified: the
-full 66-migration history applies clean on an empty database once §1 holds.
+`0063` → `0064` → `0065` → `0066`, in order, as part of the ordinary chain.
+Verified: the full 67-migration history applies clean on an empty database once
+§1 holds.
 
 What they create, and what each is for:
 
 | Object | Purpose |
 |---|---|
-| `documents.authored_by` (`'user'` default), `authored_by_producer`, `authored_by_run_id` | who wrote the bytes, what produced them, in which run |
-| CHECK `documents_authorship_requires_provenance` | a non-`user` row must name **both** its producer and its run — a machine-written file that cannot say what wrote it is unauditable |
+| `documents.authored_by` (`'user'` default), `authored_by_producer`, `authored_by_ref`, `authored_by_ref_kind` | who wrote the bytes, what produced them, which one, and what kind of identifier that is |
+| CHECK `documents_authorship_requires_provenance` | a non-`user` row must name **all three** — a machine-written file that cannot say what wrote it, or whose identifier nobody can resolve, is unauditable |
 | `documents_agent_authored_idx` (partial) | "everything Piloti wrote in this project" as a point query |
 | `uniq_project_folders_parent_name` | the fixed `Berichte` folder is get-or-create; this is what makes the race correct |
-| `uniq_documents_authored_run_producer_per_project` | idempotency as a **constraint**, not a lookup. `0065` drops `0064`'s narrower index, which could not represent a diagram's SVG + PDF pair |
+| `uniq_documents_authored_ref_producer_per_project` | idempotency as a **constraint**, not a lookup. `0065` drops `0064`'s narrower index, which could not represent a diagram's SVG + PDF pair; `0066` restates it under the renamed column |
+
+`0066` also **backfills** `authored_by_ref_kind` from `authored_by_producer` —
+`deep_research` → `agent_run`, `diagram_svg`/`diagram_pdf` → `answer_artifact` —
+and **refuses to run** if any machine-authored row names a producer it has no
+kind for, rather than writing a plausible guess into the record the feature
+exists to make truthful. If you have added a producer, add it to that CASE in the
+same change.
 
 Verified against the real database, not inferred:
 
-- an agent row without producer or run is **refused** by the CHECK;
-- the same `(producer, run, project)` twice is **refused** by the unique index;
-- a *different* producer with the same run is **accepted** — this is what lets one
-  diagram file both its SVG and its PDF;
-- two `'user'` rows sharing a run id are **accepted** — the partial predicate
+- an agent row missing its producer, its reference or its reference **kind** is
+  **refused** by the CHECK;
+- the same `(producer, reference, project)` twice is **refused** by the unique
+  index — for both kinds of reference;
+- a *different* producer with the same reference is **accepted** — this is what
+  lets one diagram file both its SVG and its PDF;
+- two `'user'` rows sharing a reference are **accepted** — the partial predicate
   leaves human uploads alone;
-- a duplicate sibling folder name is **refused**.
+- a duplicate sibling folder name is **refused**;
+- `0066` over rows written by the `0065` build backfills the kind correctly per
+  producer and leaves human rows untouched.
 
 ## 3. Register the audit schema — this one fails silently if skipped
 
@@ -132,6 +144,10 @@ reversed.
 
 With that invocation, verified with data present:
 
+- `0066` down **refuses** while any machine-authored row carries a reference kind
+  other than `agent_run` — rolling back renames the column to
+  `authored_by_run_id` and drops the kind, so a filed diagram would go back to
+  claiming a run it cannot name.
 - `0065` down **refuses** if any run has filed more than one document into one
   project — the SVG + PDF pair that `0064`'s index cannot represent.
 - `0063` down **refuses** while any `authored_by <> 'user'` row exists: *"Dropping

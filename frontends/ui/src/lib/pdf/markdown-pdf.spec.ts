@@ -32,6 +32,18 @@ import {
   renderMarkdownPdf,
 } from './markdown-pdf'
 
+/**
+ * The mermaid placeholder every call has to supply, and its own words rather
+ * than the dictionary's.
+ *
+ * A marker string, so a test asserting the line is on the page is asserting
+ * that THIS caller's string was printed — reading the real German back would
+ * pass just as well if the renderer had hardcoded a sentence of its own, which
+ * is the failure the required option exists to prevent.
+ */
+const DIAGRAM_PLACEHOLDER = 'Zeichnung hier nicht wiedergegeben.'
+const BASE = { diagramPlaceholder: DIAGRAM_PLACEHOLDER }
+
 const REPORT = '# Brandschutz Straßenhäuser\n\nDie Fluchtwegbreite beträgt 1,20 m.\n'
 
 /**
@@ -70,7 +82,7 @@ const magic = (bytes: Uint8Array): string =>
 
 describe('renderMarkdownPdf', () => {
   it('produces a file pdf.js can open, with the markdown’s own words in it', async () => {
-    const bytes = await renderMarkdownPdf(REPORT)
+    const bytes = await renderMarkdownPdf(REPORT, BASE)
 
     expect(magic(bytes)).toBe('%PDF-')
     expect(PDF_MEDIA_TYPE).toBe('application/pdf')
@@ -87,7 +99,7 @@ describe('renderMarkdownPdf', () => {
    * absence here is the feature, and it is asserted rather than assumed.
    */
   it('marks nothing when the caller asks for no marking', async () => {
-    const pdf = await readPdf(await renderMarkdownPdf(REPORT))
+    const pdf = await readPdf(await renderMarkdownPdf(REPORT, BASE))
 
     expect(pdf.text).not.toContain(de.aiNotice.title)
     expect(pdf.info.Keywords).toBeUndefined()
@@ -99,6 +111,7 @@ describe('renderMarkdownPdf', () => {
 
   it('prints the notice the caller supplied, on the first page', async () => {
     const bytes = await renderMarkdownPdf(REPORT, {
+        ...BASE,
       notice: { title: de.aiNotice.title, body: de.aiNotice.body },
     })
     const pdf = await readPdf(bytes)
@@ -128,7 +141,7 @@ describe('renderMarkdownPdf', () => {
     ['en', en.aiNotice],
   ])('carries the %s notice through to the rendered page', async (_locale, notice) => {
     const pdf = await readPdf(
-      await renderMarkdownPdf(REPORT, { notice: { title: notice.title, body: notice.body } })
+      await renderMarkdownPdf(REPORT, { ...BASE, notice: { title: notice.title, body: notice.body } })
     )
 
     expect(pdf.text).toContain(normalizePdfText(notice.title))
@@ -143,7 +156,7 @@ describe('renderMarkdownPdf', () => {
    * identify a project it was never told about.
    */
   it('prints no header and no section when the caller supplies neither', async () => {
-    const pdf = await readPdf(await renderMarkdownPdf(REPORT))
+    const pdf = await readPdf(await renderMarkdownPdf(REPORT, BASE))
 
     expect(pdf.pageCount).toBe(1)
     expect(pdf.text).toBe(
@@ -155,6 +168,7 @@ describe('renderMarkdownPdf', () => {
     it('prints the title and every row the caller gave it, in that order', async () => {
       const pdf = await readPdf(
         await renderMarkdownPdf('Die Fluchtwegbreite beträgt 1,20 m.\n', {
+        ...BASE,
           header: {
             title: 'Brandschutz Straßenhäuser',
             rows: [
@@ -198,6 +212,7 @@ describe('renderMarkdownPdf', () => {
       ]
       const pdf = await readPdf(
         await renderMarkdownPdf(REPORT, {
+        ...BASE,
           header: { rows: labels.map((label) => ({ label, value: 'Wien' })) },
         })
       )
@@ -215,6 +230,7 @@ describe('renderMarkdownPdf', () => {
     it('never lets the identification block above the AI marking', async () => {
       const pdf = await readPdf(
         await renderMarkdownPdf(REPORT, {
+        ...BASE,
           notice: { title: de.aiNotice.title, body: de.aiNotice.body },
           header: { title: 'Brandschutz Straßenhäuser', rows: [{ label: 'Projekt', value: 'Haus Anna' }] },
         })
@@ -249,7 +265,7 @@ describe('renderMarkdownPdf', () => {
     it('pushes a value right rather than letting a long label run over it', async () => {
       const valueX = async (label: string): Promise<number> =>
         drawnAt(
-          await renderMarkdownPdf('Body.\n', { header: { rows: [{ label, value: 'Wien' }] } }),
+          await renderMarkdownPdf('Body.\n', { ...BASE, header: { rows: [{ label, value: 'Wien' }] } }),
           'Wien'
         )
 
@@ -271,8 +287,8 @@ describe('renderMarkdownPdf', () => {
      * would have been with no header at all" is the actual claim.
      */
     it('prints nothing at all for a header with no title and no rows', async () => {
-      const empty = await renderMarkdownPdf(REPORT, { header: { rows: [] } })
-      const absent = await renderMarkdownPdf(REPORT)
+      const empty = await renderMarkdownPdf(REPORT, { ...BASE, header: { rows: [] } })
+      const absent = await renderMarkdownPdf(REPORT, BASE)
 
       expect(empty.byteLength).toBe(absent.byteLength)
       expect((await readPdf(empty)).text).toBe(
@@ -293,9 +309,11 @@ describe('renderMarkdownPdf', () => {
      */
     it('sets an identifier row in monospace and leaves the others alone', async () => {
       const asId = await renderMarkdownPdf(REPORT, {
+        ...BASE,
         header: { rows: [{ label: 'Analyse-ID', value: 'run_7', mono: true }] },
       })
       const asProse = await renderMarkdownPdf(REPORT, {
+        ...BASE,
         header: { rows: [{ label: 'Analyse-ID', value: 'run_7' }] },
       })
       const namesCourier = (bytes: Uint8Array): boolean =>
@@ -333,6 +351,7 @@ describe('renderMarkdownPdf', () => {
         const dictionary = getDictionary(locale)
         const t = createTranslator(dictionary, 'answerExport')
         const bytes = await renderMarkdownPdf(REPORT, {
+        ...BASE,
           sections: legalBasisSection([CARD], t),
         })
         const pdf = await readPdf(bytes)
@@ -363,7 +382,7 @@ describe('renderMarkdownPdf', () => {
     it('prints the Fundstelle in the order the .docx prints it', async () => {
       const t = createTranslator(getDictionary('de'), 'answerExport')
       const pdf = await readPdf(
-        await renderMarkdownPdf(REPORT, { sections: legalBasisSection([CARD], t) })
+        await renderMarkdownPdf(REPORT, { ...BASE, sections: legalBasisSection([CARD], t) })
       )
 
       expect(pdf.text).toBe(
@@ -390,7 +409,7 @@ describe('renderMarkdownPdf', () => {
      */
     it('sets a long excerpt across the measure and a short field in its column', async () => {
       const t = createTranslator(getDictionary('de'), 'answerExport')
-      const bytes = await renderMarkdownPdf(REPORT, { sections: legalBasisSection([CARD], t) })
+      const bytes = await renderMarkdownPdf(REPORT, { ...BASE, sections: legalBasisSection([CARD], t) })
 
       const bodyText = await drawnAt(bytes, 'Die Fluchtwegbreite')
       const excerpt = await drawnAt(bytes, 'Fluchtwege sind so auszubilden')
@@ -408,7 +427,7 @@ describe('renderMarkdownPdf', () => {
     ])('prints no heading standing over nothing when there is %s', async (_case, cards) => {
       const t = createTranslator(getDictionary('de'), 'answerExport')
       const sections = legalBasisSection(cards, t)
-      const pdf = await readPdf(await renderMarkdownPdf(REPORT, { sections }))
+      const pdf = await readPdf(await renderMarkdownPdf(REPORT, { ...BASE, sections }))
 
       expect(sections).toEqual([])
       expect(pdf.text).not.toContain('Rechtsgrundlage')
@@ -429,6 +448,7 @@ describe('renderMarkdownPdf', () => {
       const t = createTranslator(dictionary, 'answerExport')
       const pdf = await readPdf(
         await renderMarkdownPdf(REPORT, {
+        ...BASE,
           sections: legalBasisSection(
             [{ type: 'legal_basis', law: 'OIB-Richtlinie 2', article: { text: '§ 3' } }],
             t
@@ -446,6 +466,7 @@ describe('renderMarkdownPdf', () => {
       const t = createTranslator(getDictionary('de'), 'answerExport')
       const pdf = await readPdf(
         await renderMarkdownPdf(REPORT, {
+        ...BASE,
           sections: legalBasisSection(
             [
               { type: 'legal_basis', law: 'OIB-Richtlinie 2', article: '§ 3' },
@@ -466,6 +487,7 @@ describe('renderMarkdownPdf', () => {
   describe('the machine-readable marking', () => {
     it('writes the same property names the .docx custom properties use', async () => {
       const bytes = await renderMarkdownPdf(REPORT, {
+        ...BASE,
         title: 'Brandschutz Straßenhäuser',
         notice: { title: de.aiNotice.title, body: de.aiNotice.body },
         aiProvenance: { runId: 'run_7' },
@@ -487,7 +509,7 @@ describe('renderMarkdownPdf', () => {
      * absent rather than empty when the caller has no run to name.
      */
     it('omits the run id rather than writing an empty one', async () => {
-      const pdf = await readPdf(await renderMarkdownPdf(REPORT, { aiProvenance: {} }))
+      const pdf = await readPdf(await renderMarkdownPdf(REPORT, { ...BASE, aiProvenance: {} }))
 
       expect(pdf.info.Keywords).toBe(
         'AIGenerated=true; AIGenerator=Piloti; AIHumanReviewed=false'
@@ -521,7 +543,7 @@ describe('renderMarkdownPdf', () => {
       // The boundary is inclusive, and it is asserted by rendering rather than
       // by reading the constant: an off-by-one here refuses a document that is
       // legal by the number the comment and the route both quote.
-      const bytes = await renderMarkdownPdf(proseOf(MAX_MARKDOWN_PDF_CHARS))
+      const bytes = await renderMarkdownPdf(proseOf(MAX_MARKDOWN_PDF_CHARS), BASE)
 
       expect(new TextDecoder('latin1').decode(bytes.subarray(0, 5))).toBe('%PDF-')
     })
@@ -529,11 +551,11 @@ describe('renderMarkdownPdf', () => {
     it('refuses one character more, by name', async () => {
       const markdown = proseOf(MAX_MARKDOWN_PDF_CHARS + 1)
 
-      await expect(renderMarkdownPdf(markdown)).rejects.toThrow(MarkdownTooLongError)
+      await expect(renderMarkdownPdf(markdown, BASE)).rejects.toThrow(MarkdownTooLongError)
       // The length and the limit are both on the error because the caller that
       // swallows this (`fileReportIfCommissioned`) logs it and nothing else —
       // "too long" without "how long" tells an operator nothing they can act on.
-      await expect(renderMarkdownPdf(markdown)).rejects.toMatchObject({
+      await expect(renderMarkdownPdf(markdown, BASE)).rejects.toMatchObject({
         length: MAX_MARKDOWN_PDF_CHARS + 1,
         limit: MAX_MARKDOWN_PDF_CHARS,
       })
@@ -548,7 +570,7 @@ describe('renderMarkdownPdf', () => {
       const markdown = table.repeat(Math.ceil((2 * 1024 * 1024) / table.length))
       const started = Date.now()
 
-      await expect(renderMarkdownPdf(markdown)).rejects.toThrow(MarkdownTooLongError)
+      await expect(renderMarkdownPdf(markdown, BASE)).rejects.toThrow(MarkdownTooLongError)
 
       expect(Date.now() - started).toBeLessThan(1000)
     })

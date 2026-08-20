@@ -130,6 +130,17 @@ export class MarkdownTooLongError extends Error {
 }
 
 export interface MarkdownPdfOptions {
+  /**
+   * What is printed where a ```mermaid fence stands — see
+   * `MarkdownPDFProps.diagramPlaceholder` in `ReactPdfDocument.tsx` for why it is required and why
+   * it cannot have a default.
+   *
+   * It is the reason `options` itself is required rather than defaulted: the
+   * cost of a caller forgetting is a filed compliance document that prints
+   * mermaid source where the same answer shows a drawing on screen, and a
+   * default that could be forgotten is what let that ship in the first place.
+   */
+  diagramPlaceholder: string
   /** The document's own title, for the Info dictionary and the window chrome. */
   title?: string
   /**
@@ -204,7 +215,7 @@ type PdfDocumentElement = Parameters<typeof renderToStream>[0]
  */
 export async function renderMarkdownPdf(
   markdown: string,
-  options: MarkdownPdfOptions = {}
+  options: MarkdownPdfOptions
 ): Promise<Uint8Array> {
   // BEFORE anything is parsed or laid out, because there is no second chance:
   // the layout pass blocks the event loop, so this is the last instruction that
@@ -225,6 +236,7 @@ export async function renderMarkdownPdf(
 
   const element = React.createElement(MarkdownPDF, {
     markdown,
+    diagramPlaceholder: options.diagramPlaceholder,
     notice: options.notice,
     header: options.header,
     sections: options.sections,

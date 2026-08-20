@@ -141,7 +141,10 @@ describe('fileResearchReport', () => {
 
     const input = fileGeneratedDocument.mock.calls[0][0]
     expect(input.producer).toBe('deep_research')
-    expect(input.runId).toBe('run_7')
+    // The identifier only. What KIND of identifier it is is the producer's
+    // property, read off `GENERATED_DOCUMENT_PRODUCER_REF_KINDS` inside the
+    // service, so this caller cannot state — or misstate — it (migration 0066).
+    expect(input.ref).toBe('run_7')
     expect(input.projectId).toBe('proj-1')
     expect(input.title).toBe('Brandschutz Straßenhäuser')
   })

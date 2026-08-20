@@ -1,6 +1,21 @@
 import React from 'react'
 import { Document, Page, Text, View, StyleSheet, Font, Link } from '@react-pdf/renderer'
 import { marked } from 'marked'
+// The ONE definition of what a mermaid fence is, shared with the chat renderer
+// that draws them. Two definitions would disagree about `language-mermaid `
+// with a trailing space inside a month, and the whole point of this module's
+// mermaid branch is that the two surfaces agree about which fences are
+// drawings.
+//
+// It is the first import from `shared/components/` into `lib/`, and that is a
+// layering inversion worth naming rather than hiding: `lib` sits under
+// `shared/components`, not over it. What makes it safe today is that
+// `MarkdownRenderer/utils.ts` is a pure predicate module — its only runtime
+// import is `@/lib/text/latinize`, and its one component-shaped import is
+// `import type`, which is erased. The right home for `isMermaidFence` is a
+// module both layers can reach; moving it is a change under `shared/`, which is
+// another agent's while this lands.
+import { isMermaidFence } from '@/shared/components/MarkdownRenderer/utils'
 
 type Token = ReturnType<typeof marked.lexer>[number]
 type HeadingToken = Extract<Token, { type: 'heading' }>
@@ -143,6 +158,35 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 8,
     fontStyle: 'italic',
+  },
+  /**
+   * A drawing this document does not reproduce, standing where it stood.
+   *
+   * Rules above and below and nothing else — no fill, no box, no dashes. Each
+   * of those was considered and each says the wrong thing on a page that goes
+   * to a Behörde: a filled box competes with `styles.notice`, which is the one
+   * thing on page one that must be read first; a dashed outline is the
+   * universal shape of an image that FAILED to load, and a reader who thinks
+   * part of a compliance report failed to render distrusts the rest of it. Two
+   * rules are the typographic convention for inserted apparatus — an editorial
+   * note, calmly stated, which is exactly what this is.
+   *
+   * Muted and one point smaller than the body for the same reason: it is a
+   * statement ABOUT the document, not a sentence of it.
+   */
+  diagramPlaceholder: {
+    borderTopWidth: 1,
+    borderTopColor: PDF_THEME.hairline,
+    borderBottomWidth: 1,
+    borderBottomColor: PDF_THEME.hairline,
+    paddingTop: 6,
+    paddingBottom: 6,
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  diagramPlaceholderText: {
+    color: PDF_THEME.muted,
+    fontSize: 9,
   },
   hr: {
     borderBottomWidth: 1,
@@ -333,8 +377,36 @@ export interface PdfMetadata {
   creator?: string
 }
 
-interface MarkdownPDFProps {
+export interface MarkdownPDFProps {
   markdown: string
+  /**
+   * What to print where a ```mermaid fence stands. **Required, and the one
+   * string on this type that is.**
+   *
+   * A mermaid fence is not a listing. Its text is instructions for drawing
+   * something, not the something — printing it is printing an image's base64.
+   * And it is the one token type where this renderer and the chat DISAGREE
+   * about what the same markdown means: `MarkdownRenderer` draws the fence as
+   * a diagram, so a reader sees a picture in the thread and the document filed
+   * from that same answer carried `flowchart TD / A[Bauanzeige] --> B{…}` in a
+   * grey box. Nobody compares the two, because they only ever look at the good
+   * one.
+   *
+   * Not optional, because there is no acceptable default. Printing the source
+   * is the bug. Printing nothing removes content from a document that goes to
+   * an authority. A German or English sentence hardcoded here is the second
+   * vocabulary this whole file's strings exist to avoid. So the type asks, and
+   * every caller of this renderer today renders model-written markdown that
+   * can contain a fence — `POST /api/generate-pdf` renders the report a person
+   * is reading, `research-report.ts` renders the one being filed.
+   *
+   * What it may say is bounded by what is TRUE at render time. The diagram is
+   * usually not lost — the chat wraps the answer in `DiagramFilingProvider`, so
+   * the reader can file the drawing as its own SVG and PDF — but whether they
+   * did is unknowable here, so the words must not promise a second document
+   * that may not exist.
+   */
+  diagramPlaceholder: string
   /** Printed above the markdown, on the first page. Omitted when absent. */
   notice?: PdfNotice
   /**
@@ -354,6 +426,7 @@ interface MarkdownPDFProps {
 
 export const MarkdownPDF: React.FC<MarkdownPDFProps> = ({
   markdown,
+  diagramPlaceholder,
   notice,
   header,
   sections,
@@ -383,7 +456,7 @@ export const MarkdownPDF: React.FC<MarkdownPDFProps> = ({
           </View>
         ) : null}
         {renderHeader(header)}
-        {tokens.map((token, index) => renderToken(token, index))}
+        {tokens.map((token, index) => renderToken(token, index, diagramPlaceholder))}
         {sections?.map((section, index) => renderSection(section, index))}
       </Page>
     </Document>
@@ -473,7 +546,15 @@ function renderSection(section: PdfSection, index: number): React.ReactNode {
   )
 }
 
-function renderToken(token: Token, index: number): React.ReactNode {
+/**
+ * `diagramPlaceholder` is threaded down rather than read from a module-level
+ * value, because it is the CALLER's sentence — the same rule every other string
+ * in this file follows. It travels through `renderBlockquote` too: a fence
+ * inside a quote is still a drawing, and a branch that only checked top-level
+ * tokens would print the source for exactly the shape a model uses when it
+ * quotes a procedure.
+ */
+function renderToken(token: Token, index: number, diagramPlaceholder: string): React.ReactNode {
   switch (token.type) {
     case 'heading':
       return renderHeading(token as HeadingToken, index)
@@ -484,9 +565,9 @@ function renderToken(token: Token, index: number): React.ReactNode {
     case 'table':
       return renderTable(token as TableToken, index)
     case 'code':
-      return renderCode(token as CodeToken, index)
+      return renderCode(token as CodeToken, index, diagramPlaceholder)
     case 'blockquote':
-      return renderBlockquote(token as BlockquoteToken, index)
+      return renderBlockquote(token as BlockquoteToken, index, diagramPlaceholder)
     case 'hr':
       return <View key={index} style={styles.hr} />
     case 'html':
@@ -616,7 +697,24 @@ function renderTable(token: TableToken, index: number): React.ReactNode {
   )
 }
 
-function renderCode(token: CodeToken, index: number): React.ReactNode {
+function renderCode(token: CodeToken, index: number, diagramPlaceholder: string): React.ReactNode {
+  // `language-${lang}` and not `lang` itself, because `isMermaidFence` is
+  // asked of a react-markdown className on the other side and there must be one
+  // predicate, not two. marked puts the whole info string in `lang`, so
+  // ```mermaid, ```mermaid with options and ~~~mermaid all arrive here and all
+  // match — and `mermaidjs` does not, which is what the word boundaries in the
+  // predicate are for.
+  if (isMermaidFence(`language-${token.lang ?? ''}`)) {
+    return (
+      // `wrap={false}`: two rules with the text of one of them on the next page
+      // is a reader seeing a rule under a paragraph that has nothing to do with
+      // it, and the whole line is three inches wide.
+      <View key={index} style={styles.diagramPlaceholder} wrap={false}>
+        <Text style={styles.diagramPlaceholderText}>{diagramPlaceholder}</Text>
+      </View>
+    )
+  }
+
   const lineCount = token.text.split('\n').length
   const isSmallCodeBlock = lineCount <= 5
 
@@ -627,10 +725,16 @@ function renderCode(token: CodeToken, index: number): React.ReactNode {
   )
 }
 
-function renderBlockquote(token: BlockquoteToken, index: number): React.ReactNode {
+function renderBlockquote(
+  token: BlockquoteToken,
+  index: number,
+  diagramPlaceholder: string
+): React.ReactNode {
   return (
     <View key={index} style={styles.blockquote}>
-      {token.tokens.map((subToken: Token, subIndex: number) => renderToken(subToken, subIndex))}
+      {token.tokens.map((subToken: Token, subIndex: number) =>
+        renderToken(subToken, subIndex, diagramPlaceholder)
+      )}
     </View>
   )
 }
