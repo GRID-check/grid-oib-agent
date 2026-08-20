@@ -4,6 +4,7 @@ const startNewSessionDraft = vi.fn()
 const setComposerPrefill = vi.fn()
 const peek = vi.fn()
 const open = vi.fn()
+const beginHandoff = vi.fn()
 
 vi.mock('@/features/chat', () => ({
   useChatStore: {
@@ -22,6 +23,7 @@ vi.mock('../stores/file-preview-store', () => ({
       file: null,
       peek,
       open,
+      beginHandoff,
     }),
   },
 }))
@@ -34,6 +36,36 @@ describe('askAboutFile', () => {
     setComposerPrefill.mockClear()
     peek.mockClear()
     open.mockClear()
+    beginHandoff.mockClear()
+  })
+
+  it('holds the viewer open until the conversation it is navigating to exists', () => {
+    askAboutFile({
+      projectId: 'proj-1',
+      file: {
+        id: 'doc-9',
+        filename: 'Brandschutz.pdf',
+        displayName: null,
+        fileSize: 1,
+        contentType: 'application/pdf',
+        status: 'ready',
+        folderId: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        errorMessage: null,
+        summary: null,
+        pageCount: null,
+        chunkCount: null,
+        contentTypes: null,
+        tags: null,
+      },
+      navigate: vi.fn(),
+    })
+
+    // THE JOIN. The mode set above is the destination's, and this function is
+    // what knows a navigation is about to happen — drop this call and the pane
+    // goes back to parking itself at the click, which is invisible to every
+    // other test here because the store state is identical either way.
+    expect(beginHandoff).toHaveBeenCalledTimes(1)
   })
 
   it('lands on a new chat that names the file, with project shelf', () => {

@@ -247,6 +247,11 @@ steps aside, since the request was to see the file), and the **×** on the
 *Asking about …* bar — the one control that ends the question as well as the
 viewer — offers **Undo** in the confirmation that follows it.
 
+**Coming from Files.** *Piloti dazu fragen* carries the document with you: the
+viewer you were looking at stays on screen while the conversation loads, and
+hands over to the peek when it arrives. It never blinks out and leaves you
+looking at the file grid mid-move.
+
 **What is in the peek.** The document, and under it what Piloti made of it —
 the indexed summary, clamped to a few lines with the rest one click away. That
 is the answer to "does Piloti understand this file, and as what", which is the

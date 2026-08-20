@@ -12,6 +12,11 @@ improvements:
     Show file does the same from the composer, and now works while the research
     panel is open. Ending the question with the ✕ offers an undo.
   - >
+    Asking Piloti about a file from Dateien no longer blinks: the viewer you
+    were looking at stays on screen while the chat loads and hands over to the
+    preview beside it, instead of vanishing at the click and leaving you on the
+    file grid until the conversation arrives.
+  - >
     The preview shows what Piloti made of the document — the indexed summary,
     under the document itself — instead of only in the enlarged view. A file
     with no inline preview now offers its download where the message says so.

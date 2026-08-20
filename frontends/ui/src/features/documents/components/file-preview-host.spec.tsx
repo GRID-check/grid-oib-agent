@@ -62,6 +62,7 @@ describe('FilePreviewHost', () => {
       file: null,
       mode: 'modal',
       hidden: false,
+      handoff: false,
       peekWidth: 320,
       context: {},
     })
@@ -375,6 +376,65 @@ describe('FilePreviewHost', () => {
       // Nothing else says the pane is showing a different document — the
       // toolbar's name changes and the well reloads, both silently.
       expect(screen.getByTestId('file-preview-host').className).toContain('animate-in')
+    })
+  })
+
+  describe('carrying the file from Files to the conversation', () => {
+    it('holds the viewer open while the router is still moving', () => {
+      // Exactly what Ask Piloti does: set the DESTINATION's mode, mark the
+      // handoff, then navigate. The pathname is still Files for as long as the
+      // navigation takes.
+      useFilePreviewStore.getState().open(FILE, 'modal', { projectId: 'p1' })
+      const { rerender } = render(<FilePreviewHost />)
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+
+      act(() => {
+        useFilePreviewStore.getState().peek()
+        useFilePreviewStore.getState().beginHandoff()
+      })
+      rerender(<FilePreviewHost />)
+
+      // Not parked. The reader's document stays where they left it — and as
+      // what they left it: a `peek` presentation inside a dialog would be a
+      // headerless body floating in the middle of the Files page.
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+      expect(screen.getByTestId('file-preview-host')).toHaveAttribute('data-mode', 'peek')
+      expect(pane.mounts).toBe(1)
+    })
+
+    it('hands over the moment the conversation is on screen, and lets go', () => {
+      useFilePreviewStore.getState().open(FILE, 'peek', { projectId: 'p1' })
+      act(() => useFilePreviewStore.getState().beginHandoff())
+      const { rerender } = render(
+        <FilePreviewBridge>
+          <div>chat transcript</div>
+        </FilePreviewBridge>,
+      )
+
+      nav.pathname = '/app/projects/p1/chat'
+      rerender(
+        <FilePreviewBridge>
+          <div>chat transcript</div>
+        </FilePreviewBridge>,
+      )
+
+      expect(screen.getByRole('complementary')).toBeInTheDocument()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      // Let go, or the next walk to another section would hold a dialog up
+      // over it on the strength of a journey that finished long ago.
+      expect(useFilePreviewStore.getState().handoff).toBe(false)
+      expect(pane.mounts).toBe(1)
+    })
+
+    it('still parks when the reader simply walks away', () => {
+      // Same store state as the handoff — `peek` while off-chat — and the
+      // opposite intent. Nobody said they were taking the file anywhere.
+      useFilePreviewStore.getState().open(FILE, 'peek', { projectId: 'p1' })
+      nav.pathname = '/app/projects/p1/settings'
+      render(<FilePreviewHost />)
+
+      expect(screen.getByTestId('file-preview-host')).toHaveAttribute('data-mode', 'parked')
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     })
   })
 

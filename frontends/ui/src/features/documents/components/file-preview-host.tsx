@@ -49,6 +49,8 @@ export function FilePreviewHost({
   const peek = useFilePreviewStore((state) => state.peek)
   const expand = useFilePreviewStore((state) => state.expand)
   const peekWidth = useFilePreviewStore((state) => state.peekWidth)
+  const handoff = useFilePreviewStore((state) => state.handoff)
+  const endHandoff = useFilePreviewStore((state) => state.endHandoff)
   const patchFile = useFilePreviewStore((state) => state.patchFile)
   const fileId = file?.id ?? null
   const fileStatus = file?.status ?? null
@@ -76,13 +78,30 @@ export function FilePreviewHost({
   const [arriving, setArriving] = useState(false)
   const onChat = Boolean(pathname?.includes('/chat'))
   const inSplit = presentation === 'split'
-  const overlay = mode === 'modal' || (mode === 'expanded' && onChat && !hidden)
+  /**
+   * Mid-flight: Ask Piloti has set `peek` and the router has not landed yet.
+   *
+   * The pane holds exactly what it was showing — the modal, on the page it was
+   * opened from — until the conversation exists to hand it to. Nothing about
+   * the destination is rendered early and nothing is torn down: the reader's
+   * document simply stays where they left it while the route catches up.
+   */
+  const carrying = handoff && !onChat
+  const overlay = mode === 'modal' || (mode === 'expanded' && onChat && !hidden) || carrying
   const peeking =
     inSplit || (mode === 'peek' && onChat && !hidden && !researchOpen && !isMobile)
   const chromeVisible = file !== null && (overlay || peeking)
   // Keep the pane mounted across Files → Chat so an IFC viewport is not remounted
   // (and its camera reset) when Ask flips mode to peek while still on /files.
   const parked = file !== null && !chromeVisible
+
+  // The handoff ends when the destination exists. Not on a timer and not on
+  // the navigation "finishing": the conversation being on screen IS the
+  // condition, and if the route never arrives the reader is left with the
+  // dialog they opened, which is exactly where they were before they clicked.
+  useEffect(() => {
+    if (handoff && onChat) endHandoff()
+  }, [handoff, onChat, endHandoff])
 
   // Arrivals AND swaps. A citation opening a second document into a pane that
   // is already there changes the toolbar's name and reloads the well with no
@@ -158,7 +177,18 @@ export function FilePreviewHost({
   if (!file) return null
 
   const name = documentDisplayName(file)
-  const panePresentation = mode === 'peek' ? 'peek' : mode === 'expanded' ? 'expanded' : 'modal'
+  // `modal` while carrying, whatever the mode says. The mode is already the
+  // DESTINATION's ("peek"), and rendering the destination's chrome on the
+  // origin's route produced the one thing worse than the pane disappearing: a
+  // dialog with the peek's headerless body in it, for the length of a
+  // navigation.
+  const panePresentation = carrying
+    ? 'modal'
+    : mode === 'peek'
+      ? 'peek'
+      : mode === 'expanded'
+        ? 'expanded'
+        : 'modal'
 
   return (
     <>
