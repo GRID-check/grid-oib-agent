@@ -73,7 +73,6 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?:
   class="mx-auto box-border flex min-h-screen max-w-[85rem] flex-col justify-center px-4 py-24 sm:px-10"
 >
   <div
-    data-roi
     class="box-border rounded-panel bg-accent-900 px-6 py-14 text-surface sheet-dark sm:px-16 sm:py-20"
   >
     <div class="grid grid-cols-[5fr_7fr] items-start gap-x-16 gap-y-12 max-lg:grid-cols-1">
@@ -157,13 +156,26 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?:
              already announces its own value, and the thing worth hearing is
              what it did to the total. -->
         <div
-          class="mt-7 rounded-card border border-surface/15 bg-accent-900/80 p-6"
+          class="relative isolate mt-7 overflow-hidden rounded-card border border-surface/15 bg-accent-900/80 p-6"
           aria-live="polite"
         >
+          <!-- A single soft light behind the figure. The panel is otherwise flat
+               by design, so one gradient is enough to make this the focal point
+               without turning the section into a dashboard. -->
+          <div
+            class="pointer-events-none absolute -left-16 -top-24 -z-10 size-80 rounded-full opacity-75 blur-3xl"
+            style="background: radial-gradient(circle, rgb(164 208 106 / 0.28), transparent 70%)"
+            aria-hidden="true"
+          >
+          </div>
           <p class="m-0 font-mono text-2xs uppercase tracking-widest text-on-dark-label">
             {t.roi.resultLabel}
           </p>
-          <p data-roi-out="net" class="m-0 mt-2 font-display text-h2 tabular-nums text-surface">
+          <p
+            data-roi-out="net"
+            class="m-0 mt-2 font-display text-h1 tabular-nums text-surface"
+            style="text-wrap: nowrap"
+          >
             {text.net}
           </p>
           <p class="m-0 mt-2 text-sm leading-relaxed text-on-dark">{t.roi.resultNote}</p>
@@ -195,7 +207,10 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?:
         </div>
 
         <p class="m-0 mt-6 text-2xs leading-relaxed text-on-dark/80" style="text-wrap: pretty">
-          {t.roi.footnote}
+          {t.roi.footnote}{' '}
+          <a href="#rechenweg" class="text-on-dark-label underline underline-offset-2 hover:text-surface"
+            >{t.roi.footnoteLink} ↓</a
+          >
         </p>
       </div>
     </div>

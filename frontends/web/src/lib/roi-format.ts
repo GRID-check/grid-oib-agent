@@ -7,12 +7,20 @@
  */
 
 import type { Locale } from '../i18n/ui'
-import type { RoiInputs, RoiResult } from './roi'
+import { WEEK_HOURS, type RoiInputs, type RoiResult } from './roi'
 
 /** Unit wrappers the dictionary owns, because they are language, not maths. */
 export interface RoiUnits {
-  /** `'{value} h'` */
+  /** `'{value} h/Jahr'` */
   hours: string
+  /** `'{value} h'` — a bare hour figure, used in the derivation. */
+  hoursPlain: string
+  /** `'{value}/h'` — an hourly rate. */
+  perHour: string
+  /** `'× {value}'` — a multiplier row in the derivation. */
+  times: string
+  /** `'−{value}'` — a deduction, with a typographic minus. */
+  minus: string
   /** `'≈ {value} Vollzeitstellen'` */
   fte: string
   /** `'{value} Monate'` */
@@ -27,6 +35,18 @@ export interface RoiUnits {
 export interface RoiText {
   seats: string
   salary: string
+  /** Derivation rows, in the order the section states them. */
+  weekHours: string
+  planHours: string
+  researchHours: string
+  restHours: string
+  backHours: string
+  yearHours: string
+  hourly: string
+  perSeat: string
+  licencePerSeat: string
+  netPerSeat: string
+  seatsTimes: string
   net: string
   hours: string
   fte: string
@@ -48,6 +68,10 @@ const format = (locale: Locale, options: Intl.NumberFormatOptions, value: number
 export const formatEuro = (locale: Locale, value: number) =>
   format(locale, { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }, value)
 
+/** Euros to the cent — the hourly rate is the one figure where cents matter. */
+const formatEuro2 = (locale: Locale, value: number) =>
+  format(locale, { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 }, value)
+
 /** A share written as a percentage — used for the claims the section states. */
 export const formatShare = (locale: Locale, value: number) =>
   format(locale, { style: 'percent', maximumFractionDigits: 0 }, value)
@@ -63,9 +87,24 @@ export function formatRoi(
   locale: Locale,
   units: RoiUnits
 ): RoiText {
+  const hours = (value: number, digits = 0) =>
+    fillTemplate(units.hoursPlain, decimal(locale, value, digits))
+
   return {
     seats: decimal(locale, inputs.seats),
     salary: formatEuro(locale, inputs.salary),
+    weekHours: hours(WEEK_HOURS),
+    planHours: hours(WEEK_HOURS - result.researchHoursPerWeek),
+    researchHours: hours(result.researchHoursPerWeek),
+    restHours: hours(result.researchHoursPerWeek - result.hoursPerWeek, 1),
+    // One decimal, because 4.8 rounded to 5 would overstate the claim by 4 %.
+    backHours: hours(result.hoursPerWeek, 1),
+    yearHours: hours(Math.round(result.hoursPerYearPerSeat)),
+    hourly: fillTemplate(units.perHour, formatEuro2(locale, result.hourlyCost)),
+    perSeat: formatEuro(locale, result.valuePerSeat),
+    licencePerSeat: fillTemplate(units.minus, formatEuro(locale, result.licencePerSeat)),
+    netPerSeat: formatEuro(locale, result.netPerSeat),
+    seatsTimes: fillTemplate(units.times, decimal(locale, inputs.seats)),
     net: formatEuro(locale, result.netValue),
     hours: fillTemplate(units.hours, decimal(locale, Math.round(result.hoursPerYear))),
     fte: fillTemplate(units.fte, decimal(locale, result.fte, 1)),

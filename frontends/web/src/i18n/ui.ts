@@ -22,7 +22,8 @@ const de = {
     daten: '04 Datengrundlage',
     ki: '05 Daten und Transparenz',
     wert: '06 Wert',
-    kontakt: '07 Kontakt',
+    rechenweg: '07 Rechenweg',
+    kontakt: '08 Kontakt',
   },
   nav: {
     ariaLabel: 'Hauptnavigation',
@@ -100,7 +101,7 @@ const de = {
   roi: {
     tag: 'Wert',
     title: 'Rechnen Sie nach, bevor Sie kaufen.',
-    body: 'Rund 30 % einer Planungswoche gehen für die Suche drauf — Normen, Vorprojekte, Kennwerte. Piloti gibt 40 % dieser Zeit zurück. Was das bei Ihnen wert ist, hängt nur noch von zwei Zahlen ab, die Sie kennen.',
+    body: 'Rund 30 % einer Planungswoche gehen in die Suche — Normen, Vorprojekte, Kennwerte. Piloti gibt 40 % dieser Zeit zurück. Was das bei Ihnen wert ist, hängt nur noch von zwei Zahlen ab, die Sie kennen.',
     badge: 'Modellrechnung',
     inputsLabel: 'Ihr Büro',
     fields: {
@@ -124,16 +125,77 @@ const de = {
       ratioNote: 'Wert je 1 € Lizenzkosten',
     },
     footnote:
-      'Die 30 % Recherchezeit und die 40 %, die Piloti davon zurückgibt, sind unsere Annahmen — Bürogröße und Gehalt sind Ihre. Gerechnet mit 44 Arbeitswochen im Jahr und dem Bruttogehalt ohne Lohnnebenkosten; mit ihnen fällt die Rechnung höher aus. Eine Modellrechnung, keine Zusage.',
+      'Eine Modellrechnung: unsere Annahmen, Ihre Zahlen, keine Zusage. Jeder Schritt dahinter steht offen —',
+    footnoteLink: 'ganzer Rechenweg',
     cta: 'Zahlen gemeinsam durchgehen',
     subject: 'ROI-Rechnung',
     units: {
       hours: '{value} h/Jahr',
+      hoursPlain: '{value} h',
+      perHour: '{value}/h',
+      times: '× {value}',
+      minus: '−{value}',
       fte: '≈ {value} Vollzeitstellen',
       months: '{value} Monate',
       ratio: '{value}×',
       never: '—',
     },
+  },
+  rechenweg: {
+    tag: 'Rechenweg',
+    title: 'Die ganze Rechnung, offen.',
+    intro:
+      'Eine Zahl mit Nachkommastelle ist noch kein Argument. Deshalb steht hier jeder Schritt, der zu ihr führt — samt der Stellen, an denen wir etwas annehmen, statt es zu wissen.',
+    origins: {
+      ours: 'Annahme',
+      yours: 'Ihre Zahl',
+      price: 'Preis',
+      sum: 'Ergebnis',
+    },
+    originsLong: {
+      ours: 'Unsere Annahme',
+      yours: 'Ihre Zahl',
+      price: 'Unser Listenpreis',
+      sum: 'Ergebnis',
+    },
+    week: {
+      title: 'Die Woche einer Planer:in',
+      scale: '1 Feld = 1 Stunde',
+      bracket: 'Recherche — 30 % der Woche',
+      plan: 'Entwerfen, abstimmen, ausführen',
+      rest: 'Recherche, die bleibt',
+      back: 'Gibt Piloti zurück',
+    },
+    ledger: {
+      week: 'Arbeitswoche',
+      research: 'Anteil Recherche, 30 %',
+      back: 'Davon gibt Piloti zurück, 40 %',
+      year: 'Über 44 Arbeitswochen',
+      hourly: 'Ihr Stundensatz',
+      hourlyNote: 'Bruttogehalt geteilt durch 1.760 Jahresstunden',
+      perSeat: 'Wert je Platz und Jahr',
+      licence: 'Lizenz, 12 × 120 €',
+      netPerSeat: 'Netto je Platz',
+      seats: 'Plätze in Ihrem Büro',
+      total: 'Jahreswert',
+    },
+    excludedTitle: 'Was in der Rechnung fehlt',
+    excluded: [
+      {
+        text: 'Lohnnebenkosten. Wir rechnen mit dem Bruttogehalt, nicht mit den rund 30 % Dienstgeberanteil, die eine Stunde tatsächlich kostet.',
+        effect: 'macht den Wert kleiner, als er ist',
+      },
+      {
+        text: 'Einarbeitung und Umstellung. Kein Werkzeug wirkt am ersten Tag so wie im sechsten Monat.',
+        effect: 'macht den Wert größer, als er anfangs ist',
+      },
+      {
+        text: 'Vermiedene Planungsfehler, Nachträge, verlorene Ausschreibungen. Der teuerste Fehler ist der, den niemand rechtzeitig findet.',
+        effect: 'gar nicht bewertet',
+      },
+    ],
+    honesty:
+      'Diese Zahlen sind Annahmen, keine Messwerte aus Kundenprojekten — und sie stehen hier offen, damit Sie sie durch Ihre eigenen ersetzen können. Wenn Ihre Recherchezeit bei 20 % liegt, halbiert sich das Ergebnis fast, und die Rechnung geht immer noch auf.',
   },
   cta: {
     titleHtml: 'Bringen Sie Intelligenz in jede Planungs&shy;entscheidung.',
@@ -299,7 +361,8 @@ const en: typeof de = {
     daten: '04 Data foundation',
     ki: '05 Data and transparency',
     wert: '06 Value',
-    kontakt: '07 Contact',
+    rechenweg: '07 The maths',
+    kontakt: '08 Contact',
   },
   nav: {
     ariaLabel: 'Main navigation',
@@ -400,16 +463,77 @@ const en: typeof de = {
       ratioNote: 'value per €1 of licence cost',
     },
     footnote:
-      'The 30% spent searching and the 40% Piloti gives back are our assumptions — the office size and the salary are yours. Calculated over 44 working weeks a year at gross salary, without employer on-costs; including them makes the case stronger. A model calculation, not a promise.',
+      'A model calculation: our assumptions, your numbers, no promise. Every step behind it is in the open —',
+    footnoteLink: 'the whole calculation',
     cta: 'Walk through the numbers with us',
     subject: 'ROI calculation',
     units: {
       hours: '{value} h/year',
+      hoursPlain: '{value} h',
+      perHour: '{value}/h',
+      times: '× {value}',
+      minus: '−{value}',
       fte: '≈ {value} full-time roles',
       months: '{value} months',
       ratio: '{value}×',
       never: '—',
     },
+  },
+  rechenweg: {
+    tag: 'The maths',
+    title: 'The whole calculation, in the open.',
+    intro:
+      'A figure with a decimal point is not yet an argument. So every step behind it is written out here — including the places where we assume something rather than know it.',
+    origins: {
+      ours: 'Assumed',
+      yours: 'Yours',
+      price: 'Price',
+      sum: 'Result',
+    },
+    originsLong: {
+      ours: 'Our assumption',
+      yours: 'Your number',
+      price: 'Our list price',
+      sum: 'Result',
+    },
+    week: {
+      title: 'One planner\u2019s week',
+      scale: '1 cell = 1 hour',
+      bracket: 'Searching — 30% of the week',
+      plan: 'Designing, coordinating, delivering',
+      rest: 'Searching that remains',
+      back: 'Piloti gives back',
+    },
+    ledger: {
+      week: 'Work week',
+      research: 'Share spent searching, 30%',
+      back: 'Of that, Piloti gives back, 40%',
+      year: 'Over 44 working weeks',
+      hourly: 'Your hourly cost',
+      hourlyNote: 'gross salary divided by 1,760 hours a year',
+      perSeat: 'Value per seat per year',
+      licence: 'Licence, 12 × €120',
+      netPerSeat: 'Net per seat',
+      seats: 'Seats in your office',
+      total: 'Annual value',
+    },
+    excludedTitle: 'What the calculation leaves out',
+    excluded: [
+      {
+        text: 'Employer on-costs. We use gross salary, not the roughly 30% on top that an hour actually costs the office.',
+        effect: 'makes the value smaller than it is',
+      },
+      {
+        text: 'Onboarding and the switch itself. No tool works on day one the way it works in month six.',
+        effect: 'makes the value larger than it is at first',
+      },
+      {
+        text: 'Planning errors avoided, variation orders, tenders lost. The most expensive mistake is the one nobody catches in time.',
+        effect: 'not valued at all',
+      },
+    ],
+    honesty:
+      'These are assumptions, not measurements from customer projects — and they are in the open so you can replace them with your own. If your search time is 20%, the result nearly halves, and the case still holds.',
   },
   cta: {
     titleHtml: 'Bring intelligence to every planning decision.',

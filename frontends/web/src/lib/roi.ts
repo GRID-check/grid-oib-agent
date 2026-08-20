@@ -47,8 +47,12 @@ export interface RoiInputs {
 }
 
 export interface RoiResult {
+  /** Hours one person spends looking things up in a working week. */
+  researchHoursPerWeek: number
   /** Hours one person gets back in a working week. */
   hoursPerWeek: number
+  /** Hours one seat gets back in a year. */
+  hoursPerYearPerSeat: number
   /** Hours the whole team gets back in a year. */
   hoursPerYear: number
   /** Those hours expressed as full-time positions. */
@@ -59,8 +63,12 @@ export interface RoiResult {
   valuePerSeat: number
   /** Value of the hours the team gives back, € per year. */
   grossValue: number
+  /** What one seat costs, € per year. */
+  licencePerSeat: number
   /** What the seats cost, € per year. */
   licenceCost: number
+  /** One seat's value after its own licence cost, € per year. */
+  netPerSeat: number
   /** Value minus licence cost, € per year. */
   netValue: number
   /** Gross value per euro of licence cost. */
@@ -84,7 +92,8 @@ export const ROI_DEFAULTS: RoiInputs = {
  * the conservative end of the range rather than the flattering one.
  */
 export function computeRoi({ seats, salary }: RoiInputs): RoiResult {
-  const hoursPerWeek = WEEK_HOURS * RESEARCH_SHARE * TIME_SAVED
+  const researchHoursPerWeek = WEEK_HOURS * RESEARCH_SHARE
+  const hoursPerWeek = researchHoursPerWeek * TIME_SAVED
   const hoursPerYear = hoursPerWeek * WORK_WEEKS * seats
   const hourlyCost = salary / HOURS_PER_YEAR
 
@@ -93,16 +102,21 @@ export function computeRoi({ seats, salary }: RoiInputs): RoiResult {
   // answer out of this.
   const valuePerSeat = hoursPerWeek * WORK_WEEKS * hourlyCost
   const grossValue = valuePerSeat * seats
-  const licenceCost = seats * SEAT_COST_MONTHLY * 12
+  const licencePerSeat = SEAT_COST_MONTHLY * 12
+  const licenceCost = licencePerSeat * seats
 
   return {
+    researchHoursPerWeek,
     hoursPerWeek,
+    hoursPerYearPerSeat: hoursPerWeek * WORK_WEEKS,
     hoursPerYear,
     fte: hoursPerYear / HOURS_PER_YEAR,
     hourlyCost,
     valuePerSeat,
     grossValue,
+    licencePerSeat,
     licenceCost,
+    netPerSeat: valuePerSeat - licencePerSeat,
     netValue: grossValue - licenceCost,
     returnFactor: licenceCost > 0 ? grossValue / licenceCost : 0,
     // Guarded rather than assumed: a visitor can drag the sliders to a world in
