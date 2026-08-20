@@ -53,11 +53,21 @@ import { deleteProjectDocument, findDocumentAuthoredByRun } from './repository'
  *
  * **The second producer is a member of this tuple and a caller of
  * {@link fileGeneratedDocument}.** It is not a second copy of the filing code.
- * `deep_research` is the only member today because there is one producer today
- * — read the tuple as the reason the next one is a one-line change, not as a
- * promise that it is coming.
+ * `src/lib/diagrams/filing.ts` is what that looked like when it happened: two
+ * members added here, one new caller, no second insert path — so the quota, the
+ * audit emit and the no-ingest rule are true of the new rows because they go
+ * through the same function rather than through a copy of it.
+ *
+ * A producer is a KIND OF DELIVERABLE, not a piece of software. `diagram_svg`
+ * and `diagram_pdf` are two members rather than one `diagram` because they are
+ * two files with two content types a reader uses for two different things — one
+ * previews in the Files pane and carries the diagram source for regeneration,
+ * the other is what gets attached to an Einreichung — and because since
+ * migration 0065 the producer is half of the idempotency key. Collapsing them
+ * into one member would make a diagram file one artifact or the other and never
+ * both, which is the bug 0065 exists to fix.
  */
-export const GENERATED_DOCUMENT_PRODUCERS = ['deep_research'] as const
+export const GENERATED_DOCUMENT_PRODUCERS = ['deep_research', 'diagram_svg', 'diagram_pdf'] as const
 export type GeneratedDocumentProducer = (typeof GENERATED_DOCUMENT_PRODUCERS)[number]
 
 /**
@@ -163,6 +173,7 @@ const EXTENSION_BY_CONTENT_TYPE: Readonly<Record<string, string>> = {
   'application/pdf': 'pdf',
   'text/markdown': 'md',
   'application/json': 'json',
+  'image/svg+xml': 'svg',
 }
 
 /**
@@ -200,15 +211,17 @@ export function generatedFilename(title: string, contentType: string, now: Date)
  *
  * That guarantee is TWO mechanisms, and it needs both. The probe below answers
  * the sequential case cheaply and before anything is rendered. The unique index
- * `uniq_documents_authored_run_per_project` (migration 0064) answers the
- * concurrent one, which the probe cannot: two tabs open the same report, both
+ * `uniq_documents_authored_run_producer_per_project` (migration 0065, widening
+ * 0064's key by the producer) answers the concurrent one, which the probe cannot: two tabs open the same report, both
  * probe before either inserts, both miss, and a lookup has no way to know it
  * lost. The catch around `admitOrDiscard` is what turns the index's rejection
  * into the same `alreadyFiled` answer the probe gives.
  *
  * The duplicate this forecloses is not merely untidy. `generatedFilename` is
- * deterministic, so the two rows agree on filename, display name, size, folder,
- * author, run and second — identical in every attribute a reader can see. The
+ * deterministic, so two rows of ONE producer agree on filename, display name,
+ * size, folder, author, run and second — identical in every attribute a reader
+ * can see. (Two rows of two producers do not: they differ by extension, which
+ * is why 0065 lets a diagram be both an SVG and a PDF and still be one thing.) The
  * repository calls that out as "precisely the thing an office cannot untangle
  * later", and an office that cannot tell two reports apart keeps both.
  */
@@ -232,7 +245,7 @@ export async function fileGeneratedDocument(
   // inserted yet, which is why 0064's unique index exists and why the catch
   // below has to key on the same three columns this asks about — an index and a
   // probe that disagree turn a race into either a 500 or a duplicate.
-  const existing = await findDocumentAuthoredByRun(runId, session.organizationId, projectId)
+  const existing = await findDocumentAuthoredByRun(runId, session.organizationId, projectId, producer)
   if (existing) {
     return {
       documentId: existing.id,
@@ -308,8 +321,8 @@ export async function fileGeneratedDocument(
     // `generatedFilename` is deterministic (slug + date + extension), the two
     // rows would have been identical in every attribute a person can see. An
     // office cannot untangle two byte-identical reports of one run, so
-    // `uniq_documents_authored_run_per_project` (migration 0064) makes the
-    // second insert fail instead of succeed. This is the folder path's shape
+    // `uniq_documents_authored_run_producer_per_project` (migration 0065) makes
+    // the second insert fail instead of succeed. This is the folder path's shape
     // one level up: the index is what makes it correct, the catch is what makes
     // it graceful — the loser must not 500 on somebody's finished report.
     if ((error as { code?: string } | null)?.code !== UNIQUE_VIOLATION) throw error
@@ -318,9 +331,9 @@ export async function fileGeneratedDocument(
     // rather than assumed, because the answer the caller needs (the id, the
     // filename, the folder) belongs to the row that survived, not to the one
     // this call built.
-    const winner = await findDocumentAuthoredByRun(runId, session.organizationId, projectId)
-    // Cannot happen while the index and the probe key on the same three columns
-    // — which is exactly why 0064's header derives one from the other. If it
+    const winner = await findDocumentAuthoredByRun(runId, session.organizationId, projectId, producer)
+    // Cannot happen while the index and the probe key on the same four columns
+    // — which is exactly why 0065's header derives one from the other. If it
     // ever does, the two have drifted, and a violation reported as success would
     // hand the caller a document id it does not have.
     if (!winner) throw error

@@ -560,7 +560,26 @@ describe('fileGeneratedDocument', () => {
       // silently never received the report and the caller's Öffnen/Zuweisen
       // pointed somewhere the reader may not even be.
       await file()
-      expect(findDocumentAuthoredByRun).toHaveBeenCalledWith('run_7', 'org-1', 'proj-1')
+      expect(findDocumentAuthoredByRun).toHaveBeenCalledWith('run_7', 'org-1', 'proj-1', 'deep_research')
+    })
+
+    it('looks the run up by its PRODUCER too, so a run can owe more than one file', async () => {
+      // Migration 0065. A run can produce several artifacts that are not
+      // substitutes — a diagram is an SVG that previews and a PDF that gets
+      // attached — and a probe blind to the producer answers "already filed"
+      // for the second one, so the run files one artifact or the other and
+      // never both. The probe and 0065's unique index key on the same four
+      // columns; `documents.spec.ts` reads both files and fails when they
+      // drift.
+      await fileGeneratedDocument({
+        session: SESSION,
+        projectId: 'proj-1',
+        producer: 'diagram_pdf',
+        runId: 'run_7',
+        title: 'Ablauf',
+        render,
+      })
+      expect(findDocumentAuthoredByRun).toHaveBeenCalledWith('run_7', 'org-1', 'proj-1', 'diagram_pdf')
     })
   })
 

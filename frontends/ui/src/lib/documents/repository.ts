@@ -213,13 +213,26 @@ export async function findDocumentInOrg(documentId: string, organizationId: stri
  * and the row already share. Scoped by organization like every other read here,
  * so a run id guessed from another tenant finds nothing.
  *
+ * Scoped by PRODUCER since migration 0065, because a run can owe more than one
+ * FILE. A diagram is two artifacts that are not substitutes — an SVG that
+ * previews and carries its own source, and a PDF that is what gets attached to
+ * an Einreichung — and under 0064's key the second call found the first row and
+ * answered "already filed", so a diagram could be one or the other and never
+ * both. The producer is the right discriminator because that is what a producer
+ * has meant since 0063: a KIND OF DELIVERABLE, not a piece of software. A run
+ * owes at most one of each kind, which is the rule 0065's index states. The
+ * alternative — two synthetic run ids, `{run}:svg` and `{run}:pdf` — needed no
+ * migration and was rejected: the column exists so somebody can later ask what
+ * wrote a file and in which run, and a key that joins back to no real run is
+ * what the schema calls "an audit trail in appearance only".
+ *
  * This is the CHEAP half of "once per run", never the guarantee. A lookup cannot
  * see a concurrent caller that has not inserted yet: two report tabs both probe,
- * both miss, and both file. Migration 0064's partial unique index
- * `uniq_documents_authored_run_per_project` is the half that holds under
- * concurrency, and it is keyed on exactly the three columns this function filters
- * by — `(organization_id, project_id, authored_by_run_id)` WHERE
- * `authored_by <> 'user'`. THAT AGREEMENT IS LOAD-BEARING IN BOTH DIRECTIONS: a
+ * both miss, and both file. Migration 0065's partial unique index
+ * `uniq_documents_authored_run_producer_per_project` is the half that holds under
+ * concurrency, and it is keyed on exactly the four columns this function filters
+ * by — `(organization_id, project_id, authored_by_run_id, authored_by_producer)`
+ * WHERE `authored_by <> 'user'`. THAT AGREEMENT IS LOAD-BEARING IN BOTH DIRECTIONS: a
  * narrower index rejects rows this probe would accept (and the caller's recovery
  * finds no winner to return), a wider one admits duplicates this probe was meant
  * to prevent. Changing the columns here means changing the index in the same
@@ -238,6 +251,7 @@ export async function findDocumentAuthoredByRun(
   runId: string,
   organizationId: string,
   projectId: string,
+  producer: string,
 ): Promise<Pick<Document, 'id' | 'filename' | 'folderId'> | null> {
   const db = getDb()
   const rows = await withTenant({ organizationId }, () =>
@@ -253,6 +267,7 @@ export async function findDocumentAuthoredByRun(
           eq(documents.authoredByRunId, runId),
           eq(documents.organizationId, organizationId),
           eq(documents.projectId, projectId),
+          eq(documents.authoredByProducer, producer),
         ),
       )
       .limit(1),

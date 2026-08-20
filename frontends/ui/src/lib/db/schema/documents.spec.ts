@@ -46,13 +46,20 @@
  * only thing standing between them and a `drizzle-kit generate` that drops them
  * is a comment. These tests are what makes that comment load-bearing.
  *
- * ## The idempotency index (migration 0064)
+ * ## The idempotency index (migrations 0064 and 0065)
  *
- * `uniq_documents_authored_run_per_project` is a third rule written in two
- * places, and the second place is not the schema file — it is
+ * `uniq_documents_authored_run_producer_per_project` is a third rule written in
+ * two places, and the second place is not the schema file — it is
  * `findDocumentAuthoredByRun`. The index and that probe have to key on the same
  * columns or one of them is wrong, so the test reads BOTH sources instead of
  * comparing either to a literal.
+ *
+ * 0064 shipped that index without the producer, which allowed one machine-
+ * authored document per run — impossible for a diagram, which is a previewable
+ * SVG and an attachable PDF and needs both. 0065 widens the index and the probe
+ * together, which is the move 0064's own header prescribes. The tests below
+ * therefore read 0065 for the live rule and 0064 only to assert that its index
+ * is gone.
  */
 
 import { readFileSync } from 'node:fs'
@@ -90,6 +97,14 @@ const DOWN_MIGRATION_0064 = readFileSync(
   join(process.cwd(), 'drizzle/0064_generated_document_idempotency.down.sql'),
   'utf8'
 )
+const MIGRATION_0065 = readFileSync(
+  join(process.cwd(), 'drizzle/0065_diagram_document_producer_idempotency.sql'),
+  'utf8'
+)
+const DOWN_MIGRATION_0065 = readFileSync(
+  join(process.cwd(), 'drizzle/0065_diagram_document_producer_idempotency.down.sql'),
+  'utf8'
+)
 
 /**
  * The repository's SOURCE, read rather than imported: it is a `server-only`
@@ -101,7 +116,18 @@ const DOCUMENTS_REPOSITORY = readFileSync(
   'utf8'
 )
 
-const IDEMPOTENCY_INDEX = 'uniq_documents_authored_run_per_project'
+const IDEMPOTENCY_INDEX = 'uniq_documents_authored_run_producer_per_project'
+/** 0064's, which 0065 subsumes. Named so the pair of tests below can say so. */
+const SUPERSEDED_INDEX = 'uniq_documents_authored_run_per_project'
+
+/**
+ * A statement that actually RUNS — anchored to the start of a line, so a
+ * commented-out `-- DROP INDEX …` does not satisfy an assertion about a drop.
+ * These migrations quote their own index names in prose, at length, on purpose.
+ */
+function statement(sql: string): RegExp {
+  return new RegExp(`^${sql.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'm')
+}
 
 /** The column list of a `CREATE [UNIQUE] INDEX`, in declaration order. */
 function indexColumns(migration: string, name: string): string[] {
@@ -338,13 +364,18 @@ describe('the idempotency index and the probe it belongs to', () => {
     // as 0063 already had to once, adding `project_id` after an org-wide probe
     // handed back another project's document — this is what makes them change
     // the index in the same commit.
-    expect(indexColumns(MIGRATION_0064, IDEMPOTENCY_INDEX).sort()).toEqual(probeColumns())
+    expect(indexColumns(MIGRATION_0065, IDEMPOTENCY_INDEX).sort()).toEqual(probeColumns())
   })
 
   it('found real columns on both sides, not two empty lists', () => {
     // Half the assertion above is that the two scans found anything at all: two
     // empty lists are equal, and would pass it for the worst possible reason.
-    expect(probeColumns()).toEqual(['authored_by_run_id', 'organization_id', 'project_id'])
+    expect(probeColumns()).toEqual([
+      'authored_by_producer',
+      'authored_by_run_id',
+      'organization_id',
+      'project_id',
+    ])
   })
 
   it('is UNIQUE and partial on <> user, so a human row is never rejected', () => {
@@ -355,7 +386,7 @@ describe('the idempotency index and the probe it belongs to', () => {
     // index built to stop a machine racing itself rejecting an ordinary human
     // action. `<> 'user'` rather than `= 'agent'` for 0063's reason: the next
     // producer arrives already constrained.
-    expect(MIGRATION_0064).toMatch(
+    expect(MIGRATION_0065).toMatch(
       new RegExp(
         `CREATE UNIQUE INDEX "${IDEMPOTENCY_INDEX}"\\s*ON "documents" \\([^)]*\\)\\s*WHERE "authored_by" <> 'user'`
       )
@@ -374,19 +405,38 @@ describe('the idempotency index and the probe it belongs to', () => {
     expect(declared).not.toContain(IDEMPOTENCY_INDEX)
   })
 
-  it('refuses to build over data that already violates', () => {
-    // Same reason as 0063's folder guard: `CREATE UNIQUE INDEX` reports ONE key
-    // and leaves the operator to find the rest, and the resolution — which of
-    // two byte-identical reports to keep — is a decision a migration must not
-    // make on rows that carry real bytes and a real quota charge.
-    const guard = MIGRATION_0064.indexOf('RAISE EXCEPTION')
-    const create = MIGRATION_0064.indexOf(`CREATE UNIQUE INDEX "${IDEMPOTENCY_INDEX}"`)
+  it('replaces 0064\u2019s index rather than standing beside it', () => {
+    // Two unique indexes over the same rows, one of them narrower, is the
+    // narrower one silently deciding the rule. 0064's has to GO in the same
+    // migration that widens it, or a diagram's second artifact is rejected by
+    // an index nothing points at any more.
+    //
+    // Line-anchored, not `toContain`: 0065's header QUOTES the old index name
+    // several times while explaining why it is going, and a `DROP` that has
+    // been commented out contains the same substring as one that runs.
+    expect(MIGRATION_0064).toMatch(statement(`CREATE UNIQUE INDEX "${SUPERSEDED_INDEX}"`))
+    expect(MIGRATION_0065).toMatch(statement(`DROP INDEX IF EXISTS "${SUPERSEDED_INDEX}"`))
+    expect(MIGRATION_0065).not.toMatch(statement(`CREATE UNIQUE INDEX "${SUPERSEDED_INDEX}"`))
+  })
+
+  it('needs no duplicate guard going up, and has one coming down', () => {
+    // 0063 and 0064 both refuse to build over violating data because their
+    // indexes were NARROWER than what the table already allowed. 0065's is
+    // strictly wider, so a guard there could not fire. Rolling back narrows,
+    // and THAT can fail on real data — a diagram that filed both artifacts is
+    // two rows 0064's key cannot tell apart — so the guard lives in the down
+    // migration, ahead of the create, and does not choose which row to delete.
+    expect(MIGRATION_0065).not.toContain('RAISE EXCEPTION')
+    const guard = DOWN_MIGRATION_0065.indexOf('RAISE EXCEPTION')
+    const create = DOWN_MIGRATION_0065.indexOf(`CREATE UNIQUE INDEX "${SUPERSEDED_INDEX}"`)
     expect(guard).toBeGreaterThan(-1)
     expect(create).toBeGreaterThan(guard)
   })
 
-  it('drops it again on the way down', () => {
-    expect(DOWN_MIGRATION_0064).toContain(`DROP INDEX IF EXISTS "${IDEMPOTENCY_INDEX}"`)
+  it('drops it again on the way down, and restores the one it replaced', () => {
+    expect(DOWN_MIGRATION_0065).toMatch(statement(`DROP INDEX IF EXISTS "${IDEMPOTENCY_INDEX}"`))
+    expect(DOWN_MIGRATION_0065).toMatch(statement(`CREATE UNIQUE INDEX "${SUPERSEDED_INDEX}"`))
+    expect(DOWN_MIGRATION_0064).toContain(`DROP INDEX IF EXISTS "${SUPERSEDED_INDEX}"`)
   })
 })
 

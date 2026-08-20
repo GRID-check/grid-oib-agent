@@ -331,6 +331,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-card"]',
   },
   {
+    id: 'diagram-answer',
+    mobile: true,
+    path: '/dev/diagram-answer',
+    description:
+      'A diagram Piloti drew, inside an answer. Three panels: the process flow DRAWN (mermaid laid out in the browser, its cascade flattened onto the elements, then put through the server\u2019s own SVG validator before it is shown \u2014 so the reader is looking at exactly the bytes the filing button sends), with the doctrine line \u201eSchematisch \u2014 ohne Ma\u00dfangabe." and the \u201eIm Projekt ablegen" action beneath it; the same fence with BROKEN mermaid, which degrades to the source text the reader would have seen anyway plus one quiet line, never a red box; and a fence mid-stream, which stays a code block because the markdown stabiliser auto-closes an odd fence and a half-written diagram would flash a parse error on every token. The drawing sits on a light surface in BOTH themes on purpose \u2014 it is the preview of a document that is filed, converted to PDF and attached on white, the way the Files pane already previews a PDF.',
+    waitFor: '[data-state="drawn"]',
+  },
+  {
     id: 'research-filing',
     mobile: true,
     path: '/dev/research-filing',

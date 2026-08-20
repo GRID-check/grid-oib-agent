@@ -168,21 +168,24 @@ export const documents = pgTable('documents', {
    * says "not a person" and can answer neither is an audit trail in appearance
    * only, and appearing to have one is worse than having none.
    *
-   * NOTE: the database also has `uniq_documents_authored_run_per_project`,
-   * UNIQUE and PARTIAL — `(organization_id, project_id, authored_by_run_id)`
-   * WHERE `authored_by <> 'user'` (migration 0064). It is what makes "one filed
-   * report per run" true under concurrency rather than only under a lookup: the
+   * NOTE: the database also has `uniq_documents_authored_run_producer_per_project`,
+   * UNIQUE and PARTIAL — `(organization_id, project_id, authored_by_run_id,
+   * authored_by_producer)` WHERE `authored_by <> 'user'` (migration 0065,
+   * widening 0064's by the producer because a run can owe more than one FILE: a
+   * diagram is a previewable SVG and an attachable PDF and needs both). It is
+   * what makes "one filed document per run and producer" true under concurrency
+   * rather than only under a lookup: the
    * filing path's probe runs before the insert, so two report tabs both miss it
    * and both file, producing two rows that are identical in every visible
    * attribute because the generated filename is deterministic. Partial on
    * `<> 'user'` because the CHECK below deliberately lets a HUMAN row carry a
    * run id too, and two people saving one run's artefact must not collide.
    * Drizzle's index builder can express neither the predicate nor a unique
-   * partial index, so it lives only in migration 0064 — the same arrangement as
+   * partial index, so it lives only in migration 0065 — the same arrangement as
    * `documents_conversation_idx` and `documents_agent_authored_idx`.
    *
    * Its columns are `findDocumentAuthoredByRun`'s WHERE clause, deliberately and
-   * exactly. An index narrower than the probe rejects rows the probe would
+   * exactly — all four of them. An index narrower than the probe rejects rows the probe would
    * accept; a wider one admits duplicates the probe was meant to prevent.
    */
   authoredByRunId: text('authored_by_run_id'),
