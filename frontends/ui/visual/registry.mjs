@@ -330,6 +330,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-card"]',
   },
   {
+    id: 'file-browser-search-failed',
+    path: '/dev/file-browser?variant=search-failed',
+    description:
+      'A semantic search that could not RUN, held apart from one that ran and found nothing. The hook fails open to an empty hit list so the pane cannot crash, and reports which of the two happened — but nothing read that flag, so a backend timeout rendered as "Keine semantischen Treffer für …": the surface told the reader something about their own corpus that the app had no way of knowing, and offered them a reset for it. The retry re-runs the SAME query, because they had already typed it once.',
+    waitFor: '[data-testid="file-browser-search-failed"]',
+  },
+  {
     id: 'archiv-library',
     mobile: true,
     path: '/dev/archiv-library',

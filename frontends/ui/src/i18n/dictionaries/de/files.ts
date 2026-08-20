@@ -166,6 +166,11 @@ export const files: typeof en.files = {
       banner: 'Semantische Suche: {count} Treffer für „{query}“',
       searching: 'Ihre Dateien werden nach „{query}“ durchsucht …',
       noResults: 'Keine semantischen Treffer für „{query}“',
+      failed: 'Die Suche konnte nicht ausgeführt werden',
+      failedDescription:
+        'Auf dem Weg zum Index ist etwas schiefgegangen. Ihre Dateien sind unverändert — versuchen Sie dieselbe Suche erneut oder kehren Sie zu allen Dateien zurück.',
+      retry: 'Erneut versuchen',
+      failedBanner: 'Semantische Suche nach „{query}“ konnte nicht ausgeführt werden',
       noResultsDescription:
         'Nichts in diesem Projekt entsprach dem Sinn Ihrer Anfrage. Versuchen Sie eine andere Formulierung oder löschen Sie die Suche, um alle Dateien zu durchsuchen.',
       page: 'Seite {page}',
@@ -211,6 +216,9 @@ export const files: typeof en.files = {
     },
   },
   actions: {
+    reingest: 'Erneut einlesen',
+    reingesting: 'Wird erneut gestartet …',
+    reingestError: 'Die Verarbeitung konnte nicht erneut gestartet werden. Bitte versuchen Sie es erneut.',
     label: 'Dateiaktionen für „{name}“',
     menuLabel: 'Dateiaktionen',
     download: 'Herunterladen',

@@ -15,6 +15,14 @@
  * module-scope fetch shim 404s thumbnails so the SVG sketch fallback renders.
  * 404s outside development.
  *
+ * `?variant=search-failed` renders the state a semantic search lands in when it
+ * could not RUN. The hook fails open to an empty hit list so the pane cannot
+ * crash, and it says which of the two happened — but nothing read that flag, so
+ * a backend timeout rendered as "no semantic matches for <query>": the pane told
+ * the reader something about their own corpus that it had no way of knowing, and
+ * offered them a reset for it. The fixture makes the search endpoint 500 and
+ * runs a query, which is the only way to see the state at all.
+ *
  * `?variant=uploading` renders the moment right after a batch lands, which is
  * the one row where the cards are NOT all the same shape: a document that is
  * still being read has no AI summary yet, while its neighbours do. That is the
@@ -26,7 +34,7 @@
  * ingestion runs after it.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { FileBrowserPane } from '@/features/documents/components/file-browser-pane'
 import { FolderTreePane } from '@/features/documents/components/folder-tree-pane'
@@ -162,6 +170,13 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       // every other thumbnail 404s → warm "no thumbnail" placeholder.
       if (/\/api\/documents\/p7\/thumbnail$/.test(url)) return new Response(null, { status: 500 })
       if (/\/api\/documents\/.+\/thumbnail$/.test(url)) return new Response(null, { status: 404 })
+      // The semantic search, refusing to run — see the `search-failed` variant.
+      if (
+        /\/api\/documents\/search$/.test(url) &&
+        new URLSearchParams(window.location.search).get('variant') === 'search-failed'
+      ) {
+        return new Response(null, { status: 500 })
+      }
       return real(input, init)
     }
   }
@@ -173,7 +188,57 @@ export default function FileBrowserDevPage(): JSX.Element {
     notFound()
   }
   if (variant === 'uploading') return <JustUploadedFixture />
+  if (variant === 'search-failed') return <SearchFailedFixture />
   return <FileBrowserFixtures />
+}
+
+/**
+ * A semantic search that could not run.
+ *
+ * It drives itself — types the query and submits it — because this state is
+ * only reachable THROUGH a search, and a fixture that set it directly would be
+ * a picture of the state rather than the pane arriving in it.
+ */
+function SearchFailedFixture(): JSX.Element {
+  const [selected, setSelected] = useState<string | null>(null)
+
+  useEffect(() => {
+    const input = document.querySelector<HTMLInputElement>('[data-testid="file-browser-search-failed"] input')
+    if (!input) return
+    // React tracks the input's value on the node, so a plain assignment is
+    // swallowed; going through the prototype setter is what makes `input` fire
+    // with the new value. Then SUBMIT the form — the run is a form submit
+    // (Enter or the Search button), not a keydown the pane listens for.
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+    setter?.call(input, 'Fluchtweg')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    const submit = window.requestAnimationFrame(() => {
+      input.closest('form')?.requestSubmit()
+    })
+    return () => window.cancelAnimationFrame(submit)
+  }, [])
+
+  return (
+    <main className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
+      <div>
+        <h1 className="text-lg font-semibold">Files browser — the search could not run</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Held apart from “no matches”, which is a statement about the reader’s own files.
+        </p>
+      </div>
+
+      <div className="h-[420px] overflow-hidden rounded-xl border" data-testid="file-browser-search-failed">
+        <FileBrowserPane
+          files={FILES}
+          selectedFileId={selected}
+          onSelectFile={setSelected}
+          isLoading={false}
+          hasFolderSelected={false}
+          projectId="proj-demo"
+        />
+      </div>
+    </main>
+  )
 }
 
 /**

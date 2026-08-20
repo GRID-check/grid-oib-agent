@@ -38,7 +38,7 @@
  */
 
 import { useState, type ReactNode } from 'react'
-import { Download, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { Download, MoreHorizontal, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
@@ -50,12 +50,13 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useTranslations } from '@/i18n'
 import { RenameDocumentDialog } from './rename-document-dialog'
+import { isFailedStatus } from '../document-status'
 import { useDocumentActions, type ActionableDocument, type DocumentScope } from './use-document-actions'
 
 /** One operation the menu can carry. Order in the menu is fixed, not per-caller. */
-export type DocumentActionKind = 'download' | 'rename' | 'delete'
+export type DocumentActionKind = 'download' | 'rename' | 'delete' | 'reingest'
 
-const DEFAULT_ACTIONS: readonly DocumentActionKind[] = ['download', 'rename', 'delete']
+const DEFAULT_ACTIONS: readonly DocumentActionKind[] = ['download', 'rename', 'delete', 'reingest']
 
 export interface DocumentActionsMenuProps {
   document: ActionableDocument
@@ -76,6 +77,8 @@ export interface DocumentActionsMenuProps {
   canManage?: boolean
   onRenamed?: (documentId: string, displayName: string | null) => void
   onDeleted?: (documentId: string) => void
+  /** The document was sent back through ingestion; carries the new status. */
+  onReingested?: (documentId: string, status: string) => void
   /** Replaces the default ghost icon button (e.g. the viewport's glass pill). */
   trigger?: ReactNode
   /** Where the menu opens relative to the trigger. */
@@ -90,6 +93,7 @@ export function DocumentActionsMenu({
   canManage = true,
   onRenamed,
   onDeleted,
+  onReingested,
   trigger,
   align = 'end',
   side = 'bottom',
@@ -97,13 +101,21 @@ export function DocumentActionsMenu({
   const t = useTranslations(scope)
   const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
-  const documentActions = useDocumentActions({ document, scope, onRenamed, onDeleted })
+  const documentActions = useDocumentActions({ document, scope, onRenamed, onDeleted, onReingested })
 
-  const offers = (kind: DocumentActionKind) =>
-    actions.includes(kind) && (kind === 'download' || canManage)
+  const offers = (kind: DocumentActionKind) => {
+    if (!actions.includes(kind)) return false
+    if (kind === 'download') return true
+    // Only for a document that actually failed — a "try again" on a healthy
+    // one is an invitation to re-run an expensive pipeline for nothing.
+    if (kind === 'reingest') return canManage && isFailedStatus(document.status)
+    return canManage
+  }
 
   // A menu with nothing in it is a control that lies about being one.
-  if (!offers('download') && !offers('rename') && !offers('delete')) return null
+  if (!offers('download') && !offers('rename') && !offers('delete') && !offers('reingest')) {
+    return null
+  }
 
   return (
     <>
@@ -129,6 +141,17 @@ export function DocumentActionsMenu({
           )}
         </DropdownMenuTrigger>
         <DropdownMenuContent align={align} side={side} className="w-56">
+          {offers('reingest') && (
+            <DropdownMenuItem
+              onSelect={() => void documentActions.reingest()}
+              disabled={documentActions.isReingesting}
+              data-testid="document-action-reingest"
+            >
+              <RotateCcw className="size-4" aria-hidden />
+              {documentActions.isReingesting ? t('actions.reingesting') : t('actions.reingest')}
+            </DropdownMenuItem>
+          )}
+          {offers('reingest') && (offers('download') || offers('rename')) && <DropdownMenuSeparator />}
           {offers('download') && (
             <DropdownMenuItem
               onSelect={() => void documentActions.download()}

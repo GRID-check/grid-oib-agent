@@ -180,6 +180,18 @@ export const files = {
       banner: 'Semantic search: {count, plural, one {# result} other {# results}} for “{query}”',
       searching: 'Searching your files for “{query}”…',
       noResults: 'No semantic matches for “{query}”',
+      /**
+       * A search that could not RUN, held apart from one that ran and found
+       * nothing. The hook fails open to an empty result set — which is right,
+       * it must not crash the pane — and the pane used to render that as "no
+       * matches", telling the reader something about their own corpus that the
+       * app had no way of knowing.
+       */
+      failed: 'The search could not be run',
+      failedDescription:
+        'Something went wrong on the way to the index. Your files are untouched — try the same search again, or go back to all of them.',
+      retry: 'Try again',
+      failedBanner: 'Semantic search for “{query}” could not be run',
       noResultsDescription:
         'Nothing in this project matched the meaning of your query. Try different wording, or clear the search to browse every file.',
       page: 'Page {page}',
@@ -226,6 +238,9 @@ export const files = {
   },
   // The overflow menu every document surface carries.
   actions: {
+    reingest: 'Retry indexing',
+    reingesting: 'Retrying…',
+    reingestError: 'Indexing could not be restarted. Please try again.',
     label: 'File actions for “{name}”',
     menuLabel: 'File actions',
     download: 'Download',

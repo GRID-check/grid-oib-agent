@@ -160,7 +160,6 @@ export function FilePreviewPane({
   const [previewFailed, setPreviewFailed] = useState(false)
   /** The document is not there any more (or not the reader's) — see `loadPreview`. */
   const [previewGone, setPreviewGone] = useState(false)
-  const [isReingesting, setIsReingesting] = useState(false)
   const [isLargePreviewOpen, setIsLargePreviewOpen] = useState(false)
   // "Detailed information": per-page VLM descriptions of the document's visual
   // chunks (drawings/images/charts), lazily loaded on first expand. Secondary
@@ -289,24 +288,13 @@ export function FilePreviewPane({
    * this pane the same way any other change does: the workspace updates the
    * document it passes in.
    */
-  const actions = useDocumentActions({ document: file, scope })
+  const actions = useDocumentActions({ document: file, scope, onReingested })
 
-  // Re-dispatch a failed document to the ingest pipeline. On success the parent
-  // flips its local status to 'pending' (the endpoint returns the new status),
-  // so the existing status reconciliation takes over from there.
-  const handleReingest = useCallback(async () => {
-    setIsReingesting(true)
-    try {
-      const res = await fetch(`/api/documents/${file.id}/reingest`, { method: 'POST' })
-      if (!res.ok) throw new Error(`Reingest failed (${res.status})`)
-      const data = await res.json().catch(() => ({}))
-      onReingested?.(file.id, data.status ?? 'pending')
-    } catch {
-      toast.error(t('preview.retryIngestionError'))
-    } finally {
-      setIsReingesting(false)
-    }
-  }, [file.id, onReingested, t])
+  // Re-dispatch a failed document to the ingest pipeline. The request itself
+  // lives in `useDocumentActions` with rename/delete/download — one document
+  // operation belongs in one place, and the actions MENU offers the same retry
+  // now, on the card where the failure is actually read.
+  const handleReingest = useCallback(() => void actions.reingest(), [actions])
 
   const ext = fileExtensionLabel(file.filename)
 
@@ -879,10 +867,10 @@ export function FilePreviewPane({
                   variant="outline"
                   className="w-full gap-2"
                   onClick={handleReingest}
-                  disabled={isReingesting}
+                  disabled={actions.isReingesting}
                 >
                   <RotateCcw className="size-4" aria-hidden />
-                  {isReingesting ? t('preview.retryingIngestion') : t('preview.retryIngestion')}
+                  {actions.isReingesting ? t('preview.retryingIngestion') : t('preview.retryIngestion')}
                 </Button>
               )}
             </div>

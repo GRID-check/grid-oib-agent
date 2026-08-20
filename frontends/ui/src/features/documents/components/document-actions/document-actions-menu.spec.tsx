@@ -198,4 +198,59 @@ describe('DocumentActionsMenu — renaming', () => {
     // name applies again.
     await waitFor(() => expect(captured).toEqual([{ displayName: null }]))
   })
+
+  describe('a document that failed to index', () => {
+    const FAILED = { ...DOCUMENT, status: 'failed' }
+
+    it('offers the retry where the failure is shown', async () => {
+      // The card already says WHY it failed, in destructive red, and until this
+      // moved the only retry in the product was two clicks inside a viewer the
+      // reader had no reason to open — they had just been told the bad news on
+      // the card.
+      const user = userEvent.setup()
+      render(<DocumentActionsMenu document={FAILED} scope="files" />)
+      await user.click(screen.getByTestId('document-actions-trigger'))
+
+      expect(await screen.findByTestId('document-action-reingest')).toBeInTheDocument()
+    })
+
+    it('does not offer it for a healthy document', async () => {
+      // A "try again" on a document that is fine is an invitation to re-run an
+      // expensive pipeline for nothing.
+      const user = userEvent.setup()
+      render(<DocumentActionsMenu document={DOCUMENT} scope="files" />)
+      await user.click(screen.getByTestId('document-actions-trigger'))
+
+      expect(await screen.findByTestId('document-action-download')).toBeInTheDocument()
+      expect(screen.queryByTestId('document-action-reingest')).not.toBeInTheDocument()
+    })
+
+    it('does not offer it to a reader who may not manage the document', async () => {
+      const user = userEvent.setup()
+      render(<DocumentActionsMenu document={FAILED} scope="files" canManage={false} />)
+      await user.click(screen.getByTestId('document-actions-trigger'))
+
+      expect(await screen.findByTestId('document-action-download')).toBeInTheDocument()
+      expect(screen.queryByTestId('document-action-reingest')).not.toBeInTheDocument()
+    })
+
+    it('sends it back through ingestion and reports the new status', async () => {
+      let asked = 0
+      server.use(
+        http.post('/api/documents/doc-1/reingest', () => {
+          asked += 1
+          return HttpResponse.json({ status: 'pending' })
+        }),
+      )
+      const user = userEvent.setup()
+      const onReingested = vi.fn()
+      render(<DocumentActionsMenu document={FAILED} scope="files" onReingested={onReingested} />)
+
+      await user.click(screen.getByTestId('document-actions-trigger'))
+      await user.click(await screen.findByTestId('document-action-reingest'))
+
+      await waitFor(() => expect(onReingested).toHaveBeenCalledWith('doc-1', 'pending'))
+      expect(asked).toBe(1)
+    })
+  })
 })

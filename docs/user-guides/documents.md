@@ -179,7 +179,16 @@ mark = the Büroarchiv provenance signal used across the app):
   tags simply show none, and there is no "verified" marker — the Archiv has no
   review workflow.
 - **Search** — filters the listing client-side by file name, ingestion tags,
-  and the AI description, combinable with the category chips.
+  and the AI description, combinable with the category chips. Pressing Enter
+  runs the semantic search over the corpus instead. A semantic search that
+  cannot RUN (the index is unreachable, the request times out) says so and
+  offers to run the same query again — it is never reported as "no matches",
+  which is a claim about your own files that a search which never ran has no
+  business making.
+- **A document that failed to index** carries the reason on its card, and the
+  card's ⋯ menu offers **Retry indexing** for it — the same retry the preview
+  has, where the failure is actually read. It appears only for a document that
+  failed, and only for someone who may manage it.
 
 ---
 
