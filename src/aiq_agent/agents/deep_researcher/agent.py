@@ -1210,9 +1210,21 @@ class DeepResearcherAgent:
 
         # Re-emit the verified/sanitized report so the frontend overwrites
         # the raw version that on_llm_end auto-emitted during the stream.
+        #
+        # Guarded, because this runs INSIDE _finalize and _finalize_cutoff
+        # treats a raised _finalize as "nothing to salvage": a report sink that
+        # throws would destroy a verified report that exists and then log the
+        # false sentence "nothing salvageable" about it. Delivering the answer
+        # to the caller outranks echoing it to a display, so a sink that fails
+        # costs its own echo and nothing else. (The shipped event store swallows
+        # its own errors, so this is a latent path, not a hot one — which is
+        # exactly when a guard is cheap.)
         for cb in callbacks:
             if hasattr(cb, "emit_final_report"):
-                cb.emit_final_report(final_message)
+                try:
+                    cb.emit_final_report(final_message)
+                except Exception:  # noqa: BLE001 - an echo must never unmake the answer
+                    logger.warning("Could not re-emit the final report to a callback", exc_info=True)
                 break
 
         self._replace_last_message_content(result, final_message)

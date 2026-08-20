@@ -2976,3 +2976,111 @@ class TestCallbackRegistryHandover:
             return_value=streaming_graph_mock({"messages": [], "files": output_markdown_file()}),
         ):
             agent._prepare_run(DeepResearchAgentState(messages=[HumanMessage(content="Q")]))
+
+
+class TestReportSinkCannotUnmakeTheAnswer:
+    """A display that throws must not destroy the answer it was handed.
+
+    ``emit_final_report`` runs inside ``_finalize``, and ``_finalize_cutoff``
+    reads a raised ``_finalize`` as "nothing to salvage" — so an unguarded sink
+    could throw away a verified report that existed and then log the false
+    sentence "nothing salvageable" about it. Delivering the answer outranks
+    echoing it: a sink that fails costs its own echo and nothing else.
+    """
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        provider = LLMProvider()
+        provider.set_default(mock_llm)
+        for role in (
+            LLMRole.ORCHESTRATOR,
+            LLMRole.ROUTER,
+            LLMRole.PLANNER,
+            LLMRole.RESEARCHER,
+            LLMRole.REPORT_WRITER,
+        ):
+            provider.configure(role, mock_llm)
+        return provider
+
+    @pytest.fixture
+    def real_tool(self):
+        return web_search_tool
+
+    @pytest.mark.asyncio
+    async def test_a_raising_sink_still_returns_the_report(self, mock_llm_provider, real_tool):
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        class ExplodingSink:
+            def emit_final_report(self, report, cards=None):
+                raise RuntimeError("the display is down")
+
+        report = "Brandabschnitte sind zu begrenzen [1].\n\n## Sources\n[1] Example: https://example.com"
+        graph = streaming_graph_mock(
+            {"messages": [AIMessage(content="handoff")], "files": output_markdown_file(report)}
+        )
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=graph):
+            agent = DeepResearcherAgent(
+                llm_provider=mock_llm_provider,
+                tools=[real_tool],
+                callbacks=[ExplodingSink()],
+            )
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                result = await agent.run(DeepResearchAgentState(messages=[HumanMessage(content="Q")]))
+
+        # The answer survives the display failing: run() RETURNED (rather than
+        # raising into the "nothing salvageable" path) and the verified report
+        # is on the message it replaced.
+        assert result is not None
+        assert result.messages, "a failing echo destroyed the answer"
+        assert "Brandabschnitte" in str(result.messages[-1].content)
+
+
+class TestSalvageBarExcludesOurOwnBanner:
+    """The bar measures the REPORT, not the banner we prepended to it.
+
+    ``MIN_SALVAGE_REPORT_CHARS`` exists so a stub is not shipped as an answer.
+    The honesty banner is ~135 characters the agent wrote ABOUT the run, so
+    counting it would let a stub clear the bar purely because it had been
+    labelled as a stub — the label buying the thing it labels a pass.
+
+    Unpinned until now: an independent check reverted this to
+    ``len(text.strip())`` and the whole backend suite stayed green, because the
+    existing fixture's stub was short enough to fail either way. Any body of
+    65-199 characters shipped as a report with nothing noticing, which is the
+    window this fixes.
+    """
+
+    def test_a_banner_does_not_buy_a_stub_a_pass(self):
+        from aiq_agent.agents.deep_researcher.agent import _HONESTY_BANNER_PREFIX
+        from aiq_agent.agents.deep_researcher.agent import MIN_SALVAGE_REPORT_CHARS
+        from aiq_agent.agents.deep_researcher.agent import _salvaged_report_length
+
+        # A body inside the dangerous window: too short to be an answer, long
+        # enough that the banner would carry it over the bar.
+        body = "Die Recherche fand nur einen Hinweis auf GK4."
+        assert len(body) < MIN_SALVAGE_REPORT_CHARS
+        banner = f"{_HONESTY_BANNER_PREFIX} Die Recherche wurde vorzeitig beendet (Zeitgrenze erreicht)."
+        banner_text = f"{banner}\n\n{body}"
+
+        # The naive measure would pass it; the real one must not.
+        assert _salvaged_report_length(banner_text) == len(body)
+        assert _salvaged_report_length(banner_text) < MIN_SALVAGE_REPORT_CHARS
+
+    def test_the_window_is_real(self):
+        """A banner+body that the naive measure WOULD have cleared."""
+        from aiq_agent.agents.deep_researcher.agent import _HONESTY_BANNER_PREFIX
+        from aiq_agent.agents.deep_researcher.agent import MIN_SALVAGE_REPORT_CHARS
+        from aiq_agent.agents.deep_researcher.agent import _salvaged_report_length
+
+        body = "x" * (MIN_SALVAGE_REPORT_CHARS - 30)
+        banner = f"{_HONESTY_BANNER_PREFIX} " + ("y" * 120)
+        combined = f"{banner}\n\n{body}"
+        # Naive: over the bar. Correct: under it.
+        assert len(combined.strip()) >= MIN_SALVAGE_REPORT_CHARS
+        assert _salvaged_report_length(combined) < MIN_SALVAGE_REPORT_CHARS
+
+    def test_an_unbannered_report_is_measured_whole(self):
+        from aiq_agent.agents.deep_researcher.agent import _salvaged_report_length
+
+        report = "Brandabschnitte sind zu begrenzen. " * 10
+        assert _salvaged_report_length(report) == len(report.strip())
