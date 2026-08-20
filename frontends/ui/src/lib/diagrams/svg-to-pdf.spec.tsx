@@ -16,8 +16,13 @@ import { join } from 'node:path'
 import { inflateSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { MAX_DIAGRAM_SVG_DEPTH } from './diagram-sources'
+import { aiProvenanceMarking } from '@/lib/ai-provenance'
 import { acceptDiagram } from './svg'
 import { renderDiagramPdf } from './svg-to-pdf'
+
+/** What `fileGeneratedDocument` hands a diagram producer — see `filing.ts`. */
+const PROVENANCE = aiProvenanceMarking({})
+const MARKING = { notice: 'Von Piloti erstellt — KI-generiert, nicht geprüft.', provenance: PROVENANCE }
 
 /** Every Flate stream in the file, inflated. This is where the drawing is. */
 function contentStreams(pdf: Uint8Array): string[] {
@@ -40,11 +45,14 @@ function contentStreams(pdf: Uint8Array): string[] {
 }
 
 function drawing(svgBody: string, viewBox = '0 0 200 100') {
-  return acceptDiagram({
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${svgBody}</svg>`,
-    sourceKind: 'mermaid',
-    source: 'graph TD\n  A --> B',
-  })
+  return acceptDiagram(
+    {
+      svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${svgBody}</svg>`,
+      sourceKind: 'mermaid',
+      source: 'graph TD\n  A --> B',
+    },
+    MARKING,
+  )
 }
 
 async function pdfFor(svgBody: string, viewBox?: string) {
@@ -55,6 +63,7 @@ async function pdfFor(svgBody: string, viewBox?: string) {
     title: 'Ablauf Einreichung',
     projectName: 'Straßenhäuser',
     marking: 'Von Piloti erstellt — KI-generiert, nicht geprüft.',
+    provenance: PROVENANCE,
     createdAt: new Date('2026-08-20T00:00:00Z'),
   })
 }
@@ -136,6 +145,7 @@ describe('a diagram becomes a PDF, without a browser', () => {
       title: 'Ablauf',
       projectName: 'P',
       marking: 'm',
+      provenance: PROVENANCE,
       createdAt: new Date('2026-08-20T00:00:00Z'),
     })
     expect(Buffer.from(pdf).toString('latin1')).not.toContain('graph TD')
@@ -183,7 +193,7 @@ const REAL_MERMAID = readFileSync(join(__dirname, '__fixtures__/mermaid-flowchar
 
 describe('real mermaid output', () => {
   const accepted = () =>
-    acceptDiagram({ svg: REAL_MERMAID, sourceKind: 'mermaid', source: 'graph TD\n  A --> B' })
+    acceptDiagram({ svg: REAL_MERMAID, sourceKind: 'mermaid', source: 'graph TD\n  A --> B' }, MARKING)
 
   it('is accepted by the validator that produced it', () => {
     // The client renders THROUGH this same validator before it shows anything,
@@ -235,6 +245,7 @@ describe('real mermaid output', () => {
       title: 'Ablauf Einreichung',
       projectName: 'Straßenhäuser',
       marking: 'Von Piloti erstellt — KI-generiert, nicht geprüft.',
+      provenance: PROVENANCE,
       createdAt: new Date('2026-08-20T00:00:00Z'),
     })
     const streams = contentStreams(pdf).join('\n')

@@ -67,6 +67,7 @@ import {
   View,
   renderToBuffer,
 } from '@react-pdf/renderer'
+import { AI_GENERATOR_NAME, type AiProvenanceMarking } from '@/lib/ai-provenance'
 import { attributeOf, type DiagramSvgViewport, type SvgElement, type SvgNode } from './svg'
 
 /**
@@ -517,6 +518,19 @@ export interface DiagramPdfInput {
    * that renders German for a Viennese office and German for a Brussels one.
    */
   readonly marking: string
+  /**
+   * The machine-readable marking, for the Info dictionary.
+   *
+   * Separate from `marking` above because they are read by different things and
+   * neither substitutes for the other: the footer line is for a person holding
+   * a printout, this is for a records system or a compliance scan that never
+   * OCRs a page. This artifact shipped with the first and without the second —
+   * the report PDF set `Keywords` from the day it existed and the diagram PDF
+   * set none, which is what a marking applied producer-by-producer looks like
+   * when one producer forgets. `fileGeneratedDocument` now verifies this string
+   * is in the finished bytes.
+   */
+  readonly provenance: AiProvenanceMarking
   readonly createdAt: Date
 }
 
@@ -544,7 +558,20 @@ export async function renderDiagramPdf(input: DiagramPdfInput): Promise<Uint8Arr
   const created = input.createdAt.toISOString().slice(0, 10)
 
   const document = (
-    <Document title={input.title} author={input.projectName} creator="Grid" producer="Grid">
+    <Document
+      title={input.title}
+      author={input.projectName}
+      // `Keywords` is the one Info field that is a list by convention, and
+      // `Creator` names what wrote the file — the same two fields, carrying the
+      // same vocabulary, as the research report's PDF. `Subject` carries the
+      // reader's own marking line, because that is the field a viewer's
+      // document-properties panel actually shows. See `@/lib/ai-provenance`
+      // for why the marking lives in fields meant for something else.
+      keywords={input.provenance}
+      subject={input.marking}
+      creator={AI_GENERATOR_NAME}
+      producer="Grid"
+    >
       <Page size={landscape ? { width: pageWidth, height: pageHeight } : 'A4'} style={{ padding: MARGIN }}>
         <View style={{ height: HEADER_HEIGHT }}>
           <Text style={{ fontFamily: 'Helvetica-Bold', fontSize: 14 }}>{input.title}</Text>

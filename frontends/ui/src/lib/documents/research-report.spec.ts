@@ -91,6 +91,7 @@ const PROFILE = {
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { readPdf } from '@/test-utils/read-pdf'
 import { MAX_MARKDOWN_PDF_CHARS, MarkdownTooLongError } from '@/lib/pdf/markdown-pdf'
+import { aiProvenanceMarking } from '@/lib/ai-provenance'
 import type { GeneratedRenderContext } from './generated'
 import { fileResearchReport, splitReportTitle } from './research-report'
 
@@ -98,10 +99,24 @@ const SESSION = { userId: 'user-1', organizationId: 'org-1' } as AuthorizedSessi
 
 const REPORT = '# Brandschutz Straßenhäuser\n\nDer Bericht beginnt hier.\n'
 
+/**
+ * What the real service hands this producer for `runId: 'run_7'`.
+ *
+ * `deep_research` files under `agent_run`, which is the one reference kind that
+ * IS a run, so the marking carries `AIRunId`. Spelled out here rather than
+ * imported from the service so that a change to the seam's answer shows up as a
+ * failure in this file too, where the producer's half of the contract lives.
+ */
+const RUN_MARKING = aiProvenanceMarking({ runId: 'run_7' })
+
 /** Run the renderer the caller handed to the service. */
 const runRenderer = () => {
   const input = fileGeneratedDocument.mock.calls[0][0]
-  const context: GeneratedRenderContext = { projectId: 'proj-1', projectName: 'Haus Anna' }
+  const context: GeneratedRenderContext = {
+    projectId: 'proj-1',
+    projectName: 'Haus Anna',
+    marking: RUN_MARKING,
+  }
   return input.render(context)
 }
 
@@ -184,7 +199,14 @@ describe('fileResearchReport', () => {
    */
   it('sets the printed notice AND the machine-readable provenance', async () => {
     await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: REPORT })
-    const pdf = await readPdf((await runRenderer()).bytes)
+    const rendering = await runRenderer()
+    const pdf = await readPdf(rendering.bytes)
+
+    // Handed back to the seam, which checks it against these same bytes before
+    // anything is stored. The producer no longer formats its own: the string it
+    // returns is the string the context gave it, so the marking in the file and
+    // the marking the service verifies cannot be two different answers.
+    expect(rendering.marking).toBe(RUN_MARKING)
 
     // The translator is stubbed as `t:<key>`, so this asserts the exact i18n
     // keys the .docx export already uses reached the page — a renderer that

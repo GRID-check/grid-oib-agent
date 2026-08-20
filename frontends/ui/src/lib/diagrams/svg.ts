@@ -31,6 +31,10 @@
  *      were written; rule 2 is what holds when rule 1 has a gap. Neither is
  *      redundant: without (1) a broken client fails silently and half-drawn,
  *      without (2) a spelling nobody thought of reaches the file.
+ *   3. **Write the marking into what it serialises**, because this module is
+ *      the only thing that produces the bytes a `.svg` is stored as, and a
+ *      machine-drawn file that leaves the product has to say so in its own
+ *      bytes — see {@link withDiagramMarking}.
  *
  * ## Why there is no XML library here
  *
@@ -241,6 +245,17 @@ const ELEMENT_GEOMETRY: ReadonlyMap<string, ReadonlySet<string>> = new Map([
  */
 const METADATA_ELEMENT = 'metadata'
 const METADATA_KIND_ATTRIBUTE = 'data-grid-diagram-source'
+
+/**
+ * The two elements that carry the AI marking — see {@link withDiagramMarking}.
+ *
+ * They are already in {@link ELEMENT_GEOMETRY} with no attributes of their own,
+ * which is the whole reason they were chosen: the marking survives the
+ * re-serialisation without widening the allow-list by one element or one
+ * attribute, on a file this product serves back to browsers.
+ */
+const MARKING_TITLE_ELEMENT = 'title'
+const MARKING_DESC_ELEMENT = 'desc'
 
 // ---------------------------------------------------------------------------
 // Scanning
@@ -765,6 +780,117 @@ export function withDiagramSource(root: SvgElement, kind: DiagramSourceKind, sou
   return { ...root, children: [metadata, ...rest] }
 }
 
+/**
+ * Say, inside the file, that a machine drew it.
+ *
+ * ## The problem this fixes
+ *
+ * A filed diagram used to carry NO marking of any kind in its bytes. The grey
+ * „Von Piloti erstellt" byline is chrome — it lives in the Files pane and stops
+ * at the download button — and the PDF sibling prints a footer line, but the
+ * `.svg` a person drags onto their desktop, embeds in a Word document or mails
+ * to a colleague said nothing at all about who drew it. That is the exact
+ * artifact the marking exists for.
+ *
+ * ## Why `<title>` and `<desc>`, and not the four other candidates
+ *
+ * **They survive.** This module stores bytes it writes from an allow-list, so
+ * the only markings that count are the ones the serialiser writes back out.
+ * `title` and `desc` are already in {@link ELEMENT_GEOMETRY} with an empty
+ * attribute set, and text children are serialised verbatim — so the marking
+ * round-trips with the allow-list WIDENED BY NOTHING. On a file the product
+ * serves back to browsers, a marking that costs no new element and no new
+ * attribute is worth more than a more expressive one that costs both.
+ *
+ * **`<title>` is the accessible name.** The first `<title>` child of the root
+ * IS the SVG's name to a browser tooltip, to a screen reader, and to a page
+ * embedding it. So the human sentence — the same localized line the PDF prints
+ * in its footer, resolved by the route — reaches a person who has only the
+ * file.
+ *
+ * **`<desc>` carries the machine vocabulary.** The same `AIGenerated=true;
+ * AIGenerator=Piloti; …` string the PDF puts in `Keywords` and the `.docx` puts
+ * in typed custom properties, so ONE detector expression finds a machine-written
+ * document in all three formats (`@/lib/ai-provenance`).
+ *
+ * Rejected, each for a concrete reason rather than a preference:
+ *
+ *   - **RDF/XMP inside `<metadata>`** — the "correct" answer in the abstract,
+ *     and unreachable here. `<rdf:RDF>`, `<cc:Work>`, `<dc:creator>` are all
+ *     outside {@link ELEMENT_GEOMETRY}, so `refuseUnsupportedElements` REFUSES
+ *     the submission rather than stripping the block; admitting it means
+ *     allow-listing a namespaced element tree. And `<metadata>` is already
+ *     spoken for: {@link withDiagramSource} reserves it for the one source the
+ *     server validated, and `keptAttributes` deliberately drops every attribute
+ *     on it but one.
+ *   - **A visible `<text>` footer.** It is the marking a sighted person meets
+ *     without hovering, and SVG cannot lay it out: `<text>` does not wrap, the
+ *     marking sentence is ~180 characters, and mermaid sizes its `viewBox`
+ *     tightly to the drawing — so the line either runs off the picture or the
+ *     server has to rewrite the viewBox and hand-break the sentence with guessed
+ *     glyph widths. It would also reach the PDF, which renders from this same
+ *     tree, and print a second marking under the one `renderDiagramPdf` already
+ *     draws. The visible half of the marking belongs on the artifact with a page
+ *     and a layout engine, and that is the artifact a Behörde receives.
+ *   - **A `data-*` attribute on the root.** `keptAttributes` drops it: `svg`'s
+ *     geometry set does not list it, which is the serialiser working as designed.
+ *   - **The filename.** Renaming a file is one keystroke and a marking that a
+ *     rename removes is not a marking.
+ *
+ * Neither element is paint, so `svg-to-pdf.tsx` maps both to `null` and the PDF
+ * is unaffected: it carries its own footer line and its own `Keywords`.
+ *
+ * ## What is replaced
+ *
+ * Any `<title>` or `<desc>` the client put at the ROOT, and only at the root —
+ * the same rule and the same reason `withDiagramSource` applies to
+ * `<metadata>`: what the file says about ITSELF is the server's statement, not
+ * a claim the submitting browser gets to make. Titles and descriptions nested
+ * inside the drawing are the diagram's own labels and are left alone.
+ */
+export interface DiagramMarking {
+  /**
+   * What a person is told, in their locale. Becomes the SVG's accessible name.
+   *
+   * Resolved by the route, exactly as the PDF's footer line is, because a
+   * renderer that reaches for a dictionary renders one language for every
+   * office.
+   */
+  readonly notice: string
+  /**
+   * The machine-readable marking, in the vocabulary `@/lib/ai-provenance`
+   * defines and `fileGeneratedDocument` verifies against the stored bytes.
+   */
+  readonly provenance: string
+}
+
+export function withDiagramMarking(root: SvgElement, marking: DiagramMarking): SvgElement {
+  const element = (name: string, text: string): SvgElement => ({
+    kind: 'element',
+    name,
+    attributes: [],
+    children: [{ kind: 'text', text }],
+  })
+  const rest = root.children.filter(
+    (child) =>
+      !(
+        child.kind === 'element' &&
+        (child.name === MARKING_TITLE_ELEMENT || child.name === MARKING_DESC_ELEMENT)
+      ),
+  )
+  // `<title>` FIRST: SVG names an element after its first `<title>` child, so a
+  // marking that came second would be present in the file and absent from every
+  // surface that reads the file's name.
+  return {
+    ...root,
+    children: [
+      element(MARKING_TITLE_ELEMENT, marking.notice),
+      element(MARKING_DESC_ELEMENT, marking.provenance),
+      ...rest,
+    ],
+  }
+}
+
 /** Read a source back out of a filed diagram — the regeneration path. */
 export function diagramSourceOf(root: SvgElement): { kind: string; source: string } | null {
   for (const child of root.children) {
@@ -790,6 +916,14 @@ export interface DiagramSubmission {
 export interface AcceptedDiagram {
   /** The bytes to store: written by this module, never copied from the client. */
   readonly svg: string
+  /**
+   * The drawing, for the PDF sibling to redraw.
+   *
+   * WITHOUT the marking elements, deliberately. The PDF carries its own footer
+   * line and its own `Keywords`, and `<title>`/`<desc>` are not paint — so
+   * putting them in the tree the PDF walks would add nothing there and make
+   * `svg-to-pdf.tsx` responsible for skipping them.
+   */
   readonly root: SvgElement
   readonly viewport: DiagramSvgViewport
 }
@@ -801,8 +935,13 @@ export interface AcceptedDiagram {
  * a message in the reader's locale. It does not return a result union because
  * every caller here wants the same thing — refuse loudly — and a union would
  * put the burden of remembering that on each of them.
+ *
+ * The marking is a REQUIRED second argument rather than something a caller may
+ * add afterwards: `svg` is the bytes that get stored, and this module is the
+ * only thing that writes them, so "the stored bytes say a machine drew this" is
+ * true by construction here instead of being one more thing a caller keeps.
  */
-export function acceptDiagram(submission: DiagramSubmission): AcceptedDiagram {
+export function acceptDiagram(submission: DiagramSubmission, marking: DiagramMarking): AcceptedDiagram {
   const sourceBytes = new TextEncoder().encode(submission.source).byteLength
   const limit = DIAGRAM_SOURCE_FACTS[submission.sourceKind].maxSourceBytes
   if (sourceBytes > limit) {
@@ -811,5 +950,9 @@ export function acceptDiagram(submission: DiagramSubmission): AcceptedDiagram {
 
   const { root, viewport } = parseDiagramSvg(submission.svg)
   const withSource = withDiagramSource(root, submission.sourceKind, submission.source)
-  return { svg: serializeDiagramSvg(withSource), root: withSource, viewport }
+  return {
+    svg: serializeDiagramSvg(withDiagramMarking(withSource, marking)),
+    root: withSource,
+    viewport,
+  }
 }

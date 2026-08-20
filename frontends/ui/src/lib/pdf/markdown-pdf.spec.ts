@@ -19,7 +19,7 @@
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { readPdf, normalizePdfText } from '@/test-utils/read-pdf'
-import { AI_GENERATOR_NAME } from '@/lib/ai-provenance'
+import { AI_GENERATOR_NAME, aiProvenanceMarking } from '@/lib/ai-provenance'
 import { getDictionary } from '@/i18n/dictionaries'
 import { createTranslator } from '@/i18n/translate'
 import { answerExport as de } from '@/i18n/dictionaries/de/answer-export'
@@ -490,7 +490,7 @@ describe('renderMarkdownPdf', () => {
         ...BASE,
         title: 'Brandschutz Straßenhäuser',
         notice: { title: de.aiNotice.title, body: de.aiNotice.body },
-        aiProvenance: { runId: 'run_7' },
+        marking: aiProvenanceMarking({ runId: 'run_7' }),
       })
       const pdf = await readPdf(bytes)
 
@@ -509,7 +509,9 @@ describe('renderMarkdownPdf', () => {
      * absent rather than empty when the caller has no run to name.
      */
     it('omits the run id rather than writing an empty one', async () => {
-      const pdf = await readPdf(await renderMarkdownPdf(REPORT, { ...BASE, aiProvenance: {} }))
+      const pdf = await readPdf(
+        await renderMarkdownPdf(REPORT, { ...BASE, marking: aiProvenanceMarking({}) })
+      )
 
       expect(pdf.info.Keywords).toBe(
         'AIGenerated=true; AIGenerator=Piloti; AIHumanReviewed=false'

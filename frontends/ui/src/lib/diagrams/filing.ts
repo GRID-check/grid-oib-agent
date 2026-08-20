@@ -26,7 +26,9 @@
  *   - the **SVG** previews in the Files pane today (`image/svg+xml` is already
  *     in `PREVIEW_TYPES`), is what a reader opens, and carries the diagram's
  *     own source in its `<metadata>` so the drawing can be regenerated or
- *     hand-edited a year later by whoever has the file;
+ *     hand-edited a year later by whoever has the file — plus, since the marking
+ *     stopped being a per-producer convention, the statement that a machine drew
+ *     it, in its `<title>` and `<desc>` (`withDiagramMarking`);
  *   - the **PDF** is what gets attached to an Einreichung. A Behörde receives a
  *     bundle of PDFs, and an architect who has to convert a file first will
  *     convert it in whatever tool is open — which is where the marking line
@@ -75,7 +77,11 @@
  */
 
 import 'server-only'
-import { fileGeneratedDocument, type FiledGeneratedDocument } from '@/lib/documents/generated'
+import {
+  fileGeneratedDocument,
+  generatedDocumentMarking,
+  type FiledGeneratedDocument,
+} from '@/lib/documents/generated'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { acceptDiagram, type DiagramSubmission } from './svg'
 import { renderDiagramPdf } from './svg-to-pdf'
@@ -107,7 +113,12 @@ export interface FileDiagramInput extends DiagramSubmission {
   /** What a reader should see in the Files pane. */
   title: string
   /**
-   * The provenance line for the PDF, already in the reader's locale.
+   * The provenance line a PERSON reads, already in the reader's locale.
+   *
+   * Both files carry it and neither carries it the same way: the PDF prints it
+   * in the page footer, the SVG puts it in the root's `<title>`, which is the
+   * name a browser tooltip and a screen reader announce. One sentence, two
+   * carriers — the machine-readable half is the seam's and travels beside it.
    *
    * Resolved by the route, not here, for the reason `answer-export` gives about
    * the same problem: this module runs on a request whose locale the caller has
@@ -148,7 +159,15 @@ export async function fileDiagramDocuments(input: FileDiagramInput): Promise<Fil
   // hostile input from ANY authenticated session — which is what the 1 MiB byte
   // cap, `MAX_DIAGRAM_SVG_DEPTH` and the route's own body bound are for. An
   // input that gets past all three has already been judged cheap.
-  const accepted = acceptDiagram(input)
+  //
+  // The marking the two files must carry, asked of the filing seam rather than
+  // formatted here: `generatedDocumentMarking` is the one thing that knows a
+  // diagram's reference is an answer artifact and not a run, and
+  // `fileGeneratedDocument` recomputes it and refuses a rendering that
+  // disagrees. Asked EARLY only because the SVG bytes are written before the
+  // render — this caller can be ahead of the seam, never different from it.
+  const provenance = generatedDocumentMarking('diagram_svg', input.answerRef)
+  const accepted = acceptDiagram(input, { notice: input.marking, provenance })
   const svgBytes = new TextEncoder().encode(accepted.svg)
 
   const svg = await fileGeneratedDocument({
@@ -160,8 +179,11 @@ export async function fileDiagramDocuments(input: FileDiagramInput): Promise<Fil
     request: input.request,
     // The bytes this renderer returns are the bytes `svg.ts` wrote out of its
     // own allow-list — never the request's. That is the whole reason the
-    // validator returns a string instead of a boolean.
-    render: () => ({ bytes: svgBytes, contentType: 'image/svg+xml' }),
+    // validator returns a string instead of a boolean. The marking is in them:
+    // `acceptDiagram` wrote it into the root's `<title>` and `<desc>` above,
+    // and the seam checks the finished bytes rather than taking this word for
+    // it.
+    render: ({ marking }) => ({ bytes: svgBytes, contentType: 'image/svg+xml', marking }),
   })
 
   try {
@@ -179,9 +201,11 @@ export async function fileDiagramDocuments(input: FileDiagramInput): Promise<Fil
           title: input.title,
           projectName: context.projectName,
           marking: input.marking,
+          provenance: context.marking,
           createdAt: new Date(),
         }),
         contentType: 'application/pdf',
+        marking: context.marking,
       }),
     })
     return { svg, pdf }

@@ -73,14 +73,18 @@ import type { NewDocument } from '@/lib/db/schema'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { makeProject } from '@/test-utils/db-fixtures'
 import { AUDIT_SCHEMAS } from '@/lib/audit/schemas.mjs'
+import { aiProvenanceMarking } from '@/lib/ai-provenance'
 import {
   GENERATED_DOCUMENT_FOLDER_NAME,
   GENERATED_DOCUMENT_PRODUCERS,
   GENERATED_DOCUMENT_PRODUCER_REF_KINDS,
+  UnmarkedRenderingError,
   fileGeneratedDocument,
+  generatedDocumentMarking,
   generatedFilename,
   resolveGeneratedDocumentDestination,
 } from './generated'
+import type { GeneratedRenderContext } from './generated'
 
 const SESSION = {
   userId: 'user-1',
@@ -104,10 +108,25 @@ const FOLDER = {
   updatedAt: new Date('2026-08-20T00:00:00Z'),
 }
 
-const render = vi.fn(() => ({
-  bytes: new Uint8Array([1, 2, 3, 4, 5]),
+/**
+ * A producer that does what every producer must: write the marking it was
+ * handed INTO the bytes, and hand the same string back.
+ *
+ * The fixture cannot be five arbitrary bytes any more, and that is the point of
+ * the change it is a fixture for — `fileGeneratedDocument` refuses to store a
+ * rendering whose marking it cannot find in the file. A fixture that returned
+ * unmarked bytes would be a fixture for a producer this service no longer files.
+ */
+const renderedBytes = (marking: string) => new TextEncoder().encode(`report ${marking}`)
+
+const render = vi.fn((context: GeneratedRenderContext) => ({
+  bytes: renderedBytes(context.marking),
   contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  marking: context.marking,
 }))
+
+/** The marking `deep_research` + `run_7` is filed under — an `agent_run` ref. */
+const REPORT_MARKING = aiProvenanceMarking({ runId: 'run_7' })
 
 const file = () =>
   fileGeneratedDocument({
@@ -201,7 +220,7 @@ describe('fileGeneratedDocument', () => {
     expect(row.folderId).toBe('folder-1')
     expect(row.organizationId).toBe('org-1')
     expect(row.projectId).toBe('proj-1')
-    expect(row.fileSize).toBe(5)
+    expect(row.fileSize).toBe(renderedBytes(REPORT_MARKING).byteLength)
     // Never set, so the column default (`project`) decides — a generated report
     // is evidence the project can see, like every other file in it.
     expect(row.visibility).toBeUndefined()
@@ -249,8 +268,8 @@ describe('fileGeneratedDocument', () => {
       // The bytes the renderer produced, not a placeholder and not a truncation.
       // `fileSize` is recorded from the same buffer, so a row whose size does not
       // describe its object is unrepresentable rather than merely unlikely.
-      expect(put.input.Body).toEqual(Buffer.from([1, 2, 3, 4, 5]))
-      expect(row.fileSize).toBe(5)
+      expect(put.input.Body).toEqual(Buffer.from(renderedBytes(REPORT_MARKING)))
+      expect(row.fileSize).toBe(renderedBytes(REPORT_MARKING).byteLength)
       expect(put.input.ContentType).toBe(
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       )
@@ -333,6 +352,81 @@ describe('fileGeneratedDocument', () => {
    * So it is asserted at the DISPATCH SITE, not by inspecting retrieval output:
    * a filter that stops working still passes a retrieval-shaped test.
    */
+  /**
+   * THE MARKING, ENFORCED WHERE THE BYTES ARE MADE.
+   *
+   * It used to be a convention kept at each producer, and two of the three did
+   * not keep it: `diagram_pdf` set no PDF keywords and `diagram_svg` wrote no
+   * marking anywhere in its bytes. Nothing noticed, because every check
+   * available was on the object that DESCRIBED the file rather than on the
+   * file. So the check moved to the one seam all three pass through, and it
+   * asks the bytes.
+   */
+  describe('a machine-authored file says so in its own bytes', () => {
+    it('hands the producer the marking rather than letting it choose one', async () => {
+      await file()
+
+      // `deep_research` files under `agent_run`, the one reference kind that IS
+      // a run, so the marking names the run an auditor can look one up in.
+      expect(render.mock.calls[0][0].marking).toBe(REPORT_MARKING)
+      expect(REPORT_MARKING).toBe(
+        'AIGenerated=true; AIGenerator=Piloti; AIHumanReviewed=false; AIRunId=run_7',
+      )
+    })
+
+    it('carries no run id for a reference that is not a run', () => {
+      // Migration 0066's lesson, applied to the marking: a diagram's reference
+      // is `{chat message id}-{hash}` and resolves to nothing in the job store.
+      // Writing it into `AIRunId` would put an unresolvable value into the field
+      // a detector reads — an audit trail in appearance only, in the one place
+      // that reaches a Behörde.
+      expect(generatedDocumentMarking('diagram_svg', 'msg_42-1a2b3c4d')).toBe(
+        'AIGenerated=true; AIGenerator=Piloti; AIHumanReviewed=false',
+      )
+      expect(generatedDocumentMarking('diagram_pdf', 'msg_42-1a2b3c4d')).toBe(
+        'AIGenerated=true; AIGenerator=Piloti; AIHumanReviewed=false',
+      )
+    })
+
+    it('refuses bytes that do not carry the marking, and stores nothing', async () => {
+      // The failure that shipped, reproduced: a producer that renders a
+      // perfectly good file and never writes the marking into it. Refused here
+      // rather than filed, because an unmarked artifact in `Berichte` is
+      // indistinguishable from a document a person wrote — and the person who
+      // attaches it to an Einreichung has no way to find out.
+      render.mockImplementationOnce((context) => ({
+        bytes: new TextEncoder().encode('a report with nothing in it about who wrote it'),
+        contentType: 'application/pdf',
+        marking: context.marking,
+      }))
+
+      await expect(file()).rejects.toBeInstanceOf(UnmarkedRenderingError)
+
+      // Before the folder, the PUT, the row and the audit event — so a producer
+      // bug leaves an empty `Berichte` behind in nobody's project.
+      expect(getOrCreateProjectFolderByName).not.toHaveBeenCalled()
+      expect(s3Send).not.toHaveBeenCalled()
+      expect(admitOrDiscard).not.toHaveBeenCalled()
+      expect(recordAuditEventOrThrow).not.toHaveBeenCalled()
+    })
+
+    it('refuses a marking the producer built for itself', async () => {
+      // The brand stops a producer inventing a vocabulary; this stops one
+      // building the right vocabulary around the wrong facts. A report marked
+      // with no run id is weaker than the marking this document is supposed to
+      // carry, and „marked" is not a boolean.
+      const wrong = aiProvenanceMarking({})
+      render.mockImplementationOnce(() => ({
+        bytes: renderedBytes(wrong),
+        contentType: 'application/pdf',
+        marking: wrong,
+      }))
+
+      await expect(file()).rejects.toBeInstanceOf(UnmarkedRenderingError)
+      expect(admitOrDiscard).not.toHaveBeenCalled()
+    })
+  })
+
   describe('the ouroboros test — a generated document is never ingested', () => {
     it('makes no ingest dispatch and no HTTP request at all while filing', async () => {
       await file()

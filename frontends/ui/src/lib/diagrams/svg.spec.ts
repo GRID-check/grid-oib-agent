@@ -23,9 +23,23 @@ import {
   diagramSourceOf,
   parseDiagramSvg,
   serializeDiagramSvg,
+  withDiagramMarking,
 } from './svg'
 
 const OPEN = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">'
+
+/**
+ * The marking every stored diagram carries, as a fixture.
+ *
+ * Marker strings rather than the real dictionary line and the real
+ * `aiProvenanceMarking` output, for the reason `markdown-pdf.spec.ts` gives
+ * about its own placeholder: a test that reads the production copy back passes
+ * just as well when the module hardcodes a sentence of its own, which is the
+ * failure a required argument exists to prevent. What the marking really says
+ * is asserted where it is really produced — `filing.spec.ts`, on the bytes that
+ * reach the object store.
+ */
+const MARKING = { notice: 'a machine drew this', provenance: 'MARK=yes' }
 
 /**
  * An SVG whose deepest element sits at `depth`, counting the root as 1.
@@ -190,7 +204,10 @@ describe('what is refused, by name', () => {
 
   it('refuses a source longer than its kind allows', () => {
     expect(() =>
-      acceptDiagram({ svg: `${OPEN}</svg>`, sourceKind: 'mermaid', source: 'x'.repeat(64 * 1024) }),
+      acceptDiagram(
+        { svg: `${OPEN}</svg>`, sourceKind: 'mermaid', source: 'x'.repeat(64 * 1024) },
+        MARKING,
+      ),
     ).toThrow(/source-too-large/)
   })
 
@@ -303,23 +320,26 @@ describe('the diagram carries its own source', () => {
   it('files the source inside the file, so it travels with the drawing', () => {
     // The person who needs to regenerate or hand-edit the diagram is the person
     // who has the file — possibly a year later, possibly outside this product.
-    const accepted = acceptDiagram(submission)
+    const accepted = acceptDiagram(submission, MARKING)
     expect(diagramSourceOf(accepted.root)).toEqual({ kind: 'mermaid', source: submission.source })
-    expect(acceptDiagram(submission).svg).toContain('<metadata data-grid-diagram-source="mermaid">')
+    expect(acceptDiagram(submission, MARKING).svg).toContain('<metadata data-grid-diagram-source="mermaid">')
   })
 
   it('survives a round trip through the parser it will be read back with', () => {
-    const stored = acceptDiagram(submission).svg
+    const stored = acceptDiagram(submission, MARKING).svg
     expect(diagramSourceOf(parseDiagramSvg(stored).root)?.source).toBe(submission.source)
   })
 
   it('discards a metadata block the client sent and records its own', () => {
     // Whatever the client claimed the source was, what is stored is the source
     // the server validated against its own cap — the two must not disagree.
-    const accepted = acceptDiagram({
-      ...submission,
-      svg: `${OPEN}<metadata data-grid-diagram-source="mermaid">a lie</metadata><rect width="1" height="1"/></svg>`,
-    })
+    const accepted = acceptDiagram(
+      {
+        ...submission,
+        svg: `${OPEN}<metadata data-grid-diagram-source="mermaid">a lie</metadata><rect width="1" height="1"/></svg>`,
+      },
+      MARKING,
+    )
     expect(accepted.svg).not.toContain('a lie')
     expect(diagramSourceOf(accepted.root)?.source).toBe(submission.source)
   })
@@ -333,24 +353,106 @@ describe('the diagram carries its own source', () => {
     // carried a second, unvalidated source the server never saw.
     const decoy = 'x'.repeat(200 * 1024)
     expect(() =>
-      acceptDiagram({
-        ...submission,
-        svg: `${OPEN}<g><metadata data-grid-diagram-source="mermaid">${decoy}</metadata></g></svg>`,
-      }),
+      acceptDiagram(
+        {
+          ...submission,
+          svg: `${OPEN}<g><metadata data-grid-diagram-source="mermaid">${decoy}</metadata></g></svg>`,
+        },
+        MARKING,
+      ),
     ).toThrow(/unsupported-element/)
   })
 
   it('stores exactly one source, so nothing downstream has to pick', () => {
-    const accepted = acceptDiagram({
-      ...submission,
-      svg: `${OPEN}<metadata data-grid-diagram-source="mermaid">a lie</metadata><rect width="1" height="1"/></svg>`,
-    })
+    const accepted = acceptDiagram(
+      {
+        ...submission,
+        svg: `${OPEN}<metadata data-grid-diagram-source="mermaid">a lie</metadata><rect width="1" height="1"/></svg>`,
+      },
+      MARKING,
+    )
     expect(accepted.svg.match(/data-grid-diagram-source/g)).toHaveLength(1)
   })
 
   it('reads the viewport off the root, for the page the PDF has to fit', () => {
-    const accepted = acceptDiagram(submission)
+    const accepted = acceptDiagram(submission, MARKING)
     expect(accepted.viewport).toEqual({ width: 100, height: 50, viewBox: '0 0 100 50' })
     expect(attributeOf(accepted.root, 'viewBox')).toBe('0 0 100 50')
+  })
+})
+
+describe('the stored diagram says a machine drew it', () => {
+  const submission = {
+    svg: `${OPEN}<rect width="10" height="10"/></svg>`,
+    sourceKind: 'mermaid' as const,
+    source: 'graph TD\n  A --> B',
+  }
+
+  it('survives the allow-list it is written back out through', () => {
+    // The point of the whole choice. `svg.ts` serialises from an allow-list, so
+    // a marking the serialiser does not know about is stripped on the way to
+    // the object store while every assertion on the pre-serialisation tree goes
+    // on passing. `<title>` and `<desc>` are already in `ELEMENT_GEOMETRY`, so
+    // this survives with the allow-list widened by nothing at all.
+    const stored = acceptDiagram(submission, MARKING).svg
+    expect(stored).toContain('<title>a machine drew this</title>')
+    expect(stored).toContain('<desc>MARK=yes</desc>')
+  })
+
+  it('is still there after the parser it will be read back with', () => {
+    // A stored file is re-parsed on the regeneration path, and a marking that
+    // the reader refuses is a file that cannot be opened by the product that
+    // wrote it.
+    const stored = acceptDiagram(submission, MARKING).svg
+    const { root } = parseDiagramSvg(stored)
+    expect(serializeDiagramSvg(root)).toContain('<title>a machine drew this</title>')
+  })
+
+  it('names the file before anything else, because the first title is the name', () => {
+    // SVG names an element after its FIRST `<title>` child. A marking that came
+    // after the drawing's own title would be in the file and absent from the
+    // tooltip, the screen reader and every embedding surface — present and
+    // invisible, which is the failure mode this whole change is about.
+    const marked = withDiagramMarking(parseDiagramSvg(`${OPEN}<rect width="1" height="1"/></svg>`).root, MARKING)
+    expect(marked.children[0]).toMatchObject({ name: 'title' })
+    expect(marked.children[1]).toMatchObject({ name: 'desc' })
+  })
+
+  it('replaces what the client said about the file, and not what it said inside it', () => {
+    // The same rule `withDiagramSource` applies to `<metadata>`, and the same
+    // reason: what the file says about ITSELF is the server's statement. A
+    // `<title>` nested in the drawing is a node label the diagram author wrote
+    // and is none of this module's business.
+    const accepted = acceptDiagram(
+      {
+        ...submission,
+        svg: `${OPEN}<title>a person drew this</title><desc>honest</desc><g><title>Einreichung</title><rect width="1" height="1"/></g></svg>`,
+      },
+      MARKING,
+    )
+    expect(accepted.svg).not.toContain('a person drew this')
+    expect(accepted.svg).not.toContain('<desc>honest</desc>')
+    expect(accepted.svg).toContain('<title>Einreichung</title>')
+  })
+
+  it('escapes a marking rather than letting it close a tag', () => {
+    // The notice is a dictionary string today, so this is not an injection the
+    // product has — it is the reason the marking goes through `serializeNode`
+    // like every other text node instead of being concatenated into the output.
+    const accepted = acceptDiagram(submission, {
+      notice: '</title><script>x()</script>',
+      provenance: 'MARK=yes',
+    })
+    expect(accepted.svg).not.toContain('<script>')
+    expect(accepted.svg).toContain('&lt;/title&gt;')
+  })
+
+  it('leaves the tree the PDF redraws unmarked', () => {
+    // The PDF carries its own footer line and its own `Keywords`; `<title>` and
+    // `<desc>` are not paint, so putting them in the tree `svg-to-pdf.tsx`
+    // walks would add nothing there and make that module responsible for
+    // skipping them.
+    const accepted = acceptDiagram(submission, MARKING)
+    expect(accepted.root.children.some((child) => child.kind === 'element' && child.name === 'title')).toBe(false)
   })
 })

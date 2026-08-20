@@ -22,7 +22,7 @@
 import 'server-only'
 import React from 'react'
 import { renderToStream } from '@react-pdf/renderer'
-import { aiProvenanceKeywords, AI_GENERATOR_NAME, type AiProvenance } from '@/lib/ai-provenance'
+import { AI_GENERATOR_NAME, type AiProvenanceMarking } from '@/lib/ai-provenance'
 import {
   MarkdownPDF,
   type PdfHeader,
@@ -162,14 +162,23 @@ export interface MarkdownPdfOptions {
    */
   sections?: PdfSection[]
   /**
-   * Present when the content was generated and not reviewed by a human.
+   * The machine-readable marking, when the content was generated and not
+   * reviewed by a human.
    *
    * Absent — the default — writes no marking at all, which is what keeps the
    * marking meaningful: `POST /api/generate-pdf` exports a report a person read
    * on screen and chose to download, and stamping that one too would make the
    * stamp mean nothing. The same argument `DocxOptions.aiProvenance` makes.
+   *
+   * The STRING, and not the `AiProvenance` it is built from, because this
+   * renderer is no longer the thing that decides what the marking says.
+   * `fileGeneratedDocument` decides that once for every producer and checks the
+   * finished bytes carry it (`generatedDocumentMarking`), so a renderer that
+   * formatted its own would be a second answer to a question with one — and the
+   * one the seam checks against is the seam's. Same reason
+   * `renderDiagramPdf` takes its footer line rather than a dictionary.
    */
-  aiProvenance?: AiProvenance
+  marking?: AiProvenanceMarking
 }
 
 /**
@@ -185,14 +194,12 @@ export interface MarkdownPdfOptions {
  * ordinary export's Subject is not overwritten with something it did not say.
  */
 function metadataFor(options: MarkdownPdfOptions): PdfMetadata | undefined {
-  const { title, notice, aiProvenance } = options
-  if (!title && !notice && !aiProvenance) return undefined
+  const { title, notice, marking } = options
+  if (!title && !notice && !marking) return undefined
   return {
     title,
     subject: notice?.title,
-    ...(aiProvenance
-      ? { keywords: aiProvenanceKeywords(aiProvenance), creator: AI_GENERATOR_NAME }
-      : {}),
+    ...(marking ? { keywords: marking, creator: AI_GENERATOR_NAME } : {}),
   }
 }
 

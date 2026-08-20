@@ -258,10 +258,19 @@ async function loadProfile(projectId: string, organizationId: string): Promise<u
  *
  * Both provenance options are set HERE, and they are independent by design: the
  * printed *"KI-generiert — nicht geprüft"* block on page one (`notice`) is what
- * a person reads, and the document metadata (`aiProvenance`) is what a records
+ * a person reads, and the document metadata (`marking`) is what a records
  * system detects without OCR. A caller that sets one and not the other ships a
- * document that is marked for exactly one of its two audiences — so this caller
- * owns passing both, and this is the comment that says so.
+ * document that is marked for exactly one of its two audiences.
+ *
+ * Only ONE of the two is still this caller's to forget. `fileGeneratedDocument`
+ * requires the machine-readable half back as `GeneratedRendering.marking` and
+ * checks it against the produced bytes, so a rendering that lost it does not
+ * file at all. The printed block is not checkable from outside the PDF — the
+ * words are inside a compressed, glyph-encoded content stream — so it stays a
+ * decision this producer makes and `markdown-pdf.spec.ts` reads back with
+ * pdf.js. That asymmetry is honest rather than tidy: the half that can be
+ * enforced is enforced, and the half that cannot is tested where a parser can
+ * see it.
  *
  * The notice's words come from `answerExport.aiNotice.*` — the SAME keys the
  * .docx export reads. There is one German sentence saying this and one English
@@ -286,7 +295,7 @@ export async function fileResearchReport(
     ref: runId,
     title: documentTitle,
     request,
-    render: async ({ projectName }) => {
+    render: async ({ projectName, marking }) => {
       const profile = await loadProfile(projectId, session.organizationId)
       // `renderMarkdownPdf` refuses a body over `MAX_MARKDOWN_PDF_CHARS` and
       // this call does NOT catch that, deliberately. Three things follow, and
@@ -305,11 +314,16 @@ export async function fileResearchReport(
       //      `fileReportIfCommissioned`, so the report response carries
       //      `filingFailed: true` — the promise the starting banner made
       //      („wird abgelegt") was made and broken, and that is the one case
-      //      that key exists for. No reason travels with it, deliberately: a
-      //      quota refusal, a revoked permission and a report too long to
-      //      render are one fact to an architect — the document is not there.
-      //      The length and the limit are on the error, and the error is in the
-      //      log the operator reads.
+      //      that key exists for. The whole chain is named here because a key
+      //      nobody reads is the same as no key at all, which is what this one
+      //      was for a while: `deep-research-client.ts` carries it across the
+      //      boundary, `use-deep-research` / `use-load-job-data` record it on
+      //      the run's success banner, and `DeepResearchBanner` prints
+      //      `deepResearch.success.filingFailedLine`. No reason travels with
+      //      it, deliberately: a quota refusal, a revoked permission and a
+      //      report too long to render are one fact to an architect — the
+      //      document is not there. The length and the limit are on the error,
+      //      and the error is in the log the operator reads.
       //
       // Not pre-checked here even though the length is known before the
       // permission read and the two lookups it would save. The bound is the
@@ -357,9 +371,15 @@ export async function fileResearchReport(
         // at the back, as the apparatus they are, and the sources it cites
         // stay exactly where the sanitizer left them.
         sections: legalBasisSection(cards, t),
-        aiProvenance: { runId },
+        // Handed down by the seam and handed straight back below, so the
+        // marking in the file's `Keywords` and the marking
+        // `fileGeneratedDocument` verifies are the same string by construction.
+        // This producer used to build its own from `{ runId }`, which was right
+        // twice and is now right once — for the reason the seam gives: it is
+        // the one place that knows whether a reference IS a run.
+        marking,
       })
-      return { bytes, contentType: PDF_MEDIA_TYPE }
+      return { bytes, contentType: PDF_MEDIA_TYPE, marking }
     },
   })
 }
