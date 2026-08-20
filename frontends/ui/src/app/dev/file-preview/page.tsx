@@ -14,6 +14,7 @@
  */
 
 import { notFound } from 'next/navigation'
+import { use } from 'react'
 import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
 
@@ -70,6 +71,45 @@ const FIXTURE: FileItem = {
   ],
 }
 
+/**
+ * The same pane holding a document PILOTI wrote, which is the state nothing had
+ * ever photographed.
+ *
+ * Every difference from `FIXTURE` above is a consequence of one decision — a
+ * machine-authored document is deliberately never dispatched to `/v1/ingest`
+ * (`lib/documents/generated.ts`) — and the pane has to stay honest about all of
+ * them at once:
+ *
+ *   - `status: 'stored'` is the only status `isNeverIndexedStatus` accepts. It
+ *     is what greys „Piloti dazu fragen" and swaps its hint from „Sobald die
+ *     Datei zitierbar ist" (a promise of a wait) to a sentence saying there is
+ *     no wait coming.
+ *   - `authoredBy: 'agent'` is what draws „Von Piloti erstellt" under the name.
+ *   - No summary, no chunks, no tags, no content types — those are ingestion
+ *     output, and no ingestion ran. Inventing them here would photograph a
+ *     „Von Piloti indexiert" rail that the real document can never show.
+ *   - The filename is the real shape `generatedFilename` produces:
+ *     `slug(title)-YYYY-MM-DD.pdf`, lower-case, umlauts folded, from a title
+ *     the model itself wrote.
+ */
+const GENERATED_FIXTURE: FileItem = {
+  id: 'dev-doc-generated',
+  filename: 'fluchtweglaengen-gebaeudeklasse-4-2026-06-14.pdf',
+  displayName: null,
+  fileSize: 128_400,
+  contentType: 'application/pdf',
+  status: 'stored',
+  authoredBy: 'agent',
+  folderId: null,
+  createdAt: '2026-06-14T09:00:00Z',
+  errorMessage: null,
+  summary: null,
+  pageCount: 6,
+  chunkCount: 0,
+  contentTypes: [],
+  tags: [],
+}
+
 // Install the fetch shim at module scope (before any component effect fires) so
 // the pane's preview / visual-details fetches always resolve. Idempotent +
 // dev/browser-guarded.
@@ -108,14 +148,22 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   }
 }
 
-export default function FilePreviewDevPage(): JSX.Element {
+export default function FilePreviewDevPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}): JSX.Element {
   if (process.env.NODE_ENV !== 'development') {
     notFound()
   }
+  // `?authored=agent` swaps in the document Piloti wrote. One route rather than
+  // two so the two states are photographed through the same dialog, with the
+  // same shim and the same props — the only variable is the file.
+  const authored = use(searchParams).authored
 
   return (
     <FilePreviewDialog
-      file={FIXTURE}
+      file={authored === 'agent' ? GENERATED_FIXTURE : FIXTURE}
       projectId="proj-demo"
       projectName="Wohnbau Nord — Linz"
       canManage

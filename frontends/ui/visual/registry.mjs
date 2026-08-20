@@ -284,6 +284,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[role="dialog"]',
   },
   {
+    id: 'file-preview-authored',
+    mobile: true,
+    path: '/dev/file-preview?authored=agent',
+    description:
+      'The same modal holding a document PILOTI wrote. Compare it with `file-preview`: same dialog, same shim, the only variable is the file. „Von Piloti erstellt" sits under the name; „Piloti dazu fragen" is GREY, and its hint says there is nothing to wait for rather than „Sobald die Datei zitierbar ist" — a machine-authored document is deliberately never dispatched to /v1/ingest, so „not citable YET" would be a lie with no yet in it. The „Von Piloti indexiert" rail is absent for the same reason, and with it the summary, the chunk count, the tags and the content types: those are ingestion output, and no ingestion ran. What this pins is that the pane never claims an ingestion that did not happen — the failure it would otherwise photograph is a report presented as ordinary Projektwissen, which is exactly what the whole authorship column exists to prevent.',
+    waitFor: '[role="dialog"]',
+  },
+  {
     id: 'file-preview-model',
     mobile: true,
     path: '/dev/file-preview-model',
