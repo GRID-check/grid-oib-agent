@@ -437,13 +437,18 @@ class DocumentMetadataStore:
         ``to_path``. ``to_path`` of ``None``/``""`` re-files the subtree at the
         project root (what a delete does to the folder's direct children).
 
-        Done as two UPDATEs rather than a fetch-and-loop so the whole subtree
-        moves atomically, and NOT as a bare ``LIKE 'from_path%'``: a folder
-        called ``Plan`` must not carry ``Plangrundlagen`` with it, which is
-        exactly the boundary the ``/`` in the second statement enforces. LIKE
-        metacharacters in the caller's path are escaped for the same reason the
-        BFF escapes them — a folder named ``100 % Plans`` cannot be allowed to
-        match half the project.
+        TWO statements, in one transaction, mirroring ``rewriteDescendantPaths``
+        on the BFF side: the folder itself is an equality UPDATE, and its
+        descendants are a single prefix-replace over the rows that share
+        ``from_path/``. A row-by-row loop would be the same result with N
+        statements and a half-moved subtree if it failed part-way; nothing is
+        committed here until both have run.
+
+        The second statement is deliberately NOT a bare ``LIKE 'from_path%'``: a
+        folder called ``Plan`` must not carry ``Plangrundlagen`` with it, which
+        is exactly the boundary the ``/`` enforces. LIKE metacharacters in the
+        caller's path are escaped for the same reason the BFF escapes them — a
+        folder named ``100 % Plans`` cannot be allowed to match half the project.
 
         Returns the number of rows re-filed (0 when nothing was under it).
         """
@@ -467,28 +472,24 @@ class DocumentMetadataStore:
                 )
                 updated += exact.rowcount or 0
 
-                # Descendants: replace the leading ``prefix/`` with ``target/``
-                # (or strip it entirely when the subtree lands at the root).
-                rows = conn.execute(
+                # Descendants: swap the leading ``prefix/`` for ``target/`` (or
+                # strip it when the subtree lands at the root). ``substr`` is
+                # 1-indexed in both SQLite and Postgres, so the cut starts one
+                # past the separator; ``||`` concatenates in both.
+                descendants = conn.execute(
                     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(
-                        f"SELECT filename, folder_path FROM {TABLE_NAME} "
+                        f"UPDATE {TABLE_NAME} SET folder_path = :new_prefix || substr(folder_path, :cut) "
                         "WHERE collection = :collection AND folder_path LIKE :pattern ESCAPE '\\'"
                     ),
-                    {"collection": collection, "pattern": f"{_escape_like(prefix)}/%"},
-                ).fetchall()
-                for filename, current in rows:
-                    tail = str(current)[len(prefix) + 1 :]
-                    moved = f"{target}/{tail}" if target else tail
-                    conn.execute(
-                        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
-                        text(
-                            f"UPDATE {TABLE_NAME} SET folder_path = :moved "
-                            "WHERE collection = :collection AND filename = :filename"
-                        ),
-                        {"moved": moved, "collection": collection, "filename": filename},
-                    )
-                    updated += 1
+                    {
+                        "new_prefix": f"{target}/" if target else "",
+                        "cut": len(prefix) + 2,
+                        "collection": collection,
+                        "pattern": f"{_escape_like(prefix)}/%",
+                    },
+                )
+                updated += descendants.rowcount or 0
                 conn.commit()
         except Exception as e:
             logger.warning("Failed to rewrite folder paths under %r in %s: %s", from_path, collection, e)
