@@ -5,6 +5,8 @@
  * retrieves by name in that text; a silent subject id is not enough.
  */
 
+import type { DocumentAuthor } from '@/lib/db/schema'
+
 export function documentAskQuestion(name: string, kind: 'open' | 'keyPoints' | 'oib' = 'open'): string {
   switch (kind) {
     case 'keyPoints':
@@ -45,6 +47,12 @@ export function fileItemFromStatus(body: {
   chunkCount?: number | null
   contentTypes?: string[] | null
   tags?: string[] | null
+  /**
+   * Provenance, when the payload carries it. Optional because this mapper also
+   * serves a status body written before the column existed, and absent means
+   * exactly what the column's default means — a person uploaded it.
+   */
+  authoredBy?: DocumentAuthor | null
 }): {
   id: string
   filename: string
@@ -60,6 +68,7 @@ export function fileItemFromStatus(body: {
   chunkCount: number | null
   contentTypes: string[] | null
   tags: string[] | null
+  authoredBy?: DocumentAuthor
 } {
   return {
     id: body.id,
@@ -79,5 +88,9 @@ export function fileItemFromStatus(body: {
     chunkCount: body.chunkCount ?? null,
     contentTypes: body.contentTypes ?? null,
     tags: body.tags ?? null,
+    // Omitted rather than `null` when unknown: `FileItem.authoredBy` is
+    // OPTIONAL and its absence already means "a person uploaded it", so writing
+    // a null would be inventing a third state the byline has to interpret.
+    ...(body.authoredBy ? { authoredBy: body.authoredBy } : {}),
   }
 }

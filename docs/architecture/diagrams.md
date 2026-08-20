@@ -134,15 +134,27 @@ quota ledger. So: two rows, two producers (`diagram_svg`, `diagram_pdf`), one
 
 That collided with **migration 0064**, which allowed one machine-authored
 document per (organization, project, run). **Migration 0065** widens that unique
-index and `findDocumentAuthoredByRun` *together* — which is the move 0064's own
+index and `findDocumentAuthoredByRef` *together* — which is the move 0064's own
 header prescribes — so the rule is now one document per (organization, project,
 run, **producer**). A producer is a KIND OF DELIVERABLE, and a run owes at most
 one of each kind. `deep_research` is unaffected.
 
-The alternative — two synthetic run ids, `{run}:svg` and `{run}:pdf` — needed no
-migration and was rejected: `authored_by_run_id` exists so somebody can later ask
-what wrote a file and in which run, and a key that joins back to no real run is
+The alternative — two synthetic ids, `{ref}:svg` and `{ref}:pdf` — needed no
+migration and was rejected: `authored_by_ref` exists so somebody can later ask
+what wrote a file and where it came from, and a key that joins back to nothing is
 what the schema calls *"an audit trail in appearance only"*.
+
+**A diagram's reference is not a run id, and since migration 0066 nothing claims
+it is.** The browser builds it as `{chat answer id}-{FNV-1a of the source}`, so
+one answer holding two diagrams files two documents. That value went into a
+column called `authored_by_run_id` and rode the `document.generated` audit event
+as the id of an `agent_run` target — a structured assertion, in the field the
+audit-log export filters on, that a string which is not a job id is one. Anyone
+resolving it found nothing, and finding nothing is indistinguishable from a run
+nobody has opened yet. The column is now `authored_by_ref` beside
+`authored_by_ref_kind`, the kind is derived from the producer rather than passed
+in, and the audit target's TYPE is that kind — `answer_artifact` here,
+`agent_run` for a research report.
 
 **Where the source lives: inside the SVG's `<metadata>`.** It has to travel WITH
 the artifact, because the person who needs to regenerate or hand-edit the drawing

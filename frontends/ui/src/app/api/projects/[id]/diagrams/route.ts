@@ -53,9 +53,16 @@ const MAX_DIAGRAM_REQUEST_BYTES = 2 * (MAX_DIAGRAM_SVG_BYTES + MAX_DIAGRAM_SOURC
 
 const fileDiagramSchema = z.object({
   /**
-   * The chat message the diagram was drawn in. It is `authored_by_run_id` and
-   * half the idempotency key (migration 0065), so pressing the button twice on
-   * one message files nothing twice.
+   * The chat answer the diagram was drawn in, plus a hash of its source. It is
+   * `authored_by_ref` and half the idempotency key (migrations 0065/0066), so
+   * pressing the button twice on one diagram files nothing twice.
+   *
+   * The WIRE name is still `runId`, and it is the one place this change did not
+   * reach: the browser that sends it (`features/diagrams`) is what would have to
+   * change with it, and renaming a request field is a coordinated deploy rather
+   * than a rename. Everything downstream of `parseJsonBody` calls it what it is;
+   * this line is the seam, and it is worth one comment rather than a wrong name
+   * spreading inwards from it.
    */
   runId: z.string().min(1).max(200),
   title: z.string().min(1).max(200),
@@ -101,7 +108,7 @@ export const POST = apiRoute<Params>(
       const filed = await fileDiagramDocuments({
         session,
         projectId: params.id,
-        runId: body.runId,
+        answerRef: body.runId,
         title: body.title,
         sourceKind: body.sourceKind,
         source: body.source,

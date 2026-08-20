@@ -73,27 +73,36 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   typed_table: 'presentational',
   norm_chain: 'presentational',
   // The one drawing the renderer does not compute (`components/DiagramCard.tsx`).
-  // Presentational, and the decision is worth stating because the card ARRIVED
-  // classified `'interactive'`: it was designed with an „Im Projekt ablegen"
-  // button of its own, and that button is not in v1.
   //
-  // It would not be enough to add it and flip this line. A decision here is a
-  // `CardDecision` plus a timestamp and NOTHING ELSE (see `CardInteraction`),
-  // and the thing worth persisting about a filed diagram is the id of the
-  // document it became — the answer's one pointer into the Files pane. Storing
-  // `filed` would record that it happened and lose where it went, permanently,
-  // because the card would then stop offering the button that returns the id.
-  // Filing keys on (answer, source hash, producer), so pressing it twice files
-  // nothing twice: not persisting leaves a reader who reloads with a live
-  // button that idempotently gives them the link back, which is a recoverable
-  // loss where the other is not. ADR-0030's own test is "a decision the user
-  // would be annoyed to make twice", and this write is not one.
+  // This card HAS the „Im Projekt ablegen" button — the same one the mermaid
+  // FENCE has, through the same `useDiagramFiling` — and is still
+  // `presentational`. That is not a contradiction, and the earlier note here
+  // conflated two things that this entry now keeps apart:
   //
-  // So filing stays where it already works — on the mermaid FENCE
-  // (`features/diagrams/components/mermaid-diagram.tsx`), whose affordance
-  // appears wherever a surface supplies a `DiagramFilingTarget`. The day
-  // `CardInteraction` can carry a payload, this card can have the button and
-  // this line becomes `'interactive'`.
+  //   - **Should the card offer the action?** Yes, and it always should have.
+  //     Which of the two surfaces a reader gets is not their choice and not a
+  //     property of the drawing — it is whichever shape the model emitted — so
+  //     an affordance on the fence and not here made the same Verfahrensablauf
+  //     saveable by accident.
+  //   - **Should the outcome be PERSISTED as a `CardInteraction`?** No, and
+  //     this is what the classification actually governs. A decision here is a
+  //     `CardDecision` plus a timestamp and NOTHING ELSE, while the thing worth
+  //     remembering about a filed diagram is the id of the document it became —
+  //     the answer's one pointer into the Files pane. Storing `filed` would
+  //     record that it happened, lose where it went, and remove the button that
+  //     could give the id back.
+  //
+  // The button never needed the payload. Filing keys on (answer, source hash,
+  // producer) — `diagramRunId` and migration 0065's index — so a reader who
+  // reloads presses the same control and idempotently gets the same document
+  // and the same link. Nothing is written here, and ADR-0030's own test —
+  // "a decision the user would be annoyed to make twice" — is not met, because
+  // making it twice costs nothing and returns the same answer.
+  //
+  // So the previous note's condition ("the day `CardInteraction` can carry a
+  // payload, this line becomes `'interactive'`") pointed at the wrong thing and
+  // is withdrawn: a payload would let the id be REMEMBERED, which is a nicety,
+  // not the precondition for offering the action.
   diagram: 'presentational',
   // The two generic polish cards: expanding a takeaway or a callout's
   // background is view state for one reader, not a decision — nothing is

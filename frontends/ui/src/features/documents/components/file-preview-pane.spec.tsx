@@ -638,7 +638,16 @@ describe('FilePreviewPane — a report Piloti wrote', () => {
     expect(ask).toBeDisabled()
     // NOT "Once the file is citable": the report was deliberately never
     // indexed, so there is no "once".
-    expect(ask).toHaveAttribute('title', 'Created by Piloti — not in the knowledge base')
+    //
+    // And the reason is on the WRAPPER, not the button: a disabled `<button>`
+    // dispatches no pointer events in Chrome or Safari, so a `title` on it is a
+    // tooltip that can never open. The description is also announced, so the
+    // sentence exists for a reader who is not hovering anything.
+    expect(ask.closest('[title]')).toHaveAttribute(
+      'title',
+      'Created by Piloti — not in the knowledge base',
+    )
+    expect(ask).toHaveAccessibleDescription('Created by Piloti — not in the knowledge base')
   })
 
   it('still promises the wait for a document that really is being read', () => {
@@ -646,6 +655,7 @@ describe('FilePreviewPane — a report Piloti wrote', () => {
 
     const ask = screen.getByRole('button', { name: 'Ask Piloti' })
     expect(ask).toBeDisabled()
-    expect(ask).toHaveAttribute('title', 'Once the file is citable')
+    expect(ask.closest('[title]')).toHaveAttribute('title', 'Once the file is citable')
+    expect(ask).toHaveAccessibleDescription('Once the file is citable')
   })
 })

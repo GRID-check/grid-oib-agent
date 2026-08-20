@@ -23,6 +23,11 @@ export const answerExport: typeof en.answerExport = {
     title: 'KI-generiert — nicht geprüft',
     body: 'Dieses Dokument hat Piloti erstellt; ein Mensch hat es nicht geprüft. Es ist ein Entwurf und kein Nachweis — prüfen Sie jede Angabe, bevor Sie das Dokument weitergeben oder einreichen.',
   },
+  // Siehe die englische Quelle für die drei Bedingungen an diesen Satz: wahr
+  // zum Satzzeitpunkt, kein Fehler und keine Entschuldigung. „nicht
+  // dargestellt" beschreibt die Datei; „konnte nicht" beschriebe die Arbeit.
+  diagramPlaceholder:
+    'Diagramm — in dieser Datei nicht dargestellt. Die Antwort in Piloti zeigt es als Grafik.',
   question: 'Frage',
   answer: 'Antwort',
   project: 'Projekt',

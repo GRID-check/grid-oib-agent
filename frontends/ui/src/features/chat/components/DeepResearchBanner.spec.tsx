@@ -104,7 +104,7 @@ describe('DeepResearchBanner', () => {
 
     expect(screen.getByText('Filed in the project: fluchtwege-2026-08-20.docx')).toBeInTheDocument()
     // The one deep-link shape the Files feature already uses — never a second one.
-    expect(screen.getByRole('link', { name: 'Open in Project' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Open in project' })).toHaveAttribute(
       'href',
       '/app/projects/proj-1/files?doc=doc-9'
     )
@@ -118,7 +118,7 @@ describe('DeepResearchBanner', () => {
     // Filing is refused for a whole family of ordinary reasons. Saying nothing
     // is the requirement; a "maybe" or a dead link would be worse than silence.
     expect(screen.queryByText(/Filed in the project/)).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Open in Project' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Open in project' })).not.toBeInTheDocument()
   })
 
   test('renders no modal or confirmation on any banner state', () => {

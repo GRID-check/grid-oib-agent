@@ -157,6 +157,16 @@ export function FilePreviewPane({
    * section that describes an ingestion that never ran.
    */
   const showIndexedSection = showMetadataPanel && !isNeverIndexedStatus(file.status)
+  /**
+   * Why „Piloti dazu fragen" is off. „Sobald die Datei zitierbar ist" promises
+   * a wait; a report Piloti wrote was deliberately never dispatched to
+   * `/v1/ingest`, so there is no wait to promise and the sentence says that
+   * instead.
+   */
+  const askDisabledReason = isNeverIndexedStatus(file.status)
+    ? t('authorship.notInKnowledge')
+    : t('assignment.askDisabled')
+  const askReasonId = `ask-disabled-${file.id}`
   const router = useRouter()
   const storeMode = useFilePreviewStore((state) => state.mode)
   const storeFileId = useFilePreviewStore((state) => state.file?.id)
@@ -384,18 +394,21 @@ export function FilePreviewPane({
             affordance appears in any other form here: that is the design, not
             a gap. */}
         {projectId && !isCitableStatus(file.status) && !isFailedStatus(file.status) && (
-          <Button
-            size="sm"
-            className="h-8 shrink-0"
-            disabled
-            title={
-              isNeverIndexedStatus(file.status)
-                ? t('authorship.notInKnowledge')
-                : t('assignment.askDisabled')
-            }
-          >
-            {t('assignment.ask')}
-          </Button>
+          // The reason sits on a WRAPPER, not on the button. A disabled
+          // `<button>` dispatches no pointer events in Chrome or Safari, so a
+          // `title` on it is a tooltip that can never open — the one sentence
+          // explaining why Ask is off was unreachable for every reader. The
+          // span is not disabled and does receive hover, so the explanation
+          // exists again; `aria-describedby` gives it to the reader who is not
+          // hovering anything.
+          <span title={askDisabledReason} className="shrink-0">
+            <Button size="sm" className="h-8 shrink-0" disabled aria-describedby={askReasonId}>
+              {t('assignment.ask')}
+            </Button>
+            <span id={askReasonId} className="sr-only">
+              {askDisabledReason}
+            </span>
+          </span>
         )}
         <Button
           type="button"

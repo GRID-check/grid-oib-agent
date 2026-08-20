@@ -16,6 +16,11 @@ vi.mock('../render-diagram', () => ({
   diagramRendererFor: () => renderer,
 }))
 
+const openFiledDocument = vi.fn()
+vi.mock('@/features/documents/lib/open-filed-document', () => ({
+  openFiledDocument: (...args: unknown[]) => openFiledDocument(...args),
+}))
+
 import { MermaidDiagram } from './mermaid-diagram'
 import { DiagramFilingProvider, diagramRunId } from '../diagram-filing-context'
 
@@ -120,6 +125,8 @@ describe('when it draws', () => {
       runId: diagramRunId('msg_42', SOURCE),
       sourceKind: 'mermaid',
       source: SOURCE,
+      // The bytes that go into the project, which in light mode are the very
+      // bytes on screen.
       svg: DRAWN,
     })
     expect(await screen.findByRole('link', { name: /open in project/i })).toHaveAttribute(
@@ -230,5 +237,88 @@ describe('the diagram’s identity', () => {
   it('differs between two diagrams in one answer, and between two answers', () => {
     expect(diagramRunId('msg_1', SOURCE)).not.toBe(diagramRunId('msg_1', 'graph LR\n  A --> B'))
     expect(diagramRunId('msg_1', SOURCE)).not.toBe(diagramRunId('msg_2', SOURCE))
+  })
+})
+
+/**
+ * The two grounds a diagram lands on, and the one that is filed.
+ *
+ * A file that only reads correctly inside the dark app is broken — the SVG is
+ * previewed on a paper surface and the PDF is a white page. So the filing
+ * button sends the paper render whatever theme the reader is in, and this is
+ * the assertion that keeps a dark-theme drawing out of an Einreichung.
+ */
+describe('filed on paper, whatever the reader is looking at', () => {
+  beforeEach(() => {
+    renderer.mockImplementation(({ theme }: { theme: string }) =>
+      Promise.resolve(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" data-theme="${theme}"/>`)
+    )
+  })
+
+  afterEach(() => {
+    document.documentElement.className = ''
+  })
+
+  it('sends the paper copy while the page is dark', async () => {
+    document.documentElement.classList.add('dark')
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ svg: { documentId: 'doc-1' }, pdf: { documentId: 'doc-2' } }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <DiagramFilingProvider target={{ projectId: 'proj-1', answerId: 'msg_42' }}>
+        <MermaidDiagram source={SOURCE} />
+      </DiagramFilingProvider>
+    )
+    const button = await screen.findByRole('button', { name: /file in project/i })
+    await waitFor(() => expect(button).not.toBeDisabled())
+    await userEvent.click(button)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body)
+    expect(body.svg).toContain('data-theme="light"')
+    // …and the reader is looking at the charcoal one.
+    expect(screen.getByTestId('mermaid-diagram').innerHTML).toContain('data-theme="dark"')
+  })
+})
+
+/**
+ * A filed artifact opens beside the conversation, not instead of it.
+ *
+ * Still a real link underneath: a modified click, "copy link address" and a
+ * phone all reach the Files route, because `FilePreviewHost` refuses to peek
+ * below the `md` breakpoint and a control that did nothing there would be worse
+ * than one that navigates.
+ */
+describe('once it is in the project', () => {
+  const fileIt = async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ svg: { documentId: 'doc-1' }, pdf: { documentId: 'doc-2' } }),
+      })
+    )
+    render(
+      <DiagramFilingProvider target={{ projectId: 'proj-1', answerId: 'msg_42' }}>
+        <MermaidDiagram source={SOURCE} />
+      </DiagramFilingProvider>
+    )
+    await userEvent.click(await screen.findByRole('button', { name: /file in project/i }))
+    return screen.findByTestId('diagram-open-filed')
+  }
+
+  it('opens the peek pane instead of leaving the thread', async () => {
+    openFiledDocument.mockResolvedValue(true)
+    const link = await fileIt()
+    await userEvent.click(link)
+    expect(openFiledDocument).toHaveBeenCalledWith({ documentId: 'doc-1', projectId: 'proj-1' })
+  })
+
+  it('still names the Files route, so a modified click and a phone both work', async () => {
+    openFiledDocument.mockResolvedValue(true)
+    const link = await fileIt()
+    expect(link).toHaveAttribute('href', expect.stringContaining('doc-1'))
   })
 })

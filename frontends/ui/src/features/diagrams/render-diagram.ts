@@ -19,12 +19,15 @@
  * "what got filed is not what I saw" is not a defect a Ziviltechniker can spot
  * before signing.
  *
- * There is no exception, including for the theme. The diagram is drawn once, in
- * the light theme, and shown on a light surface in both themes — because it is a
- * preview of a DOCUMENT, and the document is filed, converted to PDF and
- * attached to an Einreichung, all of which happen on white. `theme` stays a
- * parameter because a future „dark export" is a caller's choice, not a rewrite;
- * nothing passes `dark` today.
+ * The theme is the ONE thing that is allowed to differ, and only because it
+ * cannot not. The screen and the page are different grounds: a label needs
+ * 4.5:1 against whatever it sits on, and no single ink clears that against both
+ * white paper and the dark card (`diagram-palette.ts` carries the arithmetic).
+ * So a reader in dark mode gets a second render for the FILE — same source,
+ * same font family, same font size, same `htmlLabels`, so the layout is
+ * identical by construction and only the palette moves. Everything that could
+ * make the file disagree with the picture is held fixed; see the header of
+ * `use-rendered-diagram.ts`.
  *
  * ## What is rendered, and what is not
  *
@@ -44,6 +47,7 @@ import {
   type DiagramSourceKind,
 } from '@/lib/diagrams/diagram-sources'
 import { parseDiagramSvg, serializeDiagramSvg } from '@/lib/diagrams/svg'
+import { diagramThemeVariables } from './diagram-palette'
 
 export type DiagramTheme = 'light' | 'dark'
 
@@ -230,6 +234,7 @@ export function flattenComputedStyles(root: SVGElement): void {
  */
 const renderMermaid: DiagramRenderer = async ({ source, id, theme }) => {
   const mermaid = (await import('mermaid')).default
+  const variables = diagramThemeVariables(theme)
 
   mermaid.initialize({
     startOnLoad: false,
@@ -239,7 +244,19 @@ const renderMermaid: DiagramRenderer = async ({ source, id, theme }) => {
     // attack surface `lib/diagrams/svg.ts` guards, one layer earlier — and one
     // layer earlier is where the answer is DISPLAYED, before anything is filed.
     securityLevel: 'strict',
-    theme: theme === 'dark' ? 'dark' : 'default',
+    // The product's own tokens, not mermaid's default theme.
+    //
+    // `base` is the only mermaid theme that honours `themeVariables` in full,
+    // and honouring them in full is the requirement: with `default` every
+    // diagram in this application was drawn in mermaid's lavender
+    // (`#ECECFF` fill, `#9370DB` stroke), which is a brand accent colour in a
+    // product whose design language says it has none. `null` means the tokens
+    // could not be read — no stylesheet, no DOM — and then mermaid's own theme
+    // is the honest fallback, because the alternative is a palette of hexes
+    // written down here that stops matching the app on its next retune.
+    ...(variables
+      ? { theme: 'base' as const, themeVariables: variables }
+      : { theme: theme === 'dark' ? ('dark' as const) : ('default' as const) }),
     // No HTML labels, anywhere. `<foreignObject>` is refused by the server (it
     // is arbitrary HTML inside a file that is served back to browsers) and
     // `@react-pdf/renderer` cannot draw it, so a diagram with HTML labels would

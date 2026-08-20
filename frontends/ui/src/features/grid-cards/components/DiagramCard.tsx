@@ -37,18 +37,40 @@
  * procedure whose Fundstelle vanished because mermaid choked on a bracket is a
  * procedure from nowhere.
  *
- * ## Why the drawing sits on white in both themes
+ * ## Why the drawing has no ground of its own
  *
- * It is a preview of a DOCUMENT. A filed diagram becomes an SVG and a PDF and
- * is attached to an Einreichung, all of which happen on paper; the Files pane
- * already previews PDFs as white pages in dark mode for the same reason. A
- * plate rather than a second card: hairline, no shadow, no elevation, so it
- * reads as the paper the drawing is on and not as a card inside a card.
+ * A flowchart is line and text; the surface under it belongs to whatever it is
+ * lying on, which here is the card. So the plate paints no background and the
+ * card shows through in both themes, while the drawing's INK comes from the
+ * product's tokens per theme (`features/diagrams/diagram-palette.ts`) — the
+ * white plate this replaced was a slab punched into the charcoal page, and what
+ * sat on it was mermaid's inherited lavender. Still a plate rather than a
+ * second card: hairline, no shadow, no elevation, so it frames the drawing
+ * without becoming a card inside a card.
  *
- * `presentational` in CARD_INTERACTIVITY (ADR-0030): this card renders a
- * drawing and commits nothing. Filing a diagram into the project lives on the
- * mermaid FENCE, where the write is component-local and idempotent — see the
- * classification note in `../card-decision.ts`.
+ * The document argument survives where it is true — the bytes that get FILED
+ * are always drawn on paper. That is the fence's `fileSvg`; this card files
+ * nothing (`presentational`), so it never needs it.
+ *
+ * ## It files, and it is still `presentational`
+ *
+ * „Im Projekt ablegen" sits under the drawing, through the same
+ * `useDiagramFiling` the mermaid FENCE uses. It has to: which of the two
+ * surfaces a reader gets is not their choice and not a property of the drawing
+ * — it is whichever shape the model emitted — so an affordance on one and not
+ * the other made the same Verfahrensablauf saveable by accident.
+ *
+ * That does not make the card interactive in ADR-0030's sense, because that
+ * classification governs whether a decision is PERSISTED and this one is not.
+ * A `CardInteraction` is a `CardDecision` plus a timestamp and nothing else, so
+ * storing `filed` would record that it happened and lose the document id. It
+ * does not need storing: filing keys on (answer, source hash, producer), so a
+ * reader who reloads presses the same button and gets the same document back.
+ * The reasoning lives at the `diagram` entry in `../card-decision.ts`.
+ *
+ * The card passes its own `title` — the one the model wrote for THIS drawing —
+ * which is strictly better provenance than the front matter a bare source may
+ * carry, and it is what names the file in the Files pane.
  */
 
 import { type FC } from 'react'
@@ -59,6 +81,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { CodeBlock } from '@/shared/components/CodeBlock'
 import { useTranslations } from '@/i18n'
 import { useRenderedDiagram } from '@/features/diagrams/use-rendered-diagram'
+import { useDiagramFiling } from '@/features/diagrams/use-diagram-filing'
+import { DiagramFilingControls } from '@/features/diagrams/components/diagram-filing-controls'
 import { NormRefFooter } from '../schematics/kit'
 import type { NormReferenceData } from '../schematics/types'
 
@@ -98,7 +122,11 @@ const DrawingSkeleton: FC = () => (
 export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, reference }) => {
   const t = useTranslations('chat')
   const tDiagrams = useTranslations('diagrams')
-  const { svg, failed } = useRenderedDiagram(source)
+  const { svg, fileSvg, failed } = useRenderedDiagram(source)
+  // `fileSvg`, never `svg`: the bytes that go into the project are the paper
+  // ones whatever theme the reader is in. The card's own title beats anything
+  // the source carries — the model wrote it for this drawing.
+  const filing = useDiagramFiling({ source, fileSvg, title })
   const state = failed ? 'failed' : svg ? 'drawn' : 'drawing'
 
   return (
@@ -115,7 +143,7 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
             maxLines={SOURCE_MAX_LINES}
           />
         ) : (
-          <div className="overflow-x-auto rounded-md border border-border bg-white p-3 [&_svg]:h-auto [&_svg]:max-w-full">
+          <div className="overflow-x-auto rounded-md border border-border p-3 [&_svg]:h-auto [&_svg]:max-w-full">
             {svg ? (
               <div
                 // Safe because of what produced the string, not because of where
@@ -137,8 +165,19 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
               says why they are looking at source instead of a picture. Never
               both: „Schematisch — ohne Maßangabe." is a statement about a
               drawing, and on a failure there is none. */}
-          <p className="card-caption text-muted-foreground">
+          {/* The doctrine and the action on one line, in that order. The
+              drawing's claim about itself comes first and the control is a
+              quiet ink link beside it — a filled button here would compete with
+              the drawing above and with the Fundstelle below, both of which
+              outrank "save this". Outside a project the control is absent, not
+              disabled: `DiagramFilingControls` renders nothing without a
+              target. */}
+          <p className="card-caption flex flex-wrap items-center gap-x-3 text-muted-foreground">
             {state === 'failed' ? tDiagrams('fallback') : tDiagrams('schematicOnly')}
+            {/* A drawing that could not be laid out has no bytes to file, so
+                the control appears only on a real picture — the same rule the
+                fence follows by only reaching its figcaption when it drew. */}
+            {state === 'failed' ? null : <DiagramFilingControls filing={filing} />}
           </p>
         </figcaption>
       </figure>

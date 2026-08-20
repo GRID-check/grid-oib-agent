@@ -40,6 +40,27 @@ export const answerExport = {
     title: 'AI-generated — not reviewed',
     body: 'Piloti wrote this document; no person has reviewed it. It is a draft, not proof of compliance — check every statement before you pass the document on or submit it.',
   },
+  /**
+   * Printed where a ```mermaid fence stood, in a document rendered from an
+   * answer that draws that fence as a picture.
+   *
+   * Three things it must be, and each rules something out:
+   *
+   *   - **True at render time.** The drawing is usually not lost — the chat
+   *     offers „Im Projekt ablegen" on every mermaid fence, which files it as
+   *     its own SVG and PDF — but whether anyone pressed it is unknowable when
+   *     this line is typeset. So it points at the conversation, which always
+   *     has the drawing, and never at a document that may not exist.
+   *   - **Not a fault.** This page is a compliance surface. A reader who takes
+   *     a line for an error message assumes the report failed to generate and
+   *     stops trusting the parts that did. „nicht dargestellt" states a
+   *     limitation of the file; „konnte nicht" would state a failure of the
+   *     work.
+   *   - **Not an apology.** One clause naming what is missing and one saying
+   *     where it is. Anything longer competes with the finding it interrupts.
+   */
+  diagramPlaceholder:
+    'Diagram — not reproduced in this file. The answer in Piloti shows it as a drawing.',
   question: 'Question',
   answer: 'Answer',
   project: 'Project',

@@ -895,7 +895,7 @@ export const chat = {
     // The success banner's second action, when something was filed. Worded
     // apart from "View Report" on purpose: that opens the research panel, this
     // opens the file in the project — two places, two words.
-    openInProject: 'Open in Project',
+    openInProject: 'Open in project',
     viewThinking: 'View Thinking',
     viewProgress: 'View Progress',
     // One-liner above the "Starting Deep Research" banner when the turn

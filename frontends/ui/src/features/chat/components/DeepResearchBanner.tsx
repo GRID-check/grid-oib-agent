@@ -11,7 +11,7 @@
 
 'use client'
 
-import { type FC, useCallback } from 'react'
+import { type FC, type MouseEvent, useCallback } from 'react'
 import { CheckCircle2, Info, AlertTriangle, XCircle } from 'lucide-react'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -19,7 +19,9 @@ import { useTranslations } from '@/i18n'
 import type { Translator } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
 import { useLayoutStore } from '@/features/layout/store'
+import { useIsMobile } from '@/hooks/use-is-mobile'
 import { documentFilesHref } from '@/features/documents/lib/document-question'
+import { openFiledDocument } from '@/features/documents/lib/open-filed-document'
 import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks/use-load-job-data'
 import type { DeepResearchBannerType, DeepResearchFiledDocument } from '../types'
@@ -156,6 +158,7 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
   // store already is: both the disclosure and the deep link are facts about
   // where this chat is, not about the message the banner sits in.
   const projectId = useChatStore((s) => s.projectId)
+  const isMobile = useIsMobile()
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const setResearchPanelTab = useLayoutStore((s) => s.setResearchPanelTab)
   const { loadResearchPanelTab } = useLoadJobData()
@@ -229,12 +232,43 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
       ? documentFilesHref(projectId, filedDocument.documentId)
       : undefined
 
+  // Beside the conversation, not instead of it.
+  //
+  // The reader commissioned a run that took minutes; answering "go somewhere
+  // else to look at it" spends the thread they were in. `FilePreviewHost`
+  // already renders a document as a second pane in the chat split — the pattern
+  // citations use — so this routes into that instead of navigating, through the
+  // same `openFiledDocument` the diagram fence calls. Two ways to open one
+  // thing is two things that can disagree.
+  //
+  // Still a real link underneath: modified clicks, "copy link address" and the
+  // phone all reach the Files route, because the peek is suppressed below the
+  // `md` breakpoint and a control that does nothing there would be worse than
+  // one that navigates.
+  const openFiled = useCallback(
+    (event: MouseEvent<HTMLAnchorElement>) => {
+      if (!filedHref || !filedDocument || !projectId) return
+      if (isMobile || event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return
+      event.preventDefault()
+      void openFiledDocument({ documentId: filedDocument.documentId, projectId }).then((opened) => {
+        if (!opened) window.location.assign(filedHref)
+      })
+    },
+    [filedHref, filedDocument, projectId, isMobile],
+  )
+
   const { variant, Icon } = STATUS_META[config.status]
 
   return (
     <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full flex-col gap-1 duration-base ease-entrance motion-reduce:animate-none">
       {escalationReason?.trim() && (
-        <p className="px-1 text-xs leading-relaxed text-warning" role="status">
+        // Muted ink, not `text-warning`. The line narrates WHY the run escalated
+        // — information, not a fault — and the office gold it used to carry is a
+        // provenance/attention signal travelling with neither an icon nor a
+        // label, one inch above an `info` Alert whose blue says the opposite
+        // about the same run. Colour never travels alone; this sentence needs
+        // none.
+        <p className="px-1 text-xs leading-relaxed text-muted-foreground" role="status">
           {t('deepResearch.escalationNarration', { reason: escalationReason.trim() })}
         </p>
       )}
@@ -254,7 +288,9 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
               {actions}
               {filedHref && (
                 <Button variant="outline" size="sm" asChild>
-                  <a href={filedHref}>{t('deepResearch.openInProject')}</a>
+                  <a href={filedHref} onClick={openFiled} data-testid="research-open-filed">
+                    {t('deepResearch.openInProject')}
+                  </a>
                 </Button>
               )}
             </div>

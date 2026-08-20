@@ -14,6 +14,7 @@
  * the CARD does with mermaid's answer.
  */
 import { render, screen, waitFor } from '@/test-utils'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const renderer = vi.fn()
@@ -22,7 +23,7 @@ vi.mock('@/features/diagrams/render-diagram', () => ({
 }))
 
 import { DiagramCard } from './DiagramCard'
-import { DiagramFilingProvider } from '@/features/diagrams/diagram-filing-context'
+import { DiagramFilingProvider, diagramRunId } from '@/features/diagrams/diagram-filing-context'
 
 const SOURCE = 'sequenceDiagram\n  BW->>BB: Einreichunterlagen'
 const DRAWN =
@@ -42,6 +43,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  document.documentElement.className = ''
 })
 
 describe('when it draws', () => {
@@ -70,13 +73,12 @@ describe('when it draws', () => {
     expect(screen.getByText('§§ 60 ff.')).toBeInTheDocument()
   })
 
-  it('offers no filing action, even where a surface supplies a target', async () => {
-    // The card is `presentational` in CARD_INTERACTIVITY and must stay that
-    // way while a decision on a card is `{decision, decidedAt}` and nothing
-    // else: a filing button here would write a document whose id that record
-    // cannot carry. Filing lives on the mermaid FENCE. The provider is the one
-    // an answer inside a project really does wrap this card in, so this asserts
-    // the absence where it would otherwise appear.
+  it('offers the same filing action the fence does, where a surface supplies a target', async () => {
+    // Which of the two surfaces a reader gets is not their choice and not a
+    // property of the drawing — it is whichever shape the model emitted — so an
+    // affordance on the fence and not here made the same Verfahrensablauf
+    // saveable by accident. The provider is the one an answer inside a project
+    // really does wrap this card in.
     render(
       <DiagramFilingProvider target={{ projectId: 'proj-1', answerId: 'msg_42' }}>
         <DiagramCard {...CARD} />
@@ -86,7 +88,94 @@ describe('when it draws', () => {
     await waitFor(() =>
       expect(screen.getByTestId('diagram-card')).toHaveAttribute('data-state', 'drawn')
     )
+    expect(screen.getByRole('button', { name: /file in project/i })).toBeInTheDocument()
+    // The compliance furniture is untouched: the drawing's claim about itself
+    // and its Fundstelle both outrank "save this" and both still stand.
+    expect(screen.getByText(/no dimensions are claimed/i)).toBeInTheDocument()
+    expect(screen.getByText('Wiener Bauordnung')).toBeInTheDocument()
+  })
+
+  it('files the paper bytes under the card’s own title', async () => {
+    // The card HAS a title the model wrote for this drawing, which is better
+    // provenance than the front matter a bare source might carry — and it is
+    // what names the file in the Files pane. The SVG is `fileSvg`: paper,
+    // whatever theme the reader is in.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ svg: { documentId: 'doc-1' }, pdf: { documentId: 'doc-2' } }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(
+      <DiagramFilingProvider target={{ projectId: 'proj-1', answerId: 'msg_42' }}>
+        <DiagramCard {...CARD} />
+      </DiagramFilingProvider>
+    )
+    await userEvent.click(await screen.findByRole('button', { name: /file in project/i }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/projects/proj-1/diagrams')
+    const body = JSON.parse((init as { body: string }).body)
+    expect(body).toMatchObject({
+      // The same key the fence uses, so one drawing in one answer is one file
+      // however the model chose to emit it.
+      runId: diagramRunId('msg_42', CARD.source),
+      title: CARD.title,
+      sourceKind: 'mermaid',
+      svg: DRAWN,
+    })
+  })
+
+  it('files the paper copy while the reader is in dark mode', async () => {
+    // The regression this catches is silent and only visible on paper: a
+    // charcoal drawing filed as an SVG previews on a paper surface and prints
+    // on a white PDF page, where its light ink is invisible.
+    document.documentElement.classList.add('dark')
+    renderer.mockImplementation(({ theme }: { theme: string }) =>
+      Promise.resolve(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" data-theme="${theme}"/>`)
+    )
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ svg: { documentId: 'doc-1' }, pdf: { documentId: 'doc-2' } }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(
+      <DiagramFilingProvider target={{ projectId: 'proj-1', answerId: 'msg_42' }}>
+        <DiagramCard {...CARD} />
+      </DiagramFilingProvider>
+    )
+    const button = await screen.findByRole('button', { name: /file in project/i })
+    await waitFor(() => expect(button).not.toBeDisabled())
+    await userEvent.click(button)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body)
+    expect(body.svg).toContain('data-theme="light"')
+    // …and the card is showing the charcoal one.
+    expect(screen.getByTestId('diagram-card').innerHTML).toContain('data-theme="dark"')
+  })
+
+  it('offers nothing at all outside a project, rather than a dead control', async () => {
+    render(<DiagramCard {...CARD} />)
+    await waitFor(() =>
+      expect(screen.getByTestId('diagram-card')).toHaveAttribute('data-state', 'drawn')
+    )
     expect(screen.queryByRole('button', { name: /file in project/i })).toBeNull()
+    expect(screen.queryByTestId('diagram-filing')).toBeNull()
+  })
+
+  it('offers no filing on a drawing that could not be laid out', async () => {
+    // There are no bytes to file, and a control that cannot work is worse than
+    // no control. The title, the caption and the Fundstelle still stand.
+    renderer.mockRejectedValue(new Error('Parse error on line 2'))
+    render(
+      <DiagramFilingProvider target={{ projectId: 'proj-1', answerId: 'msg_42' }}>
+        <DiagramCard {...CARD} />
+      </DiagramFilingProvider>
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('diagram-card')).toHaveAttribute('data-state', 'failed')
+    )
+    expect(screen.queryByTestId('diagram-filing')).toBeNull()
+    expect(screen.getByText('Wiener Bauordnung')).toBeInTheDocument()
   })
 })
 
