@@ -337,6 +337,20 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-browser-search-failed"]',
   },
   {
+    id: 'file-browser-folder-menu',
+    path: '/dev/file-browser?variant=folder-menu',
+    description:
+      'A folder row\u2019s own \u22ef menu. Folders were create-only: a name typed wrong stayed wrong, and a folder made by mistake stayed in the tree forever. Rename and Delete now sit on the folder itself, one hover away, with the destructive one carrying its own colour \u2014 and the trigger stays lit while its menu is up, so the control that opened it does not vanish underneath the reader.',
+    waitFor: '[role="menuitem"]',
+  },
+  {
+    id: 'file-browser-folder-rename',
+    path: '/dev/file-browser?variant=folder-rename',
+    description:
+      'Renaming a folder happens in the row itself \u2014 same indent, same width, pre-filled with the current name. The reader is looking at the name they want to change, so a dialog would take it off screen to ask about it. Enter commits, Escape cancels, an unchanged name makes no request at all, and a failed save leaves the field open with the typed text intact.',
+    waitFor: '[data-testid="folder-rename-input-f-brand"]',
+  },
+  {
     id: 'archiv-library',
     mobile: true,
     path: '/dev/archiv-library',

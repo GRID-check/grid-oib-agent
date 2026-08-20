@@ -1,0 +1,13 @@
+---
+features:
+  - >
+    Folders in a project's Files can now be renamed, moved and deleted, not only
+    created. Hovering a folder in the tree reveals its own ⋯ menu: Rename turns
+    the row into a text field right where the name already is, and Delete asks
+    once before removing it.
+  - >
+    Deleting a folder never deletes what was filed in it. The confirmation names
+    where things go — "Its 4 documents and 1 subfolder are not deleted — they
+    move to Brandschutz" — and the documents and any subfolders are re-filed
+    into the folder above before the folder itself is removed, with a toast
+    afterwards repeating the count.

@@ -15,6 +15,17 @@ To upload, drag and drop files onto the upload zone or click to browse. Multiple
 
 The project Files workspace shows folders, the file grid, and the preview side by side on desktop. On small screens the panes stack — folders above the file grid — and selecting a file opens the preview as a full-screen overlay with a close button.
 
+### Folders
+
+The folder tree in the left pane is the project's filing system, and it supports the full set of operations — not just creating folders.
+
+- **Create** — `New folder` at the bottom of the tree adds a top-level folder; hovering a row reveals a `+` (`Add subfolder in {name}`) that nests one inside it. Both open an inline name field; Enter commits, Escape cancels.
+- **Rename** — the row's `⋯` menu → `Rename…` turns the row itself into an input, pre-filled with the current name. Enter commits, Escape cancels, and a name that did not change makes no request at all. If the rename fails the row stays in edit mode with your text intact, so nothing is retyped.
+- **Move** — `PATCH …/folders/{folderId}` accepts a new `parentId`; moving a folder into itself or into one of its own subfolders is refused rather than silently producing a loop.
+- **Delete** — the same menu's `Delete…`. **A folder is a label, and deleting the label never deletes the work.** The confirmation names where things go — *"Its 4 document(s) and 1 subfolder(s) are not deleted — they move to 'Brandschutz'"* — and the documents and child folders are re-filed into the deleted folder's parent (the project root when it had none) before the row is removed. The toast afterwards repeats the count: *"Folder deleted. 4 document(s) moved to 'Brandschutz'."*
+
+Renaming or moving a folder rewrites the stored path of everything beneath it in the same transaction, so a deeply nested document is never left pointing at a path that no longer exists.
+
 ### The file card grid
 
 Files render as cards in a responsive grid. Each card shows:

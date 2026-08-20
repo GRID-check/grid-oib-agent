@@ -23,6 +23,13 @@
  * offered them a reset for it. The fixture makes the search endpoint 500 and
  * runs a query, which is the only way to see the state at all.
  *
+ * `?variant=folder-rename` and `?variant=folder-menu` render the two states the
+ * folder tree only reaches through an interaction: a row turned into its own
+ * name field, and the per-row ⋯ menu that gets it there. Both drive themselves —
+ * the rename editor is internal component state, and the row controls are
+ * hover-revealed on a pointer device, so a fixture that merely rendered the tree
+ * would be a picture of neither.
+ *
  * `?variant=uploading` renders the moment right after a batch lands, which is
  * the one row where the cards are NOT all the same shape: a document that is
  * still being read has no AI summary yet, while its neighbours do. That is the
@@ -34,7 +41,7 @@
  * ingestion runs after it.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { FileBrowserPane } from '@/features/documents/components/file-browser-pane'
 import { FolderTreePane } from '@/features/documents/components/folder-tree-pane'
@@ -189,7 +196,77 @@ export default function FileBrowserDevPage(): JSX.Element {
   }
   if (variant === 'uploading') return <JustUploadedFixture />
   if (variant === 'search-failed') return <SearchFailedFixture />
+  if (variant === 'folder-rename') return <FolderCrudFixture mode="rename" />
+  if (variant === 'folder-menu') return <FolderCrudFixture mode="menu" />
   return <FileBrowserFixtures />
+}
+
+/**
+ * The folder tree's two interaction-only states.
+ *
+ * `mode="menu"` opens the ⋯ menu on a row — which is also the only way to SEE
+ * the row controls on a pointer device, since they are hover-revealed
+ * (`data-[state=open]:opacity-100` keeps the trigger lit while its menu is up).
+ * `mode="rename"` goes one step further and picks Rename, so the row is
+ * replaced in place by its own name field — same row, same indent, same width
+ * as the folder it stands in for. The two cannot share a page: the rename input
+ * commits on blur, so opening a menu anywhere else would end the rename.
+ */
+function FolderCrudFixture({ mode }: { mode: 'menu' | 'rename' }): JSX.Element {
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
+  const noop = async () => true
+
+  // `reactStrictMode` runs an effect twice on mount, and Enter on the trigger
+  // TOGGLES the menu — so an unguarded effect opened it and immediately shut it
+  // again. The ref makes the drive run once; there is deliberately no cleanup,
+  // because Strict Mode's cleanup would cancel the frame the first pass queued.
+  const driven = useRef(false)
+  useEffect(() => {
+    if (driven.current) return
+    driven.current = true
+    const trigger = document.querySelector<HTMLButtonElement>('[data-testid="folder-actions-f-brand"]')
+    if (!trigger) return
+    // Driven by KEYBOARD, not `.click()`: the trigger opens on pointerdown,
+    // which a synthetic click never produces. Enter opens the menu and moves
+    // focus to the first item, so a second Enter picks Rename — the same two
+    // keystrokes a reader who never touches the mouse would use.
+    const press = (node: Element | null) =>
+      node?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    trigger.focus()
+    press(trigger)
+    if (mode === 'menu') return
+    // The menu content is portaled and mounts a frame later.
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => press(document.activeElement))
+    })
+  }, [mode])
+
+  return (
+    <main className="mx-auto flex max-w-3xl flex-col gap-8 p-6">
+      <div>
+        <h1 className="text-lg font-semibold">
+          {mode === 'menu' ? 'Folder tree — the row’s own actions' : 'Folder tree — renaming in place'}
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {mode === 'menu'
+            ? 'Rename and Delete on the folder itself, the destructive one carrying its own colour.'
+            : 'The name is edited where it already is, not in a dialog that takes it off screen.'}
+        </p>
+      </div>
+
+      <div className="w-64 overflow-hidden rounded-xl border" data-testid="folder-crud-fixture">
+        <FolderTreePane
+          folders={FOLDERS}
+          selectedFolderId={selectedFolderId}
+          onSelectFolder={setSelectedFolderId}
+          onCreateFolder={async () => false}
+          onRenameFolder={noop}
+          onDeleteFolder={noop}
+          isLoading={false}
+        />
+      </div>
+    </main>
+  )
 }
 
 /**
@@ -322,6 +399,10 @@ function FileBrowserFixtures(): JSX.Element {
               selectedFolderId={selectedFolderId}
               onSelectFolder={setSelectedFolderId}
               onCreateFolder={noopCreate}
+              // Folders are full CRUD now; the fixture carries the row controls
+              // so the tree's hover state and its menu stay reviewable.
+              onRenameFolder={async () => true}
+              onDeleteFolder={async () => true}
               isLoading={false}
             />
           </div>

@@ -504,6 +504,26 @@ tree renders recursively). The prior "can't nest" symptom was **UX only** — th
 was no per-folder affordance. **Fix**: `folder-tree-pane.tsx` now shows an "add
 subfolder" `+` on each folder row and makes root creation explicit.
 
+`folder-service.ts` carries the full set: `createProjectFolder`,
+`updateProjectFolder` (rename and/or move) and `deleteProjectFolder`, behind
+`POST`/`PATCH`/`DELETE` on `/api/projects/{id}/folders[/{folderId}]`. Two
+invariants are load-bearing:
+
+- **`path` is materialised**, so a rename or a move has to rewrite every
+  descendant row. `rewriteDescendantPaths` does it as one prefix-replace
+  statement per subtree inside the caller's transaction (the descendants share
+  the old prefix by construction), with `LIKE` metacharacters escaped so a
+  folder called `100 % Plans` cannot match half the project. A move into the
+  folder's own subtree is rejected up front — with a materialised path a cycle
+  is invisible until something walks it.
+- **`documents.folder_id` is `ON DELETE CASCADE`** (see the deletion pipeline),
+  so deleting a folder row would take its documents with it. `deleteProjectFolder`
+  re-files the documents *and* re-parents the child folders into the deleted
+  folder's own parent **inside the transaction, before the delete**, and returns
+  `{ documentsMoved, foldersMoved }` so the surface can say where the files
+  went. `folder-service.mutations.spec.ts` pins that ordering — deleting a label
+  must never delete the work filed under it.
+
 ### Collection scoping (multitenancy)
 
 Every backend call carries a base64url `X-Grid-Collection-Scope` header =

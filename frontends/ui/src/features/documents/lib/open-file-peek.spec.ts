@@ -123,4 +123,3 @@ describe('dropFileSubject — the one control here that ends things', () => {
     expect(useChatStore.getState().composerSubject).toEqual(subjectBefore)
   })
 })
-
