@@ -79,6 +79,7 @@ vi.mock('@/lib/documents/service', () => ({
 import type { NewDocument } from '@/lib/db/schema'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { makeProject } from '@/test-utils/db-fixtures'
+import { generatedDocumentMarking } from '@/lib/documents/generated'
 import { fileDiagramDocuments } from './filing'
 
 const SESSION = {
@@ -299,6 +300,82 @@ describe('what is stored is not what was sent', () => {
 
     await expect(file({ svg: deep })).rejects.toThrow(/too-deep/)
     expect(requireProjectAccess).not.toHaveBeenCalled()
+  })
+})
+
+describe('what leaves the product says a machine made it', () => {
+  /**
+   * THE ROUND TRIP, ON THE REAL BYTES.
+   *
+   * Every assertion in this block reads the object that was handed to
+   * `PutObjectCommand` — the bytes that reach the bucket and, from there, a
+   * person's disk and an Einreichung. That is deliberate and it is the whole
+   * lesson of the bug: `diagram_svg` shipped with no marking at all and
+   * `diagram_pdf` with no PDF keywords, and an assertion on the parsed tree or
+   * on the react-pdf element tree would have passed for both. Only the file can
+   * answer whether the file says anything.
+   */
+  const storedBytes = (index: number): Uint8Array => {
+    const command = s3Send.mock.calls[index][0] as PutObjectCommand
+    return command.input.Body as Uint8Array
+  }
+
+  /** What `generatedDocumentMarking` answers for an `answer_artifact`. */
+  const EXPECTED_MARKING = 'AIGenerated=true; AIGenerator=Piloti; AIHumanReviewed=false'
+
+  it('puts the marking in the stored SVG, past the allow-list that rewrites it', async () => {
+    await file()
+    const stored = Buffer.from(storedBytes(0)).toString('utf8')
+
+    // The human half: `<title>` is the SVG's accessible name, so this is what a
+    // browser tooltip shows and a screen reader announces for the file.
+    expect(stored).toContain(
+      '<title>Von Piloti erstellt — KI-generiert, nicht geprüft.</title>',
+    )
+    // The machine half, in the same vocabulary the PDF and the .docx use.
+    expect(stored).toContain(`<desc>${EXPECTED_MARKING}</desc>`)
+    // And the drawing is still in there: a marking that cost the picture would
+    // be a different bug.
+    expect(stored).toContain('Einreichung')
+  })
+
+  it('puts the marking in the stored PDF, where a records system reads it', async () => {
+    await file()
+    // The Info dictionary's `Keywords`, which PDFKit writes as a literal string
+    // for an ASCII value. Read as raw bytes rather than through a parser for the
+    // same reason the SVG is: the claim is about the file.
+    const stored = Buffer.from(storedBytes(1)).toString('latin1')
+
+    expect(stored.slice(0, 5)).toBe('%PDF-')
+    expect(stored).toContain(EXPECTED_MARKING)
+    // `Creator` is the obvious field, for a tool that reads only that one.
+    expect(stored).toContain('Piloti')
+  })
+
+  it('does not claim a diagram was drawn in a run that does not exist', async () => {
+    // A diagram's reference is `{chat message id}-{hash of its source}`, and
+    // there is no such job. `AIRunId=msg_42-1a2b3c4d` in a file a Behörde
+    // receives would be an audit trail in appearance only — the failure
+    // migration 0066 fixed in the row, repeated in the artifact.
+    await file()
+
+    expect(Buffer.from(storedBytes(0)).toString('utf8')).not.toContain('AIRunId')
+    expect(Buffer.from(storedBytes(1)).toString('latin1')).not.toContain('AIRunId')
+  })
+
+  it('writes the marking the seam is going to check for, not one of its own', async () => {
+    // This module writes the SVG's bytes BEFORE `render` is called — the
+    // validation runs ahead of authorization on purpose — so it has to ask
+    // `generatedDocumentMarking` for the marking rather than format one. If the
+    // two answers ever diverge, `fileGeneratedDocument` throws
+    // `UnmarkedRenderingError` and NEITHER half files; every other test in this
+    // file passing is that agreement holding, and this one says so out loud.
+    await file()
+
+    expect(s3Send).toHaveBeenCalledTimes(2)
+    expect(Buffer.from(storedBytes(0)).toString('utf8')).toContain(
+      `<desc>${generatedDocumentMarking('diagram_svg', 'msg_42-1a2b3c4d')}</desc>`,
+    )
   })
 })
 
