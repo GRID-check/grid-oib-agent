@@ -126,6 +126,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
   const patchConversationMessage = useChatStore((s) => s.patchConversationMessage)
   const addDeepResearchBanner = useChatStore((s) => s.addDeepResearchBanner)
   const recordDeepResearchFiling = useChatStore((s) => s.recordDeepResearchFiling)
+  const recordDeepResearchFilingFailure = useChatStore((s) => s.recordDeepResearchFilingFailure)
   const setStreamLoaded = useChatStore((s) => s.setStreamLoaded)
   const setDeepResearchStalled = useChatStore((s) => s.setDeepResearchStalled)
   const setDeepResearchConnectionLost = useChatStore((s) => s.setDeepResearchConnectionLost)
@@ -166,15 +167,25 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
    * common case, which is the dishonesty this whole disclosure exists to
    * remove.
    *
-   * Deliberately best-effort and deliberately quiet:
+   * Deliberately best-effort, and quiet about everything except the one thing
+   * the reader was promised:
    *
    *  - no project, no filing, and therefore no request. The proxy resolves the
    *    project from the query string and files nothing without one, so firing
-   *    it anyway would be a round trip that can only fail.
-   *  - a failure is swallowed. The user's answer already arrived; a refused
-   *    quota or a withheld `project:documents:write` is not a reason to put an
-   *    error in their thread. The banner simply says nothing about a file, per
-   *    the rule that it must never claim one exists.
+   *    it anyway would be a round trip that can only fail. It is also the case
+   *    in which no disclosure was ever shown, so there is nothing to correct.
+   *  - the REQUEST failing is swallowed. The user's answer already arrived, and
+   *    a dead fetch tells us nothing about whether a document exists — the
+   *    write may well have landed before the response was lost. Guessing out
+   *    loud from a network error is how a banner comes to claim, or deny, a
+   *    file it knows nothing about.
+   *  - the FILING failing is reported. `filingFailed` is the server saying it
+   *    tried, for a project it resolved — the same condition under which the
+   *    starting banner printed „wird abgelegt". That promise is now known to be
+   *    broken, and letting the reader walk to Berichte for a file that is not
+   *    there is not quiet, it is misleading. It is recorded as a fact on the
+   *    banner, not raised as an error in the thread: the register of the
+   *    correction matches the register of the promise.
    *  - one request per completed run, which cost minutes of compute. Not a
    *    cost worth optimizing.
    */
@@ -185,16 +196,19 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
 
       try {
         const response = await getJobReport(jobId, idToken || undefined, { projectId })
-        if (!response.filed) return
-        recordDeepResearchFiling(jobId, {
-          documentId: response.filed.documentId,
-          filename: response.filed.filename,
-        })
+        if (response.filed) {
+          recordDeepResearchFiling(jobId, {
+            documentId: response.filed.documentId,
+            filename: response.filed.filename,
+          })
+          return
+        }
+        if (response.filingFailed) recordDeepResearchFilingFailure(jobId)
       } catch (error) {
         console.warn('[deep research] failed to file the report into the project:', error)
       }
     },
-    [idToken, recordDeepResearchFiling]
+    [idToken, recordDeepResearchFiling, recordDeepResearchFilingFailure]
   )
 
   // Layout store for opening research panel

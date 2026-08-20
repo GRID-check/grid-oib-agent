@@ -203,14 +203,29 @@ export interface DeepResearchBannerData {
   /**
    * The document this run's report was filed as, once the BFF has reported one.
    *
-   * Absent is the NORMAL, honest state, not a loading state: filing is refused
-   * when the chat has no project, when the organization withholds
-   * `project:documents:write`, when the quota is full, and for every run that
-   * finished before this feature existed. The banner therefore says nothing at
-   * all when this is missing — it must never offer to open a file that does
-   * not exist, and "maybe there is a document" is not a thing to render.
+   * Absent is the NORMAL, honest state, not a loading state: filing is skipped
+   * when the chat has no project, and for every run that finished before this
+   * feature existed. The banner therefore says nothing at all when this is
+   * missing — it must never offer to open a file that does not exist, and
+   * "maybe there is a document" is not a thing to render.
    */
   filedDocument?: DeepResearchFiledDocument
+  /**
+   * A filing this run's starting banner PROMISED, which then did not land.
+   *
+   * The one state `filedDocument` being absent used to swallow. Absence still
+   * means "nothing was ever promised" — no project, no attempt, an older run —
+   * and stays silent. This flag means the opposite: the disclosure
+   * („Der fertige Bericht wird in diesem Projekt unter ‚Berichte' abgelegt.")
+   * was shown, the run finished, and there is no file. That reader is going to
+   * go and look; the banner owes them the correction, in the same quiet
+   * register the promise was made in.
+   *
+   * Set from the report route's `filingFailed`, which is raised only when a
+   * project was resolved — the same condition under which the disclosure
+   * rendered. It carries no reason, deliberately: see `JobReportResponse`.
+   */
+  filingFailed?: boolean
 }
 
 /**
@@ -1147,6 +1162,21 @@ export interface ChatActions {
    * thread to write into.
    */
   recordDeepResearchFiling: (jobId: string, filed: DeepResearchFiledDocument) => void
+
+  /**
+   * Record that a filing this run's starting banner promised did NOT land.
+   *
+   * The counterpart to `recordDeepResearchFiling`, and it exists because the
+   * absence of a filing means two different things. The report route reports
+   * them apart — `filed` when the document exists, `filingFailed` when a
+   * project was resolved and the write still failed — and only the second one
+   * contradicts something the reader was already told.
+   *
+   * Never overrides a recorded document: see the action's own comment.
+   *
+   * A no-op when no success banner for `jobId` exists.
+   */
+  recordDeepResearchFilingFailure: (jobId: string) => void
 
   // Deep research SSE actions
 

@@ -156,6 +156,19 @@ does not.
 The marking is in both places on purpose: the block is for the person who opens
 it, the properties are for the system that files it.
 
+**A filed drawing is marked too.** When Piloti draws a Verfahren and you file it,
+the project gets two files and both say what they are. The **PDF** prints the
+line under the drawing and carries the same `AIGenerated` properties in its
+document properties. The **SVG** carries the line as the picture's own name — the
+text a browser shows when you hover it and a screen reader reads out — and the
+same properties in its description. Neither is added by the app around the file;
+both are inside it, so they survive being downloaded, mailed on and opened in
+something that has never heard of this product.
+
+Nothing Piloti writes can be filed without that marking: the service that files
+it checks the finished bytes and refuses them if the statement is missing. A
+document that could not say who wrote it is not filed at all.
+
 **Why a PDF.** The report is filed as a PDF so that it previews inside Dateien
 — a Word file has no in-app preview and can only be downloaded, which is the
 wrong shape for the one document in the project nobody has read yet — and

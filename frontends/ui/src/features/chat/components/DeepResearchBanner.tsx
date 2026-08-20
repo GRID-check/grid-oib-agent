@@ -50,6 +50,17 @@ export interface DeepResearchBannerProps {
    * would be a worse failure than the silence.
    */
   filedDocument?: DeepResearchFiledDocument
+  /**
+   * A filing this run's starting banner promised, which then did not land.
+   *
+   * The one absence that is NOT silent. Everywhere else a missing
+   * `filedDocument` means nothing was promised — see above — but this flag is
+   * the report route saying it tried, for a project it had resolved, which is
+   * the same condition that made the disclosure render in the first place. So
+   * the reader who read „wird abgelegt" is the reader who sees the retraction,
+   * and nobody else.
+   */
+  filingFailed?: boolean
 }
 
 /** Banner status type */
@@ -152,6 +163,7 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
   timestamp,
   escalationReason,
   filedDocument,
+  filingFailed,
 }) => {
   const t = useTranslations('chat')
   // Read here rather than threaded through ChatArea, the same way the layout
@@ -232,6 +244,35 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
       ? documentFilesHref(projectId, filedDocument.documentId)
       : undefined
 
+  // The retraction of `filingDisclosure`, and it is deliberately built out of
+  // the same three conditions that built the promise.
+  //
+  // `bannerType` and `projectId` mirror the disclosure exactly: outside a
+  // project no line was ever printed, so there is nothing to take back, and a
+  // banner in that state stays as silent as it always was. `!filedHref` is the
+  // guard against the two lines ever appearing together — a document that
+  // exists outranks a later attempt that failed.
+  //
+  // WHY this is said at all, given the rule one line up that the banner never
+  // claims a file that does not exist: that rule forbids inventing a document,
+  // not correcting a promise. Absence of `filed` means four different things on
+  // the wire and the route separates them (`filingFailed`); three of them are
+  // states in which nobody was told anything, and this is the fourth. A reader
+  // who saw „wird abgelegt" is on their way to Berichte. Saying nothing does
+  // not spare them the failure, it only makes them find it alone, with the
+  // explanation in a server log they cannot read.
+  //
+  // And it is said the way the promise was said: one muted line, in the same
+  // `text-subtle text-xs` slot, inside a banner that stays `success` because
+  // the RESEARCH succeeded. No red, no icon, no `warning` variant — the run is
+  // not in error and colour in this product belongs to provenance
+  // (`docs/design/grid-design-language.md`). No reason either: a refused quota,
+  // a revoked permission and a report too long to render are one fact here.
+  const filingRetraction =
+    bannerType === 'success' && filingFailed && !filedHref && projectId
+      ? t('deepResearch.success.filingFailedLine')
+      : undefined
+
   // Beside the conversation, not instead of it.
   //
   // The reader commissioned a run that took minutes; answering "go somewhere
@@ -281,6 +322,11 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
           {filedHref && filedDocument && (
             <span className="text-subtle text-xs">
               {t('deepResearch.success.filedLine', { filename: filedDocument.filename })}
+            </span>
+          )}
+          {filingRetraction && (
+            <span className="text-subtle text-xs" data-testid="research-filing-failed">
+              {filingRetraction}
             </span>
           )}
           {(actions || filedHref) && (

@@ -1042,6 +1042,28 @@ describe('every path that can create a machine-authored row', () => {
     expect(authoring).toEqual(['lib/documents/generated.ts'])
   })
 
+  it('never lets an UPDATE change the author of a row that already exists', () => {
+    // The insert chain above is only half the surface. A `user` row promoted to
+    // `agent` afterwards would wear „Von Piloti erstellt" without ever having
+    // passed a gate, and no insert would be involved for the assertions above to
+    // notice. Six update sites exist today (visibility, display name and four
+    // status transitions) and none of them may name the column.
+    const promoting: string[] = []
+    for (const { path, code } of modules) {
+      const stripped = code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+      for (let from = 0; ; ) {
+        const start = stripped.indexOf('.update(documents)', from)
+        if (start === -1) break
+        // The payload is everything between the table and the row selector.
+        const end = stripped.indexOf('.where(', start)
+        const payload = stripped.slice(start, end === -1 ? start + 400 : end)
+        if (payload.includes('authoredBy')) promoting.push(path)
+        from = start + 1
+      }
+    }
+    expect(promoting).toEqual([])
+  })
+
   it('gates that one module on both permissions and the flag', () => {
     const code = modules.find((module) => module.path === 'lib/documents/generated.ts')!.code
     expect(code).toContain("'project:documents:write'")

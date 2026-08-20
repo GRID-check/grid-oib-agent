@@ -827,6 +827,22 @@ export interface JobReportResponse {
   has_report: boolean
   report: string | null
   filed?: JobReportFiling
+  /**
+   * A filing was attempted for this report and did not land.
+   *
+   * Mutually exclusive with `filed`, and NOT the same as its absence. The BFF
+   * sets it only in the one state where a promise was made and broken: a
+   * project was resolved, so `deepResearch.starting.filingDisclosure` told the
+   * reader the report would land under „Berichte", and then it did not. No
+   * project, no report yet and no filing attempt all leave both keys absent,
+   * because in none of them was anything promised.
+   *
+   * No reason travels with it, by design — a refused quota, a withheld
+   * `project:documents:write` and a report too long to render are one fact to
+   * an architect: the document is not there. The reasons name buckets,
+   * permissions and limits, and those are in the server log an operator reads.
+   */
+  filingFailed?: boolean
 }
 
 /**
@@ -878,13 +894,19 @@ export const getJobReport = async (
 
   const body = (await response.json()) as JobReportResponse
   // Rebuilt rather than passed through, so a malformed `filed` cannot survive
-  // the boundary wearing a type it does not satisfy.
+  // the boundary wearing a type it does not satisfy. The rebuild is also why
+  // `filingFailed` has to be listed here: a key this function does not name is
+  // a key the caller never sees, whatever the server sent.
   const filed = readReportFiling(body)
   return {
     job_id: body.job_id,
     has_report: body.has_report,
     report: body.report,
     ...(filed ? { filed } : {}),
+    // `=== true` and not truthiness: this is a boolean on the wire, and a
+    // client that believed a string here would retract a promise the server
+    // never said was broken.
+    ...(body.filingFailed === true ? { filingFailed: true as const } : {}),
   }
 }
 

@@ -38,6 +38,7 @@ const mockPatchConversationMessage = vi.fn()
 const mockPersistDeepResearchToSession = vi.fn()
 const mockAddDeepResearchBanner = vi.fn()
 const mockRecordDeepResearchFiling = vi.fn()
+const mockRecordDeepResearchFilingFailure = vi.fn()
 const mockSetStreamLoaded = vi.fn()
 const mockSetDeepResearchStalled = vi.fn()
 const mockSetDeepResearchConnectionLost = vi.fn()
@@ -93,6 +94,7 @@ vi.mock('../store', () => ({
         persistDeepResearchToSession: mockPersistDeepResearchToSession,
         addDeepResearchBanner: mockAddDeepResearchBanner,
         recordDeepResearchFiling: mockRecordDeepResearchFiling,
+        recordDeepResearchFilingFailure: mockRecordDeepResearchFilingFailure,
         setStreamLoaded: mockSetStreamLoaded,
         setDeepResearchStalled: mockSetDeepResearchStalled,
         setDeepResearchConnectionLost: mockSetDeepResearchConnectionLost,
@@ -181,6 +183,7 @@ const mockGetJobReport = vi
       has_report: boolean
       report?: string
       filed?: { documentId: string; filename: string; alreadyFiled: boolean }
+      filingFailed?: boolean
     }>
   >()
   .mockResolvedValue({ has_report: false })
@@ -670,7 +673,7 @@ describe('useDeepResearch', () => {
       mockGetJobReport.mockResolvedValue({
         has_report: true,
         report: 'Test report',
-        filed: { documentId: 'doc-9', filename: 'fluchtwege-2026-08-20.docx', alreadyFiled: false },
+        filed: { documentId: 'doc-9', filename: 'fluchtweglangen-gk-4-2026-08-20.pdf', alreadyFiled: false },
       })
 
       useChatStore.getState = vi.fn(() => ({
@@ -698,7 +701,7 @@ describe('useDeepResearch', () => {
       })
       expect(mockRecordDeepResearchFiling).toHaveBeenCalledWith('job-456', {
         documentId: 'doc-9',
-        filename: 'fluchtwege-2026-08-20.docx',
+        filename: 'fluchtweglangen-gk-4-2026-08-20.pdf',
       })
     })
 
@@ -757,11 +760,85 @@ describe('useDeepResearch', () => {
         await Promise.resolve()
       })
 
-      // The user's answer already arrived. A withheld capability or a full
-      // quota is not a reason to put an error card in their thread — the
-      // absence of the file link is the whole of what they are told.
+      // The user's answer already arrived. A dead request is not a reason to
+      // put an error card in their thread — and it is not a reason to retract
+      // the filing promise either: a fetch that never returned says nothing
+      // about whether the write landed. Only the SERVER saying it tried and
+      // failed (`filingFailed`) is grounds for that, and this is not it.
       expect(mockAddErrorCard).not.toHaveBeenCalled()
       expect(mockRecordDeepResearchFiling).not.toHaveBeenCalled()
+      expect(mockRecordDeepResearchFilingFailure).not.toHaveBeenCalled()
+    })
+
+    test('records a promised filing that the server says did not land', async () => {
+      await setupConnectedHook({
+        reportContent: 'Test report',
+        activeDeepResearchMessageId: 'msg-123',
+        projectId: 'proj-1',
+      })
+
+      mockGetJobReport.mockResolvedValue({
+        has_report: true,
+        report: 'Test report',
+        filingFailed: true,
+      })
+
+      useChatStore.getState = vi.fn(() => ({
+        ...mockStoreState,
+        projectId: 'proj-1',
+        deepResearchLLMSteps: [],
+        deepResearchToolCalls: [],
+        deepResearchCitations: [],
+        addErrorCard: mockAddErrorCard,
+        deepResearchOwnerConversationId: 'test-conv-123',
+        activeDeepResearchMessageId: 'msg-123',
+      })) as unknown as typeof useChatStore.getState
+
+      await act(async () => {
+        mockClient?.callbacks.onJobStatus?.('success', undefined)
+        await Promise.resolve()
+      })
+
+      // The starting banner promised „wird abgelegt" for this run, because
+      // there was a project — the same condition under which the route even
+      // attempts a filing. The promise is now known to be broken, and this is
+      // the only transport on which that fact reaches the thread.
+      expect(mockRecordDeepResearchFilingFailure).toHaveBeenCalledWith('job-456')
+      expect(mockRecordDeepResearchFiling).not.toHaveBeenCalled()
+      // A fact on the banner, never an error in the thread.
+      expect(mockAddErrorCard).not.toHaveBeenCalled()
+    })
+
+    test('says nothing when the report route reports neither outcome', async () => {
+      await setupConnectedHook({
+        reportContent: 'Test report',
+        activeDeepResearchMessageId: 'msg-123',
+        projectId: 'proj-1',
+      })
+
+      mockGetJobReport.mockResolvedValue({ has_report: true, report: 'Test report' })
+
+      useChatStore.getState = vi.fn(() => ({
+        ...mockStoreState,
+        projectId: 'proj-1',
+        deepResearchLLMSteps: [],
+        deepResearchToolCalls: [],
+        deepResearchCitations: [],
+        addErrorCard: mockAddErrorCard,
+        deepResearchOwnerConversationId: 'test-conv-123',
+        activeDeepResearchMessageId: 'msg-123',
+      })) as unknown as typeof useChatStore.getState
+
+      await act(async () => {
+        mockClient?.callbacks.onJobStatus?.('success', undefined)
+        await Promise.resolve()
+      })
+
+      // Neither key means no promise was broken — the run may predate the
+      // feature, or the route may have resolved no project despite this tab
+      // having one. Silence is still the answer for that state.
+      expect(mockRecordDeepResearchFiling).not.toHaveBeenCalled()
+      expect(mockRecordDeepResearchFilingFailure).not.toHaveBeenCalled()
     })
 
     test('onJobStatus failure stops todos and shows error', async () => {

@@ -1184,6 +1184,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           timestamp={message.timestamp}
           escalationReason={message.deepResearchBannerData.escalationReason}
           filedDocument={message.deepResearchBannerData.filedDocument}
+          filingFailed={message.deepResearchBannerData.filingFailed}
         />
       )
 

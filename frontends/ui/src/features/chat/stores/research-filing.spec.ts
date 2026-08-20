@@ -33,7 +33,7 @@ const conversation = (id: string, messages: ChatMessage[]): Conversation => ({
   updatedAt: new Date('2026-08-20T08:00:00Z'),
 })
 
-const FILED = { documentId: 'doc-9', filename: 'fluchtwege-gk4-2026-08-20.docx' }
+const FILED = { documentId: 'doc-9', filename: 'fluchtweglangen-gk-4-2026-08-20.pdf' }
 
 const bannerDataFor = (conversationId: string, messageId: string) =>
   useChatStore
@@ -114,6 +114,116 @@ describe('recordDeepResearchFiling', () => {
     useChatStore.getState().recordDeepResearchFiling('job-1', FILED)
     const afterFirst = useChatStore.getState().conversations
     useChatStore.getState().recordDeepResearchFiling('job-1', FILED)
+
+    expect(useChatStore.getState().conversations).toBe(afterFirst)
+  })
+})
+
+/**
+ * The other half of the same answer.
+ *
+ * `filed` absent used to mean four things at once. The report route now
+ * separates them: `filingFailed` is raised only when a project was resolved and
+ * the write still failed — the same condition under which the starting banner
+ * printed „wird abgelegt". These tests pin that this fact reaches the banner,
+ * and that it never outranks a document that actually exists.
+ */
+describe('recordDeepResearchFilingFailure', () => {
+  beforeEach(() => {
+    useChatStore.setState({ conversations: [], currentConversation: null })
+  })
+
+  it('marks that run’s success banner as a promise broken', () => {
+    const conv = conversation('conv-1', [banner('success', 'job-1', 'banner-1')])
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+
+    useChatStore.getState().recordDeepResearchFilingFailure('job-1')
+
+    expect(bannerDataFor('conv-1', 'banner-1')?.filingFailed).toBe(true)
+    expect(
+      useChatStore.getState().currentConversation?.messages[0].deepResearchBannerData?.filingFailed
+    ).toBe(true)
+  })
+
+  it('finds the banner in a thread that is not the open one', () => {
+    const other = conversation('conv-2', [banner('success', 'job-1', 'banner-2')])
+    const open = conversation('conv-1', [])
+    useChatStore.setState({ conversations: [other, open], currentConversation: open })
+
+    useChatStore.getState().recordDeepResearchFilingFailure('job-1')
+
+    expect(bannerDataFor('conv-2', 'banner-2')?.filingFailed).toBe(true)
+  })
+
+  it('leaves another run’s banner alone', () => {
+    const conv = conversation('conv-1', [
+      banner('success', 'job-1', 'banner-1'),
+      banner('success', 'job-2', 'banner-2'),
+    ])
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+
+    useChatStore.getState().recordDeepResearchFilingFailure('job-1')
+
+    expect(bannerDataFor('conv-1', 'banner-2')?.filingFailed).toBeUndefined()
+  })
+
+  it('never overrides a document that already exists', () => {
+    // A report is re-fetched every time its tab is opened, and a later attempt
+    // can fail for a document that landed on the first one. Retracting a filing
+    // the reader can still open is the one dishonesty worse than the silence
+    // this whole flag replaces.
+    const conv = conversation('conv-1', [banner('success', 'job-1', 'banner-1')])
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+
+    useChatStore.getState().recordDeepResearchFiling('job-1', FILED)
+    useChatStore.getState().recordDeepResearchFilingFailure('job-1')
+
+    expect(bannerDataFor('conv-1', 'banner-1')?.filedDocument).toEqual(FILED)
+    expect(bannerDataFor('conv-1', 'banner-1')?.filingFailed).toBeFalsy()
+  })
+
+  it('clears a recorded failure when a later fetch does file the document', () => {
+    // The failure is best-effort in both directions: reopening the report
+    // re-triggers the filing, so a run whose first attempt was refused can land
+    // on the second. The banner must then name the file and stop denying it.
+    const conv = conversation('conv-1', [banner('success', 'job-1', 'banner-1')])
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+
+    useChatStore.getState().recordDeepResearchFilingFailure('job-1')
+    useChatStore.getState().recordDeepResearchFiling('job-1', FILED)
+
+    expect(bannerDataFor('conv-1', 'banner-1')?.filedDocument).toEqual(FILED)
+    expect(bannerDataFor('conv-1', 'banner-1')?.filingFailed).toBe(false)
+  })
+
+  it('does not decorate a failed or cancelled run', () => {
+    // No promise was made on a run that never reached success — its starting
+    // banner is gone and its outcome is already stated.
+    const conv = conversation('conv-1', [banner('failure', 'job-1', 'banner-1')])
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+
+    useChatStore.getState().recordDeepResearchFilingFailure('job-1')
+
+    expect(bannerDataFor('conv-1', 'banner-1')?.filingFailed).toBeUndefined()
+  })
+
+  it('is a no-op for a run with no banner in any thread', () => {
+    const conv = conversation('conv-1', [banner('success', 'job-other', 'banner-1')])
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+    const before = useChatStore.getState().conversations
+
+    useChatStore.getState().recordDeepResearchFilingFailure('job-1')
+
+    expect(useChatStore.getState().conversations).toBe(before)
+  })
+
+  it('does not re-render when the same failure is reported twice', () => {
+    const conv = conversation('conv-1', [banner('success', 'job-1', 'banner-1')])
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+
+    useChatStore.getState().recordDeepResearchFilingFailure('job-1')
+    const afterFirst = useChatStore.getState().conversations
+    useChatStore.getState().recordDeepResearchFilingFailure('job-1')
 
     expect(useChatStore.getState().conversations).toBe(afterFirst)
   })

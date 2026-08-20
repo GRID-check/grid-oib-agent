@@ -453,7 +453,7 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
     })
     vi.mocked(fileResearchReport).mockResolvedValue({
       documentId: 'doc-1',
-      filename: 'bericht-2026-08-20.docx',
+      filename: 'bericht-2026-08-20.pdf',
       folderId: 'folder-1',
       alreadyFiled: false,
     })
@@ -486,7 +486,7 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
     expect(body).toMatchObject(REPORT_BODY)
     expect(body.filed).toEqual({
       documentId: 'doc-1',
-      filename: 'bericht-2026-08-20.docx',
+      filename: 'bericht-2026-08-20.pdf',
       alreadyFiled: false,
     })
   })

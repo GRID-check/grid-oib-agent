@@ -218,6 +218,7 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
   const patchConversationMessage = useChatStore((s) => s.patchConversationMessage)
   const addDeepResearchBanner = useChatStore((s) => s.addDeepResearchBanner)
   const recordDeepResearchFiling = useChatStore((s) => s.recordDeepResearchFiling)
+  const recordDeepResearchFilingFailure = useChatStore((s) => s.recordDeepResearchFilingFailure)
   const attachToDeepResearchJob = useChatStore((s) => s.attachToDeepResearchJob)
 
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
@@ -297,32 +298,6 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
   )
 
   /**
-   * Load job data using REST API (report only)
-   */
-  const _loadReportOnly = useCallback(
-    async (jobId: string): Promise<boolean> => {
-      const response = await getJobReport(jobId, idToken || undefined, {
-        projectId: useChatStore.getState().projectId,
-      })
-
-      if (response.filed) {
-        recordDeepResearchFiling(jobId, {
-          documentId: response.filed.documentId,
-          filename: response.filed.filename,
-        })
-      }
-
-      if (response.has_report && response.report) {
-        setReportContent(response.report, 'final_report')
-        return true
-      }
-
-      return false
-    },
-    [idToken, setReportContent, recordDeepResearchFiling]
-  )
-
-  /**
    * Load job state for additional artifacts (tool calls, outputs)
    * This is faster than streaming but provides less data than full stream replay
    */
@@ -394,6 +369,10 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
           documentId: reportResult.value.filed.documentId,
           filename: reportResult.value.filed.filename,
         })
+      } else if (reportResult.status === 'fulfilled' && reportResult.value.filingFailed) {
+        // Same reason, opposite fact: a promised filing that did not land is
+        // also a fact about the project rather than about this tab.
+        recordDeepResearchFilingFailure(jobId)
       }
 
       if (
@@ -404,7 +383,13 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         setReportContent(reportResult.value.report, 'final_report')
       }
     },
-    [idToken, loadJobState, setReportContent, recordDeepResearchFiling]
+    [
+      idToken,
+      loadJobState,
+      setReportContent,
+      recordDeepResearchFiling,
+      recordDeepResearchFilingFailure,
+    ]
   )
 
   /**

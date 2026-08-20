@@ -22,6 +22,7 @@ const mockSetStreaming = vi.fn()
 const mockPatchConversationMessage = vi.fn()
 const mockAddDeepResearchBanner = vi.fn()
 const mockRecordDeepResearchFiling = vi.fn()
+const mockRecordDeepResearchFilingFailure = vi.fn()
 const mockAttachToDeepResearchJob = vi.fn()
 const mockOpenRightPanel = vi.fn()
 const mockSetResearchPanelTab = vi.fn()
@@ -85,6 +86,7 @@ type MockChatSelectorState = {
   patchConversationMessage: typeof mockPatchConversationMessage
   addDeepResearchBanner: typeof mockAddDeepResearchBanner
   recordDeepResearchFiling: typeof mockRecordDeepResearchFiling
+  recordDeepResearchFilingFailure: typeof mockRecordDeepResearchFilingFailure
   attachToDeepResearchJob: typeof mockAttachToDeepResearchJob
 }
 
@@ -118,6 +120,7 @@ vi.mock('../store', () => ({
         patchConversationMessage: mockPatchConversationMessage,
         addDeepResearchBanner: mockAddDeepResearchBanner,
         recordDeepResearchFiling: mockRecordDeepResearchFiling,
+        recordDeepResearchFilingFailure: mockRecordDeepResearchFilingFailure,
         attachToDeepResearchJob: mockAttachToDeepResearchJob,
       }
       return selector ? selector(state) : state
@@ -192,7 +195,7 @@ describe('useLoadJobData', () => {
       job_id: 'job-123',
       has_report: true,
       report: 'Loaded report',
-      filed: { documentId: 'doc-9', filename: 'fluchtwege-2026-08-20.docx', alreadyFiled: false },
+      filed: { documentId: 'doc-9', filename: 'fluchtweglangen-gk-4-2026-08-20.pdf', alreadyFiled: false },
     })
     mockGetJobState.mockResolvedValue({ job_id: 'job-123', has_state: false, artifacts: null })
 
@@ -206,7 +209,7 @@ describe('useLoadJobData', () => {
     // REQUEST, and the banner shows the same link either way.
     expect(mockRecordDeepResearchFiling).toHaveBeenCalledWith('job-123', {
       documentId: 'doc-9',
-      filename: 'fluchtwege-2026-08-20.docx',
+      filename: 'fluchtweglangen-gk-4-2026-08-20.pdf',
     })
   })
 
@@ -225,8 +228,32 @@ describe('useLoadJobData', () => {
       await result.current.loadResearchPanelTab('job-123', 'report')
     })
 
-    // Filing can be refused — no project, no `project:documents:write`, a full
-    // quota — and the absence must stay an absence all the way to the banner.
+    // Neither key: no filing was ever attempted for this report, so nothing was
+    // promised and the absence must stay an absence all the way to the banner.
+    expect(mockRecordDeepResearchFiling).not.toHaveBeenCalled()
+    expect(mockRecordDeepResearchFilingFailure).not.toHaveBeenCalled()
+  })
+
+  test('records a promised filing the report route says did not land', async () => {
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-123', status: 'success', error: null })
+    mockGetJobReport.mockResolvedValue({
+      job_id: 'job-123',
+      has_report: true,
+      report: 'Loaded report',
+      filingFailed: true,
+    })
+    mockGetJobState.mockResolvedValue({ job_id: 'job-123', has_state: false, artifacts: null })
+
+    const { result } = renderHook(() => useLoadJobData())
+
+    await act(async () => {
+      await result.current.loadResearchPanelTab('job-123', 'report')
+    })
+
+    // Reopening a report re-triggers the filing, so this path is both the
+    // second chance for a run whose first attempt failed and the place a second
+    // failure is finally said out loud.
+    expect(mockRecordDeepResearchFilingFailure).toHaveBeenCalledWith('job-123')
     expect(mockRecordDeepResearchFiling).not.toHaveBeenCalled()
   })
 

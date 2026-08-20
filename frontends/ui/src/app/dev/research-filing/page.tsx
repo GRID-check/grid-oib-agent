@@ -22,10 +22,17 @@
  *     opens the research panel, `Im Projekt öffnen` opens the file in the
  *     project through the same `/files?doc=` deep link every other document
  *     surface uses.
- *  4. `success` with NOTHING filed — the same run where filing was refused (no
- *     `project:documents:write`, a full quota, a projectless chat). The banner
- *     says nothing at all about a file. Panels 3 and 4 side by side are the
- *     evidence for the rule: never claim a file that does not exist.
+ *  4. `success` with NOTHING filed and nothing promised — a run that predates
+ *     the feature, or one whose chat was never in a project. The banner says
+ *     nothing at all about a file. Panels 3 and 4 side by side are the evidence
+ *     for the rule: never claim a file that does not exist.
+ *  5. `success` after a filing that was PROMISED and then failed — the case
+ *     panel 4 used to swallow. The disclosure in panel 1 was on screen, so this
+ *     reader is on their way to Berichte for a document that is not there. One
+ *     muted line takes the promise back, in the register it was made in: the
+ *     same `text-subtle text-xs` slot, the same `success` variant (the research
+ *     did succeed), no red, no icon, no reason. Panels 4 and 5 are the whole
+ *     distinction — absence is silent, a broken promise is not.
  *
  * Pinned to German (`I18nProvider initialLocale="de" fixedLocale`) because the
  * copy under review is the German copy. The banner reads the active project off
@@ -46,7 +53,24 @@ if (typeof window !== 'undefined') {
   useChatStore.setState({ projectId: 'proj-demo' })
 }
 
-const FILED = { documentId: 'doc-9', filename: 'fluchtweglaengen-gk4-2026-08-20.docx' }
+/**
+ * A filename this code can actually produce, not one that merely looks like it.
+ *
+ * Every character of it is what `generatedFilename` (`lib/documents/generated.ts`)
+ * returns for the title „Fluchtweglängen GK 4" filed on 2026-08-20:
+ *
+ *  - `.pdf`, because the extension is derived from the CONTENT TYPE
+ *    (`EXTENSION_BY_CONTENT_TYPE`) and a filed report is `application/pdf`. It
+ *    read `.docx` here for a while — a format Piloti does not file, and a
+ *    reviewer who read this page came away believing the feature writes Word
+ *    files. The `.docx` in this product is the saved-answer export, which is a
+ *    different document with a different job.
+ *  - `fluchtweglangen`, not `fluchtweglaengen`: the slug is NFKD-normalised and
+ *    stripped of combining marks, so `ä` becomes `a`. Only `ß` is spelled out,
+ *    because it has no decomposition and would otherwise vanish mid-word.
+ *  - `gk-4`, not `gk4`: every run of non-alphanumerics collapses to one hyphen.
+ */
+const FILED = { documentId: 'doc-9', filename: 'fluchtweglangen-gk-4-2026-08-20.pdf' }
 
 function Panel({ title, note, children }: { title: string; note: string; children: React.ReactNode }): JSX.Element {
   return (
@@ -101,10 +125,22 @@ export default function ResearchFilingPreviewPage(): JSX.Element {
         </Panel>
 
         <Panel
-          title="4 — Fertig, nicht abgelegt"
-          note="Ablage verweigert (keine Berechtigung, volles Kontingent, Chat ohne Projekt). Das Banner behauptet keine Datei — es schweigt."
+          title="4 — Fertig, nichts zugesagt"
+          note="Chat ohne Projekt oder Lauf von vor dieser Funktion: Es wurde nie etwas zugesagt. Das Banner behauptet keine Datei — es schweigt."
         >
           <DeepResearchBanner bannerType="success" jobId="job-4" toolCallCount={14} />
+        </Panel>
+
+        <Panel
+          title="5 — Fertig, zugesagt und nicht abgelegt"
+          note="Die Zusage aus Panel 1 stand auf dem Bildschirm, die Ablage ist gescheitert (Kontingent, entzogene Berechtigung, zu langer Bericht). Eine leise Zeile nimmt sie zurück — gleiche Schriftgröße, gleiche Farbe, kein Fehlerzustand, kein Grund."
+        >
+          <DeepResearchBanner
+            bannerType="success"
+            jobId="job-5"
+            toolCallCount={14}
+            filingFailed
+          />
         </Panel>
       </main>
     </I18nProvider>

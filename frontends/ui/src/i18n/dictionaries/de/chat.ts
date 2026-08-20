@@ -848,10 +848,21 @@ export const chat: typeof en.chat = {
       subheading:
         'Die Recherche ist abgeschlossen und ein Bericht steht im Recherchebereich zur Ansicht bereit.',
       // Steht NUR, wenn die Ablage tatsächlich stattgefunden hat und der Bericht
-      // eine Dokument-ID hat. Fehlt sie — kein Projekt, keine Berechtigung
-      // „project:documents:write“, abgelehntes Speicherkontingent —, schweigt
-      // das Banner, statt eine Datei zu behaupten, die es nicht gibt.
+      // eine Dokument-ID hat. Fehlt sie und wurde auch nichts versprochen — Chat
+      // ohne Projekt, Lauf aus der Zeit vor dieser Funktion —, schweigt das
+      // Banner, statt eine Datei zu behaupten, die es nicht gibt.
       filedLine: 'Im Projekt abgelegt: {filename}',
+      // Die Rücknahme von `starting.filingDisclosure`, und nur dann: Das
+      // Start-Banner hat „wird abgelegt“ versprochen, der Server hat die Ablage
+      // versucht (es gab ein Projekt) und sie ist nicht zustande gekommen. Wer
+      // die Zusage gelesen hat, geht sonst in „Berichte“ und findet nichts —
+      // die einzige Spur wäre ein Serverprotokoll, das niemand hier lesen kann.
+      // Kein Grund: abgelehntes Speicherkontingent, entzogene Berechtigung
+      // „project:documents:write“ und ein zu langer Bericht sind dieselbe
+      // Tatsache — das Dokument ist nicht da; die Unterschiede sind für den
+      // Betrieb, nicht für die Ziviltechnikerin. Gleiche leise Zeile wie die
+      // Zusage, kein Rot, kein Fehlerzustand: die Recherche ist gelungen.
+      filingFailedLine: 'Der Bericht konnte nicht unter „Berichte“ abgelegt werden.',
     },
     failure: {
       heading: 'Bericht konnte nicht abgeschlossen werden',
