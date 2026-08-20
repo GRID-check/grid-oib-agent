@@ -179,6 +179,32 @@ function probeColumns(): string[] {
 }
 
 /**
+ * The authorship predicate `findDocumentAuthoredByRef` applies, read out of its
+ * own body — the half of the index that is NOT a key column.
+ *
+ * Separate from `probeColumns` because the two halves are different claims. The
+ * key columns say what the index is ON; the predicate says which rows it covers,
+ * and 0064's rule ("an index narrower than the probe rejects rows the probe
+ * accepts, an index wider than it admits duplicates") is about BOTH. The
+ * columns matched for a year while the predicate did not, and the test that was
+ * supposed to catch drift compared only the columns.
+ */
+function probeAuthorshipPredicate(): string | null {
+  const start = DOCUMENTS_REPOSITORY.indexOf('export async function findDocumentAuthoredByRef')
+  expect(start, 'findDocumentAuthoredByRef still exists').toBeGreaterThan(-1)
+  const rest = DOCUMENTS_REPOSITORY.slice(start + 1)
+  const end = rest.indexOf('export async function')
+  const body = end === -1 ? rest : rest.slice(0, end)
+  // Comments in the body name the predicate too; only a real call counts.
+  const uncommented = body.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
+  return /ne\(documents\.authoredBy,\s*'user'\)/.test(uncommented)
+    ? "<> 'user'"
+    : /eq\(documents\.authoredBy,\s*'agent'\)/.test(uncommented)
+      ? "= 'agent'"
+      : null
+}
+
+/**
  * The poller's in-flight set.
  *
  * It used to be read out of `reconcile-status.ts` with a regex, because the
@@ -456,6 +482,21 @@ describe('the idempotency index and the probe it belongs to', () => {
         `CREATE UNIQUE INDEX "${IDEMPOTENCY_INDEX}"\\s*ON "documents" \\([^)]*\\)\\s*WHERE "authored_by" <> 'user'`
       )
     )
+  })
+
+  it('applies the index\u2019s predicate in the probe too, not only its columns', () => {
+    // The half of the agreement that was never checked. Without it the probe is
+    // WIDER than the index — 0064's dangerous direction — and a `user` row
+    // carrying a producer and a reference answers it. 0063's CHECK permits that
+    // row deliberately, and the index is partial precisely because of it, so the
+    // shape is legal and reachable rather than theoretical: the caller is told
+    // `alreadyFiled` and handed a human document's id, and the report that was
+    // commissioned is never written.
+    //
+    // `<> 'user'` and not `= 'agent'`, matching the index, for 0063's reason:
+    // a producer added later arrives already constrained instead of slipping
+    // through a deny-list nobody remembered to extend.
+    expect(probeAuthorshipPredicate()).toBe("<> 'user'")
   })
 
   it('lives only in the migration, like every other partial index here', () => {

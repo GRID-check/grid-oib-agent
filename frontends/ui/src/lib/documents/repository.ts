@@ -11,7 +11,7 @@
  */
 
 import 'server-only'
-import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, isNull, ne } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
 import {
@@ -277,6 +277,22 @@ export async function findDocumentAuthoredByRef(
           eq(documents.organizationId, organizationId),
           eq(documents.projectId, projectId),
           eq(documents.authoredByProducer, producer),
+          // The index's own predicate, restated. 0064 argues the probe and the
+          // index must be the same clause, and until now that agreement held
+          // over the KEY COLUMNS only: the index is partial on
+          // `authored_by <> 'user'` and the probe filtered on all four columns
+          // and no authorship at all — so the probe was WIDER than the rule the
+          // index enforces, which is the direction 0064 names as dangerous.
+          //
+          // What that admits is not hypothetical: 0063's CHECK is one-
+          // directional on purpose, so a `user` row MAY carry a producer and a
+          // reference (a person saving an artefact a run showed them), and the
+          // index is partial precisely so two colleagues doing that do not
+          // collide. Such a row would answer this probe. The caller would be
+          // told `alreadyFiled` and handed a HUMAN document's id, filename and
+          // folder: the report is never filed, and the banner's „Im Projekt
+          // öffnen" opens somebody else's upload.
+          ne(documents.authoredBy, 'user'),
         ),
       )
       .limit(1),
