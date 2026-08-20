@@ -72,3 +72,41 @@ describe('the comparator reaches the page as a comparator', () => {
     expect(textOf([{ kind: 'paragraph', runs: [{ text: prose }] }])).toContain(prose)
   })
 })
+
+describe('a link label is prose too', () => {
+  it('transliterates inside a markdown link label', () => {
+    // The gap the first pass left: `Text` was wrapped and `Link` was not, so a
+    // comparator inside a LABEL printed corrupted while the identical text one
+    // word earlier came out right. Model-written source lists and card fields
+    // reach the renderer with raw `[label](url)` in the run text, so this shape
+    // is ordinary, not exotic.
+    const rendered = textOf([
+      {
+        kind: 'paragraph',
+        runs: [{ text: 'Siehe [OIB-RL 2 \u2264 40 m Regel](https://example.org/oib) fuer Details.' }],
+      },
+    ])
+    expect(rendered).toContain('<= 40 m')
+    expect(rendered).not.toContain('\u2264')
+    expect(rendered).not.toContain('d 40 m')
+  })
+
+  it('leaves the href alone', () => {
+    // An address is machinery, not prose. Transliterating a character inside it
+    // would break the link rather than the glyph.
+    const nodes = blockNodes([
+      { kind: 'paragraph', runs: [{ text: 'Siehe [Regel](https://example.org/a\u2264b) hier.' }] },
+    ])
+    const hrefs: string[] = []
+    const walk = (node: React.ReactNode): void => {
+      React.Children.forEach(node, (child) => {
+        if (!React.isValidElement(child)) return
+        const props = child.props as { src?: string; children?: React.ReactNode }
+        if (typeof props.src === 'string') hrefs.push(props.src)
+        walk(props.children)
+      })
+    }
+    walk(nodes)
+    expect(hrefs.some((href) => href.includes('\u2264'))).toBe(true)
+  })
+})

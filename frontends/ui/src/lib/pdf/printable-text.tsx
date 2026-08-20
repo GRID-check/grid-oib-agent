@@ -18,8 +18,8 @@
  */
 
 import React from 'react'
-import { Text as PdfText } from '@react-pdf/renderer'
-import type { TextProps } from '@react-pdf/renderer'
+import { Link as PdfLink, Text as PdfText } from '@react-pdf/renderer'
+import type { LinkProps, TextProps } from '@react-pdf/renderer'
 
 import { printable } from './printable'
 
@@ -35,5 +35,25 @@ export function Text({
         typeof child === 'string' ? printable(child) : child
       )}
     </PdfText>
+  )
+}
+
+/**
+ * `Link`, transliterated like `Text`.
+ *
+ * A link is a second way a string reaches the page, and it was the way the
+ * first pass missed: `Text` was wrapped, `Link` was not, so `≤ 40 m` inside a
+ * link LABEL still printed as `d 40 m` while the identical text one word
+ * earlier came out right. The href is deliberately NOT transliterated — an
+ * address is machinery, not prose, and rewriting a character in it would break
+ * the link instead of the glyph.
+ */
+export function Link({ children, ...props }: React.PropsWithChildren<LinkProps>): React.JSX.Element {
+  return (
+    <PdfLink {...props}>
+      {React.Children.map(children, (child) =>
+        typeof child === 'string' ? printable(child) : child
+      )}
+    </PdfLink>
   )
 }

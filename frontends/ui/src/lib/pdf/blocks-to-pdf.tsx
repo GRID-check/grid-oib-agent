@@ -46,11 +46,11 @@
  */
 
 import React from 'react'
-import { Document, Font, Link, Page, StyleSheet, View } from '@react-pdf/renderer'
+import { Document, Font, Page, StyleSheet, View } from '@react-pdf/renderer'
 
 // `Text` comes from the transliterating wrapper, never from the library: a raw
 // `Text` would print `≤` as `d`. See printable-text.tsx.
-import { Text } from './printable-text'
+import { Link, Text } from './printable-text'
 import type { DocBlock, DocRun } from '@/lib/answer-export/blocks'
 import { PRODUCT_NAME } from '@/lib/brand'
 import { CoverContent, COVER_PAGE_STYLE, PageFooter, RunningHeader, type CoverInfo } from './branding'
