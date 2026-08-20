@@ -228,7 +228,12 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   // this same entry.
   'document.generated': {
     targets: [{ type: 'document' }, { type: 'agent_run' }],
-    metadata: { projectId: 'string', filename: 'string', fileSize: 'number' },
+    // `producer` is emitted by `fileGeneratedDocument` and MUST be declared
+    // here: a schema with the wrong keys rejects events exactly like a missing
+    // one, and the emit for this action throws rather than swallowing — so an
+    // unregistered key does not lose an audit line, it unfiles the document the
+    // line was about.
+    metadata: { projectId: 'string', producer: 'string', filename: 'string', fileSize: 'number' },
   },
   // A rename changes what a document is CALLED, never which file it is, so the
   // trail records both: `filename` is the unchanged identity, the other two are

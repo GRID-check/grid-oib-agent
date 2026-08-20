@@ -74,17 +74,39 @@ export async function createProjectFolder(
   const path = buildFolderPath(parentPath, validation.name!)
 
   const db = getDb()
-  const [inserted] = await db
-    .insert(projectFolders)
-    .values({
-      projectId: input.projectId,
-      parentId: input.parentId ?? null,
-      name: validation.name!,
-      path,
-    })
-    .returning()
+  let inserted: FolderRow | undefined
+  try {
+    const [row] = await db
+      .insert(projectFolders)
+      .values({
+        projectId: input.projectId,
+        parentId: input.parentId ?? null,
+        name: validation.name!,
+        path,
+      })
+      .returning()
+    inserted = toFolderRow(row)
+  } catch (error) {
+    /**
+     * A sibling folder already has this name.
+     *
+     * Before migration 0063 this insert succeeded and the project simply held
+     * two folders with one name. The index that stops the get-or-create race
+     * below also, unavoidably, applies here — so without this catch a person
+     * typing a name that already exists (including anyone typing `Berichte`
+     * in a project Piloti has filed into) got an opaque 500 from a raw
+     * Postgres error, for an action that is neither a bug nor a race.
+     *
+     * The migration header says the index is there "to stop a RACE between two
+     * identical writes, not to police what a human may name a folder". This is
+     * what keeps that true at the surface the human touches: the same rejection
+     * arrives as the validation result the caller already knows how to render.
+     */
+    if ((error as { code?: string } | null)?.code !== '23505') throw error
+    return { ok: false, error: 'A folder with this name already exists here.' }
+  }
 
-  return { ok: true, folder: toFolderRow(inserted) }
+  return { ok: true, folder: inserted }
 }
 
 /**

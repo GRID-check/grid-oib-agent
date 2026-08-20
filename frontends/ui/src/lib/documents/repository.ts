@@ -214,10 +214,20 @@ export async function findDocumentInOrg(documentId: string, organizationId: stri
  * carry NULL) alone, and the window this closes is a person re-opening a tab,
  * not two writers racing. Scoped by organization like every other read here, so
  * a run id guessed from another tenant finds nothing.
+ *
+ * Scoped by PROJECT as well, and that is not symmetry for its own sake. The
+ * filing target comes from the report request's own `projectId`, so an
+ * org-wide probe answered "already filed" for a run whose report went to a
+ * DIFFERENT project — handing back the other project's document id and folder,
+ * so the second project silently never received the report and the client's
+ * Öffnen/Zuweisen actions pointed somewhere the reader may not even be. The
+ * probe has to ask the question the caller is actually asking: has this run
+ * filed into THIS project.
  */
 export async function findDocumentAuthoredByRun(
   runId: string,
   organizationId: string,
+  projectId: string,
 ): Promise<Pick<Document, 'id' | 'filename' | 'folderId'> | null> {
   const db = getDb()
   const rows = await withTenant({ organizationId }, () =>
@@ -232,6 +242,7 @@ export async function findDocumentAuthoredByRun(
         and(
           eq(documents.authoredByRunId, runId),
           eq(documents.organizationId, organizationId),
+          eq(documents.projectId, projectId),
         ),
       )
       .limit(1),

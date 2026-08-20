@@ -203,7 +203,7 @@ export async function fileGeneratedDocument(
   // rather than a unique index because the index would have to be partial on
   // three columns to leave `user` rows alone, and the window this closes is a
   // human re-opening a tab, not two writers racing.
-  const existing = await findDocumentAuthoredByRun(runId, session.organizationId)
+  const existing = await findDocumentAuthoredByRun(runId, session.organizationId, projectId)
   if (existing) {
     return {
       documentId: existing.id,
@@ -314,6 +314,16 @@ export async function fileGeneratedDocument(
  * different error would hide the one that matters. The row goes first — it is
  * what any surface reads — so a failure after it leaves an orphan object the
  * project purge collects, never a document with no bytes.
+ *
+ * They are, however, INDEPENDENTLY best-effort, and that is the whole point of
+ * the two blocks below. Sharing one `try` made the object delete conditional on
+ * the row delete having succeeded, so the one failure the ordering was chosen
+ * to survive — the row delete itself — skipped the object entirely and left
+ * exactly what this function exists to prevent: a row that is filed,
+ * quota-charged, visible in Files as „Von Piloti erstellt", and backed by no
+ * audit record at all. The ordering argument above only ever justified the
+ * SEQUENCE; it never justified coupling the second step's execution to the
+ * first step's success.
  */
 async function unfile(
   documentId: string,
@@ -324,10 +334,18 @@ async function unfile(
 ): Promise<void> {
   try {
     await deleteProjectDocument(documentId, organizationId, projectId)
+  } catch (error) {
+    console.error(
+      '[documents] failed to delete the row of a generated document after its audit write failed',
+      { documentId, cause: error instanceof Error ? error.name : 'unknown' },
+    )
+  }
+
+  try {
     await s3Client.send(new DeleteObjectCommand({ Bucket: bucket, Key: storageKey }))
   } catch (error) {
     console.error(
-      '[documents] failed to unfile a generated document after its audit write failed',
+      '[documents] failed to delete the object of a generated document after its audit write failed',
       { documentId, bucket, storageKey, cause: error instanceof Error ? error.name : 'unknown' },
     )
   }

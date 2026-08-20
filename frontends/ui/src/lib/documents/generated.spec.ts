@@ -72,6 +72,7 @@ import { ForbiddenError, InsufficientStorageError, NotFoundError } from '@/lib/a
 import type { NewDocument } from '@/lib/db/schema'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { makeProject } from '@/test-utils/db-fixtures'
+import { AUDIT_SCHEMAS } from '@/lib/audit/schemas.mjs'
 import {
   GENERATED_DOCUMENT_FOLDER_NAME,
   GENERATED_DOCUMENT_PRODUCERS,
@@ -295,9 +296,15 @@ describe('fileGeneratedDocument', () => {
       expect(admitOrDiscard).toHaveBeenCalledTimes(1)
     })
 
-    it('looks the run up by its own id, scoped to the organization', async () => {
+    it('looks the run up by its own id, scoped to the organization AND the project', async () => {
+      // The project scope is the load-bearing half. The filing target comes
+      // from the report request's own projectId, so an org-wide probe answered
+      // "already filed" for a run whose report went to a DIFFERENT project —
+      // handing back that project's document id and folder, so this project
+      // silently never received the report and the caller's Öffnen/Zuweisen
+      // pointed somewhere the reader may not even be.
       await file()
-      expect(findDocumentAuthoredByRun).toHaveBeenCalledWith('run_7', 'org-1')
+      expect(findDocumentAuthoredByRun).toHaveBeenCalledWith('run_7', 'org-1', 'proj-1')
     })
   })
 
@@ -375,5 +382,61 @@ describe('generatedFilename', () => {
 
   it('never emits an empty stem', () => {
     expect(generatedFilename('   ***   ', 'application/pdf', day)).toBe('piloti-2026-08-20.pdf')
+  })
+})
+
+describe('the audit event this feature depends on', () => {
+  /**
+   * The bug this pins was silent and total: `fileGeneratedDocument` emitted a
+   * `producer` metadata key that `schemas.mjs` did not register. schemas.mjs's
+   * own header says a schema with the wrong keys rejects events exactly like a
+   * missing one — and because THIS action uses the throwing emitter, a
+   * rejection does not lose an audit line, it unfiles the document the line was
+   * about. Every commissioned report was filed and immediately deleted, and the
+   * user saw a report with no file and no error.
+   *
+   * A unit test that mocks the emitter cannot see that. This asserts the emit
+   * against the REGISTRY, which is the only place the two facts meet.
+   */
+  it('emits only metadata keys the registry declares', async () => {
+    await file()
+
+    const [event] = recordAuditEventOrThrow.mock.calls[0] as [
+      { action: keyof typeof AUDIT_SCHEMAS; metadata?: Record<string, unknown> },
+    ]
+    // Narrowed with `in` rather than cast: some actions register no metadata
+    // at all, and widening the union to make the lookup easy would switch off
+    // the very checking this test exists to perform.
+    const schema = AUDIT_SCHEMAS[event.action]
+    const registered = 'metadata' in schema ? Object.keys(schema.metadata) : []
+
+    // Every key the emit sends must be declared; an undeclared one is a
+    // rejected event, which for this action is a deleted document.
+    expect(Object.keys(event.metadata ?? {}).length).toBeGreaterThan(0)
+    for (const key of Object.keys(event.metadata ?? {})) {
+      expect(registered).toContain(key)
+    }
+  })
+})
+
+describe('taking a document back when its audit write fails', () => {
+  /**
+   * Both compensating steps used to share one `try`, so a failure of the FIRST
+   * skipped the second entirely — leaving the object behind for a row that no
+   * longer existed, or, in the case that matters, leaving BOTH behind: a filed,
+   * quota-charged, visible „Von Piloti erstellt" document with no audit record
+   * at all. The ordering (row first) is still right; coupling the second step's
+   * execution to the first step's success never was.
+   */
+  it('still takes the object back when the ROW delete fails', async () => {
+    recordAuditEventOrThrow.mockRejectedValueOnce(new Error('audit rejected'))
+    deleteProjectDocument.mockRejectedValueOnce(new Error('row delete failed'))
+
+    await expect(file()).rejects.toThrow('audit rejected')
+
+    const deletes = s3Send.mock.calls.filter(
+      ([command]) => (command as { constructor: { name: string } }).constructor.name === 'DeleteObjectCommand',
+    )
+    expect(deletes).toHaveLength(1)
   })
 })

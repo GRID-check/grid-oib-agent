@@ -715,7 +715,47 @@ export interface DispatchDocumentResult {
  * would have been the fourth copy. There is one copy now, so a caller cannot
  * forget the branch: it cannot see it.
  */
+/**
+ * Thrown when something tries to index a document a machine wrote.
+ *
+ * Named and exported so a caller can tell this refusal apart from a backend
+ * failure: one is a bug in the caller, the other is an outage.
+ */
+export class AgentAuthoredDocumentNotIndexableError extends Error {
+  constructor(readonly documentId: string) {
+    super(`document ${documentId} was written by a machine and must not be indexed`)
+    this.name = 'AgentAuthoredDocumentNotIndexableError'
+  }
+}
+
 export async function dispatchDocument(input: DispatchDocumentInput): Promise<DispatchDocumentResult> {
+  /**
+   * A document a machine wrote never reaches the retrieval index — checked
+   * HERE, at the one place every ingestion path funnels through, and checked by
+   * READING THE ROW rather than by trusting the caller.
+   *
+   * The invariant used to live in `generated.ts`, which only proved that the
+   * FILING path does not ingest. That is a claim about one function; the claim
+   * the design actually makes is about the document. `reindexProject` — behind
+   * the „Projekt neu indizieren" button in Project Settings — enumerated every
+   * document in the project and re-dispatched it, and an agent-authored row
+   * passed its guard: `stored` is neither `pending` nor `processing`, and the
+   * row carries a real storage key and the project's own collection. One click
+   * put Piloti's own report into the corpus it retrieves from, whereupon the
+   * status became `completed` and the entire not-citable UI — which derives
+   * from `status`, not from `authoredBy` — went green.
+   *
+   * Reading the row costs one primary-key select on an operation that is about
+   * to make an HTTP call to the backend, and it buys an invariant no caller can
+   * forget and no caller can lie about. Passing authorship in the input would
+   * be cheaper and weaker: the next caller would simply be able to get it
+   * wrong, which is exactly what happened.
+   */
+  const row = await findDocumentInOrg(input.documentId, input.organizationId)
+  if (row && row.authoredBy !== 'user') {
+    throw new AgentAuthoredDocumentNotIndexableError(input.documentId)
+  }
+
   if (isIfcFilename(input.filename)) {
     return beginModelExtraction(input)
   }
@@ -878,7 +918,12 @@ export async function reindexProject(
 ): Promise<ReindexProjectResult> {
   await requireProjectAccess(session, projectId, 'project:documents:write')
 
-  const rows = await listProjectDocuments(projectId, session.organizationId)
+  // `'user'` explicitly, not "everything": a machine-authored document must not
+  // be indexed (see `dispatchDocument`), and reaching the dispatcher's refusal
+  // would report a project-wide reindex as partially FAILED for rows that were
+  // never eligible. The dispatcher is the invariant; this is the caller not
+  // asking a question it already knows the answer to.
+  const rows = await listProjectDocuments(projectId, session.organizationId, undefined, 'user')
   const result: ReindexProjectResult = { projectId, queued: 0, skipped: 0, failed: [] }
 
   const redispatch = async (row: DocumentListRow): Promise<void> => {

@@ -47,7 +47,8 @@ vi.mock('./repository', () => ({
 }))
 
 import { runBimExtraction } from '@/lib/bim/service'
-import { markDocumentProcessing, setDocumentIngestJob } from './repository'
+import { markDocumentProcessing, setDocumentIngestJob, findDocumentInOrg } from './repository'
+import { makeDocument } from '@/test-utils/db-fixtures'
 import { dispatchDocument, type DispatchDocumentInput } from './service'
 
 const input = (filename: string): DispatchDocumentInput => ({
@@ -73,6 +74,50 @@ afterEach(() => {
 })
 
 describe('dispatchDocument', () => {
+  /**
+   * The invariant the whole agent-authored feature rests on, tested at the ONE
+   * place every ingestion path funnels through.
+   *
+   * It used to be tested in `generated.spec.ts` alone, which proved only that
+   * the FILING path does not ingest — a claim about one function, where the
+   * design's claim is about the document. `reindexProject`, behind the
+   * „Projekt neu indizieren" button, enumerated every document in the project
+   * and re-dispatched it; an agent-authored row passed its guard, went into the
+   * project's own retrieval collection, and came back out as a green „Bereit"
+   * document with „Piloti dazu fragen" enabled. One click, and the model could
+   * cite its own writing as Projektwissen.
+   */
+  it('REFUSES a document a machine wrote, whatever the caller asked for', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument({ authoredBy: 'agent' }))
+
+    await expect(dispatchDocument(input('bericht.docx'))).rejects.toThrow(
+      /must not be indexed/,
+    )
+
+    // Nothing left for a retry to pick up, and nothing reached the index.
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(runBimExtraction).not.toHaveBeenCalled()
+    expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+
+  it('refuses even when the filename would route to IFC extraction', async () => {
+    // The refusal is not a property of the ingest branch — a machine-written
+    // `.ifc` must not be parsed into a project's model set either.
+    vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument({ authoredBy: 'agent' }))
+
+    await expect(dispatchDocument(input('haus.ifc'))).rejects.toThrow(/must not be indexed/)
+    expect(runBimExtraction).not.toHaveBeenCalled()
+  })
+
+  it('lets a document a person uploaded through', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument({ authoredBy: 'user' }))
+
+    await expect(dispatchDocument(input('plan.pdf'))).resolves.toEqual({
+      jobId: 'job-1',
+      status: 'pending',
+    })
+  })
+
   it('sends an ordinary document to the ingestor', async () => {
     const result = await dispatchDocument(input('plan.pdf'))
 
