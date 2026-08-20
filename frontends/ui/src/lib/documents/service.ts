@@ -469,14 +469,21 @@ export async function fetchSemanticHits(
  * name.
  */
 export function joinHitsToFiles<
-  T extends { filename: string; createdAt: Date | string; authoredBy?: string },
+  T extends { filename: string; createdAt: Date | string; authoredBy: string },
 >(hits: BackendSearchHit[], files: T[]): Array<SearchedDocument<T>> {
   const byName = new Map<string, T>()
   for (const file of files) {
-    // `undefined` is a row from a caller that does not carry the column (the
-    // Archiv join); those corpora have no machine-authored rows, and defaulting
-    // them OUT would silently empty their search.
-    if (file.authoredBy !== undefined && file.authoredBy !== 'user') continue
+    // Only a human-authored row may take a hit. A filename is not an identity
+    // across authorship: `generatedFilename` builds `slug(title)-DATE.ext` from a
+    // title the model wrote, so a collision with a real document is reachable by
+    // the model, and recency would then hand it that document's snippet and page
+    // under a „Von Piloti erstellt" label.
+    //
+    // `authoredBy` is required rather than optional on purpose. Both callers
+    // select it (`listProjectDocuments`, `listArchiv`); making it optional would
+    // mean a future caller that forgets the column fails OPEN at runtime instead
+    // of failing to compile.
+    if (file.authoredBy !== 'user') continue
     const existing = byName.get(file.filename)
     if (!existing || new Date(file.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
       byName.set(file.filename, file)
@@ -1577,6 +1584,13 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     chunkCount: reconciled.chunkCount,
     contentTypes: reconciled.contentTypes,
     tags: reconciled.tags,
+    // Whose hand wrote the bytes. Added because this payload is how the CHAT
+    // resolves a document into the peek pane, and a report Piloti wrote that
+    // opens beside the conversation without its „Von Piloti erstellt" byline is
+    // an agent-authored file presented as an uploaded one. PROVENANCE, never
+    // responsibility — the row's assignees are unaffected and still say
+    // `Unvergeben`.
+    authoredBy: reconciled.authoredBy,
   }
 }
 

@@ -438,9 +438,9 @@ describe('listDocuments', () => {
 })
 
 describe('joinHitsToFiles', () => {
-  const older = { filename: 'plan.pdf', createdAt: new Date('2026-01-01T00:00:00Z'), id: 'old' }
-  const newer = { filename: 'plan.pdf', createdAt: new Date('2026-02-01T00:00:00Z'), id: 'new' }
-  const other = { filename: 'permit.pdf', createdAt: new Date('2026-01-05T00:00:00Z'), id: 'permit' }
+  const older = { filename: 'plan.pdf', createdAt: new Date('2026-01-01T00:00:00Z'), id: 'old', authoredBy: 'user' }
+  const newer = { filename: 'plan.pdf', createdAt: new Date('2026-02-01T00:00:00Z'), id: 'new', authoredBy: 'user' }
+  const other = { filename: 'permit.pdf', createdAt: new Date('2026-01-05T00:00:00Z'), id: 'permit', authoredBy: 'user' }
 
   it('joins by filename and augments each row with snippet/page/score', () => {
     const hits = [
@@ -507,13 +507,40 @@ describe('joinHitsToFiles', () => {
     expect(row.id).toBe('old')
   })
 
-  it('keeps rows from a caller that does not select the column (Archiv)', () => {
-    // Defaulting an absent column OUT would silently empty Archiv search, whose
-    // corpora carry no machine-authored rows in the first place.
-    const hits = [{ file_name: 'permit.pdf', score: 0.4, snippet: 'x', page_number: null, collection: 'c' }]
-    const [row] = joinHitsToFiles(hits, [other])
-    expect(row.id).toBe('permit')
-    expect(other).not.toHaveProperty('authoredBy')
+  it('admits only `user`, so an author value nobody has added yet stays out', () => {
+    // The check must be an allow-list, not `=== 'agent'`. `document-authors.ts`
+    // anticipates a later `system` or `import`, and the column carries no CHECK
+    // (migration 0063), so an unknown value is reachable. A deny-list would let
+    // each new author ride in until someone remembers to extend it — the same
+    // mistake `findStorageKeyByCollectionAndFilename` was corrected for.
+    const unknownAuthor = {
+      filename: 'plan.pdf',
+      createdAt: new Date('2026-06-01T00:00:00Z'),
+      id: 'imported',
+      authoredBy: 'import',
+    }
+    const hits = [{ file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: null, collection: 'c' }]
+    expect(joinHitsToFiles(hits, [unknownAuthor])).toEqual([])
+  })
+
+  // There is deliberately no test for a row that omits `authoredBy`: the
+  // signature requires the column, so a caller that forgets it is a compile
+  // error, not a runtime fail-open. Both callers select it — `listProjectDocuments`
+  // (documents/repository.ts) and `listArchiv` (archiv/repository.ts).
+  it('takes the authorship of each row, not of the first one seen', () => {
+    // Guards the loop shape: a `break`-like early exit, or hoisting the check out
+    // of the loop, would let a generated row ride in behind a user row.
+    const generated = {
+      filename: 'permit.pdf',
+      createdAt: new Date('2026-06-01T00:00:00Z'),
+      id: 'generated',
+      authoredBy: 'agent',
+    }
+    const hits = [
+      { file_name: 'plan.pdf', score: 0.9, snippet: 'a', page_number: null, collection: 'c' },
+      { file_name: 'permit.pdf', score: 0.4, snippet: 'x', page_number: null, collection: 'c' },
+    ]
+    expect(joinHitsToFiles(hits, [older, generated]).map((r) => r.id)).toEqual(['old'])
   })
 })
 
@@ -537,7 +564,11 @@ describe('deriveSearchTopK', () => {
 })
 
 describe('searchProjectDocuments', () => {
-  const fileRows: Array<ReconcilableDocument & { createdAt: Date }> = [
+  // `listProjectDocuments` selects `authoredBy` (repository.ts), so every row
+  // reaching the join carries it. Building these rows without the column would
+  // put the search seam on a shape production never produces — and would hide a
+  // regression in the authorship filter behind the Archiv fallback.
+  const fileRows: Array<ReconcilableDocument & { createdAt: Date; authoredBy: string }> = [
     {
       id: 'doc-a',
       filename: 'plan.pdf',
@@ -545,6 +576,7 @@ describe('searchProjectDocuments', () => {
       status: 'completed',
       collectionName: 'proj_abc',
       errorMessage: null,
+      authoredBy: 'user',
     },
     {
       id: 'doc-b',
@@ -553,6 +585,7 @@ describe('searchProjectDocuments', () => {
       status: 'completed',
       collectionName: 'proj_abc',
       errorMessage: null,
+      authoredBy: 'user',
     },
   ]
 
@@ -602,6 +635,42 @@ describe('searchProjectDocuments', () => {
     // Reordered by score (permit first), each augmented with match evidence.
     expect(hits.map((h) => h.id)).toEqual(['doc-b', 'doc-a'])
     expect(hits[0]).toMatchObject({ snippet: 'permit snippet', page: 2, score: 0.91 })
+  })
+
+  // The end-to-end half of the `joinHitsToFiles` authorship guard: the unit test
+  // pins the function, this pins the seam that actually calls it. A filed report
+  // takes its filename from a title the model wrote, so a collision with a real
+  // Gutachten is reachable by the model — and recency would hand the hit to the
+  // newer generated row, returning the Gutachten's snippet and page under a
+  // „Von Piloti erstellt" label.
+  it('never surfaces a machine-authored row, even when it wins the collision on recency', async () => {
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([
+      ...fileRows.map((r) => ({ ...r, metadata: { ingestJobId: 'j' } })),
+      {
+        id: 'doc-generated',
+        filename: 'plan.pdf',
+        createdAt: new Date('2026-06-01T00:00:00Z'),
+        status: 'completed',
+        collectionName: 'proj_abc',
+        errorMessage: null,
+        authoredBy: 'agent',
+        metadata: { ingestJobId: 'j' },
+      },
+    ] as unknown as Awaited<ReturnType<typeof reconcileDocumentStatuses>>)
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          hits: [
+            { file_name: 'plan.pdf', score: 0.9, snippet: 'plan snippet', page_number: 7, collection: 'proj_abc' },
+          ],
+        }),
+    })
+
+    const { hits } = await searchProjectDocuments(session, 'proj-1', 'fire escape')
+
+    expect(hits.map((h) => h.id)).toEqual(['doc-a'])
   })
 
   it('fails open to no hits when the backend errors (non-OK)', async () => {

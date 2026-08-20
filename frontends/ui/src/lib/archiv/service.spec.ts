@@ -151,7 +151,11 @@ describe('listArchiv', () => {
 
 describe('searchArchivDocuments', () => {
   it('resolves the org archiv collection, runs the search, and returns the joined hits', async () => {
-    const docs: Array<ReconcilableDocument & { createdAt: Date }> = [
+    // `listArchiv` selects `authoredBy` (archiv/repository.ts), and
+    // `joinHitsToFiles` requires it — a row without it would be a compile error,
+    // which is the point: the authorship filter cannot be bypassed by a caller
+    // that forgets the column.
+    const docs: Array<ReconcilableDocument & { createdAt: Date; authoredBy: string }> = [
       {
         id: 'd1',
         filename: 'plan.pdf',
@@ -159,6 +163,7 @@ describe('searchArchivDocuments', () => {
         status: 'completed',
         collectionName: 'archiv_org-1',
         errorMessage: null,
+        authoredBy: 'user',
       },
     ]
     vi.mocked(listArchivDocuments).mockResolvedValue([])
