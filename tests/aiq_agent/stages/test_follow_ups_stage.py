@@ -104,10 +104,15 @@ class TestDeclaration:
     def test_it_is_registered_under_its_wire_id(self):
         assert get_stage("follow_ups") is FOLLOW_UPS
 
-    def test_slice_one_delivers_nothing(self):
-        """The whole point of the plan: it runs and is measured before any
-        reader sees a chip and before the old card is retired."""
-        assert FOLLOW_UPS.delivery == "silent"
+    def test_it_delivers_a_frame(self):
+        """Slice 3: the stage's output reaches a reader.
+
+        Slice 1 shipped it `silent` deliberately — measured before any chip was
+        rendered — and this is the flip that measurement licensed. Turning it
+        back off is a flag, not a code change; `silent` here would leave the flag
+        on, the cost paid, the spans written, and the reader with nothing, which
+        is the one state neither slice wants."""
+        assert FOLLOW_UPS.delivery == "frame"
 
     def test_it_runs_on_its_own_agent_group_and_flag(self):
         assert FOLLOW_UPS.agent_group is AgentGroup.FOLLOW_UPS

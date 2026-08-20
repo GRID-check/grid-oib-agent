@@ -1114,6 +1114,13 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           cards={message.cards}
           citations={message.citations}
           conversationId={conversationId}
+          // Both feed the „Piloti hat sich gemerkt" chip, which is now a fact
+          // about THIS TURN rather than a poll of the conversation's memory:
+          // the reflection stage's frame lands on `stages`, and a
+          // `memory_proposal` counts only once `cardInteractions` says the
+          // reader said yes.
+          cardInteractions={message.cardInteractions}
+          stages={message.stages}
           answerConfidence={message.answerConfidence}
           answerConfidenceCappedReason={message.answerConfidenceCappedReason}
           answerConfidenceReason={message.answerConfidenceReason}

@@ -16,7 +16,11 @@ changed is how it is wired and bounded:
   was distilling durable project memory out of evidence-gathering that had been
   interrupted;
 - every terminal state — including "the gate declined, and here is which
-  condition declined" — emits a span.
+  condition declined" — emits a span;
+- it delivers a **frame** as well as writing its rows (slice 4b). The write is
+  still the durable act and still the source of truth; the frame tells the turn
+  that caused it what was written, which is what let the per-answer memory poll
+  be deleted rather than merely reduced (§5.1, §1.7).
 
 See docs/architecture/post-answer-stages.md and
 docs/architecture/project-memory-design.md.
@@ -59,15 +63,33 @@ _SKIP_INTENTS = {"meta", "error", "out_of_scope"}
 REFLECTION_TIMEOUT_S = 45.0
 
 
+class MemoryReflectionItem(BaseModel):
+    """One ``project_memory`` row this stage wrote, as the reader sees it.
+
+    ``content`` rides along and not just the id, because the surface this
+    payload feeds — the „Piloti hat sich gemerkt" chip — renders the item's own
+    words. Sending ids alone would make the browser ask the database for text
+    the writer already had in hand, which is the round trip §5.1 is removing.
+    """
+
+    id: str = Field(description="Id of the project_memory row.")
+    kind: str = Field(description="decision | constraint | open_question | derived_fact | preference.")
+    content: str = Field(description="The finding, verbatim as it was written.")
+
+
 class MemoryReflectionPayload(BaseModel):
-    """What the stage produced: the ids of the memory items it wrote.
+    """What the stage produced: the memory items it wrote, in write order.
 
     The DB write stays the source of truth — this payload is a notification of
     what happened, never a transfer of authority. ``grid_app`` stays
-    single-writer.
+    single-writer, and a client may not create, edit or delete an item through
+    this channel; it only learns that one exists.
+
+    There is no ``empty`` payload: a turn that established nothing durable is a
+    ``StageEmpty``, so an items list on the wire is never empty.
     """
 
-    item_ids: list[str] = Field(default_factory=list, description="Ids of the project_memory rows written.")
+    items: list[MemoryReflectionItem] = Field(description="The project_memory rows written, in write order.")
 
 
 def _gate(facts: TurnFacts) -> GateDecision:
@@ -121,8 +143,11 @@ async def _handler(ctx: StageContext) -> dict[str, Any] | None:
         memory_digest=facts.memory_digest,
     )
     if not recorded:
+        # `None` is `empty` — the common, correct outcome for a turn that
+        # established nothing durable, and a first-class success rather than a
+        # failure to invent output.
         return None
-    return {"item_ids": list(recorded)}
+    return {"items": [dict(item) for item in recorded]}
 
 
 MEMORY_REFLECTION = register_stage(
@@ -137,10 +162,18 @@ MEMORY_REFLECTION = register_stage(
         gate=_gate,
         handler=_handler,
         payload_model=MemoryReflectionPayload,
-        # The write to project_memory IS the delivery. A frame telling the
-        # browser what was written is a later slice; it retires the per-answer
-        # poll, which is a frontend change, not this one.
-        delivery="silent",
+        # BOTH, and in that order: the write to project_memory is the durable
+        # act and stays the source of truth, and the frame is a notification of
+        # it addressed to the turn that caused it.
+        #
+        # The frame is what retires the poll. Before it, the only way a reader
+        # learned that reflection had written anything was a three-shot HTTP
+        # poll on a fixed `[0, 1500, 4000]` ms schedule — a guess about how long
+        # an LLM takes, made by the half of the system that cannot know, and
+        # mounted once per RENDERED ANSWER, so a ten-answer thread fired thirty
+        # GETs for one conversation's memory (§1.7). The stage knows exactly
+        # when it finished and exactly what it wrote; saying so costs one frame.
+        delivery="frame",
         # Deliberately unbound HERE. The configured model already caps output
         # (``card_llm.max_tokens``), and the model runs with reasoning enabled —
         # reasoning tokens count against that ceiling, so a tighter cap set by

@@ -9,6 +9,7 @@ import os
 import time
 import uuid
 from typing import Any
+from typing import Literal
 
 import httpx
 from fastapi import WebSocket
@@ -16,6 +17,7 @@ from pydantic import BaseModel
 from pydantic import ValidationError
 from starlette.datastructures import QueryParams
 from starlette.websockets import WebSocketDisconnect
+from typing_extensions import override
 
 from aiq_agent.conversation_context import ContextOnlyMessage
 from aiq_agent.conversation_context import append_conversation_context
@@ -373,6 +375,80 @@ class WebSocketSessionRegistry:
 
 _registry = WebSocketSessionRegistry()
 _installed = False
+
+
+class GridStageMessage(BaseModel):
+    """The post-answer stage frame, as it goes on the wire.
+
+    Grid-owned rather than a NAT model on purpose: NAT resolves a frame's schema
+    through ``WebSocketMessageType``, a vendored ``StrEnum`` that cannot gain a
+    member without patching the dependency, whereas ``_registry.send`` takes any
+    ``BaseModel`` and calls ``model_dump()``. That is the whole reason the type is
+    ``grid_``-prefixed. The contract is
+    ``docs/architecture/post-answer-stages.md`` §4.1, and its fixtures are
+    ``shared/stages/frames.json``.
+
+    ``v`` is carried from the producer rather than pinned here: two halves of one
+    envelope each asserting their own version number is how they come to disagree
+    silently.
+    """
+
+    type: Literal["grid_stage_message"]
+    v: int
+    conversation_id: str
+    #: The WS ``user_message`` id of the answered turn — the correlation key, and
+    #: the only one. A frame whose ``parent_id`` matches no message is dropped by
+    #: the client.
+    parent_id: str | None = None
+    stage: str
+    #: Only these three reach a reader. ``timeout`` is mapped onto ``failed`` by
+    #: the runner and ``skipped``/``disabled`` never leave it, so anything else
+    #: arriving here is a producer bug and is refused rather than forwarded.
+    status: Literal["ready", "empty", "failed"]
+    payload: dict[str, Any] | None = None
+    timestamp: str | None = None
+
+    @override
+    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
+        """Drop ``payload`` entirely when there is none.
+
+        ``"payload": null`` is not the same wire fact as no ``payload`` key: the
+        contract says a payload rides a ``ready`` frame and nothing else, and the
+        client checks for the key's presence. Serialising the default as null
+        would put a payload-shaped hole on every ``empty`` frame.
+        """
+        data = super().model_dump(**kwargs)
+        if data.get("payload") is None:
+            data.pop("payload", None)
+        return data
+
+
+async def send_stage_frame(conversation_id: str, frame: dict[str, Any]) -> bool:
+    """Put one post-answer stage frame on the conversation's socket.
+
+    This is the ``aiq_agent.stages.delivery.StageFrameSink`` implementation:
+    ``aiq_api`` owns the socket, ``aiq_agent`` owns the graph, so the channel is
+    published to the agent tier rather than imported by it.
+
+    Sent through ``_registry.send`` and not to a socket directly, which buys the
+    multi-replica relay for free — ``send`` also publishes to the conversation
+    bus, so a stage running on the owner replica reaches a client held by a relay
+    replica with no new code.
+
+    Returns whether a socket took it. ``False`` — the reader closed the tab — is
+    a normal result and NOT a stage failure; conflating the two would poison the
+    outcome counts the stage exists to produce.
+    """
+    try:
+        message = GridStageMessage.model_validate(frame)
+    except ValidationError:
+        # A frame this model refuses is a producer bug. It is dropped, logged and
+        # reported as undelivered: a stage may never damage the answer, and the
+        # answer has already been delivered by the time this runs.
+        logger.warning("Refusing to send a malformed stage frame for %s", conversation_id, exc_info=True)
+        return False
+    return await _registry.send(conversation_id, message)
+
 
 # httpx timeout for the fail-soft server-side persistence POST.
 _PERSIST_TIMEOUT_SECONDS = 10.0

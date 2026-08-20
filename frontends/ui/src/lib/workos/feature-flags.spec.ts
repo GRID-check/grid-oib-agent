@@ -124,9 +124,27 @@ describe('enabledPostAnswerStages', () => {
 
   it('follows the env fallback when enforcement is off', async () => {
     vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', '')
-    await expect(enabledPostAnswerStages('org-1')).resolves.toEqual(['memory_reflection'])
+    await expect(enabledPostAnswerStages('org-1')).resolves.toEqual(['memory_reflection', 'follow_ups'])
     vi.stubEnv('GRID_MEMORY_REFLECTION_ENABLED', 'false')
+    vi.stubEnv('GRID_STAGE_FOLLOW_UPS_ENABLED', 'false')
     await expect(enabledPostAnswerStages('org-1')).resolves.toEqual([])
+  })
+
+  it('serves follow_ups by default now that the card it replaces is retired', async () => {
+    // `follow_ups` shipped `defaultOn: false`, as every new stage does. Slice 4
+    // retired the in-answer `follow_ups` CARD (`SYSTEM_CARD_TYPES`), so the
+    // stage is the only thing that produces follow-up questions — and a
+    // deployment without the WorkOS flag product reads `defaultOn`, so leaving
+    // it false there would mean a Grid with none at all and nothing to switch
+    // on. Pinned because the value is one word and the consequence is a missing
+    // feature nobody gets an error about.
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', '')
+    await expect(enabledPostAnswerStages('org-1')).resolves.toContain('follow_ups')
+
+    // Still switchable off without a deploy, which is the half that must not be
+    // lost when a default flips.
+    vi.stubEnv('GRID_STAGE_FOLLOW_UPS_ENABLED', 'false')
+    await expect(enabledPostAnswerStages('org-1')).resolves.not.toContain('follow_ups')
   })
 
   it('agrees with isMemoryReflectionEnabled — one source of truth', async () => {

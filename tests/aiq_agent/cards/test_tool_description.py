@@ -10,7 +10,6 @@ import pytest
 from aiq_agent.cards.catalog import _CARD_HONESTY
 from aiq_agent.cards.catalog import _CARD_RESTRAINT
 from aiq_agent.cards.catalog import _CARD_TRIGGER_TABLE
-from aiq_agent.cards.catalog import _FOLLOW_UPS_RULE
 from aiq_agent.cards.catalog import _MODEL_PICKER_NOTE
 from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
@@ -174,6 +173,13 @@ class TestTheDoctrineStaysCalibrated:
     #: form-versus-facts discriminator went in together (invitation 198,
     #: restraint 293) — both edges of the band untouched, because each half of
     #: that pass pushes the opposite way.
+    #:
+    #: Retiring the ``follow_ups`` card took spans off BOTH sides at once —
+    #: ``_FOLLOW_UPS_RULE``'s "closes a subject-matter answer by default" was
+    #: invitation, its "Two narrow exceptions" was restraint, and the volume
+    #: rule's exemption went with them — landing at 1.44 : 1 (invitation 163,
+    #: restraint 234). That the band held through a removal this size is the
+    #: point of pinning a ratio rather than a token count.
     MIN_RESTRAINT_RATIO = 1.15
     MAX_RESTRAINT_RATIO = 1.75
 
@@ -186,15 +192,10 @@ class TestTheDoctrineStaysCalibrated:
         count = lambda text: len(encoding.encode(text))  # noqa: E731
 
         head = _CARD_TRIGGER_TABLE.split("The trigger, then the card:")[0]
-        follow_ups_default, follow_ups_exceptions = _FOLLOW_UPS_RULE.split("Two narrow exceptions:")
         picker_invitation = _MODEL_PICKER_NOTE.split("It renders")[0]
 
-        invitation = count(head) + count(follow_ups_default) + count(picker_invitation)
-        restraint = (
-            count("Two narrow exceptions:" + follow_ups_exceptions)
-            + count(_CARD_RESTRAINT)
-            + count(_interactive_note())
-        )
+        invitation = count(head) + count(picker_invitation)
+        restraint = count(_CARD_RESTRAINT) + count(_interactive_note())
         return invitation, restraint
 
     def test_the_doctrine_sits_inside_its_calibration_band(self):
@@ -270,7 +271,6 @@ class TestTheDoctrineStaysCalibrated:
         # which is the difference between fixing a miss and raising the rate.
         index = render_card_index()
         assert '"process_map": Emit for' in index
-        assert '"follow_ups": Emit at the END' in index
         assert '"key_takeaways": Emit for' in index
         assert '"callout": Emit for' in index
         assert '"calculation": Emit for' in index
@@ -304,20 +304,11 @@ class TestTheDoctrineStaysCalibrated:
         assert "ceiling" in _CARD_RESTRAINT
         assert "there to be SPENT" not in _CARD_RESTRAINT
         assert "budget" not in _CARD_RESTRAINT
-        # What the same pass added and this keeps: the follow_ups exemption (a
-        # model counting it against the two has one slot left for the card the
-        # answer was about) and the two cases where none is right.
-        assert "follow_ups does not count against it" in _CARD_RESTRAINT
+        # What the same pass added and this keeps: the two cases where none is
+        # right. The `follow_ups` exemption that used to sit here went with the
+        # retired card — see TestTheFollowUpsCardIsRetired.
         assert "only repeats the sentence above it" in _CARD_RESTRAINT
         assert "says in the same words" in _CARD_RESTRAINT
-
-    def test_follow_ups_leads_with_its_default_before_its_exceptions(self):
-        # The card the user has never seen, and the one place a general push was
-        # NOT the answer: its own rule was three prohibitions with no default in
-        # front of them. Kept even as the head was moderated, because it rests
-        # on an observation rather than on the broad-shyness theory.
-        default = _FOLLOW_UPS_RULE.index("closes a subject-matter answer by default")
-        assert default < _FOLLOW_UPS_RULE.index("Two narrow exceptions")
 
     def test_looking_a_shape_up_is_not_framed_as_a_cost(self):
         # Cause two, addressed for 20 tokens instead of the ~693 it costs to

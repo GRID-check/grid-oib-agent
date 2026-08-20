@@ -1,0 +1,13 @@
+---
+fixes:
+  - >
+    „Piloti hat sich gemerkt" now belongs to the answer it appeared under.
+    It used to count everything noted anywhere in the conversation, so an
+    early answer ended up claiming notes that were taken much later; each
+    answer now shows only what that answer produced, and an answer that
+    produced nothing shows nothing.
+  - >
+    Notes taken after an answer show up as soon as they exist. Piloti used
+    to look for them a few times right after the answer arrived and then
+    stop, so a note that took a moment longer stayed invisible until
+    something else on the page changed.

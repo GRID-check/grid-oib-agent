@@ -28,10 +28,6 @@ import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils
 import type { LayoutStore } from '@/features/layout/types'
 import type { ChatStoreWithHydration } from '../store'
 
-vi.mock('../hooks/use-conversation-memory', () => ({
-  useConversationMemory: () => ({ items: [], loading: false }),
-}))
-
 vi.mock('@/features/layout/store', () => ({
   useLayoutStore: vi.fn((selector?: StoreSelector<LayoutStore>) => {
     const state: DeepPartial<LayoutStore> = {

@@ -39,6 +39,14 @@ def _gate(**overrides):
     return MEMORY_REFLECTION.gate(_facts(**overrides))
 
 
+#: What `run_memory_reflection` reports it wrote — one row per project_memory
+#: insert, in write order, as the reader will see it.
+_WRITTEN = [
+    {"id": "9d2f6b41", "kind": "constraint", "content": "Das Projekt liegt in Wien."},
+    {"id": "1a7c9e02", "kind": "derived_fact", "content": "Das oberste Fluchtniveau beträgt 9,80 m."},
+]
+
+
 class TestDeclaration:
     def test_it_is_registered_under_its_wire_id(self):
         assert get_stage("memory_reflection") is MEMORY_REFLECTION
@@ -48,10 +56,16 @@ class TestDeclaration:
         provider's 120s x 2 retries, holding one of four concurrency slots."""
         assert MEMORY_REFLECTION.timeout_s == 45.0
 
-    def test_it_stays_silent_and_keeps_its_flag(self):
-        """A refactor, not a user-visible change: the same flag governs it and
-        the DB write is still the only thing the reader ever sees."""
-        assert MEMORY_REFLECTION.delivery == "silent"
+    def test_it_delivers_a_frame_and_keeps_its_flag(self):
+        """Slice 4b: the DB write is still the durable act, and the turn that
+        caused it is now TOLD. That frame is the whole reason the per-answer
+        memory poll could be deleted rather than merely slowed down — with
+        `silent` there was no channel, so a browser had to guess when to ask.
+
+        The flag does not move: an operator who switches `memory-reflection` off
+        still switches off the writes AND the frame, which is what they mean.
+        """
+        assert MEMORY_REFLECTION.delivery == "frame"
         assert MEMORY_REFLECTION.flag_slug == "memory-reflection"
 
 
@@ -121,10 +135,25 @@ class TestHandler:
 
     @pytest.mark.asyncio
     async def test_written_items_are_reported_as_the_payload(self):
-        with patch("aiq_agent.agents.project_memory.reflection.run_memory_reflection", return_value=["a", "b"]):
+        with patch("aiq_agent.agents.project_memory.reflection.run_memory_reflection", return_value=_WRITTEN):
             payload = await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
-        assert payload == {"item_ids": ["a", "b"]}
-        assert MemoryReflectionPayload.model_validate(payload).item_ids == ["a", "b"]
+        assert payload == {"items": _WRITTEN}
+        assert MemoryReflectionPayload.model_validate(payload).items[0].kind == "constraint"
+
+    @pytest.mark.asyncio
+    async def test_the_payload_carries_the_item_text_and_not_only_its_id(self):
+        """What the chip renders is the finding's own words.
+
+        A payload of ids would leave the browser holding a receipt for text it
+        cannot read, and the only way to read it would be the GET this slice
+        exists to delete — the poll would come back, wearing a frame as a
+        trigger. The writer had the words in hand; it sends them.
+        """
+        with patch("aiq_agent.agents.project_memory.reflection.run_memory_reflection", return_value=_WRITTEN):
+            payload = await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
+        items = MemoryReflectionPayload.model_validate(payload).items
+        assert [item.content for item in items] == [row["content"] for row in _WRITTEN]
+        assert all(item.id and item.kind for item in items)
 
     @pytest.mark.asyncio
     async def test_the_pass_sees_the_digest_the_agent_saw_this_turn(self):
