@@ -15,6 +15,7 @@ from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.catalog import _interactive_note
 from aiq_agent.cards.catalog import model_facing_card_types
+from aiq_agent.cards.catalog import render_card_catalog
 from aiq_agent.cards.catalog import render_card_details
 from aiq_agent.cards.catalog import render_card_doctrine
 from aiq_agent.cards.catalog import render_card_index
@@ -124,6 +125,22 @@ class TestToolDescription:
         assert '"daylight_incidence"' in desc
         assert "DimensionCheck = {" not in desc
         assert "Worked examples" not in desc
+
+    def test_says_the_fields_are_plain_text_wherever_the_shapes_are_shown(self):
+        # A shipped `legal_basis` card wrote a markdown link into a text field
+        # and the card printed the brackets. `CardModel` strips them, so this
+        # rule is not what makes the card correct — it is what keeps the field
+        # holding what the model meant instead of the wreckage of a link.
+        #
+        # It rides with the SHAPES, not with the doctrine, for the same reason
+        # the measured-numbers rule does: the doctrine is paid on every turn
+        # whether or not a card is emitted, and a model that has just been handed
+        # the shapes is the one about to write these strings.
+        for shown in (render_card_details(["legal_basis"]), render_card_catalog()):
+            assert "Every text field is PLAIN TEXT" in shown
+            assert "no [text](url) links" in shown
+        assert "PLAIN TEXT" not in render_card_doctrine()
+        assert "PLAIN TEXT" not in render_card_index()
 
     def test_flags_cards_that_ask_the_user_to_confirm(self):
         # An interactive card costs the user a DECISION, not just screen space

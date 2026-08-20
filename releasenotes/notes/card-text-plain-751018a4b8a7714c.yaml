@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    Cards no longer show stray formatting characters in their text. A card that
+    cited a Richtlinie could print a link as raw brackets and a web address,
+    right next to the card's own working link to the same document. Card text is
+    now always the plain sentence it was meant to be, and the only links a card
+    offers are the ones it builds from the source it names.

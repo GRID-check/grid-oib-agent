@@ -6,6 +6,17 @@
  * header (identifiers in mono), the cited regulation excerpt as a real
  * blockquote at a readable measure, a plain-language summary, and — when the
  * source can be resolved — a link out to the primary source (OIB / RIS).
+ *
+ * Every wire field here is PLAIN TEXT and is set as a text node, never parsed.
+ * A shipped card once printed „[OIB-Richtlinie ansehen](https://www.oib.or.at/
+ * de/oib-richtlinien)“ as literal brackets, beside the very link that markup was
+ * imitating; the delimiters are now stripped on the way in, by `CardModel` in
+ * `src/aiq_agent/cards/models.py`. Do NOT resolve that class of bug here by
+ * teaching this component to read markdown: the anchors below are the ones the
+ * card BUILDS from `law` and `lane`, so which links a legal citation carries is
+ * decided by the schema. A renderer that parsed a text field would let the model
+ * put an arbitrary one in — on the artifact that gets screenshotted into an
+ * Einreichung. `LegalBasisCard.spec.tsx` pins both halves of that.
  */
 
 'use client'

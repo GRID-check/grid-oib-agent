@@ -5,8 +5,11 @@ import typing
 import pytest
 from pydantic import ValidationError
 
+from aiq_agent.cards.models import CardModel
+from aiq_agent.cards.models import GridCard
 from aiq_agent.cards.models import LegalBasisCard
 from aiq_agent.cards.models import MemoryProposalCard
+from aiq_agent.cards.models import flatten_card_markup
 from aiq_agent.cards.models import grid_card_adapter
 from aiq_agent.cards.models import validate_cards
 
@@ -1322,3 +1325,95 @@ class TestTheCitationSaysWhichAuthorityAndWhichAusgabe:
         detail = render_card_details(["legal_basis"])
         assert '"baurecht_oib" | "baurecht_ris"' in detail
         assert "Ausgabe Mai 2023" in detail
+
+
+class TestCardTextIsPlainText:
+    """No card renders markup, so no card field may carry any.
+
+    The defect these pin shipped: a production `legal_basis` card put
+    „[OIB-Richtlinie ansehen](https://www.oib.or.at/de/oib-richtlinien)“ on
+    screen as literal brackets, beside the card's own working link to that same
+    page. The contract was never written down anywhere, so nothing enforced it.
+
+    The fix is on the way IN, never in the renderer. A card is what gets
+    screenshotted into an Einreichung; a renderer that parsed markdown in a field
+    nobody declared as markdown would let the model put an arbitrary link into a
+    legal citation.
+    """
+
+    def test_the_shipped_defect_reaches_the_card_as_text(self):
+        card = grid_card_adapter.validate_python(
+            {
+                "type": "legal_basis",
+                "law": "OIB-Richtlinie 2",
+                "summary": "Details: [OIB-Richtlinie ansehen](https://www.oib.or.at/de/oib-richtlinien)",
+            }
+        )
+        assert card.summary == "Details: OIB-Richtlinie ansehen (https://www.oib.or.at/de/oib-richtlinien)"
+
+    def test_the_url_survives_as_text_rather_than_being_dropped(self):
+        # Silently deleting half of what a citation asserted is the one thing a
+        # sanitiser on this surface must not do. The brackets go; the target
+        # stays, as text — nothing downstream turns a bare URL in a card field
+        # into an anchor, so the card gains no link it did not already build.
+        card = LegalBasisCard(type="legal_basis", law="X", original_text="siehe [§ 3](https://ris.bka.gv.at/x)")
+        assert "https://ris.bka.gv.at/x" in card.original_text
+        assert "[" not in card.original_text
+        assert "](" not in card.original_text
+
+    def test_doubled_emphasis_and_code_spans_lose_their_delimiters(self):
+        card = LegalBasisCard(type="legal_basis", law="**OIB-Richtlinie 2**", summary="Mindestens `REI 90`.")
+        assert card.law == "OIB-Richtlinie 2"
+        assert card.summary == "Mindestens REI 90."
+
+    def test_single_character_emphasis_is_left_alone(self):
+        # `original_text` is documented as a LITERAL excerpt. A lone `*` is a
+        # footnote marker in an OIB table and `_` is ordinary punctuation in a
+        # file reference; mangling a verbatim legal quotation is a worse defect
+        # than an asterisk, so the line is drawn at delimiters that have no
+        # second reading.
+        excerpt = "Die Anforderung *) gilt sinngemäß für Anlage_1."
+        assert LegalBasisCard(type="legal_basis", law="X", original_text=excerpt).original_text == excerpt
+
+    def test_it_is_the_class_and_not_just_legal_basis(self):
+        # Same markup, a different card and a nested building block: the guard
+        # is on the shared base, so it is not a per-card patch.
+        card = grid_card_adapter.validate_python(
+            {
+                "type": "key_takeaways",
+                "title": "**Kernaussagen**",
+                "items": [
+                    {"text": "Siehe [RIS](https://ris.bka.gv.at)", "detail": "`§ 3` gilt."},
+                    {"text": "Gebäudeklasse 4"},
+                ],
+            }
+        )
+        assert card.title == "Kernaussagen"
+        assert card.items[0].text == "Siehe RIS (https://ris.bka.gv.at)"
+        assert card.items[0].detail == "§ 3 gilt."
+
+    def test_table_cells_are_reached_through_the_nested_list(self):
+        # `TypedTableCard.rows` is list[list[str]] — a cell is as much on-screen
+        # text as a title is, and a one-level walk would miss every one of them.
+        card = grid_card_adapter.validate_python(
+            {
+                "type": "typed_table",
+                "title": "Mindestmaße",
+                "columns": [{"label": "Bauteil", "type": "text"}, {"label": "Wert", "type": "mass"}],
+                "rows": [["**Tragende Wand**", "REI 90"]],
+            }
+        )
+        assert card.rows == [["Tragende Wand", "REI 90"]]
+
+    def test_every_card_type_inherits_the_guarantee(self):
+        # The point of putting it on a base class: a card type added next sprint
+        # is covered by BEING a card, not by someone remembering to annotate its
+        # fields. 177 free-text fields across 71 models is 177 chances to forget.
+        for card_cls in GridCard.__args__:
+            assert issubclass(card_cls, CardModel), card_cls.__name__
+
+    def test_flattening_is_idempotent_and_leaves_plain_text_untouched(self):
+        plain = "OIB-Richtlinie 2, Ausgabe Mai 2023 — § 3 Abs. 1 (Brandschutz)."
+        assert flatten_card_markup(plain) == plain
+        once = flatten_card_markup("[a](https://x) **b** `c`")
+        assert flatten_card_markup(once) == once
