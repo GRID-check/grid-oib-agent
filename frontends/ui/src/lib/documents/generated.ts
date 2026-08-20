@@ -8,9 +8,14 @@
  * round-trip, a Prüfbuch — is a member of {@link GENERATED_DOCUMENT_PRODUCERS}
  * and a CALL SITE. It is never a copy of this function.
  *
- * That is ADR-0042's "one admitting path" applied one level up. Three rules
+ * That is ADR-0042's "one admitting path" applied one level up. Five rules
  * hold for every agent-authored row, and each of them is one line here:
  *
+ *   - the write is gated on `project:documents:write` AND
+ *     `project:documents:generate`, and on the deployment's own flag, so an
+ *     organization can stop machine authorship without stopping its people
+ *     uploading and an operator can stop it everywhere at once (see the
+ *     conjunction argument at the checks themselves);
  *   - the bytes are admitted through `admitOrDiscard`, so the quota ledger sees
  *     them (bytes written outside the document service have no row and are
  *     invisible to it);
@@ -18,10 +23,16 @@
  *     agent wrote can come back to the agent as *Projektwissen*;
  *   - the audit event is emitted with the throwing variant, because "this
  *     document was written by a machine on this human's authority" has no
- *     domain table to fall back on.
+ *     domain table to fall back on;
+ *   - the bytes SAY a machine wrote them, checked against the bytes themselves
+ *     before anything is stored. The byline "Von Piloti erstellt" is chrome and
+ *     stays in the app; a file on somebody's disk, or attached to an
+ *     Einreichung, carries only what is inside it. See
+ *     {@link GeneratedRendering.marking} for why that stopped being a
+ *     convention each producer kept, and what it cost while it was one.
  *
  * A producer that copies a route handler instead of calling this keeps none of
- * the three, and it keeps them silently: the row looks identical.
+ * the five, and it keeps them silently: the row looks identical.
  *
  * ## What it deliberately does not decide
  *
@@ -36,8 +47,10 @@ import { bucketAdminS3Client, buildStorageKey, s3Client } from '@/lib/s3'
 import { ensureTenantBucketChecked } from '@/lib/storage/bucket'
 import { admitOrDiscard } from '@/lib/storage/admission'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { aiProvenanceMarking, markingIsInBytes, type AiProvenanceMarking } from '@/lib/ai-provenance'
+import { FEATURE_FLAGS, isAgentAuthoredDocumentsEnabled } from '@/lib/authz/feature-flags'
 import { recordAuditEventOrThrow } from '@/lib/audit/service'
-import { NotFoundError } from '@/lib/api/errors'
+import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { getOrCreateProjectFolderByName } from '@/lib/projects/folder-service'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -103,6 +116,66 @@ export const GENERATED_DOCUMENT_PRODUCERS = Object.keys(
 ) as readonly GeneratedDocumentProducer[]
 
 /**
+ * Which reference kinds are a RUN, and therefore belong in `AIRunId`.
+ *
+ * A `Record<AuthoredRefKind, boolean>` and not an `if`, for the reason
+ * {@link GENERATED_DOCUMENT_PRODUCER_REF_KINDS} is a map: it is exhaustive by
+ * construction, so a third kind of reference is a compile error here rather
+ * than a silent decision that it is not a run.
+ *
+ * The distinction is the one migration 0066 exists for. `AIRunId` names
+ * something an auditor can look up in the job store; a diagram's reference is
+ * `{chat message id}-{hash of its source}` and is not in that store. Writing it
+ * into `AIRunId` anyway would put a value nobody can resolve into the field a
+ * detector reads — the same mistake the column made while it was called
+ * `authored_by_run_id`, in the one place that reaches a Behörde. So a diagram's
+ * marking carries no run id at all, which `AiProvenance.runId` already says is
+ * the right answer: "a run id nobody can look up is worse than no run id".
+ */
+const REF_KIND_IS_A_RUN: Record<AuthoredRefKind, boolean> = {
+  agent_run: true,
+  answer_artifact: false,
+}
+
+/**
+ * The marking a producer's bytes must carry, decided HERE.
+ *
+ * Exported because `lib/diagrams/filing.ts` has to write the marking into the
+ * SVG it hands back, and it builds those bytes before `render` is called — but
+ * the value is still this module's answer, not that caller's, and
+ * `fileGeneratedDocument` recomputes it and refuses a rendering that disagrees.
+ * A caller can therefore be early, never different.
+ */
+export function generatedDocumentMarking(
+  producer: GeneratedDocumentProducer,
+  ref: string,
+): AiProvenanceMarking {
+  const refKind = GENERATED_DOCUMENT_PRODUCER_REF_KINDS[producer]
+  return aiProvenanceMarking(REF_KIND_IS_A_RUN[refKind] ? { runId: ref } : {})
+}
+
+/**
+ * A producer handed back bytes that do not say a machine wrote them.
+ *
+ * Named, and thrown rather than logged, because the alternative is the failure
+ * this whole mechanism exists to prevent: a file leaving the product with no
+ * statement of its own authorship, filed and quota-charged and looking exactly
+ * like a document a person wrote. Nothing is stored when this throws — the
+ * check runs after `render` and before the folder, the PUT and the row — so the
+ * user is told the filing failed, which is true, instead of being handed an
+ * unmarked artifact they may attach to an Einreichung.
+ *
+ * It carries no bytes and no marking in its message. It is a bug report for a
+ * PRODUCER, and the producer is named; the rest is in the code that failed.
+ */
+export class UnmarkedRenderingError extends Error {
+  constructor(readonly producer: GeneratedDocumentProducer, readonly contentType: string) {
+    super(`${producer} rendered ${contentType} bytes that do not carry the AI marking`)
+    this.name = 'UnmarkedRenderingError'
+  }
+}
+
+/**
  * Postgres' `unique_violation`.
  *
  * Named rather than spelled at the catch site for the reason
@@ -123,13 +196,47 @@ const UNIQUE_VIOLATION = '23505'
 export interface GeneratedRenderContext {
   projectId: string
   projectName: string
+  /**
+   * The marking these bytes MUST carry — handed down rather than looked up, so
+   * that no producer decides what "marked" means. See
+   * {@link generatedDocumentMarking} for why the seam and not the producer
+   * chooses it, and {@link GeneratedRendering.marking} for what is done with it.
+   */
+  marking: AiProvenanceMarking
 }
 
-/** The bytes a producer made, and what they are. */
+/** The bytes a producer made, what they are, and how they say who wrote them. */
 export interface GeneratedRendering {
   bytes: Uint8Array
   /** The stored `content_type`; also picks the file extension (see below). */
   contentType: string
+  /**
+   * The marking that is IN {@link bytes}. Mandatory, and checked.
+   *
+   * ## Why this is a field and not a convention
+   *
+   * It used to be a convention, and the convention was two-thirds unkept. The
+   * marking was applied at each producer — `deep_research` set the PDF's
+   * `Keywords` and printed a notice, `diagram_pdf` printed a footer line and
+   * set no metadata at all, and `diagram_svg` marked NOTHING anywhere in its
+   * bytes — and nothing in the type system or the tests noticed, because every
+   * assertion available was about the object that described the file rather
+   * than about the file.
+   *
+   * Required here, a producer cannot return bytes without answering the
+   * question, and a FOURTH producer cannot be added without answering it
+   * either. Branded ({@link AiProvenanceMarking}), the answer cannot be a
+   * sentence of the producer's own invention — the only way to obtain the type
+   * is `aiProvenanceMarking`, so every marked file is marked in the one
+   * vocabulary a detector matches on. And verified against the real bytes at
+   * the seam, the answer cannot be merely claimed: `fileGeneratedDocument`
+   * refuses to store a rendering whose marking is not findable in it.
+   *
+   * Together those three make an unmarked machine-authored file
+   * unrepresentable, which is what a byline inside the app cannot do for a file
+   * on somebody's disk or attached to an Einreichung.
+   */
+  marking: AiProvenanceMarking
 }
 
 export interface FileGeneratedDocumentInput {
@@ -274,12 +381,74 @@ export async function fileGeneratedDocument(
   // Not passed in, and that is the point — see the producer map's header.
   const refKind = GENERATED_DOCUMENT_PRODUCER_REF_KINDS[producer]
 
-  // The capability an organization can withhold (ADR-0038 §3). Spelled exactly
-  // as `uploadDocument` spells it, legacy umbrella included: a custom role
-  // provisioned before the split holds only `project:edit`, and a filing path
-  // that refused it would make "Piloti may write here" depend on when the role
-  // was created rather than on what it grants.
+  // ## The gates, in the order they are cheapest to fail
+  //
+  // First the deployment's own answer, which costs no I/O and is nobody's
+  // grant: with agent-authored documents switched off there is no capability to
+  // authorize, so a refusal here must not spend an FGA round trip or read like a
+  // permission the reader could be given. See the flag's registry entry for why
+  // an operator kill switch cannot be a permission (editing the catalog's own
+  // roles is CI drift) and why a tenant lever cannot be a flag (targeting is the
+  // platform owner's, not the organization's).
+  if (!isAgentAuthoredDocumentsEnabled(session)) {
+    throw new ForbiddenError('Agent-authored documents are disabled', {
+      feature: FEATURE_FLAGS.agentAuthoredDocuments,
+    })
+  }
+
+  // ## Two permissions, and why this is a conjunction rather than a substitution
+  //
+  // `project:documents:write` is asked FIRST and unchanged — spelled exactly as
+  // `uploadDocument` spells it, legacy umbrella included, because a custom role
+  // provisioned before ADR-0038 §3's split holds only `project:edit` and a
+  // filing path that refused it would make "may write here" depend on when the
+  // role was created rather than on what it grants.
+  //
+  // It is asked because **filing a generated document IS a document write.**
+  // Same bucket, same `admitOrDiscard` quota ledger, same folder tree, same
+  // `deleteDocument` afterwards. The question that permission answers — may
+  // bytes be admitted into this project's file system, in this session's name —
+  // is not changed by whose hand shaped the bytes.
+  //
+  // `project:documents:generate` answers a second and narrower question: may a
+  // **non-`user` author's** bytes be admitted at all. It is required IN ADDITION,
+  // and the reasons are ADR-0047's, in its own terms:
+  //
+  //   1. **ADR-0047 adds relations, it never substitutes them.** Provenance
+  //      arrived in the 2026-08-20 addendum as a FOURTH relation beside access
+  //      and assignment — "`createdBy` and `authored_by` are deliberately not
+  //      collapsed" — precisely because a schema that can record only one of two
+  //      facts has to lie about the other. A permission model that let
+  //      authorship REPLACE access would collapse at the capability level the
+  //      pair the data model was careful to keep apart.
+  //   2. **Substitution rebuilds the wider principal the design deleted.** The
+  //      design's decision 4 put the write in the commissioning user's session
+  //      so that the agent never holds authority the human lacks. If `generate`
+  //      stood alone, an organization could grant a role the power to put bytes
+  //      into the project file system that it cannot put there by uploading —
+  //      and cannot remove afterwards, since delete is `documents:write`. A
+  //      principal that writes more than it can undo is the "agent's principal
+  //      is wider than the user's" hole, rebuilt in the catalog after having
+  //      been deleted from the request path.
+  //   3. **It keeps the addendum's sentence literally true.** ADR-0047's second
+  //      addendum states what the column means: "this row was filed through the
+  //      generated-document path, in `createdBy`'s session, with
+  //      `project:documents:write` in hand." The "forged shelf is the LESS
+  //      capable one" argument rests on that — an author who can file but cannot
+  //      upload or delete is not less capable in the way the paragraph claims.
+  //      Conjunction is what keeps the sentence a fact instead of history.
+  //
+  // The cost is real and it is the correct one: nothing holds the new permission
+  // until the catalog is provisioned (`npm run provision:authz -- --apply`), so
+  // a custom project role that predates this change stops filing until somebody
+  // grants it. A capability whose whole purpose is to be withholdable must fail
+  // to the state the organization has not asked for — which is also why the
+  // `project:edit` umbrella is NOT accepted here. The umbrella keeps grants that
+  // predate a SPLIT working; this is not a split, and a permission every legacy
+  // role already implicitly holds would be exactly the un-withholdable lever
+  // this one exists to replace.
   await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
+  await requireProjectAccess(session, projectId, 'project:documents:generate')
 
   // Idempotency, before any byte is rendered. The reference is the key because
   // it is the one identifier the producer and the row already share.
@@ -302,7 +471,29 @@ export async function fileGeneratedDocument(
   const project = await findProjectInOrg(projectId, session.organizationId)
   if (!project) throw new NotFoundError('Project not found')
 
-  const rendered = await render({ projectId, projectName: project.name })
+  const marking = generatedDocumentMarking(producer, ref)
+  const rendered = await render({ projectId, projectName: project.name, marking })
+
+  // THE marking check, and the reason it is here rather than in three producers.
+  //
+  // Two questions, both asked of what actually exists rather than of what a
+  // producer intended:
+  //
+  //   - is this the marking this document is supposed to carry? A producer that
+  //     built its own — with a run id for a reference that is not a run, say —
+  //     is refused rather than quietly filed under a weaker statement;
+  //   - is that marking IN the bytes? Every producer builds its file through a
+  //     library that is free to drop what it was handed, and two of the three
+  //     did exactly that: `diagram_pdf` set no PDF keywords and `diagram_svg`
+  //     wrote no marking at all. Both passed every test there was, because the
+  //     tests could only ask the element tree.
+  //
+  // Before the folder, the PUT and the row, so an unmarked rendering leaves
+  // nothing behind — the same ordering argument the folder creation makes one
+  // line down.
+  if (rendered.marking !== marking || !markingIsInBytes(rendered.bytes, marking)) {
+    throw new UnmarkedRenderingError(producer, rendered.contentType)
+  }
 
   // After the render, so a producer that fails leaves no empty `Berichte`
   // folder standing in a project that never got a report.

@@ -823,6 +823,25 @@ export interface GridConfig {
     schedule: string;
   };
 
+  agentAuthoredDocuments: {
+    /**
+     * Operator kill switch for agent-authored documents: a finished
+     * deep-research report and a drawn diagram filed into a project as
+     * `documents` rows. Reaches the frontend as
+     * `GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED`, which the BFF only consults
+     * while `enforceFeatureFlags` is off; with enforcement on, the per-org
+     * `agent-authored-documents` WorkOS flag decides instead.
+     *
+     * Defaults to TRUE — the feature ships on. It is a key and not a role
+     * grant because the tenant-facing lever is a PERMISSION
+     * (`project:documents:generate`), and withdrawing that fleet-wide would
+     * mean editing the catalog's own built-in project roles in WorkOS, which
+     * `provision:authz --check` then fails in CI. The two answer different
+     * questions: this one is "is filing available in this deployment at all".
+     */
+    enabled: boolean;
+  };
+
   ifcModels: {
     /**
      * Dark-launch gate for IFC/BIM models (ADR-0045: `.ifc` upload, the model
@@ -2275,6 +2294,10 @@ export function loadConfig(): GridConfig {
 
     collaboration: {
       enabled: bool(cfg, "collaborationEnabled", false),
+    },
+
+    agentAuthoredDocuments: {
+      enabled: bool(cfg, "agentAuthoredDocumentsEnabled", true),
     },
 
     ifcModels: {

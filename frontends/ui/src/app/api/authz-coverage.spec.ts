@@ -56,7 +56,7 @@ const HAND_ROLLED: Record<string, string> = {
   'v1/[...path]/route.ts':
     'transport pass-through to the backend: resolves the session, blocks control-plane prefixes, and validates the collection scope via lib/proxy/collection-authz. Returns upstream responses verbatim, so it cannot use the factory’s JSON serialization.',
   'jobs/async/[...path]/route.ts':
-    'async-job proxy: streams upstream responses and forwards the WorkOS access token; authorization is the backend’s job-ownership check in aiq_api/jobs/access.py. The one write it performs — filing a finished report as a document — is gated separately and in the BFF: `fileGeneratedDocument` requires `project:documents:write` on the project before any byte is stored (lib/documents/generated.ts).',
+    'async-job proxy: streams upstream responses and forwards the WorkOS access token; authorization is the backend’s job-ownership check in aiq_api/jobs/access.py. The one write it performs — filing a finished report as a document — is gated separately and in the BFF: `fileGeneratedDocument` requires `project:documents:write` AND `project:documents:generate` on the project, plus the agent-authored-documents flag, before any byte is stored (lib/documents/generated.ts).',
   'auth/websocket-scope/route.ts':
     'mints the WebSocket scope headers; gates with requireProjectAccess per project id before emitting any scope, and returns a bespoke header envelope rather than JSON.',
   'auth/callback/route.ts':

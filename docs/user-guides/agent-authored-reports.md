@@ -37,18 +37,38 @@ and it is there in both cases.
 When the run finishes, the success banner names the file and offers a second
 action:
 
-> Im Projekt abgelegt: fluchtweglaengen-gk4-2026-08-20.pdf
+> Im Projekt abgelegt: fluchtweglangen-gk-4-2026-08-20.pdf
 >
 > **Bericht anzeigen** · **Im Projekt öffnen**
 
 Two actions, two places: *Bericht anzeigen* opens the research panel beside the
 chat, *Im Projekt öffnen* opens the file in the project's Dateien.
 
-**If nothing was filed, the banner says nothing about a file.** Filing is
-skipped or refused in ordinary situations — a chat that is not inside a project,
-an organization that does not grant its members the right to write documents, a
-full storage quota. In none of those is the report lost; you still get it in the
-research panel. The banner simply does not claim a file that does not exist.
+**If nothing was filed and nothing was promised, the banner says nothing about a
+file.** A chat that is not inside a project never gets the destination line in
+the first place, and nothing is filed from one — so there is nothing to report
+either way. The banner does not claim a file that does not exist.
+
+**If the filing was promised and then failed, the banner says so:**
+
+> Der Bericht konnte nicht unter „Berichte“ abgelegt werden.
+
+One quiet line, the same size and colour as the promise it takes back. It
+appears only when you were told the report would be filed — that is, only inside
+a project — because that is the only case in which anything needs correcting.
+
+It does not say why, and that is deliberate. A full storage quota, an
+organization that has not given your role the right to let Piloti file (a
+separate right from your own right to upload files — your administrator can
+withhold one and keep the other), and a report too long to render are the same
+fact from where you are sitting: the document is not there. The difference between them is something your administrator can act on,
+not you, and it is recorded in the server log for exactly that reason. What the
+line spares you is walking to *Berichte* to look for a file that was never
+written.
+
+**The report itself is never at risk.** In none of these cases is it lost — it
+is in the research panel either way, and you can export it from there. Filing is
+the second thing that happens to a report, never a condition of getting it.
 
 ---
 

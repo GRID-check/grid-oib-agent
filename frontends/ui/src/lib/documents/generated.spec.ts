@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  */
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 
@@ -171,6 +171,10 @@ beforeEach(() => {
 // stub from leaking into whatever test happens to run next.
 afterEach(() => {
   vi.unstubAllGlobals()
+  // The flag tests stub `GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED` and
+  // `GRID_ENFORCE_FEATURE_FLAGS`; leaking either would silently disable filing
+  // for whatever spec runs next in this file.
+  vi.unstubAllEnvs()
 })
 
 describe('fileGeneratedDocument', () => {
@@ -370,6 +374,162 @@ describe('fileGeneratedDocument', () => {
       'project:documents:write',
       'project:edit',
     ])
+  })
+
+  /**
+   * MACHINE AUTHORSHIP IS ITS OWN CAPABILITY.
+   *
+   * `project:documents:write` also authorizes a human upload, a delete and a
+   * re-ingest (`lib/documents/service.ts`), so an organization that wanted
+   * Piloti to answer without writing into its file system had one lever, and
+   * pulling it stopped its own architects uploading plans. These assertions are
+   * what make `project:documents:generate` a second, separable question rather
+   * than a slug in a catalog nothing reads.
+   */
+  describe('project:documents:generate', () => {
+    /** Refuse exactly one of the two gates, hold the other open. */
+    const grantAllBut = (withheld: string) =>
+      requireProjectAccess.mockImplementation(
+        async (_session: unknown, _projectId: string, permission: string | readonly string[]) => {
+          const asked = Array.isArray(permission) ? permission : [permission as string]
+          if (asked.includes(withheld)) throw new ForbiddenError(`${withheld} required`)
+          return { role: 'editor' }
+        },
+      )
+
+    it('is required IN ADDITION to the write permission, not instead of it', async () => {
+      await file()
+
+      // Both questions are asked, in this order: may bytes be admitted into this
+      // project's file system at all, and may a non-`user` author's bytes be.
+      // ADR-0047 adds relations rather than substituting them; the capabilities
+      // follow the data model.
+      expect(requireProjectAccess.mock.calls.map((call) => call[2])).toEqual([
+        ['project:documents:write', 'project:edit'],
+        'project:documents:generate',
+      ])
+    })
+
+    it('does NOT accept the legacy project:edit umbrella for machine authorship', async () => {
+      await file()
+
+      // The umbrella keeps grants that predate ADR-0038 §3's SPLIT working. This
+      // permission is not a split of anything, and one that every legacy role
+      // already implicitly holds is precisely the un-withholdable lever it
+      // exists to replace — so no any-of form may carry it here.
+      const asked = requireProjectAccess.mock.calls
+        .map((call) => call[2])
+        .filter((permission: string | readonly string[]) =>
+          (Array.isArray(permission) ? permission : [permission as string]).includes(
+            'project:documents:generate',
+          ),
+        )
+      expect(asked).toEqual(['project:documents:generate'])
+    })
+
+    it('refuses a session that may upload but may not generate, before any byte is written', async () => {
+      grantAllBut('project:documents:generate')
+
+      await expect(file()).rejects.toBeInstanceOf(ForbiddenError)
+
+      // Nothing rendered, nothing stored, nothing charged, nothing audited: the
+      // withheld capability costs a multi-minute run its filing and costs the
+      // project nothing to clean up.
+      expect(render).not.toHaveBeenCalled()
+      expect(s3Send).not.toHaveBeenCalled()
+      expect(admitOrDiscard).not.toHaveBeenCalled()
+      expect(recordAuditEventOrThrow).not.toHaveBeenCalled()
+    })
+
+    it('still refuses a session that may generate but may not write documents', async () => {
+      // The other half of the conjunction. If `generate` stood alone, a role
+      // could put bytes into the project file system it cannot put there by
+      // uploading — and cannot delete afterwards, since delete is
+      // `documents:write`. That is a principal that writes more than it can
+      // undo, which is the wider-principal hole the design deleted from the
+      // request path and must not rebuild in the catalog.
+      grantAllBut('project:documents:write')
+
+      await expect(file()).rejects.toBeInstanceOf(ForbiddenError)
+      expect(s3Send).not.toHaveBeenCalled()
+      expect(admitOrDiscard).not.toHaveBeenCalled()
+    })
+
+    it('gates every producer, because the gate is on the service and not on a route', async () => {
+      // A per-producer gate is a gate the next producer forgets. Both diagram
+      // producers and the research producer reach this one function, so the
+      // check is asked once per producer without any of them opting in.
+      grantAllBut('project:documents:generate')
+
+      for (const producer of GENERATED_DOCUMENT_PRODUCERS) {
+        await expect(
+          fileGeneratedDocument({
+            session: SESSION,
+            projectId: 'proj-1',
+            producer,
+            ref: 'ref-1',
+            title: 'Ablauf',
+            render,
+          }),
+        ).rejects.toBeInstanceOf(ForbiddenError)
+      }
+      expect(admitOrDiscard).not.toHaveBeenCalled()
+    })
+  })
+
+  /**
+   * THE OPERATOR'S GATE, WHICH THE PERMISSION CANNOT BE.
+   *
+   * Withdrawing `project:documents:generate` fleet-wide means editing the
+   * built-in `project-editor` / `project-admin` roles in WorkOS, which makes
+   * `provision:authz --check` fail in CI (ADR-0038 §1) — the repo forbids using
+   * the catalog as a knob. So the deployment-level answer is a flag, and it sits
+   * at the same seam so every producer rides it.
+   */
+  describe('the agent-authored-documents feature flag', () => {
+    it('files when nothing has switched it off — unset means on', async () => {
+      await file()
+      expect(admitOrDiscard).toHaveBeenCalledTimes(1)
+    })
+
+    it('refuses when the deployment switched it off, before any permission is read', async () => {
+      vi.stubEnv('GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED', 'false')
+
+      await expect(file()).rejects.toBeInstanceOf(ForbiddenError)
+
+      // Cheapest gate first: a capability the deployment does not have must not
+      // spend an FGA round trip, and must not read like a permission somebody
+      // could be granted.
+      expect(requireProjectAccess).not.toHaveBeenCalled()
+      expect(render).not.toHaveBeenCalled()
+      expect(s3Send).not.toHaveBeenCalled()
+    })
+
+    it('follows the per-org WorkOS flag once enforcement is on', async () => {
+      vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
+
+      await expect(
+        fileGeneratedDocument({
+          session: { ...SESSION, featureFlags: [] },
+          projectId: 'proj-1',
+          producer: 'deep_research',
+          ref: 'run_7',
+          title: 'Brandschutz',
+          render,
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError)
+      expect(admitOrDiscard).not.toHaveBeenCalled()
+
+      await fileGeneratedDocument({
+        session: { ...SESSION, featureFlags: ['agent-authored-documents'] },
+        projectId: 'proj-1',
+        producer: 'deep_research',
+        ref: 'run_7',
+        title: 'Brandschutz',
+        render,
+      })
+      expect(admitOrDiscard).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('surfaces a quota refusal and leaves no row — admission has already taken the object back', async () => {
@@ -669,6 +829,130 @@ describe('fileGeneratedDocument', () => {
       // can act on, and the orphan is logged for the purge.
       await expect(file()).rejects.toThrow('audit rejected')
     })
+  })
+})
+
+/**
+ * THE ENUMERATION, AS A TEST.
+ *
+ * Every assertion above is about ONE function. The claim the permission rests on
+ * is about the DATABASE: no `documents` row with `authored_by <> 'user'` comes
+ * into existence anywhere else. A permission checked in one place and not
+ * another is worse than no permission — it reads as a guarantee and is a
+ * courtesy — so the enumeration is pinned here rather than kept in a report
+ * nobody re-runs.
+ *
+ * The chain is three links, and each is asserted:
+ *
+ *   1. `documents` rows are inserted in exactly one place,
+ *      `insertDocumentWithinQuota` (`lib/storage/repository.ts`);
+ *   2. it is reached only through `admitDocumentWithinQuota`, which is imported
+ *      only by `admitOrDiscard` — ADR-0042's one admitting path;
+ *   3. of the modules that call `admitOrDiscard`, only this one names
+ *      `authoredBy` at all. Every other row takes the column default, `'user'`.
+ *
+ * A source scan and not a runtime spy, on purpose and for the same reason the
+ * ouroboros test has one: a fourth caller added tomorrow would never appear in
+ * this file's fixtures, and a spy proves only what today's fixtures happened to
+ * exercise.
+ */
+describe('every path that can create a machine-authored row', () => {
+  const SRC = new URL('../../', import.meta.url)
+
+  /** Every non-test module under `src/`, as repo-relative paths. */
+  const modules: { path: string; code: string }[] = readdirSync(SRC, {
+    recursive: true,
+    encoding: 'utf8',
+  })
+    .filter((entry) => /\.tsx?$/.test(entry))
+    .filter((entry) => !/\.(spec|test)\.tsx?$/.test(entry))
+    // Fixtures and the `/dev` preview routes build ROW-SHAPED OBJECTS for the
+    // UI to render; they reach no database and are not filing paths.
+    .filter((entry) => !entry.includes('test-utils') && !entry.startsWith('app/dev'))
+    .map((entry) => ({
+      path: entry.split('\\').join('/'),
+      code: readFileSync(new URL(entry, SRC), 'utf8'),
+    }))
+
+  const importersOf = (specifier: string): string[] =>
+    modules
+      .filter(({ code }) => code.includes(`from '${specifier}'`))
+      .map(({ path }) => path)
+      .sort()
+
+  it('inserts a documents row in exactly one module', () => {
+    const inserters = modules
+      .filter(({ code }) => /\.insert\(\s*documents\s*\)/.test(code))
+      .map(({ path }) => path)
+    expect(inserters).toEqual(['lib/storage/repository.ts'])
+  })
+
+  it('reaches that insert only through the one admitting path', () => {
+    // A caller that imported the quota-admission service directly would get the
+    // insert without the compensating object delete AND without this file's
+    // gates, so the narrow import is what keeps `admitOrDiscard` the only door.
+    expect(importersOf('./service').filter((path) => path.startsWith('lib/storage/'))).toContain(
+      'lib/storage/admission.ts',
+    )
+    const direct = modules
+      .filter(({ path }) => path !== 'lib/storage/admission.ts' && path !== 'lib/storage/service.ts')
+      .filter(({ code }) => code.includes('admitDocumentWithinQuota'))
+      .map(({ path }) => path)
+    expect(direct).toEqual([])
+  })
+
+  /**
+   * The text of every `admitOrDiscard(...)` call in a module, comments removed
+   * and parentheses balanced — so what is inspected is the ROW LITERAL handed to
+   * admission, not an unrelated mention of the column elsewhere in the file
+   * (`lib/documents/service.ts` reads `authoredBy` in four places that build no
+   * row at all).
+   */
+  const admissionCalls = (code: string): string[] => {
+    const stripped = code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    const needle = 'admitOrDiscard('
+    const calls: string[] = []
+    for (let from = 0; ; ) {
+      const start = stripped.indexOf(needle, from)
+      if (start === -1) return calls
+      let depth = 0
+      let index = start + needle.length - 1
+      for (; index < stripped.length; index++) {
+        if (stripped[index] === '(') depth++
+        else if (stripped[index] === ')' && --depth === 0) break
+      }
+      calls.push(stripped.slice(start, index + 1))
+      from = index + 1
+    }
+  }
+
+  it('has exactly four callers of the admitting path, and only this one authors a row', () => {
+    const admitters = importersOf('@/lib/storage/admission')
+    // Named in full rather than counted: a new entry here is a new way for a
+    // `documents` row to exist, and this test is where somebody has to look at
+    // it and decide whether it can author one.
+    expect(admitters).toEqual([
+      'lib/archiv/service.ts',
+      'lib/documents/generated.ts',
+      'lib/documents/service.ts',
+      'lib/session-documents/service.ts',
+    ])
+
+    const authoring = admitters.filter((path) =>
+      admissionCalls(modules.find((module) => module.path === path)!.code).some((call) =>
+        call.includes('authoredBy'),
+      ),
+    )
+    // The three upload paths never set the column, so their rows take the
+    // `'user'` default and no request field can make one machine-authored.
+    expect(authoring).toEqual(['lib/documents/generated.ts'])
+  })
+
+  it('gates that one module on both permissions and the flag', () => {
+    const code = modules.find((module) => module.path === 'lib/documents/generated.ts')!.code
+    expect(code).toContain("'project:documents:write'")
+    expect(code).toContain("'project:documents:generate'")
+    expect(code).toContain('isAgentAuthoredDocumentsEnabled')
   })
 })
 

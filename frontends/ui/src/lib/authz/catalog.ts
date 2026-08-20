@@ -248,6 +248,35 @@ export const PROJECT_PERMISSION_SPECS: readonly PermissionSpec[] = [
     tier: 'project',
   },
   {
+    /**
+     * Machine authorship, as a capability of its own.
+     *
+     * `project:documents:write` gates the ORDINARY upload — a person choosing a
+     * file off their disk — and it is the same permission behind delete and a
+     * whole-project re-index (`lib/documents/service.ts`). An organization that
+     * wanted Piloti to answer but not to write into its file system therefore
+     * had exactly one lever, and pulling it also stopped its own architects
+     * uploading plans. That is not a choice, and a deploy runbook that offered
+     * it as a kill switch was wrong
+     * (`docs/deployment/agent-authored-documents-rollout.md` §4).
+     *
+     * This permission is required **in addition to** the write permission at
+     * every generated-document seam, never instead of it — the argument is at
+     * the seam itself, `lib/documents/generated.ts`.
+     *
+     * It is deliberately NOT joined by the `project:edit` umbrella in any
+     * any-of list. The umbrella exists to keep grants that predate ADR-0038 §3's
+     * SPLIT working; this is not a split of anything, it is a new capability,
+     * and a permission every legacy role already implicitly holds is exactly the
+     * un-withholdable lever this one exists to replace.
+     */
+    slug: 'project:documents:generate',
+    name: 'File agent-authored documents',
+    description:
+      'Let the agent file documents it wrote — reports, diagrams — into a project. Required IN ADDITION to project:documents:write, never instead of it.',
+    tier: 'project',
+  },
+  {
     slug: 'project:memory:write',
     name: 'Write project memory',
     description: "Add, edit and remove items in a project's long-term memory.",
@@ -499,6 +528,14 @@ export const ROLES: readonly RoleSpec[] = [
       'project:chat',
       'project:edit',
       'project:documents:write',
+      // Held by the built-in editor so the shipped product works out of the box.
+      // An organization that does not want machine authorship withholds it the
+      // way ADR-0038 §4 says every capability is withheld — by putting people on
+      // a custom project role that omits it, which is drift-free because custom
+      // roles are not in this catalog. Editing THIS role in WorkOS instead would
+      // fail `provision:authz --check` in CI, which is why an operator-side kill
+      // switch has to be a flag and not a permission.
+      'project:documents:generate',
       'project:memory:write',
     ],
   },
@@ -514,6 +551,7 @@ export const ROLES: readonly RoleSpec[] = [
       'project:chat',
       'project:edit',
       'project:documents:write',
+      'project:documents:generate',
       'project:memory:write',
       'project:manage',
       'project:members:manage',

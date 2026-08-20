@@ -442,6 +442,7 @@ services:
       # IFC/BIM models (ADR-0045). ON by default; set false to withdraw the
       # feature without turning on flag enforcement for everything else.
       - GRID_IFC_MODELS_ENABLED=${GRID_IFC_MODELS_ENABLED:-true}
+      - GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED=${GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED:-true}
       # Extraction bounds. BIM_MAX_IFC_BYTES is also the UPLOAD ceiling for a
       # .ifc — the two must not disagree. Defaults: 250 MB / 200 000 rows.
       - BIM_MAX_IFC_BYTES=${BIM_MAX_IFC_BYTES:-}

@@ -314,7 +314,7 @@ of these is a shape, not a feature: nothing below is built in v1.
 | **Whether it files automatically** | The commissioned-vs-confirmed choice is read from one resolver, not an `if` in the jobs route. v1's resolver returns a constant. | Replacing a constant with a lookup. Enterprise will want this per organization — the precedent is `platform_model_defaults` overridden by an org row (ADR-0014/0022): platform default, tenant override, explicit beats inherited. |
 | **Where it lands** | A fixed `Berichte` folder, resolved by the same function that will later read a policy. Finding is by `authored_by`, never by folder. | A column on that policy. Moving or renaming the folder never breaks discovery, because discovery never used it. |
 | **Whether it is retrievable** | Not ingested, so no chunks exist. | A deliberate decision with a name. If a tenant ever wants generated reports searchable, that is a *policy* granting ingestion for a producer — and it must arrive together with the labelled-citation work, never before it. |
-| **What may be generated** | A research report, rendered by a caller-supplied `render` function. Shipped as a `.docx`; now a PDF — see [As built §5](#5-the-filed-report-is-a-pdf). | A renderer. The service takes a render function, so a BCF export, a Prüfbuch or a Massenermittlung is a new caller with a new renderer, not a new pipeline. |
+| **What may be generated** | A research report, rendered by a caller-supplied `render` function. Shipped as a `.docx`; now a PDF — see [As built §6](#6-the-filed-report-is-a-pdf). | A renderer. The service takes a render function, so a BCF export, a Prüfbuch or a Massenermittlung is a new caller with a new renderer, not a new pipeline. |
 
 What is deliberately **not** left open: agent-authored content becoming
 instructions (`/skills`, the project profile), and any write path that does not
@@ -415,11 +415,38 @@ through `documentFilesHref` — the same `/files?doc=` shape the Files feature a
 the sharing registry's `document` descriptor already use, never a second URL for
 the same place.
 
-**When `filed` is absent the banner says nothing about a file.** Absence is a
-normal answer, not a pending one: a projectless chat, a withheld
-`project:documents:write`, a refused quota, or a run that finished before this
-existed. A hedge ("a file may have been created") would be worse than silence,
-and a dead link worse than both.
+**When nothing was filed and nothing was promised, the banner says nothing about
+a file.** Absence is a normal answer, not a pending one: a projectless chat, or
+a run that finished before this existed. A hedge ("a file may have been
+created") would be worse than silence, and a dead link worse than both.
+
+**When a filing was promised and then failed, the banner takes the promise
+back.** This is the one absence that is not silent, and it is a distinction the
+first cut of this section did not draw. The report route separates the two
+(`filingFailed`, see [`bff-routes.md`](../../api/bff-routes.md)): the flag is
+raised only when a project was resolved — the same condition under which the
+starting banner printed the disclosure. So the reader who was told „wird
+abgelegt" is exactly the reader who is told it did not happen, and nobody else:
+
+> DE: „Der Bericht konnte nicht unter „Berichte“ abgelegt werden.“
+>
+> EN: "The report could not be filed under “Berichte”."
+
+The rule it obeys is still *never claim a file that does not exist* — a
+retraction claims no file. What it adds is the reason that rule was not the
+whole answer: **a promise was made.** Saying nothing does not spare the reader
+the failure; it sends them to Berichte to discover it alone, with the only
+record in a server log they cannot read. The disclosure is also what stands in
+for a consent step (no modal, by decision), so a promise that can be silently
+dropped is a consent step that can be silently voided.
+
+It is said in the register the promise was made in: one muted line in the same
+`text-subtle text-xs` slot, inside a banner that stays `success` because the
+RESEARCH succeeded. No red, no icon, no `warning` variant — colour in this
+product belongs to provenance — and **no reason**, because a refused quota, a
+revoked `project:documents:write` and a report too long to render are one fact
+to an architect: the document is not there. The reasons name buckets,
+permissions and limits, and those are for the operator reading the log.
 
 **No modal, no confirmation, no second consent step** — unchanged from the
 design, and now held by a test rather than only by argument.
@@ -476,7 +503,37 @@ holds in the code by construction: the report route files nothing without a live
 session and a `projectId`, and there is no BFF path on which a cron run reaches
 that handler.
 
-### 5. The filed report is a PDF
+### 5. One permission was not a choice, so there are now two
+
+Decision 4 gated the filing on `project:documents:write` and called that "a
+capability an organization can withhold, which is what ADR-0038 §3 created
+`project:documents:write` for". The second half was false. That permission also
+authorizes an ordinary **human upload**, a delete and a whole-project re-index
+(`lib/documents/service.ts`), so an organization that wanted Piloti to answer
+without writing into its file system had exactly one lever, and pulling it
+stopped its own architects uploading plans.
+
+`project:documents:generate` is now required **in addition** at the seam, never
+instead — a conjunction, argued at the checks themselves and recorded in
+[ADR-0047's third addendum](../../adr/0047-assignment-is-not-access.md): that ADR
+adds relations rather than substituting them; a standalone `generate` would let a
+role write bytes it cannot upload and cannot delete, rebuilding in the catalog
+the wider principal decision 4 deleted from the request path; and the conjunction
+is what keeps ADR-0047's sentence about what `authored_by = 'agent'` *means*
+literally true. The legacy `project:edit` umbrella is deliberately not accepted
+for it — a permission every pre-split role already implicitly holds is exactly
+the un-withholdable lever this one exists to replace, so nothing holds it until
+`provision:authz --apply` has run.
+
+The commit plan's "behind a flag" also landed, and it is a different instrument
+rather than a duplicate. The permission is the tenant's, per project and per
+role, withheld on a custom role. Withdrawing it fleet-wide would mean editing the
+built-in project roles in the catalog, which `provision:authz --check` then fails
+in CI — so the operator's kill switch has to be the `agent-authored-documents`
+flag (`GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED`, default ON), checked at the same
+seam so every producer rides one switch rather than one each.
+
+### 6. The filed report is a PDF
 
 The seam was real, and this is the proof: changing the output format was **a new
 renderer at an existing call site**, not a new pipeline. `fileGeneratedDocument`

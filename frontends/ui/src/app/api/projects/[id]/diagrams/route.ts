@@ -2,7 +2,8 @@
  * Filing a diagram the browser drew.
  *
  * Thin, like every other route here: the authorization lives in
- * `fileGeneratedDocument` (`project:documents:write`), the validation lives in
+ * `fileGeneratedDocument` (`project:documents:write` AND
+ * `project:documents:generate`), the validation lives in
  * `lib/diagrams/svg.ts`, and this handler only turns a request into those two
  * calls and a refusal into a message a person can read.
  *
@@ -137,7 +138,7 @@ export const POST = apiRoute<Params>(
     status: 201,
     authz: {
       enforcedBy:
-        'fileDiagramDocuments → fileGeneratedDocument (requireProjectAccess project:documents:write)',
+        'fileDiagramDocuments → fileGeneratedDocument (requireProjectAccess project:documents:write AND project:documents:generate, plus the agent-authored-documents flag)',
     },
   }
 )

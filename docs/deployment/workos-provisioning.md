@@ -98,6 +98,7 @@ project access comes from project-scoped roles.
 | `project:chat` | Start and continue conversations in the project |
 | `project:edit` | **Deprecated** umbrella write, retained so existing grants keep working |
 | `project:documents:write` | Upload/delete/re-ingest/retag project documents |
+| `project:documents:generate` | Let the agent file documents it wrote (a Recherchebericht, a diagram) into the project. Required **in addition to** `project:documents:write`, never instead of it, and deliberately NOT satisfied by the `project:edit` umbrella — a permission every legacy role already implicitly holds could not be withheld, which is the whole point of this one. Withhold it on a custom project role to let Piloti answer without writing into the file system |
 | `project:memory:write` | Add/edit/remove project memory items |
 | `project:manage` | Rename, archive or delete the project |
 | `project:members:manage` | Grant and revoke project roles |
@@ -144,7 +145,7 @@ environment-scoped role holds a `platform:*` permission.
 | `org-user-admin` | environment | `org:members:manage`, `widgets:users-table:manage` |
 | `project-viewer` | environment (Project) | `project:view` |
 | `project-contributor` | environment (Project) | `project:view`, `project:chat` |
-| `project-editor` | environment (Project) | + `project:edit`, `project:documents:write`, `project:memory:write` |
+| `project-editor` | environment (Project) | + `project:edit`, `project:documents:write`, `project:documents:generate`, `project:memory:write` |
 | `project-admin` | environment (Project) | + `project:manage`, `project:members:manage`, `project:workflows:manage` |
 | `workflow-viewer` / `workflow-operator` / `workflow-admin` | environment (Workflow) | `workflow:view` / +`run` / +`manage` |
 | `org-platform-owner` | **GRID Platform org only** | all `platform:*` + five `widgets:*` |

@@ -207,7 +207,9 @@ different fact from the report's, and this ADR is where the difference belongs.
 
 Assume the attacker is a member of the organization who already holds
 `project:documents:write` on the project (or the legacy `project:edit`
-umbrella). Anything short of that is refused before a byte is stored.
+umbrella) **and** `project:documents:generate` (see the addendum below —
+machine authorship is a capability of its own, and the umbrella does not
+satisfy it). Anything short of that is refused before a byte is stored.
 
 | They can choose | Consequence |
 |---|---|
@@ -219,7 +221,7 @@ umbrella). Anything short of that is refused before a byte is stored.
 | They cannot choose | Why |
 |---|---|
 | the acting identity | `createdBy`, `organization_id` and the audit actor all come from the session (`requireAuthorizedSession`). |
-| whether they may write here | `requireProjectAccess(project:documents:write \| project:edit)`, inside the service. |
+| whether they may write here | `requireProjectAccess(project:documents:write \| project:edit)` **and** `requireProjectAccess(project:documents:generate)`, both inside the service. |
 | the producer | Fixed by the route: `diagram_svg` / `diagram_pdf`. A forged **`deep_research`** row is unreachable from here. |
 | the quota | One admitting path (`admitOrDiscard`), so the bytes are charged like every other document (ADR-0042). |
 | indexability | `fileGeneratedDocument` dispatches nothing, and `dispatchDocument` re-reads the row and refuses a non-`user` author. |
@@ -227,7 +229,7 @@ umbrella). Anything short of that is refused before a byte is stored.
 
 So `authored_by = 'agent'` means **this row was filed through the
 generated-document path, in `createdBy`'s session, with `project:documents:write`
-in hand, and its bytes were never indexed.** It is a statement about the *path*,
+AND `project:documents:generate` in hand, and its bytes were never indexed.** It is a statement about the *path*,
 not a warrant about the *hand*. It does **not** mean the model composed these
 bytes, and `authored_by_ref` does not mean the answer it names exists or ever
 held a diagram. The audit event inherits the same split exactly: the actor is the
@@ -299,6 +301,63 @@ Three things follow, and they are cheap:
 3. **Revisit with server-authoritative messages**, not before. At that point the
    derivation costs one indexed lookup and buys a real fact, which is a different
    trade from today's.
+
+## Addendum, 2026-08-20: machine authorship is a capability, and it is a conjunction
+
+The addenda above give a document a fourth relation — who wrote it. They left the
+*capability* undivided: filing was gated on `project:documents:write`, which is
+also what authorizes a human upload, a delete and a re-ingest
+(`frontends/ui/src/lib/documents/service.ts`). An organization that wanted Piloti
+to answer but not to write into its file system therefore had exactly one lever,
+and pulling it stopped its own architects uploading plans. That is not a choice,
+and a deploy runbook that offered it as a kill switch was wrong; the correction
+is in `../deployment/agent-authored-documents-rollout.md` §4.
+
+**`project:documents:generate` is now required at every generated-document seam,
+IN ADDITION to `project:documents:write` and never instead of it.** Three
+reasons, all of them this ADR's own:
+
+1. **This ADR adds relations; it does not substitute them.** The first addendum's
+   whole point is that `createdBy` and `authored_by` are not collapsed, because a
+   record that can hold only one of two facts has to lie about the other. Letting
+   authorship REPLACE access at the gate would collapse, one level up, the pair
+   the data model was careful to keep apart. Filing a generated document *is* a
+   document write — same bucket, same `admitOrDiscard` quota ledger, same folder
+   tree, same `deleteDocument` — and whose hand shaped the bytes does not change
+   that question, it adds a second one.
+2. **Substitution would rebuild the wider principal the design deleted.** The
+   write happens in the commissioning human's session precisely so the agent
+   never holds authority the human lacks. A standalone `generate` would let an
+   organization grant a role the power to put bytes into a project's file system
+   that it cannot put there by uploading, and cannot delete afterwards — a
+   principal that writes more than it can undo.
+3. **It keeps the sentence above literally true.** "The forged shelf is the LESS
+   capable one" rests on the filer already holding ordinary document-write
+   authority. An author who could file but not upload or delete would not be
+   less capable in the way that paragraph claims.
+
+Two consequences worth stating rather than discovering:
+
+- **The `project:edit` umbrella is deliberately not accepted for it.** The
+  any-of list exists to keep grants that predate ADR-0038 §3's *split* working.
+  This is not a split of anything, and a permission every legacy role already
+  implicitly holds is exactly the un-withholdable lever it exists to replace. So
+  nothing holds it until the catalog is provisioned
+  (`npm run provision:authz -- --apply`), and a custom project role written
+  before this change stops filing until somebody grants it. A capability whose
+  purpose is to be withholdable must fail to the state the organization has not
+  asked for.
+- **Withholding it is a tenant act, and a flag is the operator's.** An
+  organization withholds machine authorship by putting people on a custom
+  project role that omits the permission — ADR-0038 §4's extensibility contract,
+  and drift-free because custom roles are not in the catalog. An OPERATOR who
+  has to stop filing across every tenant at once cannot use the same lever: the
+  only fleet-wide withdrawal is editing the built-in `project-editor` /
+  `project-admin` roles in WorkOS, which then fails `provision:authz --check` in
+  CI (ADR-0038 §1). That case is served by the `agent-authored-documents`
+  feature flag (`GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED`, default ON), checked at
+  the same seam so every producer rides it. Two instruments, two questions;
+  neither can answer the other's.
 
 ## References
 

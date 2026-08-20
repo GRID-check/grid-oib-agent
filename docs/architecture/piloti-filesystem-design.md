@@ -691,9 +691,12 @@ project-scoped writes resolve through `withOptionalTenant(undefined)` →
 The correct conclusion is therefore the opposite of the one drawn here: do not
 give the agent a write path at all. The BFF already proxies the finished report
 (`GET /api/jobs/async/job/{id}/report`), so it can do the write in the
-commissioning user's own session, gated on `project:documents:write`. That
-removes the confused deputy instead of reasoning about it — see the build
-spec's decision 4.
+commissioning user's own session, gated on `project:documents:write` — and, as
+built, on `project:documents:generate` beside it, so that "Piloti may write
+here" is a capability an organization can withhold without also stopping its own
+architects uploading plans. That removes the confused deputy instead of
+reasoning about it — see the build spec's decision 4 and
+[ADR-0047's third addendum](../adr/0047-assignment-is-not-access.md).
 
 **Keep proposing everything through cards.** Rejected: it does not scale past
 one write per turn, and a deep-research run that writes 30 notes would render 30
