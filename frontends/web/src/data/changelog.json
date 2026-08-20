@@ -48,6 +48,26 @@
             {
               "en": "You can preview the report as a PDF before you download it, in a panel you can drag as wide as you need. What you see is the document you get.",
               "de": "You can preview the report as a PDF before you download it, in a panel you can drag as wide as you need. What you see is the document you get."
+            },
+            {
+              "en": "Folders in a project's Files can now be renamed, moved and deleted, not only created. Hovering a folder in the tree reveals its own ⋯ menu: Rename turns the row into a text field right where the name already is, and Delete asks once before removing it.",
+              "de": "Folders in a project's Files can now be renamed, moved and deleted, not only created. Hovering a folder in the tree reveals its own ⋯ menu: Rename turns the row into a text field right where the name already is, and Delete asks once before removing it."
+            },
+            {
+              "en": "Deleting a folder never deletes what was filed in it. The confirmation names where things go — \"Its 4 documents and 1 subfolder are not deleted — they move to Brandschutz\" — and the documents and any subfolders are re-filed into the folder above before the folder itself is removed, with a toast afterwards repeating the count.",
+              "de": "Deleting a folder never deletes what was filed in it. The confirmation names where things go — \"Its 4 documents and 1 subfolder are not deleted — they move to Brandschutz\" — and the documents and any subfolders are re-filed into the folder above before the folder itself is removed, with a toast afterwards repeating the count."
+            },
+            {
+              "en": "The assistant now knows how you filed your project documents. It can tell you what is in Brandschutz, name the folder when it points you at a file, and search inside one folder — including everything nested under it, so Brandschutz also covers Brandschutz/Fluchtwege. Renaming or moving a folder updates what it sees, with nothing to re-upload.",
+              "de": "The assistant now knows how you filed your project documents. It can tell you what is in Brandschutz, name the folder when it points you at a file, and search inside one folder — including everything nested under it, so Brandschutz also covers Brandschutz/Fluchtwege. Renaming or moving a folder updates what it sees, with nothing to re-upload."
+            },
+            {
+              "en": "A document can now be moved between folders. Until now a file was filed once, when it was uploaded, and stayed there — one dropped in the wrong folder could not be re-filed at all. Move to folder is in the document's ⋯ menu; each destination is listed by its full path, the folder it is in now is marked and cannot be picked, and All Files takes it out of every folder.",
+              "de": "A document can now be moved between folders. Until now a file was filed once, when it was uploaded, and stayed there — one dropped in the wrong folder could not be re-filed at all. Move to folder is in the document's ⋯ menu; each destination is listed by its full path, the folder it is in now is marked and cannot be picked, and All Files takes it out of every folder."
+            },
+            {
+              "en": "Moving a document also tells Piloti where it went, so an answer that mentions where a document lives follows the move immediately, with nothing re-indexed.",
+              "de": "Moving a document also tells Piloti where it went, so an answer that mentions where a document lives follows the move immediately, with nothing re-indexed."
             }
           ]
         },
@@ -63,8 +83,36 @@
               "de": "A note that research was cut off, or that an answer came out weaker than usual, now stays with the answer when you reopen the conversation later. Previously that caveat was visible only while the run was live, so a partial answer read as a complete one the next morning."
             },
             {
+              "en": "The file preview beside a chat now says when Piloti cannot use the document yet: a file still being indexed, or one whose indexing failed, carries that line under its name instead of looking like a file that is ready. It clears itself when indexing finishes, and a failure links to the detail view.",
+              "de": "The file preview beside a chat now says when Piloti cannot use the document yet: a file still being indexed, or one whose indexing failed, carries that line under its name instead of looking like a file that is ready. It clears itself when indexing finishes, and a failure links to the detail view."
+            },
+            {
+              "en": "Nothing you do to the preview is one-way any more. Close it with the ✕, with Escape, or by dragging the seam shut, and a tab stays on the edge it went out through — click it and the document comes back at the width you chose. Show file does the same from the composer, and now works while the research panel is open. Ending the question with the ✕ offers an undo.",
+              "de": "Nothing you do to the preview is one-way any more. Close it with the ✕, with Escape, or by dragging the seam shut, and a tab stays on the edge it went out through — click it and the document comes back at the width you chose. Show file does the same from the composer, and now works while the research panel is open. Ending the question with the ✕ offers an undo."
+            },
+            {
+              "en": "Asking Piloti about a file from Dateien no longer blinks: the viewer you were looking at stays on screen while the chat loads and hands over to the preview beside it, instead of vanishing at the click and leaving you on the file grid until the conversation arrives.",
+              "de": "Asking Piloti about a file from Dateien no longer blinks: the viewer you were looking at stays on screen while the chat loads and hands over to the preview beside it, instead of vanishing at the click and leaving you on the file grid until the conversation arrives."
+            },
+            {
+              "en": "A document that has been deleted — or that you no longer have access to — now says so in the preview instead of offering a retry that could never work, and lets you stop asking about it in one click. The enlarged preview also keeps the keyboard inside it, as a dialog should.",
+              "de": "A document that has been deleted — or that you no longer have access to — now says so in the preview instead of offering a retry that could never work, and lets you stop asking about it in one click. The enlarged preview also keeps the keyboard inside it, as a dialog should."
+            },
+            {
+              "en": "The preview shows what Piloti made of the document — the indexed summary, under the document itself — instead of only in the enlarged view. A file with no inline preview now offers its download where the message says so.",
+              "de": "The preview shows what Piloti made of the document — the indexed summary, under the document itself — instead of only in the enlarged view. A file with no inline preview now offers its download where the message says so."
+            },
+            {
+              "en": "The preview arrives and enlarges with motion instead of appearing in one frame, its header sits on the same line as the chat's own, the document is raised on its ground, and the seam between them is a single hairline that answers to the pointer. Double-click it to put the width back.",
+              "de": "The preview arrives and enlarges with motion instead of appearing in one frame, its header sits on the same line as the chat's own, the document is raised on its ground, and the seam between them is a single hairline that answers to the pointer. Double-click it to put the width back."
+            },
+            {
               "en": "The file preview can be made much wider than before — the old ceiling was narrower than an A3 plan at a readable zoom — and the width you set is remembered, so the next file opens the way you left the last one. Drag the seam shut and the preview closes like the ✕ does, keeping the question in the composer.",
               "de": "The file preview can be made much wider than before — the old ceiling was narrower than an A3 plan at a readable zoom — and the width you set is remembered, so the next file opens the way you left the last one. Drag the seam shut and the preview closes like the ✕ does, keeping the question in the composer."
+            },
+            {
+              "en": "A document whose indexing failed can be sent back through it from its own card: Retry indexing is in the ⋯ menu, beside rename and delete, wherever the failure is shown. Until now the card told you it had failed and the only retry was two clicks inside a viewer you had no reason to open.",
+              "de": "A document whose indexing failed can be sent back through it from its own card: Retry indexing is in the ⋯ menu, beside rename and delete, wherever the failure is shown. Until now the card told you it had failed and the only retry was two clicks inside a viewer you had no reason to open."
             },
             {
               "en": "The navigation rail can be resized. Drag its right edge to give the project navigation as much or as little room as you want, and the width you choose is the width it opens at next time. Dragging it all the way in still folds it to the icon column, and a click on the edge still folds and unfolds it. The edge always showed a resize cursor; now it does what the cursor said.",
@@ -90,6 +138,38 @@
             {
               "en": "The file preview beside a chat could not really be resized. The seam moved about twenty pixels and then stopped, whichever way you pulled it, so the document stayed at the width it opened at. It now follows the pointer for the full width of the row.",
               "de": "The file preview beside a chat could not really be resized. The seam moved about twenty pixels and then stopped, whichever way you pulled it, so the document stayed at the width it opened at. It now follows the pointer for the full width of the row."
+            },
+            {
+              "en": "Upload errors are now written in the language you are using. A rejected file used to put an English clause inside a German sentence — \"1 Datei wird hochgeladen, 1 übersprungen (\\\"Plan.pdf\\\" is 210 MB, exceeds 100 MB limit)\" — on the most ordinary upload failure there is. Every reason now reads as one sentence: too large, wrong type, already added, or no room left.",
+              "de": "Upload errors are now written in the language you are using. A rejected file used to put an English clause inside a German sentence — \"1 Datei wird hochgeladen, 1 übersprungen (\\\"Plan.pdf\\\" is 210 MB, exceeds 100 MB limit)\" — on the most ordinary upload failure there is. Every reason now reads as one sentence: too large, wrong type, already added, or no room left."
+            },
+            {
+              "en": "Assigning someone to a file says when it did not work. A refused assignment used to change nothing on screen at all — no error, no clue — which in a panel about who is responsible reads as success. It now names the person it could not assign and offers to try the same thing again.",
+              "de": "Assigning someone to a file says when it did not work. A refused assignment used to change nothing on screen at all — no error, no clue — which in a panel about who is responsible reads as success. It now names the person it could not assign and offers to try the same thing again."
+            },
+            {
+              "en": "The file list waits in the shape it will arrive in. Loading and searching drew card placeholders even when you were in the detail view, so the list appeared only after a flash of tiles that were never going to be there.",
+              "de": "The file list waits in the shape it will arrive in. Loading and searching drew card placeholders even when you were in the detail view, so the list appeared only after a flash of tiles that were never going to be there."
+            },
+            {
+              "en": "A semantic search over your files or the Archiv that could not run — the index unreachable, the request timed out — was reported as \"no matches for …\", which is a statement about your own documents that the app had no way of making. It now says the search failed and offers to run the same query again, instead of asking you to start over.",
+              "de": "A semantic search over your files or the Archiv that could not run — the index unreachable, the request timed out — was reported as \"no matches for …\", which is a statement about your own documents that the app had no way of making. It now says the search failed and offers to run the same query again, instead of asking you to start over."
+            },
+            {
+              "en": "Searching your files no longer throws away the view you chose. Pressing Enter used to drop a reader who had switched to the detail view back into cards, and clearing the query dropped them back again. Results now arrive in whichever view you are in, and the list keeps the ranking: relevance is a sortable column, and each row shows the passage that matched and its page.",
+              "de": "Searching your files no longer throws away the view you chose. Pressing Enter used to drop a reader who had switched to the detail view back into cards, and clearing the query dropped them back again. Results now arrive in whichever view you are in, and the list keeps the ranking: relevance is a sortable column, and each row shows the passage that matched and its page."
+            },
+            {
+              "en": "The detail view's keyboard navigation keeps your place. Its single tab stop was pinned to the first row, so tabbing out of row thirty and back returned you to the top of the list. Home and End now jump to either end, too.",
+              "de": "The detail view's keyboard navigation keeps your place. Its single tab stop was pinned to the first row, so tabbing out of row thirty and back returned you to the top of the list. Home and End now jump to either end, too."
+            },
+            {
+              "en": "The upload panel no longer retires itself out from under you. A wholly successful batch still clears after a few seconds, but the countdown holds while your pointer is on the panel or your keyboard focus is inside it.",
+              "de": "The upload panel no longer retires itself out from under you. A wholly successful batch still clears after a few seconds, but the countdown holds while your pointer is on the panel or your keyboard focus is inside it."
+            },
+            {
+              "en": "Re-uploading or re-processing a document no longer discards its name, its document type or its folder. Re-generating a summary quietly reset everything stored alongside it, so a renamed file went back to its raw file name the next time it was processed.",
+              "de": "Re-uploading or re-processing a document no longer discards its name, its document type or its folder. Re-generating a summary quietly reset everything stored alongside it, so a renamed file went back to its raw file name the next time it was processed."
             }
           ]
         }
