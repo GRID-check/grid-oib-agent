@@ -49,8 +49,12 @@
  * without becoming a card inside a card.
  *
  * The document argument survives where it is true — the bytes that get FILED
- * are always drawn on paper. That is the fence's `fileSvg`; this card files
- * nothing (`presentational`), so it never needs it.
+ * are always drawn on paper, whatever theme the reader is in. This card files,
+ * so it needs that second render exactly as the fence does: `useRenderedDiagram`
+ * hands back `svg` for the screen and `fileSvg` for the file, and the filing
+ * hook is given the second one. What was dropped is the claim that the SCREEN
+ * copy has to look like paper too — a preview of a document is not the same
+ * argument as the document.
  *
  * ## It files, and it is still `presentational`
  *
