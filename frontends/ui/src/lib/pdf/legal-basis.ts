@@ -44,8 +44,29 @@ type CardRecord = Record<string, unknown>
 const isRecord = (value: unknown): value is CardRecord =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
+/**
+ * A `legal_basis` card this renderer will print — which means one with a `law`.
+ *
+ * The law is not one field among six, it is the CITATION; the other five
+ * qualify it. `LegalBasisCard.law` is `str` with `min_length=1` (`models.py`),
+ * required, so every card that passed `validate_cards` on the way in has one
+ * and this predicate costs a real card nothing. What it stops is the card that
+ * did not: jsonb written by a build older or newer than this one, replayed from
+ * a stored message, or hand-supplied.
+ *
+ * Such a card would otherwise still print — `cardBlocks` drops a card only when
+ * it yields NO blocks, and a `summary` alone yields two. The result is an entry
+ * under „Rechtsgrundlagen" that states a legal position and names no law. On a
+ * page that has left the app and is attached to an Einreichung, that does not
+ * read as an incomplete card; it reads as a claim whose source the reader
+ * failed to find. Printing nothing is the honest failure — the answer's own
+ * prose still carries what the card said.
+ */
 const isLegalBasis = (value: unknown): value is CardRecord =>
-  isRecord(value) && value.type === 'legal_basis'
+  isRecord(value) &&
+  value.type === 'legal_basis' &&
+  typeof value.law === 'string' &&
+  value.law.trim().length > 0
 
 /**
  * Reading order, copied from `FIELD_ORDER.legal_basis` in
