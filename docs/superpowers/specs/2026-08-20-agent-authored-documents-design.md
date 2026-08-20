@@ -314,7 +314,7 @@ of these is a shape, not a feature: nothing below is built in v1.
 | **Whether it files automatically** | The commissioned-vs-confirmed choice is read from one resolver, not an `if` in the jobs route. v1's resolver returns a constant. | Replacing a constant with a lookup. Enterprise will want this per organization — the precedent is `platform_model_defaults` overridden by an org row (ADR-0014/0022): platform default, tenant override, explicit beats inherited. |
 | **Where it lands** | A fixed `Berichte` folder, resolved by the same function that will later read a policy. Finding is by `authored_by`, never by folder. | A column on that policy. Moving or renaming the folder never breaks discovery, because discovery never used it. |
 | **Whether it is retrievable** | Not ingested, so no chunks exist. | A deliberate decision with a name. If a tenant ever wants generated reports searchable, that is a *policy* granting ingestion for a producer — and it must arrive together with the labelled-citation work, never before it. |
-| **What may be generated** | A `.docx` rendered from a research report. | A renderer. The service takes a render function, so a BCF export, a Prüfbuch or a Massenermittlung is a new caller with a new renderer, not a new pipeline. |
+| **What may be generated** | A research report, rendered by a caller-supplied `render` function. Shipped as a `.docx`; now a PDF — see [As built §5](#5-the-filed-report-is-a-pdf). | A renderer. The service takes a render function, so a BCF export, a Prüfbuch or a Massenermittlung is a new caller with a new renderer, not a new pipeline. |
 
 What is deliberately **not** left open: agent-authored content becoming
 instructions (`/skills`, the project profile), and any write path that does not
@@ -475,6 +475,52 @@ surface) and open question 4 (scheduled runs, v1.1) are untouched. Decision 10
 holds in the code by construction: the report route files nothing without a live
 session and a `projectId`, and there is no BFF path on which a cron run reaches
 that handler.
+
+### 5. The filed report is a PDF
+
+The seam was real, and this is the proof: changing the output format was **a new
+renderer at an existing call site**, not a new pipeline. `fileGeneratedDocument`
+is untouched; `research-report.ts` swapped `answer-export/docx` for
+`@/lib/pdf/markdown-pdf` and passed the same two provenance options.
+
+**Why the format changed.** `PREVIEW_TYPES` in
+`features/documents/components/file-preview-pane.tsx` lists what the Files pane
+can render — `application/pdf` and images. `.docx` is not among them, so the
+report a user had just commissioned landed in Berichte as a generic icon with no
+in-app preview, download-only, for the one document in the project nobody had
+read yet. An Einreichung attachment is a PDF anyway. The saved-answer `.docx`
+export is untouched and stays: that document exists to be edited into a Befund,
+this one to be read and handed on.
+
+**What the marking cost.** Decision 7's two forms both survive, but only one of
+them survives intact. The printed „KI-generiert — nicht geprüft" block is the
+same block, from the same `answerExport.aiNotice.*` keys — there is still
+exactly one German sentence and one English one, now shared by two renderers
+through `@/lib/ai-provenance`, which also owns the property NAMES so the two
+formats cannot drift apart on what a detector matches.
+
+The machine-readable half is weaker in a PDF and that is worth stating rather
+than glossing: **`@react-pdf/renderer` 4.6.0 exposes no custom-property or XMP
+facility.** `<Document>` accepts only the PDF Info-dictionary fields, which the
+library maps one-for-one onto PDFKit's `info` (checked in
+`node_modules/@react-pdf/renderer/index.d.ts` and `lib/react-pdf.js`; PDFKit's
+own `appendXML` is reachable only through the PDF/A/PDF-UA `subset` option,
+which `<Document>` does not expose). So the four properties ride in `Keywords`
+as `AIGenerated=true; AIGenerator=Piloti; AIHumanReviewed=false; AIRunId=…`,
+with `Creator` = `Piloti` and `Subject` = the notice headline. A `.docx` names
+its properties; a PDF only lists them. If react-pdf grows an XMP escape hatch,
+`aiProvenanceKeywords` is the one function to change.
+
+**A route that was outside every gate.** `POST /api/generate-pdf` — the research
+panel's Download-PDF button — was a **Pages-Router** handler with no session
+check at all: it rendered caller-supplied markdown for anyone who could reach
+the origin. It was not an exempted route; `authz-coverage.spec.ts` walks
+`app/api/**/route.ts`, so a handler under `pages/` was invisible to the
+inventory and to `apiRoute`'s required `authz` argument alike. It is still used,
+so it was moved rather than deleted: same path, now `app/api/generate-pdf/route.ts`
+through `apiRoute` with `sessionOnly` and the factory's default mutation budget.
+`src/pages/` no longer exists, which is what stops the next handler from landing
+in the same blind spot.
 
 ## Open questions
 

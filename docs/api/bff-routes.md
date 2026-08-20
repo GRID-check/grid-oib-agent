@@ -234,7 +234,7 @@ SSE streams pass through the response body unmodified. The `?token=` query param
   "report": "# Fluchtweglängen …",
   "filed": {                       // present ONLY when a document now exists
     "documentId": "…",             // the `/files?doc=` deep-link target
-    "filename": "fluchtweglaengen-gk4-2026-08-20.docx",
+    "filename": "fluchtweglaengen-gk4-2026-08-20.pdf",
     "alreadyFiled": false          // false on the fetch that created the row
   }
 }

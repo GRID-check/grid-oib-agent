@@ -43,6 +43,11 @@
 
 import 'server-only'
 import { createZip, type ZipEntry } from '@/lib/bim/zip'
+import {
+  AI_GENERATOR_NAME,
+  AI_PROVENANCE_PROPERTIES,
+  type AiProvenance,
+} from '@/lib/ai-provenance'
 import type { DocBlock, DocRun } from './blocks'
 
 /** A4 in twentieths of a point, the unit every OOXML measurement uses. */
@@ -194,15 +199,14 @@ const XML_DECLARATION = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
  * — a records system, a Behörde's intake, a compliance scan — which is what
  * the AI Act's transparency obligation actually asks for: marking that does
  * not depend on somebody reading page one and believing it.
+ *
+ * An alias rather than its own shape since the same report is also filed as a
+ * PDF: the two formats carry the marking through different mechanisms (an OPC
+ * part here, the Info dictionary there) but they must agree on WHAT is being
+ * marked, and two structurally identical interfaces are how they stop agreeing.
+ * The names live in `@/lib/ai-provenance`; see that module's header.
  */
-export interface DocxProvenance {
-  /**
-   * The agent run that produced the content, when the caller knows it. Absent
-   * rather than empty when it does not: a run id nobody can look up is worse
-   * than no run id, because it reads like an audit trail.
-   */
-  runId?: string
-}
+export type DocxProvenance = AiProvenance
 
 export interface DocxOptions {
   /**
@@ -214,9 +218,6 @@ export interface DocxOptions {
    */
   aiProvenance?: DocxProvenance
 }
-
-/** The name a downstream detector matches on. Stable: it is an interface. */
-const GENERATOR = 'Piloti'
 
 /**
  * The FMTID every user-defined custom property carries.
@@ -235,14 +236,17 @@ const CUSTOM_PROPERTIES_FMTID = '{D5CDD505-2E9C-101B-9397-08002B2CF9AE}'
  * how it happens.
  */
 const customProperties = (provenance: DocxProvenance): string => {
-  const properties = [
-    { name: 'AIGenerated', value: '<vt:bool>true</vt:bool>' },
-    { name: 'AIGenerator', value: `<vt:lpwstr>${escapeXml(GENERATOR)}</vt:lpwstr>` },
-    { name: 'AIHumanReviewed', value: '<vt:bool>false</vt:bool>' },
+  const properties: { name: string; value: string }[] = [
+    { name: AI_PROVENANCE_PROPERTIES.generated, value: '<vt:bool>true</vt:bool>' },
+    {
+      name: AI_PROVENANCE_PROPERTIES.generator,
+      value: `<vt:lpwstr>${escapeXml(AI_GENERATOR_NAME)}</vt:lpwstr>`,
+    },
+    { name: AI_PROVENANCE_PROPERTIES.humanReviewed, value: '<vt:bool>false</vt:bool>' },
   ]
   if (provenance.runId) {
     properties.push({
-      name: 'AIRunId',
+      name: AI_PROVENANCE_PROPERTIES.runId,
       value: `<vt:lpwstr>${escapeXml(provenance.runId)}</vt:lpwstr>`,
     })
   }

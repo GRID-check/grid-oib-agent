@@ -149,18 +149,94 @@ const styles = StyleSheet.create({
     color: PDF_THEME.link,
     textDecoration: 'underline',
   },
+  /**
+   * The AI marking, as the first thing on page one.
+   *
+   * A bordered box rather than two paragraphs, for the same reason the .docx
+   * renders it as a single-cell table (`answer-export/answer-document.ts`): the
+   * border is the part that does the work. It separates a statement ABOUT the
+   * document from the document, and it keeps separating them after the page has
+   * been printed, scanned and stapled to an Einreichung.
+   */
+  notice: {
+    borderWidth: 1,
+    borderColor: PDF_THEME.hairline,
+    backgroundColor: PDF_THEME.surface,
+    padding: 10,
+    marginBottom: 16,
+  },
+  noticeTitle: {
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
 })
+
+/**
+ * A statement about the document, printed before the document.
+ *
+ * The strings are the CALLER's, and deliberately so: the only copy of the
+ * „KI-generiert — nicht geprüft" sentence in this repo is the `answerExport`
+ * dictionary that the .docx export already reads (`aiNotice.title` /
+ * `aiNotice.body`). A renderer that spelled it out again would be a second
+ * German sentence with the same job and no test tying the two together — and
+ * the two would drift, in the one artifact that reaches a Behörde.
+ */
+export interface PdfNotice {
+  title: string
+  body: string
+}
+
+/**
+ * What a machine is told about the document, as `<Document>` will accept it.
+ *
+ * Only Info-dictionary fields, because those are the only ones react-pdf 4.6.0
+ * has — see `@/lib/ai-provenance`'s `aiProvenanceKeywords` for the check that
+ * established that and for what it costs.
+ */
+export interface PdfMetadata {
+  title?: string
+  author?: string
+  subject?: string
+  keywords?: string
+  creator?: string
+}
 
 interface MarkdownPDFProps {
   markdown: string
+  /** Printed above the markdown, on the first page. Omitted when absent. */
+  notice?: PdfNotice
+  /**
+   * Info-dictionary fields. Omitted entirely by default, which leaves the file
+   * byte-for-byte what it was before this prop existed — a marking on every
+   * PDF marks nothing, exactly as `DocxOptions.aiProvenance` argues.
+   */
+  metadata?: PdfMetadata
 }
 
-export const MarkdownPDF: React.FC<MarkdownPDFProps> = ({ markdown }) => {
+export const MarkdownPDF: React.FC<MarkdownPDFProps> = ({ markdown, notice, metadata }) => {
   const tokens = marked.lexer(markdown)
 
   return (
-    <Document>
+    <Document
+      title={metadata?.title}
+      author={metadata?.author}
+      subject={metadata?.subject}
+      keywords={metadata?.keywords}
+      // `creator` is left off rather than passed as `undefined` when there is no
+      // metadata: react-pdf destructures it with a DEFAULT of `'react-pdf'`, and
+      // an explicit `undefined` takes that default too — so spreading is only
+      // about not restating the library's own choice, never about hiding it.
+      {...(metadata?.creator ? { creator: metadata.creator } : {})}
+    >
       <Page size="A4" style={styles.page}>
+        {notice ? (
+          // `wrap={false}` so the marking cannot be split across a page break.
+          // Half a notice at the foot of page one is the shape a reader skips.
+          <View style={styles.notice} wrap={false}>
+            <Text style={styles.noticeTitle}>{notice.title}</Text>
+            <Text>{notice.body}</Text>
+          </View>
+        ) : null}
         {tokens.map((token, index) => renderToken(token, index))}
       </Page>
     </Document>

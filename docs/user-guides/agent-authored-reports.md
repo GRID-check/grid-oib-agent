@@ -37,7 +37,7 @@ and it is there in both cases.
 When the run finishes, the success banner names the file and offers a second
 action:
 
-> Im Projekt abgelegt: fluchtweglaengen-gk4-2026-08-20.docx
+> Im Projekt abgelegt: fluchtweglaengen-gk4-2026-08-20.pdf
 >
 > **Bericht anzeigen** · **Im Projekt öffnen**
 
@@ -125,12 +125,23 @@ does not.
   content, not screen chrome — it survives printing, forwarding, and being
   attached to an e-mail.
 - **In the file's properties:** `AIGenerated`, `AIGenerator`,
-  `AIHumanReviewed` and the run id, as Word custom document properties. A
-  records system can detect the document as machine-written without anyone
-  reading it.
+  `AIHumanReviewed` and the run id. A records system can detect the document as
+  machine-written without anyone reading it. In the filed **PDF** they sit in
+  the document's `Keywords` field, with „Piloti" as the *Creator* and the
+  headline repeated as the *Subject* — the three fields a viewer's
+  document-properties panel shows. A PDF has no place for named custom
+  properties the way a Word file does, so the marking uses the closest fields
+  it has rather than none.
 
 The marking is in both places on purpose: the block is for the person who opens
 it, the properties are for the system that files it.
+
+**Why a PDF.** The report is filed as a PDF so that it previews inside Dateien
+— a Word file has no in-app preview and can only be downloaded, which is the
+wrong shape for the one document in the project nobody has read yet — and
+because an Einreichung attachment is a PDF. Exporting a *saved answer* from a
+chat still gives you a `.docx`: that one is meant to be edited into a Befund,
+and this one is meant to be read and handed on.
 
 ---
 
