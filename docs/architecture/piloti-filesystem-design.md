@@ -13,6 +13,41 @@ Everything Piloti produces should be an **object in the same file system the
 architect already browses** — addressable, previewable, versioned, filterable,
 and visibly *not yet* the office's word until a human says it is.
 
+## 0.1 The stance: an extension, not a migration
+
+Everything in §1 works. The retrieval path has been audited twice and its
+constants calibrated against a measurement harness; the estate's schema carries
+the scars of four migrations that each fixed something real. **None of it is
+moved, rewritten or deleted by this design.**
+
+Three rules make that binding rather than aspirational:
+
+1. **The agent's store is new ground.** Only `/…/work`, `/threads/<conv>` and
+   `run:/` are *owned* by this substrate — a store nothing else reads, so it can
+   be built, broken and rebuilt without touching a working path.
+2. **Everything else is a projection.** `/…/files`, `/archiv`, `/law/oib`,
+   `/…/models`, `/…/memory`, `/skills` are **read-only adapters over the code
+   that already serves them**. `fs_list` on the project shelf calls the existing
+   documents service; `fs_search` calls the existing retriever. The projection
+   owns no data and adds no table.
+3. **Every later unification is its own decision.** The table in §11 is a list
+   of things that *could* collapse into this substrate once it has earned it —
+   not a plan. Each entry has to justify itself on its own harm, on its own day,
+   the way ADR-0047 waited until four vocabularies existed before deleting two
+   of them.
+
+This is the Cloudflare `computer` shape and it is the reason to copy it: the
+Workspace holds authoritative state for what it owns, and every other runtime is
+a **projection** connected lazily. It never migrates the container's disk into
+SQLite; it projects SQLite into the container. Same here — the estate is not
+imported into the namespace, it is *mounted* into it.
+
+The one exception, stated plainly because it is the only place this design
+reaches into existing code: the retrieval provenance predicate (I1, §5). It is
+still additive — a filter that matches nothing until the first agent-authored
+row exists — but it lands in the retrieve path, and that path deserves the
+parity test §16 asks for.
+
 ## 1. What exists today
 
 Four file systems, none of which is the one the user sees, plus a fifth that
@@ -122,21 +157,27 @@ and the URL.
 Each mount carries explicit bits, resolved per principal from the signed request
 context (`X-Grid-Request-Context`, `backend-deep-dive.md` §2b):
 
-| Mount | list | read | search | write | organize | delete | promote |
-|---|---|---|---|---|---|---|---|
-| `/law/oib` | ✓ | ✓ | ✓ | — | — | — | — |
-| `/projects/*/files` | ✓ | ✓ | ✓ | — | ✓¹ | trash¹ | — |
-| `/archiv` | ✓ | ✓ | ✓ | — | ✓¹ | trash¹ | — |
-| `/threads/<conv>` | ✓ | ✓ | ✓ | ✓ | ✓ | trash | ✓ |
-| `/projects/*/work` | ✓ | ✓ | ✓ | ✓ | ✓ | trash | ✓ |
-| `/projects/*/models` | ✓ | ✓ | ✓ | — | — | — | — |
-| `/projects/*/memory` | ✓ | ✓ | ✓ | ✓² | — | — | — |
-| `/skills` | ✓ | ✓ | — | —³ | — | — | ✓³ |
-| `run:/` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Mount | owned / projected | list | read | search | write | organize | delete | promote |
+|---|---|---|---|---|---|---|---|---|
+| `/law/oib` | projected | ✓ | ✓ | ✓ | — | — | — | — |
+| `/projects/*/files` | projected | ✓ | ✓ | ✓ | — | ✓¹ | trash¹ | — |
+| `/archiv` | projected | ✓ | ✓ | ✓ | — | ✓¹ | trash¹ | — |
+| `/threads/<conv>` | **owned** | ✓ | ✓ | ✓ | ✓ | ✓ | trash | ✓ |
+| `/projects/*/work` | **owned** | ✓ | ✓ | ✓ | ✓ | ✓ | trash | ✓ |
+| `/projects/*/models` | projected | ✓ | ✓ | ✓ | — | — | — | — |
+| `/projects/*/memory` | projected | ✓ | ✓ | ✓ | ✓² | — | — | — |
+| `/skills` | projected | ✓ | ✓ | — | —³ | — | — | ✓³ |
+| `run:/` | **owned** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ¹ organizing and trashing *user* files is a proposal, never an application (§6).
-² writes land as `remember` does today — a row, through the BFF.
+² writes land as `remember` does today — a row, through the BFF; the mount reads.
 ³ an agent may propose a skill; it may never write its own instructions (§8).
+
+**Owned** means this substrate is the system of record — three mounts, all of
+them new ground. **Projected** means the mount is a read adapter over code that
+already exists and keeps existing (§0.1). Three owned mounts and six projected
+ones is the whole shape of the design: it is mostly a way of *seeing* what is
+already there, plus one small place the agent may actually put things.
 
 The mount table **is** the authorization decision. A path outside it does not
 resolve to a 403 — it does not exist for this principal, and `fs_list` never
@@ -339,7 +380,14 @@ A **selector** is one declarative object:
   "order": "created_at desc", "limit": 50 }
 ```
 
-with four consumers and one meaning:
+It does not replace the three mechanisms; it **compiles down to them**. A
+selector with a `semantic` field executes as the existing vector search; one
+without it executes as the existing listing filter; one naming a file executes
+as today's focus-file path. The selector is the thing that can be *named,
+saved, linked and handed to an agent* — the execution stays where it is, tuned
+where it was tuned.
+
+Four consumers, one meaning:
 
 1. `fs_list` / `fs_search` — the agent's window.
 2. The Files pane — the chips light up; **the agent's filter becomes the user's
@@ -404,31 +452,116 @@ existing summarizer writes it; for agent-authored nodes the author writes it,
 and a write without one is rejected by the validator. A file nobody can describe
 in a line is a file nobody will find.
 
-## 11. What this unifies
+## 10b. Cost at a thousand documents
 
-| Today | Becomes |
+The worry is that mounting a file system means *loading* one — a thousand
+project documents and the whole Richtlinien corpus dragged into context or into
+a new store before anything works. Neither happens, and at that size the
+namespace is the **cheaper** of the two designs. The evidence is already in the
+tree:
+
+> `get_all_async` does an unbounded `SELECT` of the project's document
+> summaries, and every chat turn injects the full list into ~5 prompt templates
+> — so per-turn LLM cost grew linearly with the corpus, paid even on chit-chat.
+> Cap it.
+> — `_available_documents_limit`, `agents/chat_researcher/register.py`
+
+That cap is 50. So today, at a thousand documents, the agent is shown fifty of
+them, on every turn, whether or not the turn is about files — and
+`allocate_inventory` exists to stop the OIB corpus evicting the user's own
+shelves from that fifty. The truncation is not a bug; it is the only way a
+per-turn list survives a real corpus. **The current design is the one that does
+not scale to a thousand documents.** It pays linearly and then truncates, and
+the agent never chose which fifty.
+
+### The rules that keep it flat
+
+1. **A path is a handle, not a payload.** Naming a file costs a few tokens.
+   Reading one costs its window, and only when the agent asks.
+2. **Nothing is imported.** Projected mounts own no data (§0.1): `fs_list` on
+   the project shelf is a `SELECT … LIMIT` against `documents_project_idx`,
+   `fs_search` is the existing retriever call. There is no spin-up, no backfill,
+   no second copy of anything.
+3. **The digest names containers and counts, never contents** — mounts, folders,
+   and how many nodes are in each. A thousand filenames are never in a prompt.
+4. **`fs_list` is paginated and ranked, and says what it withheld**: a page,
+   then `947 more — narrow with a selector`. Enumeration is not an access
+   pattern at this size; search is, which is also what the filesystem-memory
+   literature found (organization pays for retrieval cost, not answer quality,
+   and only above roughly 300 KB of material).
+5. **`/law/oib` is search-only.** The corpus is never enumerated: listing stops
+   at the Richtlinie level — a dozen entries — and a chunk is never a node.
+
+### The per-turn bill
+
+| | injected every turn | at 1 000 documents |
+|---|---|---|
+| **Today** — `available_documents` | 50 rows × (filename + summary + tags + shelf) into ~5 templates | ~2–4 k tokens, paid on every turn including chit-chat; 950 documents invisible |
+| **Namespace** — the digest | mount table (9 lines) + per-mount counts + the current view | ~250–400 tokens; all 1 000 reachable, none loaded |
+| `fs_list`, when called | one ranked page, default 25 | ~600–900 tokens, paid only by a turn that asks |
+| `fs_search`, when called | passages, exactly as today | unchanged |
+
+The digest is roughly an order of magnitude cheaper than the block it sits
+beside, and it is the first design under which the agent can reach the
+thousandth document at all. What it costs instead is a tool round-trip on the
+turns that actually look — which is the trade the whole progressive-disclosure
+idea makes, and the same one the skills substrate already makes with
+`description` in the prompt and `body` only on invocation.
+
+Per §0.1 this does **not** mean deleting `available_documents`. The two coexist;
+the cap stays where it is. If the digest turns out to be better, it wins on a
+measurement, and `GRID_AVAILABLE_DOCUMENTS_MAX` goes to zero on purpose rather
+than by assumption.
+
+### Where scale does cost something
+
+- **Writes are not the scaling problem** — a run produces a handful of nodes.
+- **The provenance predicate (I1) is a filter, not a scan**: one more condition
+  beside the collection filter the retriever already applies.
+- **`fs_organize` over a thousand nodes** is the one genuinely expensive verb,
+  which is another reason it is batched, proposal-only, and reversible.
+- **A folder tree with a thousand files in one directory** is a real UI and
+  digest problem, and it is the user's tree, not ours. The digest answers it by
+  counting rather than listing.
+
+## 11. What this leaves alone, and what could later collapse into it
+
+**Left alone, indefinitely and on purpose.** Each of these keeps its code, its
+tests and its callers; the substrate reads through it rather than around it.
+
+| Mechanism | Why it stays |
 |---|---|
-| `available_documents` (flat, capped, prompt-rendered) | `fs_list` over the mounted namespace + the digest |
-| `surface_documents` (≤3 tiles, its own scoring constants) | `fs_list(view)` → the Files pane, filtered |
-| `/api/documents/search` vs. the substring filter | one selector, two execution strategies |
-| `focus_file_name` / `focus_shelf` / `source_preset` | one selector, intersected with the ceiling |
-| BCF export, Raumbuch, take-off, deep-research report | nodes: `/work` by default, the project shelf when the run was commissioned for it (§5.1) |
-| Per-shape write endpoints (memory, profile, tags, folders) | `fs_write` + `fs_publish` + the card |
-| Deep-research `StateBackend` scratch | `run:/`, same backend, now one mount among several |
-| Skills as rows *and* files, with two loaders | nodes under `/skills`, one resolver, origin as metadata |
+| `available_documents` | the prompt block works; the digest (§10) is what an agent gets *inside* the namespace, and the two coexist until one is measurably better |
+| `surface_documents` and its three calibrated constants | tuned against a retrieval harness; `fs_list(view)` is a different question ("show me this set") and may call it |
+| `/api/documents/search`, the substring filter, the Files pane | untouched. The selector (§7) **compiles down to them** — an adapter, not a replacement |
+| `focus_file_name` / `focus_shelf` / `source_preset`, `shelves_for_turn` | the ceiling ∩ intent split is already correct; the selector expresses the same thing for the new store |
+| the `documents` / `project_folders` schema, uploads, ingest, deletion | no migration, no backfill, no new column on `documents` beyond the provenance pair |
+| memory, the project profile, skills | not absorbed. Mounted read-only at most, so one namespace can *answer* "what does Piloti know" without owning any of it |
 
-Nothing in the middle column requires deleting the left column on day one; §12
-sequences it so each phase stands alone.
+**What could later collapse into it — and the test each must pass first.** A
+unification is worth doing when the duplication has cost something concrete,
+not when it becomes expressible.
+
+| Candidate | The harm that would justify it |
+|---|---|
+| `surface_documents` → `fs_list(view)` | a third caller needs file discovery and re-tunes the constants a third time |
+| the substring/semantic split | a filter answers differently in the pane than in chat, and a user notices |
+| skills' two loaders | a skill resolves differently through the file path than through the row path |
+| the ADR-0047 prefix tables | they survive the shelf-as-data work and drift again |
+
+Until one of those actually happens, the left column is a working system and
+the right column is speculation with a migration attached.
 
 ## 12. Phases
 
-**Phase 0 — read, unified (no writes).** The mount table, the selector, `fs_list`
-/ `fs_read` / `fs_search` over the existing tables, and the view URL. Ships one
+**Phase 0 — the projection (no writes, no new tables).** The mount table, the
+selector, and `fs_list` / `fs_read` / `fs_search` implemented as **adapters over
+the existing documents service and retriever**, plus the view URL. Ships one
 user-visible thing: asking Piloti to filter the file system filters *the file
 system*, with the chips lit, instead of returning three tiles.
-*Acceptance:* `surface_documents`' three tuned constants are deleted, not
-reimplemented, and the Files pane's filter state round-trips through a URL the
-agent can emit.
+*Acceptance:* a parity test — for the same question, the projection returns what
+the existing path returns. Nothing existing is edited beyond the call site that
+offers the new tool, so the phase is revertible by unregistering one tool.
 
 **Phase 1 — `/work` and the node/version/blob store.** `fs_write`, `fs_edit`,
 `fs_trash`, budgets, validators, the work drawer. `run:/` is the existing
@@ -449,10 +582,12 @@ phase earlier.
 `/work` and is then asked the same question cannot produce a citation to itself;
 and a commissioned report in the project corpus renders grey, never green.
 
-**Phase 3 — organize, saved views, skills-as-nodes.** `fs_organize` as batched
-proposals, `.view` nodes, `/skills` unified behind one resolver.
-*Acceptance:* the two prefix tables ADR-0047 wants dead are gone, and a folder
-reorganization is a single reversible action in the activity feed.
+**Phase 3 — the librarian.** `fs_organize` as batched proposals over the estate
+(still proposals — organizing the user's files is an estate write), and saved
+`.view` nodes in the agent's own store.
+*Acceptance:* a folder reorganization is one reversible entry in the activity
+feed. Skills, memory and the profile are **not** touched by this phase; if they
+ever move, §11 says what has to have gone wrong first.
 
 ## 12b. What we should not build ourselves
 
@@ -549,7 +684,8 @@ supersession are what make dedup and provenance possible.
   object behind — measured as: the report is still openable a week later,
   by URL.
 - The ouroboros test (§12 phase 2) fails closed, in CI, forever.
-- `surface_documents`' scoring constants, the two ADR-0047 prefix tables, and
-  the split between substring and semantic search are **deleted** — the
-  acceptance test for a unification is that the thing it unified is gone.
+- Nothing that worked before works differently after. The parity test in phase 0
+  is the standing form of that: the projection and the path it projects agree,
+  and they keep agreeing. An extension that quietly changes an existing answer
+  is a migration wearing a smaller word.
 - Asking for a filtered set of files produces a filter, not a list.
