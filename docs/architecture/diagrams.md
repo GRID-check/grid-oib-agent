@@ -123,7 +123,8 @@ it.
 A diagram is two artifacts and they are not substitutes:
 
 - the **SVG** previews in the Files pane today, is what a reader opens, and
-  carries the diagram's own source in its `<metadata>`;
+  carries the diagram's own source in its `<metadata>` and its own AI marking in
+  its `<title>` and `<desc>`;
 - the **PDF** is what gets attached to an Einreichung.
 
 One row cannot be both — a row has one storage key and one content type — and a
@@ -170,6 +171,41 @@ hide. It could: a `<g><metadata data-grid-diagram-source="mermaid">` carrying
 200 KiB was accepted against a 32 KiB source cap and serialised into the stored
 file, since the discard only ever filtered the root's own children.
 
+**Where the marking lives, and why it is not where you would first put it.** A
+machine-drawn file that leaves the product has to say so in its own bytes: the
+„Von Piloti erstellt" byline is chrome and stops at the download button. The SVG
+therefore carries the human sentence in the root's **`<title>`** — which is the
+SVG's *accessible name*, so a browser tooltip and a screen reader announce it —
+and the machine vocabulary (`AIGenerated=true; AIGenerator=Piloti;
+AIHumanReviewed=false`, the same string the PDF puts in `Keywords` and the
+`.docx` in typed custom properties) in the root's **`<desc>`**. Both elements are
+already in the serialiser's allow-list with no attributes of their own, so the
+marking survives the re-serialisation **with the allow-list widened by nothing**
+— which is what matters for a file this product serves back to browsers.
+
+Three alternatives were rejected for concrete reasons. **RDF/XMP inside
+`<metadata>`** is the textbook answer and is unreachable: every RDF element is
+outside `ELEMENT_GEOMETRY`, so the validator *refuses* the submission rather than
+stripping the block, and `<metadata>` is reserved for the server-validated
+source. A **visible `<text>` footer** cannot be laid out — SVG does not wrap
+text, the marking sentence is ~180 characters, and mermaid sizes its `viewBox`
+tightly to the drawing — and it would reach the PDF, which renders from the same
+tree, and print a second marking under the one already there. A **`data-*`
+attribute** on the root is dropped by `keptAttributes`, which is the serialiser
+working as designed.
+
+Neither `<title>` nor `<desc>` is paint, so `svg-to-pdf.tsx` maps both to `null`
+and the PDF is unaffected; the PDF carries the visible line in its page footer
+and the machine vocabulary in its Info dictionary (`Keywords`, with `Creator`
+= „Piloti" and `Subject` = the same line). **Neither is a convention any more.**
+`GeneratedRendering.marking` is mandatory and branded, so a producer cannot
+return bytes without stating how they are marked and cannot state it in a
+vocabulary of its own; `fileGeneratedDocument` then verifies the string is
+actually in the bytes before it creates the folder, PUTs the object or inserts
+the row. That check is what this section exists because of: `diagram_pdf` shipped
+with no `Keywords` and `diagram_svg` with no marking at all, and every assertion
+available at the time was about the object that described the file.
+
 **Partial filing is recoverable, not rolled back — and it is reported.** The two
 calls are not one transaction. The SVG is filed first because it is the half
 that carries the source; if the PDF fails, `fileDiagramDocuments` returns
@@ -188,7 +224,9 @@ whatever it was.
 `authored_by='agent'`, `status='stored'`, **never ingested** (`dispatchDocument`
 refuses these rows by reading the row, not by trusting an argument), zero
 assignees so the file arrives `Unvergeben`, the „Von Piloti erstellt" provenance
-line in the Files pane, and one `document.generated` audit event per row.
+line in the Files pane, one `document.generated` audit event per row, and — since
+the marking moved to the filing seam — bytes that state their own authorship in
+both files.
 
 ## Rendering in an answer
 
