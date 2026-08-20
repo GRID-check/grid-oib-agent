@@ -1046,7 +1046,10 @@ describe('every path that can create a machine-authored row', () => {
     const code = modules.find((module) => module.path === 'lib/documents/generated.ts')!.code
     expect(code).toContain("'project:documents:write'")
     expect(code).toContain("'project:documents:generate'")
-    expect(code).toContain('isAgentAuthoredDocumentsEnabled')
+    // The CALL and not the identifier: an import that nothing invokes leaves
+    // the name in the file and the gate off, which is the shape a deleted
+    // `if` actually takes.
+    expect(code).toContain('isAgentAuthoredDocumentsEnabled(session)')
   })
 })
 
