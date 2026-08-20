@@ -225,10 +225,27 @@ handle: pull it to give the document as much of the row as you want, between
 280px and 960px, and the chat column keeps its own floor (40% of the row), so on
 a smaller window that floor is what stops you first. The width you set is
 remembered — per browser, in `localStorage` (`grid.filePeek.width`) — so the next
-file opens at the width you read the last one at. The seam is also keyboard
-operable (Tab to it, then the arrow keys). Drag it all the way shut and the peek
-is dismissed exactly as the **×** dismisses it: the viewer goes away, the
-composer keeps *Asking about …*, and **Show file** brings it back.
+file opens at the width you read the last one at. Double-click the seam to put
+it back at its default. The seam is also keyboard operable (Tab to it, then the
+arrow keys). Drag it all the way shut and the peek is dismissed exactly as the
+**×** dismisses it: the viewer goes away, the composer keeps *Asking about …*,
+and **Show file** brings it back.
+
+**Dismissing it, and getting it back.** The **×** and **Escape** (pressed with
+focus inside the pane — the peek sits beside the conversation rather than over
+it, so Escape typed in the composer is the composer's) both *hide* the file
+without ending the question: the composer keeps saying what you are asking
+about, and focus moves to the **Show file** control that undoes it, so the next
+Tab is not a walk from the top of the page. **Show file** works from wherever
+you are — with the research panel across that half of the row it steps aside
+first, since the request was to see the file.
+
+**When the file is not ready.** The peek exists because that document is what
+your next question is about, so it says when it cannot be one: a document still
+being indexed (or one whose indexing failed) carries a line under its name
+saying that Piloti cannot cite it. It clears itself the moment indexing
+finishes — the peek re-asks while the status can still change — so the strip is
+never stale.
 
 Clicking a source chip opens a preview of the source instead of doing nothing:
 

@@ -141,6 +141,9 @@ export function ComposerSubjectBar({
           {onShowFile && (
             <button
               type="button"
+              // The peek hands focus here when the reader dismisses it — this
+              // is the undo for the move they just made. See `PeekToolbar`.
+              data-testid="composer-show-file"
               onClick={onShowFile}
               className="text-muted-foreground hover:text-foreground shrink-0 rounded-md px-1.5 py-1 text-xs"
             >

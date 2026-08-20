@@ -893,6 +893,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-ask-split-preview"]',
   },
   {
+    id: 'file-ask-split-indexing',
+    path: '/dev/file-ask-split/chat?variant=indexing',
+    description:
+      'The peek on a document that is still being read. Its status rides in the peek toolbar — the modal has carried it under the name since the day it was built, while the peek, the one surface that exists because this file is what the next question is about, showed a file the agent cannot cite yet as identical to one it can. Silent for a ready document, so the chrome stays quiet; here it is the answer to "why did the answer not use my file". Also the shot that holds the toolbar band: 48px, held 10px off the top, on the same line as the chat pills across the seam.',
+    waitFor: '[data-testid="file-ask-split-preview"]',
+  },
+  {
     id: 'projects-home',
     mobile: true,
     path: '/dev/projects-home',

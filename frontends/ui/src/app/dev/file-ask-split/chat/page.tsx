@@ -7,7 +7,7 @@
  * rolls the peek: a literal `<aside>` with its own header markup, and
  * `FilePreviewPane` dropped inside it. It is a picture of the intended result,
  * so it stays green no matter what `FilePreviewHost` / `FilePreviewSplit` /
- * `useFileAskSplit` actually do. The pane has always rendered; what broke is the
+ * `useFilePeekBesideChat` actually do. The pane has always rendered; what broke is the
  * SPLIT AROUND IT, and nothing in `/dev` ever exercised that.
  *
  * This route mounts `FilePreviewBridge` — the same component the project layout
@@ -16,7 +16,7 @@
  * shell's `<main>` down to the pane are all under test.
  *
  * ── The `/chat` in the path is load-bearing ──────────────────────────────────
- * `useFileAskSplit()` gates on `usePathname()?.includes('/chat')`, so a preview
+ * `useFilePeekBesideChat()` gates on `usePathname()?.includes('/chat')`, so a preview
  * at `/dev/file-ask-split` would render the collapsed (no-split) branch and look
  * "fine" while proving nothing. The route is therefore nested one level so its
  * URL contains `/chat`, exactly as `/app/projects/[id]/chat` does.
@@ -45,6 +45,11 @@
  *   - `hidden`   — same file, peek dismissed: chat must reclaim the full row.
  *   - `arrive`   — mounts with NO file, exactly as `/files` does, then the
  *                  button opens the peek. This is the Ask Piloti path.
+ *   - `indexing` — the same peek on a document that is still being read. The
+ *                  status the modal has always carried under the name, on the
+ *                  one surface whose entire reason is "this is what you are
+ *                  asking about" — where a file the agent cannot cite yet used
+ *                  to look exactly like one it can.
  *   - `wide`     — the peek at a width the reader dragged it to and the split
  *                  remembered. Until the seam was fixed this state was
  *                  unreachable: the drag fought back after ~20px and the old
@@ -104,7 +109,12 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     // Storage unavailable — the preview still renders, at the default width.
   }
   if (seed !== 'arrive') {
-    useFilePreviewStore.setState({ file: FILE, mode: 'peek', hidden: seed === 'hidden', context: CONTEXT })
+    useFilePreviewStore.setState({
+      file: seed === 'indexing' ? { ...FILE, status: 'processing' } : FILE,
+      mode: 'peek',
+      hidden: seed === 'hidden',
+      context: CONTEXT,
+    })
   } else {
     useFilePreviewStore.setState({ file: null, mode: 'modal', hidden: false, context: CONTEXT })
   }

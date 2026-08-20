@@ -135,6 +135,8 @@ export const files: typeof en.files = {
       'Die Verarbeitung konnte nicht erneut gestartet werden. Bitte versuchen Sie es erneut.',
     dialogLabel: 'Dateivorschau: {name}',
     resizePeek: 'Breite der Dateivorschau ändern',
+    peekIndexingHint: 'Piloti kann diese Datei erst nach der Indizierung zitieren.',
+    peekFailedHint: 'Piloti kann diese Datei nicht zitieren.',
   },
   browser: {
     folderEmptyTitle: 'Dieser Ordner ist leer',

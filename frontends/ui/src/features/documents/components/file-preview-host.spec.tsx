@@ -1,26 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import type { FileItem } from './project-file-workspace'
 
 const pane = vi.hoisted(() => ({ mounts: 0 }))
 const nav = vi.hoisted(() => ({ pathname: '/app/projects/p1/files' }))
+const layout = vi.hoisted(() => ({ rightPanel: null as string | null }))
+const mobile = vi.hoisted(() => ({ is: false }))
 
 vi.mock('next/navigation', () => ({
   usePathname: () => nav.pathname,
 }))
 
 vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: () => false,
-}))
-
-vi.mock('@/hooks/use-reduced-motion', () => ({
-  useReducedMotion: () => true,
+  useIsMobile: () => mobile.is,
 }))
 
 vi.mock('@/features/layout/store', () => ({
-  useLayoutStore: (selector: (state: { rightPanel: null }) => unknown) =>
-    selector({ rightPanel: null }),
+  useLayoutStore: (selector: (state: { rightPanel: string | null }) => unknown) =>
+    selector({ rightPanel: layout.rightPanel }),
 }))
 
 vi.mock('./file-preview-pane', async () => {
@@ -35,7 +33,7 @@ vi.mock('./file-preview-pane', async () => {
   }
 })
 
-import { FilePreviewBridge, FilePreviewHost } from './file-preview-host'
+import { FilePreviewBridge, FilePreviewHost, useFilePeekBesideChat } from './file-preview-host'
 
 const FILE: FileItem = {
   id: 'doc-1',
@@ -58,6 +56,8 @@ describe('FilePreviewHost', () => {
   beforeEach(() => {
     pane.mounts = 0
     nav.pathname = '/app/projects/p1/files'
+    layout.rightPanel = null
+    mobile.is = false
     useFilePreviewStore.setState({
       file: null,
       mode: 'modal',
@@ -187,5 +187,226 @@ describe('FilePreviewHost', () => {
     expect(screen.getByText('chat transcript')).toBeVisible()
     expect(screen.queryByRole('separator')).not.toBeInTheDocument()
     expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+  })
+
+  describe('the peek says what the reader needs to know', () => {
+    const peekOnChat = (status: string): void => {
+      nav.pathname = '/app/projects/p1/chat'
+      useFilePreviewStore.getState().open({ ...FILE, status }, 'peek', { projectId: 'p1' })
+    }
+
+    it('carries the status of a file the agent cannot cite yet', () => {
+      peekOnChat('processing')
+      render(
+        <FilePreviewBridge>
+          <div>chat transcript</div>
+        </FilePreviewBridge>,
+      )
+
+      // The peek exists BECAUSE this file is what the next question is about.
+      // "Still indexing" is the difference between an answer and an apology,
+      // and the peek used to be the one surface that did not say it. The
+      // CONSEQUENCE is the assertion, not the badge: "Processing" is a word,
+      // "Piloti cannot cite this file yet" is the reason the reader is about
+      // to get a worse answer than they expect.
+      expect(screen.getByRole('status')).toHaveTextContent(/cannot cite this file until it is indexed/i)
+    })
+
+    it('stays quiet about a file that is ready', () => {
+      peekOnChat('ready')
+      render(
+        <FilePreviewBridge>
+          <div>chat transcript</div>
+        </FilePreviewBridge>,
+      )
+
+      // Quiet chrome is the point of the peek: a strip saying "fine" on every
+      // document is a strip nobody reads when it says something else.
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    })
+
+    it('settles a still-indexing file on screen instead of leaving a stale badge', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ id: 'doc-1', status: 'ready' }),
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      vi.useFakeTimers()
+      try {
+        peekOnChat('processing')
+        render(
+          <FilePreviewBridge>
+            <div>chat transcript</div>
+          </FilePreviewBridge>,
+        )
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5_000)
+        })
+
+        expect(fetchMock).toHaveBeenCalledWith('/api/documents/doc-1/status')
+        expect(useFilePreviewStore.getState().file?.status).toBe('ready')
+      } finally {
+        vi.useRealTimers()
+        vi.unstubAllGlobals()
+      }
+    })
+  })
+
+  describe('dismissing the peek', () => {
+    const renderPeekWithUndo = (): void => {
+      nav.pathname = '/app/projects/p1/chat'
+      useFilePreviewStore.getState().open(FILE, 'peek', { projectId: 'p1' })
+      render(
+        <FilePreviewBridge>
+          <div>chat transcript</div>
+          {/* Stands in for the composer's "Asking about …" bar, which is what
+              appears in the same commit the peek goes away in. */}
+          <button type="button" data-testid="composer-show-file">
+            Datei anzeigen
+          </button>
+        </FilePreviewBridge>,
+      )
+    }
+
+    it('answers Escape from inside the pane', async () => {
+      renderPeekWithUndo()
+      const close = screen.getByRole('button', { name: /close preview/i })
+      close.focus()
+
+      await act(async () => {
+        fireEvent.keyDown(close, { key: 'Escape' })
+      })
+
+      expect(useFilePreviewStore.getState().hidden).toBe(true)
+      // Hidden, not closed: the conversation is still about this file.
+      expect(useFilePreviewStore.getState().file?.id).toBe('doc-1')
+    })
+
+    it('ignores Escape pressed outside it', async () => {
+      renderPeekWithUndo()
+
+      await act(async () => {
+        fireEvent.keyDown(screen.getByText('chat transcript'), { key: 'Escape' })
+      })
+
+      // The peek is not modal. A composer Escape (clearing a mention picker,
+      // say) must not take the reader's document away.
+      expect(useFilePreviewStore.getState().hidden).toBe(false)
+    })
+
+    it('hands focus to the control that undoes it', async () => {
+      renderPeekWithUndo()
+      const close = screen.getByRole('button', { name: /close preview/i })
+      close.focus()
+
+      await act(async () => {
+        fireEvent.click(close)
+        // The move is deferred one frame — the button it comes from is still
+        // being removed.
+        await new Promise((resolve) => requestAnimationFrame(() => resolve(null)))
+      })
+
+      expect(document.activeElement).toBe(screen.getByTestId('composer-show-file'))
+    })
+  })
+
+  describe('the pane announces its own arrival', () => {
+    const renderBridge = () =>
+      render(
+        <FilePreviewBridge>
+          <div>chat transcript</div>
+        </FilePreviewBridge>,
+      )
+
+    it('animates on every arrival, not only the first', () => {
+      // It cannot be a plain entrance class: this element survives parked →
+      // peek on purpose (an IFC camera hangs off it), and a CSS animation only
+      // runs when it is newly APPLIED. A class sitting on a mounted element
+      // fires once in the life of the project shell.
+      useFilePreviewStore.getState().open(FILE, 'peek', { projectId: 'p1' })
+      const { rerender } = renderBridge()
+      const host = () => screen.getByTestId('file-preview-host')
+      expect(host().className).not.toContain('animate-in')
+
+      nav.pathname = '/app/projects/p1/chat'
+      rerender(
+        <FilePreviewBridge>
+          <div>chat transcript</div>
+        </FilePreviewBridge>,
+      )
+      expect(host().className).toContain('animate-in')
+
+      // Cleared when it ends, so the next arrival can re-apply it. (Under
+      // reduced motion the global rule collapses the duration to 0.01ms, so
+      // the end event still lands and this still clears.)
+      fireEvent.animationEnd(host())
+      expect(host().className).not.toContain('animate-in')
+
+      useFilePreviewStore.getState().hide()
+      rerender(
+        <FilePreviewBridge>
+          <div>chat transcript</div>
+        </FilePreviewBridge>,
+      )
+      useFilePreviewStore.getState().peek()
+      rerender(
+        <FilePreviewBridge>
+          <div>chat transcript</div>
+        </FilePreviewBridge>,
+      )
+
+      expect(host().className).toContain('animate-in')
+    })
+
+    it('animates when a citation swaps one document for another', () => {
+      nav.pathname = '/app/projects/p1/chat'
+      useFilePreviewStore.getState().open(FILE, 'peek', { projectId: 'p1' })
+      const { rerender } = renderBridge()
+      fireEvent.animationEnd(screen.getByTestId('file-preview-host'))
+
+      useFilePreviewStore.getState().open({ ...FILE, id: 'doc-2' }, 'peek', { projectId: 'p1' })
+      rerender(
+        <FilePreviewBridge>
+          <div>chat transcript</div>
+        </FilePreviewBridge>,
+      )
+
+      // Nothing else says the pane is showing a different document — the
+      // toolbar's name changes and the well reloads, both silently.
+      expect(screen.getByTestId('file-preview-host').className).toContain('animate-in')
+    })
+  })
+
+  describe('useFilePeekBesideChat — the one answer to "is the file on screen?"', () => {
+    const Probe = (): JSX.Element => (
+      <span data-testid="beside">{String(useFilePeekBesideChat())}</span>
+    )
+    const answer = (): string => screen.getByTestId('beside').textContent ?? ''
+
+    beforeEach(() => {
+      useFilePreviewStore.getState().open(FILE, 'peek', { projectId: 'p1' })
+      nav.pathname = '/app/projects/p1/chat'
+    })
+
+    it('is true for a peek beside the conversation', () => {
+      render(<Probe />)
+      expect(answer()).toBe('true')
+    })
+
+    it.each([
+      ['the research panel holds that half of the row', () => { layout.rightPanel = 'research' }],
+      ['the reader is on a phone', () => { mobile.is = true }],
+      ['the reader has walked to another section', () => { nav.pathname = '/app/projects/p1/files' }],
+      ['the peek was dismissed', () => useFilePreviewStore.getState().hide()],
+    ])('is false when %s', (_label, arrange) => {
+      arrange()
+      render(<Probe />)
+
+      // Each of these takes the pane off screen without touching `mode` or
+      // `hidden`, which is exactly what the composer bar used to ask — so it
+      // withheld "Show file" in three states where nothing was visible.
+      expect(answer()).toBe('false')
+    })
   })
 })

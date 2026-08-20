@@ -138,6 +138,15 @@ export const files = {
      * unlabelled separator is announced as nothing at all.
      */
     resizePeek: 'Resize file preview',
+    /**
+     * The CONSEQUENCE of the status badge beside them in the chat peek. The
+     * badge already says what the state is ("Processing", "Failed"); repeating
+     * that in the sentence would spend the one line on the half the reader can
+     * already see. What it cannot see is what the state costs: the answer it is
+     * about to ask for will not use this file.
+     */
+    peekIndexingHint: 'Piloti cannot cite this file until it is indexed.',
+    peekFailedHint: 'Piloti cannot cite this file.',
   },
   browser: {
     folderEmptyTitle: 'This folder is empty',

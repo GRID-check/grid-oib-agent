@@ -1,0 +1,16 @@
+---
+improvements:
+  - >
+    The file preview beside a chat now says when Piloti cannot use the document
+    yet: a file that is still being indexed, or whose indexing failed, carries
+    that line under its name instead of looking exactly like a file that is
+    ready. It clears itself as soon as indexing finishes.
+  - >
+    Closing the preview no longer loses your place. The ✕ and Escape both put
+    the viewer away without ending the question, and hand you the Show file
+    control that brings it back. Show file now also works while the research
+    panel is open — the panel steps aside for it.
+  - >
+    The preview arrives and enlarges with motion instead of appearing in one
+    frame, its header sits on the same line as the chat's own, and a
+    double-click on the seam puts it back at its default width.

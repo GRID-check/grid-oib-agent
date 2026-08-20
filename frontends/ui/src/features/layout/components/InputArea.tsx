@@ -73,6 +73,7 @@ import { FilePreviewDialog } from '@/features/documents/components/file-preview-
 import { ComposerSubjectBar } from '@/features/documents/components/composer-subject-bar'
 import type { ResolvedSubjectIdentity } from '@/features/documents/components/composer-subject-bar'
 import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
+import { useFilePeekBesideChat } from '@/features/documents/components/file-preview-host'
 import { AddresseeIndicator } from '@/features/collaboration/components/AddresseeIndicator'
 import {
   MentionPicker,
@@ -383,11 +384,22 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const composerSubject = useChatStore((state) => state.composerSubject)
   const setComposerSubject = useChatStore((state) => state.setComposerSubject)
   const previewFileId = useFilePreviewStore((state) => state.file?.id ?? null)
-  const previewBesideChat = useFilePreviewStore(
-    (state) => (state.mode === 'peek' || state.mode === 'expanded') && !state.hidden,
+  // "Is the subject's file on screen?" — asked of the SHELL, not of the store.
+  // The store's `mode`/`hidden` pair says what the reader asked for; it does
+  // not know about the research panel, the phone breakpoint or the Files route,
+  // each of which takes the pane off screen without touching either field. Read
+  // from the store alone, this said "visible" while nothing was — and since it
+  // is what hides `Show file`, the one control that could bring the document
+  // back was withheld exactly when it was needed. `expanded` counts on its own:
+  // that is the file over the whole page, which is certainly on screen.
+  const previewExpanded = useFilePreviewStore(
+    (state) => state.mode === 'expanded' && !state.hidden,
   )
+  const peekBesideChat = useFilePeekBesideChat()
   const fileDockVisible =
-    previewBesideChat && previewFileId !== null && previewFileId === composerSubject?.resourceId
+    (peekBesideChat || previewExpanded) &&
+    previewFileId !== null &&
+    previewFileId === composerSubject?.resourceId
 
   // Per-session composer drafts: the user's own in-progress text, persisted
   // per conversation id so it survives session switches AND reloads.
@@ -1295,7 +1307,17 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           }}
           onShowFile={
             !fileDockVisible && composerSubject
-              ? () => useFilePreviewStore.getState().peek()
+              ? () => {
+                  // Whatever is standing in front of the file, this control
+                  // means "show me the file". With the research panel open,
+                  // `peek()` on its own is a no-op the reader watches do
+                  // nothing — the pane has nowhere to go — so the panel that
+                  // holds the row yields to the request that was just made.
+                  if (useLayoutStore.getState().rightPanel === 'research') {
+                    useLayoutStore.getState().closeRightPanel()
+                  }
+                  useFilePreviewStore.getState().peek()
+                }
               : undefined
           }
           onResolved={handleSubjectResolved}
