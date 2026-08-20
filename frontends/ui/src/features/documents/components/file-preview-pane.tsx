@@ -311,9 +311,27 @@ export function FilePreviewPane({
 
   return (
     <div className="@container flex h-full min-h-0 flex-col bg-card">
-      {/* Peek chrome lives on the host — this header is the modal/expanded one. */}
+      {/* Peek chrome lives on the host — this header is the modal/expanded one.
+
+          The row WRAPS, because on a phone it cannot hold both a filename and
+          five controls. Every action carries `shrink-0` (correctly — an
+          80px-wide „Herunterladen" is not a control), so the title block was
+          the only thing able to give, and with `min-w-0` it gave everything:
+          the name rendered as „f.", the „Von Piloti erstellt" byline as „C",
+          and the status badge collided with the Ask button. A floor on the
+          title block turns that into a wrap — one row on any container wide
+          enough, name over actions on one that is not. 11rem is about twenty
+          characters of the 14px name, enough that truncation is reading a
+          filename rather than guessing at one.
+
+          The basis is the row minus the extension chip, so the break is
+          DETERMINISTIC: the name and the chip take the first row and every
+          action wraps together onto the second. Left to `flex-1` alone the
+          break fell wherever the remaining width happened to run out, which put
+          „Ask Piloti" beside the name and the other four beneath it — an action
+          row split across two lines for no reason a reader could see. */}
       {!peeking && (
-      <div className="flex shrink-0 items-center gap-2.5 border-b px-3.5 pb-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] @md:gap-3 @md:px-5 sm:pt-3.5">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-2 border-b px-3.5 pb-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] @md:flex-nowrap @md:gap-x-3 @md:px-5 sm:pt-3.5">
         <span
           className="flex size-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold uppercase leading-none"
           style={extChipTint(ext)}
@@ -321,7 +339,7 @@ export function FilePreviewPane({
         >
           {ext || <Icon className="size-4" />}
         </span>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[11rem] flex-1 basis-[calc(100%-3.25rem)] @md:min-w-0 @md:basis-0">
           {/* The name the document was GIVEN, if it was given one. `title`
               carries it in full for the truncated case — and the file's own
               name underneath it, which is the answer to "which file is this

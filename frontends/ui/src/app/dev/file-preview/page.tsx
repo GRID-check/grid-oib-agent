@@ -88,13 +88,18 @@ const FIXTURE: FileItem = {
  *   - No summary, no chunks, no tags, no content types — those are ingestion
  *     output, and no ingestion ran. Inventing them here would photograph a
  *     „Von Piloti indexiert" rail that the real document can never show.
- *   - The filename is the real shape `generatedFilename` produces:
- *     `slug(title)-YYYY-MM-DD.pdf`, lower-case, umlauts folded, from a title
- *     the model itself wrote.
+ *   - The filename is what `generatedFilename` actually returns for the title
+ *     „Fluchtweglängen Gebäudeklasse 4", not what a German writer would type.
+ *     The slugger NFKD-normalises and strips combining marks, so `ä` becomes
+ *     `a` — NOT `ae`; only `ß` is transliterated, because it decomposes to
+ *     nothing and would otherwise vanish mid-word. Hence `fluchtweglangen`,
+ *     `gebaudeklasse`. Writing the German transliteration here would have made
+ *     this preview disagree with every real filed report, which is the one
+ *     thing a fixture must not do.
  */
 const GENERATED_FIXTURE: FileItem = {
   id: 'dev-doc-generated',
-  filename: 'fluchtweglaengen-gebaeudeklasse-4-2026-06-14.pdf',
+  filename: 'fluchtweglangen-gebaudeklasse-4-2026-06-14.pdf',
   displayName: null,
   fileSize: 128_400,
   contentType: 'application/pdf',
