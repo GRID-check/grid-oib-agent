@@ -23,11 +23,33 @@ from typing import Literal
 from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
 
-# Card types that are SYSTEM-emitted (by a tool, on a sanctioned path) and must
-# never be advertised to the model — it must not be able to fabricate them. They
-# remain valid union members for validation/serialization/rendering; only their
-# description in the model-facing catalog is suppressed.
-SYSTEM_CARD_TYPES = frozenset({"memory_proposal", "document_grid"})
+# Card types the MODEL MAY NOT EMIT. They remain valid union members for
+# validation/serialization/rendering — every card ever stored keeps parsing and
+# keeps rendering — and only their description in the model-facing catalog is
+# suppressed. Every emission path reads this set: `emit_card`
+# (`cards/register.py`), post-hoc batch generation (`validate_cards` in
+# `cards/models.py`) and the DSML salvage (`shallow_researcher/dsml.py`).
+#
+# Two kinds of member, one mechanism:
+#
+#   * SYSTEM-emitted — a tool on a sanctioned path owns the card and the model
+#     must not be able to fabricate it (`memory_proposal` from `remember`,
+#     `document_grid` from `surface_documents`).
+#   * RETIRED — the content moved off the card path entirely and the card only
+#     survives so that stored ones keep rendering. `follow_ups` is the first:
+#     the post-answer `follow_ups` STAGE now computes the questions after the
+#     answer is written, gated by deterministic Python rather than by the
+#     model's opinion of its own answer, and delivers them as a
+#     `grid_stage_message` frame rendered BELOW the answer
+#     (`aiq_agent/stages/follow_ups.py`, docs/architecture/post-answer-stages.md
+#     §7.10). An old thread still renders its stored chips inside the answer
+#     where they were; a new one renders them below it.
+#
+# Retiring rather than deleting is deliberate and is what this constant is for:
+# dropping the type from the union would make `validateGridCards`
+# (`shared/cards/schemas.ts`) reject every stored `follow_ups` card, so every
+# historical thread would lose its chips and log a warning per card.
+SYSTEM_CARD_TYPES = frozenset({"memory_proposal", "document_grid", "follow_ups"})
 
 # Card types that ASK THE USER TO DECIDE something and act on the answer. They
 # are a different kind of object from the rest of the catalog: a presentational
@@ -90,9 +112,11 @@ MODEL_BACKED_CARD_TYPES = frozenset({"ifc_viewer", "ifc_element", "ifc_complianc
 #
 # So a match is a REASON, not an obligation, and the clause about carrying more than the sentence
 # beside it puts the restatement test in the invitation itself rather than leaving it all to
-# `_CARD_RESTRAINT`. The two cards actually observed missing are pushed where it costs nothing
-# general: `follow_ups` by its own rule below, `process_map` (and `calculation`, `callout`,
-# `key_takeaways`) by the "Emit for …" imperative each already carries in the always-on L1 index.
+# `_CARD_RESTRAINT`. The cards actually observed missing are pushed where it costs nothing
+# general: `process_map` (and `calculation`, `callout`, `key_takeaways`) by the "Emit for …"
+# imperative each already carries in the always-on L1 index. `follow_ups` was the other one and it
+# is no longer a card the model emits at all — it moved to the post-answer stage, so its push, its
+# rule and its trigger row all left with it.
 #
 # The NAMING clause is the one thing the dial-back took out that had to come back. Its predecessor
 # read "if you can NAME the card that fits, emit it: knowing which one fits and writing the answer
@@ -131,8 +155,7 @@ The trigger, then the card:
   several Fristen in sequence — the order and what starts each clock is the answer -> deadline_timeline
   „was passiert, wenn X sich ändert" — what a move COSTS, not which case applies -> change_impact
   the two to five points the reader must leave with -> key_takeaways
-  one caveat, deadline or tip that changes what the reader DOES -> callout
-  an answer this reader will have a next question about -> follow_ups"""
+  one caveat, deadline or tip that changes what the reader DOES -> callout"""
 
 # The picker's trigger, not its shape. The shape stays in the catalog on every surface — the card
 # carries a heading and nothing else, so there is no id to invent (which is why it is not, and must
@@ -144,12 +167,14 @@ _MODEL_PICKER_TRIGGER = """
   the user wants to SEE or OPEN the building and the project may hold several models
                                            -> ifc_model_picker"""
 
-_FOLLOW_UPS_RULE = """\
-follow_ups closes a subject-matter answer by default — a good answer opens questions, and the
-reader should not have to phrase them. Exactly one, LAST. Two narrow exceptions: a
-conversational or off-topic turn, with no subject to go deeper into, and an answer that already
-ends by asking the user something, because two questions competing for the same reply is how you
-get neither."""
+# `_FOLLOW_UPS_RULE` stood here. It is gone rather than moved: the post-answer
+# `follow_ups` stage carries what it said, and the two exceptions it named
+# ("a conversational or off-topic turn" / "an answer that already ends by asking
+# the user something") became GATE CONDITIONS in `stages/follow_ups.py` —
+# `routing_meta`, `intent_out_of_scope` and `answer_ends_in_question` — because a
+# condition the gate enforces is a number on a dashboard while the same condition
+# in a prompt is a hope. Nothing on the card path needs it any more: the model
+# cannot emit the card at all (`SYSTEM_CARD_TYPES` above).
 
 _MODEL_PICKER_NOTE = """\
 The ifc_model_picker is the answer to "zeig mir das Modell" / "welches Modell soll ich öffnen":
@@ -173,8 +198,12 @@ estimated to make the card look finished. This rule outranks every trigger above
 # it is there to be SPENT", which is the one framing this rule must not have: the charter names
 # this constant as where anti-goal D.8 ("no card that restates the prose beside it") is enforced,
 # and a rule that invites spending cannot enforce a restatement veto. What it keeps from that pass
-# is the follow_ups exemption — a model counting follow_ups against the two has one slot left for
-# the card the answer was actually about — and the two cases where none is right.
+# are the two cases where none is right.
+#
+# The `follow_ups` exemption ("follow_ups does not count against it") went with the card. It existed
+# to stop a model spending one of its two slots on the chips; a model that cannot emit them has
+# nothing to exempt, and a clause naming a card the catalog no longer describes is an invitation to
+# go looking for it.
 #
 # The restatement veto is real and it stays. What it needed was a SCOPE, because as written it read
 # on the wrong cases: an answer whose prose already enumerates its cases shares every fact with the
@@ -187,8 +216,8 @@ estimated to make the card look finished. This rule outranks every trigger above
 # It no longer carries the anti-fabrication rule, which moved to `_CARD_HONESTY`: sharing a
 # paragraph meant a model discounting "two is plenty" as tone discounted "never fabricate" with it.
 _CARD_RESTRAINT = """\
-WHEN NOT TO. Two content cards is a turn's ceiling and one is often the right number;
-follow_ups does not count against it. None is right in two cases: a one-line factual answer, where the card
+WHEN NOT TO. Two content cards is a turn's ceiling and one is often the right number.
+None is right in two cases: a one-line factual answer, where the card
 only repeats the sentence above it, and a card that would say what the prose beside it
 says in the same words — cut the card, keep the sentence. That second case is about FORM, not
 facts: three Lagen with their Anforderung and Fundstelle as a table is not a restatement of three
@@ -1065,7 +1094,7 @@ def render_card_doctrine(*, include_ifc_triggers: bool = True) -> str:
             still writing the answer can make. The picker's SHAPE is not
             withheld anywhere, because it names no file and invents nothing.
     """
-    parts = [_CARD_TRIGGER_TABLE + (_MODEL_PICKER_TRIGGER if include_ifc_triggers else ""), _FOLLOW_UPS_RULE]
+    parts = [_CARD_TRIGGER_TABLE + (_MODEL_PICKER_TRIGGER if include_ifc_triggers else "")]
     if include_ifc_triggers:
         parts.append(_MODEL_PICKER_NOTE)
     parts.extend((_CARD_HONESTY, _CARD_RESTRAINT))

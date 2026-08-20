@@ -581,10 +581,15 @@ FOLLOW_UPS = register_stage(
         gate=_gate,
         handler=_handler,
         payload_model=FollowUpsPayload,
-        # Slice 1 delivers NOTHING. It runs, it is bounded, and it is measured;
-        # no reader sees a chip until the empty rate and the true per-turn cost
-        # are known. Flipping this to "frame" is a separate, later change.
-        delivery="silent",
+        # Slice 3. Slice 1 ran this stage `silent` on purpose — measured before
+        # any reader saw a chip — and that measurement is what licenses the flip.
+        # A frame changes NOTHING about how the stage runs: it is still gated,
+        # still bounded by `timeout_s`, still scheduled after the answer is
+        # written and never awaited by the turn. The frame is emitted from the
+        # runner AFTER the outcome is decided, on a `ready`, `empty`, `failed` or
+        # `timeout` result, and a sink that fails or finds no socket is recorded
+        # as an undelivered frame rather than as a stage failure.
+        delivery="frame",
         max_output_tokens=MAX_OUTPUT_TOKENS,
     )
 )

@@ -148,6 +148,28 @@ def seeded_skills() -> list[tuple[str, dict[str, str]]]:
 SEEDS = seeded_skills()
 
 
+def effective_seeds() -> list[tuple[str, dict[str, str]]]:
+    """The LAST seed per skill name — the row a database actually ends up with.
+
+    ``SEEDS`` is every ``INSERT`` on disk in migration order, so it is history
+    and history is immutable. Anything asserted about the row a LIVE database
+    holds has to run over this list instead, or it asserts about text no database
+    has held since the superseding migration shipped.
+
+    The distinction only became load-bearing when a card type was first retired.
+    ``0054``–``0061`` all name ``follow_ups`` in ``grid-cards``, and they were
+    right to: the card was model-facing when each was written. ``0062`` takes it
+    out. Validating every historical row against TODAY's catalog would fail all
+    seven forever and the only way to make it pass would be editing migrations a
+    database has already applied — which is exactly the thing a migration chain
+    exists to make impossible.
+    """
+    return [(tag, row) for tag, row in {row["name"]: (tag, row) for tag, row in SEEDS}.values()]
+
+
+EFFECTIVE_SEEDS = effective_seeds()
+
+
 def effective_row(name: str) -> dict[str, str]:
     """The row a database ENDS UP with, not the one it was first given.
 

@@ -163,6 +163,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="answer-layer-preview"]',
   },
   {
+    id: 'answer-memory-chip',
+    mobile: true,
+    path: '/dev/chat-turn?variant=memory-chip',
+    description:
+      'The „Piloti hat sich gemerkt" chip as a fact about ONE TURN (docs/architecture/post-answer-stages.md §1.7, §5.1). The same answer twice, as two turns of one thread: above, the reflection stage ran and recorded nothing — its most common correct outcome — and there is no chip; below, it recorded two things and the chip says two. That difference is the change: the chip used to be fed by a three-shot poll of the whole conversation\'s memory fired by every rendered answer, so BOTH panels would have carried it and both would have shown the thread\'s running total. The second thing to judge is the meta row. The chip lands seconds after the answer and reserves nothing, which is only safe because it arrives into a row that is already on screen — confidence, copy, thumbs and timestamp are in it from the start. Cover the chip: the two footers must line up to the pixel, and on the phone shot the row must not gain a line. What a screenshot cannot show is the popover, which is where the in-turn write and the post-answer one are labelled apart; that distinction is held by MemoryNotedChip.spec.tsx.',
+    waitFor: '[data-testid="answer-layer-preview"]',
+  },
+  {
     id: 'answer-verdict-lede',
     mobile: true,
     path: '/dev/chat-turn?variant=verdict-lede',

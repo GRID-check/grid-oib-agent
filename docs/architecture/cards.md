@@ -36,7 +36,7 @@ answer it has just written.
 | `norm_chain` | A chain of norms with what binds and what only interprets: each link carries its `rank` (`bundesgesetz` → `leitfaden`), which is the whole point of the card | `title`, `links[]` (`label`, `rank`, `note`) |
 | `key_takeaways` | „Das Wichtigste" — the 2–5 points the reader must leave with. The generic card for an answer with no dimension and no fork in it; a row with a `detail` expands, a row without one is not a button | `title`, `items[]` (`text`, `detail`) |
 | `callout` | ONE remark that changes what the reader does — a `hinweis`, `achtung`, `frist` or `tipp`. Deliberately small; at most one per answer, because a second puts both back at the weight of the prose around them | `kind`, `text`, `title`, `detail` |
-| `follow_ups` | 2–4 next questions, each anchored to something this answer introduced. Clicking one PREFILLS the composer — the user still presses send, and nothing reaches the backend on click | `title`, `items[]` (`question`, `hint`) |
+| `follow_ups` **(retired)** | 2–4 next questions, each anchored to something this answer introduced. Clicking one PREFILLS the composer — the user still presses send, and nothing reaches the backend on click. **The model can no longer emit this**: it is a member of `SYSTEM_CARD_TYPES`, and the post-answer `follow_ups` STAGE produces the questions instead, rendered as a rail BELOW the answer (`aiq_agent/stages/follow_ups.py`, `docs/architecture/post-answer-stages.md` §7.10). The type, its Zod schema and `FollowUpsCard.tsx` all stay, so the cards stored on historical threads keep rendering — see *Retiring a card type* below | `title`, `items[]` (`question`, `hint`) |
 | `calculation` | The derivation behind a computed number — the Schrittmaßregel, a GFZ, a Brandlast, a U-value from its resistances. **There is no result field**: the model supplies operands, an operation from a closed set (`sum`, `product`, `quotient`, `percent_of`, `percent_ratio`) and the limit; the renderer computes, propagates the ± band, rounds and judges | `title`, `steps[]` (`label`, `operation`, `operands[]`, `unit`), `limit`, `reference`, `note` |
 | `process_map` | An ordered procedure — Einreichung → Bauverhandlung → Baubewilligung → Fertigstellungsanzeige — with the step this project stands at, and what each step requires and produces revealed on click | `title`, `steps[]` (`label`, `summary`, `actor`, `duration`, `requires[]`, `produces[]`, `reference`), `current_step`, `reference`, `note` |
 
@@ -243,14 +243,52 @@ the moment to spend context on them — and it saves the activated turn a
 That makes `grid-cards` do two things at once, and only the first is obvious: it
 states the author's preference AND it decides which shapes are already in context
 at the moment the model would emit. `piloti-cards` is `delivery: standard`, so
-its list is paid on every answering turn — 2,157 cl100k tokens for the seven
-inlined since migration `0061` (`verdict_header`, `condition_tree`, `typed_table`,
-`key_takeaways`, `callout`, `process_map`, `follow_ups`). `typed_table` and
-`process_map` joined for +265 and +693 respectively, because they are the two
+its list is paid on every answering turn — 1,881 cl100k tokens for the six
+inlined after migration `0062` (`verdict_header`, `condition_tree`, `typed_table`,
+`key_takeaways`, `callout`, `process_map`). `typed_table` and
+`process_map` joined in `0061` for +265 and +693 respectively, because they are the two
 cards the doctrine spends its words redirecting TO and both were a round trip
-away while `condition_tree`'s shape sat already rendered. The ceiling on that
+away while `condition_tree`'s shape sat already rendered. `0062` took `follow_ups`
+back out for −276 when the card was retired. The ceiling on that
 block is asserted in `test_seeded_platform_skills.py`; widening it is a priced
 decision, not a preference.
+
+Taking a retired type OUT of the list is not tidiness. `preferred_cards` filters
+`grid-cards` against `model_facing_card_types()`, so a name left behind is dropped
+silently on every read — a seed naming a card the runtime never sees, which is the
+drift `test_seeded_grid_cards_survive_the_read_path` exists to catch.
+
+### Retiring a card type
+
+`SYSTEM_CARD_TYPES` in `cards/catalog.py` is the lever, and it has two kinds of
+member: cards a TOOL owns and the model must not fabricate (`memory_proposal`,
+`document_grid`), and cards that have been RETIRED because their content moved
+somewhere else (`follow_ups`, whose questions the post-answer stage now produces).
+One mechanism, because the requirement is the same either way: the model may not
+emit one, and everything already stored keeps working.
+
+Adding a type to the set does five things at once. All three emission paths refuse
+it — `emit_card` (`cards/register.py`), post-hoc batch generation (`validate_cards`
+in `cards/models.py`) and the DSML salvage (`shallow_researcher/dsml.py`) — and
+`model_facing_card_types()` drops it from every advertised surface, so `L1`
+(`render_card_index`), `L2` (`render_card_details`, hence `describe_card` AND the
+`grid-cards` shapes block) and the worked example all go together.
+
+What it deliberately does NOT do is remove the union member. `validateGridCards`
+(`shared/cards/schemas.ts`) drops anything failing the union and logs a warning per
+card, so deleting the type would cost every historical thread its chips and fill
+the console doing it. Retiring one is therefore a checklist:
+
+1. add the type to `SYSTEM_CARD_TYPES`;
+2. remove its prompt weight everywhere it is written by hand — the trigger row and
+   any rule of its own in `catalog.py`, its paragraph in `cards/prompt.py`'s
+   post-hoc craft note, and any clause elsewhere that names it;
+3. remove it from `grid-cards` in the seeded skill, and its craft section from the
+   skill body, in a new md5-guarded migration (`0062` is the worked example);
+4. leave the pydantic model, the Zod schema, `CARD_INTERACTIVITY` and the renderer
+   branch alone, and pin that with a test that mounts a STORED card;
+5. decide what the export does with it — `CARD_EXPORT` in
+   `lib/answer-export/cards.ts` is exhaustive over the union, so `tsc` makes you.
 
 ### `emit_card` carries the doctrine, not a disclaimer
 
@@ -287,14 +325,14 @@ description carries.
 `cards/prompt.py` composes `render_card_doctrine(include_ifc_triggers=False)`
 for the post-hoc path that derives cards from a finished deep-research report.
 That path used to carry the disclaimer this section describes replacing — on the
-surface producing the LONGEST answers, the ones that most need a takeaway block,
-a callout and follow-ups. Three parts are deliberately withheld from it, and the
+surface producing the LONGEST answers, the ones that most need a takeaway block
+and a callout. Three parts are deliberately withheld from it, and the
 reason is the same each time: they are not true there.
 
 - The **`[[card:N]]` placement contract**. The job runner emits the report
   unchanged and attaches the returned list, so there is no text to place into.
-  List order is render order, and the doctrine's "put `follow_ups` last" gets an
-  ordering rule to refer to instead.
+  List order is render order, so the doctrine gets an ordering rule to refer to
+  instead — the verdict first, the substance after it.
 - **`describe_card`**. There is no tool loop; the shapes are already inline.
 - The **`ifc_model_picker` trigger**, though not its shape. That trigger fires on
   a live "zeig mir das Modell" intent and says to emit the card *instead of*

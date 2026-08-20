@@ -1,13 +1,21 @@
 # Post-answer stages — a platform primitive
 
-> **Status:** **slices 0, 1 and 2 are built** (`src/aiq_agent/stages/`, memory
-> reflection migrated onto it, the kill switch moved per-turn, `follow_ups`
-> running `silent`, and the whole client half — frame schema, `onStage`, the
-> `stages` key on the message row, and the rail below the answer — rendering
-> from the §4 fixtures with no backend). **Slice 3 is what connects them**:
-> nothing a reader can see changes until `follow_ups` flips to
-> `delivery="frame"` and `aiq_api` registers the sink. Slices 3–4b are still
-> design. Paragraphs corrected on
+> **Status:** **all slices are built** (`src/aiq_agent/stages/`, memory
+> reflection migrated onto the primitive, the kill switch moved per-turn, the
+> whole client half — frame schema, `onStage`, the `stages` key on the message
+> row, and the rail below the answer — and, as of slice 3, the two halves
+> connected: `aiq_api` publishes the frame sink and `follow_ups` declares
+> `delivery="frame"`. **A real turn produces a real frame that reaches a browser
+> and renders the rail.** Slice 4 retired the in-answer `follow_ups` CARD
+> (`SYSTEM_CARD_TYPES`, its prompt weight removed on every surface, migration
+> `0062`), and the `post-answer-follow-ups` flag is on for **all** organisations
+> in **both** environments — the product owner overrode the ordering rule that
+> made retirement wait on observation, so the revert path was performed and
+> verified rather than assumed (§7.10). Slice 4b put memory reflection on the
+> same channel and **deleted the poll**: the chip is per-turn, and the primitive
+> now carries two delivering stages rather than one, which is the first real
+> test of "a fourth stage costs a declaration and a handler". Paragraphs
+> corrected on
 > contact with the code are marked **[as built]** — each states the correction
 > and why the original was wrong.
 > **Scope:** the *stage* as a reusable shape, its wire contract, and the two
@@ -84,6 +92,35 @@ of them is the reflection stage:
    renders the union of (1) and (2), fed by the poll. It labels the two apart —
    `distillation` → „nach der Antwort ergänzt" (`MemoryNotedChip.tsx:46-50`,
    `i18n/dictionaries/de/chat.ts:983`).
+
+> **[as built, slice 4b] — point 3 above names the wrong half of path 1.** The
+> chip did not render the union of the *card* and the reflection stage. It
+> rendered the union of two sets of **rows**, because the poll returned rows:
+> reflection's (`provenance_type="distillation"`) and the in-turn `remember`
+> tool's (`"agent"`) — and the audit's own INFORM row says exactly that,
+> "labelling in-turn (`agent`) vs reflection (`distillation`) provenance". The
+> `memory_proposal` card is the *fallback* path, emitted only when an org-scoped
+> write is refused by policy (`register.py`'s `OrgMemoryDisabledError` branch);
+> the common in-turn write succeeds silently and emits no card at all.
+>
+> That distinction is what decided slice 4b's one deliberate loss. The frame
+> gives reflection's items a turn identity; nothing gives the in-turn rows one,
+> because a `project_memory` row carries `source_conversation_id` and no message
+> or turn key at all (§1.6). A per-turn chip therefore **cannot** render them
+> honestly — the old chip only appeared to, by showing the whole conversation's
+> memory against every answer in it, which is the §1.7 defect and not a feature.
+> So the per-turn chip's in-turn half is the `memory_proposal` card the reader
+> **accepted** (`cardInteractions`), which is per-turn, already persisted and
+> already restored on reload; a silent in-turn write is visible in the project
+> memory panel, where it is curated, and nowhere on the answer. §11.3's change —
+> the client minting a real turn id — is what would give those rows a turn and
+> put them back on the chip.
+>
+> The rule the two halves are still held to is unchanged: **do not collapse
+> them.** „während der Antwort notiert" and „nach der Antwort ergänzt" are
+> different promises — one the reader agreed to, one that happened without them
+> — and `MemoryNotedChip.spec.tsx` is where that is now enforced rather than
+> assumed.
 
 So: the *memory feature* has a streamed surface and a polled surface, and the
 **post-answer half is the polled one**. The audit says so in its own words —
@@ -245,6 +282,17 @@ would remove the limitation later.
 
 Both are consequences of having no turn identity to hang the result on. The
 primitive gives them one.
+
+> **[as built, slice 4b] — both are fixed, and the second one was worse than
+> stated.** `useConversationMemory` is deleted. The chip now reads
+> `message.stages.memoryReflection`, which the stage's own frame delivers, so
+> the count is the turn's and a turn that recorded nothing shows no chip at all.
+> The thirty GETs are zero: nothing is fetched, because the writer sends what it
+> wrote. The poll's third defect is the one the section does not name — the
+> schedule itself. `[0, 1500, 4000]` ms is a guess about how long an LLM takes,
+> made by the half of the system that cannot know, and a reflection finishing at
+> 4.1s was invisible until something else re-rendered. A frame has no schedule
+> to be wrong about.
 
 ### 1.8 Flag plumbing (and one piece of doc drift)
 
@@ -468,6 +516,29 @@ patching the dependency. `_registry.send` takes any `BaseModel` and calls
 `model_dump()`, so Grid can own its own frame model. This is the whole reason the
 frame type is `grid_`-prefixed.
 
+> **[as built, slice 3]** The implementation is `GridStageMessage` and
+> `send_stage_frame` in `aiq_api/websocket_reconnect.py`, registered by
+> `register_stage_frame_sink(send_stage_frame)` at **import** of
+> `aiq_api/plugin.py`, next to `install_reconnectable_handler()`. Import-time and
+> not inside `add_routes`, because that is what "the front end starts up" means:
+> a process that never loads this front end — a CLI run, a Dask job worker —
+> leaves the sink unset, and a `frame` stage there still runs, is still bounded
+> and still records its outcome. It simply has nobody to tell, which
+> `delivery.py` already documents as a normal state.
+>
+> Two things the envelope enforces at that boundary rather than trusting the
+> producer for. **`payload` is dropped when absent, not serialised as `null`**:
+> the contract says a payload rides a `ready` frame and nothing else, and the
+> client tests for the key's presence, so a null would put a payload-shaped hole
+> on every declined turn — the exact `payload-on-a-non-ready-frame` shape §9's
+> `rejected` fixtures require a client to drop. And **`status` is a Literal of
+> the three that reach a reader**: the runner maps `timeout` onto `failed` and
+> never emits `skipped`/`disabled`, so anything else arriving here is a producer
+> bug, refused and reported undelivered rather than forwarded to a client with no
+> rendering for it. `v`, by contrast, is carried from the producer rather than
+> pinned here — two halves of one envelope each asserting their own version
+> number is how they come to disagree silently.
+
 **Also deliberately not reused:** yielding an extra chunk from the workflow
 generator after the terminal one. The handler's loop would forward it as another
 `IN_PROGRESS` response frame (`websocket_reconnect.py:1362-1370`) and the client
@@ -628,6 +699,40 @@ always claimed to be.
 **The DB write stays the source of truth.** The frame is a notification, not a
 transfer of authority. `grid_app` stays single-writer.
 
+> **[as built, slice 4b]** Four corrections, all small and all in the same
+> direction: the frame has to carry enough that nobody asks the database again.
+>
+> **The payload is the items, not "the ids and kinds".** The chip renders each
+> finding's own words, so a payload of ids would leave the browser holding a
+> receipt for text it cannot read — and the only way to read it would be the GET
+> this slice deletes. The poll would have come back wearing a frame as a
+> trigger. `MemoryReflectionPayload` is `items: [{id, kind, content}]`, and
+> `run_memory_reflection` now returns what it wrote rather than how much (the
+> deep-research caller ignores the return either way).
+>
+> **§8's three arrival conditions do not apply to this stage**, and that is a
+> decision rather than an omission. They protect the page from a block appended
+> BELOW the answer; the chip is inside the answer's own footer meta row, which
+> is rendered and reserved at `min-h-6` before the stage finishes. Held to the
+> rail's rules the chip would lose in exactly the likely cases: reflection is
+> scheduled *before* the answer's deltas are yielded, so on a long answer its
+> frame genuinely arrives mid-stream, and it takes seconds, so the reader has
+> usually typed. A suggestion may be withheld from someone who is busy; a record
+> of a durable write to their project may not. Measured cost of admitting it
+> late: **nothing moves on desktop**, and on a 390px viewport the meta row gains
+> one 24px line, because two pills do not fit across — which is what the poll
+> already did, on every answer rather than on the turns that recorded something.
+>
+> **The flag does not move.** `memory-reflection` still governs the whole stage,
+> so an operator switching it off switches off the writes and the frame
+> together, which is what they mean by it.
+>
+> **`GET /api/projects/{id}/memory?conversationId=…` keeps its filter.** The
+> chip was its only caller and the parameter is now dead, but removing it would
+> make an old tab still polling during a deploy overlap receive the project's
+> ENTIRE memory instead of the conversation's — a dead parameter is cheaper than
+> that.
+
 ### 5.2 `follow_ups` — the new one
 
 ```python
@@ -647,8 +752,11 @@ FOLLOW_UPS = StageSpec(
 
 > **[as built]** Three corrections, all in `src/aiq_agent/stages/follow_ups.py`.
 >
-> **`delivery="silent"`, not `"frame"`.** Slice 1 is the measurement; the frame
-> is slice 3. Everything else in the declaration is live.
+> **`delivery="silent"` in slice 1, `"frame"` from slice 3.** Slice 1 was the
+> measurement and shipped `silent` deliberately; slice 3 flipped it, and nothing
+> else about how the stage runs changed — same gate, same 20s bound, same
+> scheduling after the answer is written and never awaited. Everything else in
+> the declaration was live from slice 1.
 >
 > **`max_output_tokens=512`, not 300, and its own `llms:` entry.** 300 is the
 > *content* estimate, not a ceiling: a realistic four-question German body
@@ -988,6 +1096,10 @@ Each failed condition produces `outcome:"skipped"` with that condition as
 > turns the model had already declined once, which is the one sample that cannot
 > answer "does the gate pick better turns than the model does". It becomes a
 > reasonable condition again once slice 4 has retired the card.
+> **[as built, slice 4]** It is now available — the card is retired, so
+> `emitted_card_types` can no longer contain `follow_ups` on a new turn and the
+> condition would never fire. The field stays on `TurnFacts` for the next stage
+> that wants it; the gate is unchanged.
 >
 > **The two `_FOLLOW_UPS_RULE` exceptions became gate conditions, not prompt
 > text.** They are decidable in Python over the finished answer, and a condition
@@ -1035,6 +1147,30 @@ The whole set travels in one map through the existing signed request-context
 envelope (`lib/request-context.ts:313-315` → `project_context.py:332`), replacing
 the single `memoryReflectionEnabled` boolean with `stagesEnabled: string[]`.
 Keep the old header for one release so a mixed deployment does not go dark.
+
+> **[as built, slice 3] — the rollout, concretely.** The
+> `post-answer-follow-ups` WorkOS flag exists and is enabled for **exactly one
+> organization**: `flagEnabled: true`, `accessType: SOME` with a single
+> `organizations` entry and `defaultEnabled: false`, so a newly created tenant
+> does not inherit it. The production environment has the flag off entirely
+> (`accessType: NONE`). Because the set is re-read per turn through
+> `GET /api/internal/stages` behind the 30s cache, clearing the org from the flag
+> stops the frames within a turn or two — no deploy, no reconnect, and no effect
+> on the answer either way. `defaultOn: false` in `POST_ANSWER_STAGE_FLAGS` is
+> what the non-enforcing deployments see, so "off everywhere else" holds without
+> WorkOS too.
+>
+> **[as built, slice 4] — this is no longer the rollout.** The product owner
+> widened it: `flagEnabled: true`, `accessType: ALL`, `defaultEnabled: true` in
+> **both** the Staging and Production WorkOS environments, so every existing
+> organisation is served the stage and a newly created one inherits it.
+> `defaultOn` in `POST_ANSWER_STAGE_FLAGS` moved to `true` with it, and for a
+> reason the flag state alone does not carry: `defaultOn` is what a deployment
+> *without* the flag product reads, and with the card retired a `false` there
+> would mean a Grid with no follow-up questions at all and nothing to switch on.
+> The stage is a shipped core capability now, on the same footing as
+> `memory_reflection` — capability bit included, so a workflow config with no
+> `follow_ups_llm` is still a no-op rather than a failure.
 
 **One defect to fix while here:** the flag is evaluated at socket upgrade
 (`app/api/auth/websocket-scope/route.ts:57-62`), so today the kill switch does not
@@ -1110,7 +1246,17 @@ Stored `follow_ups` cards exist in `messages.metadata.cards`, are re-read on eve
 render (`server-message-mapper.ts:129-132` → `validateGridCards`) and on every
 export (`lib/answer-export/cards.ts`, walked generically). They must keep working.
 
-**Retire, never delete.** Four steps, in this order:
+**Retire, never delete.** Four steps, in this order.
+
+> **[as built] — the reverse order is not "step 1 backwards".** Step 1 is a
+> constant and every surface derived from it comes back the moment the constant
+> does. Steps 2 and 3 delete hand-written text — a trigger row, a rule, a clause,
+> a German craft section — and nothing brings a deleted string back except
+> reverting the commit that deleted it. So the revert path is **step 1, plus a
+> revert of the commit that did step 2, plus `0062_…down.sql` for step 3.** Both
+> tiers were exercised; see the note at the end of this section for what each one
+> restored.
+
 
 1. **Add `"follow_ups"` to `SYSTEM_CARD_TYPES`** (`cards/catalog.py:30`). That
    constant is documented as exactly this lever: the type "remains a valid union
@@ -1124,22 +1270,57 @@ export (`lib/answer-export/cards.ts`, walked generically). They must keep workin
    trigger row (`:123`), the restraint exemption (`:171`), and the `follow_ups`
    paragraph in the post-hoc craft note (`cards/prompt.py:53-59`, which moves
    into the stage's own prompt). This is the 136 tokens/turn.
+
+   > **[as built] — the 136 is right, and the 109 above was right too.** They
+   > measure different things. `render_card_doctrine()` loses exactly **109**
+   > tokens (`_FOLLOW_UPS_RULE` 84 + the trigger row 15 + the restraint exemption
+   > 10), which is what §7.5's correction measured. Step 1 then removes the
+   > card's **L1 index line** as well — `render_card_index()` withholds every
+   > `SYSTEM_CARD_TYPES` member — and that is the missing **27**. Together the
+   > always-on `emit_card` description falls **2,240 → 2,104**, i.e. 136 tokens
+   > on every chat turn, which is the figure §7.5 originally claimed. The
+   > correction that doubted it was measuring step 2 without step 1.
+   >
+   > **Two surfaces the list did not name, both larger than the chat path.**
+   > The `piloti-cards` skill inlines the shapes of whatever `grid-cards` names
+   > (`skills/runtime.py::_preferred_cards_block`), and it carries a German
+   > craft section, „Anschlussfragen: vier verschiedene Züge". Both are paid on
+   > every research turn, because `delivery: standard` makes the body every
+   > research turn's. Migration `0062_piloti_cards_retire_follow_ups` removes
+   > the list entry, the section, the two sentences in the closing budget
+   > section that spend the budget on the card, and the description's promise of
+   > it: the shapes block **2,157 → 1,881** and the body **5,239 → 4,760** (the
+   > craft section is 435 of that; the other 44 is the two sentences in the closing
+   > budget section that spent the budget on this card), i.e. **755 tokens per
+   > research turn**.
+   >
+   > Removing the list entry is not tidiness. `preferred_cards` filters
+   > `grid-cards` against `model_facing_card_types()`, so a retired name left in
+   > the list is silently dropped on every read — a seed naming a card the
+   > runtime never sees, which is exactly the drift
+   > `test_seeded_grid_cards_survive_the_read_path` exists to catch.
+   >
+   > The post-hoc prompt falls **12,654 → 12,127** per finished report. All
+   > figures are tiktoken `cl100k_base`, measured over the rendered strings.
 3. **Leave the pydantic model, the Zod schema and `FollowUpsCard.tsx` in place.**
    `validateGridCards` drops anything that fails the union
    (`shared/cards/schemas.ts:18-33`), so removing the member would make every old
    thread lose its chips *and* log a warning per card. `GridCards.tsx:278-284`
    keeps rendering stored ones.
-4. **The export.** On `origin/develop` a stored `follow_ups` card *is* exported
-   into a Word document under the "Findings" heading by the generic walker
-   (`lib/answer-export/cards.ts`, `answer-document.ts:128-130`) — despite
-   `FollowUpsCard.tsx:36-40` saying this is "the one card that must never be
-   screenshotted into an Einreichung". **That fix is already in flight**: the
-   working tree on this branch carries an uncommitted `cards.ts` change
-   introducing an exhaustive `ExportKind` map with `follow_ups: 'chrome'`
-   (dropped from the document). This design depends on that landing and adds
-   nothing to it. New-path output is never exported at all, since it does not
-   live in `cards` — a second reason the stage's payload must not be written back
-   into `metadata.cards`.
+4. ~~**The export.**~~ **[as built] — done, and not by this slice.** The
+   change this step described as "already in flight" landed in **PR #474**
+   (`acb3c81f`), well before slice 4 started. `CARD_EXPORT` in
+   `lib/answer-export/cards.ts` classifies `follow_ups: 'chrome'` and
+   `cardBlocks` returns `[]` for a chrome card — *not even the heading*, because
+   an empty „Weiterführende Fragen" under „Befunde" would still put the app's own
+   chrome inside the findings section, and `answer-document.ts` omits „Befunde"
+   entirely when chrome was the only card. Pinned by
+   `answer-export/answer-document.spec.ts`, "cards that are the app talking, not
+   the answer". Slice 4 verified this and added nothing to it.
+
+   New-path output is never exported at all, since it does not live in `cards` —
+   a second reason the stage's payload must not be written back into
+   `metadata.cards`.
 
 **What a reader sees after the change:** an old thread renders its stored chips
 inside the answer, where they were; a new thread renders its chips below the
@@ -1152,6 +1333,52 @@ reader is looking at.
 flag off after step 1 leaves the product with *no* follow-ups. Step 1 must
 therefore ship **after** the stage is on and observed, not before. §10 orders it
 that way.
+
+> **[as built, slice 4] — the ordering rule was overridden, so the revert was
+> exercised instead of assumed.** The product owner asked for slice 4 finished
+> now, with the flag on for **all** organisations in **both** WorkOS
+> environments, rather than waiting on the observation the rule required. That
+> removes the safety net the rule provided: the flag is still a per-turn kill
+> switch for the frames, but it no longer falls back to the card, so switching it
+> off now means an org with no follow-up questions rather than the old ones.
+>
+> Because the net is gone, "step 1 is the revert path" was checked rather than
+> believed. It was **performed** in a scratch commit, at two tiers, and the two
+> tiers do not restore the same things — which is the correction this slice owes
+> the section.
+>
+> **Step 1 alone** (`follow_ups` taken back out of `SYSTEM_CARD_TYPES`, one line)
+> restores emission and every surface DERIVED from the constant: `emit_card`
+> accepts a card again, `model_facing_card_types()` includes it,
+> `render_card_index` advertises it, `render_card_details` (so `describe_card`
+> AND the `grid-cards` shapes block) hands its shape back, `validate_cards` keeps
+> a post-hoc one, and the post-hoc prompt names it again.
+>
+> It does **not** restore the hand-written prompt weight. The trigger row,
+> `_FOLLOW_UPS_RULE` and the volume rule's exemption are literal strings that
+> step 2 deleted, and no constant brings a deleted string back. So step 1 alone
+> leaves the model able to emit a card nothing tells it to emit — which is a
+> coherent state (the card is a valid union member and the L1 line still carries
+> its "Emit at the END" imperative) but it is **not** the state before slice 4.
+> **§7.10 should say so: the revert path is step 1 *plus* reverting the commit
+> that did step 2, plus `0062_…down.sql`.**
+>
+> **The full revert** — both feature commits reverted and `0062.down.sql` applied
+> against a real PostgreSQL 16 — restores everything, and byte-exactly. The
+> always-on `emit_card` description measures **2,240** again, the doctrine 937,
+> the L1 index 1,025, the post-hoc prompt 12,654, the inlined shapes 2,157 and
+> the skill body 5,239: every number back to its pre-slice-4 value. The test
+> suite returns to **4,480 passed**, the exact baseline. The seeded row after
+> `0062.down.sql` hashes identically to the row the reverted repo parses off
+> disk (body `9662a746…`, body+description `13b1e07c…`, `grid-cards` back to
+> seven). The scratch commits were then reset. Both directions of `0062` are
+> guarded on the body's md5 and not on `created_by`, so a row edited through the
+> dashboard is untouched going forward and coming back.
+>
+> What the revert does **not** restore is the emitted cards of the turns that ran
+> while the card was retired. There is nothing to restore — those turns have the
+> stage's frames on their message rows instead, and they keep rendering either
+> way. Reverting changes what the *next* turn does, not what past turns hold.
 
 ---
 
@@ -1237,12 +1464,31 @@ Written here because "contract-first" is unenforceable without it.
   > nothing for a frame builder to assert about them, and they are where the
   > version-skew behaviour of §4.1 stops being a promise.
   >
-  > **The Python reader does not exist yet** — slice 1 shipped `delivery="silent"`
-  > and has no frame to build. Until it does, the TypeScript side reads
-  > `stages/runner.py` directly and asserts the frame type, the envelope version
-  > and the builder's key set against the fixtures, the way
-  > `research-truncated-wire.spec.ts` already reads `websocket_reconnect.py`.
-  > Slice 3 should replace that with the Python fixture test, not add to it.
+  > **[as built, slice 3] The Python reader is
+  > `tests/aiq_agent/stages/test_frame_contract.py`**, and the stand-in is gone.
+  > While slice 1 shipped `delivery="silent"` there was no frame to build, so the
+  > TypeScript side stood in for the missing half by reading `stages/runner.py`
+  > as text and pinning the frame type, the envelope version and the builder's
+  > key set with regexes. That was deleted in the same commit that landed the
+  > real reader rather than kept beside it: two tests asserting the same thing by
+  > different routes is how one of them quietly stops meaning anything, and the
+  > one that would have stopped meaning anything is the one that greps another
+  > language's source for a constant.
+  >
+  > The real reader says three things the stand-in could not. **Exhaustiveness is
+  > derived from the registry**, not from a literal list — every stage declaring
+  > `delivery="frame"` must have a fixture for each of `ready`/`empty`/`failed`,
+  > so on the day §10's slice 4b flips `memory_reflection`, the test fails and
+  > names the three fixtures it needs instead of a frame shape shipping that no
+  > client was built against. The reverse holds too: **no fixture may describe a
+  > `silent` stage**, which writes its own durable state and tells nobody. And a
+  > **`ready` fixture's payload must validate against its own stage's
+  > `payload_model`** — otherwise the fixture is fiction, because a payload the
+  > stage's own model rejects becomes `failed` long before it reaches a frame.
+  >
+  > Changing the fixture file fails BOTH halves; changing one half's code fails
+  > only that half. That asymmetry is the contract working, and it was verified
+  > by doing it.
 - **Frontend, no backend:** `/dev/chat-turn?variant=follow-ups-rail` renders the
   rail from a fixture, plus a variant with the rail absent, so the "no space
   reserved" claim of §8 is a screenshot and not an assertion.
@@ -1260,9 +1506,9 @@ alone. Nothing else may start before 0.**
 | **0** ✅ | **BUILT.** The primitive: `stages/` package, `StageSpec`, `TurnFacts`, runner (semaphore + timeout + span), registry, sink interface. Reflection ported onto it, behaviour-identical, flag unchanged. No new stage, no frame. Carries the §1.4 and §1.5 fixes and the §7.8 kill-switch fix. | — | yes — a pure refactor with the §1.4/§1.5 fixes | revert |
 | **1** ✅ | **BUILT.** Backend `follow_ups`: gate, handler, prompt, payload model. `delivery="silent"` — **it runs and is measured, and delivers nothing.** Carries `StageEmpty` (§2.4), per-stage cost on the span (§7.4) and the backend↔BFF stage-flag parity guard. | 0 | yes | flag off |
 | **2** ✅ | **BUILT.** Frontend: `NATStageMessageSchema`, `onStage`, `wsParentId` on the message, `stages` on the PATCH + its sanitiser, `FollowUpsRail`, `/dev` variant, registry.mjs rewrite (§6.3). Built against the §4 fixtures, which now exist as `shared/stages/frames.json`. Carries the §8 correction (three arrival conditions, not two) and the §6.2 one. | — (contract only) | yes — renders from fixtures with no backend | revert |
-| **3** | Wire them: sink registration in `aiq_api`, `delivery="frame"`, flag on for one org. | 0,1,2 | yes | flag off |
-| **4** | Retire the card: `SYSTEM_CARD_TYPES`, prompt-weight removal, export skip (§7.10). | 3 **observed** | yes | revert step 1 of §7.10 |
-| **4b** | Reflection's own frame + the per-turn chip; delete the poll (§5.1, §1.7). | 3 | yes | flag off |
+| **3** ✅ | **BUILT.** Wire them: `aiq_api` publishes the frame sink (`GridStageMessage` + `send_stage_frame`, registered at plugin import), `follow_ups` declares `delivery="frame"`, and the `post-answer-follow-ups` flag is on for one organization and off everywhere else. Carries the §9 contract test's Python half, which replaces the slice-2 stand-in. | 0,1,2 | yes | flag off |
+| **4** ✅ | **BUILT.** Retire the card: `SYSTEM_CARD_TYPES`, prompt-weight removal (catalog, post-hoc craft, and the seeded skill's `grid-cards` list + craft section via `0062`), export skip already done by PR #474 (§7.10). The `post-answer-follow-ups` flag is on for ALL orgs in both environments and `defaultOn` follows it. | 3 | yes | §7.10's revert path — step 1 **plus** reverting the step-2 commit **plus** `0062_…down.sql`; **performed and verified end to end**, not assumed |
+| **4b** ✅ | **BUILT.** Reflection's own frame + the per-turn chip; the poll deleted (§5.1, §1.7). `memory_reflection` declares `delivery="frame"` and its payload carries the rows it wrote; the client stores them under `stages.memoryReflection`, and `useConversationMemory` is gone. Carries the §1.1 correction (which half of path 1 the chip's in-turn label actually was) and the §5.1 one (§8's conditions are the rail's, not every stage's). | 3 | yes | flag off |
 
 **Slice 0 is the one that must not be skipped**, and it is also the one that pays
 for itself immediately: it puts a timeout on memory reflection, which is a
@@ -1276,6 +1522,16 @@ the gate is wrong and we learn it for the price of an LLM call, not a rollback.
 **Ordering rule for slice 4:** the card is retired only after the stage has been
 observed delivering. Retiring first would leave the product with no follow-ups if
 the stage disappoints.
+
+> **[as built] — overridden by the product owner, deliberately.** Slice 4 shipped
+> without waiting for the observation, with the flag widened to every
+> organisation in both environments in the same move. The rule was a safety net
+> and the net is gone; what replaces it is that the revert path it named was
+> **exercised end to end** rather than trusted. See §7.10's `[as built, slice 4]`
+> note for what was performed and what it proved. The honest reading is that
+> slice 4 is now reversible-in-fact rather than never-needed, which is a weaker
+> guarantee than the rule offered and a stronger one than "we assume step 1
+> works".
 
 ---
 
@@ -1301,6 +1557,28 @@ Then the specific risks:
    to a socket mid-turn. Mitigation: the sink is a separate frame type the client
    dispatches separately; the send is `try/except` with the outcome recorded, and
    a failed send is `outcome:"failed"`, never a raise.
+
+   > **[as built, slice 3]** This risk is now an assertion rather than a
+   > mitigation.
+   > `tests/aiq_agent/stages/test_the_answer_survives_a_failing_stage.py` runs the
+   > real `schedule_post_answer_stages`, the real sink, the real
+   > `WebSocketSessionRegistry` and the real message handler over a recording
+   > socket, with the stage tasks deliberately left in flight while the answer is
+   > being written — the only arrangement in which a stage COULD corrupt the
+   > stream — and compares the **bytes**: a turn whose stage raises, is
+   > rate-limited, times out, or returns a payload its own model rejects must put
+   > the same answer frames on the socket, in the same order, as a turn with no
+   > stage at all. It also pins that scheduling returns before any handler has
+   > run, that a stage which never finishes does not hold up the close of the
+   > turn, and that a sink which raises is neither an exception in the turn nor a
+   > stage marked failed. One correction to the phrasing above: an undelivered
+   > send is **not** `outcome:"failed"` — see §7.1's note; only a sink that raises
+   > is caught, and it is still not a stage failure.
+   >
+   > What is deliberately NOT asserted is the ORDER the two kinds of frame arrive
+   > in. That is a genuine race and §7.7 says nothing may depend on it. The rule
+   > that a rail must not appear while the answer is still streaming is enforced
+   > client-side, at arrival, per §8.
 3. **The turn identity is a shim, not a fix.** `(conversation_id, ws_parent_id)`
    works because the browser holds both halves. It does **not** let the backend
    attach output to a message when the browser is gone, so **a stage's output is

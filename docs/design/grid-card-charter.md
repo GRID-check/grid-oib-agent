@@ -103,7 +103,7 @@ The schema generator flattens **every** `$ref` to `z.any()` — not only arrays 
 
 ### 0.7 Doctrine that shapes the design
 
-Two content cards is a turn's budget, one is usual, three is too many, and `follow_ups` does not count (catalog.py `_CARD_RESTRAINT`). **So the set is rarely seen together. Design each card for solo appearance beside prose, not for a gallery.** The gallery is a debugging tool, not the product.
+Two content cards is a turn's budget, one is usual, three is too many (catalog.py `_CARD_RESTRAINT`). **So the set is rarely seen together. Design each card for solo appearance beside prose, not for a gallery.** The gallery is a debugging tool, not the product.
 
 ---
 
@@ -473,7 +473,9 @@ All three landed in commit `67c2ee03`. **They are well-built**: derived tallies 
 
 ## C. Ranking
 
-Axis: **(visual poverty today) × (how often the model emits it)**. Frequency is read off the trigger table (catalog.py:80–107) and the doctrine: `follow_ups` closes *every* subject-matter answer by default; the generic answer shapes fire on almost any OIB question; a schematic fires only when the question names its geometry; IFC cards fire only with a model loaded.
+Axis: **(visual poverty today) × (how often the model emits it)**. Frequency is read off the trigger table (catalog.py:80–107) and the doctrine: `follow_ups` closes *every* subject-matter answer by default; the generic answer shapes fire on almost any OIB question;
+
+> **Since this was written:** `follow_ups` is retired — the model emits none, and the post-answer STAGE produces the questions instead, rendered below the answer rather than inside it (`docs/architecture/post-answer-stages.md` §7.10). The ranking below is left as the record of a decision already taken and shipped; `FollowUpsCard.tsx` still draws every stored card and the rail, so §B1's flat register is still what a reader sees. a schematic fires only when the question names its geometry; IFC cards fire only with a model loaded.
 
 Poverty was assessed by reading the JSX **and by looking at the captured gallery** (`visual/screenshots/cards-gallery.{light,dark}.png`, desktop and mobile) — the three-newest-cards finding in §0.2 came from looking, not from reading.
 

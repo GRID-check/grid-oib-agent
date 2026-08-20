@@ -31,6 +31,7 @@ from pydantic import Field
 from typing_extensions import override
 
 from aiq_agent.common.log_redaction import install_presigned_url_scrubbing
+from aiq_agent.stages.delivery import register_stage_frame_sink
 from aiq_api.auth.middleware import AuthMiddleware
 from aiq_api.context_envelope import GridContextEnvelopeMiddleware
 from nat.builder.workflow_builder import WorkflowBuilder
@@ -61,10 +62,23 @@ from .routes.skill_review import add_skill_review_routes
 from .routes.skills import add_skill_routes
 from .websocket_reconnect import configure_websocket_auth
 from .websocket_reconnect import install_reconnectable_handler
+from .websocket_reconnect import send_stage_frame
 
 logger = logging.getLogger(__name__)
 
 install_reconnectable_handler()
+
+# The post-answer stage frame channel (docs/architecture/post-answer-stages.md
+# §2.7). `aiq_agent` owns the graph and may not import a WebSocket; this tier
+# owns the socket and publishes the sink to it, the same inversion
+# `register_context_appender` uses in the opposite direction.
+#
+# Registered at IMPORT of this module, next to the handler patch, because that is
+# what "the front end starts up" means: a process that never loads this front end
+# — a CLI run, a Dask job worker — leaves the sink unset, and a `frame` stage
+# there still runs, is still bounded and still records its outcome. It simply has
+# nobody to tell.
+register_stage_frame_sink(send_stage_frame)
 
 
 _validators: list = []
