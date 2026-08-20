@@ -270,6 +270,37 @@ them.** Every not-citable affordance derived from `status`. That was fine while
 `stored` implied agent-authored, and wrong the instant anything moved the row
 out of `stored`. Provenance is the durable fact; status is a lifecycle position.
 
+## The weakness this design has, stated plainly
+
+**Filing is a side effect of a GET, and no server-side completion signal
+exists.** The backend does not call the BFF when a deep-research job finishes —
+there is no internal jobs route and no callback — so the BFF only learns a run
+completed when a client asks for its report. Filing therefore happens when
+somebody's browser makes that request: once at success (`fileCompletedReport`),
+and again on any later view of the report from history.
+
+What follows from that, precisely:
+
+- A report **nobody ever looks at again** is never filed. The starting banner's
+  „wird abgelegt" is true for every report anyone opens, and false for one that
+  is commissioned and then abandoned.
+- **Scheduled runs cannot file at all** (already excluded by decision 10) for
+  exactly this reason: there is no client.
+- A GET carries a write. That is REST-unclean and would be dangerous if the
+  write were not idempotent — migration 0064's unique index is what makes a
+  prefetch, a double-open or a retry harmless rather than a duplicate.
+
+The durable fix is one thing, not two: **a backend completion callback into an
+internal BFF route.** It removes the client dependency, and it is the same seam
+scheduled filing needs — so v1.1 should build one mechanism, not two. Until then
+the honest description of this feature is *"a report is filed when it is
+delivered"*, not *"when it is finished"*.
+
+Rejected on the way here: intercepting the proxied SSE stream to file when the
+completion event passes through. The BFF does see that event, but the job proxy
+deliberately never buffers an SSE body, and threading a side effect through a
+pass-through stream trades a clear dependency for a fragile one.
+
 ## Extension points
 
 The scope is one producer, one destination. The *seams* are wider than the
