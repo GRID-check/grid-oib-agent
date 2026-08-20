@@ -90,12 +90,25 @@ export function UploadTray({ files, onRetry, onCancel, onCancelAll, onDismiss }:
     return () => onDismiss(visible.map((file) => file.id))
   }, [onDismiss, visible])
 
+  /**
+   * Whether somebody is currently reading or using the tray.
+   *
+   * The self-retire above unmounts the whole section. If the pointer is resting
+   * on it, a panel disappears from under the cursor and whatever was below jumps
+   * up into the click that was already on its way; if the KEYBOARD is in it — on
+   * the collapse control, on a row's retry — focus is dropped to the document
+   * body, which is the same "you lost your place" bug the preview dialog had.
+   * Six seconds is a promise about an unattended panel, not about one being
+   * used, so the timer holds while it is and starts over when it is let go.
+   */
+  const [isHeld, setIsHeld] = useState(false)
+
   const isQuietSuccess = summary.isSettled && summary.failed === 0 && summary.canceled === 0
   useEffect(() => {
-    if (!isQuietSuccess || !dismissAll) return
+    if (!isQuietSuccess || !dismissAll || isHeld) return
     const timer = setTimeout(dismissAll, SUCCESS_LINGER_MS)
     return () => clearTimeout(timer)
-  }, [isQuietSuccess, dismissAll])
+  }, [isQuietSuccess, dismissAll, isHeld])
 
   /**
    * Recovery for the whole batch at once. Three of twelve failing is the common
@@ -118,6 +131,14 @@ export function UploadTray({ files, onRetry, onCancel, onCancelAll, onDismiss }:
       aria-label={t('uploads.region')}
       data-testid="upload-tray"
       className="shrink-0 border-b bg-card"
+      onMouseEnter={() => setIsHeld(true)}
+      onMouseLeave={() => setIsHeld(false)}
+      onFocusCapture={() => setIsHeld(true)}
+      // `relatedTarget` is where focus is GOING; a move between two controls
+      // inside the tray must not read as leaving it.
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsHeld(false)
+      }}
     >
       <div className="flex items-center gap-3 px-4 py-2.5">
         <TrayGlyph summary={summary} />

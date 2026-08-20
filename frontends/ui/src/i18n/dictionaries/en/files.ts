@@ -241,6 +241,7 @@ export const files = {
   // Explorer detail view — column headings for the sortable listing.
   list: {
     columns: {
+      relevance: 'Relevance',
       name: 'Name',
       status: 'Status',
       pages: 'Pages',

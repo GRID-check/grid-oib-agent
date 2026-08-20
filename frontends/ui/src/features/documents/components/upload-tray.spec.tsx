@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, within } from '@/test-utils'
+import { act, render, screen, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { UploadTray } from './upload-tray'
 import type { TrackedFile } from '../types'
@@ -150,6 +150,32 @@ describe('UploadTray', () => {
       renderTray([tracked({ status: 'success' })], { onDismiss })
 
       vi.advanceTimersByTime(6_000)
+      expect(onDismiss).toHaveBeenCalledWith(['f1'])
+    })
+
+    it('does not retire out from under a keyboard user', () => {
+      const onDismiss = vi.fn()
+      renderTray([tracked({ status: 'success' })], { onDismiss })
+
+      // Focus inside the tray — the collapse control, a row's retry, anything.
+      act(() => screen.getByRole('button', { name: 'Hide files' }).focus())
+      act(() => vi.advanceTimersByTime(60_000))
+
+      // Unmounting the section would drop focus to the document body.
+      expect(onDismiss).not.toHaveBeenCalled()
+    })
+
+    it('retires once the tray is let go again', () => {
+      const onDismiss = vi.fn()
+      renderTray([tracked({ status: 'success' })], { onDismiss })
+
+      const collapse = screen.getByRole('button', { name: 'Hide files' })
+      act(() => collapse.focus())
+      act(() => vi.advanceTimersByTime(60_000))
+      expect(onDismiss).not.toHaveBeenCalled()
+
+      act(() => collapse.blur())
+      act(() => vi.advanceTimersByTime(6_000))
       expect(onDismiss).toHaveBeenCalledWith(['f1'])
     })
 

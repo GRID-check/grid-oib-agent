@@ -254,6 +254,21 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
     expect(attempt).toBe(2)
   })
 
+  it('answers a search in the view the reader chose, not always in cards', async () => {
+    const user = userEvent.setup()
+    renderPane({ projectId: 'proj-1', view: 'list' })
+
+    await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
+
+    // The toggle was read only on the un-searched branch, so pressing Enter
+    // threw a reader who had deliberately switched to the detail view back into
+    // cards — and clearing the query threw them back again.
+    expect(await screen.findByTestId('file-list-view')).toBeInTheDocument()
+    expect(screen.queryByTestId('semantic-match')).not.toBeInTheDocument()
+    // And the ranking survives into it: the score is on the row.
+    expect(await screen.findByTestId('file-list-relevance')).toHaveTextContent('87%')
+  })
+
   it('shows no search button (and no semantic call) without a projectId', () => {
     renderPane()
     expect(screen.queryByRole('button', { name: /^search$/i })).not.toBeInTheDocument()

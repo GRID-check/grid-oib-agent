@@ -220,6 +220,7 @@ export const files: typeof en.files = {
   // Detailansicht des Explorers – Spaltenüberschriften der sortierbaren Liste.
   list: {
     columns: {
+      relevance: 'Relevanz',
       name: 'Name',
       status: 'Status',
       pages: 'Seiten',

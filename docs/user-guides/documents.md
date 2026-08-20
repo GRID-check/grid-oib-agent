@@ -37,7 +37,11 @@ Files render as cards in a responsive grid. Each card shows:
 
 The last tile of the grid is a dashed **upload card** listing the actually accepted file types and the size limit; drag-and-drop anywhere on the workspace also works.
 
+The **detail view** (the list toggle) is a dense sortable table for a corpus past what a card grid can hold. It is fully keyboard-navigable: one tab stop into the list, then arrows to walk it and Home/End to jump to either end — and the tab stop stays on the row you walked to, so tabbing away and back does not return you to the top. Enter opens the row.
+
 A **search field** above the grid filters the current listing client-side by file name, ingestion tags, and the AI description. Top-level folders additionally appear as a quick-filter **chip row** above the grid (the same selection the sidebar folder tree drives — no separate navigation model).
+
+Semantic results arrive in whichever view you are in. In the detail view the ranking is preserved rather than being re-sorted by upload date: **Relevance** is the column the list opens sorted by (and can be sorted the other way), and each row carries the passage that matched with its page number in place of the document's summary.
 
 ### Supported File Types
 
@@ -77,6 +81,8 @@ When you select files, the UI shows each file's status in real time:
 After upload, the `UploadOrchestrator` polls the job status every 5 seconds via `/api/documents/{id}/status` until the job reaches a terminal state or times out (max 420 attempts / ~35 minutes).
 
 On **page refresh**, the orchestrator resumes polling from persisted job state in localStorage, so in-progress uploads are not lost.
+
+A batch in which **everything succeeded** retires its panel a few seconds after it settles — success gets confirmed and then out of the way. A batch containing anything failed or canceled never retires on its own, because those rows carry an action. The countdown **holds** while the pointer is over the panel or keyboard focus is inside it, and starts again when you leave: an unattended panel gets out of the way, one being read does not.
 
 ---
 

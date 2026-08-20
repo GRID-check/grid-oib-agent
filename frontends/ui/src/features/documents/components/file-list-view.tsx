@@ -5,7 +5,7 @@ import { ArrowDown, ArrowUp } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { DocumentStatusBadge } from './document-status'
 import { extChipTint, fileExtensionLabel } from '../document-kind'
-import { nextSort, sortFiles, type FileSort, type FileSortKey } from '../lib/file-sort'
+import { RELEVANCE_SORT, nextSort, sortFiles, type FileSort, type FileSortKey } from '../lib/file-sort'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime, formatBytes, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -28,26 +28,60 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
  * It is a THIRD view, not a replacement. The card grid stays the default.
  */
 
+/** A listing row, optionally carrying the evidence for a semantic match. */
+export type FileListRow = FileItem & { snippet?: string; page?: number | null; score?: number }
+
 interface FileListViewProps {
-  files: FileItem[]
+  files: FileListRow[]
   selectedFileId: string | null
   onSelectFile: (id: string | null) => void
   /** Per-row file operations. Clicks here must not select the row. */
   renderActions?: (file: FileItem) => ReactNode
+  /**
+   * These rows are RANKED semantic results, not a plain listing.
+   *
+   * Relevance becomes a column and the default order, and each row shows the
+   * passage that matched in place of the document's summary. Without this the
+   * list would re-sort a ranked answer by upload date and throw the ranking
+   * away without saying so.
+   */
+  semantic?: boolean
 }
 
 const DEFAULT_SORT: FileSort = { key: 'added', direction: 'desc' }
 
+/** A 0..1 backend score as the whole percent the reader sees. */
+const percentOf = (score: number | undefined): number =>
+  Math.max(0, Math.min(100, Math.round((score ?? 0) * 100)))
+
 /** Dense explorer cells — tighter than the admin Table default. */
 const CELL = 'px-2 py-1.5 pointer-coarse:py-3'
 
-export function FileListView({ files, selectedFileId, onSelectFile, renderActions }: FileListViewProps) {
+export function FileListView({
+  files,
+  selectedFileId,
+  onSelectFile,
+  renderActions,
+  semantic = false,
+}: FileListViewProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
-  const [sort, setSort] = useState<FileSort>(DEFAULT_SORT)
+  const [sort, setSort] = useState<FileSort>(semantic ? RELEVANCE_SORT : DEFAULT_SORT)
   const bodyRef = useRef<HTMLTableSectionElement>(null)
 
   const rows = useMemo(() => sortFiles(files, sort, locale), [files, sort, locale])
+
+  /**
+   * Which row owns the list's single tab stop.
+   *
+   * A roving tabindex that never roves is worse than none: the stop stayed
+   * pinned to row 0, so tabbing out of row 30 and back landed the reader at the
+   * top of a hundred-row list, and shift-tabbing out of a row's action menu
+   * skipped every row to reach the header. Clamped, because the set shrinks
+   * under the cursor when a filter narrows it.
+   */
+  const [focusedIndex, setFocusedIndex] = useState(0)
+  const tabStop = Math.min(focusedIndex, Math.max(0, rows.length - 1))
 
   /**
    * Roving focus down the list. A file list that cannot be walked with the
@@ -57,9 +91,12 @@ export function FileListView({ files, selectedFileId, onSelectFile, renderAction
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTableRowElement>, index: number) => {
       const step = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0
-      if (step !== 0) {
+      // Home/End are what a hundred-row list is actually walked with; arrowing
+      // from the last row to the first is thirty keystrokes nobody presses.
+      const absolute = event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1 : null
+      if (step !== 0 || absolute !== null) {
         event.preventDefault()
-        const next = Math.min(rows.length - 1, Math.max(0, index + step))
+        const next = absolute ?? Math.min(rows.length - 1, Math.max(0, index + step))
         const target = bodyRef.current?.querySelectorAll<HTMLTableRowElement>('tr[data-file-row]')[next]
         target?.focus()
         return
@@ -88,6 +125,16 @@ export function FileListView({ files, selectedFileId, onSelectFile, renderAction
               onSort={setSort}
               className="w-auto"
             />
+            {semantic && (
+              <SortHeader
+                label={t('list.columns.relevance')}
+                column="relevance"
+                sort={sort}
+                onSort={setSort}
+                align="right"
+                className="w-[92px]"
+              />
+            )}
             <SortHeader
               label={t('list.columns.status')}
               column="status"
@@ -133,9 +180,10 @@ export function FileListView({ files, selectedFileId, onSelectFile, renderAction
                 data-testid="file-list-row"
                 data-state={isSelected ? 'selected' : undefined}
                 // Roving tabindex: one stop for the whole list, then arrows.
-                tabIndex={index === 0 ? 0 : -1}
+                tabIndex={index === tabStop ? 0 : -1}
                 aria-selected={isSelected}
                 onClick={() => onSelectFile(file.id)}
+                onFocus={() => setFocusedIndex(index)}
                 onKeyDown={(event) => handleKeyDown(event, index)}
                 className={cn(
                   'cursor-pointer focus-visible:outline-none',
@@ -167,14 +215,46 @@ export function FileListView({ files, selectedFileId, onSelectFile, renderAction
                           a card: the row is already one line tall, so a second
                           one doubles the information without doubling the
                           scroll the way a taller card would. */}
-                      {file.summary && (
-                        <span className="block truncate text-xs leading-tight text-muted-foreground">
-                          {file.summary}
-                        </span>
+                      {/* In a ranked result the second line is WHY this row is
+                          here. The summary describes the document; the snippet
+                          answers the query, and a search result that hides it
+                          asks the reader to take the ranking on trust. */}
+                      {semantic ? (
+                        (file.snippet ?? '') !== '' && (
+                          <span
+                            className="block truncate text-xs leading-tight text-muted-foreground"
+                            title={file.snippet}
+                            data-testid="file-list-snippet"
+                          >
+                            {file.page !== null && file.page !== undefined && (
+                              <span className="mr-1 font-medium tabular-nums text-primary/80">
+                                {t('browser.semantic.page', { page: String(file.page) })}
+                              </span>
+                            )}
+                            {file.snippet}
+                          </span>
+                        )
+                      ) : (
+                        file.summary && (
+                          <span className="block truncate text-xs leading-tight text-muted-foreground">
+                            {file.summary}
+                          </span>
+                        )
                       )}
                     </span>
                   </div>
                 </TableCell>
+                {semantic && (
+                  <TableCell className={cn('whitespace-nowrap text-right text-xs tabular-nums', CELL)}>
+                    <span
+                      className="font-medium text-foreground"
+                      title={t('browser.semantic.relevance', { percent: String(percentOf(file.score)) })}
+                      data-testid="file-list-relevance"
+                    >
+                      {percentOf(file.score)}%
+                    </span>
+                  </TableCell>
+                )}
                 <TableCell className={CELL}>
                   {file.status && <DocumentStatusBadge status={file.status} />}
                 </TableCell>

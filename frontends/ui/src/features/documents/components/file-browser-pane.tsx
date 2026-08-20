@@ -269,6 +269,21 @@ export function FileBrowserPane({
               }
             />
           </div>
+        ) : view === 'list' ? (
+          /* The view toggle keeps meaning while searching. It used to be read
+             only on the un-searched branch, so a reader who had deliberately
+             switched to the detail view was thrown back into cards the moment
+             they pressed Enter — and back again when they cleared the query.
+             `key` on the query so a new result set starts at the top of its own
+             ranking rather than inheriting the last one's sort and tab stop. */
+          <FileListView
+            key={semantic.query ?? ''}
+            semantic
+            files={semantic.hits}
+            selectedFileId={selectedFileId}
+            onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
+            renderActions={renderActions}
+          />
         ) : (
           <div className="p-4">
             <FileGrid>

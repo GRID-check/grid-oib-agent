@@ -337,6 +337,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-browser-search-failed"]',
   },
   {
+    id: 'file-browser-search-list',
+    path: '/dev/file-browser?variant=search-list',
+    description:
+      'A semantic search answered in the DETAIL view. The card/list toggle was read only on the un-searched branch, so pressing Enter threw a reader who had deliberately chosen the list back into cards, and clearing the query threw them back again. The ranking comes with it: relevance is the column the list opens sorted by \u2014 its own default is newest-first, which would have silently discarded the order the backend ranked \u2014 and every row carries the passage that matched, with its page, in the slot the summary usually holds.',
+    waitFor: '[data-testid="file-list-relevance"]',
+  },
+  {
     id: 'file-browser-folder-menu',
     path: '/dev/file-browser?variant=folder-menu',
     description:

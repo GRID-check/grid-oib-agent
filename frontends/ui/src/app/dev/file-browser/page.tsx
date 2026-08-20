@@ -23,6 +23,12 @@
  * offered them a reset for it. The fixture makes the search endpoint 500 and
  * runs a query, which is the only way to see the state at all.
  *
+ * `?variant=search-list` is a semantic search answered in the DETAIL view. The
+ * view toggle used to be read only on the un-searched branch, so pressing Enter
+ * threw a reader who had chosen the list back into cards. The fixture's hits are
+ * deliberately not in upload order, so the shot also shows the ranking surviving
+ * into a view whose default sort is newest-first.
+ *
  * `?variant=folder-rename` and `?variant=folder-menu` render the two states the
  * folder tree only reaches through an interaction: a row turned into its own
  * name field, and the per-row ⋯ menu that gets it there. Both drive themselves —
@@ -177,12 +183,22 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       // every other thumbnail 404s → warm "no thumbnail" placeholder.
       if (/\/api\/documents\/p7\/thumbnail$/.test(url)) return new Response(null, { status: 500 })
       if (/\/api\/documents\/.+\/thumbnail$/.test(url)) return new Response(null, { status: 404 })
-      // The semantic search, refusing to run — see the `search-failed` variant.
-      if (
-        /\/api\/documents\/search$/.test(url) &&
-        new URLSearchParams(window.location.search).get('variant') === 'search-failed'
-      ) {
-        return new Response(null, { status: 500 })
+      if (/\/api\/documents\/search$/.test(url)) {
+        const variant = new URLSearchParams(window.location.search).get('variant')
+        // The semantic search, refusing to run — see the `search-failed` variant.
+        if (variant === 'search-failed') return new Response(null, { status: 500 })
+        // A RANKED answer, deliberately out of upload order: the best match is
+        // the oldest file in the set, so a list that re-sorted by date would
+        // put it last and the ranking would be gone without a word.
+        if (variant === 'search-list') {
+          return Response.json({
+            hits: [
+              { ...FILES[1], snippet: 'Die nutzbare Fluchtwegbreite beträgt mindestens 1,20 m.', page: 2, score: 0.93 },
+              { ...FILES[0], snippet: 'Der zweite Fluchtweg führt über die Nordfassade.', page: 11, score: 0.71 },
+              { ...FILES[4], snippet: 'Lastannahmen für den Fluchtbalkon nach ÖNORM B 1991.', page: 7, score: 0.38 },
+            ],
+          })
+        }
       }
       return real(input, init)
     }
@@ -196,9 +212,61 @@ export default function FileBrowserDevPage(): JSX.Element {
   }
   if (variant === 'uploading') return <JustUploadedFixture />
   if (variant === 'search-failed') return <SearchFailedFixture />
+  if (variant === 'search-list') return <SearchInListViewFixture />
   if (variant === 'folder-rename') return <FolderCrudFixture mode="rename" />
   if (variant === 'folder-menu') return <FolderCrudFixture mode="menu" />
   return <FileBrowserFixtures />
+}
+
+/**
+ * Types a query and submits it, the way the failed-search fixture does — this
+ * state only exists THROUGH a search, and setting it directly would be a
+ * picture of the state rather than the pane arriving in it.
+ */
+function useSelfDrivenSearch(testId: string, query: string): void {
+  useEffect(() => {
+    const input = document.querySelector<HTMLInputElement>(`[data-testid="${testId}"] input`)
+    if (!input) return
+    // React tracks the input's value on the node, so a plain assignment is
+    // swallowed; going through the prototype setter is what makes `input` fire.
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+    setter?.call(input, query)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    const submit = window.requestAnimationFrame(() => {
+      input.closest('form')?.requestSubmit()
+    })
+    return () => window.cancelAnimationFrame(submit)
+  }, [testId, query])
+}
+
+/** A ranked semantic answer, rendered in the view the reader actually chose. */
+function SearchInListViewFixture(): JSX.Element {
+  const [selected, setSelected] = useState<string | null>(null)
+  useSelfDrivenSearch('file-browser-search-list', 'Fluchtwegbreite')
+
+  return (
+    <main className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
+      <div>
+        <h1 className="text-lg font-semibold">Files browser — a search answered in the detail view</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          The ranking survives into a list whose own default is newest-first, and every row shows the passage
+          that matched.
+        </p>
+      </div>
+
+      <div className="h-[420px] overflow-hidden rounded-xl border" data-testid="file-browser-search-list">
+        <FileBrowserPane
+          files={FILES}
+          selectedFileId={selected}
+          onSelectFile={setSelected}
+          isLoading={false}
+          hasFolderSelected={false}
+          projectId="proj-demo"
+          view="list"
+        />
+      </div>
+    </main>
+  )
 }
 
 /**
