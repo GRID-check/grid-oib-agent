@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    The folder chips above the file list in Dateien are readable again. As soon
+    as a project held enough documents for the list to scroll, the chip row was
+    squeezed onto its own padding and the folder names were cut off through the
+    middle of their letters. The row now keeps its full height, whatever the
+    project holds.

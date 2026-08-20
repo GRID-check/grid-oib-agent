@@ -202,7 +202,16 @@ export function FileBrowserPane({
         <div
           // Wrap on mobile so the last folder pill is never clipped at the
           // right edge; keep a single scrollable row from md up (where it fits).
-          className="flex flex-wrap items-center gap-1.5 border-b px-4 py-2 md:flex-nowrap md:overflow-x-auto"
+          //
+          // `shrink-0` is what keeps the pills READABLE. This row is a flex item
+          // of a column that is `h-full` — one viewport tall — while the grid
+          // below it is as tall as the corpus, so the column runs a negative free
+          // space the moment the listing scrolls. Every other child refuses to
+          // absorb it (an item whose overflow is visible cannot shrink below its
+          // content), but `overflow-x-auto` drops this one's automatic minimum
+          // size to zero, so the whole deficit landed here: the row collapsed to
+          // its padding and clipped the pills through the middle of their labels.
+          className="flex shrink-0 flex-wrap items-center gap-1.5 border-b px-4 py-2 md:flex-nowrap md:overflow-x-auto"
           role="group"
           aria-label={t('folders.heading')}
         >
