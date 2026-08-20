@@ -174,6 +174,10 @@ export const chat: typeof en.chat = {
     // gerendert: `wall_clock` darf nie beim Leser ankommen.
     truncationReason: {
       wall_clock: 'Zeitgrenze erreicht',
+      // Ein Timeout von unten (Anbieter/Transport), nicht das eigene Budget des
+      // Laufs. Für den Leser ist beides dasselbe: die Recherche endete an einer
+      // Zeitgrenze. Getrennt gezählt wird es nur intern.
+      upstream_timeout: 'Zeitgrenze erreicht',
       step_limit: 'Schrittgrenze erreicht',
     },
     // Wodurch diese gerettete Antwort schwächer ist als die eines sauberen

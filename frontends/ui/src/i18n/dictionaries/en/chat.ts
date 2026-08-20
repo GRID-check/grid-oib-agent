@@ -185,6 +185,10 @@ export const chat = {
     // renders nothing at all: a reader must never be shown `wall_clock`.
     truncationReason: {
       wall_clock: 'time limit reached',
+      // A timeout from below (provider/transport), not the run's own budget. To
+      // the reader both are the same fact: research ended at a time limit. The
+      // two are only counted apart internally.
+      upstream_timeout: 'time limit reached',
       step_limit: 'step limit reached',
     },
     // Ways a salvaged answer is weaker than one from a finished run. Same

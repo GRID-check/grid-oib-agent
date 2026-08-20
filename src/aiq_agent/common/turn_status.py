@@ -582,6 +582,12 @@ DEEP_BUDGET_SLOT = "budget:deep"
 #: Why a deep run stopped early. Stable tokens, not prose: they are counted.
 CUTOFF_WALL_CLOCK = "wall_clock"
 CUTOFF_STEP_LIMIT = "step_limit"
+#: A timeout that came from BELOW — a provider or transport call that timed out
+#: and escaped the graph — rather than from this run's own budget. Salvaged the
+#: same way, counted separately: reporting a 30-second provider timeout as a
+#: 2400-second budget overrun makes "how often do runs exhaust their budget?"
+#: unanswerable, and that question is the reason the budget is tunable.
+CUTOFF_UPSTREAM_TIMEOUT = "upstream_timeout"
 
 #: Ways a finished deep answer is weaker than a clean one. Also stable tokens.
 DEGRADED_NO_REPORT_FILE = "no_report_file"

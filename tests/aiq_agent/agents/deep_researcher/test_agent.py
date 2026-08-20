@@ -3084,3 +3084,80 @@ class TestSalvageBarExcludesOurOwnBanner:
 
         report = "Brandabschnitte sind zu begrenzen. " * 10
         assert _salvaged_report_length(report) == len(report.strip())
+
+
+class TestUpstreamTimeoutIsNotTheBudget:
+    """A provider hiccup must not be counted as a budget overrun.
+
+    ``asyncio.wait_for`` raises ``TimeoutError``, and so does any provider or
+    transport call that times out inside the graph -- indistinguishably, since
+    ``asyncio.TimeoutError`` IS ``TimeoutError``. Blaming the budget for both
+    made an operator counting overruns count a 30-second hiccup as a
+    2400-second one: worse than no metric, because it reads as evidence for
+    raising a budget that was never reached.
+
+    Both are salvaged identically. They are only NAMED apart.
+    """
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        provider = LLMProvider()
+        provider.set_default(mock_llm)
+        for role in (
+            LLMRole.ORCHESTRATOR,
+            LLMRole.ROUTER,
+            LLMRole.PLANNER,
+            LLMRole.RESEARCHER,
+            LLMRole.REPORT_WRITER,
+        ):
+            provider.configure(role, mock_llm)
+        return provider
+
+    @pytest.fixture
+    def real_tool(self):
+        return web_search_tool
+
+    @pytest.mark.asyncio
+    async def test_an_inner_timeout_is_named_upstream_not_wall_clock(self, mock_llm_provider, real_tool):
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+        from aiq_agent.common.turn_status import CUTOFF_UPSTREAM_TIMEOUT
+
+        # Raised from INSIDE the graph, immediately -- nowhere near the budget.
+        graph = streaming_graph_mock(error=TimeoutError("provider read timed out"))
+        seen: dict[str, object] = {}
+
+        def _capture(*, reason, **kwargs):
+            seen["reason"] = reason
+
+        with (
+            patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=graph),
+            patch("aiq_agent.agents.deep_researcher.agent.emit_deep_research_cutoff", _capture),
+        ):
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], max_run_seconds=2400)
+            with pytest.raises(TimeoutError, match="upstream timeout"):
+                await agent.run(DeepResearchAgentState(messages=[HumanMessage(content="Q")]))
+
+        assert seen["reason"] == CUTOFF_UPSTREAM_TIMEOUT, (
+            "a provider timeout was counted as a wall-clock budget overrun"
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_real_budget_is_still_named_wall_clock(self, mock_llm_provider, real_tool):
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+        from aiq_agent.common.turn_status import CUTOFF_WALL_CLOCK
+
+        graph = streaming_graph_mock(hang=True)
+        seen: dict[str, object] = {}
+
+        def _capture(*, reason, **kwargs):
+            seen["reason"] = reason
+
+        with (
+            patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=graph),
+            patch("aiq_agent.agents.deep_researcher.agent.emit_deep_research_cutoff", _capture),
+        ):
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], max_run_seconds=1)
+            with pytest.raises(TimeoutError, match="wall-clock budget"):
+                await agent.run(DeepResearchAgentState(messages=[HumanMessage(content="Q")]))
+
+        assert seen["reason"] == CUTOFF_WALL_CLOCK

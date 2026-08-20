@@ -35,6 +35,7 @@ from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
 from aiq_agent.common.citation_verification import verify_quoted_spans
 from aiq_agent.common.turn_status import CUTOFF_STEP_LIMIT
+from aiq_agent.common.turn_status import CUTOFF_UPSTREAM_TIMEOUT
 from aiq_agent.common.turn_status import CUTOFF_WALL_CLOCK
 from aiq_agent.common.turn_status import DEGRADED_NO_REPORT_FILE
 from aiq_agent.common.turn_status import DEGRADED_NO_VALID_CITATIONS
@@ -152,6 +153,7 @@ _HONESTY_BANNER_PREFIX = "> **Hinweis:**"
 _CUTOFF_LIMIT_LABELS = {
     CUTOFF_WALL_CLOCK: "Zeitlimits",
     CUTOFF_STEP_LIMIT: "Schritt-Limits",
+    CUTOFF_UPSTREAM_TIMEOUT: "Zeitlimits",
 }
 
 
@@ -754,14 +756,38 @@ class DeepResearcherAgent:
                 else:
                     result = await _consume()
             except TimeoutError as exc:
+                # `asyncio.wait_for` raises TimeoutError -- and so does any
+                # provider or transport call that times out inside the graph,
+                # indistinguishably, because asyncio.TimeoutError IS
+                # TimeoutError. Blaming the budget for both made an operator
+                # counting budget overruns count 30-second provider hiccups as
+                # 2400-second ones, which is worse than no metric: it reads as
+                # evidence for raising a budget that was never reached.
+                #
+                # Elapsed time is the honest discriminator. Both are salvaged
+                # identically -- what the run produced is worth the same either
+                # way -- they are only NAMED apart.
+                elapsed = time.monotonic() - started
+                hit_budget = self.max_run_seconds > 0 and elapsed >= self.max_run_seconds
+                if hit_budget:
+                    reason = CUTOFF_WALL_CLOCK
+                    original: BaseException = TimeoutError(
+                        f"deep research exceeded the {self.max_run_seconds} s wall-clock budget"
+                    )
+                else:
+                    reason = CUTOFF_UPSTREAM_TIMEOUT
+                    original = TimeoutError(
+                        f"deep research was cut off by an upstream timeout after {elapsed:.1f} s "
+                        f"(well inside its {self.max_run_seconds} s budget)"
+                    )
                 return self._finalize_cutoff(
                     last_state,
-                    cutoff_reason=CUTOFF_WALL_CLOCK,
-                    elapsed_seconds=time.monotonic() - started,
+                    cutoff_reason=reason,
+                    elapsed_seconds=elapsed,
                     source_registry_middleware=source_registry_middleware,
                     callbacks=callbacks,
                     skill_runtime=skill_runtime,
-                    original=TimeoutError(f"deep research exceeded the {self.max_run_seconds} s wall-clock budget"),
+                    original=original,
                     cause=exc,
                 )
             except _GRAPH_RECURSION_ERRORS as exc:
