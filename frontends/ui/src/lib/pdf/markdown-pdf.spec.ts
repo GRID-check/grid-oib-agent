@@ -25,7 +25,12 @@ import { createTranslator } from '@/i18n/translate'
 import { answerExport as de } from '@/i18n/dictionaries/de/answer-export'
 import { answerExport as en } from '@/i18n/dictionaries/en/answer-export'
 import { legalBasisSection } from './legal-basis'
-import { PDF_MEDIA_TYPE, renderMarkdownPdf } from './markdown-pdf'
+import {
+  MAX_MARKDOWN_PDF_CHARS,
+  MarkdownTooLongError,
+  PDF_MEDIA_TYPE,
+  renderMarkdownPdf,
+} from './markdown-pdf'
 
 const REPORT = '# Brandschutz Straßenhäuser\n\nDie Fluchtwegbreite beträgt 1,20 m.\n'
 
@@ -487,6 +492,65 @@ describe('renderMarkdownPdf', () => {
       expect(pdf.info.Keywords).toBe(
         'AIGenerated=true; AIGenerator=Piloti; AIHumanReviewed=false'
       )
+    })
+  })
+
+  /**
+   * The admission bound, and why the assertions below are shaped as they are.
+   *
+   * The claim is not "long input is rejected" — it is that the rejection
+   * happens BEFORE the layout pass, because the layout pass is one synchronous
+   * block that starves the event loop for its whole duration (measured: a 3 s
+   * timer armed before a 128 KiB table-heavy render fired at 32.5 s). Nothing
+   * observes a render in progress and nothing stops one, so a bound that ran
+   * anywhere but in front of it would not be a bound at all.
+   *
+   * That is what the wall-clock assertion is for. It is not a performance test:
+   * the margin between "refused without rendering" and "rendered" at 2 MiB is
+   * milliseconds against many minutes, so the number below is a claim about
+   * WHICH CODE RAN, expressed in the only currency this renderer offers.
+   */
+  describe('the admission bound', () => {
+    /** `size` characters of ordinary prose — the cheapest shape to render. */
+    const proseOf = (size: number) =>
+      'Die Fluchtwegbreite betraegt 1,20 m und ist damit ausreichend bemessen. '.repeat(
+        Math.ceil(size / 72)
+      ).slice(0, size)
+
+    it('renders markdown of exactly the limit', async () => {
+      // The boundary is inclusive, and it is asserted by rendering rather than
+      // by reading the constant: an off-by-one here refuses a document that is
+      // legal by the number the comment and the route both quote.
+      const bytes = await renderMarkdownPdf(proseOf(MAX_MARKDOWN_PDF_CHARS))
+
+      expect(new TextDecoder('latin1').decode(bytes.subarray(0, 5))).toBe('%PDF-')
+    })
+
+    it('refuses one character more, by name', async () => {
+      const markdown = proseOf(MAX_MARKDOWN_PDF_CHARS + 1)
+
+      await expect(renderMarkdownPdf(markdown)).rejects.toThrow(MarkdownTooLongError)
+      // The length and the limit are both on the error because the caller that
+      // swallows this (`fileReportIfCommissioned`) logs it and nothing else —
+      // "too long" without "how long" tells an operator nothing they can act on.
+      await expect(renderMarkdownPdf(markdown)).rejects.toMatchObject({
+        length: MAX_MARKDOWN_PDF_CHARS + 1,
+        limit: MAX_MARKDOWN_PDF_CHARS,
+      })
+    })
+
+    it('refuses without rendering, which is the only place a refusal can be', async () => {
+      // 2 MiB of tables is the input that has to be refused CHEAPLY: rendered,
+      // it is minutes of a blocked process and over a gigabyte of peak RSS. If
+      // the guard moved below `renderToStream` this would not fail with a wrong
+      // value, it would stop answering.
+      const table = '| a | b |\n|---|---|\n| Fluchtweg | 1,20 m |\n\n'
+      const markdown = table.repeat(Math.ceil((2 * 1024 * 1024) / table.length))
+      const started = Date.now()
+
+      await expect(renderMarkdownPdf(markdown)).rejects.toThrow(MarkdownTooLongError)
+
+      expect(Date.now() - started).toBeLessThan(1000)
     })
   })
 })

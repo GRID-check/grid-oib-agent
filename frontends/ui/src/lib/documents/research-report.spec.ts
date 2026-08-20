@@ -90,6 +90,7 @@ const PROFILE = {
 
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { readPdf } from '@/test-utils/read-pdf'
+import { MAX_MARKDOWN_PDF_CHARS, MarkdownTooLongError } from '@/lib/pdf/markdown-pdf'
 import type { GeneratedRenderContext } from './generated'
 import { fileResearchReport, splitReportTitle } from './research-report'
 
@@ -399,6 +400,39 @@ describe('fileResearchReport', () => {
       expect(pdf.text).not.toContain('t:legalBasis')
       expect(pdf.text.endsWith('Der Bericht beginnt hier.')).toBe(true)
     })
+  })
+
+  /**
+   * A report too long to render is a filing that does not happen, and this is
+   * the assertion that says so from the producer's side.
+   *
+   * The refusal is the renderer's (`MAX_MARKDOWN_PDF_CHARS`) and this module
+   * does not catch it, so what the project ends up with is nothing at all:
+   * `fileGeneratedDocument` calls `render` before it creates the folder, PUTs
+   * the object or inserts the row, so a throwing renderer leaves no half-filed
+   * document and no empty „Berichte" behind — its own header says that is why
+   * the ordering is what it is.
+   *
+   * What the READER ends up with is the report itself, unaffected: it is a chat
+   * answer first and a document second, and `fileReportIfCommissioned` swallows
+   * this exactly as it swallows a quota refusal. They are not told why the file
+   * is missing, which is a gap the success banner owes rather than one this
+   * module can close.
+   */
+  it('refuses a report the renderer will not accept, and files nothing', async () => {
+    const body = 'Die Fluchtwegbreite betraegt 1,20 m. '.repeat(
+      Math.ceil((MAX_MARKDOWN_PDF_CHARS + 1) / 37)
+    )
+    await fileResearchReport({
+      session: SESSION,
+      projectId: 'proj-1',
+      runId: 'run_7',
+      // The H1 is split off before the render, so the bound applies to the BODY
+      // — the thing that is actually laid out — and a title cannot spend it.
+      report: `# Brandschutz\n\n${body}`,
+    })
+
+    await expect(runRenderer()).rejects.toThrow(MarkdownTooLongError)
   })
 
   it('renders nothing until the service asks for it', async () => {

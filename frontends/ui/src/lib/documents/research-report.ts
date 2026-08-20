@@ -280,11 +280,42 @@ export async function fileResearchReport(
     session,
     projectId,
     producer: 'deep_research',
-    runId,
+    // The backend async job id. `deep_research` is declared in
+    // `GENERATED_DOCUMENT_PRODUCER_REF_KINDS` as filing under `agent_run`, so
+    // the row and the audit target say so without this caller asserting it.
+    ref: runId,
     title: documentTitle,
     request,
     render: async ({ projectName }) => {
       const profile = await loadProfile(projectId, session.organizationId)
+      // `renderMarkdownPdf` refuses a body over `MAX_MARKDOWN_PDF_CHARS` and
+      // this call does NOT catch that, deliberately. Three things follow, and
+      // they are the whole of what happens when a report is too long:
+      //
+      //   1. Nothing is filed and nothing is left behind. `fileGeneratedDocument`
+      //      calls `render` before it creates the folder, PUTs the object or
+      //      inserts the row, so a throwing renderer leaves no half-filed
+      //      document — the ordering its own comment calls out.
+      //   2. The user still gets the report. It is a chat answer first and a
+      //      document second; filing is the second thing that happens to it,
+      //      and `fileReportIfCommissioned` swallows this failure exactly as it
+      //      swallows a quota refusal, so the answer they waited minutes for is
+      //      never at risk from the filing.
+      //   3. The reader is TOLD. This lands in the `status: 'failed'` arm of
+      //      `fileReportIfCommissioned`, so the report response carries
+      //      `filingFailed: true` — the promise the starting banner made
+      //      („wird abgelegt") was made and broken, and that is the one case
+      //      that key exists for. No reason travels with it, deliberately: a
+      //      quota refusal, a revoked permission and a report too long to
+      //      render are one fact to an architect — the document is not there.
+      //      The length and the limit are on the error, and the error is in the
+      //      log the operator reads.
+      //
+      // Not pre-checked here even though the length is known before the
+      // permission read and the two lookups it would save. The bound is the
+      // renderer's invariant, and a caller that re-states it is a caller that
+      // can re-state it wrongly — which is precisely how this path came to have
+      // no bound while `POST /api/generate-pdf` had one.
       const bytes = await renderMarkdownPdf(body, {
         title: documentTitle,
         notice: { title: t('aiNotice.title'), body: t('aiNotice.body') },

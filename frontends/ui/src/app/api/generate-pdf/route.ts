@@ -53,7 +53,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
 import { PayloadTooLargeError } from '@/lib/api/errors'
-import { PDF_MEDIA_TYPE, renderMarkdownPdf } from '@/lib/pdf/markdown-pdf'
+import { MAX_MARKDOWN_PDF_CHARS, PDF_MEDIA_TYPE, renderMarkdownPdf } from '@/lib/pdf/markdown-pdf'
 
 /**
  * The largest JSON body this route will read: the ceiling the Pages Router
@@ -66,45 +66,41 @@ import { PDF_MEDIA_TYPE, renderMarkdownPdf } from '@/lib/pdf/markdown-pdf'
  * 250 MB one sized for `.ifc` uploads — so moving the route out of `pages/`
  * silently removed a limit nobody had written down. This is that limit,
  * restated: the same 1 MiB, now enforced by the handler that needs it.
+ *
+ * It bounds the TRANSPORT and not the work. A 1 MiB body of markdown is minutes
+ * of one blocked worker and over a gigabyte of peak RSS, so the render has its
+ * own, much smaller bound — see {@link MAX_MARKDOWN_PDF_CHARS}.
  */
 const MAX_PDF_REQUEST_BYTES = 1024 * 1024
 
 /**
- * The largest markdown this route will RENDER, which is a smaller number than
- * the body it will read, because the cost here is not the bytes.
+ * The largest markdown this route will RENDER is not this route's number any
+ * more: it is {@link MAX_MARKDOWN_PDF_CHARS}, and it lives with the renderer.
  *
- * Measured in this repository (Node 22, `renderMarkdownPdf`, prose of headings
- * and paragraphs):
+ * It was declared here, and the second caller of `renderMarkdownPdf` — a filed
+ * research report — was written without it, which is the whole argument for
+ * moving it: this handler is a caller, and a bound that only a caller applies
+ * is a bound the next caller has to remember. The renderer now refuses on its
+ * own behalf, and the measurements behind the number are in its header (the
+ * superlinear curve, the shape sensitivity, and why a timeout cannot be the
+ * bound instead).
  *
- *   | markdown | render   |
- *   |----------|----------|
- *   | 8 KiB    | 1.1 s    |
- *   | 32 KiB   | 2.9 s    |
- *   | 64 KiB   | 10.9 s   |
- *   | 128 KiB  | 61 s     |
- *   | 2 MB     | still running after 10 minutes |
- *
- * The curve is superlinear, so a body bound alone is not a bound on the work: a
- * 1 MiB body — legal under the Pages default this route used to have — is hours
- * of one worker, and `DEFAULT_MUTATION_LIMIT` admits 300 mutations a minute per
- * member. 64 KiB is the last size that renders in seconds rather than minutes,
- * and it is 2x `MAX_SKILL_BODY_LENGTH` (32,000 characters), this repository's
- * existing ceiling on a long piece of authored prose. A report longer than that
- * needs splitting, which is a product answer; it is not something to discover by
- * watching a download never arrive.
+ * The schema keeps refusing at the same threshold rather than deferring to the
+ * throw, because the two refusals are not the same answer: this one is a 400
+ * with the field named, before any render is attempted, which is what a client
+ * posting a body can act on. The renderer's is the floor underneath it.
  */
-const MAX_PDF_MARKDOWN_CHARS = 64 * 1024
-
 const generatePdfSchema = z.object({
   /**
    * Non-empty, because an empty string renders a blank page and a blank page
    * downloads as a file the user then has to open to discover is empty.
    *
-   * Bounded above for the reason in {@link MAX_PDF_MARKDOWN_CHARS}: the schema
-   * stands directly in front of `renderToStream`, and it was the only thing
-   * between a caller and an unbounded render.
+   * Bounded above because the schema stands directly in front of
+   * `renderToStream`, whose cost is superlinear in its input and whose layout
+   * pass blocks the event loop for the whole of it — with
+   * `DEFAULT_MUTATION_LIMIT` admitting 300 mutations a minute per member.
    */
-  markdown: z.string().min(1).max(MAX_PDF_MARKDOWN_CHARS),
+  markdown: z.string().min(1).max(MAX_MARKDOWN_PDF_CHARS),
 })
 
 /**
