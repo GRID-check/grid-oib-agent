@@ -228,6 +228,43 @@ grace/hold semantics, not a prerequisite — G5), and ADR-0042's backup posture
 (a deployment decision; this change adds no new store, so it does not worsen
 it). Both are named in the ADR addendum so neither goes unread.
 
+## What the build changed about this design
+
+Three things the design got wrong, found by building it and then attacking it.
+Recorded here rather than quietly corrected, because each was a reasoned
+position and the reason it failed is the useful part.
+
+**1. "Commissioned" was weaker than claimed, and the form does not exist.**
+Decision 8 rests on the user being told where the report goes *before* the run.
+There is no submit form: interactive deep research escalates from a chat turn,
+and `DeepResearchBanner` carries an `escalationReason` — so a run can start
+because the classifier decided to, not because anyone asked for a report. Both
+halves of "the user asked for a report and was told where it goes" were
+therefore false. The disclosure now lives on the **starting banner**, which is
+the moment the user can still stop it; the success banner links to the filed
+document, and says nothing at all when filing did not happen.
+
+**2. The no-ingest invariant belonged at the dispatch site, not in the writer.**
+The spec put it in `fileGeneratedDocument` and the test asserted it there. That
+proves the *filing path* does not ingest — a claim about one function, where the
+design's claim is about the document. `reindexProject`, behind „Projekt neu
+indizieren", enumerated every document in a project and re-dispatched it, and an
+agent-authored row passed its guard: `stored` is neither `pending` nor
+`processing`, and the row carries a real storage key and the project's own
+collection. One click made the report citable Projektwissen — and because the
+not-citable UI derives from `status` rather than from `authored_by`, it then
+*looked* like an ordinary indexed document.
+
+The invariant now sits in `dispatchDocument`, the one place every ingestion path
+funnels through, and it reads the row instead of trusting an argument. The
+general lesson is the one ADR-0042 already states about admission: an invariant
+enforced at each caller is an invariant each caller can forget.
+
+**3. `status` and `authored_by` are not interchangeable, and the UI conflated
+them.** Every not-citable affordance derived from `status`. That was fine while
+`stored` implied agent-authored, and wrong the instant anything moved the row
+out of `stored`. Provenance is the durable fact; status is a lifecycle position.
+
 ## Extension points
 
 The scope is one producer, one destination. The *seams* are wider than the
