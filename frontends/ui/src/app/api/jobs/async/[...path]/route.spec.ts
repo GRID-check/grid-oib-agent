@@ -530,6 +530,48 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
     expect(fileResearchReport).toHaveBeenCalledWith(expect.objectContaining({ cards: undefined }))
   })
 
+  it('says so when a promise to file was made and broken', async () => {
+    // The starting banner told the reader the report would be filed under
+    // „Berichte". A plain success after a failed filing sends them to look for
+    // a document that is not there, with the only record in a server log.
+    vi.mocked(fileResearchReport).mockRejectedValue(new Error('quota exceeded'))
+
+    const res = await GET(
+      getRequest('https://grid.example/api/jobs/async/job/job-1/report?projectId=proj-1'),
+      streamParams(['job', 'job-1', 'report'])
+    )
+
+    const body = await res.json()
+    expect(body.filingFailed).toBe(true)
+    expect(body.filed).toBeUndefined()
+    // The reason stays in the log: a bucket, a permission or a limit is
+    // actionable by an operator, not by the architect reading the report.
+    expect(JSON.stringify(body)).not.toContain('quota exceeded')
+  })
+
+  it('claims no failure when no promise was made — outside a project', async () => {
+    // No project is not a broken promise; the starting banner prints the
+    // disclosure only when there is a project to file into.
+    vi.mocked(buildCollectionScopeFromRequest).mockResolvedValue({
+      headerValue: 'scope',
+      scope: [],
+      scopedCollections: [],
+      projectId: undefined,
+      projectCollectionName: undefined,
+      conversationId: undefined,
+    })
+
+    const res = await GET(
+      getRequest('https://grid.example/api/jobs/async/job/job-1/report'),
+      streamParams(['job', 'job-1', 'report'])
+    )
+
+    const body = await res.json()
+    expect(body.filingFailed).toBeUndefined()
+    expect(body.filed).toBeUndefined()
+    expect(body).toMatchObject(REPORT_BODY)
+  })
+
   it('still returns the report when filing fails — the answer is not the filing’s to lose', async () => {
     vi.mocked(fileResearchReport).mockRejectedValue(new Error('quota exceeded'))
 
@@ -540,7 +582,9 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
 
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body).toEqual(REPORT_BODY)
+    // Every field the report carried is untouched — the failure is reported
+    // ALONGSIDE the answer, never instead of it.
+    expect(body).toMatchObject(REPORT_BODY)
     expect(body.filed).toBeUndefined()
   })
 

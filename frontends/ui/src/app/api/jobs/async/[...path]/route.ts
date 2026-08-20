@@ -147,6 +147,36 @@ interface ReportFilingResult {
   alreadyFiled: boolean
 }
 
+/**
+ * What happened to the filing, when something happened at all.
+ *
+ * ## Why a failure is reported and not just swallowed
+ *
+ * Filing stays best-effort — the answer is never the filing's to lose, and the
+ * `catch` below still swallows the error. What changed is that swallowing it
+ * SILENTLY is a broken promise: before the run starts, the banner prints
+ * „Der fertige Bericht wird in diesem Projekt unter ‚Berichte' abgelegt."
+ * (`deepResearch.starting.filingDisclosure`). A reader who was told that, and
+ * is then shown a plain success, goes to Berichte and finds nothing — with
+ * nothing anywhere to tell them why, because the only record is a server log
+ * they cannot read.
+ *
+ * `null` used to mean four different things: not a report request, no project
+ * to file into, no report yet, and "we tried and it did not work". The first
+ * three are states in which no promise was made. Only the fourth is a promise
+ * broken, and it is the only one worth a word to the reader.
+ *
+ * ## Why the reason does not travel
+ *
+ * A quota refusal, a revoked permission and an object store that is down are
+ * one fact to this reader: the document is not there. The differences between
+ * them are actionable by an administrator, not by the architect reading a
+ * report, and the messages that carry them name buckets, permissions and
+ * limits. Those belong in the log, which already has them. A boolean is the
+ * whole of what the surface can honestly act on.
+ */
+type ReportFilingOutcome = { status: 'filed'; filed: ReportFilingResult } | { status: 'failed' }
+
 /** The report endpoint's body, as `JobReportResponse` on the backend defines it. */
 function readReportMarkdown(data: unknown): string | null {
   if (typeof data !== 'object' || data === null) return null
@@ -204,7 +234,7 @@ async function fileReportIfCommissioned(
   session: GridSession | null,
   projectId: string | undefined,
   data: unknown
-): Promise<ReportFilingResult | null> {
+): Promise<ReportFilingOutcome | null> {
   if (path.length !== 3 || path[0] !== 'job' || path[2] !== 'report') return null
   const runId = path[1]
   if (!session?.organizationId || !projectId) return null
@@ -224,10 +254,16 @@ async function fileReportIfCommissioned(
       cards: readReportCards(data),
       request: req,
     })
-    return { documentId: filed.documentId, filename: filed.filename, alreadyFiled: filed.alreadyFiled }
+    return {
+      status: 'filed',
+      filed: { documentId: filed.documentId, filename: filed.filename, alreadyFiled: filed.alreadyFiled },
+    }
   } catch (error) {
+    // Logged with the reason, reported without it. The log is where an operator
+    // finds the bucket, the permission or the limit; the response carries only
+    // what the reader can act on.
     console.error(`[${LOG_LABEL}] failed to file the report as a document:`, error)
-    return null
+    return { status: 'failed' }
   }
 }
 
@@ -321,7 +357,13 @@ export const GET = tenantSlotRoute(async function GET(
     // into a chat message and thrown away with the run's file system.
     const filing = await fileReportIfCommissioned(req, path, session, projectId, data)
 
-    return NextResponse.json(filing ? { ...data, filed: filing } : data)
+    // Three shapes, and the third is the point: `filed` when it landed,
+    // `filingFailed` when a promise was made and broken, and the untouched body
+    // when no promise was made at all (no project, no report, not a report
+    // request). A client that has never heard of either key keeps working.
+    if (filing?.status === 'filed') return NextResponse.json({ ...data, filed: filing.filed })
+    if (filing?.status === 'failed') return NextResponse.json({ ...data, filingFailed: true })
+    return NextResponse.json(data)
   } catch (error) {
     if (isAuthzError(error)) {
       return handleAuthzError(error)
