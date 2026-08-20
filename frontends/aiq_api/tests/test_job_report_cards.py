@@ -181,3 +181,77 @@ async def test_output_stored_as_a_dict_is_read_the_same_way(report_app):
     body = await _fetch_report(report_app, {"report": "# Bericht", "cards": [LEGAL_BASIS_CARD]})
 
     assert body["cards"] == [LEGAL_BASIS_CARD]
+
+
+# ---------------------------------------------------------------------------
+# The project the run was commissioned in
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_report_carries_the_project_the_run_was_commissioned_in(report_app, monkeypatch):
+    """The destination is a property of the RUN, not of the request that reads it.
+
+    Filing used to take its project from the report request, and where the
+    request named none, from the reader's stored ``active_project_id``. Both
+    describe whoever opened a tab. The cover sheet the report is filed with
+    names the Bundesland — which says which Bauordnung the report was checked
+    against — so a report researched in one project and filed into another is a
+    compliance document asserting the wrong law.
+    """
+    # Patched on the SOURCE module: `routes/jobs.py` imports it inside
+    # `register_job_routes` to keep heavy imports off module load, so the name
+    # is bound when the routes are registered — which `_fetch_report` does after
+    # this line.
+    import aiq_api.jobs.access as access
+
+    async def _commissioned_in(job_id, db_url):
+        assert job_id == "job-1"
+        return "proj_wien"
+
+    monkeypatch.setattr(access, "get_job_project_collection", _commissioned_in)
+    body = await _fetch_report(report_app, json.dumps({"report": "# Bericht"}))
+
+    assert body["project_collection"] == "proj_wien"
+
+
+@pytest.mark.asyncio
+async def test_a_run_with_no_project_reports_none_rather_than_a_guess(report_app, monkeypatch):
+    """None means "do not file", never "file anywhere".
+
+    A run started from a chat outside any project has no commissioning project.
+    That is the case the old fallback filled in from the reader's preferences,
+    silently, with no filing disclosure ever having been shown.
+    """
+    import aiq_api.jobs.access as access
+
+    async def _no_project(job_id, db_url):
+        return None
+
+    monkeypatch.setattr(access, "get_job_project_collection", _no_project)
+    body = await _fetch_report(report_app, json.dumps({"report": "# Bericht"}))
+
+    assert body["project_collection"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_poll_with_no_report_yet_pays_for_no_access_read(report_app, monkeypatch):
+    """The common case on this route is "not finished yet".
+
+    There is nothing to file, so there is no destination to look up, and this
+    route is polled for the whole length of a run that costs minutes.
+    """
+    import aiq_api.jobs.access as access
+
+    calls = []
+
+    async def _counted(job_id, db_url):
+        calls.append(job_id)
+        return "proj_wien"
+
+    monkeypatch.setattr(access, "get_job_project_collection", _counted)
+    body = await _fetch_report(report_app, json.dumps({"status": "running"}))
+
+    assert body["has_report"] is False
+    assert body["project_collection"] is None
+    assert calls == []

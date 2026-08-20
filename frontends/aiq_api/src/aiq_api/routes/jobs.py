@@ -338,6 +338,15 @@ class JobReportResponse(BaseModel):
     """
 
     job_id: str = Field(..., description="Unique job identifier")
+    project_collection: str | None = Field(
+        None,
+        description=(
+            "Collection of the project this run was commissioned in, recorded at "
+            "submit time. The report is filed into THIS project or into none — "
+            "never into one the report request names, which is a property of the "
+            "reader rather than of the run."
+        ),
+    )
     has_report: bool = Field(..., description="Whether the final report is available")
     report: str | None = Field(None, description="Final research report from the agent")
     cards: list[dict] | None = Field(
@@ -425,6 +434,7 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
     from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 
     from ..jobs.access import authorize_job_access
+    from ..jobs.access import get_job_project_collection
     from ..jobs.access import ensure_job_access_table
     from ..jobs.event_store import EventStore
     from ..jobs.submit import DuplicateJobIdError
@@ -823,7 +833,19 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             except (json.JSONDecodeError, AttributeError):
                 pass
 
-        return JobReportResponse(job_id=job_id, has_report=bool(report), report=report, cards=cards)
+        # Only when there is something to file. A poll that finds no report yet
+        # is the common case on this route and must not pay for a second read.
+        project_collection = (
+            await get_job_project_collection(job_id, db_url) if report else None
+        )
+
+        return JobReportResponse(
+            job_id=job_id,
+            has_report=bool(report),
+            report=report,
+            cards=cards,
+            project_collection=project_collection,
+        )
 
     @app.get(
         "/v1/jobs/async/jobs",
