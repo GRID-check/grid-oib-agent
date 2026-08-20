@@ -82,6 +82,11 @@ export const files: typeof en.files = {
     expandPreview: 'Große Vorschau öffnen',
     loadFailed:
       'Die Vorschau konnte nicht geladen werden. Sie können die Datei unten trotzdem herunterladen.',
+    gone:
+      'Dieses Dokument ist nicht mehr verfügbar. Es wurde möglicherweise gelöscht, oder Sie haben keinen Zugriff mehr darauf.',
+    goneAction: 'Nicht mehr danach fragen',
+    goneCleared: 'Frage bezieht sich nicht mehr auf diese Datei.',
+    goneUndo: 'Rückgängig',
     tryAgain: 'Erneut versuchen',
     noInlinePreview:
       'Für diesen Dateityp gibt es keine Inline-Vorschau. Laden Sie sie herunter, um das vollständige Dokument anzusehen.',

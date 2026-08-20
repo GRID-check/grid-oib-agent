@@ -80,6 +80,15 @@ export const files = {
     closePreview: 'Close preview',
     expandPreview: 'Open large preview',
     loadFailed: "Preview couldn't be loaded. You can still download the file below.",
+    /**
+     * Not a failure to retry: the service answers 404 both for a deleted
+     * document and for one this reader may no longer open, and neither changes
+     * by asking again. Said plainly, with the only move that is left.
+     */
+    gone: 'This document is no longer available. It may have been deleted, or you may no longer have access to it.',
+    goneAction: 'Stop asking about it',
+    goneCleared: 'No longer asking about that file.',
+    goneUndo: 'Undo',
     tryAgain: 'Try again',
     noInlinePreview:
       'No inline preview for this file type. Download it to view the full document.',

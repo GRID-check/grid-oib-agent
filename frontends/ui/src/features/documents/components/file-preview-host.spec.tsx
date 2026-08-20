@@ -28,7 +28,12 @@ vi.mock('./file-preview-pane', async () => {
       React.useEffect(() => {
         pane.mounts += 1
       }, [])
-      return React.createElement('div', { 'data-testid': 'file-preview-pane' })
+      // Two focusables, so the focus trap has something to cycle between —
+      // the real pane is full of them (download, menu, tags, retry).
+      return React.createElement('div', { 'data-testid': 'file-preview-pane' }, [
+        React.createElement('button', { key: 'a', type: 'button' }, 'pane first'),
+        React.createElement('button', { key: 'b', type: 'button' }, 'pane last'),
+      ])
     },
   }
 })
@@ -376,6 +381,59 @@ describe('FilePreviewHost', () => {
       // Nothing else says the pane is showing a different document — the
       // toolbar's name changes and the well reloads, both silently.
       expect(screen.getByTestId('file-preview-host').className).toContain('animate-in')
+    })
+  })
+
+  describe('the enlarged view keeps the promise `aria-modal` makes', () => {
+    const renderExpanded = () => {
+      nav.pathname = '/app/projects/p1/chat'
+      useFilePreviewStore.getState().open(FILE, 'expanded', { projectId: 'p1' })
+      render(
+        <FilePreviewBridge>
+          <button type="button">behind the scrim</button>
+        </FilePreviewBridge>,
+      )
+    }
+
+    it('wraps Tab at the end back to the beginning', () => {
+      renderExpanded()
+      const last = screen.getByRole('button', { name: 'pane last' })
+      last.focus()
+
+      fireEvent.keyDown(document, { key: 'Tab' })
+
+      // It dims the page and says `aria-modal`, and then let Tab walk out into
+      // the chat, the composer and the nav rail — everything behind the dim,
+      // none of it reachable by pointer, all of it reachable by keyboard.
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'pane first' }))
+    })
+
+    it('wraps Shift+Tab at the beginning back to the end', () => {
+      renderExpanded()
+      const first = screen.getByRole('button', { name: 'pane first' })
+      first.focus()
+
+      fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
+
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'pane last' }))
+    })
+
+    it('leaves Tab alone in the peek, which is not modal', () => {
+      nav.pathname = '/app/projects/p1/chat'
+      useFilePreviewStore.getState().open(FILE, 'peek', { projectId: 'p1' })
+      render(
+        <FilePreviewBridge>
+          <button type="button">in the conversation</button>
+        </FilePreviewBridge>,
+      )
+      const outside = screen.getByRole('button', { name: 'in the conversation' })
+      outside.focus()
+
+      fireEvent.keyDown(document, { key: 'Tab' })
+
+      // The peek sits BESIDE the conversation. Trapping there would strand a
+      // keyboard reader in a viewer they did not open modally.
+      expect(document.activeElement).toBe(outside)
     })
   })
 

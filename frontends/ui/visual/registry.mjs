@@ -907,6 +907,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-ask-split-preview"]',
   },
   {
+    id: 'file-ask-split-gone',
+    path: '/dev/file-ask-split/chat?variant=gone',
+    description:
+      'The document is not there any more — deleted by a colleague, or no longer this reader\u2019s to open; the service answers 404 for both. The pane used to offer "Erneut versuchen" here, a button that could be pressed until the reader gave up, because nothing distinguished a permanent 404 from a hiccup. It now says what happened and offers the one move left: stop asking about it, which is also the only thing that cannot be done from inside a viewer that will not load.',
+    waitFor: '[data-testid="file-ask-split-preview"]',
+  },
+  {
     id: 'file-ask-split-dismissed',
     path: '/dev/file-ask-split/chat?variant=hidden',
     description:

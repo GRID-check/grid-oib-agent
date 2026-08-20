@@ -40,6 +40,7 @@ import { AssignmentFaces } from './assignment-faces'
 import { AssignPopover } from './assign-popover'
 import { useRouter } from 'next/navigation'
 import { askAboutFile } from '../lib/ask-about-file'
+import { dropFileSubject } from '../lib/open-file-peek'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 
 interface FilePreviewPaneProps {
@@ -157,6 +158,8 @@ export function FilePreviewPane({
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [previewFailed, setPreviewFailed] = useState(false)
+  /** The document is not there any more (or not the reader's) — see `loadPreview`. */
+  const [previewGone, setPreviewGone] = useState(false)
   const [isReingesting, setIsReingesting] = useState(false)
   const [isLargePreviewOpen, setIsLargePreviewOpen] = useState(false)
   // "Detailed information": per-page VLM descriptions of the document's visual
@@ -200,21 +203,45 @@ export function FilePreviewPane({
 
   const loadPreview = useCallback(() => {
     setPreviewFailed(false)
+    setPreviewGone(false)
     if (!canPreview) {
       setPreviewUrl(null)
       return
     }
 
     setIsLoading(true)
+    // A local, not the state above: the branch that sets it and the branch that
+    // reads it are two links of the same promise chain, and a `useState` value
+    // does not change between them.
+    let gone = false
     fetch(`/api/documents/${file.id}/preview`)
-      .then((r) => (r.ok ? r.json() : null))
+      .then(async (r) => {
+        // A RETRY THAT CANNOT WORK IS A DEAD END WEARING A BUTTON.
+        //
+        // 404 here is not a hiccup: the service answers it for a document that
+        // has been deleted AND for one this reader may no longer open (see
+        // `getAccessibleDocument` — cross-tenant and no-access both surface as
+        // 404). Neither changes by asking again, and in a shared project both
+        // happen while somebody is mid-conversation about the file. Offering
+        // "Erneut versuchen" there is an invitation to press a button until
+        // they give up; what they need is to be told, and to be let out.
+        if (r.status === 404) {
+          gone = true
+          return null
+        }
+        return r.ok ? await r.json() : null
+      })
       .then((data) => {
         if (data?.url) {
           setPreviewUrl(data.url)
           // Absent for PDFs and for image formats the optimizer cannot process;
           // the renderer falls back to `url` unoptimized in both cases.
           setPreviewImageUrl(typeof data.imageUrl === 'string' ? data.imageUrl : null)
-        } else setPreviewFailed(true)
+        } else if (gone) {
+          setPreviewGone(true)
+        } else {
+          setPreviewFailed(true)
+        }
       })
       .catch(() => {
         setPreviewUrl(null)
@@ -412,18 +439,44 @@ export function FilePreviewPane({
           role="alert"
           className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b px-4 py-2"
         >
-          <p className="text-xs text-destructive">{t('preview.downloadFailed')}</p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-7 gap-1.5"
-            onClick={() => void actions.download()}
-            disabled={actions.isDownloading}
-          >
-            <RotateCcw className="size-3.5" aria-hidden />
-            {t('preview.tryAgain')}
-          </Button>
+          {/* THE SAME DEAD END, ONE LEVEL DOWN. A download of a document that
+              is not there any more fails for the reason the preview already
+              established, and offering "Erneut versuchen" for it is the same
+              button-until-you-give-up loop — so when the preview has already
+              said the document is gone, this says it too, and offers the way
+              out rather than the retry. */}
+          <p className="text-xs text-destructive">
+            {previewGone ? t('preview.gone') : t('preview.downloadFailed')}
+          </p>
+          {previewGone ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5"
+              onClick={() =>
+                dropFileSubject({
+                  cleared: t('preview.goneCleared'),
+                  undo: t('preview.goneUndo'),
+                })
+              }
+            >
+              <X className="size-3.5" aria-hidden />
+              {t('preview.goneAction')}
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5"
+              onClick={() => void actions.download()}
+              disabled={actions.isDownloading}
+            >
+              <RotateCcw className="size-3.5" aria-hidden />
+              {t('preview.tryAgain')}
+            </Button>
+          )}
         </div>
       )}
 
@@ -558,9 +611,35 @@ export function FilePreviewPane({
             )
           ) : (
             <PageMock
-              caption={previewFailed ? t('preview.loadFailed') : t('preview.noInlinePreview')}
+              caption={
+                previewGone
+                  ? t('preview.gone')
+                  : previewFailed
+                    ? t('preview.loadFailed')
+                    : t('preview.noInlinePreview')
+              }
               action={
-                previewFailed && canPreview ? (
+                previewGone ? (
+                  // The only move left. The document is not coming back, and
+                  // the conversation is still pointed at it — so the way out is
+                  // to stop asking about it, which is also the one thing the
+                  // reader cannot do from inside a viewer that will not load.
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() =>
+                      dropFileSubject({
+                        cleared: t('preview.goneCleared'),
+                        undo: t('preview.goneUndo'),
+                      })
+                    }
+                  >
+                    <X className="size-3.5" aria-hidden />
+                    {t('preview.goneAction')}
+                  </Button>
+                ) : previewFailed && canPreview ? (
                   <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={loadPreview}>
                     <RotateCcw className="size-3.5" aria-hidden />
                     {t('preview.tryAgain')}

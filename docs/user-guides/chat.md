@@ -258,6 +258,12 @@ is the answer to "does Piloti understand this file, and as what", which is the
 question worth asking before you ask it anything else; it used to live only in
 the enlarged view. A document with no summary yet shows only itself.
 
+**When the document is gone.** A colleague can delete a document while you are
+asking about it, and access can be withdrawn the same way — the API answers the
+same 404 for both, and no amount of retrying changes either. The preview says
+so plainly and offers the only move left: *stop asking about it*, which also
+clears the composer's subject (with an undo, like every other ending here).
+
 **When the file is not ready.** The peek exists because that document is what
 your next question is about, so it says when it cannot be one: a document still
 being indexed (or one whose indexing failed) carries a line under its name

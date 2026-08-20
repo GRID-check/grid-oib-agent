@@ -17,6 +17,11 @@ improvements:
     preview beside it, instead of vanishing at the click and leaving you on the
     file grid until the conversation arrives.
   - >
+    A document that has been deleted — or that you no longer have access to —
+    now says so in the preview instead of offering a retry that could never
+    work, and lets you stop asking about it in one click. The enlarged preview
+    also keeps the keyboard inside it, as a dialog should.
+  - >
     The preview shows what Piloti made of the document — the indexed summary,
     under the document itself — instead of only in the enlarged view. A file
     with no inline preview now offers its download where the message says so.

@@ -50,6 +50,9 @@
  *                  one surface whose entire reason is "this is what you are
  *                  asking about" — where a file the agent cannot cite yet used
  *                  to look exactly like one it can.
+ *   - `gone`     — the document is not there any more (deleted, or no longer
+ *                  this reader's). A retry cannot fix that, so the pane says so
+ *                  and offers the only move left.
  *   - `failed`   — indexing failed. The one state on this surface that does not
  *                  resolve itself, so it is the one that carries a way out.
  *   - `wide`     — the peek at a width the reader dragged it to and the split
@@ -107,6 +110,11 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   const realFetch = window.fetch.bind(window)
   window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    // `?variant=gone` answers the preview the way the service answers for a
+    // document that has been deleted — or one this reader may no longer open.
+    if (url.includes('/preview') && new URLSearchParams(window.location.search).get('variant') === 'gone') {
+      return Promise.resolve(new Response(null, { status: 404 }))
+    }
     if (url.includes('/preview')) {
       return Promise.resolve(
         new Response(JSON.stringify({ url: FLOOR_PLAN_DATA_URI }), {

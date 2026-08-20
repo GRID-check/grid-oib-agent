@@ -121,9 +121,45 @@ export function FilePreviewHost({
     openerRef.current = active instanceof HTMLElement && active !== document.body ? active : null
     panelRef.current?.focus()
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      if (mode === 'expanded') peek()
-      else close()
+      if (event.key === 'Escape') {
+        if (mode === 'expanded') peek()
+        else close()
+        return
+      }
+      // KEEP THE PROMISE `aria-modal` MAKES.
+      //
+      // This surface says `aria-modal` and dims the page behind a scrim, and
+      // then let Tab walk straight out of it into the chat, the composer and
+      // the nav rail — every one of them behind the dim, none of them reachable
+      // by pointer, all of them reachable by keyboard. Every other modal in
+      // this app is a Radix `Dialog`, which traps; this one is hand-rolled
+      // because the pane inside it must survive being re-presented, and the
+      // trap was what the hand-rolling dropped.
+      if (event.key !== 'Tab') return
+      const panel = panelRef.current
+      if (!panel) return
+      const focusable = Array.from(
+        panel.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => el.offsetParent !== null || el === document.activeElement)
+      // Nothing to cycle between: hold focus on the panel itself rather than
+      // letting the page behind take it.
+      if (focusable.length === 0) {
+        event.preventDefault()
+        panel.focus()
+        return
+      }
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const activeEl = document.activeElement
+      if (event.shiftKey && (activeEl === first || activeEl === panel)) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && activeEl === last) {
+        event.preventDefault()
+        first.focus()
+      }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
@@ -629,7 +665,15 @@ function PeekToolbar({
         title={t('preview.download')}
         className={`${peekIconButtonClass} disabled:opacity-40`}
       >
-        <Download className="size-4" />
+        {/* A signed URL for a 40 MB plan is not instant, and a button that only
+            dims tells the reader their click may not have landed — so they
+            click again. The spinner is the acknowledgement, in the place the
+            icon was. */}
+        {actions.isDownloading ? (
+          <Spinner size="xs" aria-hidden />
+        ) : (
+          <Download className="size-4" />
+        )}
       </button>
       <button
         type="button"
@@ -714,7 +758,10 @@ function PeekToolbar({
             type="button"
             onClick={onExpand}
             className={cn(
-              'text-foreground hover:bg-accent shrink-0 rounded-md px-1.5 py-0.5 font-medium underline-offset-2 hover:underline',
+              // A real hit area, not a text run: this is the only way out of
+              // the one state on this surface that does not resolve itself,
+              // and it was six pixels tall plus its line-height.
+              'text-foreground hover:bg-accent flex h-7 shrink-0 items-center rounded-md px-2 font-medium underline-offset-2 hover:underline',
               FOCUS_RING,
             )}
           >
