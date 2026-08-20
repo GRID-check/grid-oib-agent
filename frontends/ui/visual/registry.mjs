@@ -65,6 +65,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="app-rail-preview"]',
   },
   {
+    id: 'app-rail-wide',
+    path: '/dev/app-rail?variant=wide',
+    description:
+      "The rail at 400px — a width no design review had ever seen, because until now no reader could ask for one: the edge showed a resize cursor and only toggled. It is a real drag handle now, so every width between 200px and 420px is a state the product ships in, and the two that carry layout risk are the ends. Here the nav labels stop truncating and the footer tile spreads; the seam, the group rhythm and the footer's bottom edge are the same ones the 236px shot pins.",
+    waitFor: '[data-testid="app-rail-preview"]',
+  },
+  {
     id: 'app-shell-scopes',
     path: '/dev/app-shell-scopes',
     description:

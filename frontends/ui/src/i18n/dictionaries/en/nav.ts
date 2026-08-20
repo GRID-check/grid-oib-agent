@@ -13,6 +13,15 @@ export const nav = {
   allProjects: 'Piloti — all projects',
   collapseSidebar: 'Collapse sidebar',
   expandSidebar: 'Expand sidebar',
+  /**
+   * The rail's outer edge, which is a resize handle and a tab stop — hence a
+   * name of its own rather than the collapse control's: what it does is set the
+   * width, and folding the rail is the far end of that same move.
+   */
+  resizeSidebar: 'Resize sidebar',
+  /** Tooltip on that edge, in each of the two states it can be in. */
+  resizeSidebarHint: 'Drag to resize, click to collapse',
+  expandSidebarHint: 'Drag or click to expand the sidebar',
   openNavigation: 'Open navigation',
   closeNavigation: 'Close navigation',
   sections: {

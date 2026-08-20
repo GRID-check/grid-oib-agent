@@ -14,6 +14,7 @@ import { PanelLeft } from 'lucide-react'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { FOCUS_RING } from '@/components/ui/focus-ring'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import {
@@ -27,8 +28,33 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 const SIDEBAR_STORAGE_KEY = 'grid.sidebar.collapsed'
-const SIDEBAR_WIDTH = '236px'
-const SIDEBAR_WIDTH_ICON = '64px'
+const SIDEBAR_WIDTH_STORAGE_KEY = 'grid.sidebar.width'
+
+/**
+ * Rail geometry, in px — NUMBERS, not the `'236px'` strings this used to hold,
+ * because the width is now a value the reader drags: it has to survive
+ * arithmetic (a pointer delta, a keyboard step, a clamp) before it is published
+ * as `--sidebar-width`.
+ *
+ * The bounds are the rail's own content, not a taste: below ~200px the project
+ * switcher and the longest nav labels start truncating on their own, and above
+ * ~420px the rail is taking width from the thing it navigates to.
+ */
+const SIDEBAR_WIDTH = 236
+const SIDEBAR_WIDTH_MIN = 200
+const SIDEBAR_WIDTH_MAX = 420
+const SIDEBAR_WIDTH_ICON = 64
+/** Dragged narrower than this, the gesture has stopped resizing and is collapsing. */
+const SIDEBAR_COLLAPSE_AT = 160
+/** Pointer travel under which a press on the rail was a click, not a drag. */
+const SIDEBAR_DRAG_SLOP = 4
+/** Arrow-key step; Shift takes the coarse one. */
+const SIDEBAR_KEY_STEP = 16
+const SIDEBAR_KEY_STEP_COARSE = 64
+
+function clampWidth(value: number): number {
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(value)))
+}
 
 type SidebarStyle = React.CSSProperties & {
   '--sidebar-width'?: string
@@ -44,6 +70,15 @@ type SidebarContextValue = {
   setOpenMobile: React.Dispatch<React.SetStateAction<boolean>>
   isMobile: boolean
   toggleSidebar: () => void
+  /** Current expanded width in px (the collapsed rail is `--sidebar-width-icon`). */
+  width: number
+  /**
+   * Set the expanded width, clamped to the bounds. Deliberately does NOT
+   * persist: this runs once per `pointermove` for the length of a drag, and a
+   * synchronous `localStorage` write per frame is main-thread work the reader
+   * only needs done once — at the end. {@link SidebarRail} commits there.
+   */
+  setWidth: (width: number) => void
 }
 
 const SidebarContext = React.createContext<SidebarContextValue | null>(null)
@@ -64,6 +99,33 @@ function persistCollapsed(open: boolean): void {
   }
 }
 
+function persistWidth(width: number): void {
+  try {
+    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width))
+  } catch {
+    // Storage unavailable (privacy mode) — fail soft; the rail keeps the width
+    // for this session and comes back at the default in the next one.
+  }
+}
+
+/** The stored width, or null when there is none / it is not a usable number. */
+function readStoredWidth(): number | null {
+  try {
+    const stored = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)
+    // The empty string is checked BEFORE `Number`, which reads it as 0 — a
+    // cleared key would otherwise come back as the minimum width rather than as
+    // "no stored width", and the rail would open narrow for no stated reason.
+    if (stored === null || stored.trim() === '') return null
+    const parsed = Number(stored)
+    // A hand-edited or half-written value must not be able to publish
+    // `--sidebar-width: NaNpx`, which resolves to nothing and leaves the gap
+    // and the rail disagreeing about where the page begins.
+    return Number.isFinite(parsed) ? clampWidth(parsed) : null
+  } catch {
+    return null
+  }
+}
+
 function SidebarProvider({
   defaultOpen = true,
   open: openProp,
@@ -81,6 +143,7 @@ function SidebarProvider({
   const [openMobile, setOpenMobile] = React.useState(false)
   const [_open, _setOpen] = React.useState(defaultOpen)
   const open = openProp ?? _open
+  const [width, _setWidth] = React.useState(SIDEBAR_WIDTH)
 
   // Restore after mount so SSR markup matches the first client render.
   React.useEffect(() => {
@@ -93,6 +156,18 @@ function SidebarProvider({
       // Storage unavailable — keep defaultOpen.
     }
   }, [openProp])
+
+  // Its own effect, not a second read inside the one above: that one returns
+  // early for a CONTROLLED `open`, and a caller driving the collapse itself has
+  // said nothing about the width the reader dragged.
+  React.useEffect(() => {
+    const stored = readStoredWidth()
+    if (stored !== null) _setWidth(stored)
+  }, [])
+
+  const setWidth = React.useCallback((value: number) => {
+    _setWidth(clampWidth(value))
+  }, [])
 
   const setOpen = React.useCallback(
     (value: boolean | ((value: boolean) => boolean)) => {
@@ -122,8 +197,10 @@ function SidebarProvider({
       openMobile,
       setOpenMobile,
       toggleSidebar,
+      width,
+      setWidth,
     }),
-    [state, open, setOpen, isMobile, openMobile, toggleSidebar],
+    [state, open, setOpen, isMobile, openMobile, toggleSidebar, width, setWidth],
   )
 
   // `--sidebar-current-width` used to be published here, and on `:root` as
@@ -135,8 +212,8 @@ function SidebarProvider({
   // wrong: two mounted providers raced over it, and the unmounting one deleted
   // it out from under the other.
   const wrapperStyle: SidebarStyle = {
-    '--sidebar-width': SIDEBAR_WIDTH,
-    '--sidebar-width-icon': SIDEBAR_WIDTH_ICON,
+    '--sidebar-width': `${width}px`,
+    '--sidebar-width-icon': `${SIDEBAR_WIDTH_ICON}px`,
     ...style,
   }
 
@@ -307,26 +384,222 @@ function SidebarTrigger({
   )
 }
 
-function SidebarRail({ className, ...props }: React.ComponentProps<'button'>): React.JSX.Element {
-  const { toggleSidebar } = useSidebar()
+/** A drag in progress. Lives in a ref: none of it belongs in a render. */
+type RailDrag = {
+  /** Pointer x where the press landed. */
+  startX: number
+  /** Rail width at that moment (the icon width when it started collapsed). */
+  startWidth: number
+  side: 'left' | 'right'
+  /** Latest clamped width, so the commit does not have to re-read state. */
+  width: number
+  /** Whether the pointer travelled far enough that this is a drag, not a click. */
+  moved: boolean
+  /** Collapse state this drag last asked for — see `handleMove`. */
+  collapsed: boolean
+}
+
+/**
+ * Which edge the rail hangs off, read from the DOM rather than a prop.
+ *
+ * `side` is `Sidebar`'s prop and reaches the rail only as the `data-side`
+ * attribute the CSS below already keys off — so the drag maths reads the same
+ * source the cursor does, instead of a second copy that can disagree with it.
+ */
+function railSide(element: HTMLElement): 'left' | 'right' {
+  return element.closest('[data-side]')?.getAttribute('data-side') === 'right' ? 'right' : 'left'
+}
+
+/**
+ * The rail edge — the strip between the sidebar and the page.
+ *
+ * It has shown a `resize` cursor since the day it was vendored in, and it did
+ * not resize anything: the only thing it could do was toggle between the full
+ * rail and the icon column. That is the one failure mode a cursor has — the
+ * reader tries the drag it was offered, the rail jumps to a width nobody asked
+ * for, and the edge stops being trustworthy.
+ *
+ * So it drags. Pointer: drag to set the width (clamped to
+ * `SIDEBAR_WIDTH_MIN…MAX`), keep going past `SIDEBAR_COLLAPSE_AT` to collapse to
+ * the icon rail, drag back out to bring it round. A press that travels less than
+ * `SIDEBAR_DRAG_SLOP` is still the old toggle, so the gesture people already
+ * have keeps working.
+ *
+ * Keyboard: it is a real `role="separator"` window splitter and a tab stop —
+ * arrows resize (Shift for the coarse step), Home/End go to the bounds, one more
+ * shrink at the minimum collapses, and Enter/Space is the toggle (the button
+ * element's own activation behaviour, which `role` does not take away).
+ */
+function SidebarRail({
+  className,
+  onClick,
+  onPointerDown,
+  onKeyDown,
+  ...props
+}: React.ComponentProps<'button'>): React.JSX.Element {
+  const { toggleSidebar, setOpen, state, width, setWidth } = useSidebar()
+  const [resizing, setResizing] = React.useState(false)
+  const dragRef = React.useRef<RailDrag | null>(null)
+  // A drag ends in a `click` the browser fires regardless; without this the rail
+  // would collapse itself every time the reader finished resizing it.
+  const suppressClickRef = React.useRef(false)
+
+  // Window-level, not pointer capture: the pointer spends the drag out over the
+  // page, and happy-dom/jsdom implement neither `setPointerCapture` nor the
+  // retargeting that makes it work — this is the same listener set in both.
+  React.useEffect(() => {
+    if (!resizing) return
+
+    const handleMove = (event: PointerEvent): void => {
+      const drag = dragRef.current
+      if (!drag) return
+      const delta = drag.side === 'left' ? event.clientX - drag.startX : drag.startX - event.clientX
+      if (Math.abs(delta) > SIDEBAR_DRAG_SLOP) drag.moved = true
+      // Under the slop nothing has been asked for yet. A click that also nudges
+      // the rail two pixels is a hand, not an instruction.
+      if (!drag.moved) return
+
+      const next = drag.startWidth + delta
+      // Past the floor the gesture means "put it away", and the width it would
+      // have had is kept — dragging back out returns to it, not to the default.
+      // Only ever called on a CROSSING: `setOpen` writes to localStorage, and a
+      // storage write per pointermove is the cost this file already refuses to
+      // pay for the width.
+      const collapsed = next < SIDEBAR_COLLAPSE_AT
+      if (collapsed !== drag.collapsed) {
+        drag.collapsed = collapsed
+        setOpen(!collapsed)
+      }
+      if (collapsed) return
+      drag.width = clampWidth(next)
+      setWidth(drag.width)
+    }
+
+    const handleUp = (): void => {
+      const drag = dragRef.current
+      dragRef.current = null
+      setResizing(false)
+      if (!drag?.moved) return
+      suppressClickRef.current = true
+      persistWidth(drag.width)
+    }
+
+    window.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', handleUp)
+    window.addEventListener('pointercancel', handleUp)
+    // The cursor and the selection belong to the page for the duration: the
+    // pointer is over the transcript, not over the 16px strip that started
+    // this, and a resize that selects the text it passes over reads as broken.
+    const { cursor, userSelect } = document.body.style
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    return () => {
+      window.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', handleUp)
+      window.removeEventListener('pointercancel', handleUp)
+      document.body.style.cursor = cursor
+      document.body.style.userSelect = userSelect
+    }
+  }, [resizing, setOpen, setWidth])
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>): void => {
+    onPointerDown?.(event)
+    if (event.button !== 0 || event.defaultPrevented) return
+    const startWidth = state === 'collapsed' ? SIDEBAR_WIDTH_ICON : width
+    dragRef.current = {
+      startX: event.clientX,
+      startWidth,
+      side: railSide(event.currentTarget),
+      width: state === 'collapsed' ? width : startWidth,
+      moved: false,
+      collapsed: state === 'collapsed',
+    }
+    setResizing(true)
+  }
+
+  const handleClick = (event: React.MouseEvent<HTMLButtonElement>): void => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false
+      return
+    }
+    onClick?.(event)
+    toggleSidebar()
+  }
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>): void => {
+    onKeyDown?.(event)
+    if (event.defaultPrevented) return
+
+    const side = railSide(event.currentTarget)
+    const grows = side === 'left' ? 'ArrowRight' : 'ArrowLeft'
+    const shrinks = side === 'left' ? 'ArrowLeft' : 'ArrowRight'
+    if (event.key !== grows && event.key !== shrinks && event.key !== 'Home' && event.key !== 'End') {
+      return
+    }
+    // Arrows scroll the page and Home/End jump it; a focused splitter owns them.
+    event.preventDefault()
+
+    if (state === 'collapsed') {
+      // From the icon rail the only move that means anything is "come back".
+      if (event.key === grows || event.key === 'End') setOpen(true)
+      return
+    }
+    if (event.key === shrinks && width <= SIDEBAR_WIDTH_MIN) {
+      // Already at the floor: the next shrink is the collapse. The pointer
+      // reaches it by overshooting; the keyboard has no overshoot, so it is the
+      // second press at the bound.
+      setOpen(false)
+      return
+    }
+
+    const step = event.shiftKey ? SIDEBAR_KEY_STEP_COARSE : SIDEBAR_KEY_STEP
+    const next =
+      event.key === 'Home'
+        ? SIDEBAR_WIDTH_MIN
+        : event.key === 'End'
+          ? SIDEBAR_WIDTH_MAX
+          : clampWidth(width + (event.key === grows ? step : -step))
+    setWidth(next)
+    persistWidth(next)
+  }
 
   return (
     <button
       type="button"
       data-sidebar="rail"
       data-slot="sidebar-rail"
-      aria-label="Toggle Sidebar"
-      tabIndex={-1}
-      onClick={toggleSidebar}
-      title="Toggle Sidebar"
+      data-resizing={resizing || undefined}
+      // A window splitter, which is what it now is: a focusable separator that
+      // reports the width it controls. `role` does not remove a <button>'s
+      // activation behaviour, so Enter/Space still reach `onClick` — the toggle.
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize sidebar"
+      aria-valuenow={state === 'collapsed' ? SIDEBAR_WIDTH_ICON : width}
+      aria-valuemin={SIDEBAR_WIDTH_ICON}
+      aria-valuemax={SIDEBAR_WIDTH_MAX}
+      onPointerDown={handlePointerDown}
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
+      // The tooltip names the two things the edge does, and which way round they
+      // are depends on where the rail is: from the icon column there is no width
+      // to change yet, only a rail to bring back.
+      title={state === 'collapsed' ? 'Drag or click to expand the sidebar' : 'Drag to resize, click to collapse'}
       className={cn(
         // Was `transition-all ease-linear` — the app's only `transition-all`,
         // and it promised to animate every property this element might ever
         // grow. The only thing it actually moves is its own `translate-x`
         // between the collapsible modes, so that is what it names.
         'absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-transform duration-quick ease-out motion-reduce:transition-none group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border sm:flex',
-        'in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize',
+        // `col-resize` while there is a width to change, and the one-way arrow
+        // while collapsed, where the only move left is "come back".
+        'cursor-col-resize touch-none',
         '[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize',
+        // Lit for the whole drag, not just while the pointer is over the strip
+        // it left behind two hundred pixels ago.
+        'data-[resizing]:after:bg-sidebar-border',
+        FOCUS_RING,
         'group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full hover:group-data-[collapsible=offcanvas]:bg-sidebar',
         '[[data-side=left][data-collapsible=offcanvas]_&]:-right-2',
         '[[data-side=right][data-collapsible=offcanvas]_&]:-left-2',
