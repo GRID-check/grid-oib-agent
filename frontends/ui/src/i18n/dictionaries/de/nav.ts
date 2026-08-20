@@ -10,6 +10,9 @@ export const nav: typeof en.nav = {
   allProjects: 'Piloti — alle Projekte',
   collapseSidebar: 'Seitenleiste einklappen',
   expandSidebar: 'Seitenleiste ausklappen',
+  resizeSidebar: 'Breite der Seitenleiste ändern',
+  resizeSidebarHint: 'Ziehen zum Ändern der Breite, klicken zum Einklappen',
+  expandSidebarHint: 'Ziehen oder klicken zum Ausklappen',
   openNavigation: 'Navigation öffnen',
   closeNavigation: 'Navigation schließen',
   sections: {

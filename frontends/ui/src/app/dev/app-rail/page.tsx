@@ -26,20 +26,33 @@
  * Variants via `?variant=`:
  *   - default     — the expanded 236px rail.
  *   - `collapsed` — the 64px icon rail.
+ *   - `wide`      — the rail dragged out to 400px, which is now a state a
+ *     reader can put it in: the edge is a real resize handle, and a width the
+ *     reader chose is the width every later session opens at. Same seam,
+ *     nav column and footer edge as the default shot, at a width the design
+ *     was never reviewed at.
  */
 
 import { useSearchParams } from 'next/navigation'
 import { AppSidebar } from '@/components/shell/app-sidebar'
 
 const SIDEBAR_STORAGE_KEY = 'grid.sidebar.collapsed'
+const SIDEBAR_WIDTH_STORAGE_KEY = 'grid.sidebar.width'
+/** The `wide` variant's width — near the rail's 420px ceiling, not at it. */
+const WIDE_WIDTH = 400
 
 // Module scope, not an effect — see the header note. Reads the variant from the
 // URL directly because `useSearchParams` is only available during render, which
 // is already too late for the provider's restore effect.
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   try {
-    const collapsed = new URLSearchParams(window.location.search).get('variant') === 'collapsed'
-    window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(collapsed))
+    const variant = new URLSearchParams(window.location.search).get('variant')
+    window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(variant === 'collapsed'))
+    // Seeded the same way and for the same reason as the collapse: the width
+    // lives in localStorage and the provider restores it in an effect, so a
+    // component-effect seed would land after the restore has already run.
+    if (variant === 'wide') window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(WIDE_WIDTH))
+    else window.localStorage.removeItem(SIDEBAR_WIDTH_STORAGE_KEY)
   } catch {
     // Storage unavailable — the rail falls back to its expanded default, which
     // still renders a valid (if off-variant) preview rather than nothing.
@@ -88,7 +101,12 @@ export default function AppRailPreview(): JSX.Element {
           judge its edge against the surface it actually borders. */}
       <main className="min-w-0 flex-1 overflow-hidden p-6">
         <p className="text-muted-foreground font-mono text-xs">
-          /dev/app-rail — {variant === 'collapsed' ? 'collapsed icon rail (64px)' : 'expanded rail (236px)'}
+          /dev/app-rail —{' '}
+          {variant === 'collapsed'
+            ? 'collapsed icon rail (64px)'
+            : variant === 'wide'
+              ? `rail dragged to ${WIDE_WIDTH}px`
+              : 'expanded rail (236px)'}
         </p>
       </main>
     </div>

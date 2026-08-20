@@ -45,6 +45,12 @@
  *   - `hidden`   — same file, peek dismissed: chat must reclaim the full row.
  *   - `arrive`   — mounts with NO file, exactly as `/files` does, then the
  *                  button opens the peek. This is the Ask Piloti path.
+ *   - `wide`     — the peek at a width the reader dragged it to and the split
+ *                  remembered. Until the seam was fixed this state was
+ *                  unreachable: the drag fought back after ~20px and the old
+ *                  560px cap stood well short of it. It is the state the
+ *                  document is actually read in, so the two columns' behaviour
+ *                  at that ratio needs evidence.
  */
 
 import { useEffect } from 'react'
@@ -52,7 +58,10 @@ import { useSearchParams } from 'next/navigation'
 import { I18nProvider } from '@/i18n'
 import { FilePreviewBridge } from '@/features/documents/components/file-preview-host'
 import { MainLayout } from '@/features/layout/components/MainLayout'
-import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
+import {
+  FILE_PEEK_WIDTH_STORAGE_KEY,
+  useFilePreviewStore,
+} from '@/features/documents/stores/file-preview-store'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
 
 const FILE: FileItem = {
@@ -84,6 +93,16 @@ const CONTEXT = { projectId: 'proj-1', projectName: 'Seestadt Baufeld', scope: '
 // real journey, where the split is mounted cold and only flips later.
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   const seed = new URLSearchParams(window.location.search).get('variant') ?? 'default'
+  // The remembered width is read from storage by the split's own layout effect,
+  // so seeding it here is seeding the same input a returning reader arrives
+  // with. Cleared for every other variant, or a `wide` run would leave the
+  // default shot wide on the next capture.
+  try {
+    if (seed === 'wide') window.localStorage.setItem(FILE_PEEK_WIDTH_STORAGE_KEY, '720')
+    else window.localStorage.removeItem(FILE_PEEK_WIDTH_STORAGE_KEY)
+  } catch {
+    // Storage unavailable — the preview still renders, at the default width.
+  }
   if (seed !== 'arrive') {
     useFilePreviewStore.setState({ file: FILE, mode: 'peek', hidden: seed === 'hidden', context: CONTEXT })
   } else {

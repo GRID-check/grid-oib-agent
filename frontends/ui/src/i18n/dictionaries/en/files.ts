@@ -132,6 +132,12 @@ export const files = {
     retryingIngestion: 'Retrying…',
     retryIngestionError: "Ingestion couldn't be restarted. Please try again.",
     dialogLabel: 'File preview: {name}',
+    /**
+     * The seam between the conversation and the file. It is a tab stop (the
+     * panel library makes every separator one), so it needs a name — an
+     * unlabelled separator is announced as nothing at all.
+     */
+    resizePeek: 'Resize file preview',
   },
   browser: {
     folderEmptyTitle: 'This folder is empty',

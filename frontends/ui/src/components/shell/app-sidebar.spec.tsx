@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, afterEach } from 'vitest'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useLayoutStore } from '@/features/layout/store'
+import { I18nProvider } from '@/i18n'
 import { AppSidebar, railActivePillId } from './app-sidebar'
 
 // Isolate the nav-filtering logic from routing and the shell's sibling widgets.
@@ -194,6 +195,43 @@ describe('AppSidebar - collapsed icon rail', () => {
     expect(within(sections).getByText('Ask Piloti')).toHaveClass('sr-only')
     expect(within(sections).getByText('Files')).toHaveClass('sr-only')
     expect(within(sections).queryByText('Work')).not.toBeInTheDocument()
+  })
+})
+
+describe('AppSidebar - the resize edge', () => {
+  // The primitive ships English strings of its own; the rail is a tab stop now,
+  // so the one control a keyboard user lands on must be named from the
+  // dictionary like the rest of the nav. This is the JOIN — the primitive's
+  // props and the dictionary keys are each correct on their own, and neither
+  // side notices when nobody passes them.
+  //
+  // Asserted in GERMAN on purpose: in English the dictionary's strings and the
+  // primitive's own defaults are the same words, so an English assertion passes
+  // just as happily with the props removed. It was written that way first, and
+  // that version survived deleting the very wiring it was written to pin.
+  const renderGerman = (): void => {
+    render(
+      <I18nProvider initialLocale="de" fixedLocale>
+        <AppSidebar {...baseProps} />
+      </I18nProvider>
+    )
+  }
+
+  test('names the edge from the dictionary, in both of its states', async () => {
+    const user = userEvent.setup()
+    renderGerman()
+
+    const edge = screen.getByRole('separator', { name: 'Breite der Seitenleiste ändern' })
+    expect(edge).toHaveAttribute('title', 'Ziehen zum Ändern der Breite, klicken zum Einklappen')
+
+    await user.click(screen.getByRole('button', { name: 'Seitenleiste einklappen' }))
+
+    // From the icon column there is no width to change yet, only a rail to
+    // bring back — so the hint follows the state the rail is in.
+    expect(screen.getByRole('separator', { name: 'Breite der Seitenleiste ändern' })).toHaveAttribute(
+      'title',
+      'Ziehen oder klicken zum Ausklappen'
+    )
   })
 })
 

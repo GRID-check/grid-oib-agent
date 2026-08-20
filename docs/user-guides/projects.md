@@ -183,4 +183,6 @@ Go to `/app/projects` (the wordmark in the sidebar links there). The projects ho
 
 On desktop, project sections (Chat, Files, History, Jobs, Skills, Archiv, Settings) are reached via the left sidebar rail; on small screens the rail is replaced by a slim top bar whose menu button opens the same navigation as a drawer.
 
+**Resizing the rail.** Drag the rail's outer edge to set its width, anywhere between 200px and 420px; drag it in past the minimum and it folds to the 64px icon rail, drag back out and it returns to the width it had. A click on that edge still folds and unfolds it, as does the control in the rail's brand row. The edge is also a keyboard splitter: Tab to it, then ← / → resize by 16px (with Shift, 64px), Home and End go to the bounds, one more ← at the minimum folds it, and Enter or Space toggles. Both the width and the folded state are per-browser, kept in `localStorage` (`grid.sidebar.width`, `grid.sidebar.collapsed`), so they follow you between sections and sessions but not between devices.
+
 The user's active project ID is stored in user preferences (upserted via `POST /api/user/preferences`).

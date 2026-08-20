@@ -564,7 +564,14 @@ function AppSidebarFrame({
             />
           </div>
         </SidebarFooter>
-        <SidebarRail />
+        {/* The primitive's own strings are English; the rail is a tab stop now,
+            so the one control a keyboard user lands on has to speak the app's
+            language like every other. `iconRail` is already the collapse
+            control's source of truth two rows up — same state, same wording. */}
+        <SidebarRail
+          aria-label={t('resizeSidebar')}
+          title={iconRail ? t('expandSidebarHint') : t('resizeSidebarHint')}
+        />
       </Sidebar>
     </>
   )

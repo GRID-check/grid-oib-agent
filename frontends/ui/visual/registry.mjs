@@ -65,6 +65,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="app-rail-preview"]',
   },
   {
+    id: 'app-rail-wide',
+    path: '/dev/app-rail?variant=wide',
+    description:
+      "The rail at 400px — a width no design review had ever seen, because until now no reader could ask for one: the edge showed a resize cursor and only toggled. It is a real drag handle now, so every width between 200px and 420px is a state the product ships in, and the two that carry layout risk are the ends. Here the nav labels stop truncating and the footer tile spreads; the seam, the group rhythm and the footer's bottom edge are the same ones the 236px shot pins.",
+    waitFor: '[data-testid="app-rail-preview"]',
+  },
+  {
     id: 'app-shell-scopes',
     path: '/dev/app-shell-scopes',
     description:
@@ -877,6 +884,13 @@ export const SCREENSHOT_TARGETS = [
     description:
       'The same split reached the way Ask Piloti reaches it. `FilePreviewBridge` is mounted by the PROJECT layout, so on this journey it mounts in Files with the split OFF and its file panel collapsed, and only opens once chat is reached. That transition shipped broken: the pane rendered in peek mode inside a zero-width panel parked off the right edge, while every other check \u2014 mode, mount count, and the hand-rolled file-chat-dock mockup \u2014 stayed green. Held apart from `file-ask-split`, which mounts with the peek already open and therefore cannot see it.',
     waitFor: '[data-testid="file-preview-host"][data-mode="peek"]',
+  },
+  {
+    id: 'file-ask-split-wide',
+    path: '/dev/file-ask-split/chat?variant=wide',
+    description:
+      'The file peek opened wide — a remembered width of 720px, which the 1200px capture viewport trims to about 578px because the chat column keeps its own 40% floor. That trim is half the evidence: the two constraints meet without either column collapsing. The other half is that this state exists at all — the seam fought the drag after about twenty pixels and the ceiling stood at 560px, so nobody could reach it. Held beside `file-ask-split` (the 320px default) because the ratio is what needs reviewing: what the transcript does with the width it is left, and whether the peek toolbar still reads at the far end of the range.',
+    waitFor: '[data-testid="file-ask-split-preview"]',
   },
   {
     id: 'projects-home',
