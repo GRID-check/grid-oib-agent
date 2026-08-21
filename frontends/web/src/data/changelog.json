@@ -152,6 +152,10 @@
               "de": "The file list waits in the shape it will arrive in. Loading and searching drew card placeholders even when you were in the detail view, so the list appeared only after a flash of tiles that were never going to be there."
             },
             {
+              "en": "The folder chips above the file list in Dateien are readable again. As soon as a project held enough documents for the list to scroll, the chip row was squeezed onto its own padding and the folder names were cut off through the middle of their letters. The row now keeps its full height, whatever the project holds.",
+              "de": "The folder chips above the file list in Dateien are readable again. As soon as a project held enough documents for the list to scroll, the chip row was squeezed onto its own padding and the folder names were cut off through the middle of their letters. The row now keeps its full height, whatever the project holds."
+            },
+            {
               "en": "A semantic search over your files or the Archiv that could not run — the index unreachable, the request timed out — was reported as \"no matches for …\", which is a statement about your own documents that the app had no way of making. It now says the search failed and offers to run the same query again, instead of asking you to start over.",
               "de": "A semantic search over your files or the Archiv that could not run — the index unreachable, the request timed out — was reported as \"no matches for …\", which is a statement about your own documents that the app had no way of making. It now says the search failed and offers to run the same query again, instead of asking you to start over."
             },
