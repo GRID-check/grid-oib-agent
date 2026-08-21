@@ -142,6 +142,17 @@ describe('FileBrowserPane — folder chips', () => {
     renderPane()
     expect(screen.queryByRole('button', { name: 'All Files' })).not.toBeInTheDocument()
   })
+
+  // The row is a flex item of a column that is one viewport tall while the grid
+  // under it is as tall as the corpus, and `overflow-x-auto` waives its
+  // automatic minimum size — so without `shrink-0` the browser hands it the
+  // whole negative free space and it collapses onto its own padding, clipping
+  // the pills through the middle of their labels. jsdom does no layout, so what
+  // is pinned here is the declaration that prevents it.
+  it('never absorbs the column’s overflow — the chip row cannot shrink', () => {
+    renderPane({ folders, selectedFolderId: null, onSelectFolder: vi.fn() })
+    expect(screen.getByRole('group', { name: 'Folders' })).toHaveClass('shrink-0')
+  })
 })
 
 describe('FileBrowserPane — search', () => {

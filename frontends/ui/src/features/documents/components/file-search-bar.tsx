@@ -52,8 +52,10 @@ export function FileSearchBar({
   return (
     <>
       {/* 95% + `backdrop-blur` is a frosted sticky band, not a hand-derived
-          surface: the list has to stay faintly visible scrolling under it. */}
-      <div className="sticky top-0 z-10 border-b bg-background/95 px-4 py-2.5 backdrop-blur">
+          surface: the list has to stay faintly visible scrolling under it.
+          `shrink-0` on both bands says the same thing the chip row now says:
+          chrome above a listing never absorbs the listing's overflow. */}
+      <div className="sticky top-0 z-10 shrink-0 border-b bg-background/95 px-4 py-2.5 backdrop-blur">
         <form
           className="flex min-h-9 items-center gap-2"
           onSubmit={(e) => {
@@ -96,7 +98,7 @@ export function FileSearchBar({
 
       {semanticActive && (
         <div
-          className="flex min-h-9 items-center gap-2 border-b border-primary/20 bg-primary/5 px-4 py-2 text-xs animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none"
+          className="flex min-h-9 shrink-0 items-center gap-2 border-b border-primary/20 bg-primary/5 px-4 py-2 text-xs animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none"
           role="status"
           data-testid={bannerTestId}
         >

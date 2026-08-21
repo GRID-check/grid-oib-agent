@@ -224,7 +224,7 @@ export function ArchivLibraryPane({
           semantic mode (the query is the context). */}
       {!semantic.active && categories.length > 0 && (
         <div
-          className="flex min-h-12 flex-wrap items-center gap-1.5 border-b px-4 py-2"
+          className="flex min-h-12 shrink-0 flex-wrap items-center gap-1.5 border-b px-4 py-2"
           role="group"
           aria-label={t('library.categoriesLabel')}
         >
