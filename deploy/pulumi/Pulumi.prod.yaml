@@ -179,7 +179,7 @@ config:
   # grid-oib:protectDataResources: "true"
 
   # ── Postgres (CloudNativePG) ──
-  grid-oib:pgInstances: "1" # HA: 1 primary + 2 streaming replicas
+  grid-oib:pgInstances: "3" # HA: 1 primary + 2 streaming replicas
   grid-oib:pgStorageSize: 20Gi
   # Continuous WAL archiving + nightly base backups to SeaweedFS (PITR). This is
 
