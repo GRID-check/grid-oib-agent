@@ -55,6 +55,7 @@ class ComplianceCheckInput(BaseModel):
         description="OIB Richtlinie numbers 1-6. Omit for all six.",
     )
 
+
 logger = logging.getLogger(__name__)
 
 

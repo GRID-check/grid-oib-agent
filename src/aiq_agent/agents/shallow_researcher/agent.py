@@ -120,9 +120,7 @@ _tool_basename = tool_basename
 # on a listing turn (the IFC models in "was hast du im Archiv" never came from
 # available_documents). The staged Soll-Ist pipeline is the same kind of
 # thing: a full 10-25-call run, not a greeting.
-_RESEARCH_ONLY_BASENAMES = frozenset(
-    {"surface_documents", "ifc_query", "ifc_measure", "compliance_check"}
-)
+_RESEARCH_ONLY_BASENAMES = frozenset({"surface_documents", "ifc_query", "ifc_measure", "compliance_check"})
 
 # Cap on both tool-search caches (query → selection, selection → bound LLM).
 # A shared agent serves many requests, so each map is dropped WHOLE at the cap

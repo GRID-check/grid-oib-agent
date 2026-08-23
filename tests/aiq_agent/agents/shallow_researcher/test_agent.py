@@ -2296,12 +2296,7 @@ class TestTheModelCardsAreActuallyAskedFor:
         import aiq_agent
 
         return (
-            Path(aiq_agent.__file__).parent
-            / "skills"
-            / "builtin"
-            / "bim"
-            / "ifc-spatial-reasoning"
-            / "SKILL.md"
+            Path(aiq_agent.__file__).parent / "skills" / "builtin" / "bim" / "ifc-spatial-reasoning" / "SKILL.md"
         ).read_text(encoding="utf-8")
 
     def test_the_prompt_points_at_the_skill_instead_of_teaching_the_cards(self):
