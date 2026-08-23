@@ -33,15 +33,37 @@ describe('sync-platform-skills --check', () => {
 })
 
 /**
- * The shipped builtins are DeepAgents subagent skills: their instructions call
- * `execute` and write `/shared/`, neither of which exists in a chat turn.
- *
- * `grid-agents: deep_researcher` is now the ONLY thing keeping them out of the
- * composer's `/` menu — `grid-execution` stopped gating availability when it
- * went back to meaning "what a scheduled run produces". A builtin that loses
- * this key would start being offered in chat, where following it fails on the
- * first tool call, and nothing else in the build would notice.
+ * `grid-agents` is the availability gate. A builtin that loses this key is
+ * offered to every agent, including ones that cannot carry out its
+ * instructions. Research/synthesis skills must keep `deep_researcher`; OIB and
+ * BIM skills name both. The assertion is that the key is present and names a
+ * known agent, not that every builtin is deep-research-only.
  */
+describe('architect job playbooks are offers', () => {
+  it.each(['einreichcheck', 'bestand'] as const)(
+    '%s declares grid-catalog curated',
+    (name) => {
+      const skill = listPlatformSkills().find((row) => row.name === name)
+      expect(skill).toBeDefined()
+      expect(skill?.metadata['grid-catalog']).toBe('curated')
+    },
+  )
+})
+
+describe('nvidia leftover skills are offers, not machinery', () => {
+  it.each([
+    'forecast-analysis',
+    'prediction-report-writer',
+    'data-table-analysis',
+    'lightweight-calculation',
+  ] as const)('%s declares grid-catalog curated', (name) => {
+    const skill = listPlatformSkills().find((row) => row.name === name)
+    expect(skill).toBeDefined()
+    expect(skill?.metadata['grid-catalog']).toBe('curated')
+    expect(skill?.metadata['grid-agents']).toBe('deep_researcher')
+  })
+})
+
 describe('every builtin scopes itself to the agent that can run it', () => {
   it.each(listPlatformSkills().map((skill) => [skill.name, skill] as const))(
     '%s declares grid-agents',

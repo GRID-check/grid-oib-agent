@@ -1675,7 +1675,7 @@ function UploadField({ question, projectId }: { question: ProjectIntakeQuestion;
   )
 }
 
-/** Placeholder marking where a phase-2 system derivation will appear. */
+/** Confirmed-brief facts that look derived. The class is not computed here. */
 function InfoPlaceholder({ question }: { question: ProjectIntakeQuestion }) {
   const t = useTranslations('projects')
   return (

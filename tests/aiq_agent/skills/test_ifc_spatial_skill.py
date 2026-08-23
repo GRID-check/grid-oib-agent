@@ -151,7 +151,15 @@ def _card_field_names() -> set[str]:
     from aiq_agent.cards import models as card_models
 
     names: set[str] = set()
-    for card in ("IfcViewerCard", "IfcHighlight", "IfcElementCard", "IfcScheduleCard"):
+    for card in (
+        "IfcViewerCard",
+        "IfcHighlight",
+        "IfcElementCard",
+        "IfcScheduleCard",
+        "IfcComplianceCard",
+        "IfcDiffCard",
+        "IfcModelPickerCard",
+    ):
         model = getattr(card_models, card, None)
         if model is None:
             continue
@@ -360,8 +368,9 @@ def test_the_description_survives_the_level_one_catalog_intact(text: str) -> Non
     block = SkillRuntime((skill,)).prompt_block() or ""
     assert f"- `{skill.name}`: {skill.description}" in block.splitlines()
 
-    # Both tool names belong in the trigger text: the moment the model is about
-    # to reach for one of them is the moment it has to load this.
+    # Both tool names belong in the one sentence: the moment the model reaches
+    # for one of them is the moment it has to load this. The rest of the
+    # trigger used to be a keyword net; the body carries the method.
     for tool in TOOL_OPERATIONS:
         assert tool in skill.description, tool
 

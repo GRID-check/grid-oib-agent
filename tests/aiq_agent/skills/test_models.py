@@ -11,6 +11,7 @@ from aiq_agent.skills.models import SkillValidationError
 from aiq_agent.skills.models import build_skill_from_payload
 from aiq_agent.skills.models import parse_skill_md
 from aiq_agent.skills.models import preferred_cards
+from aiq_agent.skills.models import skill_auto_invoke
 from aiq_agent.skills.models import skill_hidden
 from aiq_agent.skills.models import skill_title
 
@@ -138,8 +139,14 @@ def test_grid_schedulable_is_ignored_not_rejected() -> None:
 
 
 def test_metadata_must_map_strings_to_strings() -> None:
+    """YAML booleans and integers coerce. Nested mappings do not."""
     with pytest.raises(SkillValidationError, match="metadata"):
-        parse_skill_md(VALID_MD.replace("grid-agents: shallow_researcher", "grid-agents: 42"))
+        parse_skill_md(
+            VALID_MD.replace(
+                "  grid-agents: shallow_researcher",
+                "  grid-agents:\n    nested: yes",
+            )
+        )
 
 
 def test_compatibility_too_long_is_rejected() -> None:
@@ -177,12 +184,20 @@ def test_build_skill_from_payload_rejects_garbage() -> None:
 
 
 def test_reserved_key_registry() -> None:
-    """Three reserved keys, and none of them says when a skill runs.
+    """Reserved keys, and none of them says when a JOB runs.
 
     ``grid-execution`` and ``grid-schedulable`` were removed outright when
-    scheduling became a property of the job.
+    scheduling became a property of the job. ``grid-auto-invoke`` is catalog
+    membership, not scheduling: slash and jobs still attach the skill.
     """
-    assert GRID_METADATA_KEYS == {"grid-agents", "grid-cards", "grid-title", "grid-hidden"}
+    assert GRID_METADATA_KEYS == {
+        "grid-agents",
+        "grid-cards",
+        "grid-title",
+        "grid-hidden",
+        "grid-auto-invoke",
+        "grid-catalog",
+    }
     assert "grid-execution" not in GRID_METADATA_KEYS
     assert "grid-schedulable" not in GRID_METADATA_KEYS
 
@@ -242,10 +257,22 @@ def test_org_row_keeps_a_good_title() -> None:
 
 
 def _with_hidden(value: str) -> str:
-    # Quoted: metadata values are strings everywhere (the BFF stores jsonb
-    # string→string and the migration writes ``grid-hidden: "true"``), and an
-    # unquoted ``true`` is a YAML boolean the string→string contract rejects.
     return VALID_MD.replace("  grid-agents: shallow_researcher", f'  grid-hidden: "{value}"')
+
+
+def test_unquoted_yaml_bool_metadata_is_coerced_to_a_string() -> None:
+    """A SKILL.md author writes ``true``, not ``\"true\"``. YAML makes a bool.
+
+    Rejecting that spelling used to fail discovery of every builtin when one
+    file used it. Coerce, then apply the same token rules as a quoted string.
+    """
+    hidden = VALID_MD.replace("  grid-agents: shallow_researcher", "  grid-hidden: true")
+    assert skill_hidden(parse_skill_md(hidden).metadata) is True
+    assert parse_skill_md(hidden).metadata["grid-hidden"] == "true"
+
+    off = VALID_MD.replace("  grid-agents: shallow_researcher", "  grid-auto-invoke: false")
+    assert skill_auto_invoke(parse_skill_md(off).metadata) is False
+    assert parse_skill_md(off).metadata["grid-auto-invoke"] == "false"
 
 
 def test_grid_hidden_truthy_tokens_mark_a_skill_hidden() -> None:
@@ -300,6 +327,62 @@ def test_org_row_keeps_a_truthy_hidden_flag() -> None:
         origin="org",
     )
     assert skill_hidden(skill.metadata) is True
+
+
+def _with_auto_invoke(value: str) -> str:
+    return VALID_MD.replace("  grid-agents: shallow_researcher", f'  grid-auto-invoke: "{value}"')
+
+
+def test_grid_auto_invoke_falsy_tokens_store_the_opt_out() -> None:
+    for token in ("false", "0", "no", "FALSE", "  No  "):
+        skill = parse_skill_md(_with_auto_invoke(token))
+        assert skill_auto_invoke(skill.metadata) is False, token
+        assert skill.metadata["grid-auto-invoke"] == "false"
+
+
+def test_grid_auto_invoke_truthy_tokens_drop_the_key_and_read_on() -> None:
+    for token in ("true", "1", "yes", ""):
+        skill = parse_skill_md(_with_auto_invoke(token))
+        assert "grid-auto-invoke" not in skill.metadata, token
+        assert skill_auto_invoke(skill.metadata) is True, token
+
+
+def test_absent_grid_auto_invoke_reads_on() -> None:
+    skill = parse_skill_md(VALID_MD)
+    assert skill_auto_invoke(skill.metadata) is True
+
+
+def test_garbage_grid_auto_invoke_is_a_strict_error_for_a_file_skill() -> None:
+    with pytest.raises(SkillValidationError, match="grid-auto-invoke"):
+        parse_skill_md(_with_auto_invoke("maybe"))
+
+
+def test_org_row_drops_a_bad_auto_invoke_flag_instead_of_dying() -> None:
+    skill = build_skill_from_payload(
+        {
+            "name": "org-skill",
+            "description": "Ein Org-Skill.",
+            "body": "Body",
+            "metadata": {"grid-auto-invoke": "sometimes", "grid-agents": "shallow_researcher"},
+        },
+        origin="org",
+    )
+    assert "grid-auto-invoke" not in skill.metadata
+    assert skill.metadata["grid-agents"] == "shallow_researcher"
+    assert skill_auto_invoke(skill.metadata) is True
+
+
+def test_org_row_keeps_a_falsy_auto_invoke_flag() -> None:
+    skill = build_skill_from_payload(
+        {
+            "name": "org-skill",
+            "description": "Ein Org-Skill.",
+            "body": "Body",
+            "metadata": {"grid-auto-invoke": "no"},
+        },
+        origin="org",
+    )
+    assert skill_auto_invoke(skill.metadata) is False
 
 
 def _with_cards(value: str) -> str:

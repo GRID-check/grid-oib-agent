@@ -79,12 +79,22 @@ const PLATFORM_SKILL = {
   collection: 'research' as const,
 }
 
-/** A skill the platform OFFERS organizations — off until one switches it on. */
+/** A skill the platform OFFERS organizations — a chat-usable FILE starts ON. */
 const CURATED_SKILL = {
   name: 'oib-fire-check',
   description: 'Checks the project against OIB fire safety.',
   body: '# Fire check\n\nAct as a fire-safety reviewer.',
   metadata: { 'grid-catalog': 'curated' },
+  origin: 'platform' as const,
+  collection: 'research' as const,
+}
+
+/** A deep-research-only FILE offer — starts OFF, never in the chat `/` menu. */
+const DEEP_ONLY_SKILL = {
+  name: 'forecast-analysis',
+  description: 'Forecast evidence for a deep-research job.',
+  body: '# Forecast\n\nUse execute.',
+  metadata: { 'grid-catalog': 'curated', 'grid-agents': 'deep_researcher' },
   origin: 'platform' as const,
   collection: 'research' as const,
 }
@@ -174,7 +184,8 @@ beforeEach(() => {
     (name) => [PLATFORM_SKILL, CURATED_SKILL].find((skill) => skill.name === name) ?? null
   )
   vi.mocked(repository.listSkillsInOrg).mockResolvedValue([])
-  // No decision recorded: every curated skill is off, machinery is on.
+  // No decision recorded: chat-usable FILE offers default on; dashboard
+  // offers and deep-research-only files default off; machinery is on.
   vi.mocked(repository.listCuratedSkillActivations).mockResolvedValue([])
   // The DB catalogue is empty unless a test publishes something into it.
   publishPlatformRows([])
@@ -216,17 +227,35 @@ describe('listSkills', () => {
     expect(skills.find((s) => s.name === 'org-only')?.id).toBe('skill-2')
   })
 
-  it('offers a curated skill switched OFF until the org decides otherwise', async () => {
+  it('starts a deep-research-only file offer OFF, and keeps it out of chat', async () => {
+    vi.mocked(listPlatformSkills).mockReturnValue([PLATFORM_SKILL, CURATED_SKILL, DEEP_ONLY_SKILL])
+    vi.mocked(findPlatformSkill).mockImplementation(
+      (name) =>
+        [PLATFORM_SKILL, CURATED_SKILL, DEEP_ONLY_SKILL].find((skill) => skill.name === name) ?? null
+    )
+    const { skills } = await listSkills(session)
+    expect(skills.find((s) => s.name === 'forecast-analysis')).toMatchObject({
+      enabled: false,
+      origin: 'platform',
+    })
+    const { skills: chat } = await resolveSkillsForAgent('org_1', 'shallow_researcher')
+    expect(chat.map((s) => s.name)).not.toContain('forecast-analysis')
+    const { skills: deep } = await resolveSkillsForAgent('org_1', 'deep_researcher')
+    expect(deep.map((s) => s.name)).not.toContain('forecast-analysis')
+    const { skills: invocable } = await listInvocableSkills(session)
+    expect(invocable.map((s) => s.name)).not.toContain('forecast-analysis')
+  })
+
+  it('starts a chat-usable file offer ON, and still lets the org switch it off', async () => {
     const { skills } = await listSkills(session)
     const offer = skills.find((s) => s.name === 'oib-fire-check')
-    // No id: it is still a file, and the switch addresses it by name.
-    expect(offer).toMatchObject({ id: null, origin: 'platform', enabled: false })
+    expect(offer).toMatchObject({ id: null, origin: 'platform', enabled: true })
 
     vi.mocked(repository.listCuratedSkillActivations).mockResolvedValue([
-      activation('oib-fire-check', true),
+      activation('oib-fire-check', false),
     ])
     const { skills: after } = await listSkills(session)
-    expect(after.find((s) => s.name === 'oib-fire-check')?.enabled).toBe(true)
+    expect(after.find((s) => s.name === 'oib-fire-check')?.enabled).toBe(false)
   })
 
   /**
@@ -243,6 +272,16 @@ describe('listSkills', () => {
     expect(offer).toMatchObject({ id: null, origin: 'platform', enabled: false })
     expect(offer?.body).toBe('Compare the certificate against OIB 6.')
     expect(offer?.metadata['grid-agents']).toBe('deep_researcher')
+  })
+
+  it('does not let a dashboard offer replace a shipped file of the same name', async () => {
+    publishPlatformRows([
+      platformRow({ name: 'oib-fire-check', body: 'DASHBOARD OVERRIDE' }),
+    ])
+    const { skills } = await listSkills(session)
+    expect(skills.find((s) => s.name === 'oib-fire-check')?.body).toBe(CURATED_SKILL.body)
+    const { skills: forTheRun } = await resolveSkillsForAgent('org_1')
+    expect(forTheRun.find((s) => s.name === 'oib-fire-check')?.body).toBe(CURATED_SKILL.body)
   })
 
   it('lets an org row shadow an offer of the same name, as it always has', async () => {
@@ -382,16 +421,19 @@ describe('resolveSkillSnapshot', () => {
    * attached one BEFORE it was switched off keep running — they pinned a
    * snapshot at save time and never come back through here.
    */
-  it('will not pin an offer the org has not switched on', async () => {
+  it('pins a chat-usable file offer without an activation row', async () => {
     vi.mocked(repository.findSkillByName).mockResolvedValue(null)
+    expect((await resolveSkillSnapshot('oib-fire-check', 'org_1')).origin).toBe('platform')
+  })
+
+  it('will not pin a file offer the org has switched off', async () => {
+    vi.mocked(repository.findSkillByName).mockResolvedValue(null)
+    vi.mocked(repository.listCuratedSkillActivations).mockResolvedValue([
+      activation('oib-fire-check', false),
+    ])
     await expect(resolveSkillSnapshot('oib-fire-check', 'org_1')).rejects.toBeInstanceOf(
       NotFoundError
     )
-
-    vi.mocked(repository.listCuratedSkillActivations).mockResolvedValue([
-      activation('oib-fire-check', true),
-    ])
-    expect((await resolveSkillSnapshot('oib-fire-check', 'org_1')).origin).toBe('platform')
   })
 })
 
@@ -406,10 +448,11 @@ describe('resolveSkillsForAgent', () => {
       makeSkill({ id: 's2', name: 'disabled-skill', enabled: false }),
     ])
     const { skills } = await resolveSkillsForAgent('org_1')
-    expect(skills).toHaveLength(1)
-    expect(skills[0].name).toBe('data-table-analysis')
-    expect(skills[0].description).toBe('org shadow')
-    expect(skills[0].metadata['grid-cards']).toBe('summary')
+    const shadowed = skills.find((s) => s.name === 'data-table-analysis')
+    expect(shadowed?.description).toBe('org shadow')
+    expect(shadowed?.metadata['grid-cards']).toBe('summary')
+    expect(skills.map((s) => s.name)).not.toContain('disabled-skill')
+    expect(skills.map((s) => s.name)).toContain('oib-fire-check')
   })
 
   it('filters by grid-agents when an agent is named, absent meaning all', async () => {
@@ -418,9 +461,14 @@ describe('resolveSkillsForAgent', () => {
       makeSkill({ id: 's2', name: 'for-everyone' }),
     ])
     const { skills } = await resolveSkillsForAgent('org_1', 'deep_researcher')
-    expect(skills.map((s) => s.name)).toEqual(['data-table-analysis', 'for-researcher', 'for-everyone'])
+    expect(skills.map((s) => s.name)).toEqual([
+      'oib-fire-check',
+      'data-table-analysis',
+      'for-researcher',
+      'for-everyone',
+    ])
     const { skills: other } = await resolveSkillsForAgent('org_1', 'shallow_researcher')
-    expect(other.map((s) => s.name)).toEqual(['data-table-analysis', 'for-everyone'])
+    expect(other.map((s) => s.name)).toEqual(['oib-fire-check', 'data-table-analysis', 'for-everyone'])
   })
 
   it('ignores an unknown grid-agents name rather than hiding the skill from everyone', async () => {
@@ -439,17 +487,9 @@ describe('resolveSkillsForAgent', () => {
    * resolves only for an org that switched it on, so a switch on the Skills tab
    * actually reaches the agent instead of being decoration.
    */
-  it('runs the machinery for every org and an offer only once switched on', async () => {
+  it('runs the machinery for every org and a chat-usable file offer by default', async () => {
     const { skills } = await resolveSkillsForAgent('org_1')
-    expect(skills.map((s) => s.name)).toEqual(['data-table-analysis'])
-
-    vi.mocked(repository.listCuratedSkillActivations).mockResolvedValue([
-      activation('oib-fire-check', true),
-    ])
-    const { skills: after } = await resolveSkillsForAgent('org_1')
-    // Offers are merged before machinery, so a curated row could never replace
-    // the pipeline's own — sorted here because the ORDER is not the claim.
-    expect(after.map((s) => s.name).sort()).toEqual(['data-table-analysis', 'oib-fire-check'])
+    expect(skills.map((s) => s.name).sort()).toEqual(['data-table-analysis', 'oib-fire-check'])
   })
 
   it('drops an offer again when the org switches it back off', async () => {
@@ -753,6 +793,39 @@ describe('platform standard skills', () => {
 })
 
 describe('listInvocableSkills', () => {
+  it('never lists pipeline machinery — those load on their own', async () => {
+    const { skills } = await listInvocableSkills(session)
+    expect(skills.map((s) => s.name)).not.toContain('data-table-analysis')
+    expect(skills.map((s) => s.name)).toContain('oib-fire-check')
+  })
+
+  it('lists a hidden org skill — hidden is the live line, not the menu', async () => {
+    vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
+      makeSkill({ name: 'house-voice', metadata: { 'grid-hidden': 'true' } }),
+    ])
+    const { skills } = await listInvocableSkills(session)
+    expect(skills.map((s) => s.name)).toContain('house-voice')
+  })
+
+  it('does not list an offer the org switched off', async () => {
+    vi.mocked(repository.listCuratedSkillActivations).mockResolvedValue([
+      activation('oib-fire-check', false),
+    ])
+    const { skills } = await listInvocableSkills(session)
+    expect(skills.map((s) => s.name)).not.toContain('oib-fire-check')
+  })
+
+  it('still lists an org row that shadows machinery, because that copy is theirs', async () => {
+    vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
+      makeSkill({ name: 'data-table-analysis', description: 'org shadow' }),
+    ])
+    const { skills } = await listInvocableSkills(session)
+    expect(skills.find((s) => s.name === 'data-table-analysis')).toMatchObject({
+      origin: 'org',
+      description: 'org shadow',
+    })
+  })
+
   it('never offers a skill scoped away from the chat agent', async () => {
     vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
       makeSkill({ name: 'sandbox-writer', metadata: { 'grid-agents': 'deep_researcher' } }),

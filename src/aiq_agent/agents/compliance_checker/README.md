@@ -7,17 +7,10 @@ agent is **not** an open agent/tool-calling loop: every LLM call is a single
 structured request/response, and the total call count for a full 6-Richtlinie
 check is bounded and predictable (~10-25 calls, see budget math below).
 
-**Status: wired, v1 shipped, live shakedown pending.** As of `3f1db6a`
-(2026-07-16) this package is registered as the `aiq_compliance_checker`
-`nat.plugins` entry point (`pyproject.toml`) and referenced from
-`configs/config_oib_openrouter.yml` as the `compliance_check` function
-(`_type: compliance_check_agent`, backed by a dedicated `compliance_llm`
-role) — `nat` can resolve and invoke it directly. What's still missing is a
-**caller**: no chat/workflow orchestrator node, slash command, or UI action
-invokes `compliance_check` yet, so it has not been exercised end-to-end
-against a live model. See [Pending wiring](#pending-wiring) below for what
-remains, and [Known limitation](#known-limitation) for the one open item from
-the wiring change itself.
+**Status: callable from chat.** Registered as `aiq_compliance_checker`,
+configured as `compliance_check`, and on `shallow_research_agent`'s tool list.
+A turn that asks for a full Soll-Ist should call the tool. Live shakedown
+against a real model is still pending.
 
 ## Pipeline stages
 
@@ -137,12 +130,10 @@ that asserts `RequirementProfile.model_json_schema()` and
 `minimum`/`maximum`/`exclusiveMinimum`/`exclusiveMaximum`/`minLength`/
 `maxLength`/`pattern` anywhere in their tree.
 
-## Pending wiring
+## Registration
 
-Both of the plugin-registration/config changes originally listed here shipped
-in `3f1db6a` (2026-07-16) -- `pyproject.toml`'s `nat.plugins` entry point and
-the `compliance_check` function block in `configs/config_oib_openrouter.yml`,
-reproduced below for reference:
+Plugin entry point and the function block in
+`configs/config_oib_openrouter.yml`, reproduced below for reference:
 
 ```toml
 [project.entry-points."nat.plugins"]
@@ -161,23 +152,14 @@ functions:
     verbose: false
 ```
 
-What remains is invoking it: no chat/workflow node currently calls
-`compliance_check`. Invoking it from a chat/workflow node accepts a
-`ComplianceCheckAgentState` (a `messages` list plus `project_context`,
-`project_descriptors`, `richtlinien` override, and `collection_name`) and
-returns the same state with the rendered Markdown report appended as the
-final `AIMessage` -- the same message-in/message-out contract as
-`shallow_research_agent` / `clarifier_agent`. Wiring a real entry point
-(a dedicated intent/slash command, or a chat-graph branch) is product-owned
-follow-up, not done here.
+The doorbell is the chat tool: `compliance_check` is on
+`shallow_research_agent`'s tool list. A turn that asks for a full
+Soll-Ist / Konformitaetspruefung should call it rather than walking the six
+Richtlinien by hand. The tool reads project context and the project collection
+from the request; `focus` and `richtlinien` narrow the run.
 
-## Known limitation
+## Agent group
 
-`AgentGroup` (`aiq_agent.common.model_overrides`) has no dedicated member for
-this pipeline yet, so `register.py` tags its `LLMProvider` with
-`AgentGroup.DEEP_RESEARCH` for now (see the `TODO(compliance)` comment in
-`register.py`). Once this agent is wired in, add a one-line
-`COMPLIANCE_CHECK = "compliance_check"` member to `AgentGroup` (plus the
-matching entry in `frontends/ui/src/lib/model-config/agent-groups.ts`) and
-switch the provider's group over -- `common/model_overrides.py` is owned
-elsewhere and was intentionally not touched by this change.
+`AgentGroup.COMPLIANCE_CHECK` (`compliance_check`) is the override point for
+`compliance_llm`. Independent of `deep_research`, so unsetting that group's
+model does not silence a check.

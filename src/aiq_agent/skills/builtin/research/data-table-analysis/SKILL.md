@@ -5,12 +5,12 @@ description: >
 metadata:
   # These are DeepAgents subagent skills: their instructions call `execute`,
   # read and write `/shared/`, and return `ResearchNotes` — capabilities that
-  # exist only inside a deep-research job. `grid-agents: deep_researcher` is now
-  # the ONE thing keeping this skill out of a chat turn: it is the single
-  # availability gate, so removing it would offer the shallow chat agent a skill
-  # it cannot carry out. A skill declares WHO may use it and nothing else — when
-  # and how a run happens is a property of the job, not of the skill.
+  # exist only inside a deep-research job. `grid-agents: deep_researcher` keeps
+  # it out of chat. `grid-catalog: curated` keeps it off always_on: this is a
+  # sandbox leftover, not how OIB research works, and it stays off until a job
+  # that needs pandas actually takes it up.
   grid-agents: deep_researcher
+  grid-catalog: curated
 ---
 
 # Data Table Analysis Skill

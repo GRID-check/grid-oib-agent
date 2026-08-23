@@ -132,6 +132,14 @@ export const AGENT_GROUPS: AgentGroupDefinition[] = [
     // avoids excluding otherwise-valid vision models.
     requirements: { requiredParameters: [], minContextLength: 0, requiresImageInput: true },
   },
+  {
+    id: 'compliance_check',
+    label: 'OIB compliance check',
+    description:
+      'Staged Soll-Ist against the six OIB Richtlinien for this project. Bounded call count, not an open research loop.',
+    configLlmRefs: ['compliance_llm'],
+    requirements: { requiredParameters: [], minContextLength: 32768 },
+  },
 ]
 
 export const AGENT_GROUP_IDS = AGENT_GROUPS.map((group) => group.id)

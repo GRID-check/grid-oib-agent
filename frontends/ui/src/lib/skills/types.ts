@@ -6,20 +6,21 @@
  *
  *   - `name`: 1–64 chars, lowercase a-z/0-9 and hyphens, no leading, trailing
  *     or consecutive hyphens.
- *   - `description`: 1–1024 chars, non-empty. It states what the skill does AND
- *     when to use it, because it is the only thing an agent sees about the
- *     skill until the skill is activated (progressive disclosure level 1).
+ *   - `description`: 1–1024 chars, non-empty. One sentence: what the skill
+ *     does, in the words a colleague types. It is the only thing an agent
+ *     sees about the skill until the skill is activated (level 1).
  *   - body: the Markdown instructions loaded on activation (level 2), capped at
  *     32000 to match the backend's job-input limit.
  *   - `metadata`: a flat string→string map. The spec leaves it open and
- *     recommends namespaced keys; the two `grid-*` keys below are ours —
- *     `grid-agents` (who may use it, the ONE availability gate) and
- *     `grid-cards` (preferred output cards). Every other key is opaque.
+ *     recommends namespaced keys; the reserved `grid-*` keys below are ours.
+ *     Every other key is opaque.
  *
  * `grid-execution` and `grid-schedulable` used to live here too. Both are gone:
- * a skill says nothing about WHEN it runs or WHAT a run produces. Scheduling is
- * a property of the JOB that attaches the skill, and the output kind is the
- * user's choice on that job (`jobs.output`).
+ * a skill says nothing about WHEN a JOB runs or WHAT a run produces. Scheduling
+ * is a property of the JOB that attaches the skill, and the output kind is the
+ * user's choice on that job (`jobs.output`). `grid-auto-invoke` is catalog
+ * membership, not scheduling: slash and jobs still attach the skill when it is
+ * off.
  */
 
 import { z } from 'zod'
@@ -65,18 +66,17 @@ export const METADATA_CARDS = 'grid-cards'
  * `src/aiq_agent/skills/builtin/`), because only those have two possible
  * audiences:
  *
- *   absent            Machinery. The deep-research pipeline's own instructions
- *                     for computing a table or writing its report. Never listed
+ *   absent            Machinery. The pipeline's own instructions. Never listed
  *                     on the Skills tab, never switchable, always resolved.
  *
  *   `curated`         A capability published TO organizations. Listed on the
- *                     Skills tab with a switch, and OFF until the org turns it
- *                     on (`curated_skill_activations`).
+ *                     Skills tab with a switch. A chat-usable FILE starts ON;
+ *                     a dashboard offer or a deep-research-only file starts
+ *                     OFF (`curated_skill_activations` records the decision).
  *
  * Machinery is the DEFAULT, deliberately: a new builtin that says nothing about
  * itself stays invisible, and exposing one to every tenant has to be a sentence
- * somebody wrote. Every builtin shipping today is machinery, and none of them
- * says this key.
+ * somebody wrote.
  */
 export const METADATA_CATALOG = 'grid-catalog'
 
@@ -123,6 +123,34 @@ const HIDDEN_TRUE: ReadonlySet<string> = new Set(['true', '1', 'yes'])
  */
 export function isHiddenSkill(metadata: Record<string, string>): boolean {
   return HIDDEN_TRUE.has((metadata[METADATA_HIDDEN] ?? '').trim().toLowerCase())
+}
+
+/**
+ * `grid-auto-invoke` — whether the model may pick this skill from L1.
+ *
+ * On (the default, and the absent key): the one-line description sits in the
+ * catalog the model reads every turn, and it may call `use_skill` unprompted.
+ * Off: the skill is still resolved, still in the `/` picker, still attachable
+ * to a job, still loadable when forced. It is merely invisible to the model
+ * until a person or a job names it.
+ *
+ * Mirrors the Python `GRID_AUTO_INVOKE_KEY`. This is not scheduling.
+ */
+export const METADATA_AUTO_INVOKE = 'grid-auto-invoke'
+
+/** Case-insensitive falsy tokens marking auto-invoke off; anything else is on. */
+const AUTO_INVOKE_FALSE: ReadonlySet<string> = new Set(['false', '0', 'no'])
+
+/**
+ * Whether the model may pick this skill from the L1 catalog unprompted.
+ *
+ * Absent or unrecognised reads as on: that is today's behaviour, and forgetting
+ * the flag must not silently hide a skill from every turn.
+ */
+export function isAutoInvokeSkill(metadata: Record<string, string>): boolean {
+  const token = (metadata[METADATA_AUTO_INVOKE] ?? '').trim().toLowerCase()
+  if (!token) return true
+  return !AUTO_INVOKE_FALSE.has(token)
 }
 
 /**

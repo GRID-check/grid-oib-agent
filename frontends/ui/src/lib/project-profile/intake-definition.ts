@@ -483,7 +483,7 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
       title: 'Bauwerke',
       scope: 'bauwerk',
       repeatable: true,
-      description: 'Geometrie und Bauweise je Bauwerk. Daraus leitet das System später die Gebäudeklasse ab.',
+      description: 'Geometrie und Bauweise je Bauwerk. Fluchtniveau, Geschoße und Fläche sind die Eingaben für die Gebäudeklasse.',
       questions: [
         {
           id: 'C1',
@@ -606,7 +606,7 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
           label: 'Gebäudeklasse',
           type: 'info_placeholder',
           derives: 'gebaeudeklasse',
-          hint: 'Die Gebäudeklasse ermittelt das System automatisch aus Geschoßanzahl, Fluchtniveau, Grundfläche und Nutzungseinheiten und legt sie Ihnen hier zur Bestätigung vor. Sind Angaben noch offen, wird eine Bandbreite angezeigt (z. B. „GK 4 oder GK 5“).',
+          hint: 'Die Gebäudeklasse folgt aus Fluchtniveau, Geschoßanzahl, Fläche und Nutzung. Sie wird hier noch nicht automatisch gesetzt. Solange sie im Brief offen ist, fragt Piloti nach, bevor eine Anforderung zitiert wird, die an der Klasse hängt.',
           conditions: [{ param: 'C1', op: 'equals', value: 'gebaeude' }],
         },
       ],

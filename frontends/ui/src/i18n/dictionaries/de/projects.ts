@@ -215,12 +215,12 @@ export const projects: typeof en.projects = {
       hint: 'Dokument im Dateien-Tab ablegen',
     },
     derived: {
-      badge: 'automatisch ermittelt',
+      badge: 'aus dem Profil',
     },
     classification: {
-      title: 'Was Piloti daraus ableitet',
+      title: 'Wozu dieses Profil da ist',
       description:
-        'Sobald Ihre Angaben vollständig sind, zeigt Piloti hier die Gebäudeklasse, welche OIB-Richtlinien und weiteren Vorschriften für Ihr Projekt gelten und welche Punkte noch offen sind — und übernimmt das Projektprofil als Arbeitsgrundlage.',
+        'Die Gebäudeklasse steht hier, wenn sie bestätigt ist. Fehlt sie, fragt Piloti im Chat nach, bevor eine Antwort fällt, die an der Klasse hängt. Das Profil ist die Arbeitsgrundlage dafür, welche Regeln gelten und was noch offen ist.',
     },
     consistency: {
       checking: 'Angaben werden geprüft…',

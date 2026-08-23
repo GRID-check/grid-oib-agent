@@ -1,4 +1,4 @@
-"""Builtin skill discovery — the 5 shipped SKILL.md files, strictly parsed."""
+"""Builtin skill discovery — the shipped SKILL.md files, strictly parsed."""
 
 from __future__ import annotations
 
@@ -13,7 +13,11 @@ from aiq_agent.skills.models import SkillValidationError
 EXPECTED = {
     ("bim", "ifc-spatial-reasoning"),
     ("oib", "bebauung"),
+    ("oib", "bestand"),
     ("oib", "brandschutz"),
+    ("oib", "einreichcheck"),
+    ("oib", "gebaeudeklasse"),
+    ("oib", "hygiene"),
     ("oib", "nutzungssicherheit"),
     ("oib", "waermeschutz"),
     ("research", "data-table-analysis"),
@@ -61,7 +65,14 @@ def test_builtin_frontmatter_declares_only_its_audience() -> None:
     so a builtin file must not reintroduce them.
     """
     for skill in discover_builtin_skills():
-        assert set(skill.metadata) <= {"grid-agents", "grid-cards"}, skill.name
+        assert set(skill.metadata) <= {
+            "grid-agents",
+            "grid-cards",
+            "grid-catalog",
+            "grid-auto-invoke",
+            "grid-title",
+            "grid-hidden",
+        }, skill.name
         assert skill.metadata.get("grid-agents"), skill.name
 
     # The research and synthesis builtins are deep-research-only for a concrete
@@ -69,8 +80,7 @@ def test_builtin_frontmatter_declares_only_its_audience() -> None:
     # nowhere else. `grid-agents` is the single gate that keeps them out of a
     # chat turn, so it must stay exact for them.
     by_name = {s.name: s for s in discover_builtin_skills()}
-    for name in ("data-table-analysis", "long-form-report-writer"):
-        assert by_name[name].metadata == {"grid-agents": "deep_researcher"}, name
+    assert by_name["long-form-report-writer"].metadata == {"grid-agents": "deep_researcher"}
 
     # `ifc-spatial-reasoning` is the exception that made this assertion general:
     # it teaches how to READ a tool's answers, needs none of that machinery, and
@@ -78,6 +88,20 @@ def test_builtin_frontmatter_declares_only_its_audience() -> None:
     # questions it is about get asked.
     spatial = by_name["ifc-spatial-reasoning"]
     assert "shallow_researcher" in spatial.metadata["grid-agents"]
+
+    # Job playbooks are offers: on the Skills tab, chat-usable files start ON.
+    # Genre methods stay machinery so a fire question still auto-loads.
+    for name in ("einreichcheck", "bestand"):
+        assert by_name[name].metadata.get("grid-catalog") == "curated", name
+    for name in (
+        "forecast-analysis",
+        "prediction-report-writer",
+        "data-table-analysis",
+        "lightweight-calculation",
+    ):
+        assert by_name[name].metadata.get("grid-catalog") == "curated", name
+    for name in ("brandschutz", "gebaeudeklasse", "hygiene", "long-form-report-writer"):
+        assert "grid-catalog" not in by_name[name].metadata, name
 
 
 def test_discovery_rejects_name_mismatch(tmp_path: Path) -> None:

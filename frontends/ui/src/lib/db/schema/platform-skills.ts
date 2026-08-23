@@ -25,9 +25,10 @@ export type PlatformSkillDelivery = (typeof PLATFORM_SKILL_DELIVERIES)[number]
  *
  * HOW it reaches them is `delivery`, and there are two answers:
  *
- *   'offer'     Listed on every organization's Skills tab, off until that org
- *               switches it on. The decision is theirs and lives in
- *               `curated_skill_activations`.
+ *   'offer'     Listed on every organization's Skills tab. A dashboard offer
+ *               starts off until that org switches it on. The decision is
+ *               theirs and lives in `curated_skill_activations`. Chat-usable
+ *               FILE offers are a different source and start on.
  *   'standard'  Fleet standard equipment. Resolved for every organization with
  *               no decision to make, never listed, not switchable, and not
  *               shadowable by an org row of the same name.

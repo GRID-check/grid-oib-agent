@@ -1557,12 +1557,11 @@ yet).
 ## 8d. Agent skills (ADR-0046)
 
 Reusable instruction packages (`SKILL.md`, agentskills.io contract) that
-extend a research turn's procedure. Selection is **user-driven** — a
-`skills` array in the chat envelope or `force_skills` on
-`/v1/internal/skills/submit` names the skills that must apply, exactly
-mirroring how `data_sources` work; the model never picks its own. Delivery
-is **progressive disclosure**: L1 is a one-line-per-skill catalog in the
-system prompt (`## Verfügbare Skills` + a forced-skills block), L2 is the
+extend a research turn's procedure. A user can force a skill (`/name`, a
+job, `force_skills` on submit). The model may also pick from the L1 catalog
+unless the skill sets `grid-auto-invoke: false`. Delivery is **progressive
+disclosure**: L1 is a one-line-per-skill catalog in the
+system prompt (`## Available skills` + a forced-skills block), L2 is the
 full body, loaded only when the model calls the `use_skill` tool. Per-run
 `SkillRuntime` (ADR-0018 — never cached on the shared agent) tracks forced
 vs. invoked names for `skills_activated` on the terminal frame.
@@ -1574,10 +1573,12 @@ fail-open and cached in the shared cache
 (`GRID_SKILLS_CACHE_TTL_SECONDS`, default 60). `shallow_research_agent`
 config gate: `skills_enabled` (default true) + `skill_allowlist` (empty =
 all). Research turns only — meta turns keep the interaction-only tool
-partition. The deep researcher intentionally stays on the deepagents-native
-skill-sources mechanism (`DeepResearchSkillsConfig`, `SkillsMiddleware` +
-`FilesystemBackend`); `force_skills` never crosses to it. Full design and
-tests: `docs/architecture/agent-skills.md`.
+partition (remember, emit_card, describe_card). Deep research loads
+machinery from the filesystem (`DeepResearchSkillsConfig` mounts `oib`/`bim`
+on the researcher and `synthesis` on the writer; curated dirs 404) and
+loads house voice, offers and org skills through `use_skill`
+(`resolve_served_skills`). Full design and tests:
+`docs/architecture/agent-skills.md`.
 
 ## 9. Known issues / open items
 

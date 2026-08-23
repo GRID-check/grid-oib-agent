@@ -61,6 +61,55 @@ class TestDeepAgentsRuntimeRouting:
         assert runtime.execution_enabled is False
         assert runtime.skills_enabled is False
 
+    def test_curated_offers_are_absent_from_the_skills_mount(self) -> None:
+        """An offer the org never switched on must not be readable from /skills/.
+
+        Chat already drops ``grid-catalog: curated`` from always_on. The mount
+        used to serve the whole builtin tree, so a researcher could still
+        ``read_file`` forecast-analysis. Same gate on both agents.
+        """
+        runtime = DeepAgentsRuntime(
+            skills=DeepResearchSkillsConfig(agents={"writer-agent": ("synthesis",)}),
+        )
+        # CompositeBackend is what the agent talks to; the route backend's
+        # virtual root is `/`, so `/skills/synthesis/` only exists here.
+        backend = runtime.backend
+        listed = backend.ls("/skills/synthesis/")
+        names = [entry["path"].rstrip("/").rsplit("/", 1)[-1] for entry in (listed.entries or [])]
+        assert "long-form-report-writer" in names
+        assert "prediction-report-writer" not in names
+        hidden = backend.read("/skills/synthesis/prediction-report-writer/SKILL.md")
+        assert hidden.file_data is None
+        assert hidden.error
+        route = runtime.backend.routes[BUILTIN_SKILL_SOURCE]
+        downloads = route.download_files(
+            [
+                "/synthesis/long-form-report-writer/SKILL.md",
+                "/synthesis/prediction-report-writer/SKILL.md",
+            ]
+        )
+        assert downloads[0].error is None
+        assert downloads[0].content is not None
+        assert downloads[1].content is None
+        assert downloads[1].error == "file_not_found"
+
+        oib_runtime = DeepAgentsRuntime(
+            skills=DeepResearchSkillsConfig(agents={"researcher-agent": ("oib",)}),
+        )
+        oib = oib_runtime.backend.ls("/skills/oib/")
+        oib_names = [entry["path"].rstrip("/").rsplit("/", 1)[-1] for entry in (oib.entries or [])]
+        assert "brandschutz" in oib_names
+        assert "einreichcheck" not in oib_names
+        assert "bestand" not in oib_names
+        globbed = oib_runtime.backend.glob("**/SKILL.md", "/skills/oib/")
+        glob_paths = [entry["path"] for entry in (globbed.matches or [])]
+        assert any("brandschutz" in path for path in glob_paths)
+        assert not any("einreichcheck" in path for path in glob_paths)
+        grepped = oib_runtime.backend.grep("Gebäudeklasse", path="/skills/oib/")
+        grep_paths = [match["path"] for match in (grepped.matches or [])]
+        assert grep_paths
+        assert not any("einreichcheck" in path for path in grep_paths)
+
     def test_skills_only_adds_skills_route(self) -> None:
         runtime = DeepAgentsRuntime(
             skills=DeepResearchSkillsConfig(agents={"writer-agent": ("synthesis",)}),
@@ -148,11 +197,9 @@ class TestDeepAgentsRuntimeRouting:
         assert [skill["name"] for skill in top_level_skills] == []
         assert [skill["name"] for skill in synthesis_skills] == [
             "long-form-report-writer",
-            "prediction-report-writer",
         ]
         assert [skill["path"] for skill in synthesis_skills] == [
             "/skills/synthesis/long-form-report-writer/SKILL.md",
-            "/skills/synthesis/prediction-report-writer/SKILL.md",
         ]
 
     def test_deepagents_subagent_skills_key_adds_skills_middleware(self) -> None:

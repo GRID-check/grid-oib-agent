@@ -32,7 +32,7 @@ const DOCUMENT = renderSkillDocument({
   description:
     'Prüft Bauteile und Fluchtwege gegen OIB-Richtlinie 2. Einsetzen, wenn ein Brandschutznachweis erstellt oder vor der Einreichung gegengeprüft werden soll.',
   body: 'Handle als Brandschutzprüfer.\n\n1. Bestimme die Gebäudeklasse.\n2. Prüfe jedes Bauteil gegen OIB-Richtlinie 2.',
-  metadata: { 'grid-execution': 'chat', 'grid-cards': 'legal_basis' },
+  metadata: { 'grid-auto-invoke': 'false', 'grid-hidden': 'true', 'grid-cards': 'legal_basis' },
 })
 
 /** Frontmatter that was never closed — the commonest paste accident. */

@@ -6,19 +6,17 @@
  * generated `@/lib/skills/platform-skills` module. There are two kinds, and
  * only one of them has anything to do with this table:
  *
- *   internal   The deep-research pipeline's own machinery (how it computes a
- *              table, how it writes a report). Not an organization's business:
- *              never listed, never switchable, always resolved. This is every
- *              builtin that ships today, and it is the DEFAULT — a skill that
+ *   internal   The pipeline's own machinery. Not an organization's business:
+ *              never listed, never switchable, always resolved. A skill that
  *              says nothing is machinery.
  *
  *   curated    A capability we publish TO organizations (`grid-catalog:
- *              curated`). Offered on the Skills tab, off until the org
- *              switches it on. That decision is this table.
+ *              curated`). Offered on the Skills tab. That decision is this
+ *              table.
  *
  * One row per (organization, curated skill it has decided about). No row means
- * the default, and for a curated skill the default is OFF: we send it down, the
- * organization chooses whether to run it.
+ * the default: a chat-usable FILE starts ON, a dashboard offer or a
+ * deep-research-only file starts OFF. The org can still switch either way.
  *
  * Deliberately NOT a `skills` row. A skills row carries a body, and a body is a
  * copy — it would drift from the file it came from the first time we improved
