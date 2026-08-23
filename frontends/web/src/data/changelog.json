@@ -52,6 +52,10 @@
             {
               "en": "Asking for a full Soll-Ist or Konformitaetspruefung now runs the staged check against this project, instead of walking the six Richtlinien by hand.",
               "de": "Asking for a full Soll-Ist or Konformitaetspruefung now runs the staged check against this project, instead of walking the six Richtlinien by hand."
+            },
+            {
+              "en": "Admin activity logging now ships switched off by default. Operators who want the audit trail can turn it on with a single setting, and viewing recorded activity works exactly as before once it is on.",
+              "de": "Admin activity logging now ships switched off by default. Operators who want the audit trail can turn it on with a single setting, and viewing recorded activity works exactly as before once it is on."
             }
           ]
         },
