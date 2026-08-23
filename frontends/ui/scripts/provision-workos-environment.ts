@@ -356,7 +356,7 @@ async function ensureConnectSecret(appName: string, id: string, clientId: string
 
 async function reconcileConnectApp(): Promise<void> {
   console.log('\nObservability Connect application')
-  const appName = connectAppName()
+  const appName = await connectAppName()
   const uris = splitList(process.env.WORKOS_CONNECT_REDIRECT_URIS)
   if (uris.length === 0) {
     note('skipped  WORKOS_CONNECT_REDIRECT_URIS is unset')
