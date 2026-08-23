@@ -1,9 +1,9 @@
 ---
 features:
   - >
-    Setting up the identity layer behind a new Piloti environment is now
-    scriptable. One command checks the platform organization, its owner,
-    sign-in web origins, the observability sign-in application and feature-flag
-    targeting against the desired state, reports anything missing or different,
-    and can reconcile it for you — and a weekly automatic check now flags
-    drift in these settings before it reaches your users.
+    Setting up the identity layer behind a new Piloti environment no longer
+    means clicking through a dashboard. One command checks the platform
+    organization, its owner, sign-in web origins, the observability
+    application and feature-flag targeting, reports anything missing or
+    different, and can reconcile it — a weekly check now flags drift before
+    it reaches your users.
