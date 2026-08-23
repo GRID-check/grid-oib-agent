@@ -2,9 +2,11 @@
 
 import asyncio
 import io
+import ipaddress
 import logging
 import os
 import re
+import socket
 import tempfile
 from urllib.parse import unquote
 from urllib.parse import urlparse
@@ -76,6 +78,7 @@ def add_ingest_routes(router: APIRouter):
         submitted = False
         try:
             _assert_object_store_url(file_ref)
+            _assert_public_host_resolution(file_ref)
 
             async with httpx.AsyncClient() as client:
                 # No redirects: a follow could land on a host outside the
@@ -189,6 +192,35 @@ def add_ingest_routes(router: APIRouter):
                     os.unlink(temp_path)
                 except OSError:
                     pass
+
+
+def _assert_public_host_resolution(url: str) -> None:
+    """Ensure URL host resolves only to public IP addresses."""
+    parsed = urlparse(url)
+    host = parsed.hostname
+    if not host:
+        raise HTTPException(status_code=400, detail="file_ref must include a valid hostname")
+
+    try:
+        infos = socket.getaddrinfo(host, parsed.port or 443, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise HTTPException(status_code=400, detail="file_ref host could not be resolved") from exc
+
+    for info in infos:
+        ip_str = info[4][0]
+        ip = ipaddress.ip_address(ip_str)
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="file_ref host resolves to a non-public IP address",
+            )
 
 
 def _object_store_hosts() -> frozenset[str]:
