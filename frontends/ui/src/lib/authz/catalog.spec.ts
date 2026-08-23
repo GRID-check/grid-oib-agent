@@ -12,6 +12,7 @@ import {
   ROLES,
   findPermissionSpec,
   findRoleSpec,
+  type PermissionTier,
 } from './catalog'
 import { ORG_PERMISSIONS, PLATFORM_PERMISSIONS, PROJECT_PERMISSIONS } from './permissions'
 
@@ -91,6 +92,25 @@ describe('authorization catalog', () => {
     for (const type of RESOURCE_TYPES) {
       expect(type.description.length, `${type.slug} description`).toBeLessThanOrEqual(150)
     }
+  })
+
+  it('every permission/role tier maps to a declared resource type', () => {
+    // The provisioner attaches permissions and roles via `resourceTypeSlugFor`
+    // (platform → organization, otherwise the tier itself). A tier without a
+    // RESOURCE_TYPES entry still compiles — it just silently prints a topology
+    // that omits where its permissions live. The skill type went missing
+    // exactly this way: skills had permissions and roles while the printed
+    // topology stopped at Project.
+    const typeSlugs = new Set(RESOURCE_TYPES.map((type) => type.slug))
+    const resourceTypeFor = (tier: PermissionTier): string =>
+      tier === 'platform' || tier === 'org' ? 'organization' : tier
+    const unattached = [
+      ...new Set([
+        ...ALL_PERMISSION_SPECS.map((permission) => resourceTypeFor(permission.tier)),
+        ...ROLES.map((role) => resourceTypeFor(role.tier)),
+      ]),
+    ].filter((slug) => !typeSlugs.has(slug))
+    expect(unattached).toEqual([])
   })
 
   it('the registry constants and the catalog agree on every slug', () => {

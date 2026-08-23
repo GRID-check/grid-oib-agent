@@ -110,6 +110,12 @@ export const RESOURCE_TYPES: readonly ResourceTypeSpec[] = [
       'A tenant workspace: shared documents, memory and conversations for the research agent.',
     parent: 'organization',
   },
+  {
+    slug: 'skill',
+    name: 'Skill',
+    description: 'A scheduled agent-skill job attached to a project (Agent Skills).',
+    parent: 'project',
+  },
 ]
 
 /** Organization-tier permissions — delivered in the AuthKit JWT. */

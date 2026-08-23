@@ -38,8 +38,8 @@ Everything below exists in **both** environments:
 | Staging | `environment_01KEF0YG238CSMNF731TEG010E` | 2026-07-30 — the environment the deployed app uses (its orgs include "GRID Test") |
 | Production | `environment_01KEF0YGNYDFAFAS77EZEFQ839` | 2026-07-31 — full replay into a previously empty environment |
 
-Both carry the same three resource types, the same 23 GRID permissions and the
-same 16 roles, verified role-by-role against the catalog after each run.
+Both carry the same three resource types, the same 24 GRID permissions and the
+same 13 roles, verified role-by-role against the catalog after each run.
 
 Two Production-specific notes:
 
@@ -57,7 +57,7 @@ Two Production-specific notes:
 
 ### 0. Resource topology
 
-`Organization → Project → Workflow`. Organization is the immutable root:
+`Organization → Project → Skill`. Organization is the immutable root:
 creating a parentless resource type is rejected by the live API with
 *"At least one parent type is required"* (verified 2026-07-30), which is why the
 platform tier is modelled as an org-scoped role rather than a tier above
@@ -67,11 +67,18 @@ Organization.
 |---|---|---|
 | `organization` | — | System root. Carries org-tier and platform-tier permissions. |
 | `project` | `organization` | Tenant workspace: documents, memory, conversations. |
-| `workflow` | `project` | A scheduled research run (ADR-0023). Added by ADR-0038 so an operator can run one without editing the project. |
+| `skill` | `project` | A scheduled agent-skill job attached to a project (Agent Skills). |
 
 > `document` was **deleted** (2026-07-30). It existed with zero roles and zero
 > permissions and nothing ever checked it; document access is inheritance from
 > the parent project, enforced in `lib/documents/service.ts`. See ADR-0038.
+>
+> The `workflow` resource type and its three permissions/roles met the same
+> fate when Agent Skills replaced Workflows: the catalog now defines the
+> `skill` type instead. Environments the old feature reached still carry the
+> `workflow:*` leftovers — the provisioning script reports them as
+> `UNKNOWN … absent from the catalog`, which is how they stay visible until an
+> operator deletes them in the dashboard.
 
 ### 1. Organization-tier permissions (resource type: Organization)
 
@@ -83,10 +90,11 @@ Organization.
 | `org:compliance:manage` | Legal holds + deletion queue |
 | `org:audit:view` | Open the org's native audit-log viewer (Admin Portal) |
 | `org:archiv:manage` | Upload/delete/reingest/retag in the org-wide document Archiv (ADR-0024). Reads are open to any member, so only mutations need it. |
+| `org:skills:manage` | Author, edit, clone and delete skills in the organization toolbox (Agent Skills). Reads are open to any member. |
 | `org:projects:create` | Create projects. Held by **Member** by default; withhold it to make project creation admin-only. |
 | `org:members:manage` | Open the **Access** section: the member directory, the role catalog and the WorkOS Users widget that invites, re-roles and removes people. |
 
-All eight are attached to the environment **Admin** role, which keeps its six
+All nine are attached to the environment **Admin** role, which keeps its six
 `widgets:*` permissions. **Member** holds `org:projects:create` only — all other
 project access comes from project-scoped roles.
 
@@ -101,18 +109,20 @@ project access comes from project-scoped roles.
 | `project:memory:write` | Add/edit/remove project memory items |
 | `project:manage` | Rename, archive or delete the project |
 | `project:members:manage` | Grant and revoke project roles |
-| `project:workflows:manage` | Create, edit and delete the project's workflows |
+| `project:skills:manage` | Create, edit, delete and run skill schedules in a project (Agent Skills Phase A) |
 
-### 1b. Workflow-tier permissions (resource type: Workflow)
+### 1b. Skill-tier permissions (resource type: Skill)
 
 | Slug | Meaning |
 |---|---|
-| `workflow:view` | See a workflow's definition, schedule and run history |
-| `workflow:run` | Trigger it manually, outside its schedule (spends budget) |
-| `workflow:manage` | Edit its definition/schedule, or delete it |
+| `skill:view` | See a skill schedule's definition, schedule and run history |
+| `skill:run` | Trigger it manually, outside its schedule (spends budget) |
+| `skill:manage` | Edit its definition/schedule, or delete it |
 
-Creating a workflow is `project:workflows:manage` (there is no workflow yet to
-check against); operating an existing one is workflow-tier.
+Creating a skill schedule is `project:skills:manage` (there is no schedule yet
+to check against); operating an existing one is skill-tier, with the
+project-tier fallback in `lib/authz/decide.ts` keeping project admins working
+without provisioning per-skill roles.
 
 ### 2. Platform-tier permissions (resource type: Organization)
 
@@ -145,8 +155,7 @@ environment-scoped role holds a `platform:*` permission.
 | `project-viewer` | environment (Project) | `project:view` |
 | `project-contributor` | environment (Project) | `project:view`, `project:chat` |
 | `project-editor` | environment (Project) | + `project:edit`, `project:documents:write`, `project:memory:write` |
-| `project-admin` | environment (Project) | + `project:manage`, `project:members:manage`, `project:workflows:manage` |
-| `workflow-viewer` / `workflow-operator` / `workflow-admin` | environment (Workflow) | `workflow:view` / +`run` / +`manage` |
+| `project-admin` | environment (Project) | + `project:manage`, `project:members:manage`, `project:skills:manage` |
 | `org-platform-owner` | **GRID Platform org only** | all `platform:*` + five `widgets:*` |
 | `org-platform-support` | **GRID Platform org only** | `platform:organizations:view`, `platform:usage:view` |
 
@@ -350,7 +359,7 @@ steps 3–5 are done, then clear it.
   `org-platform-owner`/`org-platform-support` (cached lookup) or the break-glass
   allowlist.
 - **Per-resource**: `lib/authz/resource-check.ts` is the single FGA round-trip
-  for both the project and workflow tiers, and fails closed.
+  for both the project and skill tiers, and fails closed.
 - **Route postures**: every `app/api` handler declares how it is authorized
   (`{ permission }` / `{ enforcedBy }` / `{ sessionOnly, why }`); `tsc` rejects a
   route that does not, and `src/app/api/authz-coverage.spec.ts` fails when a
