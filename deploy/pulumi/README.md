@@ -235,6 +235,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | **`workosClientId`** / 🔒 `workosApiKey` / 🔒 `workosCookiePassword` | — | WorkOS |
 | `platformOwnerEmails` / `platformOrgExternalId` | — / `grid-platform` | Platform tier |
 | `disableSelfServeOrgs` / `enforceFeatureFlags` | `false` / `false` | Tenancy toggles |
+| `auditLogsEnabled` | `false` | WorkOS audit-log emission from the frontend (`GRID_AUDIT_LOGS_ENABLED`) — default OFF |
 | `byokSecretBackend` / 🔒 `byokLocalKek` | — | BYOK backends |
 | `allowAgentOrgMemory` | `false` | Org-memory write path |
 | 🔒 **`gridInternalApiToken`** / 🔒 **`gridAdminToken`** | — | Cross-service tokens |
