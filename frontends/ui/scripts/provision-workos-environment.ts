@@ -260,7 +260,7 @@ async function reconcileWebOrigins(
     return
   }
 
-  const valueField = kind === 'redirect_uris' ? 'url' : 'origin'
+  const valueField = kind === 'redirect_uris' ? 'uri' : 'origin'
   const rows = normalizeRows(listing.payload)
   const current: string[] = []
   for (const row of rows) {
