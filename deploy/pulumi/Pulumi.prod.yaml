@@ -74,7 +74,12 @@ config:
   grid-oib:namespace: grid
   # ── Images (from the publish-images CI workflow → GHCR) ──
   grid-oib:imageRegistry: ghcr.io/grid-check
-  grid-oib:imageTag: latest
+  # This line IS the promotion mechanism: every develop→prod promotion PR must
+  # bump it to the new develop-tip sha (publish-images builds every service as
+  # sha-<full sha> on every develop push). Do NOT have CI compute this
+  # dynamically from the merge commit — prod merge shas never have GHCR images;
+  # only develop tips do.
+  grid-oib:imageTag: sha-306e15bad1d5f398251b1472c3898efbcd0aaef3
   # ── Storage (provider CSI, NVMe/TCP) ──
 
   # Classes offered by the provider (see `kubectl get storageclass`):
