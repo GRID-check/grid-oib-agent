@@ -7,11 +7,13 @@ import httpx
 import pytest
 from fastapi import APIRouter
 from fastapi import FastAPI
+from fastapi import HTTPException
 from httpx import ASGITransport
 from httpx import AsyncClient
 
 from aiq_agent.knowledge.factory import clear_active_ingestor
 from aiq_agent.knowledge.factory import set_active_ingestor
+from aiq_api.routes.ingest import _assert_public_host_resolution
 from aiq_api.routes.ingest import add_ingest_routes
 
 
@@ -290,3 +292,121 @@ async def _post(app, file_ref: str, collection: str = "proj_test123"):
             "/v1/ingest",
             json={"file_ref": file_ref, "collection": collection},
         )
+
+
+@pytest.mark.asyncio
+async def test_ingest_rejects_non_object_store_thumbnail_url(app, mock_ingestor):
+    """The thumbnail upload URL feeds httpx.put — an arbitrary-URL PUT is the
+    same SSRF primitive as an arbitrary GET, so it passes the same two gates
+    as file_ref BEFORE anything is fetched or stored. The check is fail-closed
+    (a 400), not swallowed by the fail-open thumbnail path: a request naming a
+    foreign upload target is malformed, and letting it into the job config
+    would only move the unvalidated PUT into the detached ingest thread."""
+    with patch("httpx.put") as mock_put:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            with patch("httpx.AsyncClient.get") as mock_get:
+                mock_response = MagicMock(spec=httpx.Response)
+                mock_response.status_code = 200
+                mock_response.content = b"pdf bytes"
+                mock_response.headers = {"content-type": "application/pdf"}
+                mock_response.raise_for_status = MagicMock()
+                mock_get.return_value = mock_response
+
+                response = await client.post(
+                    "/v1/ingest",
+                    json={
+                        "file_ref": "http://seaweedfs.test/bucket/key?X-Amz-Signature=abc",
+                        "collection": "proj_test123",
+                        "thumbnail_upload_url": "http://metadata.internal/latest/meta-data",
+                    },
+                )
+        mock_put.assert_not_called()
+
+    assert response.status_code == 400
+    assert "thumbnail_upload_url" in response.json()["detail"]
+    assert "object store" in response.json()["detail"]
+    mock_ingestor.submit_job.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ingest_accepts_object_store_host_resolving_private(app, mock_ingestor):
+    """Regression: the object store lives INSIDE the network in compose and
+    Kubernetes — its configured name resolves to a private address by design.
+    Demanding public resolution for it rejected every legitimate presigned
+    upload; allowlisted hosts must pass despite resolving private."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient.get") as mock_get:
+            mock_response = MagicMock(spec=httpx.Response)
+            mock_response.status_code = 200
+            mock_response.content = b"pdf bytes"
+            mock_response.headers = {"content-type": "application/pdf"}
+            mock_response.raise_for_status = MagicMock()
+            mock_get.return_value = mock_response
+
+            response = await client.post(
+                "/v1/ingest",
+                json={
+                    "file_ref": "http://seaweedfs.test/bucket/key?X-Amz-Signature=abc",
+                    "collection": "proj_test123",
+                },
+            )
+
+    assert response.status_code == 202
+    mock_ingestor.submit_job.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_ingest_accepts_thumbnail_on_object_store_resolving_private(app, mock_ingestor):
+    """Thumbnails are uploaded to the same store the download came from, so a
+    private resolution for the allowlisted host must not fail the request
+    either — the URL is accepted and still carried into the job config."""
+    thumbnail_url = "http://seaweedfs.test/bucket/doc/thumb.jpg?X-Amz-Signature=abc"
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient.get") as mock_get:
+            mock_response = MagicMock(spec=httpx.Response)
+            mock_response.status_code = 200
+            mock_response.content = b"pdf bytes"
+            mock_response.headers = {"content-type": "application/pdf"}
+            mock_response.raise_for_status = MagicMock()
+            mock_get.return_value = mock_response
+
+            # The fast-path PUT is stubbed so the test never leaves the
+            # process regardless of whether thumbnail generation gets far
+            # enough to attempt it.
+            with patch("httpx.put") as mock_put:
+                put_response = MagicMock(spec=httpx.Response)
+                put_response.status_code = 200
+                put_response.raise_for_status = MagicMock()
+                mock_put.return_value = put_response
+
+                response = await client.post(
+                    "/v1/ingest",
+                    json={
+                        "file_ref": "http://seaweedfs.test/bucket/doc/plan.pdf?X-Amz-Signature=abc",
+                        "collection": "proj_test123",
+                        "thumbnail_upload_url": thumbnail_url,
+                    },
+                )
+
+    assert response.status_code == 202
+    call_args = mock_ingestor.submit_job.call_args
+    assert call_args[1]["config"]["thumbnail_upload_url"] == thumbnail_url
+
+
+def test_public_resolution_rejects_foreign_private_host():
+    """A genuinely foreign host answering with a private address is the
+    DNS-rebinding shape this guard exists for — it must keep refusing with
+    400 even though the route's allowlist would already have stopped it.
+    (Unit pin of the guard's contract for any future caller.)"""
+    with pytest.raises(HTTPException) as excinfo:
+        _assert_public_host_resolution("http://rebind.attacker.test/latest/meta-data")
+    assert excinfo.value.status_code == 400
+    assert "non-public IP address" in excinfo.value.detail
+
+
+def test_public_resolution_allows_allowlisted_private_host(monkeypatch):
+    """Allowlisted hosts are trusted by strict name match against operator
+    configuration, not by where DNS points — the public-resolution demand
+    must not apply to them (the in-network store resolves private)."""
+    monkeypatch.setenv("SEAWEED_PUBLIC_ENDPOINT", "http://seaweedfs.test")
+    _assert_public_host_resolution("http://seaweedfs.test:8333/bucket/key")

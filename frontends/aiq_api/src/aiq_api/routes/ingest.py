@@ -109,6 +109,16 @@ def add_ingest_routes(router: APIRouter):
                 "original_filenames": [_extract_filename(file_ref)],
             }
             if request.thumbnail_upload_url:
+                # Same two gates as file_ref, BEFORE the value is used
+                # anywhere: it feeds an httpx.put here (fast-path thumbnail)
+                # and rides into the ingest job's config for a second PUT
+                # there — an unvalidated URL on either path is an
+                # arbitrary-destination server-side request forgery. Unlike
+                # the thumbnail itself this check is fail-closed: a request
+                # naming a non-object-store upload target is malformed, not
+                # decorative.
+                _assert_object_store_url(request.thumbnail_upload_url, field="thumbnail_upload_url")
+                _assert_public_host_resolution(request.thumbnail_upload_url, field="thumbnail_upload_url")
                 config["thumbnail_upload_url"] = request.thumbnail_upload_url
             # The folder this document was filed into, as the BFF's materialised
             # path (ADR-0049). Carried into the detached ingest thread so the
@@ -194,17 +204,30 @@ def add_ingest_routes(router: APIRouter):
                     pass
 
 
-def _assert_public_host_resolution(url: str) -> None:
-    """Ensure URL host resolves only to public IP addresses."""
+def _assert_public_host_resolution(url: str, field: str = "file_ref") -> None:
+    """Ensure a URL host OUTSIDE the object-store allowlist resolves publicly.
+
+    Hosts on the allowlist are exempt: the in-network object store
+    (``SEAWEED_ENDPOINT=http://seaweedfs:8333`` in compose/Kubernetes)
+    resolves to a private address by design, so demanding a public IP for it
+    would reject every legitimate presigned upload in those deployments.
+    Trust for those names comes from ``_assert_object_store_url``, which has
+    already matched them strictly against operator configuration. Any other
+    host must resolve public-only — a private/loopback/link-local answer is
+    exactly the DNS-rebinding shape that would aim this route at internal
+    services.
+    """
     parsed = urlparse(url)
     host = parsed.hostname
     if not host:
-        raise HTTPException(status_code=400, detail="file_ref must include a valid hostname")
+        raise HTTPException(status_code=400, detail=f"{field} must include a valid hostname")
+    if host.casefold() in _object_store_hosts():
+        return
 
     try:
         infos = socket.getaddrinfo(host, parsed.port or 443, type=socket.SOCK_STREAM)
     except socket.gaierror as exc:
-        raise HTTPException(status_code=400, detail="file_ref host could not be resolved") from exc
+        raise HTTPException(status_code=400, detail=f"{field} host could not be resolved") from exc
 
     for info in infos:
         ip_str = info[4][0]
@@ -219,7 +242,7 @@ def _assert_public_host_resolution(url: str) -> None:
         ):
             raise HTTPException(
                 status_code=400,
-                detail="file_ref host resolves to a non-public IP address",
+                detail=f"{field} host resolves to a non-public IP address",
             )
 
 
@@ -246,13 +269,13 @@ def _object_store_hosts() -> frozenset[str]:
     return frozenset(hosts)
 
 
-def _assert_object_store_url(file_ref: str) -> None:
-    """Reject a ``file_ref`` that is not an http(s) URL to the object store."""
-    parsed = urlparse(file_ref)
+def _assert_object_store_url(url: str, field: str = "file_ref") -> None:
+    """Reject a URL that is not an http(s) URL to the object store."""
+    parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
-        raise HTTPException(status_code=400, detail="file_ref must be an http(s) object-store URL")
+        raise HTTPException(status_code=400, detail=f"{field} must be an http(s) object-store URL")
     if not parsed.hostname or parsed.hostname.casefold() not in _object_store_hosts():
-        raise HTTPException(status_code=400, detail="file_ref must point at the configured object store")
+        raise HTTPException(status_code=400, detail=f"{field} must point at the configured object store")
 
 
 def _infer_suffix(content_type: str, url: str) -> str:

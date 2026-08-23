@@ -30,6 +30,8 @@ These routes manage knowledge collections (logical groupings of documents for re
 
 Downloads the file from `file_ref` (presigned SeaweedFS URL), saves to a temporary file, infers extension from `Content-Type` or URL path, then submits to the ingestor's `submit_job()`. The BFF upload route (`POST /api/documents/upload`) calls this endpoint after writing to SeaweedFS.
 
+**Validation (SSRF guard)**: both `file_ref` and `thumbnail_upload_url` must be http(s) URLs whose host matches the configured object store exactly (`SEAWEED_ENDPOINT` / `SEAWEED_PUBLIC_ENDPOINT`) — rejected with `400` before any request is made. `thumbnail_upload_url` feeds an upload PUT, so it passes the same two gates as `file_ref`. A host OUTSIDE that allowlist must additionally resolve to public IP addresses only (DNS-rebinding defence); the allowlisted store itself is exempt, because in compose/Kubernetes its name resolves to a private address by design.
+
 **Supported formats**: PDF, TXT, MD, DOCX, PPTX.
 
 `folder_path` is the materialised project-folder path the BFF filed the document under (`Brandschutz/Fluchtwege`); omit or send `null` for the project root. It is carried into the detached ingest thread on the job config and stamped onto the document's `document_metadata` row, so the agent's inventory and `knowledge_search folder=` can see the filing. It is a PATH, not a folder id — see **ADR-0049**.
