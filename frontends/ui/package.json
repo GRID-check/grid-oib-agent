@@ -25,7 +25,8 @@
     "ci:local": "task -d ../.. fe:verify",
     "ci:quick": "task -d ../.. verify:fast",
     "prepare": "husky",
-    "provision:authz": "tsx scripts/provision-workos-authz.ts"
+    "provision:authz": "tsx scripts/provision-workos-authz.ts",
+    "provision:workos-env": "tsx scripts/provision-workos-environment.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1077.0",
