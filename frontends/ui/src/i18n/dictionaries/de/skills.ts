@@ -94,9 +94,9 @@ export const skills: typeof en.skills = {
     nameInvalid:
       'Skill-Namen bestehen aus Kleinbuchstaben a–z/0–9, getrennt durch einzelne Bindestriche (keine führenden, endenden oder doppelten Bindestriche).',
     descriptionLabel: 'Beschreibung',
-    descriptionPlaceholder: 'Wann soll der Agent diesen Skill verwenden?',
+    descriptionPlaceholder: 'Die Gebäudeklasse, an der jede spätere OIB-Zahl hängt.',
     descriptionHint:
-      'Daran erkennt der Agent den Skill: Er liest nur diesen Satz – nie die Anweisung – und entscheidet daraufhin, ob er den Skill lädt. Sagen Sie also, WAS der Skill tut und WANN er greifen soll, in den Worten, die Ihre Kolleginnen und Kollegen tatsächlich verwenden.',
+      'Ein Satz. Was der Skill tut, in den Worten, die Ihre Kolleginnen tippen. Der Agent liest nur diese Zeile, bevor er entscheidet, ob er den Rest lädt.',
     descriptionRequired: 'Eine Beschreibung ist erforderlich.',
     descriptionTooLong: 'Beschreibungen sind höchstens 1024 Zeichen lang.',
     bodyLabel: 'Anweisung',
@@ -166,6 +166,12 @@ export const skills: typeof en.skills = {
       noMatches: 'Keine Karte passt zu dieser Suche.',
       removeAria: 'Kartentyp „{type}“ aus der Präferenz entfernen',
     },
+    autoInvokeLabel: 'Agent darf selbst laden',
+    autoInvokeHint:
+      'An: Der Agent sieht die Beschreibung in jeder Runde und darf den Skill selbst laden. Aus: Nur ein „/“-Aufruf oder ein Job hängt ihn an.',
+    hiddenLabel: 'In der Live-Zeile still',
+    hiddenHint:
+      'Nach dem Lauf nicht in der laufenden Zeile. Unter der Antwort wird er trotzdem genannt.',
     enabledLabel: 'Aktiviert',
     enabledHint:
       'Aus: Der Skill verschwindet aus dem „/“-Menü und aus der Auswahl des Agenten. Jobs, die ihn bereits verwenden, laufen mit ihrem gespeicherten Stand weiter.',

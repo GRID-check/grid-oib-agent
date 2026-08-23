@@ -577,7 +577,8 @@ class TestDeepResearcherAgent:
             assert _COMMON_MIDDLEWARE_CLASSES <= {m.__class__.__name__ for m in kwargs["middleware"]}
             assert any(m.__class__.__name__ == "ToolVisibilityMiddleware" for m in kwargs["middleware"])
             assert "Mandatory skill use" in researcher_kwargs["system_prompt"]
-            assert "MUST read that skill's `SKILL.md`" in researcher_kwargs["system_prompt"]
+            assert "The body is the method" in researcher_kwargs["system_prompt"]
+            assert "read that skill's `SKILL.md`" in researcher_kwargs["system_prompt"]
             assert "data-table-analysis" not in researcher_kwargs["system_prompt"]
             assert "/shared/plan.json" in researcher_kwargs["system_prompt"]
             assert "read_file" in researcher_kwargs["system_prompt"]

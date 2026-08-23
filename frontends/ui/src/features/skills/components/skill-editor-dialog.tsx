@@ -2,12 +2,13 @@
 
 /**
  * Org skill authoring dialog (org:skills:manage). Fields: name, description
- * and the instruction body in agentskills.io format, plus the two reserved
+ * and the instruction body in agentskills.io format, plus the reserved
  * metadata controls the UI owns — who may use the skill (`grid-agents`, the
- * ONE availability gate) and its preferred output cards (`grid-cards`) — and
- * the master enabled switch. Editing a clone shows its source. Platform-builtin
- * skills have no DB row and are never edited here; they are cloned instead
- * (see the toolbox).
+ * ONE availability gate), whether the model may pick it (`grid-auto-invoke`),
+ * whether its live line is muted (`grid-hidden`), and its preferred output
+ * cards (`grid-cards`) — and the master enabled switch. Editing a clone shows
+ * its source. Platform-builtin skills have no DB row and are never edited here;
+ * they are cloned instead (see the toolbox).
  *
  * There is deliberately nothing here about time or output. A skill does not
  * know when it runs or what a run produces: scheduling belongs to the JOB that
@@ -90,7 +91,12 @@ const DESCRIPTION_MAX = 1024
 
 /** Everything except the keys this dialog owns a control for. */
 function withoutReservedKeys(metadata: Record<string, string>): Record<string, string> {
-  const owned = new Set([METADATA_CARDS, METADATA_AGENTS])
+  const owned = new Set([
+    METADATA_CARDS,
+    METADATA_AGENTS,
+    METADATA_HIDDEN,
+    METADATA_AUTO_INVOKE,
+  ])
   const rest: Record<string, string> = {}
   for (const key of Object.keys(metadata)) {
     if (owned.has(key)) continue
@@ -109,6 +115,22 @@ function withoutReservedKeys(metadata: Record<string, string>): Record<string, s
  */
 const METADATA_CARDS = 'grid-cards'
 const METADATA_AGENTS = 'grid-agents'
+const METADATA_HIDDEN = 'grid-hidden'
+const METADATA_AUTO_INVOKE = 'grid-auto-invoke'
+
+const HIDDEN_TRUE = new Set(['true', '1', 'yes'])
+const AUTO_INVOKE_FALSE = new Set(['false', '0', 'no'])
+
+function readHidden(metadata?: Record<string, string>): boolean {
+  return HIDDEN_TRUE.has((metadata?.[METADATA_HIDDEN] ?? '').trim().toLowerCase())
+}
+
+/** Absent means on. Only a recognised falsy token opts out. */
+function readAutoInvoke(metadata?: Record<string, string>): boolean {
+  const token = (metadata?.[METADATA_AUTO_INVOKE] ?? '').trim().toLowerCase()
+  if (!token) return true
+  return !AUTO_INVOKE_FALSE.has(token)
+}
 
 /**
  * Where the document this dialog writes actually goes, and what its master
@@ -194,6 +216,21 @@ export function SkillEditorDialog({
     parseAgentScope(source?.metadata[METADATA_AGENTS]),
   )
   /**
+   * Whether the model may pick this skill from the catalog unprompted.
+   *
+   * Default on: that is today's behaviour, and a new skill that says nothing
+   * about it keeps appearing in L1. Off writes `grid-auto-invoke: false`.
+   */
+  const [autoInvoke, setAutoInvoke] = useState(() => readAutoInvoke(source?.metadata))
+  /**
+   * Whether a successful activation stays off the live one-liner.
+   *
+   * Default off (visible). On writes `grid-hidden: true`. This is not the same
+   * question as auto-invoke: a house voice is picked AND muted; a slash
+   * playbook is unpicked AND visible when someone actually runs it.
+   */
+  const [hidden, setHidden] = useState(() => readHidden(source?.metadata))
+  /**
    * Metadata keys this UI has no control for (anything a future version adds),
    * carried through a save untouched.
    *
@@ -224,8 +261,12 @@ export function SkillEditorDialog({
     if (preferredCards.length > 0) {
       metadata[METADATA_CARDS] = formatPreferredCardTypes(preferredCards)
     }
+    // Absent, not "true": on is the default, and storing the default would be
+    // a second spelling of "nothing" for every reader to special-case.
+    if (!autoInvoke) metadata[METADATA_AUTO_INVOKE] = 'false'
+    if (hidden) metadata[METADATA_HIDDEN] = 'true'
     return { ...metadata, ...extraMetadata }
-  }, [agents, extraMetadata, preferredCards])
+  }, [agents, autoInvoke, extraMetadata, hidden, preferredCards])
   const [enabled, setEnabled] = useState(isEdit ? skill.enabled : true)
   const [formError, setFormError] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -330,6 +371,8 @@ export function SkillEditorDialog({
       form.setFieldValue('body', parsed.body)
       setPreferredCards(parsePreferredCardTypes(parsed.metadata[METADATA_CARDS]))
       setAgents(parseAgentScope(parsed.metadata[METADATA_AGENTS]))
+      setAutoInvoke(readAutoInvoke(parsed.metadata))
+      setHidden(readHidden(parsed.metadata))
       setExtraMetadata(withoutReservedKeys(parsed.metadata))
       toast.success(t('editor.raw.applied'))
     },
@@ -585,6 +628,28 @@ export function SkillEditorDialog({
                         )
                       })}
                     </div>
+
+                    <Field orientation="horizontal">
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <FieldLabel htmlFor="skill-auto-invoke">
+                          {t('editor.autoInvokeLabel')}
+                        </FieldLabel>
+                        <FieldDescription>{t('editor.autoInvokeHint')}</FieldDescription>
+                      </div>
+                      <Switch
+                        id="skill-auto-invoke"
+                        checked={autoInvoke}
+                        onCheckedChange={setAutoInvoke}
+                      />
+                    </Field>
+
+                    <Field orientation="horizontal">
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <FieldLabel htmlFor="skill-hidden">{t('editor.hiddenLabel')}</FieldLabel>
+                        <FieldDescription>{t('editor.hiddenHint')}</FieldDescription>
+                      </div>
+                      <Switch id="skill-hidden" checked={hidden} onCheckedChange={setHidden} />
+                    </Field>
 
                     <Field orientation="horizontal">
                       <div className="flex min-w-0 flex-col gap-0.5">

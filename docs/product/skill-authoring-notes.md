@@ -21,7 +21,7 @@ The real path, end to end:
 | Discovery | `skills/builtin.py` | `builtin/<collection>/<name>/SKILL.md` is parsed **strictly**. A malformed frontmatter is a deployment error, not a skip. |
 | Validation | `skills/models.py` | `name` ≤64 chars and must equal the directory name; `description` ≤1024 chars, non-empty, **no angle brackets** (it lands in a system prompt); `grid-cards` is checked against the live card catalog and a typo raises at parse time. |
 | Resolution | `skills/resolver.py` | Per run: every non-`grid-catalog: curated` builtin, plus the org's rows from the BFF (which shadow builtins by name), then filtered by `grid-agents`. Fails **open** to the builtin set. |
-| Level 1 | `skills/runtime.py::prompt_block` | Renders `## Verfügbare Skills` + one line per skill: `` - `name`: description ``, verbatim. This string becomes `state.skills_block` in the agent's system prompt (`agents/shallow_researcher/register.py`). |
+| Level 1 | `skills/runtime.py::prompt_block` | Renders `## Available skills` + one line per skill: `` - `name`: description ``, verbatim. This string becomes `state.skills_block` in the agent's system prompt (`agents/shallow_researcher/register.py`). |
 | Level 2 | `skills/runtime.py::build_tools` | A LangChain tool named `use_skill(skill_name)` returns the body. **The model must call it.** Nothing else loads a body. |
 | Forcing | `forced_block` | If the user pins a skill in the UI, a second block says it is active and MUST be loaded. This is the only non-model-driven path. |
 
@@ -43,11 +43,10 @@ Four consequences that matter more than any generic advice:
    the tail of your description then reads as loose system-prompt text outside
    any bullet. Use `>` with no blank lines. (Pinned:
    `test_the_description_survives_the_level_one_catalog_intact`.)
-4. **Know who is in the room.** Today five of six builtins carry
-   `grid-agents: deep_researcher`, so the **chat agent's skill list has exactly
-   one entry**: `ifc-spatial-reasoning`. Its description is not fighting for
-   selection among peers — it is fighting to be noticed at all. The failure mode
-   to design against is undertriggering (never loaded) and, second,
+4. **Know who is in the room.** Research/synthesis builtins carry
+   `grid-agents: deep_researcher`. OIB and BIM skills name both agents, so the
+   chat catalog is a short list of one-line bait, not a keyword net. The failure
+   mode to design against is undertriggering (never loaded) and, second,
    overtriggering on questions where loading it wastes a turn. Verify with:
 
    ```python
@@ -59,34 +58,38 @@ Four consequences that matter more than any generic advice:
 
 ## 2. What makes a description fire
 
-House pattern, already consistent across the research/synthesis builtins and
-worth keeping: **what + when + explicit trigger vocabulary**, third person,
-imperative, no "I can help you".
+One sentence. What the skill does, in the words an Austrian architect types.
+The description is bait, not a manual: the picker and the L1 catalog show this
+line and nothing else, and a keyword net that tries to name every branch
+teaches the model to follow the line instead of loading the body.
 
-What we changed for `ifc-spatial-reasoning` and why:
+House shape:
 
-- **Bind it to the moment of the tool call.** The description now opens *„Vor dem
-  ersten Aufruf von ifc_measure oder ifc_query laden"*. The model's decision
-  point is when it reaches for a BIM tool; naming those tools inside the trigger
-  text puts the skill at that exact point instead of hoping a topic match fires
-  earlier. This is the highest-leverage sentence in the file, and it only works
-  because L1 and the tool schemas sit in the same context window.
-- **Trigger vocabulary in the user's language.** Austrian architects type
-  *lichte Raumhöhe, Brüstungshöhe, Dachüberstand, freier Lichteinfall*. Those
-  literal words belong in the description. Generic capability prose ("spatial
-  reasoning over BIM models") matches nothing anybody types.
-- **Cover the indirect case explicitly.** *„Auch dann, wenn die Frage aus einer
-  OIB-Anforderung kommt und das Maß nur der Zwischenschritt ist."* Without this
-  the model treats a compliance question as a knowledge-base question and never
-  reaches the model at all — which is precisely the incident this whole package
-  exists to prevent.
-- **Add a negative clause.** *„Nicht für reine Rechtsfragen ohne Modellbezug."*
-  Cheap insurance against burning a turn on every OIB question.
-- **Do not restate the body.** The description is routing; the body is judgment.
+- Outcome first. A concrete noun that earns its place (`Gebäudeklasse`,
+  `Bauansuchen`, `Aufenthaltsraum`). Not a synonym list.
+- German. The picker is read by a person in Wien.
+- Tool names only when the decision point *is* the tool call
+  (`ifc_measure` / `ifc_query` in `ifc-spatial-reasoning`).
+- Do not restate the body. The description is routing; the body is the method.
 
-Descriptions fail when they are: capability summaries ("Provides…", "This skill
-handles…"), abstract where users are concrete, silent about the adjacent case
-where the skill is still right, or written in a language the user does not type.
+A long trigger vocabulary is the failure mode of the first `ifc-spatial-reasoning`
+rewrite: it fired more often and taught the workflow in the wrong place.
+
+## 2a. Methods, not rules
+
+The OIB corpus and RIS are the source of thresholds, editions and tables. A
+skill that restates them is a cache that goes stale and a second place to be
+wrong. Teach the *method*: what to establish first, where to look, how to tell
+done, which card carries the answer, the failure mode of the method (Anforderung
+vs Nachweis, geschätztes Maß in einer Karte, Neubau-Klausel auf Bestand).
+
+A number that belongs in Richtlinie 2 does not belong in a SKILL.md.
+
+Most questions are not about an IFC model. They are about the Richtlinie, the
+Bauordnung, and what is on the plan or in the question. An OIB genre skill
+answers from those. It does not send the agent to measure the model. That
+method lives in `ifc-spatial-reasoning` and fires from its own description
+when the question is actually about the model.
 
 ## 3. What makes a body worth its tokens
 
@@ -159,14 +162,17 @@ Before shipping a skill in this repo:
 - [ ] `uv run python -m pytest tests/aiq_agent/skills/ -q` green (strict parse,
       name/dir match, `grid-cards` against the live catalog).
 - [ ] Rendered L1 block read by eye, for the agent that will carry the skill.
-- [ ] Description: one line, ≤1024 chars, no angle brackets, names the tools it
-      routes to, carries the user's own vocabulary, has a negative clause.
+- [ ] Description: one sentence, ≤1024 chars, no angle brackets, what the skill
+      does in the user's words. Tool names only when the decision point is the
+      tool call. No encoded thresholds. The body is the method.
 - [ ] `grid-agents` set only if the skill genuinely cannot run elsewhere — it is
       the single availability gate and it deletes the skill from every other
       agent.
-- [ ] `grid-catalog: curated` **only** for capabilities orgs opt into; absent
-      means always-on machinery. Getting this wrong either hides the skill from
-      everyone or forces it on everyone.
+- [ ] `grid-catalog: curated` **only** for capabilities that belong on the
+      Skills tab; absent means always-on machinery. A chat-usable FILE offer
+      starts ON; a dashboard offer or a deep-research-only file starts OFF.
+      Getting this wrong either hides the skill from everyone or forces it on
+      everyone.
 - [ ] Every identifier in the body pinned by a test against the real tool
       surface.
 - [ ] No sentence that the tool description already says.

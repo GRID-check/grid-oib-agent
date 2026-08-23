@@ -64,12 +64,15 @@ An empty shelf is empty. A question *about the content* of a file is research an
 ## Invoking a skill (`/name`)
 
 When Agent Skills are enabled (ADR-0046), typing `/` **as the first character
-of a message** opens a picker of the skills you can invoke here. ↑↓ choose,
-Enter inserts, Esc closes — the same keyboard contract as the `@` mention
-picker. Picking one inserts `/name ` and shows a chip naming the skill attached
-to this message, together with its description, so you can confirm you picked
-the right one before sending. Deleting the token removes the invocation; there
-is nothing else to undo.
+of a message** opens a picker of the skills you can invoke here: the playbooks
+your organization has switched on, and any skill you authored. Product methods
+the assistant always has — fire safety, building class, habitable rooms — are
+not in this list, because they load on their own. ↑↓ choose, Enter inserts,
+Esc closes — the same keyboard contract as the `@` mention picker. Picking one
+inserts `/name ` and shows a chip naming the skill attached to this message,
+together with its description, so you can confirm you picked the right one
+before sending. Deleting the token removes the invocation; there is nothing
+else to undo.
 
 The menu only opens at the start of a message. Slashes are ordinary punctuation
 in this field — `12/05`, `OIB-RL 2/3`, `und/oder` — and an invocation applies to

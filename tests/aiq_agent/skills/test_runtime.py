@@ -100,6 +100,56 @@ def test_prompt_block_lists_descriptions_only() -> None:
     assert "beta body" not in block
 
 
+def test_prompt_block_omits_skills_with_auto_invoke_off() -> None:
+    """Off means the model does not see it. Slash and force still can.
+
+    A skill whose author turned auto-invoke off is still resolved and still
+    loadable through ``use_skill``. Listing it in L1 would be the model picking
+    it, which is the thing the switch forbids.
+    """
+    silent = Skill(
+        name="einreichcheck",
+        description="Was diesem Bauansuchen noch fehlt.",
+        body="body",
+        metadata={"grid-auto-invoke": "false"},
+        origin="platform",
+    )
+    runtime = SkillRuntime(skills=(S1, silent))
+    block = runtime.prompt_block() or ""
+    assert "`alpha`: Erster Skill." in block
+    assert "einreichcheck" not in block
+    # The tool is still wired: a forced turn or a guessed name can load it.
+    assert runtime.build_tools()
+
+
+def test_forced_skill_stays_in_the_catalog_even_when_auto_invoke_is_off() -> None:
+    """The turn already named it. The description is what tells the model why."""
+    silent = Skill(
+        name="einreichcheck",
+        description="Was diesem Bauansuchen noch fehlt.",
+        body="body",
+        metadata={"grid-auto-invoke": "false"},
+        origin="platform",
+    )
+    runtime = SkillRuntime(skills=(silent,), force_names=["einreichcheck"])
+    block = runtime.prompt_block() or ""
+    assert "`einreichcheck`: Was diesem Bauansuchen noch fehlt." in block
+    assert runtime.forced_block() is not None
+
+
+def test_prompt_block_is_none_when_every_skill_is_slash_only() -> None:
+    silent = Skill(
+        name="einreichcheck",
+        description="Was diesem Bauansuchen noch fehlt.",
+        body="body",
+        metadata={"grid-auto-invoke": "false"},
+        origin="platform",
+    )
+    runtime = SkillRuntime(skills=(silent,))
+    assert runtime.prompt_block() is None
+    assert runtime.build_tools()
+
+
 def test_forcing_a_skill_does_not_activate_it() -> None:
     """A force is an instruction; activation is a delivery.
 

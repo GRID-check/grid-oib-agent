@@ -118,3 +118,6 @@ node_modules/
 .claude/worktrees/
 
 .worktrees/
+
+# Visual brainstorm companion (session mockups)
+.superpowers/

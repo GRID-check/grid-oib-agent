@@ -44,7 +44,7 @@ never touch: `base_url`, `api_key`, `temperature`, `max_tokens`,
 > the config file on **every** request, always — no platform default or org
 > override can re-point them, and no admin can change them without a redeploy.
 > Editing their `model_name` is a real, unconditional fleet-wide model change.
-> The other eight entries map to the seven groups in the table below.
+> The remaining `llms:` entries map to the groups in the table below.
 
 ### Where layer 2 comes from on a fresh deployment
 
@@ -157,7 +157,9 @@ capability requirements) mirrored by `AgentGroup` in
 | `deep_research` | `deep_orchestrator_llm`, `deep_planner_llm`, `deep_researcher_llm` (+ writer) | `tools`, ≥128k |
 | `deep_research_router` | `deep_router_llm` | text input, ≥16k |
 | `memory_reflection` | `memory_reflection_llm` (= `card_llm` in the reference config) | text input, ≥32k |
+| `follow_ups` | `follow_ups_llm` | text input, ≥32k, reasoning off |
 | `ingest_vlm` | the ingestion VLM (image captioning + rendered-drawing description) | **image input** (`requiresImageInput`) — vision models only |
+| `compliance_check` | `compliance_llm` | text input, ≥32k |
 
 Requirements are enforced twice: the picker endpoint only lists passing
 models, and the save endpoint re-validates server-side (422 on mismatch).

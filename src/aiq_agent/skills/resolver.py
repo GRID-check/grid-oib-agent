@@ -79,10 +79,12 @@ def _cache_ttl_seconds() -> float:
 #:
 #: Absent (the default) means the skill is pipeline machinery: never listed on
 #: the Skills tab, never switchable, always resolved. ``curated`` means it is a
-#: capability published to organizations, off until one switches it on. The
-#: mirror of ``frontends/ui/src/lib/skills/types.ts::isCuratedPlatformSkill``,
-#: and the two are a contract pair — ``test_resolver.py`` and
-#: ``service.spec.ts`` pin them against the same cases.
+#: capability published to organizations; this resolver drops it from
+#: ``always_on`` and only includes it when the BFF payload says the org took
+#: it up. The mirror of
+#: ``frontends/ui/src/lib/skills/types.ts::isCuratedPlatformSkill``, and the
+#: two are a contract pair — ``test_resolver.py`` and ``service.spec.ts`` pin
+#: them against the same cases.
 METADATA_CATALOG = "grid-catalog"
 CATALOG_CURATED = "curated"
 
@@ -134,10 +136,9 @@ def _skill_applies_to_agent(skill: Skill, agent: str | None) -> bool:
     agent. Unreserved leftovers such as ``grid-execution`` in a stored org row
     are ignored here, exactly as any other free-form metadata key is.
 
-    The five builtin skills that genuinely cannot run in a chat turn — their
-    instructions call ``execute`` and write ``/shared/`` — say so with
-    ``grid-agents: deep_researcher``, which is the mechanism for exactly this
-    and is checked by ``_agent_allows``.
+    Deep-only leftovers that call ``execute`` and write ``/shared/`` say so
+    with ``grid-agents: deep_researcher``, which is the mechanism for exactly
+    this and is checked by ``_agent_allows``.
     """
     return _agent_allows(skill, agent)
 
@@ -317,4 +318,8 @@ def resolve_served_skills(agent: str, organization_id: str | None) -> tuple[Skil
     except Exception as exc:  # noqa: BLE001 - skills are additive; a run must survive their absence
         logger.warning("Skill resolution failed for agent %s: %s", agent, type(exc).__name__)
         return ()
-    return tuple(skill for skill in resolved if skill.origin == "org")
+    # The BFF re-sends machinery with origin stamped ``org``. Origin is therefore
+    # not the file/row split. Drop names the filesystem already owns as
+    # machinery; standard, offers and org-authored names stay.
+    machinery = {skill.name for skill in discover_builtin_skills() if not _is_curated(skill)}
+    return tuple(skill for skill in resolved if skill.name not in machinery)

@@ -38,7 +38,7 @@ validated strictly by `src/aiq_agent/skills/models.py`:
 | `name` | 1–64 chars, lowercase `a-z0-9` + hyphens; for filesystem skills it must equal the parent dir name |
 | `description` | 1–1024 chars, non-empty; the one-line L1 summary the model sees |
 | `body` | The full markdown instructions (L2), loaded only via the `use_skill` tool |
-| `metadata` | String-map; exactly two reserved GRID keys are validated — `grid-agents` (who may use it) and `grid-cards` (preferred output card types). Every other key is opaque |
+| `metadata` | String-map; reserved GRID keys are validated — `grid-agents` (who may use it), `grid-cards` (preferred output card types), `grid-title`, `grid-hidden` (mute the live line), `grid-auto-invoke` (whether the model may pick it from L1; absent = on), `grid-catalog` (`curated` = offer, absent = machinery). Every other key is opaque |
 | `license` / `compatibility` / `allowed_tools` | Optional free-form strings |
 
 `Skill` carries two more fields that are **not** frontmatter and cannot be
@@ -143,9 +143,10 @@ form.) A switch replaces it: one living copy, ours, and switching off returns
 the org to where it started.
 
 An org's decision lives in `curated_skill_activations` (one row per
-organization × skill it has decided about; no row means off). It is NOT a
-`skills` row, precisely because a `skills` row carries a body and a body is a
-copy that drifts.
+organization × skill it has decided about). No row means the default: a
+chat-usable FILE offer starts ON, a dashboard offer or a deep-research-only
+file starts OFF. It is NOT a `skills` row, precisely because a `skills` row
+carries a body and a body is a copy that drifts.
 
 A **standard** skill has no such decision and consults none: an activation row
 left over from when the skill was an offer is kept but not read, so a promotion
@@ -316,14 +317,18 @@ frontmatter metadata:
 
 | value | meaning |
 |---|---|
-| *(absent — the default)* | **Machinery.** The deep-research pipeline's own instructions. Never listed on the Skills tab, never switchable, always resolved. |
-| `curated` | **An offer.** A capability published TO organizations: listed on the Skills tab with a switch, and **off** until the org turns it on. |
+| *(absent — the default)* | **Machinery.** The pipeline's own instructions. Never listed on the Skills tab, never switchable, always resolved. |
+| `curated` | **An offer.** Listed on the Skills tab with a switch. A chat-usable FILE starts ON; a dashboard offer or a deep-research-only file starts OFF. |
 
 Machinery is the default deliberately: a new builtin that says nothing about
 itself stays invisible, and exposing one to every tenant has to be a sentence
-somebody wrote. **All five builtins shipping today are machinery** — none
-declares this key. The door exists so a builtin can become org-facing without
-first becoming a database row; day to day, curation happens in `platform_skills`.
+somebody wrote. Genre methods (Brandschutz, Gebäudeklasse, Hygiene) stay
+machinery so an ordinary question still auto-loads them. Job playbooks
+(`einreichcheck`, `bestand`) declare `grid-catalog: curated`: they appear on
+the Skills tab. A chat-usable FILE offer starts ON; a dashboard offer starts
+OFF. The org can still switch a file offer off. Deep research's skill
+filesystem hides curated directories, so an offer the org did not take up is
+not readable via `read_file` either.
 
 The split is enforced on both tiers, and both must agree:
 
@@ -410,14 +415,13 @@ name is gone from the skills path entirely, because two vocabularies for one
 agent meant a `grid-agents` value that was correct in one file and inert in
 the other.
 
-All five builtin skills declare `grid-agents: deep_researcher` **and nothing
-else** in their frontmatter metadata. They are DeepAgents subagent skills:
-their instructions call `execute`, read and write `/shared/` and return
-`ResearchNotes`, none of which exists in a chat turn. That one key is what
-keeps the shallow chat researcher from being offered a procedure it cannot
-carry out — shallow chat resolves none of the five, deep research resolves all
-five — and since it is now the ONLY thing doing so, `platform-skills.spec.ts`
-asserts every builtin still declares it. The BFF forwards platform metadata
+The research and synthesis builtins declare `grid-agents: deep_researcher`
+and nothing else. They are DeepAgents subagent skills: their instructions call
+`execute`, read and write `/shared/` and return `ResearchNotes`, none of which
+exists in a chat turn. That one key is what keeps the shallow chat researcher
+from being offered a procedure it cannot carry out. The OIB and BIM skills
+name both agents, because the questions they are about get asked in chat.
+`platform-skills.spec.ts` asserts every builtin still declares `grid-agents`. The BFF forwards platform metadata
 **verbatim** on the resolve endpoint (an empty `metadata: {}` would merge over
 the backend's own filesystem copy and erase this targeting), and the agent
 filter applies to platform rows as well as org rows.
@@ -449,12 +453,14 @@ platform's standard tier.
 
 Progressive disclosure has exactly two levels:
 
-- **L1 — the catalog.** One line per skill (`name: description`) under the
-  system prompt's `## Available skills` heading, plus an `## Active skills
-  (required for this turn)` block listing the skills forced for this turn.
-  Both blocks are pre-collated by the register layer (`ShallowAgentFlat` /
-  `DeepAgentFlat`) and render via the runtime's `prompt_block()` /
-  `forced_block()`; `None` renders no section.
+- **L1 — the catalog.** One line per skill the model may pick unprompted
+  (`name: description`) under the system prompt's `## Available skills`
+  heading, plus an `## Active skills (required for this turn)` block listing
+  the skills forced for this turn. `grid-auto-invoke: false` omits a skill
+  from L1. It stays resolved, stays in the `/` picker, and stays loadable
+  when forced. Absent means on. Both blocks are pre-collated by the register
+  layer (`ShallowAgentFlat` / `DeepAgentFlat`) and render via the runtime's
+  `prompt_block()` / `forced_block()`; `None` renders no section.
 - **L2 — the body.** The model must call the `use_skill` tool to load a
   body before following it. A failed lookup returns an error listing the
   available names, so a hallucinated skill name is self-correcting rather
@@ -491,17 +497,19 @@ sending carries `skills: ['name']` on the chat message envelope, which the
 backend lifts onto `force_skills`.
 
 - **Endpoint:** `GET /api/skills/invocable` → `listInvocableSkills`, filtered
-  to enabled skills a chat turn can actually run (`shallow_researcher`), so
-  the menu can never offer a deep-research skill the turn cannot execute. Any
-  org member may list: invoking a skill is *using* the product, not
-  administering it (authoring stays `org:skills:manage`).
-- **Level 1 only.** The picker shows name and description and nothing else,
-  because that is exactly the metadata the agent is given at the start of a
-  turn. The menu a person reads and the catalogue the model reads are the same
-  text, so a description that fails to say when a skill applies is visibly
-  unhelpful to both — which is the feedback a skill author needs. Bodies are
-  never fetched to draw it; they enter the conversation only when the agent
-  calls `use_skill`.
+  to enabled *offers* and org-authored skills a chat turn can actually run
+  (`shallow_researcher`). Pipeline machinery and standard skills are not in
+  this list: they load on their own, and putting them in a `/` menu would
+  hand somebody a name they cannot look up, edit or switch off. Deep-research
+  skills stay out for the same reason they stay out of chat. Any org member
+  may list: invoking a skill is *using* the product, not administering it
+  (authoring stays `org:skills:manage`).
+- **Level 1 only.** The picker shows name and description and nothing else.
+  For the skills that *are* in the menu, that is exactly the metadata the
+  agent is given at the start of a turn, so a description that fails to say
+  when a skill applies is visibly unhelpful to both. Bodies are never fetched
+  to draw it; they enter the conversation only when the agent calls
+  `use_skill`.
 - **Why only at the start of a message.** The trigger is deliberately narrower
   than `@`: slashes are ordinary punctuation in this domain (`12/05`,
   `OIB-RL 2/3`, `und/oder`, `m/s`, `/etc/hosts`), and a menu firing on those

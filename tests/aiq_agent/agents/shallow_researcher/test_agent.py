@@ -901,6 +901,7 @@ class TestShallowResearcherSourceRegistryGating:
             assert _is_search_tool("surface_documents") is True
             assert _is_search_tool("ifc_query") is True
             assert _is_search_tool("ifc_measure") is True
+            assert _is_search_tool("compliance_check") is True
         finally:
             reset_registry()
 
@@ -2260,15 +2261,12 @@ class TestKnowledgeInventoryIsNotCitable:
 
 
 class TestTheModelCardsAreActuallyAskedFor:
-    """The five IFC cards had renderers, generated types and a dev harness — and
-    no prompt anywhere told the agent to emit one.
+    """The five IFC cards had renderers and no instruction that named them.
 
-    Grepping `ifc` across every `.j2` in `src/aiq_agent` returned zero hits, so
-    the whole set was reachable only if the model picked it unprompted out of
-    the `emit_card` catalog. Meanwhile the `ifc_query` description pushed the
-    competing mechanism ("whenever a row comes back with a Link:, LINK the
-    element"), so the realistic outcome for a model question was prose. The
-    building was uploaded to be looked at; this is what makes that happen.
+    That instruction now lives in ``ifc-spatial-reasoning``, because most turns
+    never touch a model and the always-on prompt must not teach a minority
+    path. The prompt keeps a pointer so the model loads that skill before it
+    emits. The skill keeps the card types and the id rule.
     """
 
     def _render(self):
@@ -2292,19 +2290,42 @@ class TestTheModelCardsAreActuallyAskedFor:
             requires_sources=True,
         )
 
-    def test_every_model_backed_card_is_named(self):
+    def _ifc_skill(self) -> str:
+        from pathlib import Path
+
+        import aiq_agent
+
+        return (
+            Path(aiq_agent.__file__).parent
+            / "skills"
+            / "builtin"
+            / "bim"
+            / "ifc-spatial-reasoning"
+            / "SKILL.md"
+        ).read_text(encoding="utf-8")
+
+    def test_the_prompt_points_at_the_skill_instead_of_teaching_the_cards(self):
+        rendered = self._render()
+        assert "ifc-spatial-reasoning" in rendered
+        assert "Most turns never touch a model." in rendered
         from aiq_agent.cards.catalog import MODEL_BACKED_CARD_TYPES
 
-        rendered = self._render()
         for card_type in MODEL_BACKED_CARD_TYPES:
-            assert card_type in rendered, card_type
+            assert card_type not in rendered.split("<cards>")[1].split("</cards>")[0], card_type
+
+    def test_every_model_backed_card_is_named_in_the_skill(self):
+        from aiq_agent.cards.catalog import MODEL_BACKED_CARD_TYPES
+
+        body = self._ifc_skill()
+        for card_type in MODEL_BACKED_CARD_TYPES:
+            assert card_type in body, card_type
 
     def test_it_says_where_the_ids_must_come_from(self):
         # The one rule that keeps this from making things worse. An invented
         # GlobalId renders as an unresolved element, which tells the user their
         # model is broken when it is not.
-        rendered = self._render()
-        assert "THIS turn" in rendered
+        body = self._ifc_skill()
+        assert "THIS turn" in body
 
     def test_the_card_does_not_replace_the_written_answer(self):
         rendered = self._render()

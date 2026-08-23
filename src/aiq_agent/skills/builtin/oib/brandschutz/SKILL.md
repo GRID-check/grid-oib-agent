@@ -1,56 +1,49 @@
 ---
 name: brandschutz
 description: >
-  Fire safety. Load when the question involves Brandabschnitt, Feuerwiderstand
-  (REI/EI), Fluchtweg or Fluchtweglänge, zweiter Fluchtweg, Rettungsweg,
-  Stiegenhaus, Brandwand, Brandschutzklappe, Rauchabschnitt, Feuerwehrzufahrt
-  or Aufstellfläche, Löschwasser, or any GK-dependent requirement of OIB
-  Richtlinie 2 — including when the question arrives from a model or an
-  Einreichplan rather than in words.
+  Brandabschnitt, Fluchtweg und Feuerwiderstand, sobald die GK steht.
 metadata:
   grid-agents: shallow_researcher,deep_researcher
   grid-cards: fire_compartment,egress_diagram,fire_access_plan,requirement_checklist,legal_basis
 ---
 
-# Answering a fire-safety question
+# Eine Brandschutzfrage beantworten
 
-## Establish the Gebäudeklasse before anything else
+## Gebäudeklasse zuerst
 
-Nearly every requirement in OIB Richtlinie 2 hangs off the Gebäudeklasse, and
-the Gebäudeklasse hangs off Fluchtniveau, storey count, footprint and use. If
-the project context confirms a GK, take it — do not re-derive it. If it is
-unknown and it changes the answer, ask **one** question about it before
-answering. A fire-resistance class stated without the GK it follows from is a
-number with no claim attached to it.
+Nahezu jede Anforderung in OIB Richtlinie 2 hängt an der Gebäudeklasse. Fehlt
+sie und ändert sie die Antwort, `gebaeudeklasse` laden, bevor eine Zahl fällt.
+Eine Feuerwiderstandsklasse ohne die Klasse, aus der sie folgt, ist eine Zahl
+ohne Anspruch.
 
-The edition binds the same way: the Bundesländer declare different editions of
-the Richtlinie verbindlich. Name the edition you are relying on as soon as it
-moves the value.
+Die Edition bindet mit. Hol sie, nenn sie, sobald sie den Wert verschiebt.
 
-## Which card for what
+## Anforderung und Nachweis auseinanderhalten
 
-- A storey divided into Brandabschnitte, areas against the limit →
-  `fire_compartment`.
-- An escape route made of segments whose total is checked → `egress_diagram`.
-  Enter the segments individually, never the sum: the question is almost always
-  *which* segment is too long.
-- Zufahrt, Durchfahrt, Aufstellfläche → `fire_access_plan`.
-- Several requirements each with its own verdict (the typical "was gilt für
-  GK 4") → `requirement_checklist`, one row per requirement with its own
-  Fundstelle.
-- The provision the answer rests on → `legal_basis`.
+Die Richtlinie sagt, was erfüllt sein muss. Ob es in diesem Gebäude erfüllt
+*ist*, ist ein Befund an diesem Vorhaben. Sag, welches von beiden du
+geliefert hast. Eine grobe Prüfung am Plan ist kein Brandschutzkonzept. Der
+Unterschied verschwindet, sobald die Karte ohne den Satz weitergeht. Also in
+den Satz.
 
-## What goes wrong in this genre
+## Der zweite Fluchtweg ist zwei Fragen
 
-**The second escape route gets treated as a number.** Whether one is required
-follows from GK and use; whether it counts follows from where it leads. Answer
-both, or say which of the two is open.
+Ob einer verlangt ist, folgt aus Klasse und Nutzung. Ob er zählt, folgt daraus,
+wohin er führt. Beides beantworten, oder sagen, welches offen ist.
 
-**The requirement gets confused with the proof.** The Richtlinie says what must
-be satisfied. Whether it *is* satisfied in this building is a finding on the
-object or the model. Say which of the two you delivered.
+## Welches Bild
 
-**An orientational check gets read as a Nachweis.** When the answer comes from a
-rule check against the model, it has to say so — a Prüfbuch is not a
-Brandschutzkonzept, and that distinction disappears the moment the card is
-forwarded without the surrounding sentence.
+Ein Geschoß in Brandabschnitte geteilt, Flächen gegen die Grenze →
+`fire_compartment`.
+Ein Fluchtweg aus Segmenten, deren Summe geprüft wird → `egress_diagram`. Die
+Segmente einzeln, nie nur die Summe: die Frage ist fast immer, *welches*
+Segment zu lang ist.
+Zufahrt, Durchfahrt, Aufstellfläche → `fire_access_plan`.
+Mehrere Anforderungen, jede mit eigenem Urteil → `requirement_checklist`.
+Die Bestimmung selbst → `legal_basis`.
+
+## Done
+
+Jedes Urteil hat eine Fundstelle und sagt, ob es die Anforderung oder den
+Nachweis ist. Fehlt die Klasse, ist das die offene Tatsache, nicht eine
+geschätzte Widerstandsklasse.

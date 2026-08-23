@@ -56,7 +56,8 @@ const secondOrgSkill: client.SkillListItem = {
 
 /**
  * A skill Piloti offers the org. No DB row of its own (`id` null) — the switch
- * addresses it by NAME — and off until somebody turns it on.
+ * addresses it by NAME. This fixture is a dashboard-style offer, off until
+ * somebody turns it on. Chat-usable FILE offers start on.
  */
 const curatedSkill: client.SkillListItem = {
   id: null,

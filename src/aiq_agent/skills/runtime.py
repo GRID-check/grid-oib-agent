@@ -42,6 +42,7 @@ import logging
 
 from .models import Skill
 from .models import preferred_cards
+from .models import skill_auto_invoke
 
 logger = logging.getLogger(__name__)
 
@@ -243,14 +244,21 @@ class SkillRuntime:
     def prompt_block(self) -> str | None:
         """L1: the progressive-disclosure catalog section, or None when empty.
 
-        One line per skill (name + description); the model must opt IN via
-        ``use_skill`` to see a body. ``None`` when no skills apply — callers
-        then render no skills section at all.
+        One line per skill the model may pick unprompted (name + description);
+        the model must opt IN via ``use_skill`` to see a body. Skills whose
+        ``grid-auto-invoke`` is off are omitted here — they remain resolved,
+        remain in the ``/`` picker, and remain loadable when forced. A forced
+        skill is listed even when auto-invoke is off, because the turn already
+        named it and the description is what tells the model *why*.
+
+        ``None`` when nothing belongs in the catalog — callers then render no
+        skills section at all.
         """
-        if not self._skills:
+        listed = [s for s in self._skills if skill_auto_invoke(s.metadata) or s.name in self._forced_seen]
+        if not listed:
             return None
         lines = [_L1_HEADING, _L1_DOCTRINE, ""]
-        lines.extend(f"- `{s.name}`: {s.description}" for s in self._skills)
+        lines.extend(f"- `{s.name}`: {s.description}" for s in listed)
         return "\n".join(lines)
 
     def forced_block(self) -> str | None:

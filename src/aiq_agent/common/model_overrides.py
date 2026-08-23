@@ -87,6 +87,10 @@ class AgentGroup(StrEnum):
     # (`requiresImageInput` in agent-groups.ts); the picker save path validates
     # against that same gate.
     INGEST_VLM = "ingest_vlm"
+    # Staged OIB Soll-Ist pipeline (compliance_checker). Its own group so
+    # unsetting deep_research's model does not also silence a check, and so the
+    # llms map can point compliance_llm independently.
+    COMPLIANCE_CHECK = "compliance_check"
 
 
 def parse_model_overrides(raw: str | None) -> dict[str, str]:

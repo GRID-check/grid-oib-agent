@@ -1,44 +1,44 @@
 ---
 name: waermeschutz
 description: >
-  Energy, thermal protection and sound insulation. Load when the question
-  involves U-Wert or Wärmedurchgangskoeffizient, thermische Hülle, Wärmebrücke,
-  Heizwärmebedarf or HWB, Energieausweis, Energieeffizienzklasse, fGEE,
-  Kompaktheit, Referenzklima, sommerliche Überwärmung, Schallschutz, DnTw,
-  LnTw, Trittschall, Luftschall, or any requirement of OIB Richtlinien 5 and 6.
+  U-Wert, HWB und Schall. Zuerst ob Neubau oder Bestand.
 metadata:
   grid-agents: shallow_researcher,deep_researcher
   grid-cards: thermal_envelope,energy_performance,acoustic_check,requirement_checklist,legal_basis
 ---
 
-# Answering an energy or acoustics question
+# Eine Frage zu Energie oder Schall beantworten
 
-## The limit alone rarely answers the question
+## Die Grenze allein beantwortet die Frage selten
 
-A U-value limit is bound to a building element and to what that element borders
-on — outside air, ground, or an unheated room. Name the element and its position
-alongside the number, or the number will be applied to the wrong element. Sound
-insulation works the same way: DnTw and LnTw apply to an element *between* two
-particular Nutzungseinheiten, and the pairing decides the value.
+Ein U-Wert hängt am Bauteil und daran, woran das Bauteil grenzt: Außenluft,
+Erdreich oder ein unbeheizter Raum. Bauteil und Lage neben die Zahl, sonst
+wird die Zahl am falschen Bauteil angewandt. Schallschutz ebenso: DnTw und
+LnTw gelten für ein Bauteil *zwischen* zwei bestimmten Nutzungseinheiten, und
+die Paarung entscheidet den Wert.
 
-Heizwärmebedarf adds one more thing: the value comes out of a calculation this
-product does not perform. You can say which requirement applies and how a given
-value sits against it; you cannot determine an HWB. Say so when the question
-sounds like it is asking for one.
+Heizwärmebedarf kommt aus einer Rechnung, die dieses Produkt nicht ausführt.
+Du kannst sagen, welche Anforderung gilt und wie ein gegebener Wert dazu
+steht. Du kannst keinen HWB bestimmen. Das sagen, wenn die Frage so klingt,
+als würde sie einen verlangen.
 
-## Which card for what
+## Bestand ist der Normalfall
 
-- U-values per element of the envelope → `thermal_envelope`, one row per
-  element.
-- HWB and energy class → `energy_performance`.
-- Sound insulation per element pairing → `acoustic_check`, the pairing in the
-  label.
-- Several requirements side by side → `requirement_checklist`.
+Ein großer Teil dieser Fragen betrifft Sanierung. Bestand, Zubau und größere
+Renovierung holen andere Anforderungen als Neubau. Steht `bestand_neubau` im
+Projektkontext, darunter antworten. Fehlt es und macht es einen Unterschied,
+das ist die eine Frage, und sie kommt, bevor eine Neubau-Anforderung zitiert
+wird, die sich dann als die falsche erweist.
 
-## Bestand is the normal case, not the exception
+## Welches Bild
 
-A large share of these questions concern Sanierung, and the requirements for
-Bestand, Zubau and größere Renovierung differ from Neubau. When
-`bestand_neubau` is set in the project context, answer for that case. When it is
-not set and it makes a difference, that is the one question to ask — and to ask
-before quoting a Neubau requirement that then turns out to be the wrong one.
+U-Werte je Bauteil der Hülle → `thermal_envelope`, eine Zeile je Bauteil.
+HWB und Energieklasse → `energy_performance`.
+Schallschutz je Bauteilpaarung → `acoustic_check`, die Paarung im Label.
+Mehrere Anforderungen nebeneinander → `requirement_checklist`.
+
+## Done
+
+Jedes Limit nennt Bauteil und Lage, oder die Paarung. Ein HWB, den niemand
+gerechnet hat, kommt nicht vor. Neubau ist nur zitiert, wenn das Vorhaben
+eines ist.

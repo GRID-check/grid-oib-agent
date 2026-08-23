@@ -48,7 +48,7 @@ const SKILL = {
 5. Nenne jede Abweichung mit der genauen Klausel und einem konkreten Korrekturvorschlag.
 
 Nenne fehlende Angaben ausdrücklich als fehlend — nie als erfüllt.`,
-  metadata: { 'grid-execution': 'chat', 'grid-schedulable': 'true' },
+  metadata: { 'grid-auto-invoke': 'false', 'grid-hidden': 'true', 'grid-cards': 'legal_basis' },
 }
 
 const FINDINGS = {
@@ -110,7 +110,7 @@ export default function SkillEditorPreviewPage(): JSX.Element {
         {/* The REAL editor dialog, open. The panes below render standalone so
             each is legible on its own, but the dialog is the surface an author
             actually meets — and the only place the Markdown editor, the
-            card-preference control and the two metadata switches appear.
+            card-preference control and the metadata switches appear.
 
             The full instruction is used here: the settings now sit in their own
             rail beside the form rather than below it, so nothing is pushed
