@@ -29,6 +29,36 @@ them, so create them in the dashboard. The script still catches a missing one �
 a permission cannot be created against a resource type that does not exist, and
 the failure names the type.
 
+## The environment around the catalog
+
+`provision:authz` covers permissions and roles; `provision:workos-env` covers
+the environment identity AROUND them that used to be dashboard steps — same
+conventions: read-only check by default, `--apply` reconciles, non-zero exit
+on drift.
+
+```bash
+cd frontends/ui
+WORKOS_API_KEY=sk_… npm run provision:workos-env            # read-only drift check
+WORKOS_API_KEY=sk_… npm run provision:workos-env -- --apply # reconcile
+```
+
+Each section is driven by its own desired-state variable and is skipped
+cleanly when unset, so a partial run only verifies what it knows:
+
+| Section | Desired state via | Reconciles |
+|---|---|---|
+| Platform organization | `GRID_PLATFORM_ORG_EXTERNAL_ID` (default `grid-platform`) | creates "GRID Platform" with that external id when missing |
+| Owner membership | `GRID_PLATFORM_OWNER_EMAIL` | seats the user in the platform org and assigns `org-platform-owner` (the invite itself stays manual) |
+| AuthKit redirect URIs / CORS origins | `WORKOS_DESIRED_REDIRECT_URIS`, `WORKOS_DESIRED_CORS_ORIGINS` (comma-separated) | adds missing entries; extras are REPORTED, never deleted without `--apply --prune` |
+| Observability Connect app | `WORKOS_CONNECT_APP_NAME` (default `GRID Observability`), `WORKOS_CONNECT_REDIRECT_URIS` | matches by name; creates a confidential OAuth app and prints client id + secret ONCE; updates redirect URIs on an existing app. The Scopes permission assignment stays manual |
+| Feature-flag targeting | `WORKOS_FLAG_TARGETS_JSON` (`{"<slug>": ["org_…", …]}`) | ADDITIVE only — adds missing targets per org, never removes one; flags missing from WorkOS are reported as MANUAL because creation has no SDK binding |
+
+The check always lists registry flags missing from WorkOS and ends with the
+remaining MANUAL steps: resource types, the allow-sign-ups toggle,
+`multipleRolesEnabled`, flag creation — everything below still says so where
+it applies. `.github/workflows/workos-drift.yml` runs the authz + audit-schema
+checks weekly against Staging (`WORKOS_API_KEY_STAGING` secret).
+
 ## Provisioned state (Staging + Production — catalog applied 2026-07-30/31)
 
 Everything below exists in **both** environments:
@@ -38,8 +68,8 @@ Everything below exists in **both** environments:
 | Staging | `environment_01KEF0YG238CSMNF731TEG010E` | 2026-07-30 — the environment the deployed app uses (its orgs include "GRID Test") |
 | Production | `environment_01KEF0YGNYDFAFAS77EZEFQ839` | 2026-07-31 — full replay into a previously empty environment |
 
-Both carry the same three resource types, the same 23 GRID permissions and the
-same 16 roles, verified role-by-role against the catalog after each run.
+Both carry the same three resource types, the same 24 GRID permissions and the
+same 13 roles, verified role-by-role against the catalog after each run.
 
 Two Production-specific notes:
 
@@ -57,7 +87,7 @@ Two Production-specific notes:
 
 ### 0. Resource topology
 
-`Organization → Project → Workflow`. Organization is the immutable root:
+`Organization → Project → Skill`. Organization is the immutable root:
 creating a parentless resource type is rejected by the live API with
 *"At least one parent type is required"* (verified 2026-07-30), which is why the
 platform tier is modelled as an org-scoped role rather than a tier above
@@ -67,11 +97,18 @@ Organization.
 |---|---|---|
 | `organization` | — | System root. Carries org-tier and platform-tier permissions. |
 | `project` | `organization` | Tenant workspace: documents, memory, conversations. |
-| `workflow` | `project` | A scheduled research run (ADR-0023). Added by ADR-0038 so an operator can run one without editing the project. |
+| `skill` | `project` | A scheduled agent-skill job attached to a project (Agent Skills). |
 
 > `document` was **deleted** (2026-07-30). It existed with zero roles and zero
 > permissions and nothing ever checked it; document access is inheritance from
 > the parent project, enforced in `lib/documents/service.ts`. See ADR-0038.
+>
+> The `workflow` resource type and its three permissions/roles met the same
+> fate when Agent Skills replaced Workflows: the catalog now defines the
+> `skill` type instead. Environments the old feature reached still carry the
+> `workflow:*` leftovers — the provisioning script reports them as
+> `UNKNOWN … absent from the catalog`, which is how they stay visible until an
+> operator deletes them in the dashboard.
 
 ### 1. Organization-tier permissions (resource type: Organization)
 
@@ -83,10 +120,11 @@ Organization.
 | `org:compliance:manage` | Legal holds + deletion queue |
 | `org:audit:view` | Open the org's native audit-log viewer (Admin Portal) |
 | `org:archiv:manage` | Upload/delete/reingest/retag in the org-wide document Archiv (ADR-0024). Reads are open to any member, so only mutations need it. |
+| `org:skills:manage` | Author, edit, clone and delete skills in the organization toolbox (Agent Skills). Reads are open to any member. |
 | `org:projects:create` | Create projects. Held by **Member** by default; withhold it to make project creation admin-only. |
 | `org:members:manage` | Open the **Access** section: the member directory, the role catalog and the WorkOS Users widget that invites, re-roles and removes people. |
 
-All eight are attached to the environment **Admin** role, which keeps its six
+All nine are attached to the environment **Admin** role, which keeps its six
 `widgets:*` permissions. **Member** holds `org:projects:create` only — all other
 project access comes from project-scoped roles.
 
@@ -101,18 +139,20 @@ project access comes from project-scoped roles.
 | `project:memory:write` | Add/edit/remove project memory items |
 | `project:manage` | Rename, archive or delete the project |
 | `project:members:manage` | Grant and revoke project roles |
-| `project:workflows:manage` | Create, edit and delete the project's workflows |
+| `project:skills:manage` | Create, edit, delete and run skill schedules in a project (Agent Skills Phase A) |
 
-### 1b. Workflow-tier permissions (resource type: Workflow)
+### 1b. Skill-tier permissions (resource type: Skill)
 
 | Slug | Meaning |
 |---|---|
-| `workflow:view` | See a workflow's definition, schedule and run history |
-| `workflow:run` | Trigger it manually, outside its schedule (spends budget) |
-| `workflow:manage` | Edit its definition/schedule, or delete it |
+| `skill:view` | See a skill schedule's definition, schedule and run history |
+| `skill:run` | Trigger it manually, outside its schedule (spends budget) |
+| `skill:manage` | Edit its definition/schedule, or delete it |
 
-Creating a workflow is `project:workflows:manage` (there is no workflow yet to
-check against); operating an existing one is workflow-tier.
+Creating a skill schedule is `project:skills:manage` (there is no schedule yet
+to check against); operating an existing one is skill-tier, with the
+project-tier fallback in `lib/authz/decide.ts` keeping project admins working
+without provisioning per-skill roles.
 
 ### 2. Platform-tier permissions (resource type: Organization)
 
@@ -145,8 +185,7 @@ environment-scoped role holds a `platform:*` permission.
 | `project-viewer` | environment (Project) | `project:view` |
 | `project-contributor` | environment (Project) | `project:view`, `project:chat` |
 | `project-editor` | environment (Project) | + `project:edit`, `project:documents:write`, `project:memory:write` |
-| `project-admin` | environment (Project) | + `project:manage`, `project:members:manage`, `project:workflows:manage` |
-| `workflow-viewer` / `workflow-operator` / `workflow-admin` | environment (Workflow) | `workflow:view` / +`run` / +`manage` |
+| `project-admin` | environment (Project) | + `project:manage`, `project:members:manage`, `project:skills:manage` |
 | `org-platform-owner` | **GRID Platform org only** | all `platform:*` + five `widgets:*` |
 | `org-platform-support` | **GRID Platform org only** | `platform:organizations:view`, `platform:usage:view` |
 
@@ -172,7 +211,10 @@ change, which is the property that silently broke for `org:audit:view` and
 
 - CORS web origins: `https://app.dev.piloti.at` (required for WorkOS widgets).
   Keep in sync with `grid-oib:baseDomain` in `deploy/pulumi/Pulumi.*.yaml` —
-  the app origin is always `https://app.<baseDomain>`.
+  the app origin is always `https://app.<baseDomain>`. Reconciled by
+  `provision:workos-env` (`WORKOS_DESIRED_CORS_ORIGINS`, and
+  `WORKOS_DESIRED_REDIRECT_URIS` for redirect URIs); extras are report-only
+  unless `--apply --prune`.
 - Auth methods: password + Google + GitHub + Microsoft + Apple; email
   verification required; MFA off. No JWT template (default claims carry
   role/permissions per active org — exactly what the app reads).
@@ -303,33 +345,51 @@ free-text check has been smoke-tested against a configured LLM.
 > Steps 1–5 were run against **Production on 2026-07-31** via the WorkOS
 > management API and verified role-by-role. Steps 6–9 remain open there.
 
-1. **Dashboard**: create the resource types from §0 — `project` (parent
-   `organization`), then `workflow` (parent `project`). Descriptions are capped
-   at 150 characters.
-2. **Dashboard**: create organization **GRID Platform** with external id
+1. **Dashboard** (still manual — the SDK cannot create resource types): create
+   the resource types from §0 — `project` (parent `organization`), then
+   `skill` (parent `project`). Descriptions are capped at 150 characters.
+2. **Script**: `WORKOS_API_KEY=<key> npm run provision:workos-env -- --apply`
+   from `frontends/ui` creates organization **GRID Platform** with external id
    `grid-platform` (the app resolves it by external id, so the name may differ
-   but the external id may not).
-3. **Script**: `WORKOS_API_KEY=<prod key> npm run provision:authz -- --apply`
-   from `frontends/ui`. This creates every permission from §1/§1a/§1b/§2 and
-   every role from §2a, including the two platform-org roles, and is idempotent.
-4. **Script**: re-run without `--apply` and confirm it reports
-   "WorkOS matches the catalog."
-5. Add the owner's user to GRID Platform with the `org-platform-owner` role
-   (membership assignment stays a dashboard/API action).
-6. Add the production web origin to AuthKit CORS and redirect URIs.
+   but the external id may not). Was dashboard-only before.
+3. **Script**: `WORKOS_API_KEY=<key> npm run provision:authz -- --apply`.
+   This creates every permission from §1/§1a/§1b/§2 and every role from §2a,
+   including the two platform-org roles, and is idempotent.
+4. **Script**: re-run both without `--apply` and confirm
+   "WorkOS matches the catalog." / "WorkOS matches the desired environment."
+5. **Script**: re-run `provision:workos-env --apply` with
+   `GRID_PLATFORM_OWNER_EMAIL=<owner email>` set — it seats the user in GRID
+   Platform (the account itself must already exist; the script reports a
+   missing one as MANUAL) and assigns `org-platform-owner`. The membership +
+   role pair used to be a dashboard/API action.
+6. **Script**: re-run `provision:workos-env --apply` with
+   `WORKOS_DESIRED_REDIRECT_URIS` / `WORKOS_DESIRED_CORS_ORIGINS` set to add
+   the production web origins, and `WORKOS_CONNECT_APP_NAME` /
+   `WORKOS_CONNECT_REDIRECT_URIS` set to create the observability Connect
+   application. On first creation the script prints the client id and client
+   secret ONCE — store them immediately (`pulumi config set --secret …`, see
+   the Pulumi stack-file header); the Scopes permission assignment stays a
+   dashboard step.
 7. Audit Log schemas (§5): nothing to do if the environment is the one the
    cluster deploys against — the `grid-app-audit-schemas` Job reconciles them
    on the next rollout. Otherwise run it by hand:
    `WORKOS_API_KEY=<prod key> npm run provision:audit-schemas -- --apply`
    (from `frontends/ui`), then re-run without `--apply` to confirm it reports
    "WorkOS matches the audit registry."
-8. Create the feature flags (§6), target the intended orgs, then set
-   `GRID_ENFORCE_FEATURE_FLAGS=true`.
+8. Feature flags (§6): CREATION stays a dashboard step —
+   `provision:workos-env` lists every registry flag missing from WorkOS as
+   MANUAL rather than attempting it. Create them, target the intended orgs
+   (`WORKOS_FLAG_TARGETS_JSON` + `--apply` reconciles targeting, ADDITIVELY),
+   then set `GRID_ENFORCE_FEATURE_FLAGS=true`.
 9. BYOK (ADR-0022): WorkOS Vault needs no per-environment setup — objects
    are created lazily under each org's key context. Enterprise tenants
    wanting customer-managed KEKs (Vault BYOK: AWS KMS / Azure Key Vault /
    GCP KMS) enable it per organization with WorkOS support; no Grid change
    is required.
+
+Still manual in every environment, summarized by every `provision:workos-env`
+run: resource types, AuthKit's *Allow sign-ups* toggle, the
+`multipleRolesEnabled` role setting, flag creation, and Vault CMK via support.
 
 Bootstrap alternative: set `GRID_PLATFORM_OWNER_EMAILS=<owner email>` until
 steps 3–5 are done, then clear it.
@@ -350,7 +410,7 @@ steps 3–5 are done, then clear it.
   `org-platform-owner`/`org-platform-support` (cached lookup) or the break-glass
   allowlist.
 - **Per-resource**: `lib/authz/resource-check.ts` is the single FGA round-trip
-  for both the project and workflow tiers, and fails closed.
+  for both the project and skill tiers, and fails closed.
 - **Route postures**: every `app/api` handler declares how it is authorized
   (`{ permission }` / `{ enforcedBy }` / `{ sessionOnly, why }`); `tsc` rejects a
   route that does not, and `src/app/api/authz-coverage.spec.ts` fails when a
