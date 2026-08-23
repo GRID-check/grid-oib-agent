@@ -26,6 +26,7 @@ describe('AuthKit v4 proxy', () => {
             '/',
             '/api/healthz',
             '/api/auth/callback',
+            '/api/auth/signin',
             '/api/auth/websocket-scope',
             '/auth/error',
             '/api/internal/(.*)',
