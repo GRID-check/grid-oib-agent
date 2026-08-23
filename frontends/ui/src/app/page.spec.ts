@@ -10,7 +10,6 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { GridSession } from '@/lib/auth/types'
 
-const SIGN_IN_URL = 'https://api.workos.com/user_management/authorize?screen_hint=sign-in'
 const LANDING_URL = 'https://dev.piloti.at'
 
 const redirect = vi.fn((url: string): never => {
@@ -21,8 +20,16 @@ const redirect = vi.fn((url: string): never => {
 const getGridSession = vi.fn<() => Promise<GridSession | null>>()
 
 vi.mock('next/navigation', () => ({ redirect: (url: string) => redirect(url) }))
-vi.mock('@workos-inc/authkit-nextjs', () => ({ getSignInUrl: async () => SIGN_IN_URL }))
 vi.mock('@/lib/auth/session', () => ({ getGridSession: () => getGridSession() }))
+
+// Regression guard for the RSC cookie-write bug: the page must delegate
+// sign-in initiation to the /api/auth/signin Route Handler (the only context
+// where AuthKit may write its PKCE cookie), never resolve the URL itself.
+vi.mock('@workos-inc/authkit-nextjs', () => ({
+  getSignInUrl: async () => {
+    throw new Error('page must not call getSignInUrl during render')
+  },
+}))
 
 const { default: HomePage } = await import('./page')
 
@@ -68,16 +75,17 @@ describe('HomePage redirect', () => {
     expect(await visit()).toBe(LANDING_URL)
   })
 
-  test('sends a logged-out visitor who asked to sign in to WorkOS', async () => {
+  test('sends a logged-out visitor who asked to sign in to the sign-in route', async () => {
     // The regression: without this the landing "Sign in" button bounces back
-    // to the landing site and the app is unreachable.
-    expect(await visit({ 'sign-in': '' })).toBe(SIGN_IN_URL)
+    // to the landing site and the app is unreachable. Delegation (not direct
+    // resolution) is asserted by the throwing getSignInUrl mock above.
+    expect(await visit({ 'sign-in': '' })).toBe('/api/auth/signin')
   })
 
-  test('falls back to WorkOS when no landing site is configured', async () => {
+  test('falls back to the sign-in route when no landing site is configured', async () => {
     delete process.env.GRID_LANDING_URL
 
-    expect(await visit()).toBe(SIGN_IN_URL)
+    expect(await visit()).toBe('/api/auth/signin')
   })
 
   test('sends a signed-in visitor to the workspace', async () => {

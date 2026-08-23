@@ -29,6 +29,12 @@ const middleware = authkitMiddleware({
       // container / Coolify / Traefik health check never redirects to login.
       '/api/healthz',
       '/api/auth/callback',
+      // Sign-in entry point behind /?sign-in (the landing site's "Anmelden"
+      // target). Like the callback it runs BEFORE a session exists — it mints
+      // the AuthKit authorization redirect and its PKCE cookie. Without this
+      // entry middlewareAuth would intercept it and 303 to WorkOS itself,
+      // bypassing the handler.
+      '/api/auth/signin',
       '/api/auth/websocket-scope',
       '/auth/error',
       // Internal service-to-service endpoints (e.g. the backend agent's

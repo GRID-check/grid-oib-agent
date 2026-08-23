@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Signing in from the Piloti website works again. Visitors who chose
+    Anmelden on piloti.at were shown an error screen instead of the login
+    page and could not reach the app; they now land on the normal sign-in
+    flow as intended.

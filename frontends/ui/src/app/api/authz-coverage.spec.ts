@@ -61,6 +61,8 @@ const HAND_ROLLED: Record<string, string> = {
     'mints the WebSocket scope headers; gates with requireProjectAccess per project id before emitting any scope, and returns a bespoke header envelope rather than JSON.',
   'auth/callback/route.ts':
     'the AuthKit OAuth callback. It runs BEFORE a session exists — that is what it creates — so no session-based posture can apply.',
+  'auth/signin/route.ts':
+    'the sign-in entry point behind /?sign-in (the landing site’s Anmelden target). It runs BEFORE a session exists — it mints the AuthKit authorization redirect and its PKCE cookie, which only a Route Handler may write — so no session-based posture can apply.',
   // The three platform routes that used to sit here — model-defaults,
   // model-defaults/models and audit-portal — now go through `platformApiRoute`,
   // which already does the owner gate, the tenant slot, the platform scope and
