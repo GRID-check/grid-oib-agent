@@ -71,6 +71,15 @@
               "de": "Forecast and prediction-report skills no longer ride along on every deep research run. They sit on the Skills tab for the jobs that actually need them."
             }
           ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Signing in from the Piloti website works again. Visitors who chose Anmelden on piloti.at were shown an error screen instead of the login page and could not reach the app; they now land on the normal sign-in flow as intended.",
+              "de": "Signing in from the Piloti website works again. Visitors who chose Anmelden on piloti.at were shown an error screen instead of the login page and could not reach the app; they now land on the normal sign-in flow as intended."
+            }
+          ]
         }
       ]
     },
