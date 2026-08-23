@@ -32,6 +32,45 @@
   },
   "releases": [
     {
+      "id": "2026-08-23",
+      "kind": "date",
+      "version": null,
+      "date": "2026-08-23",
+      "summary": null,
+      "sections": [
+        {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Skills can now say whether the agent may pick them on its own. In the skill editor, Agent may pick this is on by default. Turn it off and the skill still appears under slash-invoke and on jobs, but the agent will not load it unless you ask. Keep off the live line is the same kind of switch, for skills that run on every answer and should stay off the running one-liner.",
+              "de": "Skills can now say whether the agent may pick them on its own. In the skill editor, Agent may pick this is on by default. Turn it off and the skill still appears under slash-invoke and on jobs, but the agent will not load it unless you ask. Keep off the live line is the same kind of switch, for skills that run on every answer and should stay off the running one-liner."
+            },
+            {
+              "en": "Two new skills sit on the Skills tab and start switched on for chat. Einreichcheck walks what this building-permit application is still missing for this province. Bestand walks what still binds after a conversion, a change of use or a larger renovation. Chat also handles building class and habitable-room rules without anyone switching them on.",
+              "de": "Two new skills sit on the Skills tab and start switched on for chat. Einreichcheck walks what this building-permit application is still missing for this province. Bestand walks what still binds after a conversion, a change of use or a larger renovation. Chat also handles building class and habitable-room rules without anyone switching them on."
+            },
+            {
+              "en": "Asking for a full Soll-Ist or Konformitaetspruefung now runs the staged check against this project, instead of walking the six Richtlinien by hand.",
+              "de": "Asking for a full Soll-Ist or Konformitaetspruefung now runs the staged check against this project, instead of walking the six Richtlinien by hand."
+            }
+          ]
+        },
+        {
+          "key": "improvements",
+          "notes": [
+            {
+              "en": "Fire safety, site rules, stairs and energy answers now follow a method instead of restating numbers from the guideline. The description of each skill is one sentence, so the slash menu is readable. Chat no longer carries a building-model card lesson on every turn. That lesson loads only when the question is actually about the model.",
+              "de": "Fire safety, site rules, stairs and energy answers now follow a method instead of restating numbers from the guideline. The description of each skill is one sentence, so the slash menu is readable. Chat no longer carries a building-model card lesson on every turn. That lesson loads only when the question is actually about the model."
+            },
+            {
+              "en": "Forecast and prediction-report skills no longer ride along on every deep research run. They sit on the Skills tab for the jobs that actually need them.",
+              "de": "Forecast and prediction-report skills no longer ride along on every deep research run. They sit on the Skills tab for the jobs that actually need them."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-08-20",
       "kind": "date",
       "version": null,
