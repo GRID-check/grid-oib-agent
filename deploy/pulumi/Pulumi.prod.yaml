@@ -195,9 +195,12 @@ config:
   # only override here when deliberately upgrading.
   # Dashboard auth runs on the Gateway against a dedicated WorkOS **Connect**
   # application (ADR-0029 Amendment 2 — the app's own AuthKit client cannot
-  # serve this flow). Create it in the WorkOS dashboard as a CONFIDENTIAL OAuth
-  # application with callback https://<otelDomain>/oauth2/callback and the
-  # platform:organizations:view permission assigned under Scopes, then:
+  # serve this flow). Created by `npm run provision:workos-env` (frontends/ui)
+  # with WORKOS_CONNECT_APP_NAME / WORKOS_CONNECT_REDIRECT_URIS set — it
+  # matches by name and creates a CONFIDENTIAL OAuth application with callback
+  # https://<otelDomain>/oauth2/callback, printing the client id + secret
+  # exactly once at creation. Still dashboard-manual: assigning the
+  # platform:organizations:view permission under Scopes. Then:
   #   pulumi config set        grid-oib:otelOidcIssuer       https://<tenant>.authkit.app
   #   pulumi config set        grid-oib:otelOidcClientId     client_...
   #   pulumi config set --secret grid-oib:otelOidcClientSecret <secret>
