@@ -15,12 +15,14 @@ vi.mock('@/lib/workos/client', () => ({
   }),
 }))
 
-import { generateAuditPortalLink, recordAuditEvent, trustedAppOrigin } from './service'
+import { auditLogsEnabled, generateAuditPortalLink, recordAuditEvent, trustedAppOrigin } from './service'
 
 describe('recordAuditEvent (WorkOS-native audit trail)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     createEvent.mockResolvedValue(undefined)
+    // The emission gate defaults OFF; these tests exercise the emit path.
+    process.env.GRID_AUDIT_LOGS_ENABLED = 'true'
   })
 
   it('emits an org-scoped WorkOS audit event with actor, target and context', async () => {
@@ -98,6 +100,39 @@ describe('recordAuditEvent (WorkOS-native audit trail)', () => {
     ).resolves.toBeUndefined()
     expect(consoleError).toHaveBeenCalled()
     consoleError.mockRestore()
+  })
+
+  // Deployment gate (GRID_AUDIT_LOGS_ENABLED, default OFF): a suppressed emit
+  // must reach neither the WorkOS client nor the error log.
+  describe('emission gate', () => {
+    it.each([
+      ['unset', undefined],
+      ['empty', ''],
+      ['false', 'false'],
+      ['truthy junk', 'yes'],
+    ])('suppresses emission when GRID_AUDIT_LOGS_ENABLED is %s', async (_case, value) => {
+      if (value === undefined) delete process.env.GRID_AUDIT_LOGS_ENABLED
+      else process.env.GRID_AUDIT_LOGS_ENABLED = value
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      await recordAuditEvent({
+        organizationId: 'org_1',
+        actor: { userId: 'user_1' },
+        action: 'org.created',
+        targetType: 'organization',
+      })
+
+      expect(createEvent).not.toHaveBeenCalled()
+      expect(consoleError).not.toHaveBeenCalled()
+      consoleError.mockRestore()
+    })
+
+    it('accepts true case- and whitespace-insensitively', () => {
+      for (const value of ['true', 'TRUE', ' true ']) {
+        process.env.GRID_AUDIT_LOGS_ENABLED = value
+        expect(auditLogsEnabled()).toBe(true)
+      }
+    })
   })
 })
 
