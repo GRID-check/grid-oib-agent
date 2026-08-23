@@ -362,7 +362,7 @@ config:
   grid-oib:protectDataResources: "true"
   grid-oib:seaweedfsPerOrgBuckets: "true"
   grid-oib:dnsZoneName: piloti.at
-  grid-oib:dnsZoneId: 66de14f8d07a729634f5d230418bb907
+  grid-oib:dnsZoneId: 66de14f8d07a729634f5d230418bb907  # pragma: allowlist secret (public zone id, Cloudflare zone Overview page)
   grid-oib:dnsZoneBaseline: "false"
   grid-oib:tavilyApiKey:
     secure: AAABANgGKrjOzLkYUvebEQLsp24GdVPi7S7RrKQJLqM98iYaSKqIP+tvSGpHSqgOfHtC+EzNjmwAGmSIKM0eGGhsmE4xUCPqEbUTXD9nEFxIV1wUd3U99vA=
