@@ -752,6 +752,7 @@ export interface GridConfig {
     platformOwnerEmails: string;
     platformOrgExternalId: string;
     disableSelfServeOrgs: boolean;
+    auditLogsEnabled: boolean;
     enforceFeatureFlags: boolean;
     byokSecretBackend: string;
     byokLocalKek: pulumi.Output<string>;
@@ -2250,6 +2251,7 @@ export function loadConfig(): GridConfig {
       platformOwnerEmails: cfg.get("platformOwnerEmails") ?? "",
       platformOrgExternalId: cfg.get("platformOrgExternalId") ?? "grid-platform",
       disableSelfServeOrgs: bool(cfg, "disableSelfServeOrgs", false),
+      auditLogsEnabled: bool(cfg, "auditLogsEnabled", false),
       enforceFeatureFlags: bool(cfg, "enforceFeatureFlags", false),
       byokSecretBackend: cfg.get("byokSecretBackend") ?? "",
       byokLocalKek: cfg.getSecret("byokLocalKek") ?? pulumi.output(""),

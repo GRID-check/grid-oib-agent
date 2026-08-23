@@ -17,6 +17,13 @@
  * privileged mutation down with it — the domain tables (budget_policies
  * supersede chain, org_model_config_versions) remain the system of record for
  * WHAT changed.
+ *
+ * Emission itself is deployment-gated by `GRID_AUDIT_LOGS_ENABLED`
+ * ({@link auditLogsEnabled}, default OFF): a deployment opts in explicitly,
+ * because an audit trail only means something when its operator knows it is
+ * being written where they expect. Suppressed events are silent by design —
+ * the emitter's non-throwing contract extends to not logging every suppressed
+ * emit on a hot path.
  */
 
 import 'server-only'
@@ -49,6 +56,16 @@ function requestContext(request?: Request): { location: string; userAgent?: stri
 }
 
 /**
+ * Deployment-level emission switch for the audit trail. Default OFF: unset or
+ * anything but the literal `true` (case/whitespace-insensitive) suppresses
+ * every emit, exactly like an infrastructure dependency that is not wired up.
+ * On Kubernetes set via the Pulumi stack key `grid-oib:auditLogsEnabled`.
+ */
+export function auditLogsEnabled(): boolean {
+  return (process.env.GRID_AUDIT_LOGS_ENABLED ?? '').trim().toLowerCase() === 'true'
+}
+
+/**
  * Nulls out, and ALWAYS an object — never `undefined`.
  *
  * WorkOS generates the validator from what `createSchema` registers, and
@@ -69,6 +86,7 @@ function compactMetadata(metadata: AuditEventInput['metadata']): AuditMetadata {
 
 /** Emit one WorkOS Audit Log event. Never throws. */
 export async function recordAuditEvent(input: AuditEventInput): Promise<void> {
+  if (!auditLogsEnabled()) return
   try {
     const workos = getWorkOS()
     await workos.auditLogs.createEvent(input.organizationId, {

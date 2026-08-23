@@ -226,6 +226,7 @@ The one-off tag-backfill script runs **outside** the NAT runtime, so it builds a
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `GRID_ADMIN_TOKEN` | No | `change-me-in-production` | Bearer token for admin-protected endpoints. Change in production. |
+| `GRID_AUDIT_LOGS_ENABLED` | No | `false` | Gates WorkOS-native audit-trail emission (`recordAuditEvent` in `frontends/ui/src/lib/audit/service.ts`). Unset or anything but `true` suppresses every emit silently; `'true'` enables. Frontend service; on Kubernetes it is set from the Pulumi stack key `grid-oib:auditLogsEnabled` (see `deploy/pulumi/README.md`), not by hand. The audit viewer portal link is unaffected. |
 
 ---
 
