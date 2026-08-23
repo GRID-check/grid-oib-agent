@@ -176,6 +176,12 @@ tasks:
     cmds:
       - bun run provision:authz {{.CLI_ARGS}}
 
+  fe:provision:audit-schemas:
+    desc: 'Check WorkOS audit-log schema drift against the registry (add `-- --apply` to reconcile)'
+    dir: '{{.UI}}'
+    cmds:
+      - bun run provision:audit-schemas {{.CLI_ARGS}}
+
   fe:provision:workos-env:
     desc: 'Check WorkOS environment identity drift (add `-- --apply` to reconcile)'
     dir: '{{.UI}}'
