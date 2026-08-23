@@ -50,11 +50,16 @@ name: Deploy (staging)
 #     until it exists the job runs unreviewed.
 #   * Repo secret PULUMI_ACCESS_TOKEN reachable there (the same secret the
 #     staging job uses; no environment-scoped secret needed).
-#   * Images must ALREADY exist in GHCR: prod pins explicit image refs in its
-#     committed Pulumi.prod.yaml, so unlike staging this job sets NO config,
+#   * Images must ALREADY exist in GHCR: prod consumes the imageTag PINNED in
+#     its committed Pulumi.prod.yaml, so unlike staging this job sets NO config,
 #     resolves NO per-service refs and verifies NO rollback tag — the preview
-#     applies exactly what the stack file records. (Publish Images never runs
-#     for `prod`, so there is nothing here to pin tags.)
+#     applies exactly what the stack file records. That pinned line IS the
+#     promotion mechanism: every develop→prod promotion PR bumps
+#     grid-oib:imageTag to the new develop-tip sha (publish-images builds all
+#     services as sha-<full sha> on every develop push). CI computes nothing
+#     dynamically here — prod merge shas never have GHCR images; only develop
+#     tips do. (Publish Images never runs for `prod`, so there is nothing else
+#     to pin tags.)
 # There is deliberately NO Publish Images chaining and NO template preflight:
 # the prod stack is expected fully configured, and a broken one fails closed
 # at `pulumi preview`. CI does not run on `prod` pushes either (ci.yml targets
