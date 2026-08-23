@@ -60,8 +60,9 @@ name: Deploy (staging)
 # at `pulumi preview`. CI does not run on `prod` pushes either (ci.yml targets
 # develop/release only), so green-CI enforcement belongs in prod BRANCH
 # PROTECTION (require the promotion PR's checks) plus the environment
-# reviewers — not in a poll like staging's. Manual workflow_dispatch also runs
-# this job, behind the same reviewer gate — usable as a manual prod re-apply.
+# reviewers — not in a poll like staging's. Manual workflow_dispatch with
+# target=prod (or both) also runs this job, behind the same reviewer gate —
+# usable as a manual prod re-apply.
 on:
   push:
     branches: [prod]
@@ -80,6 +81,11 @@ on:
           an older image.
         required: false
         type: string
+      target:
+        description: 'Which stacks to deploy'
+        type: choice
+        options: [staging, prod, both]
+        default: staging
 
 permissions:
   contents: read
@@ -92,8 +98,9 @@ permissions:
 jobs:
   deploy:
     name: Pulumi up (dev)
-    # Only when the image build actually succeeded (skip on failed/cancelled).
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    # Only when the image build actually succeeded (skip on failed/cancelled),
+    # or on a manual dispatch whose target is staging/both.
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'staging' || inputs.target == 'both')) }}
     runs-on: ubuntu-latest
     environment: staging
     concurrency:
@@ -470,10 +477,10 @@ jobs:
   deploy-prod:
     name: Pulumi up (prod)
     # Direct events only: pushes to `prod` (branch filter on the push trigger)
-    # and manual dispatch. NEVER on the workflow_run chain from Publish Images
-    # — that is staging's trigger and would otherwise queue a prod apply on
-    # every merge to develop.
-    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+    # and manual dispatches with target=prod/both. NEVER on the workflow_run
+    # chain from Publish Images — that is staging's trigger and would otherwise
+    # queue a prod apply on every merge to develop.
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.target == 'prod' || inputs.target == 'both')) }}
     runs-on: ubuntu-latest
     # Required-reviewer protection comes from this GitHub environment.
     environment: production
