@@ -56,6 +56,10 @@
             {
               "en": "Admin activity logging now ships switched off by default. Operators who want the audit trail can turn it on with a single setting, and viewing recorded activity works exactly as before once it is on.",
               "de": "Admin activity logging now ships switched off by default. Operators who want the audit trail can turn it on with a single setting, and viewing recorded activity works exactly as before once it is on."
+            },
+            {
+              "en": "Setting up the identity layer behind a new Piloti environment no longer means clicking through a dashboard. One command checks the platform organization, its owner, sign-in web origins, the observability application and feature-flag targeting, reports anything missing or different, and can reconcile it — a weekly check now flags drift before it reaches your users.",
+              "de": "Setting up the identity layer behind a new Piloti environment no longer means clicking through a dashboard. One command checks the platform organization, its owner, sign-in web origins, the observability application and feature-flag targeting, reports anything missing or different, and can reconcile it — a weekly check now flags drift before it reaches your users."
             }
           ]
         },
