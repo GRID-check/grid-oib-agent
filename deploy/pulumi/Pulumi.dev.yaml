@@ -168,7 +168,8 @@ config:
   # only override here when deliberately upgrading.
   # Dashboard auth runs on the Gateway, against a dedicated WorkOS **Connect**
   # application (ADR-0029 Amendment 2 — the app's own AuthKit client cannot
-  # serve this flow). Created by `npm run provision:workos-env` (frontends/ui)
+  # serve this flow). Created by
+  # `WORKOS_API_KEY=sk_… npm run provision:workos-env -- --apply` (frontends/ui)
   # with WORKOS_CONNECT_APP_NAME / WORKOS_CONNECT_REDIRECT_URIS set — it
   # matches by name, creates a CONFIDENTIAL OAuth client whose sign-in callback
   # is https://<otelDomain>/oauth2/callback, and prints the client id + secret

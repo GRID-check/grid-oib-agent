@@ -291,6 +291,7 @@ async function reconcileWebOrigins(
   for (const value of extra) {
     const canPrune = apply && prune && typeof idByValue.get(value) === 'string'
     if (!canPrune) {
+      drift.push(`extra ${kind} in WorkOS: ${value}`)
       note(`EXTRA    ${value}${apply && !prune ? ' (pass --prune to remove)' : ''}`)
       continue
     }
@@ -305,9 +306,57 @@ async function reconcileWebOrigins(
   }
 }
 
+async function connectAppName(): Promise<string> {
+  return process.env.WORKOS_CONNECT_APP_NAME?.trim() || 'GRID Observability'
+}
+
+/** Mint a client secret and print the credential pair exactly once. */
+async function mintConnectSecret(appName: string, id: string, clientId: string): Promise<void> {
+  try {
+    const secret = await workos.connect.createApplicationClientSecret({ id })
+    applied.push(`minted client secret for "${appName}"`)
+    console.log()
+    console.log('  ── NEW CLIENT CREDENTIALS — shown ONCE, store them now ──')
+    console.log(`    client id:     ${clientId}`)
+    console.log(`    client secret: ${secret.secret}`)
+    console.log('    Store via:')
+    console.log('      pulumi config set        grid-oib:otelOidcClientId     <client id>')
+    console.log("      pulumi config set --secret grid-oib:otelOidcClientSecret '<client secret>'")
+    console.log('    (issuer is your AuthKit domain, e.g. https://<tenant>.authkit.app)')
+    console.log()
+  } catch (error) {
+    drift.push(
+      `Connect application "${appName}" exists but has no usable client secret — fix the cause and re-run --apply`
+    )
+    note(`FAILED   secret mint for "${appName}" — ${String(error)}`)
+  }
+}
+
+/**
+ * An existing application may predate a failed first run that created it but
+ * could not mint its secret — retry the mint on every check/apply pass.
+ */
+async function ensureConnectSecret(appName: string, id: string, clientId: string): Promise<void> {
+  let secrets
+  try {
+    secrets = await workos.connect.listApplicationClientSecrets({ id })
+  } catch (error) {
+    drift.push(`could not list client secrets of "${appName}": ${String(error)}`)
+    note(`FAILED   secret check — ${String(error)}`)
+    return
+  }
+  if (secrets.length > 0) return
+  if (!apply) {
+    drift.push(`Connect application "${appName}" has no client secret`)
+    note(`MISSING  client secret for "${appName}" — re-run with --apply to mint one`)
+    return
+  }
+  await mintConnectSecret(appName, id, clientId)
+}
+
 async function reconcileConnectApp(): Promise<void> {
   console.log('\nObservability Connect application')
-  const appName = process.env.WORKOS_CONNECT_APP_NAME?.trim() || 'GRID Observability'
+  const appName = connectAppName()
   const uris = splitList(process.env.WORKOS_CONNECT_REDIRECT_URIS)
   if (uris.length === 0) {
     note('skipped  WORKOS_CONNECT_REDIRECT_URIS is unset')
@@ -327,6 +376,7 @@ async function reconcileConnectApp(): Promise<void> {
     const { missing, extra } = diffSets(uris, current)
     if (missing.length === 0 && extra.length === 0) {
       note(`ok       ${appName} (${existing.clientId})`)
+      await ensureConnectSecret(appName, existing.id, existing.clientId)
       return
     }
     const detail = [
@@ -340,12 +390,17 @@ async function reconcileConnectApp(): Promise<void> {
       note(`DRIFT    ${appName} — ${detail}`)
       return
     }
-    await workos.connect.updateApplication({
-      id: existing.id,
-      redirectUris: uris.map((uri) => ({ uri })),
-    })
-    applied.push(`updated Connect application "${appName}" (${detail})`)
-    note(`updated  ${appName} — ${detail}`)
+    try {
+      await workos.connect.updateApplication({
+        id: existing.id,
+        redirectUris: uris.map((uri) => ({ uri })),
+      })
+      applied.push(`updated Connect application "${appName}" (${detail})`)
+      note(`updated  ${appName} — ${detail}`)
+    } catch (error) {
+      drift.push(`could not update Connect application "${appName}": ${String(error)}`)
+      note(`FAILED   update — ${String(error)}`)
+    }
     return
   }
 
@@ -355,6 +410,10 @@ async function reconcileConnectApp(): Promise<void> {
     return
   }
 
+  // Creation and secret minting are separately retryable: a failure in the
+  // second must not lose the first — the next run takes the existing-app
+  // path above and mints the missing secret there.
+  let createdId: string | undefined
   try {
     // Confidential client: PKCE off. Scopes are NOT passed — the SDK field
     // takes OAuth scopes, while the dashboard's "assign permission" step is
@@ -367,26 +426,14 @@ async function reconcileConnectApp(): Promise<void> {
       usesPkce: false,
       redirectUris: uris.map((uri) => ({ uri })),
     })
-    const secret = await workos.connect.createApplicationClientSecret({ id: created.id })
+    createdId = created.id
     applied.push(`created Connect application "${appName}"`)
     note(`created  ${appName} (${created.clientId})`)
-
-    console.log()
-    console.log('  ── NEW CLIENT CREDENTIALS — shown ONCE, store them now ──')
-    console.log(`    client id:     ${created.clientId}`)
-    console.log(`    client secret: ${secret.secret}`)
-    console.log('    Store via:')
-    console.log('      pulumi config set        grid-oib:otelOidcClientId     <client id>')
-    console.log("      pulumi config set --secret grid-oib:otelOidcClientSecret '<client secret>'")
-    console.log('    (issuer is your AuthKit domain, e.g. https://<tenant>.authkit.app)')
-    console.log()
+    await mintConnectSecret(appName, created.id, created.clientId)
   } catch (error) {
     drift.push(`could not create Connect application "${appName}": ${String(error)}`)
     note(`FAILED   create — ${String(error)}`)
   }
-  manual.push(
-    `verify "${appName}" holds the platform:organizations:view permission under Scopes (not verifiable via the SDK)`
-  )
 }
 
 async function reconcileFlags(): Promise<void> {
@@ -480,6 +527,16 @@ async function main(): Promise<void> {
     console.log(`\nApplied ${applied.length} change(s).`)
     for (const change of applied) console.log(`  - ${change}`)
   }
+
+  // Controls no WorkOS API can set or verify — reported on EVERY run so a
+  // clean reconcile never reads as "fully configured".
+  manual.push(
+    'create FGA resource types organization/project/skill if absent (dashboard-only)',
+    'toggle AuthKit "Allow sign-ups" OFF (dashboard-only)',
+    'confirm multipleRolesEnabled matches environment policy (dashboard-only)',
+    'arrange customer-managed KEK with WorkOS support (enterprise tenants only)',
+    `verify the "${connectAppName()}" Connect application holds platform:organizations:view under Scopes`,
+  )
 
   console.log('\nRemaining MANUAL steps:')
   if (manual.length === 0) console.log('  (none)')
