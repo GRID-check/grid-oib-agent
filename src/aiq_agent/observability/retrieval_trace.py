@@ -134,23 +134,33 @@ def emit_retrieval_span(*, tool_name: str, search_input: dict[str, Any], picks: 
         step_name = f"retrieve.{tool_name}"
         step_id = str(uuid.uuid4())
         manager = Context.get().intermediate_step_manager
-        manager.push_intermediate_step(
-            IntermediateStepPayload(
-                UUID=step_id,
-                event_type=IntermediateStepType.FUNCTION_START,
-                name=step_name,
-                data=StreamEventData(input=body_input),
+        started = False
+        try:
+            manager.push_intermediate_step(
+                IntermediateStepPayload(
+                    UUID=step_id,
+                    event_type=IntermediateStepType.FUNCTION_START,
+                    name=step_name,
+                    data=StreamEventData(input=body_input),
+                )
             )
-        )
-        # Same UUID, immediately: closes the span this call opened so the next
-        # real END still pops exactly one frame (see push_custom_step).
-        manager.push_intermediate_step(
-            IntermediateStepPayload(
-                UUID=step_id,
-                event_type=IntermediateStepType.FUNCTION_END,
-                name=step_name,
-                data=StreamEventData(input=body_input, output=body_output),
-            )
-        )
+            started = True
+        except Exception:  # noqa: BLE001
+            logger.debug("Retrieval pick START not emitted", exc_info=True)
+        finally:
+            if started:
+                try:
+                    # Same UUID, immediately: closes the span this call opened so the next
+                    # real END still pops exactly one frame (see push_custom_step).
+                    manager.push_intermediate_step(
+                        IntermediateStepPayload(
+                            UUID=step_id,
+                            event_type=IntermediateStepType.FUNCTION_END,
+                            name=step_name,
+                            data=StreamEventData(input=body_input, output=body_output),
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.debug("Retrieval pick END not emitted", exc_info=True)
     except Exception:  # noqa: BLE001 - telemetry must never take a turn down
         logger.debug("Retrieval pick span not emitted", exc_info=True)
