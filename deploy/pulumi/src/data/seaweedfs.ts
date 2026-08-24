@@ -111,13 +111,16 @@ export function installSeaweedFS(
   // reliable contract is POSITIVE VERIFICATION: run the create, then require
   // the bucket to appear in `s3.bucket.list` — that catches auth errors, filer
   // errors, and races identically. `timeout 120` bounds weed shell's silent
-  // connect-block if a gRPC port regresses (also found live).
+  // connect-block if a gRPC port regresses (also found live). The listing lines
+  // arrive prefixed with the shell prompt (`>   <name>\tsize:…`), so the grep
+  // accepts the bucket name after either line start or the `>` prompt, with a
+  // non-name delimiter after it — a plain `^ *name` anchor never matches.
   const master = topology.masterAddress;
   const createBuckets = platformBuckets
     .map(
       (b) =>
         `echo 's3.bucket.create -name ${b}' | timeout 120 weed shell -master=${master} 2>&1; ` +
-        `if ! echo 's3.bucket.list' | timeout 120 weed shell -master=${master} 2>&1 | grep -q '^ *${b}'; ` +
+        `if ! echo 's3.bucket.list' | timeout 120 weed shell -master=${master} 2>&1 | grep -qE '(^|>) *${b}([^a-zA-Z0-9_-]|$)'; ` +
         `then echo "FATAL: bucket ${b} missing after create"; exit 1; fi; ` +
         `echo "bucket ${b} verified"`,
     )

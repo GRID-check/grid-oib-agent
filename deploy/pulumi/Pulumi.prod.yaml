@@ -436,7 +436,10 @@ config:
     secure: AAABAN66h8TMqAcOoOqLutbjPu4fhTo59DuPl9v2s61MyPp3xFn2qNysRnw0ZcFDaa+fVZaw3PE5cCCzAvxxJGbAL56B2ugUYAmFBEIyuJg9zt3wChZOzSobG/aVpUoveGg0d0RXyVW0OUpG6rY=
   grid-oib:seaweedfsBackendReadSecretKey:
     secure: AAABAIcKw1BgPkNI3A1D3OskdyYMEX67j/qCJqeHUmWe0Y+3nBtfxvpB3tVvzx2RAcn+vkO3INH55OLN//Umf91DaMTyG2ZuY4EgQidnIcg6WGQKfkVPZ5r+hHLEtQDb
+<<<<<<< HEAD
   grid-oib:otelOidcIssuer: https://prestigious-energy-03.authkit.app
   grid-oib:otelOidcClientId: client_01M0SKKRX0XAQ99AFZ31WNJ6XT
   grid-oib:otelOidcClientSecret:
     secure: AAABAGIs2rkqlPY/YkUOQG2rppnu9Ee+4YpqBQo+2hjlfQDUtcIsQ2AIVyNWuMprZHTAvKIs0SBedUp8HuBP+EK1yi48Kudh8S2t5qwGtADAny5V5eaLZ+/NbaRifGhb
+=======
+>>>>>>> origin/develop
