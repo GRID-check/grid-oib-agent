@@ -58,6 +58,11 @@ interface DragonflyOptions {
    */
   cacheMode: boolean;
   /**
+   * Adds `--default_lua_flags=allow-undeclared-keys`. Required for BullMQ
+   * (Langfuse ingestion queue); unnecessary for the plain cache/counter stores.
+   */
+  allowUndeclaredLuaKeys?: boolean;
+  /**
    * Replace the pod instead of surging a second one alongside it.
    *
    * A surge briefly puts TWO independent instances behind one Service, and a
@@ -172,6 +177,9 @@ function installDragonflyInstance(
                   "--proactor_threads=1",
                   `--maxmemory=${opts.maxmemory}`,
                   `--cache_mode=${opts.cacheMode}`,
+                  ...(opts.allowUndeclaredLuaKeys
+                    ? ["--default_lua_flags=allow-undeclared-keys"]
+                    : []),
                   "--dbfilename=",
                 ],
                 env: authEnv,
@@ -358,6 +366,10 @@ export function installLangfuseQueue(
     memoryLimit: cfg.langfuse.queueMemoryLimit,
     cacheMode: false,
     recreateOnRollout: true,
+    // BullMQ (Langfuse's ingestion queue) runs Lua scripts that touch keys not
+    // declared up front; Dragonfly rejects those scripts with "script tried
+    // accessing undeclared key" unless explicitly allowed.
+    allowUndeclaredLuaKeys: true,
     password: cfg.langfuse.queuePassword,
   });
 }
