@@ -2,11 +2,12 @@
 
 #
 
-# Non-secret values are shown with placeholders; edit them for your cluster.
+# Non-secret config lives here, committed. ALL secrets live in the Pulumi ESC
 
-# Secret values are NOT in this file yet — set them with the CLI so they are
+# environment `grid-oib/prod` (imported via the `environment:` block below).
 
-# encrypted into this file by the stack's secrets provider:
+# Stack-file values win over env values on conflict, so the env holds ONLY the
+# secret keys — this file is the single source of truth for plaintext config.
 
 #
 
@@ -14,29 +15,29 @@
 
 #   pulumi stack init prod
 
-#   pulumi config set --secret grid-oib:kubeconfig            "$(cat /path/to/kubeconfig)"
+#   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:kubeconfig            "$(cat /path/to/kubeconfig)" --secret
 
-#   pulumi config set --secret grid-oib:pgAppPassword         "$(openssl rand -base64 24)"
+#   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:pgAppPassword         "$(openssl rand -base64 24)" --secret
 
 #   # Password for the least-privilege `grid_app_rw` runtime role (ADR-0041).
 
 #   # Required, no fallback — a stack without it fails at `pulumi preview`:
 
-#   pulumi config set --secret grid-oib:pgRuntimePassword     "$(openssl rand -base64 32)"
+#   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:pgRuntimePassword     "$(openssl rand -base64 32)" --secret
 
-#   pulumi config set --secret grid-oib:seaweedfsSecretKey    "$(openssl rand -base64 24)"
+#   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:seaweedfsSecretKey    "$(openssl rand -base64 24)" --secret
 
-#   pulumi config set --secret grid-oib:gridInternalApiToken  "$(openssl rand -hex 32)"
+#   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:gridInternalApiToken  "$(openssl rand -hex 32)" --secret
 
-#   pulumi config set --secret grid-oib:gridAdminToken        "$(openssl rand -hex 32)"
+#   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:gridAdminToken        "$(openssl rand -hex 32)" --secret
 
-#   pulumi config set --secret grid-oib:openrouterApiKey      "sk-or-..."
+#   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:openrouterApiKey      "sk-or-..." --secret
 
-#   pulumi config set --secret grid-oib:tavilyApiKey          "tvly-..."
+#   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:tavilyApiKey          "tvly-..." --secret
 
-#   pulumi config set --secret grid-oib:workosApiKey          "sk_live_..."
+#   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:workosApiKey          "sk_live_..." --secret
 
-#   pulumi config set --secret grid-oib:workosCookiePassword  "$(openssl rand -hex 32)"
+#   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:workosCookiePassword  "$(openssl rand -hex 32)" --secret
 
 #   # Encrypts DB-claimed job payloads at rest (they carry the user auth token).
 
@@ -44,7 +45,7 @@
 
 #   # grid-oib:allowPlaintextJobPayloads=true to override for dev/single-node):
 
-#   pulumi config set --secret grid-oib:jobPayloadKek          "$(openssl rand -base64 32)"
+#   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:jobPayloadKek          "$(openssl rand -base64 32)" --secret
 
 #   # `requirepass` for the two Dragonfly instances (cache + edge counter store).
 
@@ -58,18 +59,20 @@
 
 #   # rate-limit counters.
 
-#   pulumi config set --secret grid-oib:dragonflyPassword      "$(openssl rand -base64 32)"
+#   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:dragonflyPassword      "$(openssl rand -base64 32)" --secret
 
-#   pulumi config set --secret grid-oib:rateLimitStorePassword "$(openssl rand -base64 32)"
+#   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:rateLimitStorePassword "$(openssl rand -base64 32)" --secret
 
 #   # Optional (only if using the local BYOK backend):
 
-#   pulumi config set --secret grid-oib:byokLocalKek          "$(openssl rand -base64 32)"
+#   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:byokLocalKek          "$(openssl rand -base64 32)" --secret
 
 #
 
 # Discover your provider's StorageClass first:  kubectl get storageclass
 
+environment:
+  - grid-oib/prod
 config:
   grid-oib:namespace: grid
   # ── Images (from the publish-images CI workflow → GHCR) ──
@@ -138,7 +141,7 @@ config:
 
   #   pulumi config set        grid-oib:dnsZoneName example.com
 
-  #   pulumi config set --secret grid-oib:cloudflareApiToken "<Zone:DNS:Edit, scoped to that zone>"
+  #   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:cloudflareApiToken "<Zone:DNS:Edit, scoped to that zone>" --secret
 
   #   pulumi config set        grid-oib:dnsEnabled  true
 
@@ -310,7 +313,7 @@ config:
 
   # REQUIRED secret:
 
-  #   pulumi config set --secret grid-oib:otelPrimaryApiKey "$(openssl rand -hex 32)"
+  #   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:otelPrimaryApiKey "$(openssl rand -hex 32)" --secret
 
   # dashboardImage/collectorImage default to digest-pinned versions in src/config.ts —
 
@@ -338,7 +341,7 @@ config:
 
   #   pulumi config set        grid-oib:otelOidcClientId     client_...
 
-  #   pulumi config set --secret grid-oib:otelOidcClientSecret <secret>
+  #   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:otelOidcClientSecret <secret> --secret
 
   # ── err2issue: ERROR telemetry -> GitHub issues (ADR-0031) ──
 
@@ -366,7 +369,7 @@ config:
 
   #   pulumi config set        grid-oib:err2issueGithubRepo  GRID-check/grid-oib-agent
 
-  #   pulumi config set --secret grid-oib:err2issueGithubToken ghp_...
+  #   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:err2issueGithubToken ghp_... --secret
 
   #   pulumi config set        grid-oib:err2issueImage       ghcr.io/matthiasbigl/err2issue@sha256:...
   grid-oib:err2issueEnabled: "false"
@@ -375,68 +378,8 @@ config:
   grid-oib:dnsZoneName: piloti.at
   grid-oib:dnsZoneId: 66de14f8d07a729634f5d230418bb907 # pragma: allowlist secret (public zone id, Cloudflare zone Overview page)
   grid-oib:dnsZoneBaseline: "false"
-  grid-oib:tavilyApiKey:
-    secure: AAABANgGKrjOzLkYUvebEQLsp24GdVPi7S7RrKQJLqM98iYaSKqIP+tvSGpHSqgOfHtC+EzNjmwAGmSIKM0eGGhsmE4xUCPqEbUTXD9nEFxIV1wUd3U99vA=
-  grid-oib:registryUsername:
-    secure: AAABAFVTqyhm4CfEVOl0GhVbSYTE0D6nYlnJT7CbxeX+hZWpfyZMByN0zho=
-  grid-oib:registryPassword:
-    secure: AAABAHaozRofHnCIEkrv+O7pWz2q0VnsA0kVaTnVEbSe59T+Vo7KRQanOIRozasnDIFOLkrk5xtH+wgdXsG3rk5cfLC6EE71
-  grid-oib:cloudflareApiToken:
-    secure: AAABAHT4NBp/RBJlpOjozHA2KI0j5VZKr5R00VGvsHyrDVwdNwVNJ2VMHx3gOdvF1Wc/UqpBbTy3gXOnL87GchfCZtzCbBPMnSzKgdJKOMJkwHA1kg==
-  grid-oib:openrouterApiKey:
-    secure: AAABAKVHvuzx/9j5BN4N5M06yx4cCk5sv0ZPYWEDsjTZVUYZugDuripffpQnsc3pJ11nFfCKccF7Vbw9wIZx9xfE9DUUB7PdjwQZvTgYYtQy7HjdpDS2ZMiEeMzsqpDIeXWOhvXG3WLi
-  grid-oib:pgAppPassword:
-    secure: AAABAPdfrY6fkXPKMGhF6AB46EavSqg9x91zRJSCvZIAd/BFzQmV5G5+cyFxHUbJFNjbcbjje5J4TlY22oWrEE8sruAN5sozwMnSQ66wE3Yzg4upW0D+bP0u7k9UOMbR
-  grid-oib:pgRuntimePassword:
-    secure: AAABABUwITV53k9eKVghNmfgw16YXlYWmhGGw00i++OzesqyNkitSiMp2fApXoASW1DKuHCd62B+a5sCfrl7BkxjKry1HT+mxzxNRLyqN6NlyqczToXCx1x6GoW2I+hw
-  grid-oib:seaweedfsSecretKey:
-    secure: AAABAHoO7UC0r5TWiSz3FwjKbsQQNSpE++umiSDjZwMZ18HB8zBiN4xvFhaARKUH0x/cSvB8RRCw+zX/aW2OFdsARcgfYrKkGOvpLYlAJPVC6B9F2ueS6d21KJ3bRbWE
-  grid-oib:seaweedfsTenantAdminSecretKey:
-    secure: AAABABINvxAX3XDFUBvhJAZ7++3S57leGL79dn4giiGiFsq6p5v1gxpLIjBdLG9J2oFAk5L7LlKmPmtnk7n1Vc6nIkTxqUz0Rse9U8+qU7A0rv5NtJatQVIaMOeuKJqB
-  grid-oib:gridInternalApiToken:
-    secure: AAABAGHCaP616zDwfQM2sg0qM1FhfllNQRuHDkyOv3XULb8f/IRUUknWgm9AY1EdMA/n387mxNJfGYq1c5MNtUdncm+sAvUf5DoS23rR3IOPPkSdprSDK+xbWqAkIeMm
-  grid-oib:gridAdminToken:
-    secure: AAABAJF2HuzybC7h6sXfm21Nth0geyzHM2874D9sVCz9ejFF/KOgx9wvjkg2FkE5lNmzNkqBXzYDfTOEDO5IgS1cOiXeJiZcYYepo4cq6dteQDQ1IAwp1M9sE6YnNpLT
-  grid-oib:jobPayloadKek:
-    secure: AAABALKzAo4856ravmKENuwsAKnGnXLdTCL91F//gwBbPmqlqTOe0OZekZiZxyAUHE3svTqEWblieGUo4hi5lKJqyeLNnI/GSoXAAw==
-  grid-oib:dragonflyPassword:
-    secure: AAABAGO44nUuhP6epLrhowHcmuGh/F/fMtwB9j2UyeFjqHrbRC/SdANfEwD0C6zmEkkU9I6iizW62AM48gqR9Q==
-  grid-oib:rateLimitStorePassword:
-    secure: AAABAAVihKCv8/aXsROIe+7HtBuDTevLDam+VfFcVHy/aknCPUh2MIggWU2UL1tgGk3hVd2yR/QokhG8X14wGQ==
-  grid-oib:workosCookiePassword:
-    secure: AAABAG+5p/x6tnTYmaMlq12d148DLSyZUtUT9hRf/jY2njnQSg4WMIeERF5CdwJ6R3fPMZmmjEyp6cqAaWCEvy3VxgC2wmwrxG+ggw==
-  grid-oib:otelPrimaryApiKey:
-    secure: AAABALjy/fKYwRxXQgQcFuf2weRqOFg7Ytz4e1iL1bGFsvHkryw7zNrlgQy7uekXB/hIQ5d54JfoTe2nvqkpoYsf6VS42MMt2oHDCZ0x+QkL2pKcB6y5EFQyv4g8vbVp
-  grid-oib:langfuseEncryptionKey:
-    secure: AAABAM+8qOA+wGh2OhJtrSA16qIcEtLsNfqyF8YQdDJ1aBxqLk2tpsRCxv1kAR6i+Pk9jCocbnEZfwbmMISHRu9iFb32eDCDM/mHPjoUMlTGG7jiOzcSdY23X3puhPQF
-  grid-oib:langfuseClickhousePassword:
-    secure: AAABACBs+ZEa47E0xnS8sH+3o87+NLFRShAT/9wLDEtnCDYeMhnfSId+Y8cIN9grAcE14E2lYKNWakM8IUeLtNv955OCp9fhOKp/550UDnQjKLW7gyKOETgqN64VqXfi
-  grid-oib:langfuseSalt:
-    secure: AAABAAKOi+X88KPJEAFRBSf8uhIpo0SdNnTFIwWOeyZLvv0MQr7aHRabh5X3goVQUMcWoe8+864muBhNBRjFygZxsiQaq8TZyih08w==
-  grid-oib:langfuseNextAuthSecret:
-    secure: AAABAPpFGJuCIoOT5OwoDXdtHAJoO/j0xPuf4XcbVa5HbQT9YUzX0xzOzvS0iQpZN1zp5PX0th0duyUnV5u6SSak9/rOlOo9Tik7DQ==
-  grid-oib:langfuseDbPassword:
-    secure: AAABALn8s5yG/7aLmVbEDw41gjh+oQ5zv0zktVz+J2YpIPBuQJtdsqdyVKRwKKStLC6DIaT9ZhMCucSt46Ovfw==
-  grid-oib:langfuseQueuePassword:
-    secure: AAABAF891iYRlVPsuARVrws+/XWxRui4LSULV7AWSH5a1rN9p9iN0p9TzVO0v0oxoI/uGw8aupI6nB986HiqiA==
-  grid-oib:langfuseS3SecretKey:
-    secure: AAABACVLn3aha/SU12tBIobW3BwnmPQros6DZVAFg1jFkfBj8k4594BQip3fPKngairtth1tvtgLXMwIv9Sw7A==
-  grid-oib:langfuseInitUserPassword:
-    secure: AAABAF2bmMjoS4oE0pR+IrZMgAgTojjeaDtaI97UIPCqSn5GtSt9ZlhUBI+WukZDfVQJ5T2QKiU8kv8VTDTtIA==
-  grid-oib:langfusePublicKey:
-    secure: AAABAI7c2j6V2p9fOdV3EzzYvoj6EDOwUwNH+CS3FOA8EjktINHlrxLhT0P/3L/ZjS3m8uwuP8+YvW2/E2ktzUU/z3Oy9g==
-  grid-oib:langfuseSecretKey:
-    secure: AAABADhcFExyrft2G7nyNnco96tvh/iUWWmmyUoK4+++0MMEOOeukQsOuxZ0ZmwNcPnuGa3V5nD+HhEzbl25Ss+36rNUOQ==
   grid-oib:langfuseInitUserEmail: matthias@bigls.net
   grid-oib:langfuseOrgId: grid
   grid-oib:langfuseProjectId: grid-oib
-  grid-oib:kubeconfig:
-    secure: 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
-  grid-oib:workosApiKey:
-    secure: AAABAN66h8TMqAcOoOqLutbjPu4fhTo59DuPl9v2s61MyPp3xFn2qNysRnw0ZcFDaa+fVZaw3PE5cCCzAvxxJGbAL56B2ugUYAmFBEIyuJg9zt3wChZOzSobG/aVpUoveGg0d0RXyVW0OUpG6rY=
-  grid-oib:seaweedfsBackendReadSecretKey:
-    secure: AAABAIcKw1BgPkNI3A1D3OskdyYMEX67j/qCJqeHUmWe0Y+3nBtfxvpB3tVvzx2RAcn+vkO3INH55OLN//Umf91DaMTyG2ZuY4EgQidnIcg6WGQKfkVPZ5r+hHLEtQDb
   grid-oib:otelOidcIssuer: https://prestigious-energy-03.authkit.app
   grid-oib:otelOidcClientId: client_01M0SKKRX0XAQ99AFZ31WNJ6XT # pragma: allowlist secret (public OAuth client id)
-  grid-oib:otelOidcClientSecret:
-    secure: AAABAGIs2rkqlPY/YkUOQG2rppnu9Ee+4YpqBQo+2hjlfQDUtcIsQ2AIVyNWuMprZHTAvKIs0SBedUp8HuBP+EK1yi48Kudh8S2t5qwGtADAny5V5eaLZ+/NbaRifGhb
