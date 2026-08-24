@@ -163,7 +163,7 @@ config:
   # zone-level records (www, _dmarc, the apex). When this stack's baseDomain is
 
   # the zone apex, that stack is the natural owner.
-  grid-oib:dnsEnabled: "false"
+  grid-oib:dnsEnabled: "true"
   # NetworkPolicies (default-deny ingress + least-privilege allows) are ON by
 
   # default. Set false only if a validation pass shows they block required
