@@ -116,7 +116,7 @@ config:
 
   # reserves a released IP for 14 days and reclaims it via this annotation):
 
-  # grid-oib:loadBalancerIp: "203.0.113.10"
+  grid-oib:loadBalancerIp: "45.144.209.196"
 
   # ── Public DNS (Cloudflare) ──
 
