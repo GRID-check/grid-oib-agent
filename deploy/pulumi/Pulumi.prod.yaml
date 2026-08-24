@@ -287,7 +287,7 @@ config:
   # ── Auth / platform ──
 
   grid-oib:requireAuth: "true"
-  grid-oib:workosClientId: client_01KEF0YGXCZ6QCJGGBWD7Z266J
+  grid-oib:workosClientId: client_01KEF0YGXCZ6QCJGGBWD7Z266J # pragma: allowlist secret (public OAuth client id)
   grid-oib:enforceFeatureFlags: "false"
   # Agent Skills + Jobs (ADR-0046) stay dark in prod until they have run in
 
@@ -437,6 +437,6 @@ config:
   grid-oib:seaweedfsBackendReadSecretKey:
     secure: AAABAIcKw1BgPkNI3A1D3OskdyYMEX67j/qCJqeHUmWe0Y+3nBtfxvpB3tVvzx2RAcn+vkO3INH55OLN//Umf91DaMTyG2ZuY4EgQidnIcg6WGQKfkVPZ5r+hHLEtQDb
   grid-oib:otelOidcIssuer: https://prestigious-energy-03.authkit.app
-  grid-oib:otelOidcClientId: client_01M0SKKRX0XAQ99AFZ31WNJ6XT
+  grid-oib:otelOidcClientId: client_01M0SKKRX0XAQ99AFZ31WNJ6XT # pragma: allowlist secret (public OAuth client id)
   grid-oib:otelOidcClientSecret:
     secure: AAABAGIs2rkqlPY/YkUOQG2rppnu9Ee+4YpqBQo+2hjlfQDUtcIsQ2AIVyNWuMprZHTAvKIs0SBedUp8HuBP+EK1yi48Kudh8S2t5qwGtADAny5V5eaLZ+/NbaRifGhb
