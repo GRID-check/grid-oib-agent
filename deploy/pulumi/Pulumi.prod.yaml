@@ -73,11 +73,16 @@
 config:
   grid-oib:namespace: grid
   # ── Images (from the publish-images CI workflow → GHCR) ──
+
   grid-oib:imageRegistry: ghcr.io/grid-check
   # This line IS the promotion mechanism: every develop→prod promotion PR must
+
   # bump it to the new develop-tip sha (publish-images builds every service as
+
   # sha-<full sha> on every develop push). Do NOT have CI compute this
+
   # dynamically from the merge commit — prod merge shas never have GHCR images;
+
   # only develop tips do.
   grid-oib:imageTag: sha-06d8a7ec635339246c11b43c6b940112250b88f1
   # ── Storage (provider CSI, NVMe/TCP) ──
@@ -239,6 +244,7 @@ config:
   grid-oib:chromaEnabled: "true"
   grid-oib:chromaStorageSize: 20Gi
   # ── Agent (backend) — vertical scaling levers ──
+
   grid-oib:backendRequestsCpu: "1"
   grid-oib:backendRequestsMemory: 2Gi
   grid-oib:backendLimitsCpu: "4"
@@ -277,9 +283,11 @@ config:
   # proxy pins each conversation to its owning replica — ADR-0028).
   grid-oib:backendReplicas: "1"
   # ── Frontend (horizontal) ──
+
   grid-oib:frontendMinReplicas: "1"
   grid-oib:frontendMaxReplicas: "3"
   # ── Auth / platform ──
+
   grid-oib:requireAuth: "true"
   grid-oib:workosClientId: client_01KEF0YGXCZ6QCJGGBWD7Z266J
   grid-oib:enforceFeatureFlags: "false"
@@ -367,7 +375,7 @@ config:
   grid-oib:protectDataResources: "true"
   grid-oib:seaweedfsPerOrgBuckets: "true"
   grid-oib:dnsZoneName: piloti.at
-  grid-oib:dnsZoneId: 66de14f8d07a729634f5d230418bb907  # pragma: allowlist secret (public zone id, Cloudflare zone Overview page)
+  grid-oib:dnsZoneId: 66de14f8d07a729634f5d230418bb907 # pragma: allowlist secret (public zone id, Cloudflare zone Overview page)
   grid-oib:dnsZoneBaseline: "false"
   grid-oib:tavilyApiKey:
     secure: AAABANgGKrjOzLkYUvebEQLsp24GdVPi7S7RrKQJLqM98iYaSKqIP+tvSGpHSqgOfHtC+EzNjmwAGmSIKM0eGGhsmE4xUCPqEbUTXD9nEFxIV1wUd3U99vA=
@@ -428,3 +436,5 @@ config:
     secure: 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
   grid-oib:workosApiKey:
     secure: AAABAN66h8TMqAcOoOqLutbjPu4fhTo59DuPl9v2s61MyPp3xFn2qNysRnw0ZcFDaa+fVZaw3PE5cCCzAvxxJGbAL56B2ugUYAmFBEIyuJg9zt3wChZOzSobG/aVpUoveGg0d0RXyVW0OUpG6rY=
+  grid-oib:seaweedfsBackendReadSecretKey:
+    secure: AAABAIcKw1BgPkNI3A1D3OskdyYMEX67j/qCJqeHUmWe0Y+3nBtfxvpB3tVvzx2RAcn+vkO3INH55OLN//Umf91DaMTyG2ZuY4EgQidnIcg6WGQKfkVPZ5r+hHLEtQDb
