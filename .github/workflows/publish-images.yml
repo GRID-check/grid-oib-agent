@@ -9,10 +9,10 @@ name: Publish Images
 # with the commit SHA (immutable — what Pulumi should pin via `imageTag`) and a
 # moving tag (`latest` on develop, the git tag on releases).
 #
-# The web image bakes its site URLs at build time: `latest`/SHA images carry the
-# DEV hosts (app.dev.piloti.at / dev.piloti.at), version-tagged images the PROD
-# hosts (app.piloti.at / piloti.at) — the Dockerfile defaults cover dev, the
-# build args below override for release tags.
+# The web image is host-agnostic: the "Anmelden" link goes through the
+# relative /sign-in endpoint, which reads PUBLIC_APP_URL from the runtime
+# environment (injected per stack by deploy/pulumi). Only SEO metadata
+# (PUBLIC_SITE_URL) is baked at build time, defaulting to prod.
 #
 # Path-filtered rebuilds: the `changes` job (dorny/paths-filter) tracks which
 # inputs each image consumes, so on pushes to develop an image is only rebuilt
@@ -222,9 +222,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            PUBLIC_APP_URL=${{ startsWith(github.ref, 'refs/tags/') && 'https://app.piloti.at' || 'https://app.dev.piloti.at' }}
-            PUBLIC_SITE_URL=${{ startsWith(github.ref, 'refs/tags/') && 'https://piloti.at' || 'https://dev.piloti.at' }}
           # Layer cache, scoped per image so the three do not evict each other.
           # `mode=max` is required: these are multi-stage builds and the layer
           # worth reusing is the dependency install in an intermediate stage,
