@@ -19,10 +19,15 @@ name: Release notes
 #   * Repository secret `OPENROUTER_API_KEY` — the translator. Without it the
 #     job still runs and publishes the English text on the German page, with a
 #     warning in the log.
-#   * Branch protection on `develop` must let this workflow push. Either allow
-#     the `github-actions[bot]` actor, or set the `RELEASE_NOTES_TOKEN` secret to
-#     a PAT with `contents: write` that is exempt from the restriction; the push
-#     step prefers it when present.
+#   * Repository secret `RELEASE_PAT` — a fine-grained PAT with `contents: write`
+#     on this repository, owned by an admin whose RepositoryRole bypass is listed
+#     on the `develop` rulesets. The `protect-develop` ruleset requires changes
+#     to arrive via pull request, and GitHub refuses the Actions integration
+#     itself as a ruleset bypass actor (422 "must be part of the ruleset source
+#     or owner organization"), so the push below runs as the PAT owner — the
+#     token on actions/checkout persists git credentials for the push. Unset
+#     falls back to `GITHUB_TOKEN`, which keeps the workflow usable in forks
+#     and other contexts without that ruleset.
 #
 # The commit is made with `[skip actions]`-free, ordinary content: it must
 # trigger the downstream image build, or the note never reaches the website. It
@@ -38,8 +43,10 @@ on:
       - releasenotes/config.yaml
       - scripts/release_notes.py
       - .github/workflows/release-notes.yml
-  # Republish on demand — e.g. after adding the translation secret, or to
-  # backfill German for notes that shipped in English.
+  # Validate the pipeline on demand — regeneration and translation resolution
+  # run, but nothing is committed: publishing is gated to pushes on `develop`
+  # (see the commit step). To republish for real, re-run a failed develop run,
+  # which keeps its original `push` context.
   workflow_dispatch:
 
 permissions:
@@ -59,7 +66,7 @@ jobs:
           # reno reads release history from git; a shallow clone gives it none
           # (documented upstream, and it fails outright rather than degrading).
           fetch-depth: 0
-          token: ${{ secrets.RELEASE_NOTES_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
 
       - uses: astral-sh/setup-uv@v4
         with:
@@ -81,6 +88,10 @@ jobs:
           uv run --no-project --with reno==4.1.0 python scripts/release_notes.py publish $REQUIRE
 
       - name: Commit and push
+        # Publishing is a develop-push behavior only. Every other context —
+        # workflow_dispatch, or a future pull_request trigger — regenerates
+        # read-only above and never commits, switches branches, or pushes.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
         run: |
           set -euo pipefail
           if git diff --quiet -- frontends/web/src/data/changelog.json releasenotes/translations/; then
