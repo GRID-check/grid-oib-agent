@@ -281,7 +281,7 @@ config:
   grid-oib:frontendMaxReplicas: "3"
   # ── Auth / platform ──
   grid-oib:requireAuth: "true"
-  grid-oib:workosClientId: client_01KEF0YGNPX7S4SF952ZX46V1K
+  grid-oib:workosClientId: client_01KEF0YGXCZ6QCJGGBWD7Z266J
   grid-oib:enforceFeatureFlags: "false"
   # Agent Skills + Jobs (ADR-0046) stay dark in prod until they have run in
 
