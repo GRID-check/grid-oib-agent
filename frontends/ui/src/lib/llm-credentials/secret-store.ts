@@ -60,7 +60,11 @@ export function activeSecretBackend(): SecretBackend {
  * metadata to correlate events back to a row. Recovery is infeasible for the
  * same reason an SSH host fingerprint is: the key carries ~200 bits of
  * entropy and the stored value keeps only 64, so exhaustively matching the
- * fingerprint yields no more information about the key itself. (CodeQL's
+ * fingerprint yields no more information about the key itself. Invariant for
+ * callers: only provider-issued, high-entropy credentials may pass through
+ * here — the fast hash is safe precisely because its input is unguessable; a
+ * user-chosen low-entropy value would make this stored fingerprint
+ * brute-forceable and must never reach this function. (CodeQL's
  * js/insufficient-password-hash flags the raw SHA-256; that alert does not
  * apply here — there is no hash-to-verify path, a KDF would slow nothing
  * down, and an HMAC could not be computed on the WorkOS path where no KEK
