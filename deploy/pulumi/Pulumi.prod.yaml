@@ -79,7 +79,7 @@ config:
   # sha-<full sha> on every develop push). Do NOT have CI compute this
   # dynamically from the merge commit — prod merge shas never have GHCR images;
   # only develop tips do.
-  grid-oib:imageTag: sha-306e15bad1d5f398251b1472c3898efbcd0aaef3
+  grid-oib:imageTag: sha-06d8a7ec635339246c11b43c6b940112250b88f1
   # ── Storage (provider CSI, NVMe/TCP) ──
 
   # Classes offered by the provider (see `kubectl get storageclass`):
@@ -281,7 +281,7 @@ config:
   grid-oib:frontendMaxReplicas: "3"
   # ── Auth / platform ──
   grid-oib:requireAuth: "true"
-  grid-oib:workosClientId: client_REPLACE_ME
+  grid-oib:workosClientId: client_01KEF0YGNPX7S4SF952ZX46V1K
   grid-oib:enforceFeatureFlags: "false"
   # Agent Skills + Jobs (ADR-0046) stay dark in prod until they have run in
 
