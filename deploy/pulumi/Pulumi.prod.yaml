@@ -290,7 +290,7 @@ config:
   # ── Auth / platform ──
 
   grid-oib:requireAuth: "true"
-  grid-oib:workosClientId: client_01KEF0YGXCZ6QCJGGBWD7Z266J
+  grid-oib:workosClientId: client_01KEF0YGXCZ6QCJGGBWD7Z266J # pragma: allowlist secret (public OAuth client id)
   grid-oib:enforceFeatureFlags: "false"
   # Agent Skills + Jobs (ADR-0046) stay dark in prod until they have run in
 
@@ -382,4 +382,4 @@ config:
   grid-oib:langfuseOrgId: grid
   grid-oib:langfuseProjectId: grid-oib
   grid-oib:otelOidcIssuer: https://prestigious-energy-03.authkit.app
-  grid-oib:otelOidcClientId: client_01M0SKKRX0XAQ99AFZ31WNJ6XT
+  grid-oib:otelOidcClientId: client_01M0SKKRX0XAQ99AFZ31WNJ6XT # pragma: allowlist secret (public OAuth client id)

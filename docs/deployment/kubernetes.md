@@ -1751,6 +1751,56 @@ Session grouping and input/output capture need no configuration — NAT already
 emits `session.id` and OpenInference `input.value`/`output.value`, both of which
 Langfuse maps natively.
 
+### When Langfuse shows nothing — diagnose from the far end
+
+A turn touches four layers before it becomes a Langfuse row: the NAT exporters
+in the agent tier, the collector, `langfuse-web`'s OTLP receiver, and the
+BullMQ queue that drains into ClickHouse. Diagnose from the far end backwards,
+because a break at any one of them looks identical in the UI: an empty project.
+The producer is almost never the culprit — the agent tiers emit spans for every
+run unconditionally, and their exporter logs `Started exporter
+'otelcollector_redaction'` per turn either way, which proves nothing about
+delivery.
+
+The ingestion-tier failure seen on 2026-08-24 had this signature. The queue
+Redis (`dragonfly-langfuse`) was missing
+`--default_lua_flags=allow-undeclared-keys`, so every BullMQ Lua script failed:
+
+```text
+ERR script tried accessing undeclared key, key: bull:otel-ingestion-queue:<n>
+```
+
+in the `langfuse-web` / `langfuse-worker` logs, which made the OTLP receiver
+answer **HTTP 500**, which made the collector log `Exporting failed. Dropping
+data.` for `otlp_http/langfuse` and silently discard every trace batch. All of
+them — frontend included. An observation like "only grid-ui arrives, the Python
+tiers produce zero spans" during such a window is a memory of two different
+eras, not a producer split: check whether anything arrived *recently* before
+chasing the wrong layer. The fix lives in the deployment program
+(`allowUndeclaredLuaKeys` on the Langfuse Dragonfly instance); the cache and
+counter stores must not get it — only the Langfuse queue runs BullMQ scripts.
+
+Ground truth is a single ClickHouse query — rows here within seconds of a chat
+turn mean every layer works, whatever the UI's dashboard filters claim:
+
+```bash
+kubectl -n grid exec clickhouse-0 -- clickhouse-client --user langfuse \
+  --query "SELECT environment, type, count(), max(start_time)
+           FROM langfuse.observations WHERE start_time > now() - INTERVAL 3 HOUR
+           GROUP BY environment, type ORDER BY 3 DESC"
+```
+
+Agent turns appear as `CHAIN` rows (the `<workflow>` root, per-agent steps) and
+`GENERATION` rows named by model id; frontend traffic arrives as `SPAN` under
+the `default` environment while the tiers export `deployment.environment:
+production`. Token usage rides on each `GENERATION` in `usage_details`.
+
+**Model costs stay $0.00 until the model ids are priced.** Token counts land
+regardless, but the self-hosted OSS build ships no price catalog entry for the
+OpenRouter slugs (e.g. `openai/gpt-5.6-luna`), so `total_cost` stays NULL and
+every cost view reads zero. Add input/output prices per model id under
+Settings → Models in the Langfuse UI; that is configuration, not deployment.
+
 ### Operating it — the retention problem
 
 **Nothing expires.** Data-retention policies are an Enterprise feature, so on the
