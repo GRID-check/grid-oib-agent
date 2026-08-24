@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const session = {
@@ -23,6 +26,8 @@ vi.mock('@/lib/organizations/service', () => ({
 import { GET } from './route'
 import { listOrganizationMembers } from '@/lib/organizations/service'
 
+const request = (): Request => new Request('http://localhost/api/organization/members')
+
 describe('GET /api/organization/members', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -31,12 +36,12 @@ describe('GET /api/organization/members', () => {
 
   it('rejects non-admins', async () => {
     session.role = 'member'
-    expect((await GET()).status).toBe(403)
+    expect((await GET(request())).status).toBe(403)
     expect(listOrganizationMembers).not.toHaveBeenCalled()
   })
 
   it('returns the member directory for admins', async () => {
-    const res = await GET()
+    const res = await GET(request())
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.members).toHaveLength(2)

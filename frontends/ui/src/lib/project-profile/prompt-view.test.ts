@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, it } from 'vitest'
 
 import { applyProjectProfilePatch, buildProjectProfileDisplay, buildProjectPromptView } from './prompt-view'
@@ -48,13 +51,35 @@ describe('project profile prompt view', () => {
   })
 
   it('builds a stored display projection without calling AI-Q', () => {
+    // Keys outside the intake definition fall back to humanized labels.
     const display = buildProjectProfileDisplay(profile)
     expect(display.keyFacts).toEqual([
-      { label: 'floors above', value: '5' },
-      { label: 'protected zone', value: 'Yes' },
-      { label: 'use', value: 'beherbergung' },
+      { label: 'Floors above', value: '5' },
+      { label: 'Protected zone', value: 'Yes' },
+      { label: 'Use', value: 'beherbergung' },
     ])
-    expect(display.missingInfo).toEqual(['building_class'])
+    expect(display.missingInfo).toEqual(['Building class'])
+  })
+
+  it('uses intake question and option labels for known fact keys', () => {
+    const meta = { confidence: 'confirmed' as const, source: 'onboarding' as const, updatedAt: '2026-07-02T00:00:00.000Z' }
+    const intakeProfile: ProjectProfile = {
+      facts: {
+        bundesland: { value: 'wien', ...meta },
+        'bauwerk_name@bw1': { value: 'Haupthaus', ...meta },
+        'bauwerkstyp@bw1': { value: 'gebaeude', ...meta },
+      },
+      goals: {},
+      unknowns: ['fluchtniveau_m@bw1'],
+      assumptions: {},
+    }
+    const display = buildProjectProfileDisplay(intakeProfile)
+    // Intake (stage) order, not alphabetical: module A before module C.
+    expect(display.keyFacts).toEqual([
+      { label: 'Bundesland', value: 'Wien' },
+      { label: 'Bauwerkstyp · Haupthaus', value: 'Gebäude' },
+    ])
+    expect(display.missingInfo).toEqual(['Fluchtniveau'])
   })
 
   it('applies safe add and replace patches only under profile paths', () => {

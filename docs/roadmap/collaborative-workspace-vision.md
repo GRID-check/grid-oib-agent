@@ -2,6 +2,14 @@
 
 > Forward-looking product sketch — **not scoped for implementation.** Captured so
 > the thinking isn't lost. Sibling to `cross-project-rag-vision.md`.
+>
+> **Substrate now specified.** The collaboration primitives this vision assumes —
+> per-resource ACLs, real-time fan-out, mentions, and the notifications that carry
+> them — are specified as requirements in
+> [`../design/collaboration-sharing-and-inbox-spec.md`](../design/collaboration-sharing-and-inbox-spec.md),
+> with shared chats as their first consumer. The board, the evidence links and the
+> agent-as-reviewer described below sit on top of it: a compliance lane becomes
+> another shareable resource type and "assigned to Anna" another inbox item type.
 
 ## Thesis
 

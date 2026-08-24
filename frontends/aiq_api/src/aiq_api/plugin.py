@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """
 NAT plugin registration for unified AI-Q API.
 
@@ -34,17 +19,21 @@ Knowledge Layer Configuration:
     or the default backend (llamaindex).
 """
 
+import asyncio
 import logging
 import os
 import signal
 from collections.abc import Callable
-from typing import override
 
 from fastapi import APIRouter
 from fastapi import FastAPI
 from pydantic import Field
+from typing_extensions import override
 
+from aiq_agent.common.log_redaction import install_presigned_url_scrubbing
+from aiq_agent.stages.delivery import register_stage_frame_sink
 from aiq_api.auth.middleware import AuthMiddleware
+from aiq_api.context_envelope import GridContextEnvelopeMiddleware
 from nat.builder.workflow_builder import WorkflowBuilder
 from nat.cli.register_workflow import register_front_end
 from nat.data_models.config import Config
@@ -55,20 +44,41 @@ from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontE
 
 from .jobs.connection_manager import get_connection_manager
 from .jobs.event_store import EventStore
+from .routes.cards import add_card_catalog_routes
 from .routes.collections import add_collection_routes
 from .routes.config_info import add_config_info_routes
+from .routes.consistency_check import add_consistency_check_routes
+from .routes.document_search import add_document_search_routes
 from .routes.documents import add_document_routes
+from .routes.feedback_digest import add_feedback_digest_routes
+from .routes.generate_conversation_title import add_generate_conversation_title_routes
 from .routes.generate_summary import add_generate_summary_routes
 from .routes.ingest import add_ingest_routes
 from .routes.jobs import register_job_routes
 from .routes.maintenance import add_maintenance_routes
+from .routes.norms import add_norm_routes
 from .routes.oib import add_oib_routes
+from .routes.skill_review import add_skill_review_routes
+from .routes.skills import add_skill_routes
 from .websocket_reconnect import configure_websocket_auth
 from .websocket_reconnect import install_reconnectable_handler
+from .websocket_reconnect import send_stage_frame
 
 logger = logging.getLogger(__name__)
 
 install_reconnectable_handler()
+
+# The post-answer stage frame channel (docs/architecture/post-answer-stages.md
+# §2.7). `aiq_agent` owns the graph and may not import a WebSocket; this tier
+# owns the socket and publishes the sink to it, the same inversion
+# `register_context_appender` uses in the opposite direction.
+#
+# Registered at IMPORT of this module, next to the handler patch, because that is
+# what "the front end starts up" means: a process that never loads this front end
+# — a CLI run, a Dask job worker — leaves the sink unset, and a `frame` stage
+# there still runs, is still bounded and still records its outcome. It simply has
+# nobody to tell.
+register_stage_frame_sink(send_stage_frame)
 
 
 _validators: list = []
@@ -200,6 +210,10 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
 
     @override
     def build_app(self) -> FastAPI:
+        from aiq_agent.common.logging_utils import suppress_noisy_dependency_logs
+
+        suppress_noisy_dependency_logs()
+
         app = super().build_app()
 
         app.title = "AI-Q API"
@@ -209,12 +223,27 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         knowledge_router = APIRouter()
         add_collection_routes(knowledge_router)
         add_document_routes(knowledge_router)
+        add_document_search_routes(knowledge_router)
         add_generate_summary_routes(knowledge_router)
+        add_generate_conversation_title_routes(knowledge_router)
+        add_consistency_check_routes(knowledge_router)
+        add_feedback_digest_routes(knowledge_router)
         add_ingest_routes(knowledge_router)
         add_oib_routes(knowledge_router)
+        add_norm_routes(knowledge_router)
         add_maintenance_routes(knowledge_router)
+        # Internal skills submit route (Agent Skills, successor of the ADR-0023
+        # workflows submit route): same router/middleware treatment as
+        # maintenance, so it stays off the external allowlist.
+        add_skill_routes(knowledge_router)
+        # Advisory LLM critique of a skill draft. Sits with the other
+        # best-effort LLM routes rather than the submit route: it writes nothing
+        # and always answers 200.
+        add_skill_review_routes(knowledge_router)
         # Workflow-default model names for the org model-config UI (ADR-0014).
         add_config_info_routes(knowledge_router, self.config.llms)
+        # The card catalog for the platform surface: what the agent can render.
+        add_card_catalog_routes(knowledge_router)
         app.include_router(knowledge_router)
         logger.info("Knowledge API routes registered")
 
@@ -226,6 +255,15 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
                 "Either call aiq_api.plugin.register_validator() before starting the server, "
                 "or declare an 'aiq_api.validators' entry point in your package."
             )
+        # NOTE on ordering: Starlette's add_middleware() makes each newly
+        # added middleware the new OUTERMOST layer, so whichever is added
+        # LAST runs FIRST on the way in. GridContextEnvelopeMiddleware is
+        # added BEFORE AuthMiddleware here so that AuthMiddleware (added,
+        # and therefore outer, second) always resolves scope["state"]["user"]
+        # before the envelope-enforcement middleware reads it for HTTP
+        # requests. See aiq_api.context_envelope's module docstring for the
+        # full enforcement design (matrix, WebSocket handling, exemptions).
+        app.add_middleware(GridContextEnvelopeMiddleware, require_auth=require_auth, validators=validators)
         app.add_middleware(AuthMiddleware, validators=validators, require_auth=require_auth)
         configure_websocket_auth(validators=validators, require_auth=require_auth)
         logger.info(
@@ -240,11 +278,28 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
     async def add_routes(self, app: FastAPI, builder: WorkflowBuilder):
         await super().add_routes(app, builder)
 
+        # Presigned URLs are live bearer credentials to a tenant's objects, and
+        # this tier handles them on every ingest. Scrubbing is installed on the
+        # HANDLERS, once, rather than relied on at each call site: the leaks that
+        # actually happened came through exception strings
+        # (`str(httpx.HTTPStatusError)` embeds the request URL) and tracebacks,
+        # i.e. from code that never mentioned a URL. Installed after
+        # `super().add_routes` so the host's own handlers are in place first.
+        install_presigned_url_scrubbing()
+
         # =====================================================================
         # Async Job API routes
         # =====================================================================
         await register_job_routes(app, builder, self)
         logger.info("Async Job API routes registered")
+
+        # Non-blocking startup handshake against the frontend's internal API:
+        # surfaces a GRID_INTERNAL_API_TOKEN mismatch / unreachable BFF at deploy
+        # time instead of only when the first `remember` tool call fails. Fire-
+        # and-forget (never awaited, never fatal) — add_routes has no clean
+        # "after everything is up" hook and blocking here would delay serving,
+        # so we schedule it on the running loop and let it log its own outcome.
+        self._schedule_internal_api_check()
 
         self._install_signal_handlers()
 
@@ -275,6 +330,28 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
                 pass
         else:
             logger.info("Debug console disabled by AIQ_ENABLE_DEBUG")
+
+    def _schedule_internal_api_check(self):
+        """Fire-and-forget the internal-API startup handshake (never fatal).
+
+        Runs the blocking urllib probe in a worker thread so it cannot stall the
+        event loop, and swallows/logs any failure — a broken or not-yet-up
+        frontend must never prevent the backend from serving.
+        """
+
+        async def _run() -> None:
+            try:
+                from aiq_agent.knowledge.project_memory import check_internal_api
+
+                await asyncio.to_thread(check_internal_api)
+            except Exception as e:  # noqa: BLE001 — diagnostic only, must not crash startup
+                logger.warning("Internal API startup handshake could not run: %s", e)
+
+        try:
+            asyncio.get_running_loop().create_task(_run())
+        except RuntimeError:
+            # No running loop (unexpected here) — skip the diagnostic silently.
+            logger.debug("No running loop for the internal API handshake; skipping")
 
     def _install_signal_handlers(self):
         """Install signal handlers to notify SSE connections on shutdown."""

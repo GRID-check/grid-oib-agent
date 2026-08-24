@@ -40,14 +40,14 @@
     {
       "idx": 5,
       "version": "7",
-      "when": 1743552000000,
+      "when": 1782850583192,
       "tag": "0005_project_folders",
       "breakpoints": true
     },
     {
       "idx": 6,
       "version": "7",
-      "when": 1751550000000,
+      "when": 1782850583193,
       "tag": "0006_remove_profile_highlights",
       "breakpoints": true
     },
@@ -98,6 +98,349 @@
       "version": "7",
       "when": 1783422283817,
       "tag": "0013_budgets",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1783422284817,
+      "tag": "0014_hot_path_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1783422285817,
+      "tag": "0015_llm_usage_rollups",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1783422286817,
+      "tag": "0016_org_llm_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1783422287817,
+      "tag": "0017_workflows",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1783422288817,
+      "tag": "0018_bundesland_wien_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1783422289817,
+      "tag": "0019_org_archiv",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1783422290817,
+      "tag": "0020_answer_feedback",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1783422291817,
+      "tag": "0021_conversation_tags",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1783422292817,
+      "tag": "0022_agent_profiler_spans",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1783422293817,
+      "tag": "0023_rename_minio_key_to_storage_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1783422294817,
+      "tag": "0024_platform_workflow_templates",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1783422295817,
+      "tag": "0025_citation_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1783422296817,
+      "tag": "0026_platform_model_defaults",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1783422296818,
+      "tag": "0027_collaboration",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1785408000000,
+      "tag": "0028_engagement_mode",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1785456000000,
+      "tag": "0029_platform_retrieval_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1785542400000,
+      "tag": "0030_platform_reasoning_efforts",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1785542400001,
+      "tag": "0031_row_level_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1785542400002,
+      "tag": "0032_messages_organization_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1785542400003,
+      "tag": "0033_documents_storage_bucket",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1785542400004,
+      "tag": "0034_bim_models",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1785542400005,
+      "tag": "0035_bim_check_confirmations",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1785628800005,
+      "tag": "0036_drop_unused_bim_property_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1785715200005,
+      "tag": "0037_bim_rule_inputs",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1785801600005,
+      "tag": "0038_bim_element_search_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1785888000005,
+      "tag": "0039_bim_elements_type_order_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1785974400005,
+      "tag": "0040_bim_elements_storey_expression_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1786060800005,
+      "tag": "0041_agent_skills",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1786147200005,
+      "tag": "0042_drop_workflows",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1786233600005,
+      "tag": "0043_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1786320000005,
+      "tag": "0044_conversation_job_provenance",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1786406400005,
+      "tag": "0045_bim_confirmations_per_model",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1786492800005,
+      "tag": "0046_curated_skill_activations",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1786579200005,
+      "tag": "0047_platform_skills",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1786665600005,
+      "tag": "0048_document_display_name",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1786752000005,
+      "tag": "0049_session_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1786838400005,
+      "tag": "0050_platform_skill_delivery",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1786924800005,
+      "tag": "0051_file_native_ownership",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1787011200005,
+      "tag": "0052_answer_feedback_comment",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1787097600005,
+      "tag": "0053_piloti_voice_standard_skill",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1787184000005,
+      "tag": "0054_piloti_cards_standard_skill",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1787270400005,
+      "tag": "0055_piloti_voice_answer_shape",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1787356800005,
+      "tag": "0056_piloti_cards_chat_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1787443200005,
+      "tag": "0057_piloti_voice_hard_cases",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1787443200010,
+      "tag": "0058_piloti_cards_derivation_and_process",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1787529600005,
+      "tag": "0059_piloti_cards_the_recognised_card",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1787616000005,
+      "tag": "0060_piloti_cards_dossier_and_change",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1787702400005,
+      "tag": "0061_piloti_cards_reachable_shapes",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1787788800005,
+      "tag": "0062_piloti_cards_retire_follow_ups",
       "breakpoints": true
     }
   ]

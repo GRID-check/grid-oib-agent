@@ -1,0 +1,34 @@
+[
+  {
+    "number": 1,
+    "content": "[KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12",
+    "title": "OIB-Richtlinie 2, Ausgabe Mai 2023",
+    "citation_key": "oib-rl_2_ausgabe_mai_2023.pdf, p.12",
+    "collection": "oib_knowledge",
+    "source_type": "knowledge_layer",
+    "tool": "knowledge_search",
+    "origin": "kb",
+    "kind": "baurecht",
+    "lane": "baurecht_oib",
+    "lane_label": "OIB-Richtlinie",
+    "binding_status": "verbindlich_erklaert",
+    "file_name": "oib-rl_2_ausgabe_mai_2023.pdf",
+    "page": 12
+  },
+  {
+    "number": 2,
+    "content": "[KB] einreichplan_og.pdf, p.4",
+    "title": "einreichplan_og.pdf",
+    "citation_key": "einreichplan_og.pdf, p.4",
+    "collection": "proj_abc",
+    "source_type": "knowledge_layer",
+    "tool": "knowledge_search",
+    "origin": "kb",
+    "kind": "projekt",
+    "lane": "projekt",
+    "lane_label": "Projektwissen",
+    "binding_status": "unbekannt",
+    "file_name": "einreichplan_og.pdf",
+    "page": 4
+  }
+]

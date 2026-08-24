@@ -1,0 +1,19 @@
+{
+  "name": "grid-oib-policy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CrossGuard policy pack: rollout-safety guardrails for the Grid OIB stack.",
+  "main": "index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pulumi/kubernetes": "^4.19.0",
+    "@pulumi/policy": "^1.13.0",
+    "@pulumi/pulumi": "^3.145.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}

@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import asyncio
 import logging
 import os
@@ -40,13 +25,27 @@ class TavilyWebSearchToolConfig(FunctionBaseConfig, name="tavily_web_search"):
     include_answer: str = Field(default="advanced", description="Whether to include answers in the search results")
     max_results: int = Field(default=3, description="Maximum number of search results to return")
     api_key: SecretStr | None = Field(default=None, description="The API key for the Tavily service")
-    max_retries: int = Field(default=3, description="Maximum number of retries for the search request")
+    max_retries: int = Field(default=3, ge=1, description="Maximum number of retries for the search request")
     advanced_search: bool = Field(default=False, description="Whether to use advanced search")
     max_content_length: int | None = Field(
         default=None,
         description="Max characters per result content. If set, truncates each result to reduce token usage.",
     )
     api_base_url: str | None = Field(default=None, description="API base URL to use for Tavily Client constructor")
+    include_domains: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Restrict results to these domains only. Empty (default) applies no restriction. "
+            "This is a hard filter: results from any domain not in the list are dropped."
+        ),
+    )
+    exclude_domains: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Drop results from these domains. Empty (default) applies no restriction. "
+            "This is a hard filter: matching domains are removed from the results."
+        ),
+    )
 
 
 @register_function(config_type=TavilyWebSearchToolConfig)
@@ -85,6 +84,35 @@ async def tavily_web_search(tool_config: TavilyWebSearchToolConfig, builder: Bui
         )
         return
 
+    # Build the Tavily client once per registration rather than per call.
+    # tavily_kwargs depends only on tool_config (constant after registration),
+    # and TavilySearch.ainvoke takes the query per call, so a single reused
+    # client is byte-identical in behavior. Latency: avoids a fresh TCP+TLS
+    # handshake to api.tavily.com on every web search (connection keep-alive).
+    tavily_kwargs = {
+        "max_results": tool_config.max_results,
+        "search_depth": "advanced" if tool_config.advanced_search else "basic",
+        "include_answer": tool_config.include_answer,
+    }
+
+    if tool_config.api_base_url:
+        tavily_kwargs["api_base_url"] = tool_config.api_base_url
+    if tool_config.include_domains:
+        tavily_kwargs["include_domains"] = tool_config.include_domains
+    if tool_config.exclude_domains:
+        tavily_kwargs["exclude_domains"] = tool_config.exclude_domains
+    tavily_search = TavilySearch(**tavily_kwargs)
+
+    # Platform-tunable result count (Platform → Retrieval), resolved per call.
+    # The shared client covers the build-time default; an admin override builds
+    # a one-off client so the shared one is never mutated under concurrency.
+    settings_key = "web.advanced_max_results" if tool_config.advanced_search else "web.max_results"
+
+    def _client_for(max_results: int):
+        if max_results == tool_config.max_results:
+            return tavily_search
+        return TavilySearch(**(tavily_kwargs | {"max_results": max_results}))
+
     async def _tavily_web_search(question: str) -> str:
         """Retrieves relevant contexts from web search (using Tavily) for the given question.
 
@@ -94,19 +122,13 @@ async def tavily_web_search(tool_config: TavilyWebSearchToolConfig, builder: Bui
         Returns:
             str: The web search results containing relevant documents and their URLs.
         """
+        from aiq_agent.common.retrieval_settings import get_retrieval_setting
+
+        client = _client_for(get_retrieval_setting(settings_key, tool_config.max_results))
+
         # Tavily API requires queries under 400 characters
         if len(question) > 400:
             question = question[:397] + "..."
-
-        tavily_kwargs = {
-            "max_results": tool_config.max_results,
-            "search_depth": "advanced" if tool_config.advanced_search else "basic",
-            "include_answer": tool_config.include_answer,
-        }
-
-        if tool_config.api_base_url:
-            tavily_kwargs["api_base_url"] = tool_config.api_base_url
-        tavily_search = TavilySearch(**tavily_kwargs)
 
         def _truncate_content(content: str) -> str:
             """Truncate content if max_content_length is set."""
@@ -116,7 +138,7 @@ async def tavily_web_search(tool_config: TavilyWebSearchToolConfig, builder: Bui
 
         for attempt in range(tool_config.max_retries):
             try:
-                search_docs = await tavily_search.ainvoke({"query": question})
+                search_docs = await client.ainvoke({"query": question})
                 # Handle cases where response is not a dict (e.g., error string from API)
                 if isinstance(search_docs, str):
                     raise ValueError(f"Search returned an error: {search_docs}")
@@ -166,6 +188,10 @@ async def tavily_web_search(tool_config: TavilyWebSearchToolConfig, builder: Bui
                     else:
                         return f"Error: Web search failed - {error_msg}"
                 await asyncio.sleep(2**attempt)
+
+        # Unreachable when max_retries >= 1 (enforced by config), but a tool
+        # must always hand the agent a string, never None.
+        return "Error: Web search failed - no attempts were made"
 
     yield FunctionInfo.from_fn(
         _tavily_web_search,

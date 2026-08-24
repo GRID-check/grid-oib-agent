@@ -26,6 +26,7 @@ import {
   worstStatus,
 } from './kit'
 import { sketchPolygon, sketchRect, type Point } from './rough'
+import { useTranslations } from '@/i18n'
 import type { DimensionCheckData, NormReferenceData } from './types'
 
 interface StairDiagramCardProps {
@@ -52,6 +53,7 @@ export const StairDiagramCard: FC<StairDiagramCardProps> = ({
   comfort_note,
   reference,
 }) => {
+  const t = useTranslations('chat')
   const n = Math.max(1, Math.min(riser_count, 30))
   const rise = riser_height.value ?? FALLBACK_RISE_CM
   const going = tread_depth.value ?? FALLBACK_GOING_CM
@@ -87,8 +89,12 @@ export const StairDiagramCard: FC<StairDiagramCardProps> = ({
   const pitchMidY = (pitchY1 + pitchY2) / 2
   const hasGeometry = riser_height.value != null && tread_depth.value != null
   const pitchNote = hasGeometry
-    ? `${n} Stg · ${fmtNum(rise)}/${fmtNum(going)} cm`
-    : `${n} Stufen`
+    ? t('cards.schematics.stair.stepNotation', {
+        count: n,
+        rise: fmtNum(rise),
+        going: fmtNum(going),
+      })
+    : t('cards.schematics.stair.stepCount', { count: n })
 
   // Dimension one rise + one going on a step in the lower quarter of the
   // flight, clear of the pitch-line notation that runs through the middle.
@@ -113,15 +119,14 @@ export const StairDiagramCard: FC<StairDiagramCardProps> = ({
   return (
     <SchematicCard
       icon={TrendingUp}
-      eyebrow="Schematic"
       title={title}
       verdict={worstStatus([riser_height.status, tread_depth.status, width.status])}
       reference={reference}
     >
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={440} label={title}>
+      <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         {/* section caption + stepped profile */}
         <SvgLabel x={padL} y={padTop - 8} size={8} weight={600}>
-          SCHNITT
+          {t('cards.schematics.stair.section')}
         </SvgLabel>
         {sketchPolygon(profile, 'stair-profile', {
           strokeWidth: 1.5,
@@ -162,7 +167,7 @@ export const StairDiagramCard: FC<StairDiagramCardProps> = ({
           y1={riseBottom}
           x2={riseX}
           y2={riseTop}
-          label={fmtDim(riser_height.value, riser_height.unit ?? 'cm')}
+          label={fmtDim(riser_height.value, riser_height.unit ?? 'cm', t)}
           status={riser_height.status}
           labelOffset={-12}
           fontSize={9.5}
@@ -174,7 +179,7 @@ export const StairDiagramCard: FC<StairDiagramCardProps> = ({
           y1={goingY}
           x2={goingX2}
           y2={goingY}
-          label={fmtDim(tread_depth.value, tread_depth.unit ?? 'cm')}
+          label={fmtDim(tread_depth.value, tread_depth.unit ?? 'cm', t)}
           status={tread_depth.status}
           labelOffset={-9}
           fontSize={9.5}
@@ -182,7 +187,7 @@ export const StairDiagramCard: FC<StairDiagramCardProps> = ({
 
         {/* plan strip: flight width to the same scale, with Lauflinie */}
         <SvgLabel x={padL} y={planTop - 8} size={8} weight={600}>
-          GRUNDRISS
+          {t('cards.schematics.stair.plan')}
         </SvgLabel>
         {sketchRect(X(0), planTop, W, planH, 'stair-plan', { strokeWidth: 1.2 })}
         {Array.from({ length: n - 1 }, (_, i) => (
@@ -236,7 +241,7 @@ export const StairDiagramCard: FC<StairDiagramCardProps> = ({
           y1={planTop + planH}
           x2={widthDimX}
           y2={planTop}
-          label={fmtDim(width.value, width.unit ?? 'cm')}
+          label={fmtDim(width.value, width.unit ?? 'cm', t)}
           status={width.status}
           labelOffset={13}
           fontSize={9.5}

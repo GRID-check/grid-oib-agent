@@ -1,13 +1,24 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
-import { useWebSocketChat } from './use-websocket-chat'
+import { useWebSocketChat, type SendMessageOutcome } from './use-websocket-chat'
 import { useAuth } from '@/adapters/auth'
 import { getTokenExpiration } from '@/adapters/auth/token'
 import { createNATWebSocketClient } from '@/adapters/api/websocket-client'
+import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
+import type { ChatStoreWithHydration } from '../store'
+import type { LayoutStore } from '@/features/layout/types'
+import type { DocumentsStore } from '@/features/documents/types'
 
 // Mock store actions
 const mockAddUserMessage = vi.fn()
 const mockAddAgentResponse = vi.fn()
+const mockAppendAgentResponseDelta = vi.fn()
+const mockFinalizeAgentResponse = vi.fn()
+/** The turn key crossing from the socket onto the answer (post-answer-stages §1.6). */
+const mockSetTurnWsParentId = vi.fn()
+/** Where a post-answer stage frame is applied; returns the message it landed on, or null. */
+const mockApplyStageFrame = vi.fn(() => null)
+const mockDiscardStreamingAssistantMessage = vi.fn()
 const mockAddAgentResponseWithMeta = vi.fn(() => 'msg-1')
 const mockAddThinkingStep = vi.fn(() => 'step-1')
 const mockAppendToThinkingStep = vi.fn()
@@ -15,7 +26,6 @@ const mockCompleteThinkingStep = vi.fn()
 const mockUpdateThinkingStepByFunctionName = vi.fn()
 const mockFindThinkingStepByFunctionName = vi.fn(() => undefined)
 const mockSetReportContent = vi.fn()
-const mockAddStatusCard = vi.fn()
 const mockAddAgentPrompt = vi.fn()
 const mockAddErrorCard = vi.fn()
 const mockSetCurrentStatus = vi.fn()
@@ -34,28 +44,16 @@ const mockAddPlanMessage = vi.fn()
 const mockUpdatePlanMessageResponse = vi.fn()
 const mockAddDeepResearchBanner = vi.fn()
 const mockDismissConnectionErrors = vi.fn()
+const mockMaybeGenerateConversationName = vi.fn()
 
-// Mock store state
-let mockStoreState: {
-  currentUserId: string | null
-  currentConversation: { id: string; messages: unknown[]; userId: string } | null
-  conversations: unknown[]
-  isStreaming: boolean
-  isLoading: boolean
-  error: string | null
-  thinkingSteps: unknown[]
-  activeThinkingStepId: string | null
-  reportContent: string
-  currentStatus: string | null
-  pendingInteraction: { id: string; parentId: string; inputType: string; text: string } | null
-  planMessages: unknown[]
-} = {
+// Mock store state. Typed against the real store rather than a hand-copied
+// shape, so a renamed or retyped field fails to compile here.
+let mockStoreState: DeepPartial<ChatStoreWithHydration> = {
   currentUserId: 'user-1',
   currentConversation: { id: 'conv-1', messages: [], userId: 'user-1' },
   conversations: [],
   isStreaming: false,
   isLoading: false,
-  error: null,
   thinkingSteps: [],
   activeThinkingStepId: null,
   reportContent: '',
@@ -71,11 +69,16 @@ let mockStoreState: {
  * mockImplementation (e.g. the deep-research escalation test) can restore
  * the default in afterEach without duplicating the action wiring.
  */
-const defaultUseChatStoreImpl = (selector?: (s: any) => any) => {
-  const state = {
+const defaultUseChatStoreImpl = (selector?: StoreSelector<ChatStoreWithHydration>) => {
+  const state: DeepPartial<ChatStoreWithHydration> = {
     ...mockStoreState,
     addUserMessage: mockAddUserMessage,
     addAgentResponse: mockAddAgentResponse,
+    appendAgentResponseDelta: mockAppendAgentResponseDelta,
+    finalizeAgentResponse: mockFinalizeAgentResponse,
+    setTurnWsParentId: mockSetTurnWsParentId,
+    applyStageFrame: mockApplyStageFrame,
+    discardStreamingAssistantMessage: mockDiscardStreamingAssistantMessage,
     addAgentResponseWithMeta: mockAddAgentResponseWithMeta,
     addThinkingStep: mockAddThinkingStep,
     appendToThinkingStep: mockAppendToThinkingStep,
@@ -83,7 +86,6 @@ const defaultUseChatStoreImpl = (selector?: (s: any) => any) => {
     updateThinkingStepByFunctionName: mockUpdateThinkingStepByFunctionName,
     findThinkingStepByFunctionName: mockFindThinkingStepByFunctionName,
     setReportContent: mockSetReportContent,
-    addStatusCard: mockAddStatusCard,
     addAgentPrompt: mockAddAgentPrompt,
     addErrorCard: mockAddErrorCard,
     setCurrentStatus: mockSetCurrentStatus,
@@ -102,8 +104,9 @@ const defaultUseChatStoreImpl = (selector?: (s: any) => any) => {
     updatePlanMessageResponse: mockUpdatePlanMessageResponse,
     addDeepResearchBanner: mockAddDeepResearchBanner,
     dismissConnectionErrors: mockDismissConnectionErrors,
+    maybeGenerateConversationName: mockMaybeGenerateConversationName,
   }
-  return selector ? selector(state) : state
+  return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
 }
 
 vi.mock('../store', () => ({
@@ -111,7 +114,7 @@ vi.mock('../store', () => ({
     // Wrap in lambda so the reference to `defaultUseChatStoreImpl` is
     // resolved at call time (not at vi.mock hoist time). Without the
     // lambda, vi.fn would read the const eagerly and hit TDZ.
-    vi.fn((selector?: (s: any) => any) => defaultUseChatStoreImpl(selector)),
+    vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => defaultUseChatStoreImpl(selector)),
     {
       getState: vi.fn(() => ({
         ...mockStoreState,
@@ -159,12 +162,12 @@ vi.mock('@/shared/hooks/use-backend-health', () => ({
 // Mock layout store
 vi.mock('@/features/layout/store', () => ({
   useLayoutStore: Object.assign(
-    vi.fn((selector?: (s: any) => any) => {
-      const state = {
+    vi.fn((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         enabledDataSourceIds: ['source-1', 'source-2'],
         knowledgeLayerAvailable: false,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     }),
     {
       getState: vi.fn(() => ({
@@ -177,11 +180,11 @@ vi.mock('@/features/layout/store', () => ({
 // Mock documents store
 vi.mock('@/features/documents/store', () => ({
   useDocumentsStore: Object.assign(
-    vi.fn((selector?: (s: any) => any) => {
-      const state = {
+    vi.fn((selector?: StoreSelector<DocumentsStore>) => {
+      const state: DeepPartial<DocumentsStore> = {
         trackedFiles: [],
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<DocumentsStore>(state)) : state
     }),
     {
       getState: vi.fn(() => ({
@@ -196,7 +199,16 @@ const mockWsClient = {
   connect: vi.fn(),
   disconnect: vi.fn(),
   rotate: vi.fn(),
-  sendMessage: vi.fn(() => 'mock-outbound-message-id'),
+  // Typed with the real 3-arg signature (content, dataSources, wire options) so
+  // specs can assert on the ingest-only options object and simulate a refused
+  // frame with a `null` return.
+  sendMessage: vi.fn(
+    (
+      _content: string,
+      _dataSources?: string[],
+      _options?: { contextOnly?: boolean; authorName?: string | null }
+    ): string | null => 'mock-outbound-message-id'
+  ),
   sendInteractionResponse: vi.fn(() => 'mock-outbound-interaction-id'),
   isConnected: vi.fn(() => false),
   updateConversationId: vi.fn(),
@@ -204,7 +216,30 @@ const mockWsClient = {
 }
 
 let capturedCallbacks: {
-  onResponse?: (content: string, status: string, isFinal: boolean, parentId?: string) => void
+  onResponse?: (
+    content: string,
+    status: string,
+    isFinal: boolean,
+    parentId?: string,
+    cards?: unknown[],
+    deepResearchJobId?: string,
+    answerConfidence?: 'low' | 'medium' | 'high',
+    sources?: unknown[],
+    transparency?: {
+      jobAdmissionRejected?: boolean
+      retryAfterSeconds?: number
+      [k: string]: unknown
+    }
+  ) => void
+  onStage?: (frame: {
+    type: string
+    v: number
+    conversation_id: string
+    parent_id?: string | null
+    stage: string
+    status: string
+    payload?: unknown
+  }) => void
   onIntermediateStep?: (content: unknown, status: string, parentId?: string) => void
   onHumanPrompt?: (promptId: string, parentId: string, prompt: unknown) => void
   onError?: (error: { code: string; message: string; details?: string }) => void
@@ -234,6 +269,11 @@ vi.mock('@/adapters/api/websocket-client', () => ({
 }))
 
 import { useChatStore } from '../store'
+import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
+// NOT mocked: the real registry is the point. `useSharedThread` publishes into it
+// after its access read, and the socket layer reads it to decide whether opening a
+// connection on mount could collide with another participant's.
+import { publishThreadSharing, resetThreadSharing } from '@/shared/collaboration/thread-sharing'
 
 /**
  * Helper to render hook with autoConnect enabled (default behavior)
@@ -258,7 +298,6 @@ describe('useWebSocketChat', () => {
       conversations: [],
       isStreaming: false,
       isLoading: false,
-      error: null,
       thinkingSteps: [],
       activeThinkingStepId: null,
       reportContent: '',
@@ -268,6 +307,13 @@ describe('useWebSocketChat', () => {
     }
     useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
     mockWsClient.isConnected.mockReturnValue(false)
+    useFilePreviewStore.setState({
+      file: null,
+      mode: 'modal',
+      hidden: false,
+      peekWidth: 320,
+      context: {},
+    })
   })
 
   test('returns initial state from store', () => {
@@ -347,6 +393,92 @@ describe('useWebSocketChat', () => {
     expect(mockSetLoading).toHaveBeenCalledWith(false)
   })
 
+  test('sendMessage includes focusFileName while the composer bar names a file', () => {
+    mockWsClient.isConnected.mockReturnValue(true)
+    const peekFile = {
+      id: 'doc-1',
+      filename: 'plan.pdf',
+      displayName: null,
+      fileSize: 12,
+      contentType: 'application/pdf',
+      status: 'ready' as const,
+      folderId: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      errorMessage: null,
+      summary: null,
+      pageCount: null,
+      chunkCount: null,
+      contentTypes: null,
+      tags: null,
+    }
+    mockStoreState = {
+      ...mockStoreState,
+      composerSubject: {
+        resourceType: 'document',
+        resourceId: 'doc-1',
+        filename: 'plan.pdf',
+        shelf: 'project',
+      },
+    }
+    useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+    useFilePreviewStore.getState().open(peekFile, 'peek')
+
+    const { result } = renderWebSocketHook()
+    act(() => {
+      result.current.sendMessage('About this plan')
+    })
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith('About this plan', expect.any(Array), {
+      focusFileName: 'plan.pdf',
+      focusShelf: 'project',
+    })
+
+    mockWsClient.sendMessage.mockClear()
+    useFilePreviewStore.setState({ hidden: true })
+    act(() => {
+      result.current.sendMessage('Still about the plan')
+    })
+    // Hiding the peek keeps the bar, so the next send still names the file.
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith('Still about the plan', expect.any(Array), {
+      focusFileName: 'plan.pdf',
+      focusShelf: 'project',
+    })
+
+    mockWsClient.sendMessage.mockClear()
+    mockStoreState = { ...mockStoreState, composerSubject: null }
+    useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+    act(() => {
+      result.current.sendMessage('Now a general question')
+    })
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith('Now a general question', expect.any(Array))
+    expect(mockWsClient.sendMessage.mock.calls[0]?.[2]).toBeUndefined()
+  })
+
+  test('sendMessage sends sourcePreset intent, not an expanded shelf list', async () => {
+    mockWsClient.isConnected.mockReturnValue(true)
+    const mockLayoutStore = await import('@/features/layout/store')
+    vi.mocked(mockLayoutStore.useLayoutStore.getState).mockReturnValue({
+      enabledDataSourceIds: ['source-1', 'source-2'],
+      activeSourcePreset: 'project',
+    } as unknown as ReturnType<typeof mockLayoutStore.useLayoutStore.getState>)
+
+    const { result } = renderWebSocketHook()
+    act(() => {
+      result.current.sendMessage('Nur Projektunterlagen')
+    })
+
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith(
+      'Nur Projektunterlagen',
+      expect.any(Array),
+      { sourcePreset: 'project' },
+    )
+    const extras = mockWsClient.sendMessage.mock.calls[0]?.[2]
+    expect(extras).not.toHaveProperty('includeShelves')
+
+    vi.mocked(mockLayoutStore.useLayoutStore.getState).mockReturnValue({
+      enabledDataSourceIds: ['source-1', 'source-2'],
+    } as unknown as ReturnType<typeof mockLayoutStore.useLayoutStore.getState>)
+  })
+
   test('sendMessage while the existing socket is connecting buffers instead of creating a parallel client', () => {
     mockWsClient.isConnected.mockReturnValue(false)
     const { result } = renderWebSocketHook()
@@ -371,6 +503,53 @@ describe('useWebSocketChat', () => {
       'Send during handshake',
       expect.any(Array),
     )
+  })
+
+  test('re-renders that change the auth getAccessToken identity do not recreate the socket (churn regression)', () => {
+    // Real AuthKit (`useAccessToken()`) returns a NEW `getAccessToken`
+    // reference whenever the access-token state updates, and this hook
+    // re-renders constantly while a turn streams (isStreaming / thinkingSteps
+    // / status subscriptions). The socket lifecycle effect must NOT depend on
+    // that identity -- otherwise its cleanup closes the socket and the re-run
+    // opens a fresh one, producing the connect/disconnect churn observed in
+    // the backend logs. Simulate a fresh getAccessToken per render.
+    const defaultAuth = {
+      user: { id: 'user-1', email: 'test@example.com' },
+      accessToken: 'mock-access-token',
+      idToken: 'mock-access-token',
+      authRequired: false,
+      isAuthenticated: true,
+      error: undefined,
+      isLoading: false,
+      signIn: mockSignIn,
+      signOut: mockSignOut,
+      getAccessToken: mockGetAccessToken,
+    }
+    try {
+      vi.mocked(useAuth).mockImplementation(() => ({
+        ...defaultAuth,
+        // Brand-new reference on every render.
+        getAccessToken: vi.fn(async () => 'mock-access-token'),
+      }))
+
+      const { rerender } = renderWebSocketHook()
+
+      expect(createNATWebSocketClient).toHaveBeenCalledTimes(1)
+      expect(mockWsClient.connect).toHaveBeenCalledTimes(1)
+
+      for (let i = 0; i < 5; i++) {
+        act(() => {
+          rerender()
+        })
+      }
+
+      // Built once, never torn down: the churn is gone.
+      expect(createNATWebSocketClient).toHaveBeenCalledTimes(1)
+      expect(mockWsClient.disconnect).not.toHaveBeenCalled()
+    } finally {
+      // mockImplementation persists across tests -- restore the shared default.
+      vi.mocked(useAuth).mockReturnValue(defaultAuth)
+    }
   })
 
   test('replays a just-sent message once when the socket drops before any backend frame', () => {
@@ -429,6 +608,75 @@ describe('useWebSocketChat', () => {
     })
 
     expect(mockWsClient.sendMessage).not.toHaveBeenCalled()
+  })
+
+  describe('reconnect-triggered answer recovery (FIX 2)', () => {
+    test('re-runs interrupted-answer recovery once per reconnect, but not on the initial connect', () => {
+      const mockRecover = vi.fn()
+      Object.assign(mockStoreState, {
+        currentConversation: {
+          id: 'conv-1',
+          userId: 'user-1',
+          messages: [{ id: 'u1', messageType: 'user', content: 'Deep question' }],
+        },
+        _recoverInterruptedAssistantMessage: mockRecover,
+      })
+
+      renderWebSocketHook()
+
+      // Initial connect of a fresh mount must NOT re-fetch — that path is
+      // already covered by restoreSessionState on mount.
+      act(() => {
+        capturedCallbacks.onConnectionChange?.('connected')
+      })
+      expect(mockRecover).not.toHaveBeenCalled()
+
+      // A genuine reconnect (drop then reconnect) re-runs recovery exactly once,
+      // keyed on the conversation + its last user message.
+      act(() => {
+        capturedCallbacks.onConnectionChange?.('disconnected')
+      })
+      act(() => {
+        capturedCallbacks.onConnectionChange?.('connected')
+      })
+      expect(mockRecover).toHaveBeenCalledTimes(1)
+      expect(mockRecover).toHaveBeenCalledWith('conv-1', 'u1')
+
+      // A second reconnect inside the debounce window must not spam recovery.
+      act(() => {
+        capturedCallbacks.onConnectionChange?.('disconnected')
+      })
+      act(() => {
+        capturedCallbacks.onConnectionChange?.('connected')
+      })
+      expect(mockRecover).toHaveBeenCalledTimes(1)
+    })
+
+    test('does not recover on reconnect while a turn is actively streaming', () => {
+      const mockRecover = vi.fn()
+      Object.assign(mockStoreState, {
+        currentConversation: {
+          id: 'conv-1',
+          userId: 'user-1',
+          messages: [{ id: 'u1', messageType: 'user', content: 'Q' }],
+        },
+        _recoverInterruptedAssistantMessage: mockRecover,
+      })
+
+      renderWebSocketHook()
+      act(() => {
+        capturedCallbacks.onConnectionChange?.('connected')
+      })
+      mockStoreState.isStreaming = true
+      act(() => {
+        capturedCallbacks.onConnectionChange?.('disconnected')
+      })
+      act(() => {
+        capturedCallbacks.onConnectionChange?.('connected')
+      })
+
+      expect(mockRecover).not.toHaveBeenCalled()
+    })
   })
 
   test('does not replay an unacknowledged message more than once', () => {
@@ -629,6 +877,129 @@ describe('useWebSocketChat', () => {
     }
   })
 
+  // --- Streaming inactivity watchdog (overall turn timeout) ---
+  // The 7s delivery-ack timeout above only covers the gap before the FIRST
+  // frame. Once a frame lands it is cleared, so a mid-stream stall (or a
+  // backend that dies without a terminal frame) is caught by the 180s
+  // inactivity watchdog instead.
+  const WATCHDOG_MS = 180_000
+
+  test('ends the turn with an interrupted banner when the stream goes silent past the watchdog window', () => {
+    vi.useFakeTimers()
+    try {
+      mockWsClient.isConnected.mockReturnValue(true)
+      const { result } = renderWebSocketHook()
+
+      act(() => {
+        result.current.sendMessage('Question that stalls mid-stream')
+      })
+
+      // First frame arrives: clears the 7s delivery timeout and (re)arms the
+      // inactivity watchdog. Backend then goes silent.
+      mockStoreState.isStreaming = true
+      act(() => {
+        capturedCallbacks.onIntermediateStep?.('Thinking...', 'in_progress', 'internal-step-id')
+      })
+
+      mockSetStreaming.mockClear()
+      mockSetLoading.mockClear()
+      mockAddErrorCard.mockClear()
+      mockWsClient.rotate.mockClear()
+
+      act(() => {
+        vi.advanceTimersByTime(WATCHDOG_MS)
+      })
+
+      expect(mockAddErrorCard).toHaveBeenCalledWith(
+        'agent.response_interrupted',
+        'The assistant stopped responding. Please resend your message.',
+      )
+      expect(mockSetStreaming).toHaveBeenCalledWith(false)
+      expect(mockSetLoading).toHaveBeenCalledWith(false)
+      // The watchdog is not a reconnect path -- it must not rotate the socket.
+      expect(mockWsClient.rotate).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('resets the watchdog on every incoming frame so an active stream is never interrupted', () => {
+    vi.useFakeTimers()
+    try {
+      mockWsClient.isConnected.mockReturnValue(true)
+      const { result } = renderWebSocketHook()
+
+      act(() => {
+        result.current.sendMessage('Long but healthy stream')
+      })
+      mockStoreState.isStreaming = true
+
+      // Deliver a frame every 100s -- always inside the 180s window, so the
+      // watchdog keeps getting pushed back and never fires.
+      for (let i = 0; i < 4; i++) {
+        act(() => {
+          capturedCallbacks.onIntermediateStep?.(`step ${i}`, 'in_progress', 'internal-step-id')
+        })
+        act(() => {
+          vi.advanceTimersByTime(100_000)
+        })
+      }
+
+      expect(mockAddErrorCard).not.toHaveBeenCalledWith(
+        'agent.response_interrupted',
+        expect.anything(),
+      )
+
+      // Now the backend goes quiet: after a full window with no frame the
+      // watchdog finally fires.
+      act(() => {
+        vi.advanceTimersByTime(WATCHDOG_MS)
+      })
+      expect(mockAddErrorCard).toHaveBeenCalledWith(
+        'agent.response_interrupted',
+        'The assistant stopped responding. Please resend your message.',
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('clears the watchdog on a final response so a completed turn is never flagged as interrupted', () => {
+    vi.useFakeTimers()
+    try {
+      mockWsClient.isConnected.mockReturnValue(true)
+      const { result } = renderWebSocketHook()
+
+      act(() => {
+        result.current.sendMessage('Quick question')
+      })
+      mockStoreState.isStreaming = true
+
+      act(() => {
+        capturedCallbacks.onIntermediateStep?.('Thinking...', 'in_progress', 'internal-step-id')
+      })
+      // Final response completes the turn and disarms the watchdog.
+      act(() => {
+        capturedCallbacks.onResponse?.('All done.', 'complete', true, 'mock-outbound-message-id')
+      })
+
+      mockAddErrorCard.mockClear()
+
+      // Even though the mocked store still reports isStreaming=true, the timer
+      // was cleared, so advancing well past the window is a no-op.
+      act(() => {
+        vi.advanceTimersByTime(WATCHDOG_MS * 2)
+      })
+
+      expect(mockAddErrorCard).not.toHaveBeenCalledWith(
+        'agent.response_interrupted',
+        expect.anything(),
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   test('sendMessage keeps knowledge_layer enabled when no visible sources or session files exist', async () => {
     mockWsClient.isConnected.mockReturnValue(true)
 
@@ -775,25 +1146,126 @@ describe('useWebSocketChat', () => {
 
     // Should complete the pending thinking step
     expect(mockCompleteThinkingStep).toHaveBeenCalledWith('step-1')
-    // Note: reportContent is now only set by deep research SSE events, not by onResponse
-    expect(mockAddAgentResponse).toHaveBeenCalledWith('Response content', false, [])
+    // Note: reportContent is now only set by deep research SSE events, not by onResponse.
+    // The terminal `complete` frame finalizes the accumulated answer bubble.
+    expect(mockFinalizeAgentResponse).toHaveBeenCalledWith(
+      'Response content',
+      [],
+      undefined,
+      undefined,
+      undefined
+    )
+    expect(mockAddAgentResponse).not.toHaveBeenCalled()
     expect(mockSetStreaming).toHaveBeenCalledWith(false)
     expect(mockSetCurrentStatus).toHaveBeenCalledWith('complete')
   })
 
-  test('onResponse callback adds streaming content to chat', () => {
+  test('onResponse callback accumulates streaming deltas into the answer bubble', () => {
     renderWebSocketHook()
 
     mockStoreState.isStreaming = true
 
-    // Simulate streaming response (not final)
+    // Simulate streaming response (in_progress delta, not final)
     act(() => {
       capturedCallbacks.onResponse?.('Partial content...', 'in_progress', false)
     })
 
-    // Non-final responses with content are now added to chat as AgentResponse
-    // reportContent is only set by deep research SSE events
-    expect(mockAddAgentResponse).toHaveBeenCalledWith('Partial content...', false, [])
+    // in_progress content frames accumulate via appendAgentResponseDelta, not
+    // a fresh addAgentResponse bubble per frame.
+    expect(mockAppendAgentResponseDelta).toHaveBeenCalledWith('Partial content...', [], undefined, undefined)
+    expect(mockFinalizeAgentResponse).not.toHaveBeenCalled()
+  })
+
+  test('onResponse forwards answer_confidence into the finalized answer', () => {
+    renderWebSocketHook()
+
+    mockStoreState.isStreaming = true
+
+    act(() => {
+      capturedCallbacks.onResponse?.('Grounded answer', 'complete', true, undefined, undefined, undefined, 'high')
+    })
+
+    expect(mockFinalizeAgentResponse).toHaveBeenCalledWith(
+      'Grounded answer',
+      [],
+      'high',
+      undefined,
+      undefined
+    )
+  })
+
+  // --- Queue-rejection (job admission) terminal frame ---
+  // A "queue full" rejection is surfaced as a warning banner, NOT an answer
+  // bubble. On old backends the rejection prose still arrives as in_progress
+  // deltas first, which opens a streaming bubble; the terminal jobAdmissionRejected
+  // frame must then drop that orphaned bubble entirely (so no caret lingers next
+  // to the banner), clear streamingAssistantMessageId, add the research.queue_full
+  // error card, and unlock the composer.
+  test('onResponse rejection after deltas drops the orphaned bubble and shows the banner', () => {
+    renderWebSocketHook()
+    mockStoreState.isStreaming = true
+
+    // Old backend: rejection prose streams as an in_progress delta first (opens
+    // a streaming assistant bubble).
+    act(() => {
+      capturedCallbacks.onResponse?.('The research queue is full.', 'in_progress', false)
+    })
+    expect(mockAppendAgentResponseDelta).toHaveBeenCalledTimes(1)
+
+    // Terminal frame carries the job-admission rejection marker.
+    act(() => {
+      capturedCallbacks.onResponse?.(
+        'The research queue is full.',
+        'complete',
+        true,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { jobAdmissionRejected: true, retryAfterSeconds: 42 }
+      )
+    })
+
+    // Orphaned streaming bubble is removed and streamingAssistantMessageId cleared.
+    expect(mockDiscardStreamingAssistantMessage).toHaveBeenCalledTimes(1)
+    // The rejection is NOT finalized as an answer bubble.
+    expect(mockFinalizeAgentResponse).not.toHaveBeenCalled()
+    // Warning banner is added.
+    expect(mockAddErrorCard).toHaveBeenCalledWith('research.queue_full', expect.stringContaining('queue is full'))
+    // Composer is unlocked.
+    expect(mockSetStreaming).toHaveBeenCalledWith(false)
+    expect(mockSetLoading).toHaveBeenCalledWith(false)
+  })
+
+  test('onResponse rejection with NO preceding deltas (new backend) shows the banner and opens no bubble', () => {
+    renderWebSocketHook()
+    mockStoreState.isStreaming = true
+
+    // New backend: no answer deltas precede the terminal rejection frame.
+    act(() => {
+      capturedCallbacks.onResponse?.(
+        'The research queue is full.',
+        'complete',
+        true,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { jobAdmissionRejected: true, retryAfterSeconds: 42 }
+      )
+    })
+
+    // No answer bubble was ever opened or finalized.
+    expect(mockAppendAgentResponseDelta).not.toHaveBeenCalled()
+    expect(mockFinalizeAgentResponse).not.toHaveBeenCalled()
+    // The defensive discard still runs (harmless no-op when nothing is open).
+    expect(mockDiscardStreamingAssistantMessage).toHaveBeenCalledTimes(1)
+    // Banner added and composer unlocked.
+    expect(mockAddErrorCard).toHaveBeenCalledWith('research.queue_full', expect.stringContaining('queue is full'))
+    expect(mockSetStreaming).toHaveBeenCalledWith(false)
+    expect(mockSetLoading).toHaveBeenCalledWith(false)
   })
 
   test('onResponse drops stale content when not streaming', () => {
@@ -987,6 +1459,144 @@ describe('useWebSocketChat', () => {
     })
   })
 
+  // --- Budget-exhaustion reason discovery on CONNECTION_FAILED ---
+  // The gateway collapses a budget-exhausted WS upgrade into a bare failed
+  // handshake the browser can't read, so it reaches the hook as a generic
+  // CONNECTION_FAILED. The hook asks /api/auth/connection-diagnostics whether
+  // the real cause was budget exhaustion and swaps in a distinct banner.
+
+  test('surfaces a budget-exhausted banner (member copy) when CONNECTION_FAILED is a budget block', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ budgetExhausted: true, canManageBudgets: false }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    mockCheckBackendHealthCached.mockClear()
+
+    try {
+      renderWebSocketHook()
+
+      await act(async () => {
+        await capturedCallbacks.onError?.({
+          code: 'CONNECTION_FAILED',
+          message: 'Unable to connect to the server. Please check your network connection.',
+        })
+      })
+
+      await waitFor(() => {
+        expect(mockAddErrorCard).toHaveBeenCalledWith(
+          'budget.exhausted',
+          expect.stringContaining('Ask an organization admin'),
+        )
+      })
+      // The budget path short-circuits before the health check and the generic
+      // connection banner.
+      expect(mockCheckBackendHealthCached).not.toHaveBeenCalled()
+      expect(mockAddErrorCard).not.toHaveBeenCalledWith(
+        'connection.failed',
+        expect.anything(),
+        expect.anything(),
+      )
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/auth/connection-diagnostics',
+        expect.objectContaining({ credentials: 'same-origin' }),
+      )
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  test('surfaces admin copy when the budget-exhausted caller can manage budgets', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ budgetExhausted: true, canManageBudgets: true }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    try {
+      renderWebSocketHook()
+
+      await act(async () => {
+        await capturedCallbacks.onError?.({ code: 'CONNECTION_FAILED', message: 'x' })
+      })
+
+      await waitFor(() => {
+        expect(mockAddErrorCard).toHaveBeenCalledWith(
+          'budget.exhausted',
+          expect.stringContaining('Raise the limits'),
+        )
+      })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  test('falls back to the generic connection banner when diagnostics reports no budget block', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ budgetExhausted: false }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    mockCheckBackendHealthCached.mockResolvedValue(false)
+
+    try {
+      renderWebSocketHook()
+
+      await act(async () => {
+        await capturedCallbacks.onError?.({
+          code: 'CONNECTION_FAILED',
+          message: 'Unable to connect to the server. Please check your network connection.',
+        })
+      })
+
+      await waitFor(() => {
+        expect(mockAddErrorCard).toHaveBeenCalledWith(
+          'connection.failed',
+          'Unable to connect to the server. Please check your network connection.',
+          undefined,
+        )
+      })
+      expect(mockAddErrorCard).not.toHaveBeenCalledWith('budget.exhausted', expect.anything())
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  test('queries budget diagnostics at most once per failure episode', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ budgetExhausted: false }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    try {
+      renderWebSocketHook()
+
+      await act(async () => {
+        await capturedCallbacks.onError?.({ code: 'CONNECTION_FAILED', message: 'x' })
+      })
+      await act(async () => {
+        await capturedCallbacks.onError?.({ code: 'CONNECTION_FAILED', message: 'x' })
+      })
+
+      // Second CONNECTION_FAILED in the same episode must not re-query.
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      // A successful reconnect ends the episode; the next failure re-checks.
+      act(() => {
+        capturedCallbacks.onConnectionChange?.('connected')
+      })
+      await act(async () => {
+        await capturedCallbacks.onError?.({ code: 'CONNECTION_FAILED', message: 'x' })
+      })
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   test('respondToInteraction sends response via WebSocket', () => {
     mockWsClient.isConnected.mockReturnValue(true)
     mockStoreState.pendingInteraction = {
@@ -1154,11 +1764,15 @@ describe('useWebSocketChat', () => {
     const mockUpdateConversationTitle = vi.fn()
     const localMockAddAgentResponseWithMeta = vi.fn(() => 'msg-1')
     // Need to mock useChatStore to include startDeepResearch
-    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: DeepPartial<ChatStoreWithHydration> = {
         ...mockStoreState,
         addUserMessage: mockAddUserMessage,
         addAgentResponse: mockAddAgentResponse,
+        appendAgentResponseDelta: mockAppendAgentResponseDelta,
+        finalizeAgentResponse: mockFinalizeAgentResponse,
+        setTurnWsParentId: mockSetTurnWsParentId,
+        applyStageFrame: mockApplyStageFrame,
         addAgentResponseWithMeta: localMockAddAgentResponseWithMeta,
         addThinkingStep: mockAddThinkingStep,
         appendToThinkingStep: mockAppendToThinkingStep,
@@ -1166,7 +1780,6 @@ describe('useWebSocketChat', () => {
         updateThinkingStepByFunctionName: mockUpdateThinkingStepByFunctionName,
         findThinkingStepByFunctionName: mockFindThinkingStepByFunctionName,
         setReportContent: mockSetReportContent,
-        addStatusCard: mockAddStatusCard,
         addAgentPrompt: mockAddAgentPrompt,
         addErrorCard: mockAddErrorCard,
         setCurrentStatus: mockSetCurrentStatus,
@@ -1186,8 +1799,9 @@ describe('useWebSocketChat', () => {
         addDeepResearchBanner: mockAddDeepResearchBanner,
         startDeepResearch: mockStartDeepResearch,
         updateConversationTitle: mockUpdateConversationTitle,
+        maybeGenerateConversationName: mockMaybeGenerateConversationName,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     })
 
     renderWebSocketHook()
@@ -1199,7 +1813,13 @@ describe('useWebSocketChat', () => {
     })
 
     // Should detect deep research and call banner with 'starting' status
-    expect(mockAddDeepResearchBanner).toHaveBeenCalledWith('starting', 'abc123-def456')
+    expect(mockAddDeepResearchBanner).toHaveBeenCalledWith(
+      'starting',
+      'abc123-def456',
+      undefined,
+      undefined,
+      undefined
+    )
     // Should add tracking message with empty content and job metadata
     expect(localMockAddAgentResponseWithMeta).toHaveBeenCalledWith(
       '',
@@ -2202,5 +2822,796 @@ describe('useWebSocketChat -- token rotation', () => {
     )
     expect(mockWsClient.sendMessage).not.toHaveBeenCalled()
     expect(mockSetLoading).toHaveBeenCalledWith(true)
+  })
+})
+
+/**
+ * THE ADDRESSEE CONTRACT (spec MN-1/MN-2/MN-7, ADR-0034 §4).
+ *
+ * A message that carries mentions is persisted through an AWAITED request, and the
+ * `addressees` ruling on the response decides whether an agent turn opens at all.
+ * The fast path (no mentions) must keep its exact old behaviour — fire-and-forget
+ * persist inside `addUserMessage`, turn opened immediately.
+ */
+describe('useWebSocketChat — mentions and the addressee ruling', () => {
+  const mockFetch = vi.fn()
+  const mockSetState = vi.fn()
+  // The mention path is the only send that talks HTTP; put the global back so a
+  // later suite in this file cannot inherit the stub.
+  //
+  // `vi.stubGlobal`, not `globalThis.fetch = …`: happy-dom defines `fetch` on
+  // the Window prototype as a non-writable property, so the plain assignment
+  // throws `Cannot assign to read only property 'fetch'` under ESM strict mode
+  // and took every test in these three suites down with it.
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    capturedCallbacks = {}
+    vi.mocked(useChatStore).mockImplementation(defaultUseChatStoreImpl)
+    mockStoreState = {
+      currentUserId: 'user-1',
+      currentConversation: { id: 'conv-1', messages: [], userId: 'user-1' },
+      conversations: [],
+      isStreaming: false,
+      isLoading: false,
+      thinkingSteps: [],
+      activeThinkingStepId: null,
+      reportContent: '',
+      currentStatus: null,
+      pendingInteraction: null,
+      planMessages: [],
+    }
+    useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+    // The mention path writes its own echo (it must not let the store persist a
+    // second, mention-free copy of the same message), so the store's setState is
+    // what proves the message reached the thread.
+    ;(useChatStore as unknown as { setState: unknown }).setState = mockSetState
+    mockWsClient.isConnected.mockReturnValue(true)
+    vi.stubGlobal('fetch', mockFetch)
+  })
+
+  /** The body the hook POSTed, parsed. */
+  const sentBody = (): Record<string, unknown> =>
+    JSON.parse(mockFetch.mock.calls[0][1].body as string) as Record<string, unknown>
+
+  const respondWith = (addressees: unknown, overrides: Record<string, unknown> = {}) => {
+    mockFetch.mockImplementation(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body)
+      return {
+        ok: true,
+        status: 201,
+        json: async () => [{ id: body.id, addressees, createdRequests: 1, ...overrides }],
+      }
+    })
+  }
+
+  test('a human mention: persistence is awaited, and NO turn is started (MN-7)', async () => {
+    respondWith({ agent: false, users: ['u-anna'] })
+    const { result } = renderWebSocketHook()
+
+    let outcome: boolean | SendMessageOutcome | undefined
+    await act(async () => {
+      outcome = await result.current.sendMessage('@Anna Weber passt das?', {
+        mentions: [{ targetId: 'u-anna', display: 'Anna Weber' }],
+      })
+    })
+
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    expect(mockFetch.mock.calls[0][0]).toBe('/api/conversations/conv-1/messages')
+    expect(outcome).toEqual({ ok: true, addressees: { agent: false, users: ['u-anna'] } })
+
+    // Nothing STARTED: no tokens, no thinking bubble, no turn.
+    expect(mockSetCurrentStatus).not.toHaveBeenCalledWith('thinking')
+    expect(mockSetStreaming).not.toHaveBeenCalledWith(true)
+    // The one thing that DOES go out is the context-only frame — suppression is
+    // about not answering, not about the agent forgetting the conversation
+    // happened (ADR-0034 addendum). Asserted in full in the context-only suite.
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith(
+      '@Anna Weber passt das?',
+      expect.any(Array),
+      expect.objectContaining({ contextOnly: true }),
+    )
+  })
+
+  test('the mention path does NOT use addUserMessage — one persist, with the mentions', async () => {
+    respondWith({ agent: false, users: ['u-anna'] })
+    const { result } = renderWebSocketHook()
+
+    await act(async () => {
+      await result.current.sendMessage('@Anna Weber passt das?', {
+        mentions: [{ targetId: 'u-anna', display: 'Anna Weber' }],
+        mentionNote: 'Ist das Atrium ein eigener Abschnitt?',
+      })
+    })
+
+    expect(mockAddUserMessage).not.toHaveBeenCalled()
+    const body = sentBody()
+    expect(body.role).toBe('user')
+    expect(body.content).toBe('@Anna Weber passt das?')
+    expect(body.mentions).toEqual([{ targetId: 'u-anna' }])
+    expect(body.mentionNote).toBe('Ist das Atrium ein eigener Abschnitt?')
+    expect(body.id).toEqual(expect.any(String))
+
+    // The echo lands in the thread, carrying the structured mentions and the ruling.
+    const echoed = mockSetState.mock.calls[0][0].currentConversation.messages[0]
+    expect(echoed).toMatchObject({
+      id: body.id,
+      role: 'user',
+      content: '@Anna Weber passt das?',
+      mentions: [{ targetId: 'u-anna', display: 'Anna Weber' }],
+      addressees: { agent: false, users: ['u-anna'] },
+    })
+  })
+
+  test('@Piloti alongside a human: the agent IS addressed, so the turn opens', async () => {
+    respondWith({ agent: true, users: ['u-anna'] })
+    const { result } = renderWebSocketHook()
+
+    let outcome: boolean | SendMessageOutcome | undefined
+    await act(async () => {
+      outcome = await result.current.sendMessage('@Piloti @Anna Weber bitte prüfen', {
+        mentions: [
+          { targetId: 'agent:piloti', display: 'Piloti' },
+          { targetId: 'u-anna', display: 'Anna Weber' },
+        ],
+      })
+    })
+
+    expect(outcome).toMatchObject({ ok: true })
+    expect(mockSetCurrentStatus).toHaveBeenCalledWith('thinking')
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith(
+      '@Piloti @Anna Weber bitte prüfen',
+      expect.any(Array)
+    )
+  })
+
+  test('a refusal keeps the reason, echoes nothing and starts nothing', async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({
+        error: 'mention refused',
+        details: { reason: 'mention-invite-requires-owner' },
+      }),
+    })
+    const { result } = renderWebSocketHook()
+
+    let outcome: boolean | SendMessageOutcome | undefined
+    await act(async () => {
+      outcome = await result.current.sendMessage('@Sabine Gruber schau bitte', {
+        mentions: [{ targetId: 'u-sabine', display: 'Sabine Gruber' }],
+      })
+    })
+
+    expect(outcome).toEqual({
+      ok: false,
+      // No `targetId` in the envelope: the refusal names a reason only, and the
+      // field is reported as absent rather than guessed from the sent mention.
+      failure: { reason: 'mention-invite-requires-owner', message: 'mention refused', targetId: null },
+    })
+    expect(mockSetState).not.toHaveBeenCalled()
+    expect(mockWsClient.sendMessage).not.toHaveBeenCalled()
+    expect(mockSetStreaming).not.toHaveBeenCalledWith(true)
+  })
+
+  test('a persist failure is surfaced and never opens a turn', async () => {
+    mockFetch.mockRejectedValue(new Error('offline'))
+    const { result } = renderWebSocketHook()
+
+    let outcome: boolean | SendMessageOutcome | undefined
+    await act(async () => {
+      outcome = await result.current.sendMessage('@Anna Weber?', {
+        mentions: [{ targetId: 'u-anna', display: 'Anna Weber' }],
+      })
+    })
+
+    expect(outcome).toMatchObject({ ok: false })
+    expect(mockSetState).not.toHaveBeenCalled()
+    expect(mockWsClient.sendMessage).not.toHaveBeenCalled()
+  })
+
+  test('a response without OUR row carries no ruling to act on', async () => {
+    // The insert conflicted: someone else already wrote this id, so the ruling in
+    // hand is not ours and no turn may be opened off it.
+    mockFetch.mockResolvedValue({ ok: true, status: 201, json: async () => [] })
+    const { result } = renderWebSocketHook()
+
+    let outcome: boolean | SendMessageOutcome | undefined
+    await act(async () => {
+      outcome = await result.current.sendMessage('@Anna Weber?', {
+        mentions: [{ targetId: 'u-anna', display: 'Anna Weber' }],
+      })
+    })
+
+    expect(outcome).toMatchObject({ ok: false })
+    expect(mockWsClient.sendMessage).not.toHaveBeenCalled()
+  })
+
+  test('no mentions: the fast path is untouched — no awaited persist, turn opens at once', () => {
+    const { result } = renderWebSocketHook()
+
+    let sent: unknown
+    act(() => {
+      sent = result.current.sendMessage('Wie breit muss der Fluchtweg sein?')
+    })
+
+    expect(sent).toBe(true)
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(mockAddUserMessage).toHaveBeenCalledTimes(1)
+    expect(mockWsClient.sendMessage).toHaveBeenCalledTimes(1)
+  })
+
+  test('an empty mention list stays on the fast path', () => {
+    const { result } = renderWebSocketHook()
+
+    act(() => {
+      result.current.sendMessage('kein Tag', { mentions: [] })
+    })
+
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(mockAddUserMessage).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * THE AGENT SEES WHAT A HUMAN WROTE — "always send, never always judge".
+ *
+ * The hand-off suppressed the agent by not invoking it (ADR-0034 §4), which was
+ * right about tokens and wrong about MEMORY: the agent's history is its LangGraph
+ * checkpoint, so a turn that never reached it left a hole. Matthias tags Anna, Anna
+ * answers, Matthias types "@Piloti given that, recheck" — and "that" refers to
+ * nothing.
+ *
+ * The fix keeps routing deterministic and server-decided, and only changes DELIVERY:
+ * every human message reaches the agent, tagged with whether it is addressed to it.
+ * Not addressed → delivered as context only: appended to the agent's history, and
+ * nothing is generated, streamed or shown.
+ *
+ * These tests assert on WHAT IS SENT, not on internal state.
+ */
+describe('useWebSocketChat — context-only delivery (the agent sees the whole thread)', () => {
+  const mockFetch = vi.fn()
+  const mockSetState = vi.fn()
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    capturedCallbacks = {}
+    vi.mocked(useChatStore).mockImplementation(defaultUseChatStoreImpl)
+    mockStoreState = {
+      currentUserId: 'user-1',
+      currentConversation: { id: 'conv-1', messages: [], userId: 'user-1' },
+      conversations: [],
+      isStreaming: false,
+      isLoading: false,
+      thinkingSteps: [],
+      activeThinkingStepId: null,
+      reportContent: '',
+      currentStatus: null,
+      pendingInteraction: null,
+      planMessages: [],
+    }
+    useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+    ;(useChatStore as unknown as { setState: unknown }).setState = mockSetState
+    mockWsClient.isConnected.mockReturnValue(true)
+    vi.stubGlobal('fetch', mockFetch)
+  })
+
+  const respondWith = (addressees: unknown) => {
+    mockFetch.mockImplementation(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body)
+      return {
+        ok: true,
+        status: 201,
+        json: async () => [{ id: body.id, addressees, createdRequests: 1 }],
+      }
+    })
+  }
+
+  /** The options object the hook handed the WS client on its Nth send. */
+  const sendOptions = (index = 0): unknown => mockWsClient.sendMessage.mock.calls[index][2]
+
+  test('THE GAP: a message the agent is not addressed in is still delivered to it as context', async () => {
+    respondWith({ agent: false, users: ['u-anna'] })
+    const { result } = renderWebSocketHook()
+
+    await act(async () => {
+      await result.current.sendMessage('@Anna Weber ist das Atrium ein eigener Abschnitt?', {
+        mentions: [{ targetId: 'u-anna', display: 'Anna Weber' }],
+      })
+    })
+
+    // It went to the agent — as context, never as a question.
+    expect(mockWsClient.sendMessage).toHaveBeenCalledTimes(1)
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith(
+      '@Anna Weber ist das Atrium ein eigener Abschnitt?',
+      expect.any(Array),
+      { contextOnly: true, authorName: 'test@example.com' },
+    )
+  })
+
+  test("a colleague's plain reply during an open hand-off is also delivered as context", async () => {
+    // Anna answers Matthias. No mentions. The SERVER rules `{agent:false, users:[]}`
+    // (ADR-0034 addendum), so the agent must not answer — but it must still see it.
+    respondWith({ agent: false, users: [] })
+    const { result } = renderWebSocketHook()
+
+    let outcome: boolean | SendMessageOutcome | undefined
+    await act(async () => {
+      outcome = await result.current.sendMessage('Ja, das Atrium ist ein eigener Abschnitt.', {
+        awaitingHuman: true,
+      })
+    })
+
+    expect(outcome).toMatchObject({ ok: true, addressees: { agent: false, users: [] } })
+    // The ruling was asked for, not assumed.
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith(
+      'Ja, das Atrium ist ein eigener Abschnitt.',
+      expect.any(Array),
+      { contextOnly: true, authorName: 'test@example.com' },
+    )
+  })
+
+  test('a message addressed to the agent is sent exactly as today — no context_only', async () => {
+    respondWith({ agent: true, users: ['u-anna'] })
+    const { result } = renderWebSocketHook()
+
+    await act(async () => {
+      await result.current.sendMessage('@Piloti @Anna Weber bitte prüfen', {
+        mentions: [
+          { targetId: 'agent:piloti', display: 'Piloti' },
+          { targetId: 'u-anna', display: 'Anna Weber' },
+        ],
+      })
+    })
+
+    expect(mockWsClient.sendMessage).toHaveBeenCalledTimes(1)
+    expect(sendOptions()).toBeUndefined()
+    expect(mockSetCurrentStatus).toHaveBeenCalledWith('thinking')
+  })
+
+  test('the free fast path never asks the server and never sends context', () => {
+    const { result } = renderWebSocketHook()
+
+    act(() => {
+      result.current.sendMessage('Wie breit muss der Fluchtweg sein?')
+    })
+
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(mockWsClient.sendMessage).toHaveBeenCalledTimes(1)
+    expect(sendOptions()).toBeUndefined()
+  })
+
+  test('a context-only delivery starts no turn and shows no progress at all', async () => {
+    respondWith({ agent: false, users: ['u-anna'] })
+    const { result } = renderWebSocketHook()
+
+    await act(async () => {
+      await result.current.sendMessage('@Anna Weber schau bitte', {
+        mentions: [{ targetId: 'u-anna', display: 'Anna Weber' }],
+      })
+    })
+
+    expect(mockSetStreaming).not.toHaveBeenCalledWith(true)
+    expect(mockSetLoading).not.toHaveBeenCalledWith(true)
+    expect(mockSetCurrentStatus).not.toHaveBeenCalledWith('thinking')
+    expect(mockAddThinkingStep).not.toHaveBeenCalled()
+    expect(mockAddErrorCard).not.toHaveBeenCalled()
+  })
+
+  test('no answer ever comes back, and that must not look like a lost message', async () => {
+    // An ordinary send is watched by a 7s delivery-ack timeout whose expiry shows
+    // "No response received from the server." A context-only frame is answered by
+    // DESIGN, so it must not be tracked at all.
+    vi.useFakeTimers()
+    respondWith({ agent: false, users: ['u-anna'] })
+    const { result } = renderWebSocketHook()
+
+    await act(async () => {
+      await result.current.sendMessage('@Anna Weber schau bitte', {
+        mentions: [{ targetId: 'u-anna', display: 'Anna Weber' }],
+      })
+    })
+
+    await act(async () => {
+      vi.advanceTimersByTime(200_000)
+    })
+
+    expect(mockAddErrorCard).not.toHaveBeenCalled()
+    expect(mockWsClient.rotate).not.toHaveBeenCalled()
+  })
+
+  test('a context delivery that cannot go out never breaks the thread', async () => {
+    // Postgres already holds the human's message; a dropped context frame only
+    // degrades the agent's history. It must not fail the send or raise a banner.
+    mockWsClient.isConnected.mockReturnValue(false)
+    mockWsClient.sendMessage.mockReturnValueOnce(null)
+    respondWith({ agent: false, users: ['u-anna'] })
+    const { result } = renderWebSocketHook()
+
+    let outcome: boolean | SendMessageOutcome | undefined
+    await act(async () => {
+      outcome = await result.current.sendMessage('@Anna Weber schau bitte', {
+        mentions: [{ targetId: 'u-anna', display: 'Anna Weber' }],
+      })
+    })
+
+    expect(outcome).toMatchObject({ ok: true, addressees: { agent: false, users: ['u-anna'] } })
+    expect(mockAddErrorCard).not.toHaveBeenCalled()
+    // The message still reached the thread locally.
+    expect(mockSetState).toHaveBeenCalled()
+  })
+
+  test('awaitingHuman is ignored once the server says the agent is addressed again', async () => {
+    // The client's hand-off read can be stale (the wait was just released, or the
+    // text carries `@Piloti`). The SERVER decides; the client only decides whether
+    // to ask. A ruling of `agent: true` opens a normal turn.
+    respondWith({ agent: true, users: [] })
+    const { result } = renderWebSocketHook()
+
+    await act(async () => {
+      await result.current.sendMessage('@Piloti passt das jetzt?', { awaitingHuman: true })
+    })
+
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    expect(mockWsClient.sendMessage).toHaveBeenCalledTimes(1)
+    expect(sendOptions()).toBeUndefined()
+    expect(mockSetStreaming).toHaveBeenCalledWith(true)
+  })
+})
+
+/**
+ * THE MULTI-USER DEFECT, at the layer where it is caused.
+ *
+ * The Python registry keys live sockets by conversation_id
+ * (`websocket_reconnect.py`, `WebSocketSessionRegistry._sockets`), so a second
+ * socket on the same conversation REPLACES the first. That is right for one user
+ * reconnecting and wrong for two people in a shared thread: the reader's socket
+ * takes over the asker's registration, so his answer streams into her connection
+ * and vanishes from his — and because `clear_socket` is identity-guarded, her
+ * leaving unregisters the conversation outright.
+ *
+ * The frontend cause is that the composer auto-connects on MOUNT. ADR-0033 §7
+ * already decided that a participant who did not start a turn sees turn *state*
+ * over the SSE channel, not token streaming — so a reader has no reason to hold an
+ * agent socket at all. These tests pin the connection to intent instead.
+ */
+describe('useWebSocketChat — the agent socket follows intent to send, not mounting', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    capturedCallbacks = {}
+    resetThreadSharing()
+    vi.mocked(useChatStore).mockImplementation(defaultUseChatStoreImpl)
+    mockStoreState = {
+      currentUserId: 'user-matthias',
+      currentConversation: { id: 'conv-1', messages: [], userId: 'user-matthias' },
+      conversations: [],
+      isStreaming: false,
+      isLoading: false,
+      thinkingSteps: [],
+      activeThinkingStepId: null,
+      reportContent: '',
+      currentStatus: null,
+      pendingInteraction: null,
+      planMessages: [],
+    }
+    useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+    mockWsClient.isConnected.mockReturnValue(false)
+  })
+
+  test('THE DEFECT: opening a SHARED thread as a reader opens no agent socket', () => {
+    // Anna opens a thread Matthias already has open. Nothing about opening it is
+    // a reason to take his socket registration away from him.
+    publishThreadSharing('conv-1', true)
+
+    renderHook(() => useWebSocketChat({ canCollaborate: true }))
+
+    expect(createNATWebSocketClient).not.toHaveBeenCalled()
+    expect(mockWsClient.connect).not.toHaveBeenCalled()
+  })
+
+  test('a SOLO thread is unchanged: the socket opens on mount, before anything is typed (NF-8)', () => {
+    // The non-negotiable one. A private conversation pays nothing for a
+    // shared-conversation bug: same connect, same first-message latency.
+    publishThreadSharing('conv-1', false)
+
+    renderHook(() => useWebSocketChat({ canCollaborate: true }))
+
+    expect(createNATWebSocketClient).toHaveBeenCalledTimes(1)
+    expect(mockWsClient.connect).toHaveBeenCalledTimes(1)
+  })
+
+  test('with collaboration off the socket opens on mount even before sharedness is known', () => {
+    // No access read happens at all in a gated org, so `unknown` must not be able
+    // to withhold the socket. This is the byte-identical path (spec NF-8).
+    renderHook(() => useWebSocketChat())
+
+    expect(createNATWebSocketClient).toHaveBeenCalledTimes(1)
+    expect(mockWsClient.connect).toHaveBeenCalledTimes(1)
+  })
+
+  test('a reader who focuses the composer does connect', () => {
+    publishThreadSharing('conv-1', true)
+
+    const { result } = renderHook(() => useWebSocketChat({ canCollaborate: true }))
+    expect(mockWsClient.connect).not.toHaveBeenCalled()
+
+    act(() => {
+      result.current.noteSendIntent()
+    })
+
+    expect(createNATWebSocketClient).toHaveBeenCalledTimes(1)
+    expect(mockWsClient.connect).toHaveBeenCalledTimes(1)
+  })
+
+  test('the socket stays open once intent was shown, even while the turn streams', () => {
+    publishThreadSharing('conv-1', true)
+
+    const { result, rerender } = renderHook(() => useWebSocketChat({ canCollaborate: true }))
+    act(() => {
+      result.current.noteSendIntent()
+    })
+    expect(mockWsClient.connect).toHaveBeenCalledTimes(1)
+
+    // An answer arriving must not re-evaluate the gate and tear the socket down.
+    mockStoreState.currentConversation = {
+      id: 'conv-1',
+      messages: [
+        { id: 'm1', role: 'user', messageType: 'user', authorUserId: 'user-matthias' },
+        { id: 'm2', role: 'assistant', messageType: 'agent_response' },
+      ],
+      userId: 'user-matthias',
+    }
+    mockStoreState.isStreaming = true
+    rerender()
+
+    expect(mockWsClient.disconnect).not.toHaveBeenCalled()
+    expect(mockWsClient.connect).toHaveBeenCalledTimes(1)
+  })
+
+  test('reattach after a refresh: my own unanswered turn opens the socket on mount', () => {
+    // Requirement 3. The asker refreshes mid-answer. The running turn is
+    // reattached by `_restore_execution_state` on the new HANDSHAKE, so the socket
+    // has to be opened without waiting for them to touch the composer.
+    publishThreadSharing('conv-1', true)
+    mockStoreState.currentConversation = {
+      id: 'conv-1',
+      messages: [{ id: 'm1', role: 'user', messageType: 'user', authorUserId: 'user-matthias' }],
+      userId: 'user-matthias',
+    }
+
+    renderHook(() => useWebSocketChat({ canCollaborate: true }))
+
+    expect(createNATWebSocketClient).toHaveBeenCalledTimes(1)
+    expect(mockWsClient.connect).toHaveBeenCalledTimes(1)
+  })
+
+  test("a colleague's unanswered turn does NOT open my socket", () => {
+    // The inverse, and the actual collision: Anna opens the thread while Piloti is
+    // answering Matthias. She observes the turn over SSE (ADR-0033 §7); taking his
+    // socket is precisely the defect.
+    publishThreadSharing('conv-1', true)
+    mockStoreState.currentConversation = {
+      id: 'conv-1',
+      messages: [{ id: 'm1', role: 'user', messageType: 'user', authorUserId: 'user-matthias' }],
+      userId: 'user-anna',
+    }
+    mockStoreState.currentUserId = 'user-anna'
+
+    renderHook(() => useWebSocketChat({ canCollaborate: true }))
+
+    expect(createNATWebSocketClient).not.toHaveBeenCalled()
+    expect(mockWsClient.connect).not.toHaveBeenCalled()
+  })
+
+  test('an answered thread opens no socket for anybody until they mean to write', () => {
+    publishThreadSharing('conv-1', true)
+    mockStoreState.currentConversation = {
+      id: 'conv-1',
+      messages: [
+        { id: 'm1', role: 'user', messageType: 'user', authorUserId: 'user-matthias' },
+        { id: 'm2', role: 'assistant', messageType: 'agent_response' },
+      ],
+      userId: 'user-matthias',
+    }
+
+    renderHook(() => useWebSocketChat({ canCollaborate: true }))
+
+    expect(mockWsClient.connect).not.toHaveBeenCalled()
+  })
+
+  test('sharedness arriving late withdraws nothing that was already opened', () => {
+    // A private thread that is shared WHILE open keeps its socket: the user may be
+    // mid-turn, and closing it would drop their own answer. The collision it could
+    // still cause is bounded to that one already-open thread.
+    publishThreadSharing('conv-1', false)
+    const { rerender } = renderHook(() => useWebSocketChat({ canCollaborate: true }))
+    expect(mockWsClient.connect).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      publishThreadSharing('conv-1', true)
+    })
+    rerender()
+
+    expect(mockWsClient.disconnect).not.toHaveBeenCalled()
+  })
+})
+
+describe('useWebSocketChat — a context-only send with no socket yet', () => {
+  const mockFetch = vi.fn()
+  const mockSetState = vi.fn()
+
+  // NOTE: sharedness is reset in `beforeEach`, not here. Resetting it in an
+  // afterEach notifies subscribers while the hook is still mounted (RTL's cleanup
+  // runs after ours), which is a state update outside `act`.
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    capturedCallbacks = {}
+    resetThreadSharing()
+    vi.mocked(useChatStore).mockImplementation(defaultUseChatStoreImpl)
+    mockStoreState = {
+      currentUserId: 'user-anna',
+      currentConversation: { id: 'conv-1', messages: [], userId: 'user-anna' },
+      conversations: [],
+      isStreaming: false,
+      isLoading: false,
+      thinkingSteps: [],
+      activeThinkingStepId: null,
+      reportContent: '',
+      currentStatus: null,
+      pendingInteraction: null,
+      planMessages: [],
+    }
+    useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+    ;(useChatStore as unknown as { setState: unknown }).setState = mockSetState
+    // The socket is NOT up: this is the window intent-driven connection widens.
+    mockWsClient.isConnected.mockReturnValue(false)
+    vi.stubGlobal('fetch', mockFetch)
+    mockFetch.mockImplementation(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body)
+      return {
+        ok: true,
+        status: 201,
+        json: async () => [{ id: body.id, addressees: { agent: false, users: [] }, createdRequests: 0 }],
+      }
+    })
+  })
+
+  test('the frame is queued and delivered on the handshake instead of being dropped', async () => {
+    publishThreadSharing('conv-1', true)
+    const { result } = renderHook(() => useWebSocketChat({ canCollaborate: true }))
+
+    // She focuses and sends fast: the socket is still handshaking.
+    act(() => {
+      result.current.noteSendIntent()
+    })
+    await act(async () => {
+      await result.current.sendMessage('Ja, das Atrium ist ein eigener Abschnitt.', {
+        awaitingHuman: true,
+      })
+    })
+
+    // Nothing on the wire yet — but nothing lost either.
+    expect(mockWsClient.sendMessage).not.toHaveBeenCalled()
+
+    mockWsClient.isConnected.mockReturnValue(true)
+    act(() => {
+      capturedCallbacks.onConnectionChange?.('connected')
+    })
+
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith(
+      'Ja, das Atrium ist ein eigener Abschnitt.',
+      expect.any(Array),
+      { contextOnly: true, authorName: 'test@example.com' },
+    )
+    // Context is never a turn: no streaming state, no watchdog, no spinner.
+    expect(mockSetStreaming).not.toHaveBeenCalledWith(true)
+  })
+
+  test('a queued context frame does not displace a real turn buffered by a rotation', async () => {
+    publishThreadSharing('conv-1', false)
+    const { result } = renderHook(() => useWebSocketChat({ canCollaborate: true }))
+
+    await act(async () => {
+      await result.current.sendMessage('Kurz dazu.', { awaitingHuman: true })
+    })
+
+    // A normal turn now queues behind the same handshake.
+    mockFetch.mockImplementation(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body)
+      return {
+        ok: true,
+        status: 201,
+        json: async () => [{ id: body.id, addressees: { agent: true, users: [] }, createdRequests: 0 }],
+      }
+    })
+    await act(async () => {
+      await result.current.sendMessage('@Piloti und jetzt?', { awaitingHuman: true })
+    })
+
+    mockWsClient.isConnected.mockReturnValue(true)
+    act(() => {
+      capturedCallbacks.onConnectionChange?.('connected')
+    })
+
+    // The turn goes out as a turn, the remark as context. Both survive.
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith('@Piloti und jetzt?', expect.any(Array))
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith('Kurz dazu.', expect.any(Array), {
+      contextOnly: true,
+      authorName: 'test@example.com',
+    })
+  })
+})
+
+/**
+ * A post-answer stage frame is the one frame that arrives when the turn is
+ * OVER (`docs/architecture/post-answer-stages.md` §4.3).
+ *
+ * That is the whole reason it has a frame type of its own. `onResponse` drops
+ * anything that arrives while the store is not streaming — correctly, because a
+ * response frame arriving then belongs to a workflow that outlived its request.
+ * A stage frame arriving then is the normal case, and routing it through that
+ * guard would drop every single one.
+ */
+describe('useWebSocketChat — a post-answer stage frame', () => {
+  const frame = {
+    type: 'grid_stage_message',
+    v: 1,
+    conversation_id: 'conv-1',
+    parent_id: 'msg_1755600000000_3',
+    stage: 'follow_ups',
+    status: 'ready',
+    payload: { items: [{ question: 'Und bei Hanglage?' }] },
+  }
+
+  test('is applied although the turn is no longer streaming', () => {
+    renderWebSocketHook()
+    // The turn has settled — which is when a stage frame arrives, always.
+    mockStoreState.isStreaming = false
+
+    act(() => {
+      capturedCallbacks.onStage?.(frame)
+    })
+
+    expect(mockApplyStageFrame).toHaveBeenCalledWith({
+      conversationId: 'conv-1',
+      parentId: 'msg_1755600000000_3',
+      stage: 'follow_ups',
+      status: 'ready',
+      payload: frame.payload,
+    })
+  })
+
+  test('drops a frame with no turn key rather than guessing which turn it meant', () => {
+    renderWebSocketHook()
+
+    act(() => {
+      capturedCallbacks.onStage?.({ ...frame, parent_id: null })
+    })
+
+    expect(mockApplyStageFrame).not.toHaveBeenCalled()
+  })
+
+  test('records the turn key from the answer frames, so a stage can find the answer', () => {
+    renderWebSocketHook()
+    mockStoreState.isStreaming = true
+
+    act(() => {
+      capturedCallbacks.onResponse?.('Das Fluchtniveau ist …', 'in_progress', false, 'msg_1755600000000_3')
+    })
+
+    expect(mockSetTurnWsParentId).toHaveBeenCalledWith('msg_1755600000000_3')
   })
 })

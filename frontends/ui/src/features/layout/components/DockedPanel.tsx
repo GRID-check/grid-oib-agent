@@ -2,21 +2,33 @@
  * DockedPanel Component
  *
  * Plain docked <aside> that replaces the KUI SidePanel for the chat shell
- * panels (Sessions, Settings, Data Sources). Docks under the app header,
- * has no overlay and no click-outside behavior (matching the previous
- * `closeOnClickOutside={false}` usage), and slides in from its side with a
- * translate transition that respects prefers-reduced-motion.
+ * panels (Sessions, Settings, Data Sources). On desktop it docks beside the
+ * still-usable chat plane with no overlay and no click-outside. On mobile it
+ * behaves as a modal drawer: a tap-dismissable scrim dims the page behind it
+ * and background scroll is locked, matching native mobile drawer conventions.
+ * It slides in from its side with a translate transition that respects
+ * prefers-reduced-motion.
  *
- * Layout: heading row + scrollable body + optional footer.
+ * Layout: heading row + body + optional footer. The panel spans the FULL
+ * viewport height on both breakpoints — see the class list for why it must.
+ *
+ * The body is a plain flex column that does NOT scroll. Panels own their own
+ * internal regions, because "which part scrolls" is a per-panel decision: the
+ * sessions panel pins its new-chat button and search field and scrolls only the
+ * history list beneath them.
  */
 
 'use client'
 
-import { type FC, type ReactNode } from 'react'
+import { type FC, type ReactNode, type RefObject, useCallback, useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useTranslations } from '@/i18n'
+import { useEscapeKey } from '@/shared/hooks/use-escape-key'
+import { usePanelFocus } from '@/shared/hooks/use-panel-focus'
+import { useBodyScrollLock } from '@/shared/hooks/use-body-scroll-lock'
 
 interface DockedPanelProps {
   /** Whether the panel is open */
@@ -25,7 +37,7 @@ interface DockedPanelProps {
   side: 'left' | 'right'
   /** Heading row content (icon + title) */
   heading: ReactNode
-  /** Optional footer content, pinned below the scrollable body */
+  /** Optional footer content, pinned below the body */
   footer?: ReactNode
   /** Called when the close button is pressed */
   onClose: () => void
@@ -34,6 +46,14 @@ interface DockedPanelProps {
    * unmounting). Matches the previous SidePanel `forceMount` behavior.
    */
   forceMount?: boolean
+  /**
+   * Control that should receive focus when the panel opens, instead of the
+   * close button. Pass this only when a panel has an obvious landing spot —
+   * the sessions panel hands focus to its search field, since finding a past
+   * chat is why you opened it. Leave it unset on mobile, where focusing a text
+   * field throws up the on-screen keyboard before the user has asked for it.
+   */
+  initialFocusRef?: RefObject<HTMLElement | null>
   /** Accessible name for the aside */
   'aria-label': string
   /** Extra classes for the aside (e.g. width overrides) */
@@ -42,7 +62,7 @@ interface DockedPanelProps {
 }
 
 /**
- * Docked side panel under the header. No overlay, no click-outside.
+ * Docked side panel. No overlay and no click-outside on desktop.
  */
 export const DockedPanel: FC<DockedPanelProps> = ({
   open,
@@ -51,50 +71,133 @@ export const DockedPanel: FC<DockedPanelProps> = ({
   footer,
   onClose,
   forceMount = false,
+  initialFocusRef,
   'aria-label': ariaLabel,
   className,
   children,
 }) => {
   const t = useTranslations('research')
+  const isMobile = useIsMobile()
+  const panelRef = useRef<HTMLElement>(null)
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
+
+  // A force-mounted panel stays in the DOM while closed, so its controls stay
+  // in the tab order: Tab from the chat would walk into an off-screen dialog
+  // that `aria-hidden` has already told assistive tech does not exist. `inert`
+  // is the one attribute that removes BOTH — focus and the a11y tree. React 18
+  // has no typing for it, hence the ref rather than a prop.
+  //
+  // This effect is declared BEFORE usePanelFocus so it runs first: focus must
+  // not be handed to a control inside a still-inert subtree.
+  useEffect(() => {
+    const el = panelRef.current
+    if (!el) return
+    if (open) el.removeAttribute('inert')
+    else el.setAttribute('inert', '')
+  }, [open])
+
+  // On open, move focus into the panel — to `initialFocusRef` when the panel
+  // named one, otherwise the close button; remember the opener so Escape can
+  // return focus to it. Hooks must run unconditionally, so this precedes the
+  // early return below.
+  const { restoreFocus } = usePanelFocus(open, initialFocusRef ?? closeButtonRef)
+
+  // Shared dismissal path: return focus to the opener, then close. Used by
+  // both Escape and the mobile scrim tap so they behave identically.
+  const handleDismiss = useCallback(() => {
+    restoreFocus()
+    onClose()
+  }, [restoreFocus, onClose])
+
+  // Escape closes the panel; the listener is inert (and unregistered) while
+  // the panel is closed.
+  useEscapeKey(open, handleDismiss)
+
+  // Lock background scroll while the drawer is open on mobile, where it covers
+  // the page modally. Desktop docks beside usable content, so scroll stays free.
+  useBodyScrollLock(isMobile && open)
+
   if (!open && !forceMount) return null
 
   return (
-    <aside
-      aria-label={ariaLabel}
-      aria-hidden={!open}
-      data-state={open ? 'open' : 'closed'}
-      className={cn(
-        // Mobile docks under the h-14 top bar; desktop has no global header —
-        // panels align to the bottom edge of the h-12 chat toolbar instead.
-        'fixed top-[var(--header-height)] z-40 flex h-[calc(100dvh-var(--header-height))] w-full max-w-[400px] flex-col bg-background md:top-12 md:h-[calc(100dvh-3rem)]',
-        side === 'left' ? 'left-0 border-r' : 'right-0 border-l',
-        // Slide transition; reduced-motion users get an instant swap
-        'transition-transform duration-300 ease-in-out motion-reduce:transition-none',
-        open ? 'translate-x-0' : side === 'left' ? '-translate-x-full' : 'translate-x-full',
-        !open && 'pointer-events-none',
-        className
+    <>
+      {/* Mobile scrim: dims the page behind the drawer and dismisses it on
+          tap. Mobile-only — desktop keeps the docked, non-modal behavior with
+          no overlay. Sits just under the panel (z-30 < z-40). Decorative: the
+          panel itself carries the dialog role and accessible name. */}
+      {isMobile && open && (
+        <div
+          aria-hidden="true"
+          onClick={handleDismiss}
+          data-testid="docked-panel-backdrop"
+          className="bg-overlay animate-in fade-in-0 fixed inset-0 z-30 backdrop-blur-sm duration-deliberate ease-out motion-reduce:animate-none md:hidden"
+        />
       )}
-    >
-      {/* Heading row */}
-      <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4">
-        <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">{heading}</div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8"
-          onClick={onClose}
-          aria-label={t('dockedPanel.closePanel')}
-          title={t('dockedPanel.closePanel')}
-        >
-          <X className="h-4 w-4" aria-hidden="true" />
-        </Button>
-      </div>
+      <aside
+        ref={panelRef}
+        role="dialog"
+        // Full-screen on mobile, where the panel covers the page and behaves
+        // modally; on desktop it docks beside still-usable content, so it is a
+        // non-modal dialog.
+        aria-modal={isMobile}
+        aria-label={ariaLabel}
+        aria-hidden={!open}
+        data-state={open ? 'open' : 'closed'}
+        className={cn(
+          // On mobile it is a modal drawer from the screen edge, so it is
+          // `fixed` and spans the viewport.
+          //
+          // On desktop it is `absolute` INSIDE the shell's `relative` <main>,
+          // which starts at the inner edge of the rail. So `left-0` is that
+          // edge — by construction, with no CSS variable to publish, read or
+          // get wrong. It used to be `md:left-[var(--sidebar-current-width)]`
+          // against the viewport, and because the panel is force-mounted while
+          // closed and `-translate-x-full` translates by its OWN width (400px,
+          // not the rail's 236px), the CLOSED panel parked an opaque `z-40`
+          // rectangle exactly over the `z-10` rail. Positioned inside <main>,
+          // the same translate takes it outside the scroll container's box,
+          // where it is clipped and unreachable.
+          'bg-background fixed inset-y-0 z-40 flex w-full max-w-[400px] flex-col shadow-lg md:absolute md:shadow-none',
+          side === 'left' ? 'left-0 border-r' : 'right-0 border-l',
+          // Slide transition; reduced-motion users get an instant swap.
+          // `duration-deliberate` is the drawer/panel step of the motion scale
+          // and `ease-entrance` is the curve for anything that MOVES on
+          // arrival — the literal 300ms and `ease-in-out` this replaces are
+          // both off-vocabulary (`grid-design-language.md` §"Motion
+          // vocabulary": no `ease-in-out` on a one-shot).
+          'transition-transform duration-deliberate ease-entrance motion-reduce:transition-none',
+          open ? 'translate-x-0' : side === 'left' ? '-translate-x-full' : 'translate-x-full',
+          !open && 'pointer-events-none',
+          className
+        )}
+      >
+        {/* Heading row — 48px, matching the chat toolbar pills' band so the
+            seams register across the two surfaces. */}
+        <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4">
+          <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">{heading}</div>
+          <Button
+            ref={closeButtonRef}
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            onClick={onClose}
+            aria-label={t('dockedPanel.closePanel')}
+            title={t('dockedPanel.closePanel')}
+          >
+            <X className="size-4" aria-hidden="true" />
+          </Button>
+        </div>
 
-      {/* Scrollable body */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">{children}</div>
+        {/* Body — a non-scrolling column; children own their padding and decide
+            which region scrolls. `min-h-0` so a scrolling child of theirs can
+            actually shrink instead of pushing the footer off the panel. */}
+        <div className="flex min-h-0 flex-1 flex-col">{children}</div>
 
-      {/* Footer */}
-      {footer && <div className="shrink-0 border-t px-4 py-3">{footer}</div>}
-    </aside>
+        {/* Footer */}
+        {footer && (
+          <div className="bg-background shrink-0 border-t px-4 py-3">{footer}</div>
+        )}
+      </aside>
+    </>
   )
 }

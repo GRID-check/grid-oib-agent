@@ -17,8 +17,10 @@ import { Check, ChevronDown, Clock, FileText, Pencil, Search, Wand2, X } from 'l
 import { Checkbox } from '@/components/ui/checkbox'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
+import { formatTime } from '@/shared/utils/format-time'
 import type { DeepResearchToolCall } from '@/features/chat/types'
+import { getWorkflowTitle } from '../lib/workflow-names'
 
 /** Maximum characters for truncated query display */
 const MAX_QUERY_LENGTH = 120
@@ -36,7 +38,13 @@ const PLANNING_TOOL_PATTERNS = ['write_todo', 'todo', 'plan']
 export interface AgentInfo {
   /** Unique identifier for this agent instance */
   id: string
-  /** Agent/workflow name (e.g., "planner-agent", "researcher-agent") */
+  /**
+   * The raw agent/workflow name off the SSE stream ("researcher-agent").
+   *
+   * An identifier, not prose — named for the reader by `getWorkflowTitle`, the
+   * same map the thought and tool-call cards resolve their origin through, so
+   * one role cannot be worded two ways across the research panel.
+   */
   name: string
   /** Current execution status */
   status: 'pending' | 'running' | 'complete' | 'error'
@@ -86,14 +94,6 @@ const getToolIcon = (toolType: ToolType) => {
     default:
       return Wand2
   }
-}
-
-/**
- * Format timestamp for display
- */
-const formatTime = (date: Date | string): string => {
-  const dateObj = typeof date === 'string' ? new Date(date) : date
-  return dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 /**
@@ -150,6 +150,13 @@ const dedupeToolCalls = (toolCalls: DeepResearchToolCall[]): DeepResearchToolCal
 export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true }) => {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded)
   const t = useTranslations('research')
+  const { locale } = useLocale()
+
+  // The reader-facing name of this part of the run. A role the map has no entry
+  // for reads „Interner Schritt" rather than leaking `researcher-agent` into
+  // the Agenten tab; the row itself always stays, because the tab counts its
+  // agents and a dropped row would make the count and the list disagree.
+  const agentName = getWorkflowTitle(agent.name, t)
 
   const isRunning = agent.status === 'running'
   const isComplete = agent.status === 'complete'
@@ -182,7 +189,7 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
       : t('agentCard.toolsCount', { completed: completedToolCalls.length, total: toolCalls.length })
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border bg-muted/40">
+    <div className="flex flex-col overflow-hidden rounded-lg border bg-muted">
       {/* Header - always visible */}
       <button
         type="button"
@@ -196,15 +203,15 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
         <div className="flex w-full items-center gap-2 px-3 py-2">
           {/* Status Icon - spinner when running */}
           {isRunning ? (
-            <Spinner size="sm" label={t('agentCard.isRunning', { name: agent.name })} className="shrink-0" />
+            <Spinner size="sm" label={t('agentCard.isRunning', { name: agentName })} className="shrink-0" />
           ) : (
             <span className={cn('shrink-0', statusTextClass)} aria-hidden="true">
               {isComplete ? (
-                <Check className="h-4 w-4" />
+                <Check className="size-4" />
               ) : isError ? (
-                <X className="h-4 w-4" />
+                <X className="size-4" />
               ) : (
-                <Clock className="h-4 w-4" />
+                <Clock className="size-4" />
               )}
             </span>
           )}
@@ -212,7 +219,7 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
           {/* Agent Info */}
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="flex items-center gap-2">
-              <span className={cn('text-sm font-semibold', statusTextClass)}>{agent.name}</span>
+              <span className={cn('text-sm font-semibold', statusTextClass)}>{agentName}</span>
               {hasToolCalls && (
                 <span className="text-xs text-muted-foreground">{toolCountLabel}</span>
               )}
@@ -222,11 +229,11 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
           {/* Timestamp */}
           {agent.completedAt ? (
             <span className="shrink-0 text-xs text-muted-foreground">
-              {formatTime(agent.completedAt)}
+              {formatTime(agent.completedAt, locale)}
             </span>
           ) : agent.startedAt ? (
             <span className="shrink-0 text-xs text-muted-foreground">
-              {t('agentCard.started', { time: formatTime(agent.startedAt) })}
+              {t('agentCard.started', { time: formatTime(agent.startedAt, locale) })}
             </span>
           ) : null}
 
@@ -234,12 +241,12 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
           {canExpand && (
             <span
               className={cn(
-                'text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+                'text-muted-foreground transition-transform duration-quick motion-reduce:transition-none',
                 isExpanded && 'rotate-180'
               )}
               aria-hidden="true"
             >
-              <ChevronDown className="h-4 w-4" />
+              <ChevronDown className="size-4" />
             </span>
           )}
         </div>
@@ -286,7 +293,7 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
                     <div className="flex min-w-0 flex-1 flex-col">
                       <div className="flex items-start gap-1">
                         <ToolIcon
-                          className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground"
+                          className="mt-0.5 size-3 shrink-0 text-muted-foreground"
                           aria-hidden="true"
                         />
                         <span

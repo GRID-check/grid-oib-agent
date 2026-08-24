@@ -6,11 +6,12 @@
 
 import type { DataSourceFromAPI } from '@/adapters/api'
 
+
 /** Theme mode options */
 export type ThemeMode = 'light' | 'dark' | 'system'
 
 /** Panels that can be opened on the right side */
-export type RightPanelType = 'research' | 'data-sources' | 'settings' | null
+export type RightPanelType = 'research' | null
 
 /** Tabs within the Research panel */
 export type ResearchPanelTab = 'tasks' | 'thinking' | 'report'
@@ -18,10 +19,23 @@ export type ResearchPanelTab = 'tasks' | 'thinking' | 'report'
 /** Tabs within the DataSources panel */
 export type DataSourcesPanelTab = 'connections' | 'files'
 
+/**
+ * Composer source-preset shortcuts (WS-3). Each preset maps onto a subset of
+ * the REAL data sources returned by the backend registry — see
+ * `lib/source-presets.ts`. `null` = no preset active (manual selection).
+ */
+export type SourcePresetId = 'law' | 'project' | 'office'
+
 /** Layout state for managing panels */
 export interface LayoutState {
   /** Whether the sessions panel is open (left side) */
   isSessionsPanelOpen: boolean
+  /**
+   * Whether the global navigation drawer (AppSidebar's mobile drawer) is open.
+   * Lifted into the store so the chat's floating toolbar can open it on mobile —
+   * where the chat route hides the standalone global top bar to reclaim space.
+   */
+  isMobileNavOpen: boolean
   /** Currently open right panel (null = closed) */
   rightPanel: RightPanelType
   /** Active tab in the research panel */
@@ -36,10 +50,36 @@ export interface LayoutState {
   availableDataSources: DataSourceFromAPI[] | null
   /** Whether the knowledge layer (file upload) is available */
   knowledgeLayerAvailable: boolean
+  /**
+   * Whether a vision model (VLM) is configured on the backend. Derived
+   * capability carried alongside knowledgeLayerAvailable; image upload is
+   * offered only when the `image-upload` flag allows AND this is true. Defaults
+   * to false until the capability fetch confirms it.
+   */
+  vlmAvailable: boolean
   /** Whether data sources are being fetched */
   dataSourcesLoading: boolean
   /** Error message if data sources fetch failed */
   dataSourcesError: string | null
+  /**
+   * User's Deep-Research preference (composer pill). This is an INTENT HINT,
+   * not a hard switch: the agent auto-escalates to deep research on its own
+   * (spec §2.2(6)); no protocol field exists to force it, so the toggle only
+   * records the user's preference and the composer shows an honest hint.
+   */
+  deepResearchIntent: boolean
+  /**
+   * Show the raw technical reasoning steps (which agent/tool ran) inside the
+   * Herleitung. OFF by default — the default trace is the user-friendly node
+   * chain; power users opt in via the settings toggle. Persisted like a profile
+   * preference.
+   */
+  showTechnicalReasoning: boolean
+  /**
+   * Active composer source preset (shortcut chips), or null when the user
+   * manually manages sources. Cleared by any manual source toggle.
+   */
+  activeSourcePreset: SourcePresetId | null
   /**
    * @deprecated Use researchPanelTab instead
    */
@@ -56,6 +96,8 @@ export interface LayoutActions {
   toggleSessionsPanel: () => void
   /** Set sessions panel state */
   setSessionsPanelOpen: (open: boolean) => void
+  /** Open/close the global mobile navigation drawer */
+  setMobileNavOpen: (open: boolean) => void
   /** Open a specific right panel (closes any existing) */
   openRightPanel: (panel: RightPanelType) => void
   /** Close the right panel */
@@ -70,6 +112,17 @@ export interface LayoutActions {
   setEnabledDataSources: (ids: string[]) => void
   /** Set the theme mode */
   setTheme: (theme: ThemeMode) => void
+  /** Record the user's Deep-Research preference (intent hint, not a guarantee) */
+  setDeepResearchIntent: (on: boolean) => void
+  /** Toggle the raw technical reasoning steps in the Herleitung (default off) */
+  setShowTechnicalReasoning: (on: boolean) => void
+  /**
+   * Apply a composer source preset: sets the preset AND its computed enabled
+   * source ids in one action (so the manual-toggle preset-clearing in
+   * toggleDataSource/setEnabledDataSources doesn't fight it). Pass null to
+   * clear the preset while restoring the given ids.
+   */
+  applySourcePreset: (preset: SourcePresetId | null, enabledIds: string[]) => void
   /** Fetch data sources from API. Only web_search is enabled by default */
   fetchDataSources: (authToken?: string) => Promise<void>
   /** Disable sources that require authentication */
@@ -78,6 +131,8 @@ export interface LayoutActions {
   setAvailableDataSources: (sources: DataSourceFromAPI[]) => void
   /** Set knowledge layer availability */
   setKnowledgeLayerAvailable: (available: boolean) => void
+  /** Set VLM (vision model) capability availability */
+  setVlmAvailable: (available: boolean) => void
   /**
    * @deprecated Use setResearchPanelTab instead
    */

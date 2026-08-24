@@ -1,19 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.1
@@ -33,6 +17,11 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=1024]
+        # Committed UI evidence (AGENTS.md: a user-visible change is only
+        # "done" with a screenshot). Full-page retina captures of a long
+        # surface routinely exceed 1 MB — the tracked gallery shots are ~3 MB —
+        # so the cap would block exactly the artifacts the repo requires.
+        exclude: ^frontends/ui/visual/screenshots/.*\.png$
       - id: check-yaml
         exclude: ^deploy/helm/helm-charts-k8s/.*/templates/.*\.ya?ml$
       - id: end-of-file-fixer
@@ -44,10 +33,53 @@ repos:
     hooks:
       - id: detect-secrets
         args: [--baseline, .secrets.baseline]
-        exclude: ^skills/[^/]+/skill\.oms\.sig$
+        # skill signatures are binary-ish blobs; pnpm-lock.yaml is a lockfile of
+        # integrity hashes (not covered by detect-secrets' is_lock_file filter) —
+        # neither holds real secrets, so keep them out of the scan.
+        #
+        # scope_header.json is the ADR-0047 wire fixture: its `header` fields are
+        # `base64url(JSON.stringify([...]))` of collection NAMES, which is high
+        # entropy by construction and a secret by no construction at all. It is
+        # excluded rather than baselined because a baseline entry pins a hash to a
+        # LINE NUMBER, and this file grows by a case every time a shelf is added —
+        # the same trap the Pulumi note below describes. JSON cannot carry the
+        # inline `pragma: allowlist secret` comment that would be the other way out.
+        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$)
+        # REGENERATING THE BASELINE — keep the --exclude-lines flag, or CI starts
+        # failing again a few commits later:
+        #
+        #   detect-secrets scan --baseline .secrets.baseline --exclude-lines '^\s*secure:\s'
+        #
+        # Pulumi stack files are full of `secure:` values that are ciphertext BY
+        # DESIGN (encrypted by the stack's Pulumi-Cloud key, and deliberately
+        # committed — see deploy/pulumi/README.md). Tracking them as baseline
+        # entries pinned 13 hashes to LINE NUMBERS in Pulumi.dev.yaml, so adding
+        # any config key above them shifted every line, the hook rewrote the
+        # baseline, and the job failed with "files were modified by this hook" —
+        # on whichever unlucky PR happened to touch the file next.
+        #
+        # The filter is line-scoped, not file-scoped, on purpose: a PLAINTEXT
+        # secret pasted into a stack file is still caught (verified). Full
+        # history is independently covered by gitleaks in security.yml.
 
   - repo: local
     hooks:
+      - id: sync-platform-skills
+        name: platform-skills.ts is generated from the builtin SKILL.md files
+        # This file has broken the build from behind THREE times, and the shape
+        # of the failure is the same every time: a stale generated module
+        # type-checks perfectly, so nothing local objects and only CI knows.
+        # `--check` runs the generator and diffs, which is the one thing that
+        # can see it.
+        #
+        # Scoped to the two inputs rather than run always: the generator stamps
+        # a timestamp into its output, so running it on every commit would make
+        # the file dirty on every commit.
+        entry: node frontends/ui/scripts/sync-platform-skills.mjs --check
+        language: system
+        pass_filenames: false
+        files: ^(src/aiq_agent/skills/builtin/.*/SKILL\.md|frontends/ui/src/lib/skills/platform-skills\.ts|frontends/ui/scripts/sync-platform-skills\.mjs)$
+
       - id: pytest
         name: pytest
         entry: pytest tests sources --cov=aiq_agent --cov-report=term --cov-fail-under=65
@@ -60,7 +92,17 @@ repos:
     hooks:
       - id: markdown-link-check
         args: ["-q", "--config", "ci/markdown-link-check-config.json"]
-        exclude: ^skills/[^/]+/skill-card\.md$
+        # The vendored SkillCheck rulebook is excluded because it is vendored
+        # VERBATIM (see src/aiq_agent/skills/review/README.md): its relative
+        # links resolve upstream, where the whole `references/` directory
+        # exists, and we deliberately took only the one file. Rewriting its
+        # links to make a link checker happy would break the byte-for-byte
+        # guarantee that keeps its MIT licence and attribution intact.
+        exclude: |
+          (?x)^(
+            skills/[^/]+/skill-card\.md|
+            src/aiq_agent/skills/review/skill-check/SKILL\.md
+          )$
 
 default_language_version:
   python: python3

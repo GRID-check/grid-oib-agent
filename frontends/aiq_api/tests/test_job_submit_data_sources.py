@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Tests for async job submit data source targeting."""
 
 from __future__ import annotations
@@ -141,6 +126,52 @@ async def test_submit_job_forwards_selected_data_sources(submit_app):
     assert response.json()["job_id"] == "job-1"
     submitted_job.assert_awaited_once()
     assert submitted_job.await_args.kwargs["data_sources"] == ["web_search"]
+
+
+@pytest.mark.asyncio
+async def test_data_sources_lists_registry_and_reports_vlm_available_true(submit_app, monkeypatch):
+    """GET /v1/data_sources lists the registry and reports vlm_available=True when a VLM key resolves."""
+    app, _submitted_job, _builder = submit_app
+    # A resolvable VLM key ⇒ derived capability is True. Force NVIDIA_API_KEY off
+    # so only the explicit override drives the result.
+    monkeypatch.setenv("AIQ_VLM_API_KEY", "vlm-secret")
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+
+    with TestClient(app) as client:
+        response = client.get("/v1/data_sources")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert {source["id"] for source in body["data_sources"]} == {"web_search", "knowledge_layer"}
+    assert body["vlm_available"] is True
+
+
+@pytest.mark.asyncio
+async def test_data_sources_reports_vlm_available_false_without_a_key(submit_app, monkeypatch):
+    """vlm_available is False when no VLM key (explicit or NVIDIA fallback) resolves."""
+    app, _submitted_job, _builder = submit_app
+    monkeypatch.delenv("AIQ_VLM_API_KEY", raising=False)
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+
+    with TestClient(app) as client:
+        response = client.get("/v1/data_sources")
+
+    assert response.status_code == 200
+    assert response.json()["vlm_available"] is False
+
+
+@pytest.mark.asyncio
+async def test_data_sources_vlm_available_true_via_nvidia_fallback(submit_app, monkeypatch):
+    """The NVIDIA_API_KEY fallback in the resolver also lights up the capability."""
+    app, _submitted_job, _builder = submit_app
+    monkeypatch.delenv("AIQ_VLM_API_KEY", raising=False)
+    monkeypatch.setenv("NVIDIA_API_KEY", "nvidia-secret")
+
+    with TestClient(app) as client:
+        response = client.get("/v1/data_sources")
+
+    assert response.status_code == 200
+    assert response.json()["vlm_available"] is True
 
 
 @pytest.mark.asyncio

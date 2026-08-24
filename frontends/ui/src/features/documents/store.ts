@@ -69,6 +69,20 @@ export const useDocumentsStore = create<DocumentsStore>()(
         )
       },
 
+      setUploadProgress: (id, bytesUploaded) => {
+        set(
+          (state) => {
+            const current = state.trackedFiles.find((f) => f.id === id)
+            if (!current || current.bytesUploaded === bytesUploaded) return state
+            return {
+              trackedFiles: state.trackedFiles.map((f) => (f.id === id ? { ...f, bytesUploaded } : f)),
+            }
+          },
+          false,
+          'setUploadProgress'
+        )
+      },
+
       removeTrackedFile: (id) => {
         set(
           (state) => {
@@ -85,6 +99,23 @@ export const useDocumentsStore = create<DocumentsStore>()(
           },
           false,
           'removeTrackedFile'
+        )
+      },
+
+      dismissTrackedFiles: (ids) => {
+        set(
+          (state) => {
+            const dropping = new Set(ids)
+            const next = state.trackedFiles.filter((f) => !dropping.has(f.id))
+            if (next.length === state.trackedFiles.length) return state
+            // Deliberately NOT tombstoned, unlike removeTrackedFile: dismissing
+            // an upload notice says "I have seen this", and tombstoning would
+            // make the very document that just succeeded disappear from the
+            // next server sync.
+            return { trackedFiles: next }
+          },
+          false,
+          'dismissTrackedFiles'
         )
       },
 
@@ -181,8 +212,17 @@ export const useDocumentsStore = create<DocumentsStore>()(
         set(
           (state) => {
             const updatedFiles = state.trackedFiles.map((file) => {
-              // Never overwrite client-side transient states with backend data
-              if (file.status === 'deleting') return file
+              // Never overwrite client-side transient states with backend data.
+              // 'canceled' is the user's decision about a file the backend may
+              // still be finishing — it must not be revived by a poll.
+              if (file.status === 'deleting' || file.status === 'canceled') return file
+
+              // Scope to the polled job and collection: filename matching
+              // without this would let a session upload overwrite the
+              // status/serverFileId of a same-named file tracked in another
+              // collection (e.g. the project corpus), corrupting later deletes.
+              if (file.jobId && file.jobId !== jobStatus.job_id) return file
+              if (file.collectionName && file.collectionName !== jobStatus.collection_name) return file
 
               // Find matching file in job details by server ID or filename
               const jobFile = jobStatus.file_details.find(
@@ -223,7 +263,7 @@ export const useDocumentsStore = create<DocumentsStore>()(
             const serverFileIds = new Set(files.map((f) => f.file_id))
             const serverFileNames = new Set(files.map((f) => f.file_name))
             const tombstoneIds = state.recentlyDeletedIds
-            const transientStatuses = new Set(['uploading', 'ingesting', 'deleting'])
+            const transientStatuses = new Set(['uploading', 'ingesting', 'deleting', 'canceled'])
             const preservedTransient = state.trackedFiles.filter(
               (f) =>
                 f.collectionName === collectionName &&

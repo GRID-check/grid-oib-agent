@@ -1,0 +1,11 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import DatenschutzBody from '../components/organisms/DatenschutzBody.astro'
+import { ui } from '../i18n/ui'
+
+const t = ui.de.legal.datenschutz
+---
+
+<BaseLayout locale="de" title={t.metaTitle} description={t.metaDescription}>
+  <DatenschutzBody locale="de" />
+</BaseLayout>

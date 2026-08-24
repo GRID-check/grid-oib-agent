@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/db', () => ({
@@ -40,6 +43,8 @@ vi.mock('@/lib/db/schema', () => ({
 }))
 
 import { getDb } from '@/lib/db'
+import type { ProjectMemoryItem } from '@/lib/db/schema'
+import { asDb, makeMemoryItem } from '@/test-utils/db-fixtures'
 import {
   buildProjectMemoryDigest,
   createProjectMemoryItem,
@@ -74,7 +79,7 @@ describe('updateProjectMemoryItem tenancy guard', () => {
     const returning = vi.fn().mockResolvedValue(rows)
     const where = vi.fn().mockReturnValue({ returning })
     const set = vi.fn().mockReturnValue({ where })
-    vi.mocked(getDb).mockReturnValue({ update: vi.fn().mockReturnValue({ set }) } as any)
+    vi.mocked(getDb).mockReturnValue(asDb({ update: vi.fn().mockReturnValue({ set }) }))
     return { where }
   }
 
@@ -114,7 +119,7 @@ describe('deleteProjectMemoryItem tenancy guard', () => {
   const mockDeleteChain = (rows: unknown[]) => {
     const returning = vi.fn().mockResolvedValue(rows)
     const where = vi.fn().mockReturnValue({ returning })
-    vi.mocked(getDb).mockReturnValue({ delete: vi.fn().mockReturnValue({ where }) } as any)
+    vi.mocked(getDb).mockReturnValue(asDb({ delete: vi.fn().mockReturnValue({ where }) }))
     return { where }
   }
 
@@ -153,7 +158,7 @@ const mockSelectChain = (rows: unknown[]) => {
     Object.assign(Promise.resolve(rows), { orderBy, limit }),
   )
   const from = vi.fn().mockReturnValue({ where })
-  vi.mocked(getDb).mockReturnValue({ select: vi.fn().mockReturnValue({ from }) } as any)
+  vi.mocked(getDb).mockReturnValue(asDb({ select: vi.fn().mockReturnValue({ from }) }))
   return { where, orderBy, limit }
 }
 
@@ -310,11 +315,11 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
     const values = vi.fn().mockReturnValue({ returning: insertReturning })
     const insert = vi.fn().mockReturnValue({ values })
 
-    vi.mocked(getDb).mockReturnValue({
+    vi.mocked(getDb).mockReturnValue(asDb({
       select: vi.fn().mockReturnValue({ from }),
       update,
       insert,
-    } as any)
+    }))
     return { set, values, insert, update }
   }
 
@@ -327,11 +332,42 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
       organizationId: 'org-1',
       kind: 'derived_fact',
       content: 'The roof load is 2 kN/m².',
-    } as any)
+    })
 
     expect(result).toEqual({ id: 'new-1' })
     expect(values).toHaveBeenCalledTimes(1)
     expect(set).not.toHaveBeenCalled()
+  })
+
+  /**
+   * Two people saving the SAME `memory_proposal` card in a shared conversation
+   * (ADR-0032) — the case I mistakenly reported as a double-write.
+   *
+   * It is not one, and this test is here so the claim cannot be re-litigated from
+   * the card component's comment (which is about the ROUTE having no idempotency
+   * parameter, not about this function). The second save finds the active duplicate
+   * by normalized content and REFRESHES it; no second row is written. The partial
+   * unique indexes in migration 0010 are the backstop, and the 23505 path below is
+   * what handles losing that race.
+   */
+  it('refreshes rather than duplicating when a colleague already saved the same memory', async () => {
+    const { values, set } = mockCreateChain({ id: 'existing-1', confidence: 'medium' })
+
+    const result = await createProjectMemoryItem({
+      scope: 'organization',
+      projectId: null,
+      organizationId: 'org-1',
+      kind: 'derived_fact',
+      content: 'The roof load is 2 kN/m².',
+      confidence: 'high',
+    })
+
+    // The existing row, updated — not a new one.
+    expect(values).not.toHaveBeenCalled()
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({ confidence: 'high' }),
+    )
+    expect(result).toBeDefined()
   })
 
   it('treats a concurrent unique-violation (23505) as a duplicate and returns the winner', async () => {
@@ -339,25 +375,28 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
     // 23505; the second de-dup check finds the winning row.
     const limit = vi
       .fn()
-      .mockResolvedValueOnce([]) // pre-insert check: no duplicate
+      .mockResolvedValueOnce([]) // exact-dup pre-check: no duplicate
+      .mockResolvedValueOnce([]) // near-dup scan: no candidates
       .mockResolvedValueOnce([{ id: 'winner-1' }]) // post-violation re-check
     const orderBy = vi.fn().mockReturnValue({ limit })
     const selectWhere = vi.fn().mockReturnValue({ orderBy })
     const from = vi.fn().mockReturnValue({ where: selectWhere })
     const insertReturning = vi.fn().mockRejectedValue(Object.assign(new Error('dup'), { code: '23505' }))
     const values = vi.fn().mockReturnValue({ returning: insertReturning })
-    vi.mocked(getDb).mockReturnValue({
+    vi.mocked(getDb).mockReturnValue(asDb({
       select: vi.fn().mockReturnValue({ from }),
       insert: vi.fn().mockReturnValue({ values }),
-    } as any)
+    }))
 
     const result = await createProjectMemoryItem({
       scope: 'project',
       projectId: 'proj-1',
       organizationId: 'org-1',
       kind: 'derived_fact',
-      content: 'Racy content.',
-    } as any)
+      // Long enough (>= NEAR_DUP_MIN_TOKENS) that the near-dup scan runs too,
+      // so all three selects mocked above are consumed in order.
+      content: 'Racy content wins the race.',
+    })
 
     expect(result).toEqual({ id: 'winner-1' })
   })
@@ -372,13 +411,361 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
       kind: 'derived_fact',
       content: 'the ROOF load is  2 kN/m2!',
       confidence: 'high',
-    } as any)
+    })
 
     expect(update).toHaveBeenCalledTimes(1)
     expect(values).not.toHaveBeenCalled()
     // Higher incoming confidence wins on the refresh.
     expect(set).toHaveBeenCalledWith(expect.objectContaining({ confidence: 'high' }))
     expect(result).toEqual({ id: 'dup-1', confidence: 'high' })
+  })
+})
+
+describe('createProjectMemoryItem paraphrase de-duplication', () => {
+  /**
+   * The exact-dup select misses (content is restated, not normalized-equal),
+   * then the near-dup candidate scan returns the scope's recent active items.
+   */
+  const mockNearDupChain = (candidates: unknown[]) => {
+    const limit = vi
+      .fn()
+      .mockResolvedValueOnce([]) // exact-dup: nothing normalized-equal
+      .mockResolvedValueOnce(candidates) // near-dup candidate scan
+    const orderBy = vi.fn().mockReturnValue({ limit })
+    const selectWhere = vi.fn().mockReturnValue({ orderBy })
+    const from = vi.fn().mockReturnValue({ where: selectWhere })
+
+    const updateReturning = vi.fn().mockResolvedValue([{ id: 'dup-1', confidence: 'high' }])
+    const updateWhere = vi.fn().mockReturnValue({ returning: updateReturning })
+    const set = vi.fn().mockReturnValue({ where: updateWhere })
+    const update = vi.fn().mockReturnValue({ set })
+
+    const insertReturning = vi.fn().mockResolvedValue([{ id: 'new-1' }])
+    const values = vi.fn().mockReturnValue({ returning: insertReturning })
+    const insert = vi.fn().mockReturnValue({ values })
+
+    vi.mocked(getDb).mockReturnValue(asDb({
+      select: vi.fn().mockReturnValue({ from }),
+      update,
+      insert,
+    }))
+    return { set, values, insert, update, selectWhere }
+  }
+
+  /**
+   * Same as `mockNearDupChain`, plus the transaction the supersede path runs
+   * (insert the replacement + retire the entry it replaces, atomically).
+   * `selectResults` feeds the selects in order: exact-dup, near-dup scan, and —
+   * when a `supersedesContent` quote has to be resolved — the resolve scan.
+   */
+  const mockSupersedeChain = (selectResults: unknown[][]) => {
+    const limit = vi.fn()
+    for (const rows of selectResults) limit.mockResolvedValueOnce(rows)
+    limit.mockResolvedValue([])
+    const orderBy = vi.fn().mockReturnValue({ limit })
+    const selectWhere = vi.fn().mockReturnValue({ orderBy })
+    const from = vi.fn().mockReturnValue({ where: selectWhere })
+
+    const updateReturning = vi.fn().mockResolvedValue([{ id: 'dup-1', confidence: 'high' }])
+    const set = vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ returning: updateReturning }) })
+    const update = vi.fn().mockReturnValue({ set })
+
+    const values = vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'new-1' }]) })
+    const insert = vi.fn().mockReturnValue({ values })
+
+    // The retirement reports the rows it actually updated: the caller only
+    // learns of a retirement this write performed (see `onSuperseded`).
+    const txReturning = vi.fn().mockResolvedValue([{ id: 'retired-1' }])
+    const txWhere = vi.fn().mockReturnValue({ returning: txReturning })
+    const txSet = vi.fn().mockReturnValue({ where: txWhere })
+    const tx = { insert, update: vi.fn().mockReturnValue({ set: txSet }) }
+    const transaction = vi.fn((run: (handle: typeof tx) => Promise<ProjectMemoryItem>) => run(tx))
+
+    vi.mocked(getDb).mockReturnValue(asDb({
+      select: vi.fn().mockReturnValue({ from }),
+      update,
+      insert,
+      transaction,
+    }))
+    return { set, values, insert, update, selectWhere, transaction, txSet, txWhere, txReturning }
+  }
+
+  it('merges a restated same-kind finding into the existing row instead of inserting', async () => {
+    const { set, values } = mockNearDupChain([
+      {
+        id: 'dup-1',
+        kind: 'constraint',
+        confidence: 'medium',
+        content: 'The client requires fire resistance class REI 90 for the hall',
+      },
+    ])
+
+    const result = await createProjectMemoryItem({
+      scope: 'project',
+      projectId: 'proj-1',
+      organizationId: 'org-1',
+      kind: 'constraint',
+      content: 'Client requires fire resistance class REI 90 for the hall building',
+      confidence: 'high',
+    })
+
+    expect(values).not.toHaveBeenCalled()
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ confidence: 'high' }))
+    expect(result).toEqual({ id: 'dup-1', confidence: 'high' })
+  })
+
+  it('inserts when a topically similar finding shares too few tokens', async () => {
+    const { values, set } = mockNearDupChain([
+      {
+        id: 'other-1',
+        kind: 'constraint',
+        confidence: 'medium',
+        content: 'The client requires a sprinkler system in the underground garage',
+      },
+    ])
+
+    const result = await createProjectMemoryItem({
+      scope: 'project',
+      projectId: 'proj-1',
+      organizationId: 'org-1',
+      kind: 'constraint',
+      content: 'Client requires fire resistance class REI 90 for the hall building',
+    })
+
+    expect(result).toEqual({ id: 'new-1' })
+    expect(values).toHaveBeenCalledTimes(1)
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The failure this guards is the nastiest one in the memory system: a
+   * correction is token-wise nearly identical to the claim it corrects
+   * ("... is not applicable" vs "... is applicable" score 0.91 Jaccard), so the
+   * paraphrase merge above fires — and a merge KEEPS THE OLD CONTENT, only
+   * bumping confidence and timestamps. The correction is dropped and the stale
+   * claim comes back looking freshly confirmed. Opposed polarity must therefore
+   * route to supersede, never to merge.
+   */
+  it('supersedes rather than merges when the finding negates the existing one', async () => {
+    const stale = makeMemoryItem({
+      id: 'stale-1',
+      kind: 'derived_fact',
+      content: 'For Bergsteiggasse, OIB-RL 2.1 is not applicable to this project',
+    })
+    const { values, set, transaction, txSet, txWhere } = mockSupersedeChain([[], [stale]])
+
+    const result = await createProjectMemoryItem({
+      scope: 'project',
+      projectId: 'proj-1',
+      organizationId: 'org-1',
+      kind: 'derived_fact',
+      content: 'For Bergsteiggasse, OIB-RL 2.1 is applicable to this project',
+      confidence: 'high',
+    })
+
+    // A new row, linked to what it replaces — NOT a refresh of the stale one.
+    expect(result).toEqual({ id: 'new-1' })
+    expect(set).not.toHaveBeenCalled()
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({ supersedesId: 'stale-1' }))
+    // The old entry is retired in the same transaction.
+    expect(transaction).toHaveBeenCalledTimes(1)
+    expect(txSet).toHaveBeenCalledWith(expect.objectContaining({ status: 'superseded' }))
+    expect(txWhere).toHaveBeenCalledWith(and(eq('pm.id', 'stale-1'), eq('pm.status', 'active')))
+  })
+
+  /**
+   * Findings carry flag values verbatim, so a re-answered intake question can
+   * flip one token in an otherwise identical sentence — 0.89 Jaccard here, i.e.
+   * squarely inside the merge band. The flag is what changed the conclusion, so
+   * it counts as polarity too.
+   */
+  it('treats a flipped boolean flag as a contradiction, not a restatement', async () => {
+    const stale = makeMemoryItem({
+      id: 'stale-2',
+      kind: 'derived_fact',
+      content:
+        'For Bergsteiggasse (Wohnen + Buero, betriebsanlage=false) OIB-RL 2.1 is generally not ' +
+        'applicable and OIB-RL 2 remains decisive',
+    })
+    const { values, set } = mockSupersedeChain([[], [stale]])
+
+    await createProjectMemoryItem({
+      scope: 'project',
+      projectId: 'proj-1',
+      organizationId: 'org-1',
+      kind: 'derived_fact',
+      content:
+        'For Bergsteiggasse (Wohnen + Buero, betriebsanlage=true) OIB-RL 2.1 is generally not ' +
+        'applicable and OIB-RL 2 remains decisive',
+    })
+
+    expect(set).not.toHaveBeenCalled()
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({ supersedesId: 'stale-2' }))
+  })
+
+  it('still merges a restatement that carries the same polarity', async () => {
+    const existing = makeMemoryItem({
+      id: 'dup-1',
+      kind: 'constraint',
+      content: 'The hall does not need a sprinkler system per the client',
+    })
+    const { values, set } = mockSupersedeChain([[], [existing]])
+
+    await createProjectMemoryItem({
+      scope: 'project',
+      projectId: 'proj-1',
+      organizationId: 'org-1',
+      kind: 'constraint',
+      content: 'The hall does not need a sprinkler system per the client brief',
+      confidence: 'high',
+    })
+
+    expect(values).not.toHaveBeenCalled()
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ confidence: 'high' }))
+  })
+
+  /**
+   * The agent-driven path: reflection (and the `remember` tool) quote the entry
+   * they are overturning verbatim out of the digest they were shown. A rewrite
+   * that shares few tokens with the entry it replaces is invisible to the
+   * polarity check above, so the quote is what carries the intent.
+   */
+  it('retires the entry a caller quotes as superseded', async () => {
+    const stale = makeMemoryItem({
+      id: 'stale-3',
+      kind: 'constraint',
+      content: 'The stairwell must be pressurised (Druckbelueftung)',
+    })
+    // exact-dup: none; near-dup scan: none (different kind); resolve scan: the entry.
+    const { values, txSet, txWhere } = mockSupersedeChain([[], [], [stale]])
+
+    await createProjectMemoryItem(
+      {
+        scope: 'project',
+        projectId: 'proj-1',
+        organizationId: 'org-1',
+        kind: 'derived_fact',
+        content: 'Natural smoke extraction was approved for the stairwell instead.',
+      },
+      { supersedesContent: 'The stairwell must be pressurised (Druckbelueftung)' },
+    )
+
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({ supersedesId: 'stale-3' }))
+    expect(txSet).toHaveBeenCalledWith(expect.objectContaining({ status: 'superseded' }))
+    expect(txWhere).toHaveBeenCalledWith(and(eq('pm.id', 'stale-3'), eq('pm.status', 'active')))
+  })
+
+  /**
+   * The retirement is reported by the write, not read off the returned row: a
+   * duplicate/paraphrase refresh hands back an EXISTING item that may already
+   * carry a `supersedesId` from an earlier correction, and the internal
+   * endpoint's `supersededId` must name only what THIS write retired.
+   */
+  it('reports the retired id to the caller only when it actually retired a row', async () => {
+    const stale = makeMemoryItem({ id: 'stale-4', content: 'The stairwell must be pressurised' })
+    mockSupersedeChain([[], [], [stale]])
+    const onSuperseded = vi.fn()
+
+    await createProjectMemoryItem(
+      {
+        scope: 'project',
+        projectId: 'proj-1',
+        organizationId: 'org-1',
+        kind: 'derived_fact',
+        content: 'Natural smoke extraction was approved for the stairwell instead.',
+      },
+      { supersedesContent: 'The stairwell must be pressurised', onSuperseded },
+    )
+
+    expect(onSuperseded).toHaveBeenCalledWith('stale-4')
+
+    // A concurrent writer got there first: the conditional update matches no
+    // row, so this write must not claim the retirement.
+    const raced = vi.fn()
+    mockSupersedeChain([[], [], [stale]]).txReturning.mockResolvedValue([])
+    await createProjectMemoryItem(
+      {
+        scope: 'project',
+        projectId: 'proj-1',
+        organizationId: 'org-1',
+        kind: 'derived_fact',
+        content: 'Natural smoke extraction was approved for the stairwell instead.',
+      },
+      { supersedesContent: 'The stairwell must be pressurised', onSuperseded: raced },
+    )
+
+    expect(raced).not.toHaveBeenCalled()
+  })
+
+  it('ignores a quote that matches no active entry, and still records the finding', async () => {
+    const unrelated = makeMemoryItem({ id: 'other-1', content: 'The site is in Vienna district 17' })
+    const { values, transaction } = mockSupersedeChain([[], [], [unrelated]])
+
+    const result = await createProjectMemoryItem(
+      {
+        scope: 'project',
+        projectId: 'proj-1',
+        organizationId: 'org-1',
+        kind: 'derived_fact',
+        content: 'The garage is naturally ventilated.',
+      },
+      { supersedesContent: 'A note that was never written to this project at all' },
+    )
+
+    // Recorded as an ordinary new item — an unresolvable quote is never guessed at.
+    expect(result).toEqual({ id: 'new-1' })
+    expect(values).toHaveBeenCalledWith(expect.not.objectContaining({ supersedesId: expect.anything() }))
+    expect(transaction).not.toHaveBeenCalled()
+  })
+
+  /**
+   * Design §3.2: never silently overwrite what a human curated. The correction
+   * is still recorded — it just doesn't get to retire the human's entry; both
+   * stay active for the user to resolve in the memory panel.
+   */
+  it.each([
+    ['pinned', makeMemoryItem({ id: 'human-1', pinned: true })],
+    ['user-confirmed', makeMemoryItem({ id: 'human-2', verification: 'user_confirmed' })],
+    ['user-authored', makeMemoryItem({ id: 'human-3', provenanceType: 'user' })],
+  ])('records the correction but will not retire a %s entry', async (_label, curated) => {
+    const { values, transaction } = mockSupersedeChain([[], [], [curated]])
+
+    const result = await createProjectMemoryItem(
+      {
+        scope: 'project',
+        projectId: 'proj-1',
+        organizationId: 'org-1',
+        kind: 'derived_fact',
+        content: 'A newer conclusion that overturns the curated note.',
+      },
+      { supersedesContent: curated.content },
+    )
+
+    expect(result).toEqual({ id: 'new-1' })
+    expect(values).toHaveBeenCalledWith(expect.not.objectContaining({ supersedesId: expect.anything() }))
+    expect(transaction).not.toHaveBeenCalled()
+  })
+
+  it('restricts the near-dup scan to active items of the same kind', async () => {
+    const { selectWhere } = mockNearDupChain([])
+
+    await createProjectMemoryItem({
+      scope: 'project',
+      projectId: 'proj-1',
+      organizationId: 'org-1',
+      kind: 'decision',
+      content: 'The client decided on a steel frame construction for the hall',
+    })
+
+    // Second select = the near-dup scan; kind is filtered in SQL, not in JS.
+    expect(selectWhere).toHaveBeenNthCalledWith(
+      2,
+      and(
+        and(eq('pm.scope', 'project'), eq('pm.projectId', 'proj-1')),
+        eq('pm.status', 'active'),
+        eq('pm.kind', 'decision'),
+      ),
+    )
   })
 })
 

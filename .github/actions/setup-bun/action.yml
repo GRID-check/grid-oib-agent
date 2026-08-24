@@ -1,0 +1,28 @@
+name: Setup Bun
+description: >-
+  Install Bun as the JavaScript INSTALLER and script runner. Node remains the
+  runtime for both the app and the build — see the note below.
+
+inputs:
+  version:
+    description: Bun version to install. Pinned so a runner change can't move the toolchain.
+    required: false
+    default: "1.3.11"
+
+runs:
+  using: composite
+  steps:
+    # Installed from npm rather than a separate setup action: it is a registry
+    # this repo already depends on, it pins exactly, and it needs no new
+    # third-party action in the supply chain.
+    #
+    # IMPORTANT: never invoke Bun with `--bun` here or in package scripts. That
+    # flag exports NODE_OPTIONS=--bun so child processes inherit Bun, but
+    # Turbopack evaluates the Tailwind PostCSS loader in a spawned REAL `node`,
+    # which rejects the flag — `next build` then fails with a
+    # TurbopackInternalError. Bun runs the CLI fine without it.
+    - name: Install Bun
+      shell: bash
+      env:
+        BUN_VERSION: ${{ inputs.version }}
+      run: npm i -g "bun@${BUN_VERSION}"

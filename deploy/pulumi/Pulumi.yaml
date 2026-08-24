@@ -1,0 +1,16 @@
+name: grid-oib
+runtime:
+  name: nodejs
+  options:
+    packagemanager: npm
+description: >-
+  Kubernetes deployment for the Grid OIB agent stack (backend, frontend/BFF,
+  workers, CloudNativePG, Dragonfly, SeaweedFS, Envoy Gateway + cert-manager).
+
+# Per-stack configuration lives in Pulumi.<stack>.yaml (e.g. Pulumi.prod.yaml).
+# Secrets there are encrypted by the stack's secrets provider, so the file is
+# safe to commit. See deploy/pulumi/README.md and docs/deployment/kubernetes.md.
+config:
+  grid-oib:namespace:
+    description: Namespace all app + data workloads are created in.
+    default: grid

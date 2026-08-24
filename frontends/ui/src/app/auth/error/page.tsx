@@ -15,6 +15,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useAppConfig } from '@/shared/context'
+import { useAuth } from '@/adapters/auth'
 import { useTranslations } from '@/i18n'
 
 /**
@@ -23,6 +24,7 @@ import { useTranslations } from '@/i18n'
 const ErrorContent = (): ReactNode => {
   const router = useRouter()
   const { authRequired } = useAppConfig()
+  const { signIn } = useAuth()
   const searchParams = useSearchParams()
   const t = useTranslations('errors')
   const error = searchParams?.get('error') || 'Default'
@@ -46,8 +48,10 @@ const ErrorContent = (): ReactNode => {
     )
   }
 
+  // "Try again" re-initiates the AuthKit sign-in flow (the same mechanism the
+  // landing page uses) rather than merely bouncing home like "Go home".
   const handleRetry = (): void => {
-    window.location.href = '/'
+    void signIn()
   }
 
   const handleHome = (): void => {

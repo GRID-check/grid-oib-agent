@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, Grid Agent Contributors. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
 """Live smoke test for Grid card generation.
 
 Reconstructs the minimal real path used by ``ChatResearcherAgent._generate_cards``
@@ -8,7 +5,7 @@ Reconstructs the minimal real path used by ``ChatResearcherAgent._generate_cards
 builder/graph: build the shared card-generation system prompt from
 ``aiq_agent.cards.prompt``, call the real OpenRouter chat/completions endpoint
 with the ``card_generator_llm`` model configured in
-``configs/config_oib_openrouter.yml`` (deepseek_super_llm), and validate the
+``configs/config_oib_openrouter.yml`` (card_llm), and validate the
 response through the real ``aiq_agent.cards.models.validate_cards``.
 
 Run inside the backend Docker image so it has deps + the OPENROUTER_API_KEY:
@@ -26,14 +23,17 @@ import sys
 
 import httpx
 
+from aiq_agent.cards.generate import _parse_cards_text
 from aiq_agent.cards.models import validate_cards
 from aiq_agent.cards.prompt import build_card_generation_prompt
 
 # Model wired as card_generator_llm in configs/config_oib_openrouter.yml.
-MODEL_NAME = "deepseek/deepseek-v4-flash"
+MODEL_NAME = "openai/gpt-5.6-luna"
 BASE_URL = "https://openrouter.ai/api/v1"
 
-SAMPLE_QUERY = "Welche Brandschutzanforderungen gelten laut OIB-Richtlinie 2 für Fluchtwege in einem 5-geschossigen Wohngebäude?"
+SAMPLE_QUERY = (
+    "Welche Brandschutzanforderungen gelten laut OIB-Richtlinie 2 für Fluchtwege in einem 5-geschossigen Wohngebäude?"
+)
 
 SAMPLE_RESEARCH_CONTEXT = (
     "Laut OIB-Richtlinie 2 (Brandschutz), Ausgabe 2019, Punkt 4.2, muessen Fluchtwege in "
@@ -89,13 +89,6 @@ def call_openrouter(messages: list[dict]) -> str:
     return choice
 
 
-def strip_code_fence(raw_text: str) -> str:
-    raw_text = raw_text.strip()
-    if raw_text.startswith("```"):
-        raw_text = raw_text.split("\n", 1)[-1].rsplit("\n```", 1)[0].strip()
-    return raw_text
-
-
 def main() -> None:
     print(f"Model: {MODEL_NAME}")
     print(f"Base URL: {BASE_URL}")
@@ -106,15 +99,12 @@ def main() -> None:
     print("\n--- Raw LLM response (first 2000 chars) ---")
     print(raw_text[:2000])
 
-    cleaned = strip_code_fence(raw_text)
-    try:
-        parsed = json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        print(f"\nFAIL: Could not parse LLM output as JSON: {e}")
+    # Use the real production parser so the smoke test mirrors the live path
+    # (object wrapper, bare array, or prose-wrapped JSON all handled).
+    parsed = _parse_cards_text(raw_text)
+    if parsed is None:
+        print("\nFAIL: Could not parse any cards from the LLM output.")
         sys.exit(1)
-
-    if not isinstance(parsed, list):
-        parsed = [parsed]
 
     try:
         cards = validate_cards(parsed)

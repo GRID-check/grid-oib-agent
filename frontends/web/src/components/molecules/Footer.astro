@@ -1,0 +1,37 @@
+---
+import Logo from '../atoms/Logo.astro'
+import { CONTACT_EMAIL } from '../../consts'
+import { ui, type Locale } from '../../i18n/ui'
+import { useTranslatedPath } from '../../i18n/utils'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale]
+const translatePath = useTranslatedPath(locale)
+const home = translatePath('/')
+
+const year = new Date().getFullYear()
+---
+
+<footer class="px-4 pb-6">
+  <div
+    class="mx-auto flex max-w-[84rem] flex-wrap items-center justify-between gap-x-8 gap-y-5 border-t border-ink/15 px-4 py-6 sm:px-8"
+  >
+    <Logo href={`${home}#top`} label={t.nav.logoLabel} size="sm" />
+    <nav
+      aria-label={t.footer.ariaLabel}
+      class="flex flex-wrap items-center gap-x-6 gap-y-2.5 text-sm text-ink-soft"
+    >
+      <a href={`${home}#nutzung`}>{t.footer.usage}</a>
+      <a href={`${home}#daten`}>{t.footer.data}</a>
+      <a href={translatePath('/blog/')}>{t.footer.blog}</a>
+      <a href={translatePath('/changelog/')}>{t.footer.changelog}</a>
+      <a href={translatePath('/datenschutz/')}>{t.footer.privacy}</a>
+      <a href={translatePath('/impressum/')}>{t.footer.imprint}</a>
+      <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
+    </nav>
+    <p class="text-xs text-ink-faint">© Piloti {year}</p>
+  </div>
+</footer>

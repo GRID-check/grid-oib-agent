@@ -17,7 +17,9 @@ import { ChevronDown, MessageSquare } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
+import { formatTime } from '@/shared/utils/format-time'
+import { getWorkflowLabel } from '../lib/workflow-names'
 
 /** Thought trace information from SSE events */
 export interface ThoughtInfo {
@@ -29,13 +31,28 @@ export interface ThoughtInfo {
   content: string
   /** Chain-of-thought reasoning (from metadata.thinking) */
   thinking?: string
-  /** Parent agent */
+  /**
+   * Which part of the run this inference belongs to — the backend's raw role
+   * id ("researcher-agent"). Named for the reader by `getWorkflowLabel`; it is
+   * an identifier, never something to print.
+   */
   workflow?: string
   /** Whether currently receiving chunks */
   isStreaming: boolean
   /** When inference started */
   timestamp?: Date | string
-  /** Token usage info (from llm.end) */
+  /**
+   * Token usage info (from llm.end). Recorded, deliberately not rendered.
+   *
+   * `600ea144` renamed the row to „Textmenge" and said in its own message that
+   * the rename was a description rather than a fix; `cc7a860f` then deleted the
+   * same figure from the deep-research banner for the reason that survives here
+   * too. There is no unit a Ziviltechniker has ever been shown, so „1.240
+   * Eingabe / 380 Ausgabe" is not a quantity anybody can compare or act on; and
+   * it reports a measure of OUR cost inside a view of THEIR reasoning, where
+   * nothing follows from it. The number stays on the model for whenever a
+   * surface for our own cost earns one.
+   */
   usage?: {
     prompt_tokens?: number
     completion_tokens?: number
@@ -45,14 +62,6 @@ export interface ThoughtInfo {
 interface ThoughtCardProps {
   /** Thought trace information */
   thought: ThoughtInfo
-}
-
-/**
- * Format timestamp for display
- */
-const formatTime = (date: Date | string): string => {
-  const dateObj = typeof date === 'string' ? new Date(date) : date
-  return dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 /**
@@ -70,6 +79,7 @@ const getPreviewText = (thought: ThoughtInfo): string => {
 export const ThoughtCard: FC<ThoughtCardProps> = ({ thought }) => {
   const [isExpanded, setIsExpanded] = useState(false)
   const t = useTranslations('research')
+  const { locale } = useLocale()
 
   const previewText = getPreviewText(thought)
   const hasPreview = previewText.length > 0
@@ -78,7 +88,7 @@ export const ThoughtCard: FC<ThoughtCardProps> = ({ thought }) => {
   const canExpand = !thought.isStreaming
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border bg-muted/40">
+    <div className="flex flex-col overflow-hidden rounded-lg border bg-muted">
       {/* Header - always visible */}
       <button
         type="button"
@@ -95,7 +105,7 @@ export const ThoughtCard: FC<ThoughtCardProps> = ({ thought }) => {
             <Spinner size="sm" label={t('thoughtCard.generating')} className="shrink-0" />
           ) : (
             <span className="shrink-0 text-muted-foreground" aria-hidden="true">
-              <MessageSquare className="h-4 w-4" />
+              <MessageSquare className="size-4" />
             </span>
           )}
 
@@ -111,25 +121,15 @@ export const ThoughtCard: FC<ThoughtCardProps> = ({ thought }) => {
             </span>
             {thought.workflow && (
               <span className="truncate text-sm text-muted-foreground">
-                {t('thoughtCard.via', { workflow: thought.workflow })}
+                {t('thoughtCard.step', { name: getWorkflowLabel(thought.workflow, t) })}
               </span>
             )}
           </div>
 
-          {/* Token usage (when not streaming) */}
-          {!thought.isStreaming && thought.usage && (
-            <span className="shrink-0 text-xs text-muted-foreground">
-              {t('thoughtCard.tokens', {
-                prompt: thought.usage.prompt_tokens ?? '',
-                completion: thought.usage.completion_tokens ?? '',
-              })}
-            </span>
-          )}
-
           {/* Timestamp - only shown when not streaming */}
           {!thought.isStreaming && thought.timestamp && (
             <span className="shrink-0 text-xs text-muted-foreground">
-              {formatTime(thought.timestamp)}
+              {formatTime(thought.timestamp, locale)}
             </span>
           )}
 
@@ -137,12 +137,12 @@ export const ThoughtCard: FC<ThoughtCardProps> = ({ thought }) => {
           {canExpand && (
             <span
               className={cn(
-                'text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+                'text-muted-foreground transition-transform duration-quick motion-reduce:transition-none',
                 isExpanded && 'rotate-180'
               )}
               aria-hidden="true"
             >
-              <ChevronDown className="h-4 w-4" />
+              <ChevronDown className="size-4" />
             </span>
           )}
         </div>

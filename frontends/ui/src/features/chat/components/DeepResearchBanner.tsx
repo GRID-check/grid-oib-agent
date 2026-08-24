@@ -27,12 +27,16 @@ export interface DeepResearchBannerProps {
   bannerType: DeepResearchBannerType
   /** Job ID for identification */
   jobId: string
-  /** Total tokens used (for success banner) */
-  totalTokens?: number
   /** Number of tool calls (for success banner) */
   toolCallCount?: number
   /** Timestamp of the status update (Date or ISO string from persisted state) */
   timestamp?: Date | string
+  /**
+   * When this turn escalated shallow→deep, the classifier's escalation reason.
+   * Rendered as a one-line narration directly ABOVE the banner
+   * (`Eskaliert zur Tiefenrecherche: <reason>`) per the transparency contract.
+   */
+  escalationReason?: string
 }
 
 /** Banner status type */
@@ -54,29 +58,31 @@ interface BannerConfig {
   status: BannerStatus
 }
 
-/** Format token count with K suffix for thousands */
-const formatTokens = (count: number): string => {
-  if (count >= 1000) {
-    return `${(count / 1000).toFixed(1)}K`
-  }
-  return count.toString()
-}
-
 /**
  * Banner configuration for each banner type
  */
 const getBannerConfig = (
   bannerType: DeepResearchBannerType,
   t: Translator,
-  stats?: { totalTokens?: number; toolCallCount?: number }
+  stats?: { toolCallCount?: number }
 ): BannerConfig => {
   switch (bannerType) {
     case 'success': {
-      // Build stats suffix for success banner
+      // The stats suffix on the success heading.
+      //
+      // The token total used to sit here too. `600ea144` renamed it away from
+      // "Tokens" to „Textmenge", which is honest about what it counts and still
+      // meaningless to the person reading it: there is no unit a Ziviltechniker
+      // has ever been shown, "12.4K" of nothing is not a quantity anybody can
+      // compare or act on, and it reported a measure of OUR cost inside a
+      // sentence about THEIR report. A euphemism does not rescue a statistic
+      // that should not be there, so the statistic is gone with the word.
+      //
+      // The tool-call count stays. It counts an action the Agenten panel beside
+      // it lists one per row, so the number here and the rows there can be read
+      // against each other, and it answers a question a reader actually has
+      // about a run that took minutes: how much went on.
       const statsParts: string[] = []
-      if (stats?.totalTokens && stats.totalTokens > 0) {
-        statsParts.push(t('deepResearch.stats.tokens', { count: formatTokens(stats.totalTokens) }))
-      }
       if (stats?.toolCallCount && stats.toolCallCount > 0) {
         statsParts.push(t('deepResearch.stats.toolCalls', { count: stats.toolCallCount }))
       }
@@ -129,15 +135,15 @@ const getBannerConfig = (
 export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
   bannerType,
   jobId,
-  totalTokens,
   toolCallCount,
   timestamp,
+  escalationReason,
 }) => {
   const t = useTranslations('chat')
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const setResearchPanelTab = useLayoutStore((s) => s.setResearchPanelTab)
   const { loadResearchPanelTab } = useLoadJobData()
-  const config = getBannerConfig(bannerType, t, { totalTokens, toolCallCount })
+  const config = getBannerConfig(bannerType, t, { toolCallCount })
 
   // Job is complete if banner type indicates completion (success, failure, cancelled, expired)
   // 'starting' banner means job is still in progress - don't try to load archived data
@@ -164,10 +170,13 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
     isJobComplete,
   ])
 
-  // Keep archived/error-state banners informational. The report CTA is the
-  // only banner action we keep visible to avoid competing recovery paths.
+  // Surface each completed banner's configured action so the user can act on the
+  // outcome — View Report on success, and View Thinking / View Progress on
+  // failure or cancellation so a failed run can actually be diagnosed (UX-12).
+  // The live "starting" banner stays action-free (its progress is already
+  // streaming into the panel), and "expired" has no action to offer.
   const actions =
-    bannerType === 'success' && config.buttonText ? (
+    bannerType !== 'starting' && config.buttonText && config.buttonTab ? (
       <Button
         variant="outline"
         size="sm"
@@ -181,7 +190,12 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
   const { variant, Icon } = STATUS_META[config.status]
 
   return (
-    <div className="flex w-full flex-col gap-1">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full flex-col gap-1 duration-base ease-entrance motion-reduce:animate-none">
+      {escalationReason?.trim() && (
+        <p className="px-1 text-xs leading-relaxed text-warning" role="status">
+          {t('deepResearch.escalationNarration', { reason: escalationReason.trim() })}
+        </p>
+      )}
       <Alert variant={variant}>
         <Icon />
         <AlertTitle>{config.heading}</AlertTitle>

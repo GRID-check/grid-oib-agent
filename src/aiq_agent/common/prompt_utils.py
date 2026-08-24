@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Agent-local prompt loading utilities.
 
 This module provides utilities for loading prompts co-located with agents.
@@ -20,12 +5,19 @@ Each agent package has a prompts/ directory containing its Jinja2 templates.
 """
 
 import logging
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import jinja2
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=256)
+def _compile_template(template: str) -> jinja2.Template:
+    """Compile a template string once; templates are static per process."""
+    return jinja2.Template(template, undefined=jinja2.StrictUndefined)
 
 
 class PromptError(Exception):
@@ -66,6 +58,10 @@ def render_prompt_template(template: str, **kwargs: Any) -> str:
     """
     Render a Jinja2 template with the given variables.
 
+    When the caller passes ``available_documents`` and does not already supply
+    ``document_inventory``, the shelf-grouped inventory block is injected so
+    every agent prompt that lists files uses the same grouping (ADR-0047).
+
     Args:
         template: The template string.
         **kwargs: Variables to substitute in the template.
@@ -76,8 +72,19 @@ def render_prompt_template(template: str, **kwargs: Any) -> str:
     Raises:
         PromptError: If template rendering fails.
     """
+    if "document_inventory" not in kwargs:
+        from aiq_agent.knowledge.inventory import get_listing_shelf
+        from aiq_agent.knowledge.inventory import in_scope_shelves_from_context
+        from aiq_agent.knowledge.inventory import render_inventory_block
+
+        docs = kwargs.get("available_documents") or []
+        scoped = in_scope_shelves_from_context()
+        kwargs["document_inventory"] = render_inventory_block(
+            docs,
+            in_scope_shelves=scoped or None,
+            focus_shelf=get_listing_shelf(),
+        )
     try:
-        jinja_template = jinja2.Template(template, undefined=jinja2.StrictUndefined)
-        return jinja_template.render(**kwargs)
+        return _compile_template(template).render(**kwargs)
     except jinja2.TemplateError as e:
         raise PromptError(f"Failed to render template: {e}") from e

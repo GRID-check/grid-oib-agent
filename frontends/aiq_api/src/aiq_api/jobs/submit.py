@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """
 Job submission utilities.
 
@@ -27,15 +12,166 @@ import os
 
 from aiq_agent.auth import Principal
 from aiq_agent.auth import get_current_principal
+from aiq_agent.common.job_admission import JobAdmissionError
 from aiq_api.auth import get_current_trace_tags
 
 from ..registry import get_agent_config
 from .access import _make_no_auth_principal
+from .access import count_active_jobs
 from .access import create_job_access
+from .access import job_exists
 from .access import rollback_job_submission
 from .runner import run_agent_job
 
+
+def job_execution_mode() -> str:
+    """Execution backend for research jobs: ``dask`` (default, per-pod cluster)
+    or ``db`` (DB-claimed workers, ADR-0021 — enables horizontal scaling)."""
+    return os.environ.get("GRID_JOB_EXECUTION", "dask").strip().lower()
+
+
+def _build_run_agent_payload(
+    *,
+    configure_logging,
+    log_level,
+    scheduler_address,
+    db_url,
+    config_path,
+    job_id,
+    input_text,
+    agent_config,
+    parent_trace_context,
+    available_documents,
+    data_sources,
+    auth_token,
+    collection_scope,
+    project_context,
+    model_overrides,
+    usage_context,
+    user_info,
+    clarifier_result,
+    memory_reflection_enabled,
+    memory_reflection_llm,
+    force_skills,
+) -> dict:
+    """Build the JSON-serializable ``run_agent_job`` kwargs a DB worker replays.
+
+    Keys mirror ``run_agent_job``'s signature exactly; ``parent_trace_context``
+    is the 7-tuple expanded positionally in the Dask path. Every value is a
+    plain str/int/bool/list/dict/None, so it round-trips through JSON.
+    """
+    (
+        parent_span_id,
+        parent_function_id,
+        parent_function_name,
+        parent_workflow_run_id,
+        parent_workflow_trace_id,
+        parent_conversation_id,
+        request_trace_tags,
+    ) = parent_trace_context
+    return {
+        "configure_logging": configure_logging,
+        "log_level": log_level,
+        "scheduler_address": scheduler_address,
+        "db_url": db_url,
+        "config_file_path": config_path,
+        "job_id": job_id,
+        "input_text": input_text,
+        "agent_class_path": agent_config.class_path,
+        "agent_config_name": agent_config.config_name,
+        "parent_span_id": parent_span_id,
+        "parent_function_id": parent_function_id,
+        "parent_function_name": parent_function_name,
+        "parent_workflow_run_id": parent_workflow_run_id,
+        "parent_workflow_trace_id": parent_workflow_trace_id,
+        "parent_conversation_id": parent_conversation_id,
+        "request_trace_tags": request_trace_tags,
+        "available_documents": available_documents,
+        "data_sources": data_sources,
+        "auth_token": auth_token,
+        "collection_scope": collection_scope,
+        "project_context": project_context,
+        "model_overrides": model_overrides,
+        "usage_context": usage_context,
+        "user_info": user_info,
+        "clarifier_result": clarifier_result,
+        "memory_reflection_enabled": memory_reflection_enabled,
+        "memory_reflection_llm": memory_reflection_llm,
+        "force_skills": force_skills,
+    }
+
+
 logger = logging.getLogger(__name__)
+
+# Admission control for BACKGROUND work — the other half of ADR-0040 layer L3.
+#
+# This pool is deliberately SEPARATE from the interactive-turn pool
+# (`aiq_agent.common.turn_admission`, `GRID_MAX_ACTIVE_TURNS*`) rather than a
+# share of one total. That separation is the partition: a queue full of deep
+# research cannot consume the capacity interactive chat needs, and a busy chat
+# hour cannot block scheduled research. Sizing the two is therefore an explicit
+# choice about how much of the cluster each kind of work may hold — not a race
+# between them.
+
+# @environment_variable GRID_MAX_ACTIVE_JOBS
+# @category Server
+# @type int
+# @default 8
+# @required false
+# Maximum non-terminal async jobs accepted across all organizations
+# (admission control). 0 or negative disables the global cap.
+MAX_ACTIVE_JOBS = int(os.environ.get("GRID_MAX_ACTIVE_JOBS", "8"))
+
+# @environment_variable GRID_MAX_ACTIVE_JOBS_PER_ORG
+# @category Server
+# @type int
+# @default 3
+# @required false
+# Maximum non-terminal async jobs accepted per organization, so one tenant
+# cannot occupy the whole cluster. 0 or negative disables the per-org cap.
+MAX_ACTIVE_JOBS_PER_ORG = int(os.environ.get("GRID_MAX_ACTIVE_JOBS_PER_ORG", "3"))
+
+
+async def _enforce_job_admission(db_url: str, organization_id: str | None) -> None:
+    """Refuse submission when active-job caps are reached (fail-open on errors)."""
+    if MAX_ACTIVE_JOBS <= 0 and MAX_ACTIVE_JOBS_PER_ORG <= 0:
+        return
+
+    from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+
+    terminal = (JobStatus.SUCCESS.value, JobStatus.FAILURE.value, JobStatus.INTERRUPTED.value)
+    loop = asyncio.get_running_loop()
+    try:
+        if MAX_ACTIVE_JOBS > 0:
+            active = await loop.run_in_executor(None, count_active_jobs, db_url, terminal, None)
+            if active >= MAX_ACTIVE_JOBS:
+                raise JobAdmissionError(
+                    f"Research queue is full ({active} jobs active). Please try again in a few minutes.",
+                )
+        if MAX_ACTIVE_JOBS_PER_ORG > 0 and organization_id:
+            org_active = await loop.run_in_executor(None, count_active_jobs, db_url, terminal, organization_id)
+            if org_active >= MAX_ACTIVE_JOBS_PER_ORG:
+                raise JobAdmissionError(
+                    f"Your organization already has {org_active} research jobs running. "
+                    "Please wait for one to finish before starting another.",
+                )
+    except JobAdmissionError:
+        raise
+    except Exception:
+        # Admission control is protective, not load-bearing: a broken count
+        # must never take research submission down.
+        logger.warning("Job admission check failed; admitting job", exc_info=True)
+
+
+def _get_disabled_sources() -> set[str]:
+    """Org-disabled source ids from the submitting request (fail-open)."""
+    try:
+        from aiq_agent.common import get_disabled_sources_from_context
+
+        return get_disabled_sources_from_context()
+    except Exception:
+        logger.warning("Failed to read disabled data sources; not filtering", exc_info=True)
+        return set()
 
 
 def _resolve_submission_principal(owner: str) -> Principal | None:
@@ -143,6 +279,31 @@ def _derive_project_collection(collection_scope: list[str] | None) -> str | None
     return None
 
 
+class SchedulerNotConfiguredError(RuntimeError):
+    """The Dask scheduler address is not configured (server misconfiguration).
+
+    Subclasses RuntimeError for backwards compatibility, but lets HTTP routes
+    map it to 503 instead of conflating it with authorization failures (403).
+    """
+
+
+class MissingPrincipalError(RuntimeError):
+    """No verified principal is available to own the async job.
+
+    Subclasses RuntimeError for backwards compatibility. HTTP routes map this
+    specific error to 403 with its static, user-safe message — arbitrary
+    RuntimeError text (which may carry hosts/DSNs) must never reach clients.
+    """
+
+
+class DuplicateJobIdError(ValueError):
+    """A caller-supplied job ID collides with an existing job.
+
+    Mapped to HTTP 409 Conflict by the submit route. Only raised for
+    caller-supplied IDs; auto-generated UUIDs skip the existence check.
+    """
+
+
 async def submit_agent_job(
     agent_type: str,
     input_text: str,
@@ -157,6 +318,12 @@ async def submit_agent_job(
     project_context: str | None = None,
     model_overrides: dict[str, str] | None = None,
     usage_context: dict | None = None,
+    user_info: dict | None = None,
+    clarifier_result: str | None = None,
+    memory_reflection_enabled: bool = False,
+    memory_reflection_llm: str | None = None,
+    force_skills: list[str] | None = None,
+    conversation_id: str | None = None,
 ) -> str:
     """
     Submit an agent job to the Dask cluster.
@@ -182,6 +349,24 @@ async def submit_agent_job(
         usage_context: Optional identity + budget snapshot for LLM cost
             tracking in the worker (see ``capture_usage_context``).
             Auto-captured from the submitting request when not provided.
+        user_info: Optional user identity dict (name/email) set on the agent
+            state so worker-side prompts can render the authenticated user,
+            matching the synchronous chat path.
+        clarifier_result: Optional clarifier dialog log set on the agent state
+            so worker-side prompts render the structured Clarification Context
+            section, matching the synchronous chat path.
+        memory_reflection_enabled: Whether the worker should run the post-answer
+            memory-reflection stage over the finished report. Captured from the
+            submitting request's feature flag (the worker cannot read it).
+        memory_reflection_llm: Optional ``llms:`` ref for the reflection pass
+            (e.g. ``card_llm``). When set and enabled, the worker records durable
+            project findings from the completed report.
+        force_skills: Optional list of skill names the agent run must
+            force-activate. Travels the same path ``data_sources`` does (job
+            payload for the DB path, job_args positionally for Dask) and is
+            injected onto the worker's agent state as ``force_skills`` where
+            the agent's state model declares the field (Agent Skills feature;
+            the consumer lives in ``src/aiq_agent``).
 
     Returns:
         The job ID.
@@ -189,6 +374,7 @@ async def submit_agent_job(
     Raises:
         KeyError: If agent_type is not registered.
         RuntimeError: If Dask scheduler is not configured.
+        DuplicateJobIdError: If a caller-supplied job_id collides with an existing job.
 
     Example:
         job_id = await submit_agent_job(
@@ -241,8 +427,9 @@ async def submit_agent_job(
     # Use Dask thread pool instead of process pool for workers. Set to 1 to enable.
     use_threads = os.environ.get("NAT_USE_DASK_THREADS", "0") == "1"
 
-    if not scheduler_address:
-        raise RuntimeError("Async job submission requires NAT_DASK_SCHEDULER_ADDRESS to be set")
+    db_execution = job_execution_mode() == "db"
+    if not scheduler_address and not db_execution:
+        raise SchedulerNotConfiguredError("Async job submission requires NAT_DASK_SCHEDULER_ADDRESS to be set")
 
     # Auto-capture auth token if not explicitly provided
     if auth_token is None:
@@ -270,6 +457,19 @@ async def submit_agent_job(
 
         model_overrides = get_model_overrides_from_context() or None
 
+    # Org-disabled data sources (ADR-0022): subtracted HERE, at submit time,
+    # so Dask workers need no live flag lookup — the effective data_sources
+    # list they receive already excludes anything the organization turned
+    # off. A None ("all sources") request is materialized first so the
+    # subtraction can apply.
+    disabled_sources = _get_disabled_sources()
+    if disabled_sources:
+        if data_sources is None:
+            from aiq_agent.common.data_source_registry import get_all_sources
+
+            data_sources = [source.id for source in get_all_sources()]
+        data_sources = [source for source in data_sources if source.strip().lower() not in disabled_sources]
+
     # Capture caller identity + remaining budget for cost tracking in the worker.
     if usage_context is None:
         from aiq_agent.common.cost_tracking import capture_usage_context
@@ -279,41 +479,123 @@ async def submit_agent_job(
     if principal is None:
         principal = _resolve_submission_principal(owner)
     if principal is None:
-        raise RuntimeError("Verified current principal required for async job submission")
+        raise MissingPrincipalError("Verified current principal required for async job submission")
+
+    organization_id = ((usage_context or {}).get("identity") or {}).get("organization_id")
+
+    # Admission control: nothing else bounds how many concurrent jobs the
+    # cluster accepts, and each deep-research run fans out multiple
+    # LLM-calling researchers. Caps are best-effort (checked before submit,
+    # no lock) and fail OPEN — a broken count must not take research down.
+    await _enforce_job_admission(db_url, organization_id)
 
     job_store = JobStore(scheduler_address=scheduler_address, db_url=db_url)
     resolved_job_id = job_store.ensure_job_id(job_id)
     loop = asyncio.get_running_loop()
 
+    # Duplicate-ID guard: job_id is caller-supplied, and both NAT's job_info
+    # write and the job_access upsert below are unconditional — without this
+    # check, re-submitting an existing ID would rewrite the original job's
+    # ownership (hijack), and a failed re-submission would delete the original
+    # job via rollback_job_submission. Auto-generated UUIDs skip the check.
+    # Fails open on DB errors (like admission control), but an unverified
+    # pre-existence also suppresses the destructive rollback below.
+    preexistence_verified = job_id is None
+    if job_id is not None:
+        try:
+            if await loop.run_in_executor(None, job_exists, resolved_job_id, db_url):
+                raise DuplicateJobIdError(f"Job ID already exists: {resolved_job_id}")
+            preexistence_verified = True
+        except DuplicateJobIdError:
+            raise
+        except Exception:
+            logger.warning(
+                "Failed to check whether job %s already exists; proceeding without rollback safety",
+                resolved_job_id,
+                exc_info=True,
+            )
+
     parent_trace_context = _get_parent_trace_context()
-    parent_conversation_id = parent_trace_context[5]
+    # An EXPLICIT conversation wins over the ambient one.
+    #
+    # Interactive submits inherit the caller's conversation from NAT request
+    # context, which is right: the job belongs to the turn that started it. A
+    # scheduled job has no request context at all — it is fired by the
+    # scheduler over the internal route — so its conversation can only arrive
+    # as an argument, and it must not be overwritten by whatever (usually
+    # nothing) the ambient context holds. Passing it here is enough to reach
+    # both places it is needed: `create_job_access` below, which is what makes
+    # `GET /v1/jobs/async/jobs?conversation_id=` able to find the run, and the
+    # worker payload, which is how the runner knows where to write the answer.
+    parent_conversation_id = conversation_id or parent_trace_context[5]
     project_collection = _derive_project_collection(collection_scope)
 
     try:
-        await job_store.submit_job(
-            job_id=resolved_job_id,
-            expiry_seconds=expiry_seconds,
-            job_fn=run_agent_job,
-            job_args=[
-                not use_threads,  # configure_logging
-                log_level,
-                scheduler_address,
-                db_url,
-                config_path,
-                resolved_job_id,
-                input_text,
-                agent_config.class_path,
-                agent_config.config_name,
-                *parent_trace_context,
-                available_documents,
-                data_sources,
-                auth_token,
-                collection_scope,
-                project_context,
-                model_overrides,
-                usage_context,
-            ],
-        )
+        if db_execution:
+            # DB-claimed execution (ADR-0021): persist a SUBMITTED job_info row
+            # (no Dask) and enqueue a claimable row carrying the run_agent_job
+            # payload. A worker replica claims and runs it. _create_job reuses
+            # NAT's job_info semantics without the scheduler.
+            from . import queue
+
+            payload = _build_run_agent_payload(
+                configure_logging=not use_threads,
+                log_level=log_level,
+                scheduler_address=scheduler_address or "",
+                db_url=db_url,
+                config_path=config_path,
+                job_id=resolved_job_id,
+                input_text=input_text,
+                agent_config=agent_config,
+                parent_trace_context=parent_trace_context,
+                available_documents=available_documents,
+                data_sources=data_sources,
+                auth_token=auth_token,
+                collection_scope=collection_scope,
+                project_context=project_context,
+                model_overrides=model_overrides,
+                usage_context=usage_context,
+                user_info=user_info,
+                clarifier_result=clarifier_result,
+                memory_reflection_enabled=memory_reflection_enabled,
+                memory_reflection_llm=memory_reflection_llm,
+                force_skills=force_skills,
+            )
+            await job_store._create_job(
+                config_file=config_path or None,
+                job_id=resolved_job_id,
+                expiry_seconds=expiry_seconds,
+            )
+        else:
+            await job_store.submit_job(
+                job_id=resolved_job_id,
+                expiry_seconds=expiry_seconds,
+                job_fn=run_agent_job,
+                job_args=[
+                    not use_threads,  # configure_logging
+                    log_level,
+                    scheduler_address,
+                    db_url,
+                    config_path,
+                    resolved_job_id,
+                    input_text,
+                    agent_config.class_path,
+                    agent_config.config_name,
+                    *parent_trace_context,
+                    available_documents,
+                    data_sources,
+                    auth_token,
+                    collection_scope,
+                    project_context,
+                    model_overrides,
+                    usage_context,
+                    user_info,
+                    clarifier_result,
+                    memory_reflection_enabled,
+                    memory_reflection_llm,
+                    force_skills,
+                ],
+            )
         await loop.run_in_executor(
             None,
             create_job_access,
@@ -322,8 +604,32 @@ async def submit_agent_job(
             db_url,
             parent_conversation_id,
             project_collection,
+            organization_id,
         )
+        if db_execution:
+            # Enqueue the claimable row LAST — only once job_info AND job_access
+            # are fully persisted — so a worker can never claim and run a job
+            # whose ownership/rollback state is still incomplete.
+            await loop.run_in_executor(None, queue.enqueue, db_url, resolved_job_id, payload)
     except Exception:
+        if db_execution:
+            # Drop any partial queue row so a half-submitted job is never run.
+            try:
+                from . import queue as _queue
+
+                await loop.run_in_executor(None, _queue.mark_done, db_url, resolved_job_id, None)
+            except Exception:
+                logger.warning("Failed to clean up queue row for %s during rollback", resolved_job_id, exc_info=True)
+        if not preexistence_verified:
+            # rollback_job_submission deletes job_access, job_events AND
+            # job_info. Without positive proof the job ID did not exist before
+            # this request, rolling back could wipe a pre-existing job.
+            logger.warning(
+                "Skipping rollback for job %s after submission failure: pre-existence of the "
+                "job ID could not be verified, and rollback must never delete a pre-existing job.",
+                resolved_job_id,
+            )
+            raise
         try:
             await loop.run_in_executor(None, rollback_job_submission, resolved_job_id, db_url)
             logger.warning(

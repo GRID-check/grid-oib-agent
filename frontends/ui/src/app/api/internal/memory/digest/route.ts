@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server'
-import { requireInternalToken } from '@/lib/internal-auth'
-import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
+import { z } from 'zod'
+import { internalApiRoute, parseQuery } from '@/lib/api/handler'
+import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
+import { buildProjectMemoryDigest, resolveProjectOrganization } from '@/lib/projects/memory-service'
 
 /**
  * INTERNAL service endpoint — the per-turn READ path for the agent's core
@@ -17,25 +18,47 @@ import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
  * another tenant's memory.
  */
 
-export async function GET(request: Request): Promise<Response> {
-  const denied = requireInternalToken(request, 'Internal Memory Digest API')
-  if (denied) return denied
+const digestQuerySchema = z
+  .object({
+    projectId: z.string().optional(),
+    organizationId: z.string().optional(),
+  })
+  // Empty strings behave like absent params (previous `|| undefined` behavior).
+  .transform((query) => ({
+    projectId: query.projectId || undefined,
+    organizationId: query.organizationId || undefined,
+  }))
+  .refine((query) => !!(query.projectId || query.organizationId), {
+    message: 'projectId or organizationId is required',
+  })
 
-  try {
-    const { searchParams } = new URL(request.url)
-    const projectId = searchParams.get('projectId') || undefined
-    const organizationId = searchParams.get('organizationId') || undefined
+export const GET = internalApiRoute(
+  'Internal Memory Digest',
+  async ({ request }) => {
+    const { projectId, organizationId } = parseQuery(request, digestQuerySchema)
 
-    if (!projectId && !organizationId) {
-      return NextResponse.json({ error: 'projectId or organizationId is required' }, { status: 400 })
-    }
+    // The schema accepts a projectId on its own, so the organization is not
+    // always known here. It has to be RESOLVED rather than skipped: reading the
+    // digest without a tenant meant platform scope — a full RLS bypass — while
+    // the query filtered on projectId alone, so any project id returned that
+    // project's memory. An internal token is not a licence to read every
+    // tenant, and "the project row names the tenant" is only true if something
+    // actually goes and asks the project row.
+    const tenant = organizationId ?? (projectId ? await withPlatformAccess(
+      'resolving the project row that names the tenant for a project-only digest',
+      () => resolveProjectOrganization(projectId)
+    ) : null)
 
-    const digest = await buildProjectMemoryDigest(projectId, organizationId)
-    // `digest` is null when there is no active memory — a valid empty result,
-    // not an error. The backend treats null as "no memory this turn".
-    return NextResponse.json({ digest }, { status: 200 })
-  } catch (error) {
-    console.error('[Internal Memory Digest API] Error:', error)
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
-  }
-}
+    // No such project, so no tenant to enter and nothing that could be read.
+    // Same shape as an empty digest, which is what the backend already handles.
+    if (!tenant) return { digest: null }
+
+    return withTenant({ organizationId: tenant }, async () => {
+      // `digest` is null when there is no active memory — a valid empty result,
+      // not an error. The backend treats null as "no memory this turn".
+      const digest = await buildProjectMemoryDigest(projectId, tenant)
+      return { digest }
+    })
+  },
+  { tenancy: { fromPayload: '?organizationId, else resolved from the project row' } }
+)

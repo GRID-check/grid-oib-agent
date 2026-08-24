@@ -31,7 +31,6 @@ import { AgentsTab } from './AgentsTab'
 import { ToolCallsTab } from './ToolCallsTab'
 import { FilesTab } from './FilesTab'
 import { CitationCard } from './CitationCard'
-import { EMPTY_RESEARCH_DETAILS_HELP_TEXT } from './research-empty-state-copy'
 import type { ThoughtInfo } from './ThoughtCard'
 import type { ToolCallInfo } from './ToolCallCard'
 import type {
@@ -122,18 +121,18 @@ const CitationListView: FC<CitationListViewProps> = ({ filter, citations }) => {
 
       {isEmpty ? (
         <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-          <BookOpen className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
+          <BookOpen className="mb-3 size-8 text-muted-foreground" aria-hidden="true" />
           <p className="text-sm text-muted-foreground">
             {filter === 'referenced'
               ? t('thinkingTab.noReferenced')
               : t('thinkingTab.noRead')}
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
-            {EMPTY_RESEARCH_DETAILS_HELP_TEXT}
+            {t('detailsHelp')}
           </p>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain">
           {filteredCitations.map((citation, index) => (
             <div key={citation.id} className="shrink-0">
               <CitationCard citation={citation} index={index + 1} />

@@ -1,0 +1,14 @@
+---
+fixes:
+  - >
+    The file preview beside a chat could not really be resized. The seam moved
+    about twenty pixels and then stopped, whichever way you pulled it, so the
+    document stayed at the width it opened at. It now follows the pointer for
+    the full width of the row.
+improvements:
+  - >
+    The file preview can be made much wider than before — the old ceiling was
+    narrower than an A3 plan at a readable zoom — and the width you set is
+    remembered, so the next file opens the way you left the last one. Drag the
+    seam shut and the preview closes like the ✕ does, keeping the question in
+    the composer.

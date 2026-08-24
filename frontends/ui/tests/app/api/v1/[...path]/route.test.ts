@@ -52,6 +52,7 @@ const baseSession = {
   organizationMembershipId: 'om_1',
   role: 'member',
   permissions: [] as string[],
+  featureFlags: null,
 }
 
 function makeParams(path: string[]): { params: Promise<{ path: string[] }> } {
@@ -67,7 +68,7 @@ function makeJsonResponse(body: unknown, status = 200): Response {
 
 function mockFetch(response = makeJsonResponse({ ok: true })): ReturnType<typeof vi.fn> {
   const fetchMock = vi.fn().mockResolvedValue(response)
-  global.fetch = fetchMock
+  vi.stubGlobal('fetch', fetchMock)
   return fetchMock
 }
 
@@ -76,9 +77,6 @@ function getHeader(init: RequestInit | undefined, name: string): string | undefi
   return headers[name]
 }
 
-function getUrl(fetchMock: ReturnType<typeof vi.fn>): string {
-  return fetchMock.mock.calls[0][0] as string
-}
 
 describe('/api/v1/[...path]', () => {
   beforeEach(() => {
@@ -93,6 +91,7 @@ describe('/api/v1/[...path]', () => {
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 'proj_proj-1', 's_conv-1'],
+        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 'proj_proj-1', shelf: 'project' }, { collection: 's_conv-1', shelf: 'session' }],
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: 'conv-1',
@@ -122,6 +121,7 @@ describe('/api/v1/[...path]', () => {
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 'proj_proj-1', 's_conv-1'],
+        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 'proj_proj-1', shelf: 'project' }, { collection: 's_conv-1', shelf: 'session' }],
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: 'conv-1',
@@ -155,6 +155,7 @@ describe('/api/v1/[...path]', () => {
       mockRequireProjectAccess.mockResolvedValue({ role: 'project-editor' })
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 'proj_proj-1'],
+        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 'proj_proj-1', shelf: 'project' }],
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: undefined,
@@ -192,6 +193,7 @@ describe('/api/v1/[...path]', () => {
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 'proj_proj-1'],
+        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 'proj_proj-1', shelf: 'project' }],
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: undefined,
@@ -221,6 +223,7 @@ describe('/api/v1/[...path]', () => {
       process.env.REQUIRE_AUTH = 'false'
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 's_conv-1'],
+        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 's_conv-1', shelf: 'session' }],
         headerValue: 'anon-scope',
         projectId: undefined,
         conversationId: 'conv-1',
@@ -248,6 +251,7 @@ describe('/api/v1/[...path]', () => {
       mockRequireProjectAccess.mockResolvedValue({ role: 'project-editor' })
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 'proj_proj-1'],
+        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 'proj_proj-1', shelf: 'project' }],
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: undefined,
@@ -297,6 +301,7 @@ describe('/api/v1/[...path]', () => {
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 's_conv-1'],
+        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 's_conv-1', shelf: 'session' }],
         headerValue: 'encoded-scope',
         projectId: undefined,
         conversationId: 'conv-1',
@@ -323,6 +328,7 @@ describe('/api/v1/[...path]', () => {
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge'],
+        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }],
         headerValue: 'encoded-scope',
         projectId: undefined,
         conversationId: undefined,

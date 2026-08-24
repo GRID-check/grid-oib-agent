@@ -1,0 +1,35 @@
+# Repository labels as code — synced by .github/workflows/labels.yml.
+# Edit here and merge to develop; the workflow creates/updates them (never
+# deletes). These names must match the label keys in .github/labeler.yml.
+
+- name: backend
+  color: "1d76db"
+  description: "Python backend: agent, aiq_api plugin, data-source packages"
+
+- name: frontend
+  color: "5319e7"
+  description: "Next.js UI, BFF, gateway, purger"
+
+- name: ci
+  color: "0e8a16"
+  description: "CI/CD, workflows, tooling, static analysis"
+
+- name: docs
+  color: "0075ca"
+  description: "Documentation and ADRs"
+
+- name: deploy
+  color: "d93f0b"
+  description: "Deployment, infra, docker-compose"
+
+- name: database
+  color: "fbca04"
+  description: "DB schema and migrations"
+
+- name: tests
+  color: "c2e0c6"
+  description: "Test code and fixtures"
+
+- name: no-release-note
+  color: "e4e669"
+  description: "Exempt from the mandatory release note — no user can observe this change"

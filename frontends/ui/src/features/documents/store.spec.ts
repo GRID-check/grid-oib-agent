@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, test, expect, beforeEach } from 'vitest'
 import {
   useDocumentsStore,
@@ -5,7 +8,14 @@ import {
   selectCompletedFiles,
   selectFailedFiles,
 } from './store'
-import type { TrackedFile, CollectionInfo, IngestionJobStatus, FileInfo } from './types'
+import { asStoreState, type DeepPartial } from '@/test-utils/store-fixtures'
+import type {
+  DocumentsState,
+  TrackedFile,
+  CollectionInfo,
+  IngestionJobStatus,
+  FileInfo,
+} from './types'
 
 describe('useDocumentsStore', () => {
   beforeEach(() => {
@@ -336,6 +346,55 @@ describe('useDocumentsStore', () => {
       const updated = useDocumentsStore.getState().trackedFiles[0]
       expect(updated.status).toBe('ingesting')
       expect(updated.progress).toBe(75)
+    })
+
+    test('does not overwrite a same-named file tracked under a different job/collection', () => {
+      // Regression: a session upload's status tick must not clobber a
+      // same-named file in the project corpus by filename match.
+      const projectFile: TrackedFile = {
+        id: 'proj-1',
+        fileName: 'plan.pdf',
+        fileSize: 1024,
+        status: 'success',
+        progress: 100,
+        serverFileId: 'proj-server-id',
+        jobId: 'project-job',
+        collectionName: 'proj_corpus',
+      }
+      const sessionFile: TrackedFile = {
+        id: 'sess-1',
+        fileName: 'plan.pdf',
+        fileSize: 2048,
+        status: 'ingesting',
+        progress: 10,
+        serverFileId: 'sess-server-id',
+        jobId: 'session-job',
+        collectionName: 'session-1',
+      }
+      useDocumentsStore.setState({ trackedFiles: [projectFile, sessionFile] })
+
+      const jobStatus: IngestionJobStatus = {
+        job_id: 'session-job',
+        status: 'completed',
+        submitted_at: '2024-01-01T00:00:00Z',
+        total_files: 1,
+        processed_files: 1,
+        collection_name: 'session-1',
+        backend: 'milvus',
+        metadata: {},
+        file_details: [
+          { file_id: 'sess-server-id', file_name: 'plan.pdf', status: 'success', progress_percent: 100 },
+        ],
+      }
+
+      useDocumentsStore.getState().updateFilesFromJobStatus(jobStatus)
+
+      const proj = useDocumentsStore.getState().trackedFiles.find((f) => f.id === 'proj-1')!
+      // Project file untouched: still its own serverFileId and status.
+      expect(proj.serverFileId).toBe('proj-server-id')
+      expect(proj.status).toBe('success')
+      const sess = useDocumentsStore.getState().trackedFiles.find((f) => f.id === 'sess-1')!
+      expect(sess.status).toBe('success')
     })
 
     test('updates files based on job status by filename', () => {
@@ -771,7 +830,7 @@ describe('useDocumentsStore', () => {
 
   describe('selectors', () => {
     test('selectFilesInProgress returns uploading and ingesting files', () => {
-      const state = {
+      const state: DeepPartial<DocumentsState> = {
         trackedFiles: [
           { id: '1', fileName: 'a.pdf', fileSize: 100, status: 'uploading' as const, progress: 50 },
           { id: '2', fileName: 'b.pdf', fileSize: 100, status: 'ingesting' as const, progress: 75 },
@@ -780,14 +839,14 @@ describe('useDocumentsStore', () => {
         ],
       }
 
-      const inProgress = selectFilesInProgress(state as any)
+      const inProgress = selectFilesInProgress(asStoreState<DocumentsState>(state))
 
       expect(inProgress).toHaveLength(2)
       expect(inProgress.map((f) => f.id)).toEqual(['1', '2'])
     })
 
     test('selectCompletedFiles returns success files', () => {
-      const state = {
+      const state: DeepPartial<DocumentsState> = {
         trackedFiles: [
           { id: '1', fileName: 'a.pdf', fileSize: 100, status: 'success' as const, progress: 100 },
           { id: '2', fileName: 'b.pdf', fileSize: 100, status: 'success' as const, progress: 100 },
@@ -795,21 +854,21 @@ describe('useDocumentsStore', () => {
         ],
       }
 
-      const completed = selectCompletedFiles(state as any)
+      const completed = selectCompletedFiles(asStoreState<DocumentsState>(state))
 
       expect(completed).toHaveLength(2)
       expect(completed.map((f) => f.id)).toEqual(['1', '2'])
     })
 
     test('selectFailedFiles returns failed files', () => {
-      const state = {
+      const state: DeepPartial<DocumentsState> = {
         trackedFiles: [
           { id: '1', fileName: 'a.pdf', fileSize: 100, status: 'failed' as const, progress: 0 },
           { id: '2', fileName: 'b.pdf', fileSize: 100, status: 'success' as const, progress: 100 },
         ],
       }
 
-      const failed = selectFailedFiles(state as any)
+      const failed = selectFailedFiles(asStoreState<DocumentsState>(state))
 
       expect(failed).toHaveLength(1)
       expect(failed[0].id).toBe('1')

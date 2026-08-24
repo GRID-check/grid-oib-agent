@@ -146,14 +146,8 @@ export const BuildingSectionCard: FC<BuildingSectionCardProps> = ({
   }
 
   return (
-    <SchematicCard
-      icon={Building2}
-      eyebrow="Schematic"
-      title={title}
-      note={note}
-      reference={reference}
-    >
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={430} label={title}>
+    <SchematicCard icon={Building2} title={title} note={note} reference={reference}>
+      <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         {/* below-grade block behind the ground line */}
         {belowBands}
 
@@ -178,7 +172,10 @@ export const BuildingSectionCard: FC<BuildingSectionCardProps> = ({
 
         {/* marker lines: Fluchtniveau / GK thresholds / references */}
         {markerList.map((marker, i) => {
-          const style = MARKER_STYLE[marker.kind ?? 'reference']
+          // Falls back for the same reason `STATUS_ICON` does: the card's
+          // nested fields are unvalidated, so an unknown `kind` would make
+          // `style.color` throw and blank the answer rather than the marker.
+          const style = MARKER_STYLE[marker.kind ?? 'reference'] ?? MARKER_STYLE.reference
           const y = yAt(marker.height_m)
           return (
             <g key={`marker-${i}`}>

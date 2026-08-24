@@ -68,6 +68,15 @@ class UploadOrchestratorImpl {
     return createDocumentsClient({ authToken: this.authToken })
   }
 
+  /**
+   * Documents client carrying the orchestrator's auth token, for module-level
+   * helpers outside this class (e.g. discardSessionDocumentsResources) — a
+   * token-less client 401s in auth-required deployments.
+   */
+  getAuthenticatedClient() {
+    return this.getClient()
+  }
+
   private getStore() {
     return useDocumentsStore.getState()
   }
@@ -103,8 +112,12 @@ class UploadOrchestratorImpl {
       return
     }
 
-    // Stop polling from previous session
+    // Stop polling from previous session. Also drop queued jobs: stopPolling
+    // only aborts the ACTIVE poll, and a leftover queue entry from the old
+    // session would otherwise be dequeued first and hijack polling (under the
+    // old collection) as soon as the new session enqueues an upload.
     this.stopPolling()
+    this.jobQueue = []
 
     // Clear any upload error from previous session
     this.getStore().clearError()
@@ -237,11 +250,8 @@ class UploadOrchestratorImpl {
 
     if (!persistedJob) return
 
-    // Open files panel to show progress
-    const layoutStore = useLayoutStore.getState()
-    layoutStore.openRightPanel('data-sources')
-    layoutStore.setDataSourcesPanelTab('files')
-
+    // Progress is surfaced by the composer's inline file chips (and the files
+    // dialog), so resuming a persisted job no longer opens a side panel.
     try {
       const [serverFiles, jobStatus] = await Promise.all([
         client.listFiles(sessionId).catch(() => []),
@@ -372,7 +382,9 @@ class UploadOrchestratorImpl {
 
       store.updateFilesFromJobStatus(status)
 
-      const currentFiles = store.trackedFiles.filter((f) => f.jobId === jobId)
+      // Re-read state: `store` is a snapshot from before the update above, so
+      // its trackedFiles would persist the PREVIOUS poll's progress.
+      const currentFiles = this.getStore().trackedFiles.filter((f) => f.jobId === jobId)
       if (currentFiles.length > 0) {
         updatePersistedJobFiles(jobId, currentFiles)
       }
@@ -384,17 +396,8 @@ class UploadOrchestratorImpl {
         this.stopPolling()
         removePersistedJob(jobId)
 
-        // Open Data Sources panel for any terminal state so the user
-        // can see available files or errors
-        const docStore = useDocumentsStore.getState()
-        const layoutStore = useLayoutStore.getState()
-        const jobBanners = docStore.shownBannersForJobs[jobId]
-        if (!jobBanners?.ingested) {
-          layoutStore.setDataSourcesPanelTab('files')
-          layoutStore.openRightPanel('data-sources')
-          docStore.markBannerShown(jobId, 'ingested')
-        }
-
+        // Terminal state (files available or an error) is reflected on the
+        // composer's inline file chips; no side panel is opened.
         if (status.status === 'completed') {
           this.callbacks.onComplete?.()
         } else if (status.error_message) {
@@ -470,6 +473,7 @@ class UploadOrchestratorImpl {
    */
   cleanup(): void {
     this.stopPolling()
+    this.jobQueue = []
     this.currentSessionId = null
     this.lastLoadedSessionId = null
   }

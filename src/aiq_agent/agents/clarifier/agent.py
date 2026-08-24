@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """
 Clarifier agent for interactive clarification dialog.
 
@@ -38,6 +23,7 @@ Example:
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import re
@@ -59,6 +45,7 @@ from langgraph.prebuilt import ToolNode
 
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
+from aiq_agent.common import content_to_text
 from aiq_agent.common import get_latest_user_query
 from aiq_agent.common import load_prompt
 from aiq_agent.common import render_prompt_template
@@ -68,6 +55,7 @@ from .models import ClarifierAgentState
 from .models import ClarifierResult
 
 logger = logging.getLogger(__name__)
+
 
 AGENT_DIR = Path(__file__).parent
 """Path to the clarifier agent's directory, used for loading prompts."""
@@ -87,11 +75,97 @@ DEFAULT_PLAN_GENERATION_PROMPT = (
 )
 """Fallback prompt for plan generation."""
 
-APPROVAL_KEYWORDS = {"approve", "approved", "yes", "ok", "proceed", "continue", "go ahead", "looks good", "y", "accept"}
+APPROVAL_KEYWORDS = {
+    "approve",
+    "approved",
+    "yes",
+    "ok",
+    "proceed",
+    "continue",
+    "go ahead",
+    "looks good",
+    "y",
+    "accept",
+    # German equivalents (German-first product).
+    "ja",
+    "passt",
+    "einverstanden",
+    "in ordnung",
+    "genehmigt",
+}
 """Keywords that indicate the user approves the plan."""
 
-REJECTION_KEYWORDS = {"reject", "rejected", "no", "cancel", "stop", "abort", "n"}
+REJECTION_KEYWORDS = {
+    "reject",
+    "rejected",
+    "no",
+    "cancel",
+    "stop",
+    "abort",
+    "n",
+    # German equivalents (German-first product).
+    "nein",
+    "abbrechen",
+    "ablehnen",
+    "verwerfen",
+}
 """Keywords that indicate the user rejects the plan."""
+
+# A refusal the exact-match sets above cannot see. ``REJECTION_KEYWORDS`` is
+# tested with ``normalized in REJECTION_KEYWORDS`` — set membership on the WHOLE
+# message — so it recognises "no" and misses "no i dont want a deep research
+# plan", which is then filed as FEEDBACK and answered with a revised plan. That
+# is the step that turned one unwanted plan in the live transcript into three
+# rounds: the user said no, got a second plan, said "reject", and only then hit
+# the (former) dead end.
+#
+# Deliberately narrow, because the alternative reading — plan feedback — is a
+# real feature: "no, focus only on Wien" and "don't include costs in the plan"
+# are revisions and must stay revisions. So a refusal is recognised only when
+# the message refuses the PLAN ITSELF or asks for a plain answer instead, never
+# merely because it opens with "no".
+#
+# The cost of being wrong here is no longer symmetric, and that is what makes
+# this safe to widen: since a rejected plan falls through to the shallow agent
+# instead of ending the turn, mis-reading a revision as a refusal costs the user
+# an ANSWER to the question they asked, not a discarded turn.
+_BARE_REFUSAL_RE = re.compile(
+    r"^(?:no|nope|nah|nein|na|reject|cancel|stop|abort)"
+    r"(?:[\s,.!-]+(?:thanks|thank\s+you|danke|bitte|please|thx))?[\s,.!]*$",
+    re.IGNORECASE,
+)
+_WANTS_NO_PLAN_RE = re.compile(
+    r"(?:do(?:es)?\s*n[o']?t\s+(?:want|need)|dont\s+(?:want|need)|"
+    r"(?:will|m[oö]chte|brauche)\s+kein|kein(?:e|en|er)?\b)",
+    re.IGNORECASE,
+)
+_PLAN_SUBJECT_RE = re.compile(r"(?:deep\s*research|research\s*plan|\bplan\b|recherche|plans)", re.IGNORECASE)
+_WANTS_PLAIN_ANSWER_RE = re.compile(
+    r"\b(?:just|only|simply|einfach|nur)\b[^.!?]{0,30}?\b(?:answer|antwort|antworte|reply)\b",
+    re.IGNORECASE,
+)
+
+
+def _reads_as_refusal(text: str) -> bool:
+    """True when a free-text reply to the plan preview plainly refuses the plan.
+
+    Three shapes, all requiring more than an opening "no":
+      * a bare refusal token, optionally polite ("no thanks", "nein danke");
+      * "(I) don't want / will kein ..." TOGETHER WITH a reference to the plan
+        or the research itself — so "I don't want costs in there" stays feedback
+        because it names no plan, and "don't include costs in the plan" stays
+        feedback because it refuses no wanting;
+      * a request for a plain answer instead ("i just want an answer").
+    """
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if _BARE_REFUSAL_RE.match(stripped):
+        return True
+    if _WANTS_NO_PLAN_RE.search(stripped) and _PLAN_SUBJECT_RE.search(stripped):
+        return True
+    return bool(_WANTS_PLAIN_ANSWER_RE.search(stripped))
+
 
 JSON_REMINDER_AFTER_TOOLS = (
     "Based on the search results above, now make your clarification decision. "
@@ -103,6 +177,48 @@ JSON_REMINDER_AFTER_TOOLS = (
     '{"needs_clarification": false, "clarification_question": null}'
 )
 """Reminder prompt added after tool results to reinforce JSON-only output."""
+
+
+UserPromptCallback = Callable[..., Awaitable[str]]
+"""Callback that asks the user a question and returns their answer.
+
+Accepts either ``(question)`` or ``(question, options)``. The one-argument form
+predates structured answer options and is still supported: every caller that
+supplied it keeps working unchanged, and a question without options is asked
+through it exactly as before.
+"""
+
+
+def _accepts_options_argument(callback: UserPromptCallback) -> bool:
+    """
+    Report whether ``callback`` can be handed the answer options.
+
+    We dispatch on the signature rather than calling with two arguments and
+    catching ``TypeError``, because a ``TypeError`` raised *inside* an
+    old-style callback would look identical to an arity mismatch and we would
+    silently retry a call that already had side effects.
+
+    Args:
+        callback: The user prompt callback to inspect.
+
+    Returns:
+        True if a second positional argument (or an ``options`` keyword) is
+        accepted. False when the signature cannot be read at all, which keeps
+        the safe single-argument call as the default.
+    """
+    try:
+        parameters = list(inspect.signature(callback).parameters.values())
+    except (TypeError, ValueError):
+        return False
+
+    positional = [
+        p for p in parameters if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    if len(positional) >= 2:
+        return True
+    if any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in parameters):
+        return True
+    return any(p.name == "options" and p.kind is inspect.Parameter.KEYWORD_ONLY for p in parameters)
 
 
 class ClarifierAgent:
@@ -147,7 +263,7 @@ class ClarifierAgent:
         llm_provider: LLMProvider,
         tools: Sequence[BaseTool] | None = None,
         *,
-        user_prompt_callback: Callable[[str], Awaitable[str]],
+        user_prompt_callback: UserPromptCallback,
         max_turns: int = 3,
         enable_plan_approval: bool = False,
         max_plan_iterations: int = 10,
@@ -164,7 +280,10 @@ class ClarifierAgent:
             tools: Optional sequence of LangChain tools for context gathering
                 (e.g., web search). Tools help the agent ask more informed questions.
             user_prompt_callback: Async callback function to prompt the user for input.
-                Takes a question string and returns the user's response string.
+                Takes a question string, optionally followed by the list of short
+                answer labels, and returns the user's response string. A callback
+                that only accepts the question still works — the options are then
+                simply not offered.
             max_turns: Maximum number of clarification Q&A turns before
                 automatically completing clarification. Defaults to 3.
             enable_plan_approval: Whether to enable plan preview and approval
@@ -182,6 +301,9 @@ class ClarifierAgent:
         self.llm_provider: LLMProvider = llm_provider
         self.tools = list(tools) if tools else []
         self.user_prompt_callback = user_prompt_callback
+        # Resolved once here rather than per prompt: the signature cannot change
+        # between turns, and inspect.signature is not free.
+        self._callback_accepts_options = _accepts_options_argument(user_prompt_callback)
         self.max_turns = max_turns
         self.enable_plan_approval = enable_plan_approval
         self.max_plan_iterations = max_plan_iterations
@@ -234,6 +356,7 @@ class ClarifierAgent:
         Returns:
             Tuple of (title, sections) or (None, []) if parsing fails.
         """
+        text = content_to_text(text)
         if not text:
             return None, []
 
@@ -270,7 +393,9 @@ class ClarifierAgent:
         text = response.strip()
         try:
             data = json.loads(text)
-            if isinstance(data, dict) and "query" in data:
+            # Only accept a string query: a non-string value (number, null,
+            # object) would crash the .strip() below and abort the whole turn.
+            if isinstance(data, dict) and isinstance(data.get("query"), str):
                 text = data["query"]
         except (json.JSONDecodeError, TypeError):
             pass  # Not JSON, use original text
@@ -281,6 +406,10 @@ class ClarifierAgent:
             return True, False, None
 
         if normalized in REJECTION_KEYWORDS:
+            return False, True, None
+
+        # An unmistakable refusal written as a sentence rather than a keyword.
+        if _reads_as_refusal(text):
             return False, True, None
 
         # Treat as feedback for plan revision
@@ -321,6 +450,7 @@ class ClarifierAgent:
         Returns:
             ClarificationResponse if parsing succeeds, None otherwise.
         """
+        text = content_to_text(text)
         if not text:
             return None
 
@@ -430,6 +560,44 @@ class ClarifierAgent:
             return response.clarification_question
         logger.warning("No clarification question found in response")
         return "Could you provide more details about your research needs?"
+
+    def _get_clarification_options(self, text: str) -> list[str]:
+        """
+        Extract the offered answer labels from the response.
+
+        Args:
+            text: Raw text response from LLM.
+
+        Returns:
+            The short labels the model offered, or an empty list. Never derived
+            from the question prose: parsing "1. ..." back out of the rendered
+            question is exactly the round-trip this field exists to remove, and
+            a mis-parse would put words in the user's mouth.
+        """
+        response = self._parse_response(text)
+        if response is None:
+            return []
+        return list(response.options)
+
+    async def _ask_user(self, question: str, options: Sequence[str] | None = None) -> str:
+        """
+        Ask the user a question through the configured callback.
+
+        Args:
+            question: The human-readable question, already localized.
+            options: Short labels for the offered answers, if any.
+
+        Returns:
+            The user's reply text.
+        """
+        # Without options this is the exact single-argument call the callback
+        # has always received, so prose-only clarifications and the plan
+        # approval prompt are unaffected by this feature.
+        if options and self._callback_accepts_options:
+            return await self.user_prompt_callback(question, list(options))
+        if options:
+            logger.debug("User prompt callback takes no options; asking %d-option question as prose", len(options))
+        return await self.user_prompt_callback(question)
 
     def _get_llm(self) -> BaseChatModel:
         """
@@ -570,8 +738,9 @@ class ClarifierAgent:
                 text = self._get_fallback_clarification(query=original_query if original_query else None)
 
             question_text = self._get_clarification_question(text)
+            question_options = self._get_clarification_options(text)
             clarifier_log = f"{clarifier_log}\n**Turn {iteration + 1} - Assistant:**\n{question_text}"
-            user_reply = await self.user_prompt_callback(question_text)
+            user_reply = await self._ask_user(question_text, question_options)
 
             if self._is_skip_command(user_reply):
                 logger.info("Clarifier: User requested to skip clarification")
@@ -630,8 +799,22 @@ class ClarifierAgent:
                     feedback_history=feedback_history if feedback_history else None,
                 )
 
-                # Generate plan using planner LLM
-                messages_for_plan = state.messages + [HumanMessage(content="Generate a research plan.")]
+                # Generate plan using planner LLM. Anchor on the CURRENT request
+                # so the planner does not drift to an earlier turn's topic still
+                # present in state.messages (e.g. an aborted research the user has
+                # moved on from) — that carry-over produced plans unrelated to
+                # what the user actually just asked.
+                latest_request = get_latest_user_query(state.messages)
+                messages_for_plan = state.messages + [
+                    HumanMessage(
+                        content=(
+                            "Generate a research plan for the user's CURRENT request below. "
+                            "Earlier messages are background context only — do NOT plan around "
+                            "topics from earlier turns that the current request does not ask about.\n\n"
+                            f"Current request: {latest_request}"
+                        )
+                    )
+                ]
                 response = await planner_llm.ainvoke([SystemMessage(content=rendered_prompt)] + messages_for_plan)
                 title, sections = self._parse_plan_response(response.content)
 
@@ -642,7 +825,7 @@ class ClarifierAgent:
 
                 # Present plan to user
                 plan_display = self._format_plan_for_user(title, sections)
-                user_response = await self.user_prompt_callback(plan_display)
+                user_response = await self._ask_user(plan_display)
 
                 approved, rejected, feedback = self._parse_approval(user_response)
 
@@ -715,6 +898,9 @@ class ClarifierAgent:
             ClarifierResult with clarification log and plan approval details.
         """
         logger.info("Clarifier: Starting (max %d turns)", self.max_turns)
+        # The state governs the turn loop, but callers build it without
+        # max_turns — stamp the configured limit so it actually applies.
+        state = state.model_copy(update={"max_turns": self.max_turns})
         query = get_latest_user_query(state.messages)
         logger.info("User's query: %s...", str(query)[:100] if query else "")
         result = await self._graph.ainvoke(state, config={"callbacks": self.callbacks})

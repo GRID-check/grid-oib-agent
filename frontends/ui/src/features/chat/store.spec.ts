@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { useChatStore } from './store'
 import type { Conversation, PendingInteraction, FileCardData } from './types'
+import type { GridCard } from '@/shared/cards/schemas'
 
 const STORAGE_KEY = 'aiq-chat-store'
 const mockLayoutState = vi.hoisted(() => ({
@@ -32,6 +33,22 @@ vi.mock('@/features/documents/discard-session-resources', () => ({
   discardSessionDocumentsResources: mockDiscardSessionResources,
 }))
 
+// The interrupted-turn recovery refetches server history before deciding to
+// show the banner; default to an empty server history so the banner path runs.
+const mockConversationsClient = vi.hoisted(() => ({
+  list: vi.fn().mockResolvedValue([]),
+  get: vi.fn().mockResolvedValue(undefined),
+  create: vi.fn().mockResolvedValue(undefined),
+  updateTitle: vi.fn().mockResolvedValue(undefined),
+  delete: vi.fn().mockResolvedValue(undefined),
+  listMessages: vi.fn().mockResolvedValue([]),
+  createMessage: vi.fn().mockResolvedValue(undefined),
+  createMessages: vi.fn().mockResolvedValue(undefined),
+}))
+vi.mock('@/adapters/api/conversations-client', () => ({
+  conversationsClient: mockConversationsClient,
+}))
+
 describe('useChatStore', () => {
   beforeEach(() => {
     // Clear localStorage before each test
@@ -51,14 +68,19 @@ describe('useChatStore', () => {
       currentUserId: null,
       currentConversation: null,
       conversations: [],
+      projectId: null,
       isStreaming: false,
       isLoading: false,
       currentUserMessageId: null,
       thinkingSteps: [],
       activeThinkingStepId: null,
+      streamingAssistantMessageId: null,
       reportContent: '',
       currentStatus: null,
       pendingInteraction: null,
+      composerPrefill: null,
+      composerSubject: null,
+      composerDrafts: {},
     })
   })
 
@@ -330,8 +352,7 @@ describe('useChatStore', () => {
           role: 'assistant',
           content: '',
           timestamp: new Date(),
-          messageType: 'file_upload_status',
-          fileUploadStatusData: { type: 'uploaded', fileCount: 2, jobId: 'job-1' },
+          messageType: 'status',
         },
       ],
       createdAt: new Date(),
@@ -409,6 +430,21 @@ describe('useChatStore', () => {
       expect(useChatStore.getState().isLoading).toBe(false)
       expect(useChatStore.getState().currentUserMessageId).toBeNull()
       expect(useChatStore.getState().currentStatus).toBeNull()
+    })
+
+    test('startNewSessionDraft clears leftover composerSubject', () => {
+      useChatStore.setState({
+        currentUserId: 'user-1',
+        composerSubject: {
+          resourceType: 'document',
+          resourceId: 'doc-1',
+          filename: 'plan.pdf',
+        },
+      })
+
+      useChatStore.getState().startNewSessionDraft()
+
+      expect(useChatStore.getState().composerSubject).toBeNull()
     })
 
     test('selectConversation removes prior upload-only session when switching away', () => {
@@ -555,6 +591,64 @@ describe('useChatStore', () => {
       expect(useChatStore.getState().thinkingSteps).toEqual([])
       expect(useChatStore.getState().reportContent).toBe('')
     })
+
+    test('selectConversation without a subject file clears leftover composerSubject', () => {
+      const conv: Conversation = {
+        id: 'conv-1',
+        userId: 'user-1',
+        title: 'Conv',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+      useChatStore.setState({
+        currentUserId: 'user-1',
+        conversations: [conv],
+        composerSubject: {
+          resourceType: 'document',
+          resourceId: 'doc-leftover',
+          filename: 'plan.pdf',
+        },
+      })
+
+      useChatStore.getState().selectConversation('conv-1')
+
+      expect(useChatStore.getState().composerSubject).toBeNull()
+    })
+
+    test('restores a subject file without inventing a filename from the title', () => {
+      // `conversation.title` is the filename only until addUserMessage
+      // overwrites it with the first thing the user typed. Reusing it here
+      // restored the subject as "fass das dokument zusammen" and sent that
+      // string on the wire as `focus_file_name`, matching no document — and
+      // the bar's own repair lookup skipped, because a title was present.
+      const conv: Conversation = {
+        id: 'conv-1',
+        userId: 'user-1',
+        title: 'fass das dokument zusammen',
+        subjectResourceType: 'document',
+        subjectResourceId: 'doc-aufsicht',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+      useChatStore.setState({
+        currentUserId: 'user-1',
+        conversations: [conv],
+        composerSubject: null,
+      })
+
+      useChatStore.getState().selectConversation('conv-1')
+
+      const subject = useChatStore.getState().composerSubject
+      expect(subject).toEqual({
+        resourceType: 'document',
+        resourceId: 'doc-aufsicht',
+        title: null,
+      })
+      expect(subject?.title).not.toBe(conv.title)
+      expect(subject?.filename).toBeUndefined()
+    })
   })
 
   describe('addUserMessage', () => {
@@ -613,8 +707,7 @@ describe('useChatStore', () => {
             role: 'assistant',
             content: '',
             timestamp: new Date(),
-            messageType: 'file_upload_status',
-            fileUploadStatusData: { type: 'uploaded', fileCount: 1, jobId: 'job-1' },
+            messageType: 'status',
           },
         ],
         createdAt: new Date(),
@@ -1175,6 +1268,43 @@ describe('useChatStore', () => {
     })
   })
 
+  describe('attachToDeepResearchJob', () => {
+    test('binds a run started elsewhere without claiming the open conversation', () => {
+      const conversation: Conversation = {
+        id: 'conv-open',
+        userId: 'user-1',
+        title: 'An unrelated chat',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+
+      useChatStore.setState({
+        currentConversation: conversation,
+        conversations: [conversation],
+        reportContent: 'Report of a previous run',
+      })
+
+      useChatStore.getState().attachToDeepResearchJob('job-workflow-1')
+
+      const state = useChatStore.getState()
+      expect(state.deepResearchJobId).toBe('job-workflow-1')
+      expect(state.isDeepResearchStreaming).toBe(true)
+      // 'running' makes the SSE connect buffer the replayed backlog instead of
+      // writing every historical event straight into the store.
+      expect(state.deepResearchStatus).toBe('running')
+      // No thread owns it — that is what keeps its banner out of the open chat.
+      expect(state.deepResearchOwnerConversationId).toBeNull()
+      expect(state.activeDeepResearchMessageId).toBeNull()
+      // Unknown start time: the elapsed indicator stays hidden.
+      expect(state.deepResearchStartedAt).toBeNull()
+      // Artifacts of whatever was shown before are cleared.
+      expect(state.reportContent).toBe('')
+      expect(state.deepResearchTodos).toEqual([])
+      expect(state.deepResearchStreamLoaded).toBe(false)
+    })
+  })
+
   describe('thinking steps', () => {
     // Helper to set up a user message context for thinking steps tests
     const setupUserMessageContext = () => {
@@ -1494,6 +1624,213 @@ describe('useChatStore', () => {
       expect(messages?.[0].showViewReport).toBe(true)
     })
 
+    test('addAgentResponse threads answerConfidence onto the message', () => {
+      setupConversation()
+
+      useChatStore.getState().addAgentResponse('Grounded answer', false, undefined, 'high')
+
+      const messages = useChatStore.getState().currentConversation?.messages
+      expect(messages?.[0].answerConfidence).toBe('high')
+    })
+
+    test('addAgentResponse carries the cut-off cause, not just the flag', () => {
+      // The join an independent check found missing: the store copied
+      // `researchTruncated` and stopped, so the props ChatArea passes for the
+      // cause and the degradations were `undefined` on every turn. Renderer,
+      // schema, sanitizer and dictionaries were all correct and all
+      // unreachable — the answer could say THAT research stopped, never why.
+      setupConversation()
+
+      useChatStore
+        .getState()
+        .addAgentResponse('Die Antwort.', false, undefined, undefined, undefined, {
+          researchTruncated: true,
+          truncationReason: 'wall_clock',
+          degradedReasons: ['no_valid_citations'],
+        })
+
+      const messages = useChatStore.getState().currentConversation?.messages
+      expect(messages?.[0].researchTruncated).toBe(true)
+      expect(messages?.[0].truncationReason).toBe('wall_clock')
+      expect(messages?.[0].degradedReasons).toEqual(['no_valid_citations'])
+    })
+
+    test('addAgentResponse copies a degradation on a run that was NOT truncated', () => {
+      // Independent facts. Gating the degradations on the flag would drop the
+      // case a reader most needs: a run that finished inside its budget and
+      // still produced nothing verifiable.
+      setupConversation()
+
+      useChatStore
+        .getState()
+        .addAgentResponse('Die Antwort.', false, undefined, undefined, undefined, {
+          degradedReasons: ['no_report_file'],
+        })
+
+      const messages = useChatStore.getState().currentConversation?.messages
+      expect(messages?.[0].degradedReasons).toEqual(['no_report_file'])
+      expect(messages?.[0].researchTruncated).toBeUndefined()
+    })
+
+    test('addAgentResponse leaves answerConfidence undefined when not provided', () => {
+      setupConversation()
+
+      useChatStore.getState().addAgentResponse('Plain answer')
+
+      const messages = useChatStore.getState().currentConversation?.messages
+      expect(messages?.[0].answerConfidence).toBeUndefined()
+    })
+
+    describe('streamed answer accumulation', () => {
+      // Minimal card stand-in; the store stores the reference verbatim and does
+      // not validate schema, so a cast is sufficient for these tests.
+      const card = (id: string) => ({ card_type: 'kpi', id }) as unknown as GridCard
+
+      test('multiple in_progress deltas accumulate into ONE bubble whose content is the concatenation', () => {
+        setupConversation()
+
+        useChatStore.getState().appendAgentResponseDelta('Hello ')
+        useChatStore.getState().appendAgentResponseDelta('streamed ')
+        useChatStore.getState().appendAgentResponseDelta('world')
+
+        const messages = useChatStore.getState().currentConversation?.messages
+        expect(messages).toHaveLength(1)
+        expect(messages?.[0].messageType).toBe('agent_response')
+        expect(messages?.[0].content).toBe('Hello streamed world')
+        // Still streaming until the terminal frame finalizes it.
+        expect(messages?.[0].isStreaming).toBe(true)
+        expect(useChatStore.getState().streamingAssistantMessageId).toBe(messages?.[0].id)
+      })
+
+      test('complete frame finalizes the bubble, sets full text, and attaches cards + confidence', () => {
+        setupConversation()
+
+        useChatStore.getState().appendAgentResponseDelta('Hel')
+        useChatStore.getState().appendAgentResponseDelta('lo')
+
+        const cards = [card('c1')]
+        // Terminal frame carries the authoritative FULL text + cards/confidence.
+        useChatStore.getState().finalizeAgentResponse('Hello', cards, 'high')
+
+        const messages = useChatStore.getState().currentConversation?.messages
+        expect(messages).toHaveLength(1)
+        expect(messages?.[0].content).toBe('Hello')
+        expect(messages?.[0].cards).toBe(cards)
+        expect(messages?.[0].answerConfidence).toBe('high')
+        expect(messages?.[0].isStreaming).toBe(false)
+        // Tracking id is released so the next turn opens a fresh bubble.
+        expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+      })
+
+      test('empty complete frame does NOT wipe the accumulated bubble (just finalizes)', () => {
+        setupConversation()
+
+        useChatStore.getState().appendAgentResponseDelta('Kept ')
+        useChatStore.getState().appendAgentResponseDelta('text')
+
+        // Legacy synthetic complete: empty text, no cards.
+        useChatStore.getState().finalizeAgentResponse('')
+
+        const messages = useChatStore.getState().currentConversation?.messages
+        expect(messages).toHaveLength(1)
+        expect(messages?.[0].content).toBe('Kept text')
+        expect(messages?.[0].isStreaming).toBe(false)
+        expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+      })
+
+      test('BACKWARD COMPAT: single in_progress full-text+cards frame then empty complete yields ONE bubble with full text + cards', () => {
+        setupConversation()
+
+        const cards = [card('c1'), card('c2')]
+        // Today's backend: ONE in_progress frame carrying the whole answer +
+        // cards...
+        useChatStore.getState().appendAgentResponseDelta('The full answer', cards, 'medium')
+        // ...followed by the synthetic empty complete frame.
+        useChatStore.getState().finalizeAgentResponse('')
+
+        const messages = useChatStore.getState().currentConversation?.messages
+        expect(messages).toHaveLength(1)
+        expect(messages?.[0].messageType).toBe('agent_response')
+        expect(messages?.[0].content).toBe('The full answer')
+        expect(messages?.[0].cards).toBe(cards)
+        expect(messages?.[0].answerConfidence).toBe('medium')
+        expect(messages?.[0].isStreaming).toBe(false)
+        expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+      })
+
+      test('a new user turn resets accumulation so the next answer opens a fresh bubble', () => {
+        setupConversation()
+
+        useChatStore.getState().appendAgentResponseDelta('First answer')
+        useChatStore.getState().finalizeAgentResponse('First answer')
+
+        // New turn.
+        useChatStore.getState().addUserMessage('second question')
+        expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+
+        useChatStore.getState().appendAgentResponseDelta('Second ')
+        useChatStore.getState().appendAgentResponseDelta('answer')
+        useChatStore.getState().finalizeAgentResponse('Second answer')
+
+        const messages = useChatStore.getState().currentConversation?.messages
+        const agentResponses = messages?.filter((m) => m.messageType === 'agent_response')
+        expect(agentResponses).toHaveLength(2)
+        expect(agentResponses?.[0].content).toBe('First answer')
+        expect(agentResponses?.[1].content).toBe('Second answer')
+      })
+
+      test('finalize with no prior delta falls back to a one-shot response (complete-only frame)', () => {
+        setupConversation()
+
+        useChatStore.getState().finalizeAgentResponse('Whole answer in one complete frame', [card('c1')])
+
+        const messages = useChatStore.getState().currentConversation?.messages
+        expect(messages).toHaveLength(1)
+        expect(messages?.[0].content).toBe('Whole answer in one complete frame')
+        expect(messages?.[0].messageType).toBe('agent_response')
+        expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+      })
+
+      test('empty finalize with no prior delta is a no-op (pure synthetic complete, nothing to show)', () => {
+        setupConversation()
+
+        useChatStore.getState().finalizeAgentResponse('')
+
+        expect(useChatStore.getState().currentConversation?.messages).toHaveLength(0)
+      })
+
+      test('discardStreamingAssistantMessage removes the orphaned bubble entirely and clears the tracking id', () => {
+        setupConversation()
+
+        // Deltas of a turn open a streaming bubble...
+        useChatStore.getState().appendAgentResponseDelta('Queue full prose ')
+        useChatStore.getState().appendAgentResponseDelta('streamed here')
+        expect(useChatStore.getState().currentConversation?.messages).toHaveLength(1)
+        expect(useChatStore.getState().streamingAssistantMessageId).not.toBeNull()
+
+        // ...then the turn resolves in a non-bubble surface (banner): drop it.
+        useChatStore.getState().discardStreamingAssistantMessage()
+
+        // Message is REMOVED (not merely finalized) and the id is cleared.
+        expect(useChatStore.getState().currentConversation?.messages).toHaveLength(0)
+        expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+      })
+
+      test('discardStreamingAssistantMessage is a no-op when no streaming bubble is open', () => {
+        setupConversation()
+
+        useChatStore.getState().addAgentResponse('A finished answer')
+        const before = useChatStore.getState().currentConversation?.messages
+        expect(before).toHaveLength(1)
+
+        useChatStore.getState().discardStreamingAssistantMessage()
+
+        // The existing finalized answer is untouched.
+        expect(useChatStore.getState().currentConversation?.messages).toHaveLength(1)
+        expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+      })
+    })
+
     test('setPendingInteraction sets interaction', () => {
       const interaction: PendingInteraction = {
         id: 'int-1',
@@ -1624,67 +1961,6 @@ describe('useChatStore', () => {
     })
   })
 
-  describe('file upload status cards', () => {
-    test('addFileUploadStatusCard adds to current conversation', () => {
-      const conv: Conversation = {
-        id: 'conv-1',
-        userId: 'user-1',
-        title: 'Test',
-        messages: [],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      useChatStore.setState({
-        currentUserId: 'user-1',
-        currentConversation: conv,
-        conversations: [conv],
-      })
-
-      useChatStore.getState().addFileUploadStatusCard('uploaded', 3, 'job-123')
-
-      const messages = useChatStore.getState().currentConversation?.messages
-      expect(messages).toHaveLength(1)
-      expect(messages?.[0].messageType).toBe('file_upload_status')
-      expect(messages?.[0].fileUploadStatusData?.type).toBe('uploaded')
-      expect(messages?.[0].fileUploadStatusData?.fileCount).toBe(3)
-      expect(messages?.[0].fileUploadStatusData?.jobId).toBe('job-123')
-    })
-
-    test('addFileUploadStatusCard adds to specific session', () => {
-      const conv1: Conversation = {
-        id: 'conv-1',
-        userId: 'user-1',
-        title: 'Current',
-        messages: [],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      const conv2: Conversation = {
-        id: 'conv-2',
-        userId: 'user-1',
-        title: 'Target',
-        messages: [],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      useChatStore.setState({
-        currentUserId: 'user-1',
-        currentConversation: conv1,
-        conversations: [conv1, conv2],
-      })
-
-      useChatStore.getState().addFileUploadStatusCard('uploaded', 2, 'job-456', 'conv-2')
-
-      // Current conversation should be unchanged
-      expect(useChatStore.getState().currentConversation?.messages).toHaveLength(0)
-
-      // Target conversation should have the message
-      const targetConv = useChatStore.getState().conversations.find((c) => c.id === 'conv-2')
-      expect(targetConv?.messages).toHaveLength(1)
-      expect(targetConv?.messages[0].fileUploadStatusData?.type).toBe('uploaded')
-    })
-  })
-
   describe('restoreSessionState — interrupted response detection', () => {
     const createConversation = (
       messages: Partial<Conversation['messages'][0]>[]
@@ -1703,7 +1979,9 @@ describe('useChatStore', () => {
       updatedAt: new Date(),
     })
 
-    test('adds error card when last meaningful message is user with thinking steps', () => {
+    test('adds error card when last meaningful message is user with thinking steps', async () => {
+      // Server has no persisted assistant reply → genuinely interrupted.
+      mockConversationsClient.listMessages.mockResolvedValueOnce([])
       const conv = createConversation([
         {
           role: 'user',
@@ -1728,11 +2006,68 @@ describe('useChatStore', () => {
       useChatStore.setState({ currentConversation: conv, conversations: [conv] })
       useChatStore.getState().restoreSessionState(conv)
 
-      // Should have added an error card
+      // The banner is added after the (empty) server refetch resolves.
+      await vi.waitFor(() => {
+        const messages = useChatStore.getState().currentConversation?.messages ?? []
+        expect(messages).toHaveLength(2)
+      })
       const messages = useChatStore.getState().currentConversation?.messages ?? []
-      expect(messages).toHaveLength(2)
       expect(messages[1].messageType).toBe('error')
       expect(messages[1].errorData?.errorCode).toBe('agent.response_interrupted')
+    })
+
+    test('sets isRecoveryPending while the recovery fetch is in flight, then clears it (FIX 3)', async () => {
+      // Hold the server refetch open so we can observe the in-flight flag.
+      let resolveList: (value: unknown[]) => void = () => {}
+      mockConversationsClient.listMessages.mockReturnValueOnce(
+        new Promise<unknown[]>((resolve) => {
+          resolveList = resolve
+        }) as never
+      )
+      const conv = createConversation([{ id: 'msg-0', role: 'user', messageType: 'user', content: 'Q' }])
+      useChatStore.setState({ currentConversation: conv, conversations: [conv], isRecoveryPending: false })
+
+      const recovery = useChatStore.getState()._recoverInterruptedAssistantMessage(conv.id, 'msg-0')
+      // The checking state is active for the whole round-trip.
+      expect(useChatStore.getState().isRecoveryPending).toBe(true)
+
+      resolveList([]) // nothing persisted → genuinely lost
+      const recovered = await recovery
+      expect(recovered).toBe(false)
+      // Only after the fetch settles does the flag clear (so the lost UI shows).
+      expect(useChatStore.getState().isRecoveryPending).toBe(false)
+    })
+
+    test('recovers the persisted answer and clears isRecoveryPending (FIX 3)', async () => {
+      mockConversationsClient.listMessages.mockResolvedValueOnce([
+        {
+          id: 'msg-0',
+          conversationId: 'conv-restore',
+          role: 'user',
+          content: 'Q',
+          metadata: {},
+          createdAt: '2026-07-01T10:00:00.000Z',
+        },
+        {
+          id: 'server-assistant-1',
+          conversationId: 'conv-restore',
+          role: 'assistant',
+          content: 'The finished answer.',
+          metadata: { messageType: 'agent_response' },
+          createdAt: '2026-07-01T10:00:05.000Z',
+        },
+      ] as never)
+      const conv = createConversation([{ id: 'msg-0', role: 'user', messageType: 'user', content: 'Q' }])
+      useChatStore.setState({ currentConversation: conv, conversations: [conv], isRecoveryPending: false })
+
+      const recovered = await useChatStore
+        .getState()
+        ._recoverInterruptedAssistantMessage(conv.id, 'msg-0')
+
+      expect(recovered).toBe(true)
+      expect(useChatStore.getState().isRecoveryPending).toBe(false)
+      const messages = useChatStore.getState().currentConversation?.messages ?? []
+      expect(messages.some((m) => m.id === 'server-assistant-1')).toBe(true)
     })
 
     test('does NOT add error card when last message is an assistant response', () => {
@@ -1982,7 +2317,8 @@ describe('useChatStore', () => {
       )
     })
 
-    test('does NOT double-add error card on repeated restore calls', () => {
+    test('does NOT double-add error card on repeated restore calls', async () => {
+      mockConversationsClient.listMessages.mockResolvedValue([]) // empty → banner path
       const conv = createConversation([
         {
           role: 'user',
@@ -2005,16 +2341,21 @@ describe('useChatStore', () => {
 
       useChatStore.setState({ currentConversation: conv, conversations: [conv] })
 
-      // First restore — adds error card
+      // First restore — adds error card after the (empty) server refetch.
       useChatStore.getState().restoreSessionState(conv)
-      const afterFirst = useChatStore.getState().currentConversation?.messages ?? []
-      expect(
-        afterFirst.filter((m) => m.errorData?.errorCode === 'agent.response_interrupted')
-      ).toHaveLength(1)
+      await vi.waitFor(() => {
+        const messages = useChatStore.getState().currentConversation?.messages ?? []
+        expect(
+          messages.filter((m) => m.errorData?.errorCode === 'agent.response_interrupted')
+        ).toHaveLength(1)
+      })
 
-      // Second restore with updated conversation (now includes error card)
+      // Second restore with updated conversation (now includes error card): the
+      // last meaningful message is the error card, so the interrupted branch
+      // does not fire again.
       const updatedConv = useChatStore.getState().currentConversation!
       useChatStore.getState().restoreSessionState(updatedConv)
+      await new Promise((resolve) => setTimeout(resolve, 0))
       const afterSecond = useChatStore.getState().currentConversation?.messages ?? []
       expect(
         afterSecond.filter((m) => m.errorData?.errorCode === 'agent.response_interrupted')
@@ -2168,6 +2509,483 @@ describe('useChatStore', () => {
       expect(trackingMessage?.isDeepResearchActive).toBe(false)
       expect(updatedMessages.some((m) => m.id === 'starting-banner')).toBe(false)
       expect(failureBanner).toBeTruthy()
+    })
+
+    test('keeps the job active when the status lookup fails transiently', async () => {
+      // A brief network blip (or 5xx) must NOT orphan the running job: the
+      // tracking message keeps isDeepResearchActive so the next
+      // reconnectToActiveJob attempt can still find and restore it.
+      mockDeepResearchApi.getJobStatus.mockRejectedValue(
+        new Error('Failed to get job status: 500 - PROXY_ERROR: fetch failed')
+      )
+
+      const conv = createConversation([
+        {
+          id: 'tracking-msg',
+          messageType: 'agent_response',
+          deepResearchJobId: 'job-transient',
+          deepResearchJobStatus: 'running',
+          isDeepResearchActive: true,
+        },
+      ])
+
+      useChatStore.setState({ currentConversation: conv, conversations: [conv] })
+
+      await useChatStore.getState().reconnectToActiveJob()
+
+      const updatedMessages = useChatStore.getState().currentConversation?.messages ?? []
+      const trackingMessage = updatedMessages.find((m) => m.id === 'tracking-msg')
+      const failureBanner = updatedMessages.find(
+        (m) =>
+          m.messageType === 'deep_research_banner' &&
+          m.deepResearchBannerData?.jobId === 'job-transient'
+      )
+
+      expect(trackingMessage?.isDeepResearchActive).toBe(true)
+      expect(trackingMessage?.deepResearchJobStatus).toBe('running')
+      expect(failureBanner).toBeUndefined()
+
+      // A later attempt (backend back up) can still restore the job.
+      mockDeepResearchApi.getJobStatus.mockResolvedValue({
+        job_id: 'job-transient',
+        status: 'running',
+        error: null,
+      })
+
+      await useChatStore.getState().reconnectToActiveJob()
+
+      expect(useChatStore.getState().deepResearchJobId).toBe('job-transient')
+      expect(useChatStore.getState().isDeepResearchStreaming).toBe(true)
+
+      // Reset streaming state so it does not leak into other tests.
+      useChatStore.setState({ isDeepResearchStreaming: false, deepResearchJobId: null })
+    })
+
+    test('seeds the elapsed-time start from the job creation timestamp', async () => {
+      const createdAt = new Date(Date.now() - 5 * 60_000).toISOString()
+      mockDeepResearchApi.getJobStatus.mockResolvedValue({
+        job_id: 'job-elapsed',
+        status: 'running',
+        error: null,
+        created_at: createdAt,
+      })
+
+      const conv = createConversation([
+        {
+          id: 'tracking-msg',
+          messageType: 'agent_response',
+          deepResearchJobId: 'job-elapsed',
+          deepResearchJobStatus: 'running',
+          isDeepResearchActive: true,
+        },
+      ])
+
+      useChatStore.setState({ currentConversation: conv, conversations: [conv] })
+
+      await useChatStore.getState().reconnectToActiveJob()
+
+      expect(useChatStore.getState().deepResearchStartedAt).toBe(Date.parse(createdAt))
+
+      useChatStore.setState({
+        isDeepResearchStreaming: false,
+        deepResearchJobId: null,
+        deepResearchStartedAt: null,
+      })
+    })
+
+    test('falls back to now when the status has no creation timestamp', async () => {
+      mockDeepResearchApi.getJobStatus.mockResolvedValue({
+        job_id: 'job-no-created-at',
+        status: 'running',
+        error: null,
+      })
+
+      const conv = createConversation([
+        {
+          id: 'tracking-msg',
+          messageType: 'agent_response',
+          deepResearchJobId: 'job-no-created-at',
+          deepResearchJobStatus: 'running',
+          isDeepResearchActive: true,
+        },
+      ])
+
+      useChatStore.setState({ currentConversation: conv, conversations: [conv] })
+
+      const before = Date.now()
+      await useChatStore.getState().reconnectToActiveJob()
+
+      const startedAt = useChatStore.getState().deepResearchStartedAt
+      expect(startedAt).not.toBeNull()
+      expect(startedAt!).toBeGreaterThanOrEqual(before)
+
+      useChatStore.setState({
+        isDeepResearchStreaming: false,
+        deepResearchJobId: null,
+        deepResearchStartedAt: null,
+      })
+    })
+  })
+
+  describe('composer prefill', () => {
+    test('starts empty', () => {
+      expect(useChatStore.getState().composerPrefill).toBeNull()
+    })
+
+    test('setComposerPrefill queues text for the composer', () => {
+      useChatStore.getState().setComposerPrefill('Ask about OIB 2 fire resistance')
+
+      expect(useChatStore.getState().composerPrefill).toEqual({
+        text: 'Ask about OIB 2 fire resistance',
+      })
+    })
+
+    test('setComposerPrefill carries structured mentions alongside the text', () => {
+      // The hand-off banner's prefill renders `@Piloti …`: the mention must
+      // travel with the text or the send routes as a plain message (MN-3).
+      useChatStore
+        .getState()
+        .setComposerPrefill('@Piloti ', [{ targetId: 'agent:piloti', display: 'Piloti' }])
+
+      expect(useChatStore.getState().composerPrefill).toEqual({
+        text: '@Piloti ',
+        mentions: [{ targetId: 'agent:piloti', display: 'Piloti' }],
+      })
+    })
+
+    test('consumeComposerPrefill returns the queued text and clears it (one-shot)', () => {
+      useChatStore.getState().setComposerPrefill('Draft question')
+
+      const first = useChatStore.getState().consumeComposerPrefill()
+      const second = useChatStore.getState().consumeComposerPrefill()
+
+      expect(first).toEqual({ text: 'Draft question' })
+      expect(second).toBeNull()
+      expect(useChatStore.getState().composerPrefill).toBeNull()
+    })
+
+    test('consumeComposerPrefill returns null when nothing is queued', () => {
+      expect(useChatStore.getState().consumeComposerPrefill()).toBeNull()
+    })
+
+    test('consumeComposerPrefill preserves an empty-string prefill as a distinct value', () => {
+      // Empty string is a valid (if unusual) prefill and must not be conflated
+      // with "nothing queued" -- consume returns it once, then null.
+      useChatStore.getState().setComposerPrefill('')
+
+      expect(useChatStore.getState().consumeComposerPrefill()).toEqual({ text: '' })
+      expect(useChatStore.getState().consumeComposerPrefill()).toBeNull()
+    })
+  })
+
+  describe('composer drafts (per-session)', () => {
+    test('starts empty', () => {
+      expect(useChatStore.getState().composerDrafts).toEqual({})
+      expect(useChatStore.getState().getComposerDraft('conv-1')).toBe('')
+    })
+
+    test('setComposerDraft saves in-progress text per session id', () => {
+      useChatStore.getState().setComposerDraft('conv-1', 'half typed question')
+
+      expect(useChatStore.getState().getComposerDraft('conv-1')).toBe('half typed question')
+      expect(useChatStore.getState().composerDrafts).toEqual({ 'conv-1': 'half typed question' })
+    })
+
+    test('keeps drafts isolated per session (two sessions keep separate drafts)', () => {
+      useChatStore.getState().setComposerDraft('conv-1', 'draft for one')
+      useChatStore.getState().setComposerDraft('conv-2', 'draft for two')
+
+      expect(useChatStore.getState().getComposerDraft('conv-1')).toBe('draft for one')
+      expect(useChatStore.getState().getComposerDraft('conv-2')).toBe('draft for two')
+    })
+
+    test('setComposerDraft with empty string drops the entry (no orphan blank drafts)', () => {
+      useChatStore.getState().setComposerDraft('conv-1', 'something')
+      useChatStore.getState().setComposerDraft('conv-1', '')
+
+      expect(useChatStore.getState().getComposerDraft('conv-1')).toBe('')
+      expect('conv-1' in useChatStore.getState().composerDrafts).toBe(false)
+    })
+
+    test('clearComposerDraft removes exactly one session draft', () => {
+      useChatStore.getState().setComposerDraft('conv-1', 'draft for one')
+      useChatStore.getState().setComposerDraft('conv-2', 'draft for two')
+
+      useChatStore.getState().clearComposerDraft('conv-1')
+
+      expect(useChatStore.getState().getComposerDraft('conv-1')).toBe('')
+      expect(useChatStore.getState().getComposerDraft('conv-2')).toBe('draft for two')
+    })
+
+    test('persists drafts to localStorage so a reload restores them', async () => {
+      useChatStore.setState({ currentUserId: 'user-1' })
+      useChatStore.getState().setComposerDraft('conv-1', 'survives reload')
+
+      await vi.waitFor(() => {
+        const stored = localStorage.getItem(STORAGE_KEY)
+        expect(stored).not.toBeNull()
+        const parsed = JSON.parse(stored!)
+        expect(parsed.state.composerDrafts).toEqual({ 'conv-1': 'survives reload' })
+      })
+    })
+
+    test('deleteConversation drops the deleted session draft', () => {
+      const conv: Conversation = {
+        id: 'conv-1',
+        userId: 'user-1',
+        title: 'Test',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+      useChatStore.setState({
+        currentUserId: 'user-1',
+        currentConversation: conv,
+        conversations: [conv],
+      })
+      useChatStore.getState().setComposerDraft('conv-1', 'draft to drop')
+      useChatStore.getState().setComposerDraft('conv-2', 'keep me')
+
+      useChatStore.getState().deleteConversation('conv-1')
+
+      expect('conv-1' in useChatStore.getState().composerDrafts).toBe(false)
+      expect(useChatStore.getState().getComposerDraft('conv-2')).toBe('keep me')
+    })
+  })
+
+  describe('project scoping (UX-8 cross-project bleed)', () => {
+    const makeConv = (id: string, userId: string, projectId?: string | null): Conversation => ({
+      id,
+      userId,
+      // undefined models legacy pre-scoping sessions restored from storage
+      ...(projectId !== undefined && { projectId }),
+      title: `Conv ${id}`,
+      messages: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    describe('getUserConversations', () => {
+      test('inside a project, lists that project\'s sessions plus unscoped legacy sessions (fail-open)', () => {
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: 'proj-a',
+          conversations: [
+            makeConv('a-1', 'user-1', 'proj-a'),
+            makeConv('b-1', 'user-1', 'proj-b'),
+            makeConv('legacy-null', 'user-1', null),
+            makeConv('legacy-undef', 'user-1'),
+            makeConv('other-user', 'user-2', 'proj-a'),
+          ],
+        })
+
+        const ids = useChatStore.getState().getUserConversations().map((c) => c.id)
+
+        expect(ids).toEqual(['a-1', 'legacy-null', 'legacy-undef'])
+      })
+
+      test('without a project context, lists all of the user\'s sessions', () => {
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: null,
+          conversations: [
+            makeConv('a-1', 'user-1', 'proj-a'),
+            makeConv('b-1', 'user-1', 'proj-b'),
+            makeConv('legacy', 'user-1', null),
+          ],
+        })
+
+        expect(useChatStore.getState().getUserConversations()).toHaveLength(3)
+      })
+    })
+
+    describe('createConversation / ensureSession', () => {
+      test('createConversation stamps the active projectId', () => {
+        useChatStore.setState({ currentUserId: 'user-1', projectId: 'proj-a' })
+
+        const conv = useChatStore.getState().createConversation()
+
+        expect(conv.projectId).toBe('proj-a')
+      })
+
+      test('ensureSession stamps the active projectId on the new session', () => {
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: 'proj-a',
+          currentConversation: null,
+        })
+
+        const sessionId = useChatStore.getState().ensureSession()
+
+        const created = useChatStore.getState().conversations.find((c) => c.id === sessionId)
+        expect(created?.projectId).toBe('proj-a')
+      })
+    })
+
+    describe('selectConversation guard', () => {
+      test('refuses to activate another project\'s session under the current project', () => {
+        const foreign = makeConv('b-1', 'user-1', 'proj-b')
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: 'proj-a',
+          conversations: [foreign],
+          currentConversation: null,
+        })
+
+        useChatStore.getState().selectConversation('b-1')
+
+        expect(useChatStore.getState().currentConversation).toBeNull()
+      })
+
+      test('allows selecting an unscoped legacy session in any project (fail-open)', () => {
+        const legacy = makeConv('legacy', 'user-1', null)
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: 'proj-a',
+          conversations: [legacy],
+          currentConversation: null,
+        })
+
+        useChatStore.getState().selectConversation('legacy')
+
+        expect(useChatStore.getState().currentConversation?.id).toBe('legacy')
+      })
+    })
+
+    describe('deleteAllConversations scoping', () => {
+      test('deletes only the current project\'s sessions and unscoped legacy sessions', () => {
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: 'proj-a',
+          conversations: [
+            makeConv('a-1', 'user-1', 'proj-a'),
+            makeConv('a-2', 'user-1', 'proj-a'),
+            makeConv('legacy', 'user-1', null),
+            makeConv('b-1', 'user-1', 'proj-b'),
+            makeConv('other-user', 'user-2', 'proj-a'),
+          ],
+          currentConversation: makeConv('a-1', 'user-1', 'proj-a'),
+        })
+
+        useChatStore.getState().deleteAllConversations()
+
+        const state = useChatStore.getState()
+        // Another project's history must survive a project-scoped delete-all.
+        expect(state.conversations.map((c) => c.id).sort()).toEqual(['b-1', 'other-user'])
+        expect(state.currentConversation).toBeNull()
+      })
+
+      test('keeps a foreign-project current conversation untouched', () => {
+        // Defensive: currentConversation should never point at another
+        // project after the guards, but delete-all must still not clear it
+        // blindly if state is inconsistent.
+        const foreignCurrent = makeConv('b-1', 'user-1', 'proj-b')
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: 'proj-a',
+          conversations: [makeConv('a-1', 'user-1', 'proj-a'), foreignCurrent],
+          currentConversation: foreignCurrent,
+        })
+
+        useChatStore.getState().deleteAllConversations()
+
+        const state = useChatStore.getState()
+        expect(state.conversations.map((c) => c.id)).toEqual(['b-1'])
+        expect(state.currentConversation?.id).toBe('b-1')
+      })
+
+      test('without a project context, deletes all of the user\'s sessions (org-wide view)', () => {
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: null,
+          conversations: [
+            makeConv('a-1', 'user-1', 'proj-a'),
+            makeConv('b-1', 'user-1', 'proj-b'),
+            makeConv('other-user', 'user-2', 'proj-a'),
+          ],
+          currentConversation: null,
+        })
+
+        useChatStore.getState().deleteAllConversations()
+
+        expect(useChatStore.getState().conversations.map((c) => c.id)).toEqual(['other-user'])
+      })
+
+      test('drops drafts for exactly the removed sessions, keeping other projects\' drafts', () => {
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: 'proj-a',
+          conversations: [
+            makeConv('a-1', 'user-1', 'proj-a'),
+            makeConv('legacy', 'user-1', null),
+            makeConv('b-1', 'user-1', 'proj-b'),
+          ],
+          currentConversation: null,
+        })
+        useChatStore.getState().setComposerDraft('a-1', 'in scope')
+        useChatStore.getState().setComposerDraft('legacy', 'legacy in scope')
+        useChatStore.getState().setComposerDraft('b-1', 'other project')
+
+        useChatStore.getState().deleteAllConversations()
+
+        // In-scope sessions (proj-a + unscoped legacy) and their drafts are gone;
+        // the other project's session and its draft are untouched.
+        expect('a-1' in useChatStore.getState().composerDrafts).toBe(false)
+        expect('legacy' in useChatStore.getState().composerDrafts).toBe(false)
+        expect(useChatStore.getState().getComposerDraft('b-1')).toBe('other project')
+      })
+    })
+
+    describe('setProjectId guard (stale state / URL restore)', () => {
+      test('clears a persisted current conversation from another project when entering a project', () => {
+        const foreign = makeConv('b-1', 'user-1', 'proj-b')
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: null,
+          conversations: [foreign],
+          currentConversation: foreign,
+        })
+
+        useChatStore.getState().setProjectId('proj-a')
+
+        const state = useChatStore.getState()
+        expect(state.projectId).toBe('proj-a')
+        expect(state.currentConversation).toBeNull()
+        // The session itself is NOT deleted — it stays available in its own project.
+        expect(state.conversations.map((c) => c.id)).toEqual(['b-1'])
+      })
+
+      test('keeps a matching or unscoped current conversation', () => {
+        const own = makeConv('a-1', 'user-1', 'proj-a')
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          currentConversation: own,
+          conversations: [own],
+        })
+
+        useChatStore.getState().setProjectId('proj-a')
+        expect(useChatStore.getState().currentConversation?.id).toBe('a-1')
+
+        const legacy = makeConv('legacy', 'user-1', null)
+        useChatStore.setState({ currentConversation: legacy, conversations: [legacy] })
+
+        useChatStore.getState().setProjectId('proj-a')
+        expect(useChatStore.getState().currentConversation?.id).toBe('legacy')
+      })
+
+      test('leaving the project context (null) never clears the current conversation', () => {
+        const own = makeConv('a-1', 'user-1', 'proj-a')
+        useChatStore.setState({
+          currentUserId: 'user-1',
+          projectId: 'proj-a',
+          currentConversation: own,
+          conversations: [own],
+        })
+
+        useChatStore.getState().setProjectId(null)
+
+        expect(useChatStore.getState().currentConversation?.id).toBe('a-1')
+      })
     })
   })
 })

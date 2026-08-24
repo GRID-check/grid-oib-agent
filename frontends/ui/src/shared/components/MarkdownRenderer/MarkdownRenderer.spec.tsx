@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '@/test-utils'
 import { describe, test, expect, vi } from 'vitest'
-import { MarkdownRenderer } from './MarkdownRenderer'
+import { MarkdownRenderer, stabilizeStreamingMarkdown } from './MarkdownRenderer'
+import { InternalLinkProvider } from './internal-link-context'
 
 describe('MarkdownRenderer', () => {
   describe('basic rendering', () => {
@@ -60,6 +61,84 @@ describe('MarkdownRenderer', () => {
       expect(screen.getByRole('heading', { level: 1 })).toHaveAttribute('id', 'introduction')
       expect(screen.getByRole('heading', { level: 2 })).toHaveAttribute('id', 'key-findings')
       expect(screen.getByRole('heading', { level: 3 })).toHaveAttribute('id', 'next-steps')
+    })
+
+    /*
+      A report that assesses two variants writes „## Bewertung" twice. Both
+      headings used to get `id="bewertung"`, so `getElementById` found the first
+      and every link to the second — an outline row, an in-page citation anchor
+      — scrolled to the wrong section without ever failing.
+    */
+    test('a repeated heading gets an id of its own', () => {
+      const { container } = render(
+        <MarkdownRenderer content={'## Bewertung\n\nText.\n\n## Bewertung\n\n## Bewertung'} />
+      )
+
+      const ids = Array.from(container.querySelectorAll('h2')).map((heading) => heading.id)
+      expect(ids).toEqual(['bewertung', 'bewertung-2', 'bewertung-3'])
+    })
+
+    test('the first occurrence keeps the id it has always had', () => {
+      // Links published against `#zusammenfassung` — stored citation anchors,
+      // an address somebody pasted — must not move because a later section
+      // repeats the title.
+      const { container } = render(
+        <MarkdownRenderer content={'## Zusammenfassung\n\n## Zusammenfassung'} />
+      )
+
+      expect(container.querySelector('h2')?.id).toBe('zusammenfassung')
+    })
+
+    test('two renderers on one page do not number each other', () => {
+      // A chat thread mounts one of these per answer, and a module-level or
+      // ref-held counter would carry the first document's tally into the
+      // second: its lone „Bewertung" would come out as `bewertung-2`.
+      const { container } = render(
+        <>
+          <MarkdownRenderer content={'## Bewertung\n\n## Bewertung'} />
+          <MarkdownRenderer content={'## Bewertung'} />
+        </>
+      )
+
+      const ids = Array.from(container.querySelectorAll('h2')).map((heading) => heading.id)
+      expect(ids).toEqual(['bewertung', 'bewertung-2', 'bewertung'])
+    })
+
+    test('re-rendering the same document does not renumber it', () => {
+      // The ids come from a pure pass over the markdown, not from counting the
+      // callbacks as they fire, so a second render — which React may perform
+      // whenever it likes — cannot move an anchor.
+      const { container, rerender } = render(
+        <MarkdownRenderer content={'## Bewertung\n\n## Bewertung'} />
+      )
+      rerender(<MarkdownRenderer content={'## Bewertung\n\n## Bewertung'} className="x" />)
+
+      const ids = Array.from(container.querySelectorAll('h2')).map((heading) => heading.id)
+      expect(ids).toEqual(['bewertung', 'bewertung-2'])
+    })
+
+    test('a heading inside fenced code is sample text and takes no id', () => {
+      const { container } = render(
+        <MarkdownRenderer
+          content={'## Bewertung\n\n```markdown\n## Bewertung\n```\n\n## Bewertung'}
+        />
+      )
+
+      const ids = Array.from(container.querySelectorAll('h2')).map((heading) => heading.id)
+      expect(ids).toEqual(['bewertung', 'bewertung-2'])
+    })
+
+    test('the anchor scroll target of a repeated heading is the second one', () => {
+      const scrollIntoView = vi.fn()
+      const { container } = render(
+        <MarkdownRenderer content={'## Bewertung\n\n## Bewertung\n\n[Zur zweiten](#bewertung-2)'} />
+      )
+      const second = container.querySelectorAll('h2')[1]
+      second.scrollIntoView = scrollIntoView
+
+      fireEvent.click(screen.getByRole('link', { name: 'Zur zweiten' }))
+
+      expect(scrollIntoView).toHaveBeenCalled()
     })
   })
 
@@ -169,6 +248,80 @@ Paragraph 2.`} />)
 
       vi.restoreAllMocks()
     })
+
+    /*
+      German headings are the normal case here, not an edge case: the answers and
+      OIB reports this renders are written in German. Stripping the umlaut
+      outright ("Gebäude" → "gebude") produced an id nothing links to, so every
+      in-page link into such a section silently did nothing — `scrollToAnchor`
+      returns quietly when `getElementById` misses.
+    */
+    test('gives a German heading an id that survives its umlauts', () => {
+      render(<MarkdownRenderer content={'## Brandschutz für Gebäude'} />)
+
+      expect(screen.getByRole('heading', { name: 'Brandschutz für Gebäude' })).toHaveAttribute(
+        'id',
+        'brandschutz-fuer-gebaeude'
+      )
+    })
+
+    test('gives a heading with ß an id that survives it', () => {
+      render(<MarkdownRenderer content={'## Außenwand'} />)
+
+      expect(screen.getByRole('heading', { name: 'Außenwand' })).toHaveAttribute(
+        'id',
+        'aussenwand'
+      )
+    })
+
+    /*
+      An in-app link is not an external one. Answers now write links back into
+      the app — `/app/projects/:id/model?element=…` opens a wall in the viewer —
+      and a new tab there means leaving the app to re-enter it with a cold store.
+    */
+    test('in-app links stay in the same tab', () => {
+      render(<MarkdownRenderer content="[AW 38](/app/projects/p1/model?element=abc)" />)
+
+      const link = screen.getByRole('link', { name: 'AW 38' })
+      expect(link).toHaveAttribute('href', '/app/projects/p1/model?element=abc')
+      expect(link).not.toHaveAttribute('target')
+    })
+
+    test('a protocol-relative href is external, however much it looks internal', () => {
+      // `//evil.example/app` is another origin. This renders model output, so
+      // the near-miss is the case that matters.
+      render(<MarkdownRenderer content="[Link](//evil.example/app/projects/p1/model)" />)
+
+      const link = screen.getByRole('link', { name: 'Link' })
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    })
+
+    test('a surface that knows the destination renders it itself', () => {
+      render(
+        <InternalLinkProvider
+          render={({ href, children }) => <span data-testid="custom">{`${children}@${href}`}</span>}
+        >
+          <MarkdownRenderer content="[AW 38](/app/projects/p1/model?element=abc)" />
+        </InternalLinkProvider>
+      )
+
+      expect(screen.getByTestId('custom')).toHaveTextContent(
+        'AW 38@/app/projects/p1/model?element=abc'
+      )
+      expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    })
+
+    test('leaves ASCII heading ids exactly as they were', () => {
+      // The transliteration must not disturb the ids already in use — including
+      // the punctuation-stripping shape (`1.2` → `12`, not `1-2`).
+      render(<MarkdownRenderer content={'## Section 1.2 Overview'} />)
+
+      expect(screen.getByRole('heading', { name: 'Section 1.2 Overview' })).toHaveAttribute(
+        'id',
+        'section-12-overview'
+      )
+    })
   })
 
   describe('code blocks', () => {
@@ -233,6 +386,42 @@ Below`} />)
       expect(screen.getByText('Header 2')).toBeInTheDocument()
       expect(screen.getByText('Cell 1')).toBeInTheDocument()
       expect(screen.getByText('Cell 4')).toBeInTheDocument()
+    })
+  })
+
+  describe('math (KaTeX)', () => {
+    test('renders inline math instead of leaving raw $ delimiters', () => {
+      const { container } = render(
+        <MarkdownRenderer content={'The resistance is $R = \\rho \\frac{L}{A}$ overall.'} />
+      )
+
+      // rehype-katex emits a .katex wrapper for typeset math.
+      expect(container.querySelector('.katex')).toBeInTheDocument()
+      // The raw TeX source with dollar delimiters must not survive as text.
+      expect(container.textContent).not.toContain('$R = \\rho')
+    })
+
+    test('renders fenced display math ($$ on their own lines) as a centered block', () => {
+      const { container } = render(
+        <MarkdownRenderer
+          content={'Result:\n\n$$\nq_{\\mathrm{f}} = \\frac{\\sum M_i H_i}{A}\n$$\n\nDone.'}
+        />
+      )
+
+      expect(container.querySelector('.katex-display')).toBeInTheDocument()
+    })
+
+    test('leaves a lone dollar sign in prose untouched', () => {
+      render(<MarkdownRenderer content="The permit fee was 5 dollars, not $." />)
+
+      expect(screen.getByText(/The permit fee was 5 dollars/)).toBeInTheDocument()
+    })
+
+    test('does not crash on malformed TeX (throwOnError: false)', () => {
+      const { container } = render(<MarkdownRenderer content={'Broken: $\\frac{1}$ here.'} />)
+
+      // Renders something rather than throwing; container is present.
+      expect(container.querySelector('.markdown-content')).toBeInTheDocument()
     })
   })
 
@@ -312,6 +501,51 @@ Visit [our site](https://example.com) for more.
 
       // Should render without errors
       expect(screen.getByText(/Bold with/)).toBeInTheDocument()
+    })
+  })
+
+  describe('the streaming stabilizer is linear in the length of a line', () => {
+    /**
+     * The delimiter-row test used to read `/^\s*\|?\s*:?-{1,}/`, putting two
+     * `\s*` either side of an optional pipe. On a line of pure whitespace the
+     * engine can split that whitespace between them in quadratically many ways:
+     * 32k tabs took 1,034ms against 0.1ms for the fix. This runs on every token
+     * of every streaming answer, over text a model writes from retrieved
+     * documents, so the length of a line is not ours to bound.
+     *
+     * Measured on the function directly rather than through `render`. A first
+     * version of this test wrapped a full React render around the clock and was
+     * flaky in CI at 737ms against a 400ms budget — on a loaded runner the
+     * render dominates, and the thing under test is microseconds. Calling the
+     * function alone puts four orders of magnitude between healthy and the
+     * defect, which no runner contention can close.
+     */
+    test('a long run of whitespace under a table does not stall the stabilizer', () => {
+      // The whitespace must sit BEFORE the pipe. Only then can the two `\s*`
+      // compete to split it; with the pipe first, one of them consumes the run
+      // and the scan is linear even with the defect in place — a first version
+      // of this test put it after and passed against the bug. The line still
+      // reaches the check, because the surrounding code selects lines whose
+      // `trim()` starts with a pipe, and this one's does.
+      const content = `| Bauteil | REI |\n${'\t'.repeat(32_000)}|\n`
+
+      const started = performance.now()
+      stabilizeStreamingMarkdown(content)
+      const elapsed = performance.now() - started
+
+      expect(elapsed).toBeLessThan(200)
+    })
+
+    test('a real delimiter row is still recognised, so the table is not escaped', () => {
+      const table = '| Bauteil | REI |\n| :--- | ---: |\n| Wand | 90 |'
+
+      expect(stabilizeStreamingMarkdown(table)).toBe(table)
+    })
+
+    test('a header-only table is still deferred until its delimiter row arrives', () => {
+      const partial = '| Bauteil | REI |'
+
+      expect(stabilizeStreamingMarkdown(partial)).toBe('\\| Bauteil \\| REI \\|')
     })
   })
 })

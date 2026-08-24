@@ -44,10 +44,39 @@ services:
       - NAT_JOB_STORE_DB_URL=${NAT_JOB_STORE_DB_URL:-postgresql+asyncpg://aiq:aiq_dev@postgres:5432/aiq_jobs}
       - AIQ_CHECKPOINT_DB=${AIQ_CHECKPOINT_DB:-postgresql://aiq:aiq_dev@postgres:5432/aiq_checkpoints}
       - AIQ_SUMMARY_DB=${AIQ_SUMMARY_DB:-postgresql+psycopg://aiq:aiq_dev@postgres:5432/aiq_jobs}
+      # SSE LISTEN/NOTIFY needs a direct Postgres session; set explicitly so a
+      # future PgBouncer in front of the pooled DSNs never breaks job streams.
+      - AIQ_LISTEN_DB_URL=${AIQ_LISTEN_DB_URL:-postgresql://aiq:aiq_dev@postgres:5432/aiq_jobs}
+      # Shared cache (Dragonfly, ADR-0020): citation-registry snapshots and
+      # cross-replica caches. Unset = per-process in-memory fallback.
+      - REDIS_URL=${REDIS_URL:-redis://dragonfly:6379/0}
+      # Stateless chat tier via the Dragonfly pub/sub conversation bus (ADR-0028).
+      # On by default; fails open to local delivery. Set to 0 to opt out.
+      - GRID_CONVERSATION_BUS=${GRID_CONVERSATION_BUS:-1}
       # Project Memory: the `remember` tool writes via the frontend's internal
       # API (single-writer separation — the backend never touches grid_app).
       - FRONTEND_INTERNAL_URL=${FRONTEND_INTERNAL_URL:-http://frontend:3000}
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
+      # Object storage, for `view_knowledge_image` (ADR-0039): the tool asks the
+      # BFF where a document is and then reads the bytes from SeaweedFS itself.
+      # These were only ever wired in the Kubernetes deployment, so in compose
+      # the tool failed its credential guard and silently degraded every
+      # project/Archiv image to a text-only block — no error, no log line
+      # anyone would look at. The Kubernetes tier holds a dedicated read-only
+      # identity here; compose has one identity, so it uses that.
+      - SEAWEED_ENDPOINT=${SEAWEED_ENDPOINT:-http://seaweedfs:8333}
+      # Browser-facing host: the BFF signs presigned URLs against this, so the
+      # ingest endpoint must accept file_refs pointing at it too (SSRF
+      # allowlist in aiq_api.routes.ingest).
+      - SEAWEED_PUBLIC_ENDPOINT=${SEAWEED_PUBLIC_ENDPOINT:-http://localhost:8333}
+      # READ-ONLY. `view_knowledge_image` (ADR-0039) only ever calls get_object,
+      # and this tier used to carry the `grid` credential — which holds
+      # Write and Tagging on every document bucket, so a compromise here could
+      # overwrite or delete any tenant document. AGENTS.md already described this
+      # tier as read-only; now it is.
+      - SEAWEED_ACCESS_KEY=${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
+      - SEAWEED_SECRET_KEY=${SEAWEED_READONLY_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
+      - SEAWEED_BUCKET=${SEAWEED_BUCKET:-grid-documents}
       # LlamaIndex persistence (used by config_web_default_llamaindex.yml)
       - AIQ_CHROMA_DIR=${AIQ_CHROMA_DIR:-/app/data/chroma_data}
       # Server config
@@ -79,10 +108,14 @@ services:
     depends_on:
       aiq-data-permissions:
         condition: service_completed_successfully
-      minio:
+      seaweedfs:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      # service_started, NOT service_healthy: the cache is optional by design
+      # (fail-open in both tiers) and must never block the stack.
+      dragonfly:
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 15s
@@ -99,35 +132,173 @@ services:
       - chroma_data:/app/data/chroma_data
     restart: "no"
 
-  minio:
-    image: minio/minio:RELEASE.2024-06-29T01-20-47Z
+  seaweedfs:
+    # SeaweedFS S3-compatible object storage. One `weed server -s3` process runs
+    # master (9333), volume (8080), filer (8888) and the S3 gateway (8333) — the
+    # single-node topology that replaces MinIO. S3 identities are generated at
+    # boot from SEAWEED_ACCESS_KEY/SEAWEED_SECRET_KEY into an s3.json config
+    # (SeaweedFS has no MINIO_ROOT_* env; it authenticates via access/secret keys).
+    image: chrislusf/seaweedfs:3.80
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "8333:8333" # S3 API
+      - "8888:8888" # Filer (browse/debug)
+      - "9333:9333" # Master (admin/status)
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    command: server /data --console-address ":9001"
+      # Interpolated from `deploy/.env`, exactly as the CLIENTS read them. These
+      # used to be literals here while the frontend and agent read
+      # `${SEAWEED_ACCESS_KEY:-seaweedadmin}` — so setting the variable changed
+      # the clients and not the generated `s3.json`, and the first request failed
+      # `InvalidAccessKeyId`. One variable per credential, both sides.
+      #
+      # ── Access keys default; SECRET keys are `:?` and have no default ────────
+      #
+      # The two halves are not the same kind of value. An access key is an
+      # IDENTITY NAME — it has to match a name in the `s3.json` generated below,
+      # so a default is how the two sides stay in agreement. A secret key is the
+      # credential itself, and a default there is a password shared by every
+      # install that never set one, on a service that publishes port 8333 and
+      # holds every tenant's documents. `deploy/.env.example` already told
+      # operators to generate this one; the compose file quietly supplied a
+      # literal when they did not, which is the same silent-weak-default failure
+      # in a place nobody looks.
+      #
+      # So they are required. `docker compose up` without them fails at
+      # interpolation with the message below, before anything starts — a
+      # setup step, not an incident. Generate all three in one line:
+      #
+      #   for v in SEAWEED_SECRET_KEY SEAWEED_READONLY_SECRET_KEY \
+      #            SEAWEED_TENANT_ADMIN_SECRET_KEY; do
+      #     echo "$v=$(openssl rand -hex 24)" >> deploy/.env
+      #   done
+      #
+      # The other dev credentials in this file (`aiq_dev`, `grid_app_rw_dev`)
+      # keep their defaults. Not an inconsistency worth hiding: they are named
+      # for what they are, and they are not the keys to an object store reachable
+      # from a browser.
+      SEAWEED_ACCESS_KEY: ${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      SEAWEED_SECRET_KEY: ${SEAWEED_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
+      # The READ-ONLY identity the agent tier uses (ADR-0039). It was missing
+      # from this file entirely, so `aiq-agent` and `agent-worker` ran on the
+      # write-capable `grid` credential — able to overwrite or delete any
+      # document object in any bucket, for a tool that only ever calls
+      # get_object. That made the compose stack a weaker authorization model than
+      # production, in the environment people develop against.
+      SEAWEED_READONLY_ACCESS_KEY: ${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
+      SEAWEED_READONLY_SECRET_KEY: ${SEAWEED_READONLY_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
+      # A THIRD identity, and a DISTINCT credential, for bucket lifecycle.
+      # SeaweedFS's `Admin:<bucket>` authorises CreateBucket and DeleteBucket
+      # together, so the two can only be separated by putting them on different
+      # credentials.
+      #
+      # These must be on THIS service, not only on the frontend: the printf
+      # below runs inside this container, and an undefined variable there
+      # expands to an empty string. SeaweedFS accepts an identity with an empty
+      # access key without complaint, so the failure is a silent
+      # InvalidAccessKeyId on the first tenant upload rather than anything at
+      # boot.
+      SEAWEED_TENANT_ADMIN_ACCESS_KEY: ${SEAWEED_TENANT_ADMIN_ACCESS_KEY:-grid-tenant-admin}
+      SEAWEED_TENANT_ADMIN_SECRET_KEY: ${SEAWEED_TENANT_ADMIN_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
+      # A FOURTH identity, for the Langfuse trace archive (ADR-0044). Declared
+      # unconditionally so the compose authorization model stays identical to
+      # production's — an identity nobody uses costs nothing, and the parity
+      # test in `deploy/pulumi/src/data/seaweedfs.spec.ts` compares this list
+      # against `s3IdentityCatalog` precisely so the two cannot drift.
+      #
+      # This is the ONE secret key here with a default, and the exception is
+      # deliberate rather than an oversight. The three above are required
+      # because they open buckets that exist in every install the moment it
+      # starts. This one opens `langfuse`, a bucket the `langfuse` profile
+      # creates and nothing else touches — so making it required would fail
+      # `docker compose up` at interpolation for every developer who has never
+      # enabled an opt-in profile. Set it in deploy/.env before running the
+      # profile anywhere that is not a laptop.
+      SEAWEED_LANGFUSE_ACCESS_KEY: ${SEAWEED_LANGFUSE_ACCESS_KEY:-grid-langfuse}
+      SEAWEED_LANGFUSE_SECRET_KEY: ${SEAWEED_LANGFUSE_SECRET_KEY:-langfuse_dev}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        mkdir -p /etc/seaweedfs &&
+        printf '{"identities":[{"name":"grid","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:grid-documents","Read:grid-org-*","Write:grid-documents","Write:grid-org-*","List:grid-documents","List:grid-org-*","Tagging:grid-documents","Tagging:grid-org-*"]},{"name":"grid-backend-read","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:grid-documents","Read:grid-org-*"]},{"name":"grid-tenant-admin","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin:grid-org-*"]},{"name":"grid-langfuse","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:langfuse","Write:langfuse","List:langfuse","Tagging:langfuse"]}]}\n' "$$SEAWEED_ACCESS_KEY" "$$SEAWEED_SECRET_KEY" "$$SEAWEED_READONLY_ACCESS_KEY" "$$SEAWEED_READONLY_SECRET_KEY" "$$SEAWEED_TENANT_ADMIN_ACCESS_KEY" "$$SEAWEED_TENANT_ADMIN_SECRET_KEY" "$$SEAWEED_LANGFUSE_ACCESS_KEY" "$$SEAWEED_LANGFUSE_SECRET_KEY" > /etc/seaweedfs/s3.json &&
+        exec weed server -dir=/data -volume.max=0 -s3 -s3.config=/etc/seaweedfs/s3.json -s3.port=8333
     volumes:
-      - minio-data:/data
+      - seaweedfs-data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      # Master status is a stable, auth-free 200 across versions — proves the
+      # server process is serving HTTP. Bucket readiness is gated separately by
+      # seaweedfs-init (below), which app services wait on.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9333/cluster/status"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 15s
     networks:
       - aiq-network
     restart: unless-stopped
 
-  minio-init:
-    image: minio/mc:latest
+  seaweedfs-init:
+    # Pre-create the platform buckets. SeaweedFS returns NoSuchBucket for puts to
+    # a missing bucket (it does not auto-create), so the app needs them to exist.
+    # `weed shell` talks to the filer via the master; `|| true` keeps re-runs
+    # idempotent (bucket-already-exists is a successful no-op).
+    #
+    # `langfuse` (ADR-0044) is created unconditionally, like its S3 identity —
+    # this service is not part of the opt-in profile, and an empty bucket costs
+    # nothing, while a missing one would make `--profile langfuse` fail on its
+    # first ingested event rather than at startup.
+    #
+    # `|| true` used to swallow the exit code, which was survivable while
+    # nothing depended on this Job. It is not now: `langfuse-web` waits on
+    # `service_completed_successfully`, so a masked failure means the profile
+    # starts against a bucket that does not exist and fails on its first
+    # ingested event instead of at boot.
+    #
+    # `s3.bucket.create` errors on an existing bucket, so the exit code alone
+    # cannot distinguish "already there" from "master unreachable". The
+    # authoritative check is therefore the STATE, not the command: create both,
+    # then assert both are listed. That is idempotent AND fails loudly for a
+    # down master, a bad credential, or a renamed flag.
+    image: chrislusf/seaweedfs:3.80
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >
-        mc alias set local http://minio:9000 minioadmin minioadmin &&
-        mc mb local/grid-documents --ignore-existing
+        printf 's3.bucket.create -name grid-documents\ns3.bucket.create -name langfuse\n'
+        | weed shell -master=seaweedfs:9333 || true;
+        buckets=$$(echo 's3.bucket.list' | weed shell -master=seaweedfs:9333) || exit 1;
+        for b in grid-documents langfuse; do
+        echo "$$buckets" | grep -q "$$b" || { echo "bucket $$b missing after init"; exit 1; }; done;
+        echo 'buckets present: grid-documents langfuse'
     depends_on:
-      minio:
+      seaweedfs:
+        condition: service_healthy
+    networks:
+      - aiq-network
+    restart: "no"
+
+  # One-shot migrator. Separate from `frontend` so the long-lived container that
+  # serves requests never holds the schema-owner credential — otherwise any bug
+  # that opens a second connection gets a full row-level-security bypass in the
+  # very process RLS exists to constrain (ADR-0041). Kubernetes already worked
+  # this way; compose now matches it.
+  grid-migrate:
+    image: ${FRONTEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-frontend:2.0.0}
+    build:
+      context: ../../frontends/ui
+      dockerfile: deploy/Dockerfile
+    container_name: aiq-blueprint-migrate
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - node scripts/ensure-rls-roles.mjs && node node_modules/drizzle-kit/bin.cjs migrate
+    environment:
+      # Schema owner: DDL and data backfills. RLS does not apply to a table's
+      # owner, which is what keeps backfills working.
+      - GRID_APP_MIGRATION_DATABASE_URL=${GRID_APP_MIGRATION_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
+      # Read only so `ensure-rls-roles` can keep grid_app_rw's login in step
+      # with the credential the app actually uses.
+      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}
+    depends_on:
+      postgres:
         condition: service_healthy
     networks:
       - aiq-network
@@ -138,6 +309,9 @@ services:
       context: ../../frontends/ui
       dockerfile: deploy/Dockerfile
     container_name: aiq-blueprint-ui
+    # The image CMD migrates then serves; migration has moved to grid-migrate,
+    # so this container only serves.
+    command: ["node", "server.js"]
     environment:
       - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
       # APP_ENV lets the internal memory route distinguish dev from prod: the
@@ -146,27 +320,52 @@ services:
       # the built image, so it cannot be used for this).
       - APP_ENV=${APP_ENV:-production}
       - BACKEND_URL=${BACKEND_URL:-http://aiq-agent:8000}
-      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
+      # Runtime connection: the least-privilege role, subject to row-level
+      # security (ADR-0041). A repository that forgets its organization
+      # predicate returns no rows instead of another tenant's.
+      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}
       # Shared service token for the internal memory endpoint (must match aiq-agent)
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
+      # S1 security default: agent org-wide memory writes are OFF unless explicitly
+      # enabled here (see app/api/internal/memory/route.ts). Leave false in production.
+      - GRID_ALLOW_AGENT_ORG_MEMORY=${GRID_ALLOW_AGENT_ORG_MEMORY:-false}
+      # Admin token for the backend's /v1/admin/oib/* endpoints (must match
+      # aiq-agent). Powers the platform-owner base-knowledge management UI.
+      - GRID_ADMIN_TOKEN=${GRID_ADMIN_TOKEN:-}
       - WORKOS_CLIENT_ID=${WORKOS_CLIENT_ID}
       - WORKOS_API_KEY=${WORKOS_API_KEY}
       - NEXT_PUBLIC_WORKOS_REDIRECT_URI=${NEXT_PUBLIC_WORKOS_REDIRECT_URI:-${WORKOS_REDIRECT_URI:-http://localhost:3000/api/auth/callback}}
       - WORKOS_COOKIE_PASSWORD=${WORKOS_COOKIE_PASSWORD}
+      # BYOK LLM credentials (ADR-0022): secret backend for tenant API keys.
+      # Default: WorkOS Vault when WORKOS_API_KEY is set, else local AES-GCM
+      # under GRID_BYOK_LOCAL_KEK (32 bytes, base64).
+      - GRID_BYOK_SECRET_BACKEND=${GRID_BYOK_SECRET_BACKEND:-}
+      - GRID_BYOK_LOCAL_KEK=${GRID_BYOK_LOCAL_KEK:-}
+      - GRID_BYOK_ALLOW_PRIVATE_BASE_URLS=${GRID_BYOK_ALLOW_PRIVATE_BASE_URLS:-false}
       - FILE_UPLOAD_ACCEPTED_TYPES=${FILE_UPLOAD_ACCEPTED_TYPES:-.pdf,.docx,.txt,.md}
       - FILE_UPLOAD_MAX_SIZE_MB=${FILE_UPLOAD_MAX_SIZE_MB:-}
       - FILE_UPLOAD_MAX_FILE_COUNT=${FILE_UPLOAD_MAX_FILE_COUNT:-}
       - FILE_EXPIRATION_CHECK_INTERVAL_HOURS=${FILE_EXPIRATION_CHECK_INTERVAL_HOURS:-}
-      - MINIO_ENDPOINT=http://minio:9000
+      - SEAWEED_ENDPOINT=http://seaweedfs:8333
       # Browser-reachable endpoint used ONLY to sign presigned URLs handed to the
       # browser (PDF preview/download). Must be a host the browser can resolve --
-      # the internal `minio` hostname above is not. Defaults to the published
-      # localhost port for local dev; set to your public MinIO/S3 URL in prod.
-      - MINIO_PUBLIC_ENDPOINT=${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
-      - MINIO_ACCESS_KEY=minioadmin
-      - MINIO_SECRET_KEY=minioadmin
-      - MINIO_BUCKET=grid-documents
-      - MINIO_PRESIGNED_URL_TTL_SECONDS=600
+      # the internal `seaweedfs` hostname above is not. Defaults to the published
+      # localhost port for local dev; set to your public SeaweedFS/S3 URL in prod.
+      - SEAWEED_PUBLIC_ENDPOINT=${SEAWEED_PUBLIC_ENDPOINT:-http://localhost:8333}
+      - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
+      - SEAWEED_BUCKET=grid-documents
+      # Per-organization buckets (ADR-0043). Off here: compose is the
+      # single-node development stack, and the bucket a document lives in is
+      # recorded on its row, so this can be flipped later without a migration.
+      - SEAWEED_PER_ORG_BUCKETS=${SEAWEED_PER_ORG_BUCKETS:-false}
+      - SEAWEED_TENANT_BUCKET_PREFIX=${SEAWEED_TENANT_BUCKET_PREFIX:-grid-org-}
+      # Bucket LIFECYCLE credential — its own identity, scoped `Admin:grid-org-*`
+      # and nothing else, because SeaweedFS cannot grant CreateBucket without
+      # also granting DeleteBucket.
+      - SEAWEED_TENANT_ADMIN_ACCESS_KEY=${SEAWEED_TENANT_ADMIN_ACCESS_KEY:-grid-tenant-admin}
+      - SEAWEED_TENANT_ADMIN_SECRET_KEY=${SEAWEED_TENANT_ADMIN_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
+      - SEAWEED_PRESIGNED_URL_TTL_SECONDS=600
       - PROJECT_PURGE_GRACE_DAYS=${PROJECT_PURGE_GRACE_DAYS:-7}
       # OpenRouter model catalog for the org model-config picker/validation.
       # The catalog endpoint works unauthenticated; the key (same one the
@@ -175,15 +374,45 @@ services:
       # Euros per 1 USD for comparing EUR budget limits against the USD costs
       # OpenRouter reports (docs/architecture/usage-budgets.md).
       - GRID_BUDGET_EUR_PER_USD=${GRID_BUDGET_EUR_PER_USD:-0.86}
+      # Platform tier (ADR-0016): break-glass owner bootstrap, platform-org
+      # external id override, and the self-serve org creation gate.
+      - GRID_PLATFORM_OWNER_EMAILS=${GRID_PLATFORM_OWNER_EMAILS:-}
+      - GRID_PLATFORM_ORG_EXTERNAL_ID=${GRID_PLATFORM_ORG_EXTERNAL_ID:-grid-platform}
+      - GRID_DISABLE_SELF_SERVE_ORGS=${GRID_DISABLE_SELF_SERVE_ORGS:-false}
+      # Shared cache (Dragonfly, ADR-0020): read-through caches (membership,
+      # flags, prompt view, model overrides, budget limits, model catalog) and
+      # the WS-upgrade rate limiter. Unset = per-process in-memory fallback.
+      - REDIS_URL=${REDIS_URL:-redis://dragonfly:6379/0}
+      - GRID_WS_UPGRADE_RATE_LIMIT=${GRID_WS_UPGRADE_RATE_LIMIT:-30}
+      # ── Agent Skills (ADR-0046): dark-launch gate + save-time cron validation ──
+      - GRID_SKILLS_ENABLED=${GRID_SKILLS_ENABLED:-false}
+      - GRID_SKILL_MIN_INTERVAL_MINUTES=${GRID_SKILL_MIN_INTERVAL_MINUTES:-15}
+      # ── Collaboration (ADR-0032…0035): shared chats, @-mentions, the inbox ──
+      # Dark-launch gate, default-deny: with it off the inbox nav entry, the
+      # share surfaces and the mention picker do not exist and the
+      # /api/inbox|sharing|mentions|stream routes 403.
+      - GRID_COLLABORATION_ENABLED=${GRID_COLLABORATION_ENABLED:-false}
+      # IFC/BIM models (ADR-0045). ON by default; set false to withdraw the
+      # feature without turning on flag enforcement for everything else.
+      - GRID_IFC_MODELS_ENABLED=${GRID_IFC_MODELS_ENABLED:-true}
+      # Extraction bounds. BIM_MAX_IFC_BYTES is also the UPLOAD ceiling for a
+      # .ifc — the two must not disagree. Defaults: 250 MB / 200 000 rows.
+      - BIM_MAX_IFC_BYTES=${BIM_MAX_IFC_BYTES:-}
+      - BIM_ELEMENT_LIMIT=${BIM_ELEMENT_LIMIT:-}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     networks:
       - aiq-network
     depends_on:
+      grid-migrate:
+        condition: service_completed_successfully
       aiq-agent:
         condition: service_healthy
-      minio:
+      seaweedfs:
         condition: service_healthy
+      # Wait for the bucket to exist before serving uploads.
+      seaweedfs-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     # Liveness for the frontend web server. Hits the dependency-free
@@ -214,24 +443,131 @@ services:
     container_name: grid-purger
     command: ["node", "purger/index.js"]
     environment:
-      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
+      # Least-privilege runtime role (ADR-0041). This worker sweeps every
+      # organization, so it steps up to grid_app_platform per transaction
+      # — see frontends/ui/workers/platform-scope.js.
+      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}
       - BACKEND_URL=${BACKEND_URL:-http://aiq-agent:8000}
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
-      - MINIO_ENDPOINT=http://minio:9000
-      - MINIO_ACCESS_KEY=minioadmin
-      - MINIO_SECRET_KEY=minioadmin
-      - MINIO_BUCKET=grid-documents
+      - SEAWEED_ENDPOINT=http://seaweedfs:8333
+      - SEAWEED_PUBLIC_ENDPOINT=${SEAWEED_PUBLIC_ENDPOINT:-http://localhost:8333}
+      - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
+      - SEAWEED_BUCKET=grid-documents
+      # No per-organization bucket variables here on purpose: the purge reads
+      # the buckets its documents recorded rather than deriving them, so it
+      # needs neither the naming rule nor the feature flag (ADR-0043).
       - WORKOS_API_KEY=${WORKOS_API_KEY}
       - PURGER_POLL_INTERVAL_MS=${PURGER_POLL_INTERVAL_MS:-60000}
     networks:
       - aiq-network
     depends_on:
+      grid-migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
-      minio:
+      seaweedfs:
         condition: service_healthy
+      seaweedfs-init:
+        condition: service_completed_successfully
       aiq-agent:
         condition: service_healthy
+    restart: unless-stopped
+
+  skill-scheduler:
+    # Agent Skills cron scheduler (ADR-0046). Dedicated worker off the frontend
+    # image (like the purger): DB-claimed ticks advance each due schedule's
+    # next_run_at (FOR UPDATE SKIP LOCKED — replica- and crash-safe), then POST
+    # the BFF internal fire endpoint. No-ops and exits 0 unless the skills
+    # feature gate is on (GRID_SKILLS_ENABLED / GRID_ENFORCE_FEATURE_FLAGS).
+    image: ${FRONTEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-frontend:2.0.0}
+    build:
+      context: ../../frontends/ui
+      dockerfile: deploy/Dockerfile
+    container_name: grid-skill-scheduler
+    command: ["node", "scheduler/index.js"]
+    environment:
+      # Least-privilege runtime role (ADR-0041). This worker sweeps every
+      # organization, so it steps up to grid_app_platform per transaction
+      # — see frontends/ui/workers/platform-scope.js.
+      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}
+      - FRONTEND_INTERNAL_URL=${FRONTEND_INTERNAL_URL:-http://frontend:3000}
+      - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
+      # Object storage, for `view_knowledge_image` (ADR-0039): the tool asks the
+      # BFF where a document is and then reads the bytes from SeaweedFS itself.
+      # These were only ever wired in the Kubernetes deployment, so in compose
+      # the tool failed its credential guard and silently degraded every
+      # project/Archiv image to a text-only block — no error, no log line
+      # anyone would look at. The Kubernetes tier holds a dedicated read-only
+      # identity here; compose has one identity, so it uses that.
+      - SEAWEED_ENDPOINT=${SEAWEED_ENDPOINT:-http://seaweedfs:8333}
+      - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
+      - SEAWEED_BUCKET=${SEAWEED_BUCKET:-grid-documents}
+      # Deployment start gate: the scheduler refuses to run (clean exit 0) unless
+      # skills are enabled here or feature-flag enforcement is on. This service
+      # previously passed GRID_WORKFLOWS_ENABLED, which the worker no longer
+      # reads — so the container started, found no gate, and exited 0 forever.
+      - GRID_SKILLS_ENABLED=${GRID_SKILLS_ENABLED:-false}
+      - GRID_ENFORCE_FEATURE_FLAGS=${GRID_ENFORCE_FEATURE_FLAGS:-false}
+      - GRID_SKILL_SCHEDULER_POLL_MS=${GRID_SKILL_SCHEDULER_POLL_MS:-30000}
+      - GRID_SKILL_SCHEDULER_BATCH=${GRID_SKILL_SCHEDULER_BATCH:-20}
+      - GRID_SKILL_RUNS_RETENTION_DAYS=${GRID_SKILL_RUNS_RETENTION_DAYS:-90}
+    networks:
+      - aiq-network
+    depends_on:
+      grid-migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.05'
+          memory: 128M
+    restart: unless-stopped
+
+  dragonfly:
+    # Redis-protocol shared cache (ADR-0020). Cache semantics only: every
+    # value is reconstructible (read-through caches, rate-limit counters,
+    # citation snapshots), so no persistence volume — cache_mode evicts under
+    # memory pressure instead of failing writes.
+    # --force_epoll: Dragonfly defaults to io_uring and CRASHES on boot where
+    # the kernel/seccomp denies it (common on VPS/managed Docker hosts);
+    # epoll is universally available and far above our throughput needs.
+    # --proactor_threads=1: Dragonfly refuses to start unless maxmemory is at
+    # least 256MiB per thread, so 2 threads would need a 512MiB cap. One
+    # thread keeps the 256MiB footprint and is ample for a small cache.
+    image: dragonflydb/dragonfly:v1.27.1
+    container_name: aiq-dragonfly
+    command:
+      [
+        "dragonfly",
+        "--logtostderr",
+        "--force_epoll",
+        "--proactor_threads=1",
+        "--maxmemory=256mb",
+        "--cache_mode=true",
+        "--dbfilename=",
+      ]
+    ulimits:
+      memlock: -1
+    networks:
+      - aiq-network
+    # Observability only — nothing depends_on this being healthy: both app
+    # tiers fail open to in-process caches (ADR-0020), so a broken cache must
+    # never block a deployment.
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -p 6379 ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
   postgres:
@@ -268,14 +604,201 @@ services:
       start_period: 120s
     restart: unless-stopped
 
+  # ===========================================================================
+  # Langfuse (ADR-0044) — durable LLM observability, self-hosted OSS
+  # ===========================================================================
+  #
+  # OPT-IN. Every service below carries `profiles: [langfuse]`, so a plain
+  # `docker compose up` starts exactly what it started before. To run it:
+  #
+  #   docker compose --env-file ../.env -f docker-compose.yaml \
+  #     --profile langfuse up -d
+  #
+  # Then open http://localhost:3100 and sign in with LANGFUSE_INIT_USER_EMAIL /
+  # LANGFUSE_INIT_USER_PASSWORD from deploy/.env (there is no WorkOS SSO here —
+  # in Kubernetes the edge SecurityPolicy and Langfuse's own SSO do that job,
+  # and neither has an equivalent on a laptop).
+  #
+  # WHAT DOES **NOT** WORK LOCALLY, and it is the interesting half: nothing
+  # sends it any traces. The backend's OTLP exporter is gated on
+  # OTEL_EXPORTER_OTLP_ENDPOINT, which compose deliberately leaves unset
+  # (ADR-0029), and there is no OTel Collector here to fan out from. This
+  # profile exists to develop against the Langfuse UI and API — dashboards,
+  # prompt management, the schema — not to reproduce the ingestion path. Point
+  # a local `nat run` at it directly if you need spans.
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    container_name: aiq-clickhouse
+    profiles: [langfuse]
+    environment:
+      CLICKHOUSE_DB: langfuse
+      # Non-`default` on purpose: the image's entrypoint only removes its
+      # passwordless `default` SUPERUSER when CLICKHOUSE_USER is something else.
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-langfuse_dev}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "0"
+      # Langfuse's queries return empty result sets on a non-UTC server.
+      TZ: UTC
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    networks:
+      - aiq-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping | grep -q Ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  langfuse-queue:
+    # The ingestion queue — a THIRD Redis-protocol instance, never the ADR-0020
+    # cache. `--cache_mode=false` is REQUIRED, not a preference: an evicted
+    # queue entry is a trace that silently never arrives, because the event
+    # itself is already sitting intact and unreferenced in S3.
+    image: dragonflydb/dragonfly:v1.27.1
+    container_name: aiq-langfuse-queue
+    profiles: [langfuse]
+    command:
+      [
+        "dragonfly",
+        "--logtostderr",
+        "--force_epoll",
+        "--proactor_threads=1",
+        "--maxmemory=256mb",
+        "--cache_mode=false",
+        "--dbfilename=",
+      ]
+    ulimits:
+      memlock: -1
+    networks:
+      - aiq-network
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -p 6379 ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  langfuse-web:
+    image: ghcr.io/langfuse/langfuse:3
+    container_name: aiq-langfuse-web
+    profiles: [langfuse]
+    ports:
+      - "3100:3000" # 3000 is taken by the frontend
+    environment:
+      # `langfuse_app`, not `aiq`: Langfuse runs its own Prisma migrations, so
+      # its credential holds DDL rights and must not reach grid_app. The role
+      # and database come from init-db.sql.
+      DATABASE_URL: postgresql://langfuse_app:langfuse_dev@postgres:5432/langfuse  # pragma: allowlist secret (compose dev default, fixed by init-db.sql)
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_DB: langfuse
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-langfuse_dev}
+      # Single node => plain MergeTree DDL rather than the Replicated* engines,
+      # which need a keeper quorum. A schema decision, not a tuning one.
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      REDIS_CONNECTION_STRING: redis://langfuse-queue:6379/0
+      NEXTAUTH_URL: http://localhost:3100
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-langfuse_dev_nextauth_secret}
+      SALT: ${LANGFUSE_SALT:-langfuse_dev_salt}
+      # 64 HEX characters — the one secret here that is not base64. Langfuse
+      # crash-loops on a wrong-length value without naming the variable.
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://seaweedfs:8333
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${SEAWEED_LANGFUSE_ACCESS_KEY:-grid-langfuse}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${SEAWEED_LANGFUSE_SECRET_KEY:-langfuse_dev}
+      # SeaweedFS addresses buckets as paths; without this the SDK dials
+      # http://langfuse.seaweedfs:8333, which does not resolve.
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      # Pre-seed the org, project and ingestion keys so a local stack is usable
+      # (and scriptable) the moment it boots, exactly as Pulumi does in k8s.
+      LANGFUSE_INIT_ORG_ID: grid
+      LANGFUSE_INIT_ORG_NAME: Grid
+      LANGFUSE_INIT_PROJECT_ID: grid-oib
+      LANGFUSE_INIT_PROJECT_NAME: Grid OIB
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-00000000-0000-0000-0000-000000000000}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-00000000-0000-0000-0000-000000000000}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-dev@grid.local}
+      LANGFUSE_INIT_USER_NAME: Grid Dev
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-langfuse_dev_password}
+      TELEMETRY_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      langfuse-queue:
+        condition: service_healthy
+      seaweedfs-init:
+        condition: service_completed_successfully
+    networks:
+      - aiq-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/public/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      # Migrations run before the server listens; a cold ClickHouse makes that
+      # slow, and a container killed mid-migration restarts it from the top.
+      start_period: 180s
+    restart: unless-stopped
+
+  langfuse-worker:
+    image: ghcr.io/langfuse/langfuse-worker:3
+    container_name: aiq-langfuse-worker
+    profiles: [langfuse]
+    environment:
+      DATABASE_URL: postgresql://langfuse_app:langfuse_dev@postgres:5432/langfuse  # pragma: allowlist secret (compose dev default, fixed by init-db.sql)
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_DB: langfuse
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-langfuse_dev}
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      REDIS_CONNECTION_STRING: redis://langfuse-queue:6379/0
+      SALT: ${LANGFUSE_SALT:-langfuse_dev_salt}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://seaweedfs:8333
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${SEAWEED_LANGFUSE_ACCESS_KEY:-grid-langfuse}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${SEAWEED_LANGFUSE_SECRET_KEY:-langfuse_dev}
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      # Migrations belong to ONE container. Both images ship them and both run
+      # them by default, so leaving these unset means web and worker contend on
+      # an advisory lock at every start and the loser blocks until its
+      # healthcheck gives up. The web tier owns them.
+      LANGFUSE_AUTO_POSTGRES_MIGRATION_DISABLED: "true"
+      LANGFUSE_AUTO_CLICKHOUSE_MIGRATION_DISABLED: "true"
+      TELEMETRY_ENABLED: "false"
+    depends_on:
+      # On the WEB tier, not just the stores: it is what has migrated the
+      # schema this container is about to query.
+      langfuse-web:
+        condition: service_healthy
+    networks:
+      - aiq-network
+    restart: unless-stopped
+
 volumes:
   aiq-data:
     driver: local
   chroma_data:
     driver: local
-  minio-data:
+  seaweedfs-data:
     driver: local
   postgres-data:
+    driver: local
+  clickhouse-data:
     driver: local
 
 networks:

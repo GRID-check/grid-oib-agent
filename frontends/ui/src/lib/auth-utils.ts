@@ -3,6 +3,7 @@ export const isAuthzError = (error: unknown): boolean => {
   const message = error.message.toLowerCase()
   return (
     message === 'not found' ||
+    message.startsWith('not found:') ||
     message.includes('unauthorized') ||
     message.includes('forbidden')
   )

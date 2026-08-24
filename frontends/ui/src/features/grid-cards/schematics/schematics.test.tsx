@@ -7,9 +7,12 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render as rtlRender, screen } from '@testing-library/react'
+import type { ReactElement } from 'react'
+import { I18nProvider } from '@/i18n'
 import { BuildingSectionCard } from './BuildingSectionCard'
 import { StairDiagramCard } from './StairDiagramCard'
+import { LimitBar } from './kit'
 import { DimensionDiagramCard } from './DimensionDiagramCard'
 import { SetbackPlanCard } from './SetbackPlanCard'
 import { EgressDiagramCard } from './EgressDiagramCard'
@@ -23,6 +26,20 @@ import { ThermalEnvelopeCard } from './ThermalEnvelopeCard'
 import { EnergyPerformanceCard } from './EnergyPerformanceCard'
 import { ElevatorRequirementCard } from './ElevatorRequirementCard'
 import { ParkingRequirementCard } from './ParkingRequirementCard'
+
+/**
+ * The cards render in German because the reader is Austrian, and the copy now
+ * comes from the dictionary rather than from literals in the components. A
+ * test that renders without a provider sees the default locale (`en`), so the
+ * locale is pinned here; `fixedLocale` also skips the provider's preference
+ * reconciliation, which would be a fetch.
+ */
+const render = (ui: ReactElement) =>
+  rtlRender(
+    <I18nProvider initialLocale="de" fixedLocale>
+      {ui}
+    </I18nProvider>
+  )
 
 describe('BuildingSectionCard', () => {
   it('draws storeys, ground datum, and threshold markers with the norm footer', () => {
@@ -643,5 +660,277 @@ describe('ParkingRequirementCard', () => {
     expect(screen.getByText(/1 Stpl. je 100 m² BGF/)).toBeInTheDocument()
     expect(screen.getByText('nicht erfüllt')).toBeInTheDocument()
     expect(screen.getByText('Wiener Garagengesetz')).toBeInTheDocument()
+  })
+})
+
+/**
+ * The provenance of a number, which the card used to drop on the floor.
+ *
+ * `ifc_measure` answers „gemessen: 2,47 m (±5 mm) — aus der Geometrie
+ * berechnet, nicht deklariert", the assistant repeats that in the prose, and
+ * this card drew **2,47 m ✓** beside it — indistinguishable from a figure the
+ * architect had stated in their own file. A card is the part a reviewer
+ * screenshots into a submission, so the surface that dropped the qualifier was
+ * the one most likely to be forwarded without it.
+ */
+describe('a measured number carries where it came from', () => {
+  it('separates our measurement from the architect’s own statement', () => {
+    render(
+      <DimensionDiagramCard
+        title="Türdurchgang"
+        shape="door"
+        dimensions={[
+          {
+            label: 'Rohbaulichte',
+            value: 90,
+            required: 80,
+            unit: 'cm',
+            comparator: '>=',
+            status: 'pass',
+            provenance: 'computed',
+            tolerance: 0.5,
+          },
+          {
+            label: 'Türhöhe laut Schedule',
+            value: 211,
+            required: 200,
+            unit: 'cm',
+            comparator: '>=',
+            status: 'pass',
+            provenance: 'declared',
+          },
+        ]}
+        reference={{ document: 'OIB-Richtlinie 4', section: 'Pkt. 2.1' }}
+      />
+    )
+
+    expect(screen.getByText('gemessen')).toBeInTheDocument()
+    expect(screen.getByText('±0,5 cm')).toBeInTheDocument()
+    expect(screen.getByText('laut Modell')).toBeInTheDocument()
+  })
+
+  it('shows no band for a declared figure, because the tolerance is not ours', () => {
+    render(
+      <DimensionDiagramCard
+        title="Türdurchgang"
+        shape="door"
+        dimensions={[
+          {
+            label: 'Türbreite',
+            value: 90,
+            unit: 'cm',
+            status: 'pass',
+            provenance: 'declared',
+            tolerance: 0.5,
+          },
+        ]}
+        reference={{ document: 'OIB-Richtlinie 4' }}
+      />
+    )
+
+    expect(screen.getByText('laut Modell')).toBeInTheDocument()
+    expect(screen.queryByText('±0,5 cm')).not.toBeInTheDocument()
+  })
+
+  it('prints the CAD remedy instead of an empty slot when the export cannot say', () => {
+    render(
+      <DimensionDiagramCard
+        title="Türdurchgang"
+        shape="door"
+        dimensions={[
+          {
+            label: 'Lichte Durchgangsbreite',
+            value: null,
+            required: 80,
+            unit: 'cm',
+            comparator: '>=',
+            status: 'needs_input',
+            missing: 'Die Tür trägt kein IfcOpeningElement mit Geometrie — im CAD als Öffnung modellieren.',
+          },
+        ]}
+        reference={{ document: 'OIB-Richtlinie 4' }}
+      />
+    )
+
+    // Twice on purpose: once on the drawing where the dimension would have
+    // been, once in the legend. Both are the absence; only the legend can carry
+    // the remedy, which is why the remedy is asserted separately.
+    expect(screen.getAllByText('fehlende Angabe').length).toBeGreaterThan(0)
+    expect(screen.getByText(/im CAD als Öffnung modellieren/)).toBeInTheDocument()
+  })
+})
+
+describe('the tolerance band against the limit', () => {
+  it('says the check is undecided when the band straddles the limit', () => {
+    /**
+     * The one thing this bar can say faster than a sentence can. A value whose
+     * ± band crosses the threshold is on BOTH sides of the line at the
+     * precision we actually have, and a bar that filled it green or red would
+     * assert a verdict the measurement does not support.
+     */
+    render(
+      <EnergyPerformanceCard
+        title="Energieausweis"
+        hwb={{
+          label: 'Heizwärmebedarf',
+          value: 54,
+          required: 55,
+          unit: 'kWh/(m²a)',
+          comparator: '<=',
+          status: 'warning',
+          provenance: 'computed',
+          tolerance: 3,
+        }}
+        reference={{ document: 'OIB-Richtlinie 6' }}
+      />
+    )
+
+    expect(screen.getByText(/Messtoleranz reicht über den Grenzwert/)).toBeInTheDocument()
+    expect(screen.getByText(/genauer aufmessen/)).toBeInTheDocument()
+  })
+
+  it('stays quiet when the whole band satisfies an inclusive limit', () => {
+    /**
+     * 54 ±3 against „≤ 55" warns, because 57 fails it. 50 ±5 against the same
+     * limit must NOT: every value in [45, 55] meets a „≤ 55", and the endpoint
+     * is inside the limit, not across it. The first version tested `hi >=
+     * required` and warned here.
+     */
+    render(
+      <EnergyPerformanceCard
+        title="Energieausweis"
+        hwb={{
+          label: 'Heizwärmebedarf',
+          value: 50,
+          required: 55,
+          unit: 'kWh/(m²a)',
+          comparator: '<=',
+          status: 'pass',
+          provenance: 'computed',
+          tolerance: 5,
+        }}
+        reference={{ document: 'OIB-Richtlinie 6' }}
+      />
+    )
+    expect(screen.queryByText(/Messtoleranz reicht über den Grenzwert/)).not.toBeInTheDocument()
+  })
+
+  it('still warns at the same endpoint when the limit points the other way', () => {
+    /**
+     * The half a symmetric strict test gets wrong. 50 ±5 against „≥ 55" reaches
+     * the limit at its top end and fails everywhere below it, so it IS
+     * undecided — and a rule written as `lo < required && hi > required`, which
+     * fixes the case above, silently stops warning here.
+     */
+    render(
+      <EnergyPerformanceCard
+        title="Nutzbreite"
+        hwb={{
+          label: 'Breite',
+          value: 50,
+          required: 55,
+          unit: 'cm',
+          comparator: '>=',
+          status: 'warning',
+          provenance: 'computed',
+          tolerance: 5,
+        }}
+        reference={{ document: 'OIB-Richtlinie 4' }}
+      />
+    )
+    expect(screen.getByText(/Messtoleranz reicht über den Grenzwert/)).toBeInTheDocument()
+  })
+
+  it('says nothing about crossing when no comparator gives the limit a direction', () => {
+    /**
+     * Rendered through `LimitBar` directly rather than through a card, because
+     * every card that uses it defaults the comparator (`comparator ?? '<='`),
+     * so a null one is unreachable from that direction. The branch is
+     * defensive, and this is the level at which it is real.
+     */
+    render(<LimitBar check={{ label: 'Breite', value: 54, required: 55, unit: 'cm', status: 'warning',
+                              provenance: 'computed', tolerance: 3 }} />)
+    expect(screen.queryByText(/Messtoleranz reicht über den Grenzwert/)).not.toBeInTheDocument()
+    // The band itself is still shown: it qualifies the number either way.
+    expect(screen.getByText('±3 cm')).toBeInTheDocument()
+  })
+
+  it('stays quiet when the band clears the limit outright', () => {
+    render(
+      <EnergyPerformanceCard
+        title="Energieausweis"
+        hwb={{
+          label: 'Heizwärmebedarf',
+          value: 40,
+          required: 55,
+          unit: 'kWh/(m²a)',
+          comparator: '<=',
+          status: 'pass',
+          provenance: 'computed',
+          tolerance: 3,
+        }}
+        reference={{ document: 'OIB-Richtlinie 6' }}
+      />
+    )
+
+    expect(screen.queryByText(/Messtoleranz reicht über den Grenzwert/)).not.toBeInTheDocument()
+    // The band is still shown — it qualifies the number whether or not it
+    // changes the verdict.
+    expect(screen.getByText('±3 kWh/(m²a)')).toBeInTheDocument()
+  })
+})
+
+describe('a drawing fits the card it is printed in', () => {
+  const SHAPES = ['door', 'ramp', 'corridor', 'turning_circle', 'threshold', 'parking_space'] as const
+
+  /**
+   * A schematic is geometry, not a styled box: whatever the SVG does not have
+   * room for is cut off at the card edge, and the part that goes missing is
+   * the outer gutter where the dimension arrows and their numbers are placed.
+   * The canvas therefore may never ask for more width than it is given — no
+   * pixel floor, no intrinsic width — so on a phone the drawing shrinks and
+   * stays whole instead of running past the edge with a number on it.
+   */
+  it.each(SHAPES)('the %s drawing never claims a width the card cannot give', (shape) => {
+    const { container } = render(
+      <DimensionDiagramCard
+        title="Skizze"
+        shape={shape}
+        dimensions={[
+          { label: 'Breite', value: 120, required: 120, unit: 'cm', comparator: '>=', status: 'pass' },
+          { label: 'Höhe', value: 210, required: 200, unit: 'cm', comparator: '>=', status: 'pass' },
+        ]}
+      />
+    )
+
+    const svg = container.querySelector('svg[role="img"]') as SVGSVGElement
+    expect(svg.style.minWidth).toBe('')
+    expect(svg.getAttribute('class')).toContain('w-full')
+  })
+
+  /**
+   * And it may not be blown up without limit either: the drawings are authored
+   * in units that behave like pixels, so a narrow one stretched to fill a wide
+   * column turns two numbers into several hundred pixels of picture. The cap
+   * is a plain multiple of the authored width, which keeps the scale uniform —
+   * every ratio the drawing asserts survives it.
+   */
+  it('caps how far a narrow drawing is blown up, in proportion to how it was drawn', () => {
+    const { container } = render(
+      <DimensionDiagramCard
+        title="Wendekreis"
+        shape="turning_circle"
+        dimensions={[
+          { label: 'Durchmesser', value: 150, required: 150, unit: 'cm', comparator: '>=', status: 'pass' },
+        ]}
+      />
+    )
+
+    const svg = container.querySelector('svg[role="img"]') as SVGSVGElement
+    const viewW = Number(svg.getAttribute('viewBox')!.split(' ')[2])
+    const maxWidth = Number.parseFloat(svg.style.maxWidth)
+
+    expect(maxWidth).toBeGreaterThan(viewW)
+    expect(maxWidth / viewW).toBeLessThanOrEqual(1.5)
   })
 })

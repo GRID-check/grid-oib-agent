@@ -12,7 +12,6 @@ import { type FC } from 'react'
 import { Wrench } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 import { ToolCallCard, type ToolCallInfo } from './ToolCallCard'
-import { EMPTY_RESEARCH_DETAILS_HELP_TEXT } from './research-empty-state-copy'
 
 interface ToolCallsTabProps {
   /** Array of tool call info from SSE events */
@@ -52,16 +51,16 @@ export const ToolCallsTab: FC<ToolCallsTabProps> = ({ toolCalls = [] }) => {
       {/* Content */}
       {isEmpty ? (
         <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-          <span data-testid="toolcalls-empty-icon" className="mb-3 h-8 w-8 text-muted-foreground">
-            <Wrench className="h-8 w-8" aria-hidden="true" />
+          <span data-testid="toolcalls-empty-icon" className="mb-3 size-8 text-muted-foreground">
+            <Wrench className="size-8" aria-hidden="true" />
           </span>
           <p className="text-sm text-muted-foreground">{t('toolCallsTab.empty')}</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            {EMPTY_RESEARCH_DETAILS_HELP_TEXT}
+            {t('detailsHelp')}
           </p>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain">
           {toolCalls.map((toolCall) => (
             <div key={toolCall.id} className="shrink-0">
               <ToolCallCard toolCall={toolCall} />

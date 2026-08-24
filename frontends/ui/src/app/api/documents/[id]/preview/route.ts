@@ -1,80 +1,15 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { GetObjectCommand } from '@aws-sdk/client-s3'
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import { eq } from 'drizzle-orm'
-import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { signingS3Client, bucketName } from '@/lib/s3'
-import { getDb } from '@/lib/db'
-import { documents } from '@/lib/db/schema'
+/**
+ * Document preview API — presign a browser-facing inline preview URL
+ * (415 for non-previewable content types).
+ * Thin handler; all logic lives in `@/lib/documents/service`.
+ */
 
-const PREVIEW_CONTENT_TYPES = [
-  'application/pdf',
-  'image/png',
-  'image/jpeg',
-  'image/jpg',
-  'image/gif',
-  'image/webp',
-  'image/svg+xml',
-  'image/bmp',
-  'image/tiff',
-]
+import { apiRoute } from '@/lib/api/handler'
+import { getDocumentPreview } from '@/lib/documents/service'
 
-export async function GET(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const { id } = await params
+type Params = { id: string }
 
-    const db = getDb()
-    const [doc] = await db
-      .select({
-        minioKey: documents.minioKey,
-        contentType: documents.contentType,
-        filename: documents.filename,
-        organizationId: documents.organizationId,
-        projectId: documents.projectId,
-      })
-      .from(documents)
-      .where(eq(documents.id, id))
-      .limit(1)
-
-    if (!doc) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    }
-
-    if (doc.organizationId !== session.organizationId) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    }
-
-    const contentType = doc.contentType || 'application/octet-stream'
-    if (!PREVIEW_CONTENT_TYPES.includes(contentType)) {
-      return NextResponse.json(
-        { error: 'Preview not available for this file type', contentType },
-        { status: 415 },
-      )
-    }
-
-    const presignedUrl = await getSignedUrl(
-      signingS3Client,
-      new GetObjectCommand({
-        Bucket: bucketName,
-        Key: doc.minioKey,
-        ResponseContentDisposition: `inline; filename="${doc.filename}"`,
-        ResponseContentType: contentType,
-      }),
-      { expiresIn: 3600 },
-    )
-
-    return NextResponse.json({ url: presignedUrl, contentType, filename: doc.filename })
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    console.error('GET /api/documents/[id]/preview error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
-      { status: 500 },
-    )
-  }
-}
+export const GET = apiRoute<Params>(
+  async ({ session, params }) => getDocumentPreview(session, params.id),
+  { authz: { enforcedBy: 'getDocumentPreview -> getAccessibleDocument (project:view)' } }
+)

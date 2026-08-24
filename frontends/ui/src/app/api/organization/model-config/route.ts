@@ -1,98 +1,126 @@
 /**
  * Org model configuration (runtime model per agent group).
  *
- * GET — org admins only; the active version + agent-group registry.
- * PUT — org admins only; validates every chosen model against the live
- *       OpenRouter catalog + the group's capability requirements, then writes
- *       a new immutable version and activates it.
+ * GET — `org:models:manage` holders only; the active version + agent-group
+ *       registry.
+ * PUT — validates every chosen model against the live OpenRouter catalog +
+ *       the group's capability requirements, then writes a new immutable
+ *       version and activates it.
  */
 
-import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { isOrgAdmin } from '@/lib/authz/organizations'
-import { AGENT_GROUPS, AGENT_GROUP_IDS, OPENROUTER_MODEL_ID_PATTERN } from '@/lib/model-config/agent-groups'
+import { apiRoute, parseJsonBody } from '@/lib/api/handler'
+import { ServiceUnavailableError, UnprocessableError } from '@/lib/api/errors'
+import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
+import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
+import { AGENT_GROUPS, AGENT_GROUP_IDS, MODEL_ID_PATTERN } from '@/lib/model-config/agent-groups'
 import { getGroupDefaults } from '@/lib/model-config/backend-defaults'
-import { fetchModelCatalog, validateOverrides } from '@/lib/model-config/openrouter'
+import { validateOverrides } from '@/lib/model-config/openrouter'
+import { getCatalogForOrg } from '@/lib/model-config/org-catalog'
 import { createAndActivateVersion, getOrgModelConfig } from '@/lib/model-config/service'
+import { isZdrOnlyForOrg } from '@/lib/organizations/service'
+import { recordAuditEvent } from '@/lib/audit/service'
 
-export async function GET(): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    if (!isOrgAdmin(session)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-    const [config, defaults] = await Promise.all([
+export const GET = apiRoute(
+  async ({ session }) => {
+    const gated = requireFeature(session, FEATURE_FLAGS.modelConfiguration)
+    if (gated) return gated
+    const [config, defaults, zdrOnly] = await Promise.all([
       getOrgModelConfig(session.organizationId),
       // Workflow-default model per group, from the backend's loaded YAML
       // (best-effort — nulls when the backend is unreachable).
       getGroupDefaults(),
+      isZdrOnlyForOrg(session.organizationId),
     ])
-    return NextResponse.json({
+    // Where the picker's models come from (ADR-0022): the platform OpenRouter
+    // catalog, or — with a BYOK credential — the org's own provider. Best-
+    // effort: a catalog hiccup must not block rendering the config.
+    let catalogSource: { source: string; provider: string | null; validation: string } | null = null
+    try {
+      const catalog = await getCatalogForOrg(session.organizationId, { zdrOnly })
+      catalogSource = {
+        source: catalog.source,
+        provider: catalog.provider,
+        validation: catalog.validation,
+      }
+    } catch (error) {
+      console.warn('[Model Config API] Could not resolve the org catalog source:', error)
+    }
+    return {
       agentGroups: AGENT_GROUPS,
       defaults,
+      catalogSource,
+      zdrOnly,
       activeVersion: config.activeVersion,
       updatedBy: config.updatedBy,
       updatedAt: config.updatedAt,
-    })
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
+    }
+  },
+  { authz: { permission: ORG_PERMISSIONS.modelsManage } }
+)
 
 const putSchema = z.object({
   overrides: z.record(
     z.enum(AGENT_GROUP_IDS as [string, ...string[]]),
-    z.object({ model: z.string().regex(OPENROUTER_MODEL_ID_PATTERN, 'not an OpenRouter model id') }),
+    // BYOK-aware shape (`author/slug` OR provider-native id, ADR-0022);
+    // catalog membership below is the real gate.
+    z.object({ model: z.string().regex(MODEL_ID_PATTERN, 'not a plausible model id') })
   ),
   comment: z.string().trim().max(500).nullable().optional(),
 })
 
-export async function PUT(request: Request): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    if (!isOrgAdmin(session)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+export const PUT = apiRoute(
+  async ({ session, request }) => {
+    const gated = requireFeature(session, FEATURE_FLAGS.modelConfiguration)
+    if (gated) return gated
 
-    const body = await request.json().catch(() => null)
-    const parsed = putSchema.safeParse(body)
-    if (!parsed.success) {
-      return NextResponse.json({ error: 'Invalid model configuration payload' }, { status: 400 })
-    }
+    const input = await parseJsonBody(request, putSchema)
 
     // Server-side revalidation against the live catalog — the picker UI is
     // never trusted. A catalog outage rejects the save (503) rather than
-    // accepting unvalidated model ids.
+    // accepting unvalidated model ids. With a BYOK credential the catalog is
+    // the ORG's provider listing (relaxed capability checks, ADR-0022).
+    // When the org enforces ZDR, the save is validated against the ZDR-filtered
+    // catalog — a non-ZDR model is rejected server-side, not just hidden.
+    const zdrOnly = await isZdrOnlyForOrg(session.organizationId)
     let catalog
     try {
-      catalog = await fetchModelCatalog()
+      catalog = await getCatalogForOrg(session.organizationId, { zdrOnly })
     } catch (error) {
-      console.error('[Model Config API] OpenRouter catalog unavailable:', error)
-      return NextResponse.json(
-        { error: 'OpenRouter model catalog is unavailable; try again later' },
-        { status: 503 },
-      )
+      console.error('[Model Config API] Model catalog unavailable:', error)
+      throw new ServiceUnavailableError('The model catalog is unavailable; try again later')
     }
-    const flat = Object.fromEntries(Object.entries(parsed.data.overrides).map(([g, v]) => [g, v.model]))
-    const validation = validateOverrides(catalog, flat)
+    const flat = Object.fromEntries(Object.entries(input.overrides).map(([g, v]) => [g, v.model]))
+    const validation = validateOverrides(catalog.models, flat, catalog.validation === 'full')
     if (!validation.ok) {
-      return NextResponse.json({ error: 'Model validation failed', details: validation.errors }, { status: 422 })
+      throw new UnprocessableError('Model validation failed', validation.errors)
     }
 
     const version = await createAndActivateVersion({
       organizationId: session.organizationId,
-      overrides: parsed.data.overrides,
-      modelSnapshot: validation.snapshot,
-      comment: parsed.data.comment ?? null,
+      overrides: input.overrides,
+      modelSnapshot: {
+        ...validation.snapshot,
+        _catalog: {
+          source: catalog.source,
+          provider: catalog.provider,
+          validation: catalog.validation,
+          zdrOnly: catalog.zdrOnly,
+        },
+      },
+      comment: input.comment ?? null,
       actorUserId: session.userId,
     })
-    return NextResponse.json({ activeVersion: version }, { status: 201 })
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
+    await recordAuditEvent({
+      organizationId: session.organizationId,
+      actor: { userId: session.userId, email: session.email },
+      action: 'model_config.version.activated',
+      targetType: 'model_config_version',
+      targetId: version.id,
+      metadata: flat,
+      request,
+    })
+    return { activeVersion: version }
+  },
+  { status: 201, authz: { permission: ORG_PERMISSIONS.modelsManage } }
+)

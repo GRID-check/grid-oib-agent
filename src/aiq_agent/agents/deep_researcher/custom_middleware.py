@@ -1,28 +1,17 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Custom middleware for the deep research agent."""
 
 import asyncio
 import logging
+from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
+from langchain.agents.middleware import ToolRetryMiddleware
 from langchain.agents.middleware.types import ModelResponse
 from langchain_core.messages import AIMessage
 from langchain_core.messages import ToolMessage
+from langgraph.errors import GraphBubbleUp
 
 from aiq_agent.common import get_source_id_for_tool
 from aiq_agent.common import load_prompt
@@ -30,11 +19,78 @@ from aiq_agent.common import render_prompt_template
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+from aiq_agent.common.deferred_tool_loading import tool_payload_name
 
 logger = logging.getLogger(__name__)
 
 # Path to this agent's prompts directory
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+
+def is_retryable_tool_error(exc: Exception) -> bool:
+    """Return whether a tool exception represents a transient failure worth retrying.
+
+    ValueError is the deliberate "invalid input / invalid result" signal used by
+    our tools (e.g. run_research_batch rejecting oversized batches, researcher
+    workers returning malformed ResearchNotes). Re-executing the same call
+    cannot fix it — the MODEL has to change its input — so it must reach the
+    model immediately instead of burning retries.
+    """
+    return not isinstance(exc, ValueError)
+
+
+class SelectiveToolRetryMiddleware(ToolRetryMiddleware):
+    """ToolRetryMiddleware that never re-executes designated tools.
+
+    Some tools raise errors as deliberate signals for the MODEL (e.g.
+    run_research_batch raises RuntimeError on partial failure so the
+    orchestrator can resubmit only the failed queries). Blindly re-executing
+    such a tool re-runs all its already-successful expensive work below the
+    LLM. Tools listed in ``no_retry_tools`` are executed exactly once; their
+    failures are converted to error ToolMessages immediately so the model can
+    react.
+    """
+
+    def __init__(self, *, no_retry_tools: Iterable[str] = (), **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.no_retry_tools = set(no_retry_tools)
+
+    @staticmethod
+    def _request_tool_name(request) -> str:
+        return request.tool.name if request.tool else request.tool_call["name"]
+
+    def wrap_tool_call(self, request, handler):
+        """Run tools so failures reach the model as error ToolMessages, not crashes.
+
+        ``no_retry_tools`` are executed exactly once. Other tools go through the
+        base retry loop. In langchain>=1.x the base loop *re-raises* a
+        non-retryable tool error (one ``retry_on`` rejects, e.g. our deliberate
+        ValueError signal) instead of returning it as an error ToolMessage, so
+        we convert it here — the MODEL has to change its input, and it can only
+        do that if the error reaches it. Control-flow signals (``GraphBubbleUp``:
+        interrupts, parent Commands) must always propagate.
+        """
+        tool_name = self._request_tool_name(request)
+        try:
+            if tool_name in self.no_retry_tools:
+                return handler(request)
+            return super().wrap_tool_call(request, handler)
+        except GraphBubbleUp:
+            raise
+        except Exception as exc:  # noqa: BLE001 - converted to an error ToolMessage for the model
+            return self._handle_failure(tool_name, request.tool_call["id"], exc, 1)
+
+    async def awrap_tool_call(self, request, handler):
+        """Async mirror of :meth:`wrap_tool_call`."""
+        tool_name = self._request_tool_name(request)
+        try:
+            if tool_name in self.no_retry_tools:
+                return await handler(request)
+            return await super().awrap_tool_call(request, handler)
+        except GraphBubbleUp:
+            raise
+        except Exception as exc:  # noqa: BLE001 - converted to an error ToolMessage for the model
+            return self._handle_failure(tool_name, request.tool_call["id"], exc, 1)
 
 
 class EmptyContentFixMiddleware(AgentMiddleware):
@@ -149,11 +205,10 @@ class ToolNameSanitizationMiddleware(AgentMiddleware):
                 new_tool_calls = []
                 for tc in msg.tool_calls:
                     new_tool_calls.append({**tc, "name": self._sanitize_tool_name(tc["name"])})
-                new_msg = AIMessage(
-                    content=msg.content,
-                    tool_calls=new_tool_calls,
-                    id=msg.id,
-                )
+                # model_copy preserves usage_metadata, additional_kwargs, and
+                # response_metadata — rebuilding the AIMessage from scratch
+                # dropped them and broke usage accounting downstream.
+                new_msg = msg.model_copy(update={"tool_calls": new_tool_calls})
                 new_result.append(new_msg)
             else:
                 new_result.append(msg)
@@ -161,21 +216,65 @@ class ToolNameSanitizationMiddleware(AgentMiddleware):
         return ModelResponse(result=new_result, structured_response=response.structured_response)
 
 
+class DeferredStructuredOutputMiddleware(AgentMiddleware):
+    """Apply a strict structured-output contract only on the agent's exit turn.
+
+    ``create_agent(response_format=ProviderStrategy(..., strict=True))`` binds
+    ``response_format: json_schema strict`` on EVERY model call of the tool
+    loop. OpenRouter/DeepSeek-class endpoints do not reliably combine tools
+    with a strict schema: the constrained decoder satisfies the schema
+    immediately — a schema-valid but empty (or hallucinated) structured answer
+    with no tool calls on turn 1 — so the agent never researches (backlog
+    T2-8; reproduced live against deepseek/deepseek-v4-flash, where the
+    "researched" notes were fabricated from model memory).
+
+    This middleware decouples the two concerns. The tool loop runs with no
+    ``response_format`` at all; only when the model stops calling tools is the
+    call re-issued once — draft message appended, strict schema applied — so
+    the model formats the answer it already researched instead of deciding
+    whether to research under a decoding constraint. The parsed object lands
+    in ``structured_response`` exactly as with
+    ``create_agent(response_format=...)``.
+
+    If the formatting call itself fails (e.g. a provider schema rejection),
+    the draft response is returned unchanged so downstream content-based
+    recovery (``extract_json`` in ``tools/research.py``) still applies.
+    """
+
+    def __init__(self, schema: Any) -> None:
+        from langchain.agents.structured_output import ProviderStrategy
+
+        self.strategy = ProviderStrategy(schema, strict=True)
+
+    async def awrap_model_call(self, request, handler):
+        """Keep the tool loop format-free; re-issue the exit turn with the strict schema."""
+        response = await handler(request)
+        draft = response.result[-1] if response.result else None
+        if not isinstance(draft, AIMessage) or draft.tool_calls:
+            return response
+        try:
+            return await handler(
+                request.override(
+                    messages=[*request.messages, draft],
+                    response_format=self.strategy,
+                )
+            )
+        except Exception:
+            logger.warning(
+                "Structured-output formatting call failed; returning unformatted draft",
+                exc_info=True,
+            )
+            return response
+
+
 def _request_tool_name(tool: object) -> str | None:
-    """Return a LangChain model-request tool name across common tool shapes."""
-    name = getattr(tool, "name", None)
-    if isinstance(name, str):
-        return name
-    if isinstance(tool, dict):
-        dict_name = tool.get("name")
-        if isinstance(dict_name, str):
-            return dict_name
-        function = tool.get("function")
-        if isinstance(function, dict):
-            function_name = function.get("name")
-            if isinstance(function_name, str):
-                return function_name
-    return None
+    """Return a LangChain model-request tool name across common tool shapes.
+
+    One implementation, in ``common.deferred_tool_loading``, because the
+    deferred-tool payload builder has to read tool identity out of exactly the
+    same three shapes and a second traversal would drift from this one.
+    """
+    return tool_payload_name(tool)
 
 
 class ToolVisibilityMiddleware(AgentMiddleware):
@@ -198,47 +297,6 @@ class ToolVisibilityMiddleware(AgentMiddleware):
         return await handler(request.override(tools=self._filter_tools(request.tools)))
 
 
-class ToolRetryMiddleware(AgentMiddleware):
-    """Retries failed tool calls with exponential backoff.
-
-    Provides uniform retry coverage for all tools. Some tools (e.g., Tavily)
-    have their own internal retry; this middleware wraps the outer call so
-    tools without retry (knowledge layer, paper search) are also covered.
-    """
-
-    def __init__(
-        self,
-        max_retries: int = 3,
-        backoff_factor: float = 2.0,
-        initial_delay: float = 1.0,
-    ):
-        self.max_retries = max_retries
-        self.backoff_factor = backoff_factor
-        self.initial_delay = initial_delay
-
-    async def awrap_tool_call(self, request, handler):
-        """Retry tool calls on failure with exponential backoff."""
-        delay = self.initial_delay
-        last_exception = None
-        for attempt in range(self.max_retries + 1):
-            try:
-                return await handler(request)
-            except Exception as e:
-                last_exception = e
-                if attempt < self.max_retries:
-                    tool_name = request.tool_call.get("name", "?") if hasattr(request, "tool_call") else "?"
-                    logger.warning(
-                        "Tool %s failed (attempt %d/%d): %s",
-                        tool_name,
-                        attempt + 1,
-                        self.max_retries + 1,
-                        e,
-                    )
-                    await asyncio.sleep(delay)
-                    delay *= self.backoff_factor
-        raise last_exception
-
-
 class SourceRegistryMiddleware(AgentMiddleware):
     """Intercepts tool call results to build a registry of actual sources.
 
@@ -258,6 +316,12 @@ class SourceRegistryMiddleware(AgentMiddleware):
 
     The registry is also used by verify_citations() to strip fabricated,
     stale, or intermediate-artifact citations from the final report.
+
+    A fresh instance is constructed for every deep research run
+    (``DeepResearcherAgent._prepare_run``, ADR-0018), so the instance
+    registry and the compact ResearchNotes key set are run-scoped by
+    construction. In conversation mode the session-scoped registry (bound by
+    the chat entrypoint) still spans turns via ``active_registry()``.
     """
 
     def __init__(self, source_tool_names: set[str] | None = None) -> None:
@@ -278,13 +342,24 @@ class SourceRegistryMiddleware(AgentMiddleware):
 
     @staticmethod
     def _locator_key(locator: str) -> str:
-        """Return the comparable key used for source locators and registry entries."""
+        """Return the comparable key used for source locators and registry entries.
+
+        Knowledge-layer locators carry page suffixes ("handbuch.pdf, p.12"),
+        but the registry dedups those entries per file and keeps whichever
+        page it saw first ("handbuch.pdf, p.3"). Comparing full strings would
+        drop a registered document from the compact whitelist whenever a
+        research note cites a different page, so non-URL locators are keyed by
+        their page-stripped, lowercased filename.
+        """
         locator = locator.strip()
         if locator.startswith(("http://", "https://")):
             from aiq_agent.common.citation_verification import _normalize_url
 
             return _normalize_url(locator)
-        return locator
+        from aiq_agent.common.citation_verification import _parse_citation_key
+
+        filename, _ = _parse_citation_key(locator)
+        return filename.lower()
 
     @classmethod
     def _entry_key(cls, entry: SourceEntry) -> str | None:
@@ -292,7 +367,7 @@ class SourceRegistryMiddleware(AgentMiddleware):
         if entry.url:
             return cls._locator_key(entry.url)
         if entry.citation_key:
-            return entry.citation_key.strip()
+            return cls._locator_key(entry.citation_key)
         return None
 
     def register_research_note_sources(self, notes: list[object]) -> None:
@@ -407,45 +482,99 @@ class SourceRegistryMiddleware(AgentMiddleware):
 
 
 class ToolResultPruningMiddleware(AgentMiddleware):
-    """Truncates older tool results to keep context manageable.
+    """Truncates older tool results to keep context manageable — cache-stably.
 
-    Keeps the last N tool results intact and truncates older ones to
-    reduce "lost in the middle" degradation. Operates on awrap_model_call
-    so the full results are still available for SourceRegistryMiddleware.
+    Keeps the last N oversized tool results intact and truncates older ones to
+    reduce "lost in the middle" degradation. Operates on awrap_model_call so
+    the full results are still available for SourceRegistryMiddleware.
+
+    Truncation is MONOTONIC: once a message has been sent truncated, it is
+    sent in exactly that truncated form on every later call. A naive
+    sliding window recomputed per call changes message bytes mid-history on
+    almost every turn, which invalidates the provider's prompt-prefix cache
+    (OpenRouter/DeepSeek) from that point on — on ~80k-token deep-research
+    contexts that meant re-processing the full prompt every single turn.
+    Decisions are recorded per message id; entries are deterministic and
+    idempotent, so the plain dict is safe even when one middleware instance
+    is shared across concurrently-running subagents (concurrent writers can
+    only ever write the same value for the same id).
+
+    Only messages whose content exceeds max_chars occupy window slots:
+    trivial results (``think``'s "Thought recorded.", ``ls`` listings) need
+    no truncation, and letting them consume protected slots would churn the
+    window — and thus the cache — for zero context savings.
     """
 
-    def __init__(self, keep_last_n: int = 3, max_chars: int = 500):
+    _TRUNCATION_SUFFIX = "\n\n[... truncated ...]"
+
+    def __init__(self, keep_last_n: int = 3, max_chars: int = 500, total_char_budget: int = 0):
         self.keep_last_n = keep_last_n
         self.max_chars = max_chars
+        self.total_char_budget = total_char_budget
+        # message id -> permanently truncated content for that message.
+        self._truncated_by_id: dict[str, str] = {}
 
     async def awrap_model_call(self, request, handler):
-        """Truncate older ToolMessage content before sending to the model."""
-        # Find all ToolMessage indices
-        tool_indices = [i for i, msg in enumerate(request.messages) if isinstance(msg, ToolMessage)]
+        """Truncate older oversized ToolMessage content before sending to the model."""
+        # Window candidates: oversized ToolMessages only (see class docstring).
+        oversized_indices = [
+            i
+            for i, msg in enumerate(request.messages)
+            if isinstance(msg, ToolMessage) and msg.content and len(str(msg.content)) > self.max_chars
+        ]
 
-        if len(tool_indices) <= self.keep_last_n:
+        # Newly evict everything that fell out of the last-N window. Messages
+        # already truncated on an earlier call stay truncated regardless of
+        # where the window sits now (monotonicity).
+        newly_evicted = oversized_indices[: -self.keep_last_n] if len(oversized_indices) > self.keep_last_n else []
+        for i in newly_evicted:
+            msg = request.messages[i]
+            if msg.id is not None and msg.id not in self._truncated_by_id:
+                self._truncated_by_id[msg.id] = str(msg.content)[: self.max_chars] + self._TRUNCATION_SUFFIX
+
+        # Total-char budget: if the sum of all oversized tool-result chars
+        # within the last-N window exceeds the budget, monotonically truncate
+        # the oldest oversized ones until under budget. This prevents the
+        # writer's context from growing unbounded across many research notes.
+        if self.total_char_budget > 0:
+            kept_oversized_indices = (
+                oversized_indices[-self.keep_last_n :]
+                if len(oversized_indices) > self.keep_last_n
+                else list(oversized_indices)
+            )
+            total_chars = sum(
+                len(self._truncated_by_id.get(request.messages[i].id, str(request.messages[i].content)))
+                for i in kept_oversized_indices
+            )
+            for i in kept_oversized_indices:
+                if total_chars <= self.total_char_budget:
+                    break
+                msg = request.messages[i]
+                if msg.id is not None and msg.id not in self._truncated_by_id:
+                    truncated = str(msg.content)[: self.max_chars] + self._TRUNCATION_SUFFIX
+                    self._truncated_by_id[msg.id] = truncated
+                    total_chars = total_chars - len(str(msg.content)) + len(truncated)
+
+        if not self._truncated_by_id:
             return await handler(request)
 
-        # Indices to truncate: all but the last keep_last_n
-        truncate_indices = set(tool_indices[: -self.keep_last_n])
-
         pruned_messages = []
-        for i, msg in enumerate(request.messages):
-            if i in truncate_indices and isinstance(msg, ToolMessage) and msg.content:
-                content = str(msg.content)
-                if len(content) > self.max_chars:
-                    truncated_content = content[: self.max_chars] + "\n\n[... truncated ...]"
-                    pruned_messages.append(
-                        ToolMessage(
-                            content=truncated_content,
-                            tool_call_id=msg.tool_call_id,
-                            name=getattr(msg, "name", None),
-                            id=msg.id,
-                        )
+        changed = False
+        for msg in request.messages:
+            truncated = self._truncated_by_id.get(msg.id) if isinstance(msg, ToolMessage) else None
+            if truncated is not None:
+                changed = True
+                pruned_messages.append(
+                    ToolMessage(
+                        content=truncated,
+                        tool_call_id=msg.tool_call_id,
+                        name=getattr(msg, "name", None),
+                        id=msg.id,
                     )
-                else:
-                    pruned_messages.append(msg)
+                )
             else:
                 pruned_messages.append(msg)
 
+        if not changed:
+            return await handler(request)
         return await handler(request.override(messages=pruned_messages))

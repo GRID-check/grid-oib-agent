@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """
 LangChain callback handlers for SSE event streaming.
 
@@ -30,6 +15,7 @@ import re
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC
 from datetime import datetime
 from enum import StrEnum
@@ -41,7 +27,12 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+from aiq_agent.common.citation_verification import SourceEntry
+from aiq_agent.common.citation_verification import SourceRegistry
+from aiq_agent.common.citation_verification import cited_document_entries
+from aiq_agent.common.citation_verification import extract_sources_from_tool_result
 from aiq_agent.common.citation_verification import get_session_registry
+from aiq_agent.common.citation_verification import source_entry_to_wire
 
 if TYPE_CHECKING:
     from .event_store import EventStore
@@ -213,6 +204,7 @@ class AgentEventCallback(BaseCallbackHandler):
     AGENT_EXCLUDE_PATTERNS = {"middleware", "handler", "callback"}
 
     _job_discovered_urls: dict[str, set[str]] = {}
+    _job_discovered_sources: dict[str, set[str]] = {}
     _job_cited_urls: dict[str, set[str]] = {}
     _cache_lock = threading.Lock()
 
@@ -220,7 +212,19 @@ class AgentEventCallback(BaseCallbackHandler):
         self,
         event_store: EventStore | None = None,
         tool_artifact_mapping: ToolArtifactMapping | None = None,
+        source_registry: SourceRegistry | Callable[[], SourceRegistry | None] | None = None,
     ):
+        """
+        Args:
+            event_store: Sink for the emitted SSE events.
+            tool_artifact_mapping: Tool-to-artifact mapping overrides.
+            source_registry: The run's ``SourceRegistry``, or a zero-argument
+                callable returning it (e.g.
+                ``SourceRegistryMiddleware.active_registry``). Optional: when
+                unset the callback falls back to the session-scoped registry
+                and then to its own mirror — see :meth:`_get_source_registry`
+                for why a job needs those fallbacks at all.
+        """
         super().__init__()
         self._event_store = event_store
         self._tool_mapping = tool_artifact_mapping or ToolArtifactMapping()
@@ -229,8 +233,15 @@ class AgentEventCallback(BaseCallbackHandler):
         self._run_id_to_parent: dict[str, str] = {}
         self._agent_run_ids: dict[str, str] = {}  # {run_id: name}
 
+        self._source_registry = source_registry
+        # Last-resort mirror of what this run's tools actually returned; see
+        # _mirror_sources.
+        self._mirrored_registry = SourceRegistry()
+        self._mirrored_registry_populated = False
+
         self._job_id = event_store.job_id if event_store else None
         self._instance_discovered_urls: set[str] = set()
+        self._instance_discovered_sources: set[str] = set()
         self._instance_cited_urls: set[str] = set()
         self._init_job_url_sets()
 
@@ -241,6 +252,8 @@ class AgentEventCallback(BaseCallbackHandler):
         with AgentEventCallback._cache_lock:
             if self._job_id not in AgentEventCallback._job_discovered_urls:
                 AgentEventCallback._job_discovered_urls[self._job_id] = set()
+            if self._job_id not in AgentEventCallback._job_discovered_sources:
+                AgentEventCallback._job_discovered_sources[self._job_id] = set()
             if self._job_id not in AgentEventCallback._job_cited_urls:
                 AgentEventCallback._job_cited_urls[self._job_id] = set()
 
@@ -250,6 +263,13 @@ class AgentEventCallback(BaseCallbackHandler):
         if self._job_id and self._job_id in AgentEventCallback._job_discovered_urls:
             return AgentEventCallback._job_discovered_urls[self._job_id]
         return self._instance_discovered_urls
+
+    @property
+    def _discovered_sources(self) -> set[str]:
+        """Identity keys of structured citation_source artifacts already emitted."""
+        if self._job_id and self._job_id in AgentEventCallback._job_discovered_sources:
+            return AgentEventCallback._job_discovered_sources[self._job_id]
+        return self._instance_discovered_sources
 
     @property
     def _cited_urls(self) -> set[str]:
@@ -263,6 +283,7 @@ class AgentEventCallback(BaseCallbackHandler):
         """Clean up URL caches for a completed job."""
         with cls._cache_lock:
             cls._job_discovered_urls.pop(job_id, None)
+            cls._job_discovered_sources.pop(job_id, None)
             cls._job_cited_urls.pop(job_id, None)
 
     def _is_agent_like(self, name: str) -> bool:
@@ -347,9 +368,95 @@ class AgentEventCallback(BaseCallbackHandler):
                 return name
         return kwargs.get("name", "unknown")
 
-    def _get_source_registry(self):
-        """Return the session-scoped SourceRegistry if set, otherwise None."""
-        return get_session_registry()
+    def set_source_registry(self, source_registry: SourceRegistry | Callable[[], SourceRegistry | None]) -> None:
+        """Attach the run's SourceRegistry (or a callable returning it).
+
+        Accepts the accessor rather than the object so a run that swaps
+        registries mid-flight — ``SourceRegistryMiddleware.active_registry``
+        prefers the session-scoped registry when one exists — is followed
+        rather than pinned to whatever was current at wiring time.
+        """
+        self._source_registry = source_registry
+
+    def _get_source_registry(self) -> SourceRegistry | None:
+        """Return the SourceRegistry a cited source must be validated against.
+
+        Three tiers, most authoritative first:
+
+        1. The registry explicitly attached to this callback (constructor arg
+           or :meth:`set_source_registry`) — for deep research that is
+           ``SourceRegistryMiddleware.active_registry``, i.e. the very registry
+           ``verify_citations`` later judges the report against.
+        2. The session-scoped registry, bound by the synchronous chat
+           entrypoints and — since the fix below — by ``DeepResearcherAgent.run``.
+        3. This callback's own mirror of the sources its tool results carried
+           (:meth:`_mirror_sources`).
+
+        Tier 2 used to be the WHOLE lookup, and inside a Dask worker nothing
+        bound it: only the synchronous chat paths called
+        ``set_session_registry``. Every lookup here therefore returned None for
+        a deep-research run, ``_emit_cited_documents`` early-returned, and no
+        knowledge-base document could ever be marked cited — which in a
+        knowledge-base-first product is most citations, so the live sources
+        panel showed a run's four OIB Richtlinien as merely "discovered" while
+        the one web page it cited was the only thing marked cited.
+
+        ``DeepResearcherAgent.run`` now binds its own registry to that
+        contextvar when nothing is bound, so tier 2 is the tier that actually
+        carries a deep-research job today — do not read the paragraph above as
+        "tier 2 is dead code". Tiers 1 and 3 are what keep the answer honest
+        for every OTHER caller: this callback is generic, the binding is not, so
+        a job whose agent never binds — or a run whose binding does not survive
+        the context boundary the handler is invoked across — still validates
+        against something this run really retrieved instead of falling back to
+        guessing from a URL scrape.
+
+        Fail-open: a provider that raises or yields nothing falls through to
+        the next tier rather than breaking the artifact stream.
+        """
+        provider = self._source_registry
+        if provider is not None:
+            registry: SourceRegistry | None
+            try:
+                registry = provider() if callable(provider) else provider
+            except Exception:
+                logger.warning("Attached source registry provider raised; falling back", exc_info=True)
+                registry = None
+            if registry is not None:
+                return registry
+
+        session_registry = get_session_registry()
+        if session_registry is not None:
+            return session_registry
+
+        # Only offer the mirror once a tool result has actually populated it.
+        # An empty registry is not the same answer as "no registry": it would
+        # turn every document citation into an unverifiable one instead of
+        # letting _emit_cited_documents decline to guess.
+        return self._mirrored_registry if self._mirrored_registry_populated else None
+
+    def _mirror_sources(self, entries: list[SourceEntry]) -> None:
+        """Mirror parsed tool sources into this callback's fallback registry.
+
+        The entries are the ones ``_emit_structured_citation_sources`` already
+        parsed, with the same parser ``SourceRegistryMiddleware`` uses on the
+        same tool results — so the mirror costs one insert per discovered
+        source and cannot drift in shape from the real registry. It is what
+        makes cited-document detection work in a worker that has neither a
+        session registry nor a wired-in run registry.
+        """
+        if not entries:
+            return
+        try:
+            # SourceRegistry documents itself as single-event-loop / not
+            # thread-safe, and LangChain fires handlers from worker threads, so
+            # mutations go under the same lock the discovery sets use.
+            with AgentEventCallback._cache_lock:
+                for entry in entries:
+                    self._mirrored_registry.add(entry)
+                self._mirrored_registry_populated = True
+        except Exception:
+            logger.warning("Failed to mirror tool sources into the fallback registry", exc_info=True)
 
     def emit_final_report(self, content: str, cards: list[dict] | None = None) -> None:
         """Emit the post-processed final report as an OUTPUT artifact.
@@ -357,6 +464,20 @@ class AgentEventCallback(BaseCallbackHandler):
         Call this after citation verification and sanitisation so the
         frontend receives the verified content (overwrites the earlier
         auto-emitted version).
+
+        This is also the ONLY place ``citation_use`` is emitted from, and that
+        is deliberate. The cited set used to be derived from raw ``on_llm_end``
+        content, which is produced BEFORE ``verify_citations`` runs in
+        ``DeepResearcherAgent._finalize``: a fabricated or unverifiable
+        citation had already been broadcast as cited by the time verification
+        stripped it from the report, and nothing ever took it back. The
+        frontend's merge is deliberately monotonic — ``isCited`` is sticky once
+        true, so a later event cannot lower a source back to "discovered" — so
+        a retraction event would not have repaired the display; the only
+        truthful fix is to not make the claim until it is verified. Sources
+        still stream live as ``citation_source`` (discovery) throughout the
+        run; only the stronger "the answer cites this" claim waits for the
+        verified text.
 
         Args:
             content: The final report markdown.
@@ -370,6 +491,15 @@ class AgentEventCallback(BaseCallbackHandler):
             output_category="final_report",
             **extra,
         )
+        # Best-effort by contract: these are transparency artifacts, and the
+        # report itself has already been emitted above — a citation failure
+        # must never cost the user their report or fail the job. Repeat calls
+        # (the runner re-emits with Grid cards attached) are deduped by the
+        # cited-identity set, so no duplicate artifacts are produced.
+        try:
+            self._emit_cited_sources(content)
+        except Exception:
+            logger.warning("Failed to emit cited sources for the final report", exc_info=True)
 
     def _is_search_tool(self, tool_name: str) -> bool:
         """Check if tool is a search-related tool that returns URLs."""
@@ -451,34 +581,102 @@ class AgentEventCallback(BaseCallbackHandler):
             return "draft"
         return "intermediate"
 
-    def _emit_cited_urls(self, content: str) -> None:
-        """Extract URLs from output content and emit citation_use events.
+    def _emit_cited_sources(self, content: str) -> None:
+        """Emit citation_use events for the sources ``content`` actually cites.
 
-        When a SourceRegistry is attached, validates against it (consistent
-        with verify_citations). Otherwise falls back to the callback's own
-        _discovered_urls set.
+        Driven from :meth:`emit_final_report` only — ``content`` is the
+        verified, sanitised report, so what is announced as cited is what the
+        reader can actually see cited. See that method for why the raw
+        streaming output no longer feeds this.
+
+        Covers BOTH source shapes:
+
+        - URLs, validated against the registry when one is attached (consistent
+          with verify_citations), else against the callback's own
+          ``_discovered_urls`` set.
+        - Knowledge-base documents, validated by document key against the
+          registry (:func:`cited_document_entries`).
+
+        The document half used to be missing entirely, and "cited" is what the
+        provenance row filters on: a run that cited four OIB Richtlinien and one
+        web page marked only the web page, so the row showed the web page ALONE
+        and the four authoritative sources vanished. The failure only appeared
+        when web and knowledge-base sources co-occurred, because with no web
+        citation at all the frontend fell back to showing every discovered
+        source.
         """
+        self._emit_cited_urls(content)
+        self._emit_cited_documents(content)
+
+    def _emit_cited_urls(self, content: str) -> None:
+        """Emit citation_use events for URL sources referenced in ``content``."""
         urls = self._extract_urls(content)
+        # Resolved ONCE for the whole report rather than once per URL. The
+        # attached tier is an accessor a run may swap mid-flight, so re-reading
+        # it inside the loop would let a single report be judged against two
+        # different registries — the first few citations validated against one
+        # truth and the rest silently dropped against another, with nothing in
+        # the artifact stream to show that the standard moved.
+        registry = self._get_source_registry()
         for url in urls:
             normalized = self._normalize_url(url)
-            if normalized in self._cited_urls:
-                continue
 
-            is_valid = False
-            registry = self._get_source_registry()
             if registry is not None:
                 is_valid = registry.has_url(url)
             else:
                 is_valid = normalized in self._discovered_urls
 
             if is_valid:
-                self._cited_urls.add(normalized)
+                # Atomic test-and-set (see on_tool_end): avoid duplicate
+                # citation_use artifacts from concurrent handler threads.
+                with AgentEventCallback._cache_lock:
+                    if normalized in self._cited_urls:
+                        continue
+                    self._cited_urls.add(normalized)
                 self._emit_artifact(
                     ArtifactType.CITATION_USE,
                     url,
                     name=url,
                     url=url,
                 )
+
+    def _emit_cited_documents(self, content: str) -> None:
+        """Emit citation_use events for knowledge-base documents cited in ``content``.
+
+        Requires a registry (:meth:`_get_source_registry`) — the document key
+        is only verifiable against what retrieval actually returned, and unlike
+        a URL there is no weaker fallback worth guessing from. Carries the full
+        structured wire so the frontend's cited entry keeps its file/page/kind
+        rather than degrading to a bare marker.
+        """
+        registry = self._get_source_registry()
+        if registry is None:
+            return
+        try:
+            entries = cited_document_entries(content, registry)
+        except Exception:
+            logger.warning("Failed to resolve cited documents", exc_info=True)
+            return
+
+        for entry in entries:
+            wire = source_entry_to_wire(entry)
+            identity = self._source_identity(wire)
+            # Same atomic test-and-set as the URL path: concurrent handler
+            # threads must not emit duplicate citation_use artifacts. Shares the
+            # `_cited_urls` set — it is a set of identity strings, and document
+            # identities ("key:…") cannot collide with normalized URLs.
+            with AgentEventCallback._cache_lock:
+                if identity in self._cited_urls:
+                    continue
+                self._cited_urls.add(identity)
+            content_line = str(wire.get("content") or entry.citation_key or "")
+            extra = {key: value for key, value in wire.items() if key != "content"}
+            self._emit_artifact(
+                ArtifactType.CITATION_USE,
+                content_line,
+                name=str(wire.get("title") or entry.citation_key or content_line),
+                **extra,
+            )
 
     def _emit_tool_artifact(self, tool_name: str, tool_input: Any, run_id: str = "") -> None:
         """
@@ -630,33 +828,110 @@ class AgentEventCallback(BaseCallbackHandler):
 
         agent_info = self._find_agent_for_run(run_id)
 
+        # Include the (trimmed) output so the /state endpoint can surface tool
+        # results; with data=None every tool call reads as output=None there.
+        emit_output = self._trim_tool_input(str(output)) if output else None
         self._emit(
             IntermediateStepEvent(
                 category=EventCategory.TOOL,
                 state=EventState.END,
                 name=tool_name,
-                data=None,
+                data=EventData(output=emit_output) if emit_output is not None else None,
                 metadata=self._build_metadata_for_run(run_id),
             )
         )
 
-        if self._is_search_tool(tool_name) and output:
-            urls = self._extract_urls(str(output))
-            for url in urls:
-                normalized = self._normalize_url(url)
-                if normalized not in self._discovered_urls:
-                    self._discovered_urls.add(normalized)
-                    self._emit_artifact(
-                        ArtifactType.CITATION_SOURCE,
-                        url,
-                        name=url,
-                        url=url,
-                        tool=tool_name,
-                        agent_id=agent_info[1] if agent_info else None,
-                        workflow=agent_info[0] if agent_info else None,
-                    )
+        if output:
+            self._emit_structured_citation_sources(
+                tool_name,
+                str(output),
+                agent_id=agent_info[1] if agent_info else None,
+                workflow=agent_info[0] if agent_info else None,
+            )
 
         self._run_id_to_parent.pop(run_id, None)
+
+    def _source_identity(self, wire: dict[str, Any]) -> str:
+        """Stable dedupe key for a structured citation wire payload."""
+        citation_key = wire.get("citation_key")
+        if isinstance(citation_key, str) and citation_key.strip():
+            return f"key:{citation_key.strip().lower()}"
+        url = wire.get("url")
+        if isinstance(url, str) and url.strip():
+            return f"url:{self._normalize_url(url)}"
+        file_name = wire.get("file_name")
+        if isinstance(file_name, str) and file_name.strip():
+            page = wire.get("page")
+            return f"file:{file_name.strip().lower()}:{page if page is not None else ''}"
+        content = wire.get("content")
+        if isinstance(content, str) and content.strip():
+            return f"content:{content.strip().lower()[:200]}"
+        return f"tool:{wire.get('tool') or 'unknown'}"
+
+    def _emit_structured_citation_sources(
+        self,
+        tool_name: str,
+        output: str,
+        *,
+        agent_id: str | None,
+        workflow: str | None,
+    ) -> None:
+        """Emit ``citation_source`` artifacts from parsed tool output (KB/RIS/web).
+
+        Prefer :func:`extract_sources_from_tool_result` so knowledge-layer hits
+        carry ``file_name`` / ``page`` / ``collection``. Falls back to the legacy
+        URL scrape for search tools when the structured parsers return nothing
+        useful (keeps web discovery working for odd result shapes).
+        """
+        try:
+            entries = extract_sources_from_tool_result(tool_name, output)
+        except Exception:
+            logger.warning("Failed to extract sources from tool %s", tool_name, exc_info=True)
+            entries = []
+
+        # Drop non-URL tool_result placeholders (noise from non-data tools).
+        useful = [
+            entry for entry in entries if entry.url or entry.citation_key or (entry.source_type == "knowledge_layer")
+        ]
+
+        if not useful and self._is_search_tool(tool_name):
+            for url in self._extract_urls(output):
+                useful.append(SourceEntry(url=url, source_type="generic", tool_name=tool_name))
+
+        # Mirror BEFORE the per-entry emit loop: that loop skips entries whose
+        # citation_source artifact was already emitted, but the mirror wants
+        # every source this run retrieved, not only the newly seen ones. (It
+        # also must not run inside the loop's `_cache_lock` block — the lock is
+        # not reentrant.)
+        self._mirror_sources(useful)
+
+        for entry in useful:
+            wire = source_entry_to_wire(entry)
+            if not wire.get("tool"):
+                wire["tool"] = tool_name
+            identity = self._source_identity(wire)
+
+            with AgentEventCallback._cache_lock:
+                if identity in self._discovered_sources:
+                    continue
+                self._discovered_sources.add(identity)
+                if entry.url:
+                    self._discovered_urls.add(self._normalize_url(entry.url))
+
+            content = str(wire.get("content") or entry.url or entry.citation_key or tool_name)
+            name = str(wire.get("title") or wire.get("citation_key") or entry.url or content)
+            # ``content`` is passed positionally; drop it from the wire spread so it
+            # is not also bound via **kwargs (would raise TypeError: got multiple
+            # values for argument 'content' and crash every citation-source emit).
+            extra = {key: value for key, value in wire.items() if key != "content"}
+            self._emit_artifact(
+                ArtifactType.CITATION_SOURCE,
+                content,
+                name=name,
+                agent_id=agent_id,
+                workflow=workflow,
+                **extra,
+            )
 
     def on_llm_start(self, serialized: dict, prompts: list, **kwargs) -> None:
         model_name = "unknown"
@@ -736,7 +1011,13 @@ class AgentEventCallback(BaseCallbackHandler):
                 workflow_source=agent_info[0] if agent_info else None,
                 agent_id=agent_info[1] if agent_info else None,
             )
-            self._emit_cited_urls(content)
+            # No citation_use here. This content is raw model output: it has
+            # not been through verify_citations (which runs later, in
+            # DeepResearcherAgent._finalize) and it is often an INTERMEDIATE
+            # agent's notes, whose sources the writer may never carry into the
+            # answer. Announcing "cited" from here claimed things that the
+            # finished report does not, and the frontend's sticky isCited made
+            # the claim permanent. emit_final_report owns that claim now.
 
         self._run_id_to_parent.pop(run_id, None)
 

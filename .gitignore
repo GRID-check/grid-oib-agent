@@ -23,6 +23,11 @@ eggs/
 .eggs/
 lib/
 lib64/
+# `lib/` above is a Python build-artifact pattern, but it matches at ANY depth —
+# without these negations it also swallows source directories named `lib/` in the
+# JS/TS frontends. That failure is silent: the file builds locally, is simply
+# absent from the branch, and CI fails on an unresolvable import.
+!frontends/*/src/**/lib/
 !frontends/ui/src/**/lib/
 !frontends/ui/tests/lib/
 parts/
@@ -105,3 +110,14 @@ frontends/benchmarks/*/analysis/*.csv
 # Configs created in notebooks
 /config_*.yml
 
+
+# Node dependencies (never commit)
+node_modules/
+
+# Claude Code agent worktrees (transient, isolated checkouts)
+.claude/worktrees/
+
+.worktrees/
+
+# Visual brainstorm companion (session mockups)
+.superpowers/

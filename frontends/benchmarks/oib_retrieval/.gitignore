@@ -1,0 +1,4 @@
+# Extracted-page cache (regeneratable from data/oib in ~4 minutes; see corpus.py).
+.cache/
+# Run outputs, same convention as the sibling oib_compliance suite.
+results/

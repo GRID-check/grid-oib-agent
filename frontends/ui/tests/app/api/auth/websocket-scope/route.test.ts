@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('@/lib/auth/session', () => ({
@@ -36,6 +39,10 @@ describe('/api/auth/websocket-scope', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     delete process.env.REQUIRE_AUTH
+    // Keep the reflection gate at its documented defaults (flags not enforced,
+    // GRID_MEMORY_REFLECTION_ENABLED unset → on) regardless of ambient env.
+    delete process.env.GRID_ENFORCE_FEATURE_FLAGS
+    delete process.env.GRID_MEMORY_REFLECTION_ENABLED
     mockLoadProjectPromptView.mockResolvedValue(null)
   })
 
@@ -44,6 +51,7 @@ describe('/api/auth/websocket-scope', () => {
     mockGetGridSession.mockResolvedValue(null)
     mockBuildCollectionScopeFromRequest.mockResolvedValue({
       scope: ['oib_knowledge'],
+      scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }],
       headerValue: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9',
       projectId: 'proj-1',
       conversationId: 'conv-1',
@@ -59,12 +67,13 @@ describe('/api/auth/websocket-scope', () => {
     const json = await res.json()
     expect(json).toEqual({
       scope: ['oib_knowledge'],
+      scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }],
       header: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9',
       // The route echoes the requested projectId so server.js can scope the socket.
       projectId: 'proj-1',
-      // Anonymous mode: no org → the WorkOS flag can't be evaluated and the
-      // MEMORY_REFLECTION_ENABLED env fallback is unset here → false.
-      memoryReflectionEnabled: false,
+      // Anonymous mode: no org, and GRID_ENFORCE_FEATURE_FLAGS is off, so the
+      // GRID_MEMORY_REFLECTION_ENABLED fallback decides — and it defaults ON.
+      memoryReflectionEnabled: true,
     })
     expect(mockRequireProjectAccess).not.toHaveBeenCalled()
     expect(mockBuildCollectionScopeFromRequest).toHaveBeenCalledWith(null, {
@@ -96,11 +105,12 @@ describe('/api/auth/websocket-scope', () => {
       organizationMembershipId: 'om_1',
       role: 'member',
       permissions: [] as string[],
+  featureFlags: null,
     }
     mockGetGridSession.mockResolvedValue(session)
-    mockRequireProjectAccess.mockResolvedValue({ role: 'project-viewer' as const })
     mockBuildCollectionScopeFromRequest.mockResolvedValue({
       scope: ['oib_knowledge', 'proj_proj-1'],
+      scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 'proj_proj-1', shelf: 'project' }],
       headerValue: 'scope-header',
       projectId: 'proj-1',
       conversationId: undefined,
@@ -111,7 +121,14 @@ describe('/api/auth/websocket-scope', () => {
     const res = await GET(req)
 
     expect(res.status).toBe(200)
-    expect(mockRequireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', 'project:view')
+    // Access enforcement lives in buildCollectionScopeFromRequest (covered by
+    // its own tests); the route must delegate with the session and NOT run a
+    // second, redundant check.
+    expect(mockBuildCollectionScopeFromRequest).toHaveBeenCalledWith(session, {
+      projectId: 'proj-1',
+      conversationId: undefined,
+    })
+    expect(mockRequireProjectAccess).not.toHaveBeenCalled()
   })
 
   it('returns 403 on authorization failure', async () => {
@@ -125,9 +142,11 @@ describe('/api/auth/websocket-scope', () => {
       organizationMembershipId: 'om_1',
       role: 'member',
       permissions: [] as string[],
+  featureFlags: null,
     }
     mockGetGridSession.mockResolvedValue(session)
-    mockRequireProjectAccess.mockRejectedValue(new Error('Not found'))
+    // The access check inside the scope builder rejects (tenancy/FGA denial).
+    mockBuildCollectionScopeFromRequest.mockRejectedValue(new Error('Not found'))
 
     const req = new Request('http://localhost:3000/api/auth/websocket-scope?projectId=proj-1')
     const res = await GET(req)

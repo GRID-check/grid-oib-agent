@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Tests for the ClarifierAgent."""
 
 import json
@@ -559,6 +544,85 @@ class TestClarifierAgentApprovalParsing:
         assert rejected is True
         assert feedback is None
 
+    @pytest.mark.parametrize("response", ["ja", "Ja", "passt", "einverstanden", "in ordnung", "Genehmigt"])
+    def test_parse_approval_german_approved(self, agent, response):
+        """German approval keywords are recognized (German-first product)."""
+        approved, rejected, feedback = agent._parse_approval(response)
+        assert approved is True
+        assert rejected is False
+        assert feedback is None
+
+    @pytest.mark.parametrize("response", ["nein", "Nein", "abbrechen", "ablehnen", "verwerfen"])
+    def test_parse_approval_german_rejected(self, agent, response):
+        """German rejection keywords are recognized (German-first product)."""
+        approved, rejected, feedback = agent._parse_approval(response)
+        assert approved is False
+        assert rejected is True
+        assert feedback is None
+
+    def test_parse_approval_german_feedback_still_treated_as_feedback(self, agent):
+        """Longer German responses remain plan-revision feedback, not approvals."""
+        approved, rejected, feedback = agent._parse_approval("Bitte einen Abschnitt zum Brandschutz ergänzen")
+        assert approved is False
+        assert rejected is False
+        assert feedback == "Bitte einen Abschnitt zum Brandschutz ergänzen"
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            # The words from the live transcript, verbatim (typo included).
+            "no i dont want a deep research pla",
+            "no i dont want a deep research plan",
+            "I don't want a research plan",
+            "ich will keinen deep research plan",
+            "kein Plan bitte",
+            "i just want an answer",
+            "gib mir einfach eine Antwort",
+            "no thanks",
+            "nein danke",
+            "nope",
+        ],
+    )
+    def test_parse_approval_prose_refusal_is_a_rejection(self, agent, response):
+        """A refusal written as a sentence is a refusal, not plan feedback.
+
+        The exact-match sets test the WHOLE message (``normalized in
+        REJECTION_KEYWORDS``), so every one of these used to fall through to the
+        feedback branch — and the feedback branch REGENERATES THE PLAN. That is
+        why the live transcript's user, having said "no i dont want a deep
+        research pla", was shown a second plan instead of being let go.
+        """
+        approved, rejected, feedback = agent._parse_approval(response)
+        assert approved is False
+        assert rejected is True, f"{response!r} refuses the plan; treating it as feedback re-plans at the user"
+        assert feedback is None
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            # Opens with "no" but says what to do INSTEAD — a revision.
+            "no, focus only on Wien",
+            "make it about OIB 2 instead",
+            # Refuses a piece of the plan, not the plan.
+            "dont include costs in the plan",
+            "I don't want costs in there",
+            "Bitte einen Abschnitt zum Brandschutz ergänzen",
+            "shorter please",
+        ],
+    )
+    def test_parse_approval_revisions_are_not_refusals(self, agent, response):
+        """The widened refusal check must not swallow genuine plan feedback.
+
+        Plan revision is a real feature and these are revisions. The two shapes
+        that matter most are the near-misses: a message may OPEN with "no" and
+        still be a revision, and it may refuse something ("don't include costs")
+        without refusing the plan.
+        """
+        approved, rejected, feedback = agent._parse_approval(response)
+        assert approved is False
+        assert rejected is False, f"{response!r} is a plan revision; cancelling on it would discard the user's edit"
+        assert feedback == response
+
     def test_parse_approval_feedback(self, agent):
         """Test feedback response is captured."""
         approved, rejected, feedback = agent._parse_approval("Please add a section about security")
@@ -630,6 +694,50 @@ class TestClarifierAgentPlanFormatting:
         assert "**Title:** Test Plan" in result
         assert "**Sections:**" in result
 
+    def test_clarification_prompt_localizes_question_text(self, agent):
+        """Clarification prompt tells the model to write questions in the user's language."""
+        prompt = agent.system_prompt
+
+        assert "**Language**" in prompt
+        assert "same language as the user's most recent message" in prompt.lower()
+        # The skip control keyword the backend matches must stay byte-stable.
+        assert "byte-stable" in prompt
+        assert "SKIP_COMMANDS" in prompt
+
+    def test_plan_generation_prompt_localizes_content(self, agent):
+        """Plan-generation prompt localizes title/sections but not the approval envelope."""
+        prompt = agent.plan_generation_prompt
+
+        assert "same language as the user's request" in prompt.lower()
+        # The byte-stable approval envelope contract is documented and must not
+        # be emitted by the model.
+        assert "APPROVAL ENVELOPE" in prompt
+        assert "APPROVAL_KEYWORDS" in prompt
+
+    def test_localization_contract_comments_stay_out_of_rendered_prompts(self, agent):
+        """The byte-stable contract notes are Jinja comments — never sent to the model."""
+        from aiq_agent.common import render_prompt_template
+
+        rendered_clarification = render_prompt_template(
+            agent.system_prompt,
+            project_context=None,
+            available_documents=None,
+            clarifier_result=None,
+        )
+        rendered_plan = render_prompt_template(
+            agent.plan_generation_prompt,
+            project_context=None,
+            clarifier_context=None,
+            feedback_history=None,
+        )
+
+        # Human-facing documentation comments are stripped at render time.
+        assert "SKIP_COMMANDS" not in rendered_clarification
+        assert "APPROVAL ENVELOPE" not in rendered_plan
+        # ...but the localization instruction itself survives into the prompt.
+        assert "**Language**" in rendered_clarification
+        assert "same language as the user's request" in rendered_plan.lower()
+
 
 class TestClarifierAgentPlanApproval:
     """Tests for plan approval workflow."""
@@ -683,6 +791,39 @@ class TestClarifierAgentPlanApproval:
         assert result.plan_rejected is False
         assert result.plan_title == "Test Research Plan"
         assert result.plan_sections == ["Intro", "Analysis", "Conclusion"]
+
+    @pytest.mark.asyncio
+    async def test_plan_generation_anchors_on_current_request(self, mock_llm_provider, mock_llm, mock_planner_llm):
+        """The planner is anchored on the CURRENT request, not an earlier-turn
+        topic still sitting in history — guards against stale-plan carry-over
+        (an aborted research bleeding into a new, unrelated request)."""
+        complete_response = ClarificationResponse(needs_clarification=False, clarification_question=None)
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=complete_response.model_dump_json()))
+        mock_planner_llm.ainvoke = AsyncMock(return_value=AIMessage(content='{"title": "T", "sections": ["A", "B"]}'))
+        mock_user_callback = AsyncMock(return_value="approve")
+
+        agent = ClarifierAgent(
+            llm_provider=mock_llm_provider,
+            user_prompt_callback=mock_user_callback,
+            enable_plan_approval=True,
+            planner_llm=mock_planner_llm,
+        )
+
+        # History carries an earlier, since-abandoned topic; the latest turn is new.
+        state = ClarifierAgentState(
+            messages=[
+                HumanMessage(content="Research the 17-basement high-rise fire code"),
+                AIMessage(content="(earlier deep-research discussion)"),
+                HumanMessage(content="actually, summarize the daylight rules for small dwellings"),
+            ]
+        )
+        await agent.run(state)
+
+        # The final message handed to the planner names the CURRENT request.
+        planner_messages = mock_planner_llm.ainvoke.await_args.args[0]
+        anchor = planner_messages[-1].content
+        assert "CURRENT request" in anchor
+        assert "summarize the daylight rules for small dwellings" in anchor
 
     @pytest.mark.asyncio
     async def test_run_with_plan_approval_rejected(self, mock_llm_provider, mock_llm, mock_planner_llm):
@@ -872,3 +1013,112 @@ class TestClarifierAgentPlanApprovalInit:
         )
 
         assert agent.planner_llm == planner_llm
+
+
+class TestClarifierAgentOptions:
+    """Tests for threading structured answer options to the prompt callback."""
+
+    @pytest.fixture
+    def mock_llm(self):
+        """Create a mock LLM."""
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        return llm
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        """Create a mock LLM provider."""
+        provider = MagicMock(spec=LLMProvider)
+        provider.get = MagicMock(return_value=mock_llm)
+        return provider
+
+    @staticmethod
+    def _clarification(options: list[str] | None = None) -> str:
+        """Build the JSON envelope the clarifier LLM is expected to return."""
+        return ClarificationResponse(
+            needs_clarification=True,
+            clarification_question="**Focus**: which area?\n\n1. Alpha: about alpha\n2. Beta: about beta",
+            options=options or [],
+        ).model_dump_json()
+
+    @pytest.mark.asyncio
+    async def test_options_are_passed_to_the_callback(self, mock_llm_provider, mock_llm):
+        """The picker is starved unless the labels reach the callback as data."""
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._clarification(["Alpha", "Beta"])))
+        seen: list[tuple[str, list[str] | None]] = []
+
+        async def callback(question: str, options: list[str] | None = None) -> str:
+            seen.append((question, options))
+            return "skip"
+
+        agent = ClarifierAgent(llm_provider=mock_llm_provider, user_prompt_callback=callback)
+        await agent.run(ClarifierAgentState(messages=[HumanMessage(content="Research AI")]))
+
+        assert len(seen) == 1
+        question, options = seen[0]
+        assert options == ["Alpha", "Beta"]
+        # The prose question still carries the framing sentence and the numbered
+        # list; the options add the picker, they do not replace it.
+        assert "**Focus**" in question
+
+    @pytest.mark.asyncio
+    async def test_no_options_calls_callback_with_question_only(self, mock_llm_provider, mock_llm):
+        """A clarification without options must behave exactly as before."""
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._clarification()))
+        seen: list[tuple] = []
+
+        async def callback(*args) -> str:
+            seen.append(args)
+            return "skip"
+
+        agent = ClarifierAgent(llm_provider=mock_llm_provider, user_prompt_callback=callback)
+        await agent.run(ClarifierAgentState(messages=[HumanMessage(content="Research AI")]))
+
+        assert len(seen) == 1
+        assert len(seen[0]) == 1
+
+    @pytest.mark.asyncio
+    async def test_legacy_single_argument_callback_still_works(self, mock_llm_provider, mock_llm):
+        """A caller that supplied the old one-argument callback must keep working."""
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._clarification(["Alpha", "Beta"])))
+        seen: list[str] = []
+
+        async def legacy_callback(question: str) -> str:
+            seen.append(question)
+            return "skip"
+
+        agent = ClarifierAgent(llm_provider=mock_llm_provider, user_prompt_callback=legacy_callback)
+        result = await agent.run(ClarifierAgentState(messages=[HumanMessage(content="Research AI")]))
+
+        assert result is not None
+        assert len(seen) == 1
+
+    @pytest.mark.asyncio
+    async def test_free_text_answer_is_still_accepted(self, mock_llm_provider, mock_llm):
+        """The user may type instead of picking; that reply drives the next turn."""
+        mock_llm.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(content=self._clarification(["Alpha", "Beta"])),
+                AIMessage(
+                    content=ClarificationResponse(
+                        needs_clarification=False, clarification_question=None
+                    ).model_dump_json()
+                ),
+            ]
+        )
+
+        async def callback(question: str, options: list[str] | None = None) -> str:
+            return "Something I typed myself"
+
+        agent = ClarifierAgent(llm_provider=mock_llm_provider, user_prompt_callback=callback)
+        result = await agent.run(ClarifierAgentState(messages=[HumanMessage(content="Research AI")]))
+
+        assert "Something I typed myself" in result.clarifier_log
+
+    def test_options_are_never_parsed_out_of_the_question(self, mock_llm_provider):
+        """Regex-parsing the prose back into options is the bug being fixed."""
+        agent = ClarifierAgent(llm_provider=mock_llm_provider, user_prompt_callback=AsyncMock())
+
+        assert agent._get_clarification_options(self._clarification()) == []
+        assert agent._get_clarification_options("not json at all") == []

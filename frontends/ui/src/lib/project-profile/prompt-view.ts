@@ -1,6 +1,7 @@
-import { eq } from 'drizzle-orm'
-import { getDb } from '@/lib/db'
-import { projects } from '@/lib/db/schema'
+import { findProjectProfile, findProjectPromptView } from '@/lib/projects/repository'
+import { getCached, invalidateCached } from '@/lib/cache'
+import { buildProjectBriefView } from './brief-view'
+import { isValidBundeslandToken } from './intake-definition'
 import { ProjectProfileSchema } from './types'
 import type { ProjectPrimitiveValue, ProjectProfile, ProjectProfileDisplay } from './types'
 
@@ -9,32 +10,118 @@ import type { ProjectPrimitiveValue, ProjectProfile, ProjectProfileDisplay } fro
 // patch-engine module so the intake wizard can share it.
 export { applyProjectProfilePatch, emptyProjectProfile } from './patch-engine'
 
-const promptViewCache = new Map<string, { data: string | null; timestamp: number }>()
 const PROMPT_VIEW_CACHE_TTL_MS = 5 * 60 * 1000
 
-export async function loadProjectPromptView(projectId: string | undefined): Promise<string | null> {
+/** Key segment for a request that legitimately has no organization. */
+const ANONYMOUS_TENANT = 'anon'
+
+/**
+ * Cache keys derived from the stored profile (`projects.profile`). BOTH are
+ * served with the same 5-min TTL and MUST be invalidated together on every
+ * profile write — see {@link invalidateProjectProfileCaches}.
+ *
+ * The organization is part of the key, and that is a tenancy boundary rather
+ * than a nicety. `getCached` returns BEFORE the loader runs, so a key of
+ * `projectId` alone meant a hit served whatever the first caller had populated
+ * — without ever entering the tenant scope or consulting row-level security.
+ * The project id is supplied by the caller on the websocket-scope path, so an
+ * id belonging to another organization would have returned that organization's
+ * project context straight out of the cache. Partitioning by tenant is what
+ * makes the cached path obey the same boundary as the query behind it.
+ */
+const promptViewCacheKey = (projectId: string, organizationId: string | null | undefined) =>
+  `promptview:${organizationId ?? ANONYMOUS_TENANT}:${projectId}`
+const bundeslandCacheKey = (projectId: string, organizationId: string | null | undefined) =>
+  `bundesland:${organizationId ?? ANONYMOUS_TENANT}:${projectId}`
+
+/**
+ * Cached read of the project-context prompt view injected into the agent on
+ * every WS upgrade. Backed by the shared cache (ADR-0020), so a profile edit
+ * on one replica invalidates for all replicas — the per-process Map this
+ * replaces served stale project context for up to 5 minutes after an edit.
+ */
+export async function loadProjectPromptView(
+  projectId: string | undefined,
+  organizationId: string | null | undefined,
+): Promise<string | null> {
   if (!projectId) return null
 
-  const cached = promptViewCache.get(projectId)
-  if (cached && Date.now() - cached.timestamp < PROMPT_VIEW_CACHE_TTL_MS) {
-    return cached.data
-  }
-
-  const db = getDb()
-  const [project] = await db
-    .select({ profilePromptView: projects.profilePromptView })
-    .from(projects)
-    .where(eq(projects.id, projectId))
-    .limit(1)
-  const promptView = project?.profilePromptView?.trim()
-  const result = promptView || null
-
-  promptViewCache.set(projectId, { data: result, timestamp: Date.now() })
-  return result
+  return getCached(promptViewCacheKey(projectId, organizationId), PROMPT_VIEW_CACHE_TTL_MS, async () => {
+    const promptView = (await findProjectPromptView(projectId, organizationId))?.trim()
+    return promptView || null
+  })
 }
 
-export function invalidateProjectPromptViewCache(projectId: string): void {
-  promptViewCache.delete(projectId)
+export async function invalidateProjectPromptViewCache(
+  projectId: string,
+  organizationId: string | null | undefined,
+): Promise<void> {
+  await Promise.all(tenantVariants(promptViewCacheKey, projectId, organizationId).map((key) => invalidateCached(key)))
+}
+
+/**
+ * Every tenant-partitioned key a project's cached value can live under.
+ *
+ * A write must drop the anonymous variant as well as its own: an anonymous
+ * deployment populates `anon` while an authenticated write knows an
+ * organization, and dropping only one leaves the other serving the value the
+ * write just replaced.
+ */
+function tenantVariants(
+  key: (projectId: string, organizationId: string | null | undefined) => string,
+  projectId: string,
+  organizationId: string | null | undefined,
+): string[] {
+  const keys = new Set([key(projectId, organizationId), key(projectId, null)])
+  return [...keys]
+}
+
+/**
+ * Invalidate EVERY per-project cache derived from the stored profile. Both the
+ * prompt-view text (`promptview:`) and the structured `bundesland` fact
+ * (`bundesland:`) are read from `projects.profile` with a 5-min TTL, so a
+ * profile write must drop BOTH keys — otherwise a wizard save that changes the
+ * location leaves the jurisdiction-dependent `bundesland` on the WS handshake
+ * (RIS logic) stale for up to 5 minutes. This is the single invalidation every
+ * profile write path (`saveProjectProfile`, `patchProjectProfile`) must call.
+ */
+export async function invalidateProjectProfileCaches(
+  projectId: string,
+  organizationId: string | null | undefined,
+): Promise<void> {
+  await Promise.all(
+    [
+      ...tenantVariants(promptViewCacheKey, projectId, organizationId),
+      ...tenantVariants(bundeslandCacheKey, projectId, organizationId),
+    ].map((key) => invalidateCached(key)),
+  )
+}
+
+/**
+ * Cached read of the project's validated `bundesland` fact, straight off the
+ * stored structured profile (`projects.profile.facts.bundesland.value`) —
+ * the SAME source `buildProjectPromptView` reads to emit the
+ * `bundesland=<token>` text line `loadProjectPromptView` above serves.
+ *
+ * Backlog T3-9 follow-up (2026-07-16, user-mandated): jurisdiction is a
+ * cross-cutting request fact and must travel STRUCTURED on the
+ * `X-Grid-Request-Context` envelope, not be re-parsed out of that prompt
+ * text — this is the read producers resolve `GridRequestContextInput.bundesland`
+ * from. Returns `null` for no project, no fact, or a value outside the
+ * validated intake vocabulary (a stale/corrupt row must never leak an
+ * unvalidated token onto the wire).
+ */
+export async function loadProjectBundesland(
+  projectId: string | undefined,
+  organizationId: string | null | undefined,
+): Promise<string | null> {
+  if (!projectId) return null
+
+  return getCached(bundeslandCacheKey(projectId, organizationId), PROMPT_VIEW_CACHE_TTL_MS, async () => {
+    const profile = await findProjectProfile(projectId, organizationId)
+    const value = profile?.facts?.bundesland?.value
+    return typeof value === 'string' && isValidBundeslandToken(value) ? value : null
+  })
 }
 
 export function buildProjectPromptView(profile: ProjectProfile): string {
@@ -42,6 +129,17 @@ export function buildProjectPromptView(profile: ProjectProfile): string {
   const sections: string[][] = [['PROJECT_CONTEXT v1']]
 
   const factKeys = Object.keys(normalized.facts).sort()
+
+  // Legacy profile: no country fact but valid AT bundesland → derive country=at
+  const countryInFacts = normalized.facts.country
+  if (!countryInFacts && normalized.facts.bundesland?.value) {
+    const bv = normalized.facts.bundesland.value
+    if (typeof bv === 'string' && bv !== 'ausserhalb_oesterreichs' && isValidBundeslandToken(bv)) {
+      factKeys.unshift('country')
+      normalized.facts.country = { value: 'at', confidence: 'confirmed', source: 'onboarding', updatedAt: '' }
+    }
+  }
+
   if (factKeys.length > 0) {
     sections.push([
       'confirmed:',
@@ -81,19 +179,24 @@ export function buildProjectProfileDisplay(
   // it -- otherwise any chat-driven profile edit permanently blanks the Project
   // Brief prose until the next full intake save.
   previousSummary = '',
+  // The locale that `previousSummary` was generated in, carried over 1:1 with
+  // the summary so a preserved prose keeps its language provenance (and a reset
+  // summary drops it — callers pass undefined). See ProjectProfileDisplaySchema.
+  previousSummaryLocale?: string,
 ): ProjectProfileDisplay {
   const normalized = ProjectProfileSchema.parse(profile)
+  const brief = buildProjectBriefView(normalized)
 
   return {
     title: 'Project profile',
     summary: previousSummary,
-    keyFacts: Object.keys(normalized.facts)
-      .sort()
-      .map((key) => ({
-        label: key.replaceAll('_', ' '),
-        value: formatDisplayValue(normalized.facts[key].value),
-      })),
-    missingInfo: [...normalized.unknowns].sort(),
+    summaryLocale: previousSummaryLocale,
+    // Human-readable, intake-ordered: question labels ("Building class") and
+    // option labels ("Residential") instead of raw keys/enum values.
+    keyFacts: brief.groups.flatMap((group) =>
+      group.facts.map((fact) => ({ label: fact.label, value: fact.value })),
+    ),
+    missingInfo: brief.missing.map((item) => item.label),
   }
 }
 
@@ -115,14 +218,4 @@ function isSafePromptToken(value: string): boolean {
 
 function escapeLineSeparator(value: string): string {
   return `\\u${value.charCodeAt(0).toString(16).padStart(4, '0')}`
-}
-
-function formatDisplayValue(value: ProjectPrimitiveValue): string {
-  if (value === null) return ''
-
-  if (typeof value === 'boolean') {
-    return value ? 'Yes' : 'No'
-  }
-
-  return String(value)
 }

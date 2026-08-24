@@ -1,0 +1,22 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=83.0.0", "setuptools-scm>=8"]
+
+[tool.setuptools]
+packages = ["oib_compliance_eval"]
+package-dir = {"oib_compliance_eval" = "src/oib_compliance_eval"}
+
+[project]
+name = "oib-compliance-eval"
+version = "1.0.0"
+description = "Golden OIB-compliance eval suite for NAT - deterministic checklist + latency/cost bounds evaluator"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = {text = "Apache-2.0"}
+dependencies = [
+    "nvidia-nat-eval==1.7.0",
+    "pydantic>=2.0.0",
+]
+
+[project.entry-points."nat.plugins"]
+oib_compliance_eval = "oib_compliance_eval.register"

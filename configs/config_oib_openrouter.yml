@@ -1,4 +1,6 @@
-# Grid OIB workflow config — OpenRouter DeepSeek LLMs, persistent OIB knowledge base plus web search.
+# Grid OIB workflow config — OpenRouter endpoint + credential, persistent OIB
+# knowledge base plus web search. The MODEL each role runs on is admin-controlled
+# at runtime (Platform → Models), not decided here; see the note above `llms:`.
 
 general:
   use_uvloop: true
@@ -7,6 +9,38 @@ general:
       console:
         _type: console
         level: INFO
+      otlp:
+        # Ships runtime logs to the same OTLP collector as the traces below
+        # (Aspire dashboard "Strukturierte Protokolle", ADR-0029). The
+        # /v1/logs path is derived from the injected traces endpoint; no
+        # endpoint == observability tier not deployed == no-op.
+        _type: otelcollector_logs
+        endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+        level: INFO
+    tracing:
+      # Ships spans to the OTLP endpoint over HTTP/protobuf. Only the endpoint
+      # is injected by the deployment (OTEL_EXPORTER_OTLP_ENDPOINT); producers
+      # send unauthenticated OTLP to the in-cluster collector and hold no
+      # ingestion key of their own (ADR-0029).
+      #
+      # The endpoint DEFAULTS TO EMPTY ON PURPOSE. NAT cannot declare this
+      # entry conditionally, so the exporter is always constructed; the
+      # registration in `otel_header_redaction_exporter.py` turns a blank
+      # endpoint into a no-op exporter. That keeps the backend on the same
+      # "availability = flag AND capability" rule as the rest of the tier —
+      # Compose and local dev export nothing instead of retrying forever
+      # against a collector that was never deployed. A previous localhost
+      # fallback here did exactly that.
+      #
+      # Set it to run against a local collector; the value must include the
+      # full /v1/traces path, because explicit config endpoints are used as-is
+      # (only SDK env-var defaults get the signal path appended).
+      otelcollector_redaction:
+        _type: otelcollector_redaction
+        project: ${OTEL_SERVICE_NAME:-grid-aiq-agent}
+        endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+        resource_attributes:
+          deployment.environment: ${APP_ENV:-production}
 
   front_end:
     _type: aiq_api
@@ -31,127 +65,313 @@ general:
 
 llms:
   # ───────────────────────────────────────────────────────────────────────────
-  # REASONING EFFORT PER AGENT ROLE
-  # DeepSeek V4 Flash natively supports only 3 reasoning tiers: none (Non-Think),
-  # high (Think High), max (Think Max) — the OpenAI-style minimal/low/medium
-  # naming is a compatibility alias that OpenRouter coerces to one of these
-  # three under the hood (minimal/low/medium/high all resolve to "high";
-  # xhigh/max resolve to "max"). We set values to their *actual* resolved tier
-  # directly so the config isn't misleading. Policy: none for pure routing/
-  # trivial one-liners, high for the medium-effort tier, max for roles that
-  # need real multi-step reasoning depth. To retune a role, change its
-  # `reasoning_effort` below — each role has its own LLM definition so they
-  # are independently settable. All roles share one OpenAI-compatible
-  # endpoint; swap model_name/base_url/api_key to change provider (the system
-  # is LLM-agnostic — see docs/architecture/llm-providers.md).
+  # THIS FILE DOES NOT DECIDE WHICH MODEL RUNS.
+  #
+  # `model_name` below is the BOOT FLOOR only — what a role runs on in a process
+  # that has no BFF to ask (local `nat run`, a detached worker, an unreachable
+  # frontend). The default an actual user gets is a row in the database:
+  # `platform_model_defaults`, provisioned by the BFF on first boot when the
+  # table is empty and edited under Platform → Models. Every organization that
+  # has not chosen its own model for an agent group follows that row on its next
+  # turn; a tenant's own choice (Organization → Models) still wins over both.
+  # Resolution order: org override → platform default → the value here.
+  #
+  # TWO EXCEPTIONS, and they are real: `summary_llm` and `rerank_llm` have no
+  # agent group, so nothing can re-point them — they resolve to the literals
+  # below on EVERY request, always, and editing them is an unconditional
+  # fleet-wide model change no admin can revert. Bootstrap also declines to
+  # provision a group whose endpoint is not the platform model provider, which
+  # leaves that group on the value below too.
+  # See docs/architecture/org-model-configuration.md.
+  #
+  # So: do NOT edit these to move the fleet to a newer model — that is a save in
+  # the admin UI, not a commit and a redeploy. Change them (or set
+  # GRID_DEFAULT_MODEL) only to move the *floor*, e.g. for a deployment that
+  # runs without the BFF. What this file remains the sole owner of is the
+  # plumbing: base_url, api_key, temperature, max_tokens, reasoning_effort,
+  # timeouts and retries — none of which an override may touch.
+  # ───────────────────────────────────────────────────────────────────────────
+  #
+  # ───────────────────────────────────────────────────────────────────────────
+  # REASONING EFFORT PER AGENT ROLE — OPENROUTER-STANDARD VALUES, PASSED THROUGH
+  # reasoning_effort uses OpenRouter's unified vocabulary (none/minimal/low/
+  # medium/high/xhigh) and is sent verbatim: OpenRouter maps the requested
+  # effort to the nearest level the EFFECTIVE model supports, per model,
+  # server-side — including models selected by org overrides (ADR-0014). We
+  # deliberately keep NO app-side per-provider mapping (it would duplicate and
+  # drift from OpenRouter's contract). Never use provider-native tier names
+  # here (e.g. DeepSeek's "max") — OpenRouter rejects/ignores them; the
+  # highest unified level is "xhigh". See
+  # https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
+  # Policy: none for pure routing/trivial one-liners, medium for everything
+  # else — high tiers multiplied hidden reasoning tokens across hundreds of
+  # agent turns per run for no measurable quality gain (observed 20+ min runs
+  # stuck in planning). Each role has its own LLM definition so roles are
+  # independently tunable; swap model_name/base_url/api_key to change provider
+  # (the system is LLM-agnostic — see docs/architecture/llm-providers.md).
+  #
+  # request_timeout (seconds) bounds every HTTP call — NAT's default is None
+  # (UNBOUNDED), which let one stalled provider call hang a whole deep-research
+  # run indefinitely. max_retries is the OpenAI-client retry count; kept low
+  # because the middleware layers (ModelRetryMiddleware,
+  # SelectiveToolRetryMiddleware) add their own retries on top.
   # ───────────────────────────────────────────────────────────────────────────
 
   # Intent Router — classify meta-vs-research + shallow-vs-deep depth. Pure routing.
   intent_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
-    temperature: 1.0
-    top_p: 0.95
+    # Pure router: classification must be repeatable for the same query.
+    # temperature 1.0 made shallow-vs-deep depth noisy across runs; greedy
+    # decoding pins the decision so identical queries route identically.
+    #
+    # CAVEAT — temperature is NOT honoured by every model. OpenRouter DROPS a
+    # sampling parameter an endpoint does not advertise (and
+    # provider.require_parameters is deliberately unset, see the note below), so
+    # on a model whose supported_parameters omits `temperature` — the current
+    # default, openai/gpt-5.6-luna, is one — this line is silently inert and the
+    # routing noise returns. `seed` is the lever those models do expose; it is
+    # best-effort (providers may still vary) but it is what remains. Keep BOTH:
+    # temperature serves models that honour it, seed serves the rest.
+    #
+    # MEASURED, 2026-08. The caveat above is real — openai/gpt-5.6-luna's
+    # supported_parameters carries `seed` but NOT `temperature` or `top_p`, so
+    # both of those lines are dropped by the gateway — but the noise it predicts
+    # is NOT what shows up. Run-to-run, the depth decision is stable: the same
+    # question, 6 identical calls, returned the same depth every time on every
+    # model that answered, across 8 candidate models.
+    #
+    # The variance is ACROSS MODELS, not across runs, and that is the harder
+    # problem, because which model serves this role is not decided here. It is
+    # an admin's dashboard choice (Platform -> Models / org override, applied by
+    # `apply_model_override(llm, AgentGroup.INTENT)`), so `model_name` below is
+    # only the boot fallback. On the same prompt and the same question set,
+    # three of eight candidate models routed plain single-topic OIB questions to
+    # deep research and five did not.
+    #
+    # That is why the shallow-vs-deep boundary no longer lives only in
+    # `prompts/intent_classification.j2`: the prompt asks for two independent
+    # signals and `_gate_deep_route` in nodes/intent_classifier.py takes the AND
+    # of them in code, so the boundary survives a model swap made with a click
+    # and no deploy. Do not move that policy back into prose.
+    temperature: 0
+    seed: 1
+    top_p: 1.0
     max_tokens: 4096
-    max_retries: 5
+    max_retries: 2
+    request_timeout: 60
     reasoning_effort: none
+    # NOTE: the OpenRouter response-healing plugin is forced on every OpenRouter
+    # LLM centrally in code (aiq_agent.common.llm_factory
+    # .apply_openrouter_structured_defaults, applied via get_langchain_llm), so
+    # it is intentionally NOT repeated per-LLM here. provider.require_parameters
+    # is deliberately NOT set — it 404s when a group is overridden to a model
+    # whose endpoints don't support every param we send.
 
   # Shallow Research — fast retrieval + synthesis (the quick-answer tier).
   shallow_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
     top_p: 0.95
     max_tokens: 65536
-    max_retries: 5
-    reasoning_effort: high
+    max_retries: 2
+    request_timeout: 120
+    # low (not medium): the shallow tier is the quick-answer path; on reasoning
+    # models (e.g. grok-4.5 via org override) medium spent a large hidden-token
+    # "think" budget before emitting the first answer token — the dominant slice
+    # of the synthesis-call latency observed in the profiler (final synth ≈29s on
+    # a simple meta-ish query). Shallow retrieval+synthesis does not need deep
+    # deliberation; deep_* roles keep medium for the genuinely hard reasoning.
+    reasoning_effort: low
+    # Uncomment TOGETHER WITH shallow_research_agent.deferred_tool_loading below
+    # — that feature needs the Responses API and fails the workflow build without
+    # it, deliberately, rather than sending the tool schemas anyway (ADR-0048).
+    # Nothing else in this file needs it; the default (chat_completion) is what
+    # every other role runs on.
+    # api_type: responses
 
   # HITL Clarification & Planning — clarify ambiguity, generate the research plan.
   clarifier_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
     top_p: 0.95
     max_tokens: 65536
-    max_retries: 5
-    reasoning_effort: max
+    max_retries: 2
+    request_timeout: 120
+    reasoning_effort: medium
 
   # Deep Researcher — Orchestrator (also the report writer): top-level control.
   deep_orchestrator_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
     top_p: 0.95
     max_tokens: 128000
-    max_retries: 10
-    reasoning_effort: max
+    max_retries: 2
+    request_timeout: 180
+    reasoning_effort: medium
 
   # Deep Researcher — Planning sub-agents.
   deep_planner_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
     top_p: 0.95
     max_tokens: 128000
-    max_retries: 10
-    reasoning_effort: max
+    max_retries: 2
+    request_timeout: 180
+    reasoning_effort: medium
 
   # Deep Researcher — Researcher sub-agents (parallel investigations).
   deep_researcher_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
     top_p: 0.95
     max_tokens: 65536
-    max_retries: 5
-    reasoning_effort: max
+    max_retries: 2
+    request_timeout: 120
+    reasoning_effort: medium
 
   # Deep Researcher — source routing (which source to query). Lighter decision.
   deep_router_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
     top_p: 0.95
     max_tokens: 8192
-    max_retries: 5
-    reasoning_effort: high
+    max_retries: 2
+    request_timeout: 60
+    reasoning_effort: medium
+
+  # RIS query planner — pure JSON-schema extraction (structured outputs), not a
+  # reasoning task. Dedicated cheap twin of deep_router_llm (same model/base_url)
+  # so we can drop reasoning_effort to none WITHOUT weakening deep_router_llm,
+  # which is also the deep-research source_router_llm where medium still matters.
+  ris_planner_llm:
+    _type: openai
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 8192
+    max_retries: 2
+    request_timeout: 60
+    reasoning_effort: none
 
   # Card generation — structured rich-UI compliance cards.
   card_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
     top_p: 0.95
     max_tokens: 65536
-    max_retries: 5
-    reasoning_effort: high
+    max_retries: 2
+    request_timeout: 120
+    reasoning_effort: medium
+
+  # Post-answer follow-up questions — one short structured-output call over a
+  # finished answer. A dedicated entry rather than a second use of card_llm for
+  # two reasons the stage depends on. reasoning_effort is `none`: the stage
+  # declares a hard output-token ceiling and reasoning tokens are spent against
+  # that same ceiling, so a thinking model would truncate the JSON body and turn
+  # a working stage into one that silently returns nothing (the trap
+  # memory_reflection documents and avoids by declaring no ceiling at all).
+  # request_timeout sits UNDER the stage's 20s asyncio bound with one retry, so
+  # a slow provider produces a recorded timeout rather than a stage that was
+  # already dead when the bound fired.
+  follow_ups_llm:
+    _type: openai
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 1024
+    max_retries: 1
+    request_timeout: 15
+    reasoning_effort: none
+
+  # Compliance pipeline — Stage 1 requirement derivation + Stage 2 evidence
+  # judging (structured outputs; ~10-16 calls per full 6-Richtlinien check).
+  compliance_llm:
+    _type: openai
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 65536
+    max_retries: 2
+    request_timeout: 120
+    reasoning_effort: medium
 
   # Document / project summaries — trivial one-liners.
   summary_llm:
     _type: openai
-    model_name: deepseek/deepseek-v4-flash
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
     top_p: 0.95
     max_tokens: 100
-    max_retries: 5
+    max_retries: 2
+    request_timeout: 30
+    reasoning_effort: none
+
+  # LLM-judge retrieval reranking — one batched relevance judgment over up to
+  # rerank_candidates chunks. Dedicated entry: summary_llm's 100-token cap is
+  # too small for the JSON scores reply. Greedy decoding (0) pins the judgment;
+  # pure JSON extraction needs no reasoning effort.
+  #
+  # max_tokens must fit ONE SCORE PER CANDIDATE. At ~12 tokens per entry, the old
+  # 256 sat 12 tokens above a 20-candidate reply — and a model emitting one decimal
+  # score ("8.5") overran it, truncating the JSON mid-object and silently disabling
+  # reranking for that turn. 2048 covers a ~150-candidate pool with headroom.
+  #
+  # request_timeout x (max_retries + 1) must stay UNDER rerank_chunks' own 30s
+  # asyncio timeout, or the outer bound fires first and both knobs are dead letters.
+  # It must ALSO exceed the time the reply itself takes to decode. A 60-candidate
+  # pool is ~16k input tokens and ~720 output tokens; at a routine 50 tok/s that is
+  # ~14s of decoding alone, so the 12s this briefly carried would have timed out on
+  # every turn -- and because reranking fails open, the only symptom would have been
+  # one warning line and silently unranked results. 25s single-shot leaves headroom
+  # without letting a hung provider hold a turn open to the outer bound.
+  #
+  # NOTE: rerank_llm has NO agent group, so no platform default or org override
+  # can re-point it — this literal is what every request uses, always. That also
+  # means the temperature caveat on intent_llm applies here with no way to route
+  # around it from the admin surface; `seed` is set for the same reason.
+  rerank_llm:
+    _type: openai
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 0
+    seed: 1
+    top_p: 1.0
+    max_tokens: 2048
+    max_retries: 0
+    request_timeout: 25
     reasoning_effort: none
 
 functions:
@@ -169,16 +389,75 @@ functions:
         description: "Search uploaded documents and files."
         tools:
           - knowledge_search
+      - id: ris
+        name: "RIS – Österreichisches Recht"
+        description: "Search Austrian federal/state law and case law in the official RIS (Rechtsinformationssystem des Bundes) and fetch entire documents on demand."
+        tools:
+          - ris_search_tool
+          - ris_fetch_tool
+          - ris_catalog_lookup_tool
 
   web_search_tool:
     _type: tavily_web_search
-    max_results: 5
+    max_results: 8
     max_content_length: 1000
+    # Optional domain allow/deny lists (default: unrestricted). These are HARD
+    # filters: with include_domains set, any result NOT on the list is dropped;
+    # exclude_domains removes matching domains. Shallow chat uses THIS instance,
+    # so a real allow-list must be set here AND on advanced_web_search_tool below.
+    # RIS domain is excluded because the structured RIS adapter handles Austrian
+    # building law exclusively (accurate, up-to-date, traceable).
+    # include_domains: []
+    exclude_domains:
+      - ris.bka.gv.at
 
   advanced_web_search_tool:
     _type: tavily_web_search
-    max_results: 2
+    max_results: 4
     advanced_search: true
+    # Optional domain allow/deny lists (default: unrestricted). These are HARD
+    # filters: with include_domains set, any result NOT on the list is dropped;
+    # exclude_domains removes matching domains. Deep research uses THIS instance,
+    # so a real allow-list must be set here AND on web_search_tool above.
+    # RIS domain is excluded because the structured RIS adapter handles Austrian
+    # building law exclusively (accurate, up-to-date, traceable).
+    # include_domains: []
+    exclude_domains:
+      - ris.bka.gv.at
+
+  # Austrian RIS (OGD-RIS API, no API key needed): live search over federal/
+  # state law and case law, plus on-demand fetching of ENTIRE documents
+  # (complete consolidated laws, court decisions). Fetched documents are also
+  # ingested into the per-session knowledge collection so knowledge_search can
+  # retrieve and cite specific sections afterwards.
+  ris_search_tool:
+    _type: ris_search
+    # max_results == page_size: the agent sees every hit the page fetched, so
+    # asking for page 2 continues where page 1 stopped instead of skipping the
+    # hits that were fetched but never shown.
+    page_size: 20
+    max_results: 20
+    # Query planning via strict structured outputs (response_format:
+    # json_schema); falls back to the agent's raw arguments when the planner
+    # is unavailable or fails. Uses ris_planner_llm — a dedicated cheap twin of
+    # deep_router_llm at reasoning_effort: none, because this is pure JSON
+    # extraction, not a reasoning task. Kept separate from deep_router_llm so
+    # lowering effort here does not weaken deep-research source routing.
+    planner_llm: ris_planner_llm
+
+  ris_fetch_tool:
+    _type: ris_fetch_document
+    max_chars: 40000
+    ingest_into_knowledge: true
+
+  # Norm registry (configs/norms/<country>/registry.yml, override via
+  # GRID_NORMS_DIR; ADR-0025): typed spine with verified RIS pointers.
+  # ris_search short-circuits to these pointers on a catalog match
+  # (catalog_shortcut), ris_catalog_lookup annotates hits with registry
+  # relations, and the researcher prompts show the lane-rendered block.
+  ris_catalog_lookup_tool:
+    _type: ris_catalog_lookup
+    max_matches: 8
 
   knowledge_search:
     _type: knowledge_retrieval
@@ -187,11 +466,50 @@ functions:
     include_base_collection: true
     include_session_collection: true
     project_collections: []
+    # Phase-0 default exclusion (norm-registry spec §8): diff documents and the
+    # superseded non-rev.1 zitierte_normen duplicate never surface in default
+    # retrieval. Replaced by role/edition metadata filters in Phase 2.
+    exclude_file_names:
+      - aenderungen_oib-rl_1_ausgabe_mai_2023.pdf
+      - aenderungen_oib-rl_1_leitfaden_ausgabe_mai_2023.pdf
+      - aenderungen_oib-rl_2.1_ausgabe_mai_2023.pdf
+      - aenderungen_oib-rl_2.2_ausgabe_mai_2023.pdf
+      - aenderungen_oib-rl_2.3_ausgabe_mai_2023.pdf
+      - aenderungen_oib-rl_2_ausgabe_mai_2023.pdf
+      - aenderungen_oib-rl_2_leitfaden_ausgabe_mai_2023.pdf
+      - aenderungen_oib-rl_3_ausgabe_mai_2023.pdf
+      - aenderungen_oib-rl_4_ausgabe_mai_2023.pdf
+      - aenderungen_oib-rl_5_ausgabe_mai_2023.pdf
+      - aenderungen_oib-rl_6-leitfaden_ausgabe_mai_2023.pdf
+      - aenderungen_oib-rl_6_ausgabe_mai_2023.pdf
+      - aenderungen_oib-rl_begriffsbestimmungen_ausgabe_mai_2023.pdf
+      - aenderungen_oib-rl_zitierte_normen_und_sonstige_technische_regelwerke_ausgabe_mai_2023.pdf
+      - aenderungen_oib-rl_zitierte_normen_und_sonstige_technische_regelwerke_ausgabe_mai_2023_rev.1.pdf
+      - oib-rl_zitierte_normen_und_sonstige_technische_regelwerke_ausgabe_mai_2023.pdf
     generate_summary: true
     summary_model: summary_llm
     summary_db: ${AIQ_SUMMARY_DB:-sqlite+aiosqlite:///./summaries.db}
-    top_k: 5
+    # top_k=16 with a 5-per-document diversity cap still spans >=4 distinct
+    # Richtlinien on cross-cutting questions instead of 5 chunks from the 1-2
+    # top-scoring PDFs, and gives each of them enough consecutive text to reason
+    # over. The cap and the total move together: raising the cap without raising
+    # top_k buys per-document depth by giving up that breadth.
+    top_k: 16
+    max_chunks_per_document: 5
     chroma_dir: ${AIQ_CHROMA_DIR:-/tmp/chroma_data}
+    # LLM-judge reranking: over-fetch rerank_candidates chunks and re-order them
+    # against the query with the dedicated rerank LLM before trimming to top_k.
+    # Fail-open: any judge error returns the fused (hybrid+vector) order.
+    #
+    # The pool must exceed top_k by SEVERAL TIMES, not by a margin. At 20-vs-16 the
+    # judge could only reshuffle 20 candidates into 16 slots, so the stage that is
+    # supposed to convert recall into precision had four chunks of headroom. 60 gives
+    # it a real pool; the cost is one batched call either way (the extra candidates
+    # come from a Chroma n_results bump, not extra round-trips), plus the judge's
+    # input tokens. The trim is now max(top_k, rerank_candidates), so raising
+    # Platform -> Retrieval top_k above this can no longer silently cap a search.
+    rerank_llm: rerank_llm
+    rerank_candidates: 60
 
   # Project Memory: silent, observable capture of durable project findings.
   # Available in project-scoped chats; no-ops (with a clear error) elsewhere.
@@ -204,6 +522,63 @@ functions:
   emit_card:
     _type: emit_card
 
+  # Blocking multiple-choice question the answering agent can put mid-turn,
+  # for a choice it can enumerate but cannot decide (which of two IFC models,
+  # which Bundesland). Goes through the same HITL channel as the clarifier, so
+  # the addressee guard and reconnect handling apply; degrades to "answer with
+  # a stated assumption" wherever no HITL channel is bound.
+  ask_user:
+    _type: ask_user
+
+  # L2 of the card vocabulary. `emit_card` advertises one line per card type;
+  # this returns the exact nesting and a worked example for the type actually
+  # being emitted. Rendering all 27 shapes up front costs ~5,200 tokens on every
+  # turn whether or not a card is emitted, and ~190 more for each type we add.
+  describe_card:
+    _type: describe_card
+
+  # Document surfacing: show a file (filename= / mode=one) or a short browse
+  # choice (mode=many). Distinct from knowledge_search, which cites passages;
+  # the UI peeks cited files, so the agent must not also surface after citing.
+  surface_documents:
+    _type: surface_documents
+
+  # BIM/IFC: deterministic structured queries over the project's uploaded IFC
+  # model (ADR-0045). Distinct from knowledge_search in kind, not degree — that
+  # tool retrieves text about REGULATIONS, this one runs SQL against THIS
+  # building's elements, so "how many external walls on the ground floor" comes
+  # back as a count rather than as a summary an LLM had to add up.
+  ifc_query:
+    _type: ifc_query
+    default_limit: 25
+
+  # BIM/IFC, the geometric half: measurements, topology and spatial relations
+  # read from the model's own bytes by the IfcOpenShell engine (roadmap §13b).
+  # It answers what the EXPORT DID NOT WRITE DOWN — a room's floor area with no
+  # published quantity, a window's Brüstungshöhe, the lichte Raumhöhe under a
+  # suspended ceiling — and every answer carries its provenance (deklariert /
+  # gemessen ±Toleranz / vermutlich) so a measurement can never be reported as
+  # something the model states. Gated by the same `ifc-models` flag as
+  # ifc_query: both go through lib/bim/internal-access in the BFF, so a model
+  # this tool can reach is one ifc_query could already answer questions about.
+  ifc_measure:
+    _type: ifc_measure
+    default_limit: 50
+
+  # Purpose-built OIB Soll-Ist-Abgleich (backlog T4-3): staged pipeline
+  # (requirement profile per Richtlinie -> batched evidence judgment ->
+  # deterministic matrix + German report) — the structured alternative to
+  # running compliance checks through open-ended deep research. See
+  # src/aiq_agent/agents/compliance_checker/README.md.
+  compliance_check:
+    _type: compliance_check_agent
+    llm: compliance_llm
+    knowledge_search_tool: knowledge_search
+    max_concurrency: 3
+    richtlinien: [1, 2, 3, 4, 5, 6]
+    requirement_batch_size: 9
+    verbose: false
+
   intent_classifier:
     _type: intent_classifier
     llm: intent_llm
@@ -213,7 +588,12 @@ functions:
     tools:
       - web_search_tool
       - knowledge_search
+      - ris_search_tool
+      - ris_fetch_tool
+      - ris_catalog_lookup_tool
       - remember
+      - ifc_query
+      - ifc_measure
     verbose: true
 
   clarifier_agent:
@@ -229,15 +609,204 @@ functions:
     _type: shallow_research_agent
     llm: shallow_llm
     # Explicit list (replaces registry inheritance) so the non-data-source
-    # `remember` and `emit_card` tools are included alongside search/knowledge.
+    # `remember`, `emit_card` and `ask_user` tools are included alongside
+    # search/knowledge.
     tools:
       - web_search_tool
       - knowledge_search
+      - ris_search_tool
+      - ris_fetch_tool
+      - ris_catalog_lookup_tool
       - remember
       - emit_card
+      - describe_card
+      - surface_documents
+      - ifc_query
+      - ifc_measure
+      - ask_user
+      - compliance_check
     verbose: true
     max_llm_turns: 10
-    max_tool_iterations: 5
+    # A CEILING, NOT A QUOTA — and the number is the floor of the longest chain
+    # this surface documents, plus one repair.
+    #
+    # The accounting is `new_iterations += len(response.tool_calls)` in
+    # `shallow_researcher/agent.py`, charged when the model EMITS the call and
+    # never refunded. Three consequences that are not obvious from the name:
+    #   * a call that comes back with 0 hits costs what one that answers costs;
+    #   * PARALLEL calls each cost one, so a model emitting three per turn gets
+    #     two round trips out of five, not five — and this surface runs frontier
+    #     models, which emit parallel calls routinely;
+    #   * `use_skill` is a real tool call — but the skills this DEPLOYMENT
+    #     forces (`delivery: standard`, currently piloti-voice and
+    #     piloti-cards) are no longer charged here. The register reserves one
+    #     iteration per standard skill on top of this number
+    #     (`reserved_tool_iterations`), because otherwise publishing a second
+    #     house skill in the dashboard silently shortens every research chain
+    #     in the product by one, with no deploy and nothing to notice it. The
+    #     floors below still count ONE `use_skill` — the one the QUESTION
+    #     spends, on a skill the model or the user chose.
+    #
+    # Floors traced against the tool surface as it now stands (survey landed
+    # since the number was last touched, and it shortened exactly one shape):
+    #   „wie hoch ist der Keller"  use_skill + survey                       = 2
+    #     ...plus a storey-name miss repaired by briefing, plus emit_card    = 5
+    #   OIB 3 Lichteinfall         use_skill + knowledge_search (the clause
+    #     supplies angle_deg/swivel_deg, which light_incidence refuses to
+    #     default) + find_elements + relations + overhang + light_incidence  = 6
+    #   OIB 2 Fluchtweg            use_skill + knowledge_search + find_elements
+    #     + egressPath + clearWidth over the door list + fire/doorGraph      = 6
+    #
+    # At 5 the two multi-element chains truncate AT OR BEFORE the measurement
+    # that answers the question, and forced synthesis then writes an answer from
+    # declared values — the 3,00-m-instead-of-2,70-m failure this whole branch
+    # started from. Truncation is still silent TO THE READER — the synthesis
+    # anchor says „exhausted your research budget" to the MODEL and asks for no
+    # disclosure, and `[CONFIDENCE:…]` grades SOURCE grounding, not whether
+    # evidence-gathering was cut off — but it is no longer invisible to US: it
+    # now emits a `status:budget` telemetry step and a `Research budget
+    # exhausted` warning carrying the ceiling, the spend, the round count and
+    # the ordered tool shape, so "how often, and on which questions" is a query
+    # rather than a guess. Whether the READER is told is a product decision.
+    #
+    # 6 is the bare floor with no repair budget, and a storey-name miss is the
+    # commonest repair on this surface. 7 = floor + one repair. Higher buys a
+    # second repair nothing traced here needs, and every iteration is a full
+    # round trip carrying ~9 000 tokens of tool schema plus the grown history.
+    #
+    # Raising a ceiling costs nothing on a query that never reaches it — the
+    # short shapes above still stop at 2. The only new cost is a confused model
+    # wandering, bounded at two extra round trips. Set against that, truncation
+    # before the measurement is the worst failure this product has.
+    #
+    # 7 serial iterations = 15 node visits + forced synthesis, well under
+    # `recursion_limit` 30 (`max_llm_turns * 2 + 10`), so this does not need
+    # max_llm_turns moved with it. The two reserved skill iterations take the
+    # worst case to 9 = 19 node visits + synthesis, still under 30 — and a
+    # third standard skill would take it to 21, so the reserve is bounded by
+    # what the platform owner publishes and wants watching if that grows.
+    max_tool_iterations: 7
+    # Agent skills (progressive-disclosure `use_skill` tool) active on research
+    # turns. Empty allowlist = every resolved skill (builtin + org) is offered.
+    skills_enabled: true
+    skill_allowlist: []
+    # Retrieval-based tool narrowing. OFF, deliberately — the block below is the
+    # tested configuration, not a suggestion, and it is commented out because on
+    # THIS surface the trade is not yet worth taking.
+    #
+    # The two BIM tools are 81 % of the ~9 000 tokens of tool schema that ride on
+    # every call here, so narrowing to four tools saves ~24 % of that payload on
+    # average and 81 % on a pure-Normen question. But tokens are not what this
+    # agent runs out of — TURNS are, and narrowing does not buy one back. What it
+    # can spend is an answer: measured against these eleven tools, a lexical rank
+    # over the user's turn alone keeps the answering tool for only 71 % of a
+    # realistic German question set. The pins below carry that to 100 %, because
+    # they cover the two shapes a query-time ranking structurally cannot see —
+    # tools named by INTENT rather than subject (`remember`, `emit_card`,
+    # `use_skill`, `surface_documents`) and tools that are SEQUENCED, whose turn
+    # comes from what a previous tool returned (`ris_fetch_tool` after
+    # `ris_search_tool`). Both are guarded by tests.
+    #
+    # Turn it on when the surface grows past what a prompt can hold — an MCP
+    # server with thirty tools — not to shave tokens off eleven.
+    #
+    # tool_search:
+    #   enabled: true
+    #   top_k: 4
+    #   always_include:
+    #     - remember
+    #     - emit_card
+    #     - use_skill
+    #     - surface_documents
+    #     - ris_fetch_tool
+    #
+    # OpenRouter server-side tool search (ADR-0048). OFF, and the block below is
+    # the measured configuration rather than a suggestion. Orthogonal to
+    # `tool_search` above: that one decides WHICH tools are bound, this one
+    # decides whether their schemas travel with the request. Requires
+    # `api_type: responses` on shallow_llm — enabling it without that fails the
+    # workflow build instead of quietly sending the schemas.
+    #
+    # Measured live against openai/gpt-5.6-luna with the real ifc_query +
+    # ifc_measure + emit_card schemas (59 805 chars, ≈14 000 input tokens):
+    #
+    #                                          control   deferred     delta
+    #   turn 1, model loads a tool               14 032     14 650      +618
+    #   turn 1, no tool needed at all            14 023        437   -13 586
+    #   turn 2, answering from a tool result     14 163        591   -13 572
+    #
+    # Deferral does NOT save anything on the turn where the model loads a
+    # schema — it pays the tool-search apparatus (~620 tokens) on top of a
+    # schema that enters the context anyway. What it saves is every OTHER turn,
+    # and on a five-iteration agent that calls one or two tools those are the
+    # majority: the synthesis turn, the meta turns, and every turn answered from
+    # a tool already loaded. Read the trade that way round before enabling it.
+    #
+    # Deferral is gated PER MODEL as well as per endpoint, because the per-org
+    # override seam (ADR-0014) can hand a single research turn a model this
+    # workflow was never built against. Two independent conditions must hold:
+    # the model is cleared for the tool_search + namespace shape, AND it scores
+    # at least `min_intelligence_index` on Artificial Analysis's
+    # intelligence_index. Neither implies the other — x-ai/grok-4.6 scores 60.9
+    # and cannot defer at all; anthropic/claude-sonnet-4.6 defers (it was one of
+    # six models seen emitting a real function_call) and is excluded on SCORE
+    # alone, at 48.4. Do not re-add sonnet-4.6 or minimax/minimax-m3 (45.4) to
+    # the allowlist without also moving the threshold — their absence is a
+    # threshold decision, not a missing measurement.
+    #
+    # A "no" from either condition means BIND THE FULL SCHEMAS. It is never a
+    # refused request or a failed build, so a sub-floor model runs exactly as it
+    # did before this existed.
+    #
+    # The defaults ship the measured lists (see `deferred_tool_loading.py`), so
+    # `enabled: true` alone is the normal configuration. Verified = the provider
+    # echoed `defer_loading` back on every function, NOT merely HTTP 200 — a
+    # provider that accepts and normalizes the deferral away is the silent
+    # failure this whole feature guards against.
+    #
+    # An unlisted model is probed ONCE, off the request path, and the verdict
+    # cached; until it lands that model gets full schemas. So a new model costs
+    # one background request, never a wasted round trip on a live turn.
+    #
+    # deferred_tool_loading:
+    #   enabled: true
+    #   # Floor on Artificial Analysis intelligence_index. 0 disables it.
+    #   min_intelligence_index: 50
+    #   models:
+    #     # Only override these to add a model the shipped lists do not know.
+    #     # Every list REPLACES its seeded counterpart rather than extending it
+    #     # — `deny` no less than `allow`. So an override has to restate the
+    #     # shipped entries it still wants, or it silently re-enables them: the
+    #     # three-line example below would readmit the four denied ids it omits,
+    #     # and each of those would then cost a wasted round trip per tool
+    #     # subset before the fallback latched. The shipped `deny` is:
+    #     #   x-ai/grok-4.6, x-ai/grok-4.5, deepseek/deepseek-v4-pro-0813,
+    #     #   deepseek/deepseek-v4-flash-0731, moonshotai/kimi-k3,
+    #     #   meta-llama/llama-3.3-70b-instruct, openai/gpt-4o-mini
+    #     deny:
+    #       - x-ai/grok-4.6                    # 422, and scores 60.9 — capability is not quality
+    #       - deepseek/deepseek-v4-flash-0731  # routing-flaky: two sweeps disagreed
+    #       - meta-llama/llama-3.3-70b-instruct  # routing-flaky: 5 of 6 defer, the 6th 422s
+    #     provisional:
+    #       # Permitted on request, capability UNVERIFIED — OpenRouter answers 403
+    #       # "requires 18+ age confirmation", an ACCOUNT gate that fires before
+    #       # the payload is read, so nobody knows whether it takes the shape.
+    #       # Yields to whatever the probe or a real request learns (unlike
+    #       # `allow`, which is an assertion). Deliberate and informed: if it
+    #       # cannot defer, the fallback costs one round trip per tool subset,
+    #       # then latches. Not a precedent for listing unverified models.
+    #       - meta/muse-spark-1.1
+
+  # Filesystem skills for deep research. Researcher workers load OIB/BIM
+  # methods with read_file from /skills/; the writer loads synthesis the same
+  # way. Curated offers are hidden on this mount and reach a run through the
+  # BFF payload instead. The NVIDIA `research` collection stays off: it needs
+  # a sandbox this config does not run.
+  deep_research_skills:
+    _type: deep_research_skills
+    agents:
+      researcher-agent: [oib, bim]
+      writer-agent: [synthesis]
 
   deep_research_agent:
     _type: deep_research_agent
@@ -247,9 +816,33 @@ functions:
     researcher_llm: deep_researcher_llm
     planner_llm: deep_planner_llm
     writer_llm: deep_orchestrator_llm
-    exclude_tools:
-      - web_search_tool
+    skills: deep_research_skills
+    # Explicit tool list (mirrors shallow_research_agent) so deep research
+    # workers get the same OIB knowledge base + RIS access, plus remember and
+    # emit_card. Deep uses advanced_web_search_tool (the deep-tuned Tavily
+    # instance), not web_search_tool. Pinning the list also avoids depending on
+    # data_source_registry inheritance in the async job-worker build path.
+    tools:
+      - knowledge_search
+      - ris_search_tool
+      - ris_fetch_tool
+      - ris_catalog_lookup_tool
+      - advanced_web_search_tool
+      - remember
+      - emit_card
+      - describe_card
+      - ifc_query
+      - ifc_measure
     verbose: true
+    # Durable checkpointing for async deep-research jobs (T3-8), mirroring
+    # workflow.checkpoint_db below: re-invoking the same job_id resumes from
+    # the last persisted checkpoint instead of starting over. STRICTLY OPT-IN:
+    # empty/unset AIQ_DEEP_CHECKPOINT_DB means no durability (in-memory graph,
+    # today's behavior). Do NOT default to a relative sqlite path here — the
+    # container's working directory is not guaranteed writable, and a default-on
+    # value took application startup down (post-#72 incident). Point the env var
+    # at a writable volume path or a Postgres DSN to enable resume-by-job_id.
+    checkpoint_db: ${AIQ_DEEP_CHECKPOINT_DB:-}
 
 workflow:
   _type: chat_deepresearcher_agent
@@ -260,7 +853,23 @@ workflow:
   checkpoint_db: ${AIQ_CHECKPOINT_DB:-./checkpoints.db}
   card_generator_llm: card_llm
   # Enables the async post-answer memory-reflection stage (reuses the cheap
-  # card_llm). This only makes the capability AVAILABLE; whether it runs per
-  # request is gated at runtime by the `memory-reflection` WorkOS feature flag
-  # (or the MEMORY_REFLECTION_ENABLED env fallback in anonymous mode).
+  # card_llm). This only makes the capability AVAILABLE; whether it runs is
+  # decided per TURN by the BFF (`GET /api/internal/stages`): the
+  # `memory-reflection` WorkOS flag when GRID_ENFORCE_FEATURE_FLAGS is on,
+  # otherwise GRID_MEMORY_REFLECTION_ENABLED, which defaults ON — so a
+  # non-WorkOS deployment DOES get the stage. (The previous claim here, "solely
+  # the WorkOS feature flag, no env-var fallback", contradicted
+  # `feature-flags.ts` and has been wrong since that fallback was added.)
   memory_reflection_llm: card_llm
+  # Enables the async post-answer follow-up-questions stage. As above, this only
+  # makes the capability AVAILABLE; whether it runs is decided per TURN by the
+  # BFF (`GET /api/internal/stages`): the `post-answer-follow-ups` WorkOS flag
+  # when GRID_ENFORCE_FEATURE_FLAGS is on, otherwise
+  # GRID_STAGE_FOLLOW_UPS_ENABLED, which defaults ON.
+  # The stage delivers a `grid_stage_message` frame, rendered as a rail below
+  # the answer card. It ran `silent` for one slice first, so its skip rate,
+  # empty rate and true per-turn cost were measured before any reader saw a chip
+  # (post-answer-stages.md §10, slices 1 and 3). The in-answer `follow_ups` CARD
+  # it replaces is retired (slice 4), so removing `follow_ups_llm` here no longer
+  # falls back to the card — it leaves the product with no follow-up questions.
+  follow_ups_llm: follow_ups_llm

@@ -1,0 +1,54 @@
+name: WorkOS drift
+
+# Weekly + on-demand read-only verification that the WorkOS environment still
+# agrees with what this repo declares (the authorization catalog and the audit
+# schema registry). Both checks are CHECK-mode by default: they write nothing
+# and exit non-zero on drift, so a red job here means someone changed the
+# dashboard (or the catalog shipped ahead of provisioning).
+#
+# REQUIRES a repository secret named WORKOS_API_KEY_STAGING — a WorkOS secret
+# key (sk_…) for the STAGING environment. Without it both steps fail fast with
+# "WORKOS_API_KEY is required." Production has no scheduled check on purpose:
+# its key would sit in CI for a job that reads nothing but configuration, and
+# the same commands can be pointed at any environment by hand
+# (`docs/deployment/workos-provisioning.md`).
+#
+# Deliberately NOT triggered by pull_request: these jobs hold an identity-
+# provider credential and verify shared state, they do not gate code changes.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * 4" # Thursdays 05:00 UTC — off Security's Monday slot
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workos-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    name: Authz + audit schema drift (staging)
+    runs-on: ubuntu-latest
+    steps:
+      # Read-only against WorkOS, but it installs dependencies — keep the same
+      # no-persisted-credential posture as every other job that runs installs.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: ./.github/actions/setup-bun
+      - uses: ./.github/actions/setup-task
+      - run: task fe:install
+      - name: Authorization catalog vs WorkOS
+        run: task fe:provision:authz
+        env:
+          WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY_STAGING }}
+      - name: Audit log schemas vs WorkOS
+        run: task fe:provision:audit-schemas
+        env:
+          WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY_STAGING }}

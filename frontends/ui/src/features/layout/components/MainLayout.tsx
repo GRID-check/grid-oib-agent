@@ -6,37 +6,74 @@
  * - SessionsPanel (left, overlay)
  * - ChatArea + InputArea (center, responsive width)
  * - ResearchPanel (right, pushes content when open)
- * - DataSourcesPanel (right, overlay)
  *
  * Handles auth state to show different UI for logged-in vs logged-out users.
  */
 
 'use client'
 
-import { type FC, useCallback, useMemo } from 'react'
+import { type FC, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useIsMobile } from '@/hooks/use-is-mobile'
-import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { ChatToolbar } from './ChatToolbar'
 import { SessionsPanel } from './SessionsPanel'
 import { ChatArea } from './ChatArea'
 import { InputArea } from './InputArea'
 import { ResearchPanel } from './ResearchPanel'
-import { DataSourcesPanel } from './DataSourcesPanel'
 import { useChatStore, useDeepResearch, NoSourcesBanner } from '@/features/chat'
 import {
   hasActiveDeepResearchJob,
   hasCompletedDeepResearchReport,
   hasExpiredDeepResearchReport,
 } from '@/features/chat/lib/session-activity'
+import { conversationMatchesProject } from '@/features/chat/lib/project-scope'
 import { useLayoutStore } from '../store'
 import { useSessionUrl } from '@/hooks/use-session-url'
+import { documentDisplayName } from '@/lib/documents/display-name'
+import { useTranslations } from '@/i18n'
+import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 
 interface MainLayoutProps {
   /** Whether the user is authenticated */
   isAuthenticated?: boolean
   /** Callback when sign in is clicked */
   onSignIn?: () => void
+  /**
+   * Whether report source lines show origin badges (WorkOS
+   * `source-origin-badges` flag, FB-2). Threaded to ResearchPanel → ReportTab.
+   * Defaults to true (fail-open) so existing callers/specs are unaffected.
+   */
+  showSourceBadges?: boolean
+  /**
+   * Whether shallow answers show the confidence chip (WorkOS
+   * `chat-confidence-chip` flag, FB-6). Threaded to ChatArea → AgentResponse.
+   * Defaults to true (fail-open) so existing callers/specs are unaffected.
+   */
+  showConfidenceChip?: boolean
+  /**
+   * Whether answers show the per-answer thumbs feedback row (WorkOS
+   * `answer-feedback` flag, WS-7). Threaded to ChatArea → AgentResponse.
+   * Defaults to true (fail-open) so existing callers/specs are unaffected.
+   */
+  showAnswerFeedback?: boolean
+  /**
+   * Whether the sessions panel shows the Deep Research section and per-session
+   * research labels (WorkOS `research-in-chat-history` flag, FB-10). Threaded to
+   * SessionsPanel. Defaults to false so existing callers/specs are unaffected.
+   */
+  showResearchInHistory?: boolean
+  /** Qdrant collection scoping the Deep Research section's job fetch (FB-10). */
+  projectCollection?: string | null
+  /** Active project name — thread-header breadcrumb + composer scope chip. */
+  projectName?: string | null
+  /**
+   * Whether the collaboration surfaces are available (ADR-0032…0035): message
+   * authorship, the unread divider, the turn-in-flight banner. Threaded to
+   * ChatArea. Defaults to false — this feature is dark-launched, and unlike the
+   * fail-open flags above it changes who can see a conversation, so it must not
+   * switch itself on for callers that have not opted in (spec NF-7/NF-8).
+   */
+  canCollaborate?: boolean
 }
 
 /**
@@ -44,7 +81,17 @@ interface MainLayoutProps {
  * Manages the overall structure and panel states.
  * Chat state is managed via the useChatStore.
  */
-export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSignIn }) => {
+export const MainLayout: FC<MainLayoutProps> = ({
+  isAuthenticated = false,
+  onSignIn,
+  showSourceBadges = true,
+  showConfidenceChip = true,
+  showAnswerFeedback = true,
+  showResearchInHistory = false,
+  canCollaborate = false,
+  projectCollection = null,
+  projectName = null,
+}) => {
   const {
     currentConversation,
     conversations,
@@ -53,6 +100,7 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
     isDeepResearchStreaming,
     deepResearchOwnerConversationId,
     currentUserId,
+    projectId,
   } = useChatStore(
     useShallow((s) => ({
       currentConversation: s.currentConversation,
@@ -62,6 +110,7 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
       isDeepResearchStreaming: s.isDeepResearchStreaming,
       deepResearchOwnerConversationId: s.deepResearchOwnerConversationId,
       currentUserId: s.currentUserId,
+      projectId: s.projectId,
     }))
   )
 
@@ -72,9 +121,29 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
   const updateConversationTitle = useChatStore((s) => s.updateConversationTitle)
 
   const isResearchPanelOpen = useLayoutStore((s) => s.rightPanel === 'research')
-  const openRightPanel = useLayoutStore((s) => s.openRightPanel)
-  const prefersReducedMotion = useReducedMotion()
   const isMobile = useIsMobile()
+  const peekedFile = useFilePreviewStore((s) => s.file)
+  const previewHidden = useFilePreviewStore((s) => s.hidden)
+  const previewMode = useFilePreviewStore((s) => s.mode)
+  const expandFile = useFilePreviewStore((s) => s.expand)
+  const tFiles = useTranslations('files')
+
+  // Measure the floating composer stack (NoSourcesBanner + InputArea — variable
+  // height: multi-line textarea, wrapped chips, hint, banners) and publish it as
+  // --composer-h so ChatArea reserves EXACTLY that much bottom padding instead
+  // of a fixed guess. useLayoutEffect avoids a first-paint flash; ChatArea's
+  // 11rem fallback covers the pre-measure frame and jsdom (offsetHeight 0).
+  const composerRef = useRef<HTMLDivElement>(null)
+  const [composerHeight, setComposerHeight] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    const el = composerRef.current
+    if (!el) return
+    const update = () => setComposerHeight(el.offsetHeight)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   // Deep research SSE hook - manages connection when deep research starts
   useDeepResearch()
@@ -92,14 +161,11 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
   )
 
   // Start a new unsaved draft session and clear URL until first interaction.
-  // Open Data Sources panel so it stays visible (default panel for new sessions).
   const handleNewSession = useCallback(() => {
     startNewSessionDraft()
+    useFilePreviewStore.getState().close()
     clearSessionUrl()
-    if (isAuthenticated) {
-      openRightPanel('data-sources')
-    }
-  }, [startNewSessionDraft, clearSessionUrl, openRightPanel, isAuthenticated])
+  }, [startNewSessionDraft, clearSessionUrl])
 
   // Wrap deleteConversation to clear URL if deleting current session
   const handleDeleteSession = useCallback(
@@ -113,7 +179,9 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
     [deleteConversation, currentConversation?.id, clearSessionUrl]
   )
 
-  // Delete all sessions for the current user
+  // Delete all sessions for the current user in the active project context
+  // (the store scopes the delete to what the panel shows here — see
+  // deleteAllConversations).
   const handleDeleteAllSessions = useCallback(() => {
     deleteAllConversations()
     clearSessionUrl()
@@ -121,9 +189,22 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
 
   const isNavigationBlocked = isStreaming || pendingInteraction !== null
 
+  // Sessions shown in the panel: the current user's sessions in the active
+  // project context. Legacy sessions without a projectId fail open (always
+  // visible) so users never lose sight of pre-scoping history.
   const userConversations = useMemo(
-    () => (currentUserId ? conversations.filter((c) => c.userId === currentUserId) : []),
-    [conversations, currentUserId]
+    () =>
+      currentUserId
+        ? conversations
+            .filter(
+              (c) => c.userId === currentUserId && conversationMatchesProject(c, projectId)
+            )
+            // The store keeps creation order; sort newest-first so date groups
+            // and rows in the sessions panel come out most-recently-updated first.
+            .slice()
+            .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt))
+        : [],
+    [conversations, currentUserId, projectId]
   )
 
   const sessions = useMemo(
@@ -142,41 +223,128 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
   )
 
   const content = (
-    // h-full pins the chat surface to the viewport: the toolbar stays at the
-    // top, the composer at the bottom, and only the message list scrolls.
+    // h-full pins the chat surface to the viewport: the composer floats at the
+    // bottom and only the message list scrolls. The toolbar is no longer a top
+    // band — it floats over the chat plane (see below).
     <div className="flex h-full min-w-0 flex-col overflow-hidden">
-      <ChatToolbar
-        sessionTitle={currentConversation?.title}
-        onNewSession={handleNewSession}
-        isNewSessionDisabled={isNavigationBlocked}
-      />
-
       {/* Main Content Area - using explicit widths instead of flex for smoother animation */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {/* Center Content: Chat + Input - Responsive to research panel */}
         <div
-          className="flex min-w-0 flex-col overflow-hidden"
+          className="relative flex min-w-0 flex-col overflow-hidden"
           style={{
-            // Balanced split: the research panel informs alongside chat rather
-            // than squeezing it into a cramped column. On mobile the panel
-            // takes the full viewport instead, so chat collapses away.
+            // Research shares the row 50/50, and this column yields half.
+            //
+            // The FILE PEEK IS NOT LISTED HERE, deliberately. It used to be:
+            // when the peek was a floating pane, this column subtracted the
+            // pane's width to clear a lane for it. `FilePreviewSplit` replaced
+            // that pane with a real resizable panel BESIDE this whole subtree,
+            // so the room is already made one level up — and subtracting it
+            // again here took it out a second time, out of a panel that had
+            // already shrunk. At 1440px that left the chat 539px wide inside an
+            // 883px panel: a 344px dead band between the conversation and the
+            // file it is about, with the resize handle stranded on the far side
+            // of it. `/dev/file-ask-split/chat` is the regression evidence.
+            //
+            // Set in ONE pass, never tweened. This used to run `width 300ms`,
+            // which re-laid-out and repainted the ENTIRE chat transcript on
+            // every frame for the whole 300ms each time the research panel
+            // opened — the exact thing `grid-design-language.md` §"Binding
+            // constraints" forbids. The companion panel beside it carries the
+            // arrival on a transform (see `ResearchPanel`), which is where that
+            // motion belongs: the reader needs to see where the PANEL came
+            // from, not watch their own text re-wrap sixty times.
             width: isResearchPanelOpen ? (isMobile ? '0%' : '50%') : '100%',
-            transition: prefersReducedMotion ? 'none' : 'width 300ms ease-in-out',
+            // Published from the ResizeObserver above; inherits into ChatArea
+            // (a descendant), which reads it via calc(). undefined pre-measure.
+            ...(composerHeight != null
+              ? { ['--composer-h' as string]: `${composerHeight}px` }
+              : {}),
           }}
         >
-          {/* Chat Area - Scrollable */}
-          <ChatArea isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
+          {/* Top fade scrim — a full-width gradient behind the floating pills
+              (below them, above the messages). It dissolves message content as
+              it scrolls up under the pills instead of letting it collide as
+              sharp, readable text — critical on mobile where the message column
+              is full-width and runs right under the pills. Keeps the pills
+              "floating" (no solid band). pointer-events-none so scroll/taps
+              still reach the messages beneath. */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 top-0 z-10 h-24 bg-gradient-to-b from-background from-[3.25rem] to-transparent"
+          />
 
-          {/* No sources warning - shown when no data sources or files available */}
-          <NoSourcesBanner isAuthenticated={isAuthenticated} />
+          {/* Floating toolbar — overlays the top of the chat plane as pills
+              (no band). Sits inside the center column so it spans only the
+              chat, not the research panel (which has its own header). */}
+          <ChatToolbar
+            sessionTitle={currentConversation?.title}
+            projectName={projectName ?? undefined}
+            onNewSession={handleNewSession}
+            isNewSessionDisabled={isNavigationBlocked}
+            isChatStarted={(currentConversation?.messages?.length ?? 0) > 0}
+            // Collaboration affordances in the thread header: the participant
+            // strip, the access chip and the share dialog. All three are gated on
+            // the dark-launch flag AND on there being a conversation to share, so
+            // an unshared or brand-new thread shows no extra chrome at all.
+            conversationId={currentConversation?.id ?? null}
+            isCollaborationEnabled={canCollaborate}
+            currentUserId={currentUserId}
+          />
 
-          {/* Input Area - Fixed at bottom of chat */}
-          {/* Using WebSocket mode for full HITL (human-in-the-loop) support */}
-          <InputArea isAuthenticated={isAuthenticated} connectionMode="websocket" />
+          {isMobile &&
+            peekedFile &&
+            previewMode !== 'modal' &&
+            previewMode !== 'expanded' && (
+              <button
+                type="button"
+                onClick={expandFile}
+                // Floating over the transcript: the alpha is what `backdrop-blur`
+                // blurs, and the `supports-` step is the no-blur fallback.
+                className="border-base bg-card/70 absolute left-3 right-3 top-14 z-20 flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left shadow-xs backdrop-blur supports-[backdrop-filter]:bg-card/60"
+              >
+                <span className="min-w-0 flex-1 truncate text-xs font-medium tracking-[-0.01em]">
+                  {documentDisplayName(peekedFile)}
+                </span>
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  {previewHidden ? tFiles('assignment.showFile') : tFiles('assignment.expandFile')}
+                </span>
+              </button>
+            )}
+
+          {/* Chat Area - Scrollable, extends behind the floating composer AND
+              the floating toolbar */}
+          <ChatArea
+            isAuthenticated={isAuthenticated}
+            onSignIn={onSignIn}
+            showConfidenceChip={showConfidenceChip}
+            showAnswerFeedback={showAnswerFeedback}
+            canCollaborate={canCollaborate}
+          />
+
+          {/* Floating composer stack: overlays the bottom of the chat scroll
+              area instead of docking below it, so messages scroll behind the
+              translucent input. ChatArea pads its bottom to keep the last
+              message readable above it. */}
+          <div ref={composerRef} className="absolute inset-x-0 bottom-0 z-10 flex flex-col">
+            {/* No sources warning - shown when no data sources or files available */}
+            <NoSourcesBanner isAuthenticated={isAuthenticated} />
+
+            {/* Input Area - Using WebSocket mode for full HITL (human-in-the-loop) support */}
+            <InputArea
+              isAuthenticated={isAuthenticated}
+              connectionMode="websocket"
+              projectName={projectName ?? undefined}
+              // Gates the composer's addressee statement (and the hand-off read
+              // behind it). False — the default — is byte-for-byte today's
+              // composer (spec NF-8).
+              canCollaborate={canCollaborate}
+            />
+          </div>
         </div>
 
         {/* Research Panel (Right) - Pushes content, shares the width 50/50 */}
-        <ResearchPanel />
+        <ResearchPanel showSourceBadges={showSourceBadges} />
       </div>
 
       {/* Overlay Panels - These slide over the content */}
@@ -190,10 +358,10 @@ export const MainLayout: FC<MainLayoutProps> = ({ isAuthenticated = false, onSig
         onDeleteSession={handleDeleteSession}
         onDeleteAllSessions={handleDeleteAllSessions}
         onRenameSession={updateConversationTitle}
+        showDeepResearchSection={showResearchInHistory}
+        projectId={projectId ?? undefined}
+        projectCollection={projectCollection ?? undefined}
       />
-
-      {/* Data Sources Panel (Right) - Overlay */}
-      {isAuthenticated && <DataSourcesPanel />}
     </div>
   )
 

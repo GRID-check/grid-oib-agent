@@ -1,0 +1,74 @@
+# reno configuration — https://docs.openstack.org/reno/latest/
+#
+# Release notes in this repo are written for CUSTOMERS, not for the commit log.
+# Every note in `releasenotes/notes/` is published verbatim (translated into
+# German) to the changelog on piloti.at, so the sections below are the ones a
+# reader of that page can act on — not reno's full upstream set.
+#
+# Authoring:  task release:note -- <slug>
+# Linting:    task release:lint     (also runs in CI on every PR)
+# Publishing: automatic, on merge to develop (.github/workflows/release-notes.yml)
+
+# The customer-facing section set. The order here is the order the changelog
+# renders them in: what you gained, what got better, what got fixed, then the
+# small print. `issues` and `critical` (reno defaults) are deliberately absent —
+# a known-issues list belongs in support docs, not on a marketing page.
+sections:
+  - [features, New features]
+  - [improvements, Improvements]
+  - [fixes, Fixes]
+  - [security, Security]
+  - [deprecations, Deprecations]
+  - [upgrade, Upgrade notes]
+  - [other, Other]
+
+# `improvements` is ours, so reno's default semver mapping has to learn about
+# it: a polish note is a patch-level change, the same as a fix.
+semver_major: [upgrade]
+semver_minor: [features]
+semver_patch: [fixes, improvements, security]
+
+# The repo tags nothing yet (`git tag` is empty) and merges continuously into
+# `develop`, so in practice every note lands unreleased and the changelog groups
+# it by the date it shipped. Once release tagging starts, tagged versions group
+# under the tag instead — no config change needed.
+default_branch: develop
+unreleased_version_title: Unreleased
+add_release_date: true
+
+# The template `reno new` starts an author off with. It carries the house rules
+# because that is the only moment anyone reads them.
+template: |
+  ---
+  # One entry per user-visible change. This text is PUBLISHED, in English and in
+  # German machine translation, to https://piloti.at/changelog — write it for the
+  # architect using Piloti, not for the reviewer of your diff.
+  #
+  #   - Plain sentences. No RST directives, no code blocks, no issue numbers, no
+  #     file paths, no internal component names.
+  #   - Say what the reader can now do, or what stopped going wrong for them.
+  #   - Two sentences is usually the right length. `task release:lint` enforces
+  #     the mechanical half of this.
+  #
+  # Delete every section you do not need — an empty one fails the lint.
+  features:
+    - >
+      Say what is new, from the reader's side.
+  improvements:
+    - >
+      Say what got better about something they already had.
+  fixes:
+    - >
+      Say what used to go wrong, and that it no longer does.
+  security:
+    - >
+      Only for changes a customer must know about. No exploit detail.
+  deprecations:
+    - >
+      Name what is going away and what replaces it.
+  upgrade:
+    - >
+      Only when the reader has to do something themselves.
+  other:
+    - >
+      Anything genuinely user-visible that fits nowhere above.

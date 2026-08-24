@@ -9,6 +9,14 @@
 
 export type DimStatus = 'pass' | 'fail' | 'warning' | 'needs_input'
 
+/**
+ * Where a number on a card came from. Mirrors `Provenance` in
+ * `src/aiq_agent/cards/models.py`, which is `ifc_spatial.envelope.Answer`'s own
+ * vocabulary — so the card and the sentence beside it cannot disagree about who
+ * is making the claim.
+ */
+export type Provenance = 'declared' | 'computed' | 'inferred'
+
 /** A verifiable pointer into a regulation — the atom of grounding. */
 export interface NormReferenceData {
   document: string
@@ -17,7 +25,19 @@ export interface NormReferenceData {
   excerpt?: string | null
 }
 
-/** One measured dimension drawn on a schematic and checked against a limit. */
+/**
+ * One measured dimension drawn on a schematic and checked against a limit.
+ *
+ * `provenance`, `tolerance` and `missing` are what keep the card as honest as
+ * the sentence beside it. Without them this card drew „2.47 m ✓" for a figure
+ * the engine had reported as „gemessen (±5 mm), aus der Geometrie berechnet,
+ * nicht deklariert" — and a card is the part a reviewer screenshots into a
+ * submission, so it was the surface most likely to be forwarded stripped of the
+ * qualifier that made it true.
+ *
+ * All three are optional: a card built from the Bestimmung alone has nothing to
+ * put in them, and absent means „not stated", never „declared".
+ */
 export interface DimensionCheckData {
   label: string
   value?: number | null
@@ -25,6 +45,11 @@ export interface DimensionCheckData {
   unit?: string
   comparator?: '<=' | '>=' | null
   status: DimStatus
+  provenance?: Provenance | null
+  /** The ± band on `value`, in the same unit. Only meaningful when computed. */
+  tolerance?: number | null
+  /** With `needs_input`: what the export lacks and what to change in the CAD. */
+  missing?: string | null
 }
 
 /** One storey in a building cross-section, drawn as a band to scale. */
@@ -108,4 +133,201 @@ export interface ComparisonRowData {
   label: string
   values: string[]
   highlight_index?: number | null
+}
+
+/** One branch of a condition tree: a case and the answer that holds under it. */
+export interface ConditionBranchData {
+  condition: string
+  outcome: string
+  active?: boolean | null
+  reference?: NormReferenceData | null
+}
+
+/** How a typed-table column's cells are rendered. */
+export type TypedColumnKind = 'mass' | 'norm' | 'verdict' | 'date' | 'text'
+
+/** One column of a typed table, declaring how its cells render. */
+export interface TypedColumnData {
+  label: string
+  /** Named `type` on the wire (mirrors the Pydantic field). */
+  type: TypedColumnKind
+}
+
+/**
+ * A link's declared rank in a norm chain. Mirrors `NormChainLink.rank` in
+ * `src/aiq_agent/cards/models.py` — the agent's display classification, not a
+ * `norm_registry` lookup. The first three bind; `oib_richtlinie` binds where a
+ * Land declares it; `oenorm`/`leitfaden` interpret.
+ */
+export type NormChainRank =
+  | 'bundesgesetz'
+  | 'landesgesetz'
+  | 'verordnung'
+  | 'oib_richtlinie'
+  | 'oenorm'
+  | 'leitfaden'
+
+/** One link in a norm hierarchy, with the rank that sets its visual weight. */
+export interface NormChainLinkData {
+  label: string
+  rank: NormChainRank
+  note?: string | null
+}
+
+/** One key takeaway: the line the reader leaves with, plus the detail behind it. */
+export interface KeyTakeawayData {
+  text: string
+  detail?: string | null
+}
+
+/**
+ * What kind of remark a callout carries. Mirrors `CalloutCard.kind` in
+ * `src/aiq_agent/cards/models.py`. The renderer prints the German word for each
+ * beside its tone — the kind must never be carried by colour alone.
+ */
+export type CalloutKind = 'hinweis' | 'achtung' | 'frist' | 'tipp'
+
+/**
+ * One follow-up question. `question` is the exact text that lands in the
+ * composer, so it is a whole sendable sentence — never a topic label. Mirrors
+ * `FollowUp` in `src/aiq_agent/cards/models.py`.
+ */
+export interface FollowUpData {
+  question: string
+  hint?: string | null
+}
+
+/**
+ * The five operation shapes a {@link CalculationStepData} may take. Mirrors
+ * `CalculationOperation` in `src/aiq_agent/cards/models.py`.
+ *
+ * A closed set rather than an expression string, because the renderer is the
+ * one that evaluates: five formulas cannot be mis-parsed, and there is nothing
+ * for the model to write that the renderer would have to interpret.
+ *
+ *   sum            Σ factorᵢ · valueᵢ
+ *   product        Π valueᵢ
+ *   quotient       v₁ ÷ v₂
+ *   percent_of     v₁ · v₂ ÷ 100   (v₂ is the percentage)
+ *   percent_ratio  v₁ ÷ v₂ · 100   (the result IS a percentage)
+ */
+export type CalculationOperation = 'sum' | 'product' | 'quotient' | 'percent_of' | 'percent_ratio'
+
+/**
+ * One number entering a step of a derivation.
+ *
+ * Either a literal `value` or a backwards `step` reference — the backend
+ * rejects both at once, and rejects a reference that does not point strictly
+ * backwards, so an uncomputable card never reaches here.
+ */
+export interface CalculationOperandData {
+  label: string
+  value?: number | null
+  unit?: string | null
+  /** `sum` only: the RULE's own multiplier (the 2 in 2 × Steigung + Auftritt). */
+  factor?: number | null
+  /** 1-based index of an earlier step whose result this operand is. */
+  step?: number | null
+  provenance?: Provenance | null
+  /** The ± band on `value`, propagated into every following step. */
+  tolerance?: number | null
+  /** Where the figure is written down — revealed, never shown at rest. */
+  source?: string | null
+}
+
+/** One line of a Rechenweg. It states no result: the renderer computes it. */
+export interface CalculationStepData {
+  label: string
+  operation: CalculationOperation
+  operands: CalculationOperandData[]
+  unit?: string | null
+}
+
+/** The Bestimmung a derived result is held against. The verdict is computed. */
+export interface CalculationLimitData {
+  comparator: '<=' | '>=' | 'between'
+  /** The bound; with `between`, the LOWER bound. */
+  value: number
+  upper?: number | null
+  label?: string | null
+  reference?: NormReferenceData | null
+}
+
+/**
+ * One station of a Verfahren. `duration` is a written Frist („binnen sechs
+ * Wochen"), never a date — this card deliberately computes nothing, because a
+ * derived deadline would be a legal statement about the reader's project.
+ */
+export interface ProcessStepData {
+  label: string
+  summary?: string | null
+  actor?: string | null
+  duration?: string | null
+  requires?: string[] | null
+  produces?: string[] | null
+  reference?: NormReferenceData | null
+}
+
+/**
+ * Whether a document is always needed, or only in a defined case. Mirrors
+ * `DocumentRequirement` in `src/aiq_agent/cards/models.py`.
+ */
+export type DocumentRequirement = 'required' | 'conditional'
+
+/**
+ * Whether the reader already HAS a document.
+ *
+ * Two values, not three: „not stated" is the field being ABSENT. The renderer
+ * draws an absent status as unknown and never as `missing`, because a document
+ * nobody asked about is not a document the reader lacks.
+ */
+export type DocumentStatus = 'present' | 'missing'
+
+/** One document on an Einreichliste, with the state a bare list drops. */
+export interface RequiredDocumentData {
+  label: string
+  requirement: DocumentRequirement
+  /** Present exactly when `requirement` is `conditional` — the backend enforces both halves. */
+  condition?: string | null
+  issuer?: string | null
+  /** Only ever set from what the conversation established. Absent = unknown. */
+  status?: DocumentStatus | null
+  reference?: NormReferenceData | null
+  note?: string | null
+}
+
+/**
+ * One Frist of a Verfahren.
+ *
+ * `period` is the Bestimmung's own wording („binnen vier Wochen") and
+ * `starts_from` the event the clock runs from — required, because a period
+ * anchored to nothing cannot be placed by the reader. Neither may contain a
+ * calendar date; the backend rejects one.
+ */
+export interface DeadlineData {
+  label: string
+  period: string
+  starts_from: string
+  actor?: string | null
+  consequence?: string | null
+  reference?: NormReferenceData | null
+}
+
+/** Which way a consequence moves for the reader. */
+export type ChangeDirection = 'tightens' | 'relaxes' | 'unchanged'
+
+/**
+ * One requirement that moves when the trigger fact moves.
+ *
+ * `reference` is REQUIRED here and optional almost everywhere else: this card
+ * is read to plan against, so a consequence nobody can look up is omitted from
+ * the card rather than listed bare.
+ */
+export interface ChangeConsequenceData {
+  aspect: string
+  before?: string | null
+  after: string
+  direction: ChangeDirection
+  reference: NormReferenceData
+  detail?: string | null
 }

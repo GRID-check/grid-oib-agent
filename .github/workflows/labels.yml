@@ -1,0 +1,29 @@
+name: Sync Labels
+
+# Labels-as-code: creates/updates the repo labels from .github/labels.yml so
+# they never have to be made by hand. Runs when the label file changes on
+# develop, and on manual dispatch (use dispatch to seed the labels the first
+# time, before this is merged you can also run it from the Actions tab on this
+# branch). skip-delete keeps any labels not listed here.
+on:
+  push:
+    branches: [develop]
+    paths:
+      - ".github/labels.yml"
+      - ".github/workflows/labels.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  sync:
+    name: Sync labels
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: crazy-max/ghaction-github-labeler@v6
+        with:
+          yaml-file: .github/labels.yml
+          skip-delete: true

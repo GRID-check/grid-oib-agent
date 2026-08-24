@@ -1,8 +1,3 @@
-<!--
-SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-SPDX-License-Identifier: Apache-2.0
--->
-
 # Workflows and hooks
 
 Authoritative sources: the workflow files under `.github/workflows/` and
@@ -23,13 +18,13 @@ Authoritative sources: the workflow files under `.github/workflows/` and
   reference for the stages.
 - `request-nvskills-ci.yml` — comment-triggered NVSkills CI request.
 
-## The copy-pr-bot mirror flow
+## CI trigger flow
 
-Per `CONTRIBUTING.md`: pushing a branch does not run CI. A maintainer or vetter
-comments `/ok to test`; copy-pr-bot mirrors the PR to a `pull-request/<N>` branch,
-and CI runs there. `/nvskills-ci` requests NVSkills validation; `/merge` requests
-bot-driven merge once repository rules pass. The mirror behavior is configured in
-`.github/copy-pr-bot.yaml`.
+This repo is private: CI runs **directly on the PR** (`pull_request` events on
+`.github/workflows/ci.yml`). There is no copy-pr-bot mirror, no `/ok to test`,
+and no `/merge` bot — those were upstream NVIDIA AI-Q conventions and were
+removed here (see the header comment in `ci.yml`). Pushing the branch updates
+the PR checks automatically.
 
 ## Pre-commit hooks
 

@@ -3,13 +3,33 @@ import type { Conversation, Message } from '@/lib/db/schema'
 export interface ConversationSummary {
   id: string
   title: string | null
+  tags: string[]
   createdAt: string
   updatedAt: string
 }
 
+/** One turn of the opening exchange sent to the naming endpoint. */
+export interface ConversationTitleMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+/** Naming result: a concise title plus 0–3 OIB topic tag keys. */
+export interface ConversationTitleResult {
+  title: string
+  tags: string[]
+  error?: string
+}
+
 export const conversationsClient = {
-  async list(): Promise<Conversation[]> {
-    const res = await fetch('/api/conversations')
+  /**
+   * List conversations, optionally scoped to a project. The BFF applies a
+   * fail-open rule for legacy rows without a projectId (they are included in
+   * every project scope) so users never lose sight of their history.
+   */
+  async list(projectId?: string): Promise<Conversation[]> {
+    const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''
+    const res = await fetch(`/api/conversations${query}`)
     if (!res.ok) throw new Error('Failed to fetch conversations')
     return res.json()
   },
@@ -20,11 +40,22 @@ export const conversationsClient = {
     return res.json()
   },
 
-  async create(id: string, title?: string | null): Promise<Conversation> {
+  async create(
+    id: string,
+    title?: string | null,
+    projectId?: string | null,
+    subject?: { resourceType: 'document'; resourceId: string } | null,
+  ): Promise<Conversation> {
     const res = await fetch('/api/conversations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, title: title ?? null }),
+      body: JSON.stringify({
+        id,
+        title: title ?? null,
+        projectId: projectId ?? null,
+        subjectResourceType: subject?.resourceType ?? null,
+        subjectResourceId: subject?.resourceId ?? null,
+      }),
     })
     if (!res.ok) throw new Error('Failed to create conversation')
     return res.json()
@@ -37,6 +68,25 @@ export const conversationsClient = {
       body: JSON.stringify({ title }),
     })
     if (!res.ok) throw new Error('Failed to update conversation')
+    return res.json()
+  },
+
+  /**
+   * Ask the backend to name a conversation (ChatGPT-style) and assign OIB topic
+   * tags from its opening exchange; the server persists both on the row. Returns
+   * an empty title/tags on any generation failure (the endpoint fails open).
+   */
+  async generateTitle(
+    id: string,
+    messages: ConversationTitleMessage[],
+    locale?: string,
+  ): Promise<ConversationTitleResult> {
+    const res = await fetch(`/api/conversations/${encodeURIComponent(id)}/generate-title`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages, locale }),
+    })
+    if (!res.ok) throw new Error('Failed to generate conversation title')
     return res.json()
   },
 
@@ -84,6 +134,111 @@ export const conversationsClient = {
       },
     )
     if (!res.ok) throw new Error('Failed to create messages')
+    return res.json()
+  },
+
+  /**
+   * Record the user's answers to an answer's interactive cards on the stored
+   * message row (merged into `metadata.cardInteractions`), so an applied
+   * profile patch or a saved memory stays settled when the history is
+   * rehydrated from the server instead of localStorage.
+   */
+  async updateMessageCardInteractions(
+    conversationId: string,
+    messageId: string,
+    cardInteractions: Record<string, { decision: string; decidedAt: string }>,
+  ): Promise<Message> {
+    const res = await fetch(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cardInteractions }),
+      },
+    )
+    if (!res.ok) throw new Error('Failed to update message card interactions')
+    return res.json()
+  },
+
+  /**
+   * Record what an answer rested on — the Herleitung, the confidence
+   * self-assessment, the routing transparency (ADR-0037).
+   *
+   * Sent once a turn has settled rather than with the message, because none of it
+   * exists yet when the message is posted: it accumulates from the intermediate
+   * frames while the answer streams. The server whitelists and bounds the payload
+   * (`sanitizeProvenance`), so what is sent here is the client's compact display
+   * form and not the raw stream.
+   */
+  async updateMessageProvenance(
+    conversationId: string,
+    messageId: string,
+    provenance: Record<string, unknown>,
+  ): Promise<Message> {
+    const res = await fetch(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provenance }),
+      },
+    )
+    if (!res.ok) throw new Error('Failed to update message provenance')
+    return res.json()
+  },
+
+  /**
+   * Record what a POST-ANSWER STAGE computed for this turn
+   * (`docs/architecture/post-answer-stages.md` §4.3).
+   *
+   * The browser is what persists it, and that is not an implementation detail:
+   * the agent tier holds the WS turn id and the browser holds the message row
+   * id, and there is no id that is both (§1.6). The half that owns the row does
+   * the writing.
+   *
+   * Best-effort, like every other mirror on this route — the chips are already
+   * rendered from the store, so losing this costs a colleague's view and the
+   * cross-device replay, not the turn. The server whitelists and bounds the
+   * payload (`sanitizeStages`).
+   */
+  async updateMessageStages(
+    conversationId: string,
+    messageId: string,
+    stages: Record<string, unknown>,
+  ): Promise<Message> {
+    const res = await fetch(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stages }),
+      },
+    )
+    if (!res.ok) throw new Error('Failed to update message stages')
+    return res.json()
+  },
+
+  /**
+   * Record the answer to a human-in-the-loop prompt on its message row, so the
+   * transcript says what was DECIDED rather than only that something was asked.
+   *
+   * Only the answer travels: the instant is stamped at the server persistence
+   * boundary so a participant cannot backdate a decision.
+   */
+  async updateMessagePromptState(
+    conversationId: string,
+    messageId: string,
+    promptState: { response: string },
+  ): Promise<Message> {
+    const res = await fetch(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ promptState }),
+      },
+    )
+    if (!res.ok) throw new Error('Failed to update message prompt state')
     return res.json()
   },
 }

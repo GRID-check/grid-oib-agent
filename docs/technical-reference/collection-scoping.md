@@ -9,8 +9,11 @@ Controls which ChromaDB collections are searched for each knowledge retrieval re
 When a user asks a question, the AI needs to know which knowledge sources to search. Collection scoping solves this by building an **ordered, deduplicated list of collection names** per request that includes:
 
 - The base OIB knowledge collection (always)
+- The org-wide Archiv collection (`archiv_{orgId}`, when the Archiv feature is enabled for the org — ADR-0024)
 - The active project collection (`proj_{projectId}`, if working in a project)
 - The session collection (`s_{conversationId}`, if in a conversation)
+
+The Archiv collection is injected in `buildCollectionScopeFromRequest` (which has `session.organizationId`) and passed to `computeCollectionScope` as `archivCollectionName`; it rides right after the base corpus, so every project in the org retrieves across the shared Archiv with no per-project configuration.
 
 ---
 
@@ -211,6 +214,39 @@ If all layers are empty, it falls back to `[config.collection_name]`.
 The maximum number of collections that can be searched per request is defined in `register.py` via `MAX_SCOPE_COLLECTIONS` (currently **5**).
 
 This limit is relevant in multi-tenant or multi-project setups where many collections could theoretically be in scope. The scope is truncated to this upper bound.
+
+---
+
+## Async Deep-Research Jobs: Collection-Scope Re-injection Gap (fixed 2026-07-16, `f8093a0`)
+
+The scope header described above governs synchronous chat requests. Async
+deep-research jobs are different: the `X-Grid-Collection-Scope` header is
+read **once, at job submit time**, in `chat_researcher/register.py`, and
+carried through as a `collection_scope` field on the job payload rather than
+as a live header.
+
+When the Dask worker later runs the job, `frontends/aiq_api/src/aiq_api/jobs/runner.py:641`
+re-injects it into the worker's own request context **only when present**:
+
+```python
+if collection_scope is not None:
+    encoded = base64.urlsafe_b64encode(json.dumps(collection_scope).encode()).rstrip(b"=").decode()
+    # ... set back onto the header the worker's NAT context reads
+```
+
+If `collection_scope` is `None` at submit time (e.g. the request bypassed the
+BFF, or came from an older client that never set the header),
+`knowledge_retrieval` inside the worker has no header to read and falls back
+to `_resolve_target_collections()` — priority 2 in the table below — using
+**base collection + session collection only**. Because `project_collections`
+is `[]` in the shipped configs, project collections are **never** searched in
+that fallback for the affected job. The fallback behavior itself is
+unchanged — this is still a real degradation for the affected job — but it is
+no longer silent: the `elif` branch for `deep_research_agent` jobs now logs a
+one-time WARNING (job id, whether the request looked
+authenticated/project-scoped) at exactly the point re-injection would
+otherwise be skipped, so the gap is diagnosable from logs instead of
+invisible.
 
 ---
 

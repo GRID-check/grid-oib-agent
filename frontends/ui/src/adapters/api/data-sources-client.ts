@@ -36,6 +36,13 @@ export interface DataSourcesResponse {
   data_sources: DataSourceFromAPI[]
   /** Whether the knowledge layer (file upload) is available */
   knowledge_layer: boolean
+  /**
+   * Whether a vision model (VLM) is configured on the backend. Derived
+   * capability (not a flag) — image upload is offered only when the
+   * `image-upload` flag allows AND this is true. Defaults to false until the
+   * backend confirms it.
+   */
+  vlm_available: boolean
 }
 
 export interface DataSourcesClientOptions {
@@ -110,11 +117,15 @@ export const createDataSourcesClient = (options: DataSourcesClientOptions = {}) 
 
       const data = await response.json()
 
-      // API might return array directly OR wrapped in {data_sources: [...]}
-      // Handle both cases
+      // API might return array directly OR wrapped in
+      // {data_sources: [...], vlm_available: bool}. Handle both cases.
       const rawDataSources: DataSourceFromAPI[] = Array.isArray(data)
         ? data
         : (data.data_sources ?? [])
+
+      // Derived VLM capability rides on the wrapped shape only; a bare-array
+      // response (older backend) reports it absent → false (fail-closed).
+      const vlmAvailable = !Array.isArray(data) && data?.vlm_available === true
 
       // Check if knowledge_layer is in the array - if present, file uploads are available
       const hasKnowledgeLayer = rawDataSources.some((source) => source.id === 'knowledge_layer')
@@ -125,6 +136,7 @@ export const createDataSourcesClient = (options: DataSourcesClientOptions = {}) 
       return {
         data_sources: filteredDataSources,
         knowledge_layer: hasKnowledgeLayer,
+        vlm_available: vlmAvailable,
       }
     },
   }

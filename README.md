@@ -12,7 +12,7 @@ Navigate the **OIB Richtlinien** — Austria's building-code framework — with 
 [![Tailwind v4](https://img.shields.io/badge/Tailwind-v4-38BDF8?logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
 [![LangGraph](https://img.shields.io/badge/LangGraph-Multi--Agent-1C3C3C)](https://langchain-ai.github.io/langgraph/)
 [![ChromaDB](https://img.shields.io/badge/ChromaDB-Vector--Store-F5A623)](https://trychroma.com)
-[![MinIO](https://img.shields.io/badge/MinIO-S3--Storage-C72E49)](https://min.io)
+[![SeaweedFS](https://img.shields.io/badge/SeaweedFS-S3--Storage-C72E49)](https://github.com/seaweedfs/seaweedfs)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://docker.com)
 
 ---
@@ -64,8 +64,9 @@ flowchart TB
     end
 
     subgraph Storage["Infrastructure"]
-        MINIO["MinIO — OIB PDFs + project documents"]
+        SEAWEED["SeaweedFS — OIB PDFs + project documents"]
         PURGER["purger — grace-period hard-delete worker"]
+        WFS["workflow-scheduler — cron fires for saved research briefs"]
     end
 
     subgraph External["External AI"]
@@ -80,10 +81,12 @@ flowchart TB
     BFF -->|internal write API| BFF
     FAST --> NAT --> LG --> DASK
     LG <--> CHROMA
-    BFF -->|upload| MINIO
+    BFF -->|upload| SEAWEED
     FAST -.->|/v1/ingest| CHROMA
     PURGER --> DB
-    PURGER --> MINIO
+    PURGER --> SEAWEED
+    WFS --> DB
+    WFS -->|internal fire API| BFF
     NAT -->|LLM| OR
     NAT -->|web| TAVILY
 
@@ -115,16 +118,20 @@ cp deploy/.env.example deploy/.env
 # 2. Build and start the full stack
 docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env up -d --build
 
-# 3. Ingest the OIB knowledge base
+# 3. OIB knowledge-base ingestion starts automatically in the background when
+#    the aiq-agent container boots — watch its progress in the container logs:
+docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env logs -f aiq-agent
+# To re-run ingestion manually (incremental — e.g. after adding PDFs to data/oib/):
 docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env exec aiq-agent python scripts/ingest_oib.py
+# (An admin-token-guarded `POST /v1/admin/oib/sync` endpoint triggers the same re-run over HTTP.)
 
 # 4. Open the UI
 open http://localhost:3000
 ```
 
-> **LLM-agnostic.** Grid runs against **any OpenAI-compatible API** — OpenRouter, a self-hosted vLLM/Ollama server, Azure OpenAI, NVIDIA NIM, etc. The LLM/embedding provider is not baked in: point the `base_url`, `model_name`, and API-key env at your endpoint in the workflow config (`configs/*.yml`) and set `CONFIG_FILE` accordingly. The shipped **reference config** is `configs/config_oib_openrouter.yml` (DeepSeek + embeddings via OpenRouter); the legacy Kimi config (`config_grid_oib.yml`) is not currently maintained.
+> **LLM-agnostic.** Grid runs against **any OpenAI-compatible API** — OpenRouter, a self-hosted vLLM/Ollama server, Azure OpenAI, NVIDIA NIM, etc. The LLM/embedding provider is not baked in: point the `base_url`, `model_name`, and API-key env at your endpoint in the workflow config (`configs/*.yml`) and set `CONFIG_FILE` accordingly. The shipped **reference config** is `configs/config_oib_openrouter.yml` (OpenAI GPT-5.6 Luna + `text-embedding-3-large`, both via OpenRouter); the legacy Kimi config (`config_grid_oib.yml`) is not currently maintained.
 
-The stack runs seven Compose services: `postgres`, `minio` (+ `minio-init`), `aiq-agent` (+ a one-shot `aiq-data-permissions`), `frontend`, and the `purger` deletion worker.
+The stack runs eight Compose services: `postgres`, `seaweedfs` (+ `seaweedfs-init`), `aiq-agent` (+ a one-shot `aiq-data-permissions`), `frontend`, the `purger` deletion worker, and the `workflow-scheduler` cron worker (ADR-0023; a clean no-op unless workflows are enabled).
 
 ## Tech Stack
 
@@ -134,10 +141,10 @@ The stack runs seven Compose services: `postgres`, `minio` (+ `minio-init`), `ai
 | **Backend** | Python 3.11+, FastAPI, Uvicorn | AI endpoint server (`aiq_api` plugin) |
 | **AI Orchestration** | NeMo Agent Toolkit (NAT), LangGraph, Dask | Multi-agent pipeline + async jobs |
 | **RAG** | ChromaDB, LlamaIndex | Chunking · embeddings · scoped retrieval |
-| **LLM + Embeddings** | **Any OpenAI-compatible endpoint** — reference config: DeepSeek via OpenRouter | Reasoning, classification, cards, embeddings |
+| **LLM + Embeddings** | **Any OpenAI-compatible endpoint** — reference config: OpenAI GPT-5.6 Luna via OpenRouter | Reasoning, classification, cards, embeddings |
 | **Web Search** | Tavily | Context beyond the OIB corpus |
 | **Database** | PostgreSQL, Drizzle ORM | Projects, conversations, documents, memory, deletion queue |
-| **Object Storage** | MinIO (S3-compatible) | OIB PDFs + uploaded documents |
+| **Object Storage** | SeaweedFS (S3-compatible) | OIB PDFs + uploaded documents |
 | **Auth** | WorkOS AuthKit + FGA | Organization-scoped SSO / access control |
 | **Infrastructure** | Docker Compose | Single-command deployment |
 
@@ -176,17 +183,25 @@ Start with the current architecture deep-dives, then the topic docs:
 
 **Prerequisites:** Docker & Docker Compose · Git LFS (`git lfs pull` for OIB PDFs) · API keys (OpenRouter, Tavily; WorkOS for auth).
 
-**Verification.** Host `npm install` is unreliable on this project — run frontend checks in Docker, backend checks via the project venv:
+**Verification.** Every check is a task in the root [`Taskfile.yml`](Taskfile.yml),
+run with [go-task](https://taskfile.dev) (`npm i -g @go-task/cli`). CI calls the
+same tasks, so there is no second copy to drift:
 
 ```bash
-# Frontend typecheck + tests
-cd frontends/ui && docker build -f Dockerfile.typecheck -t grid-tsc . && docker run --rm grid-tsc
-docker run --rm grid-tsc npx vitest run           # test suite
+task setup        # one-time: backend venv, UI deps, Pulumi deps
+task verify       # repo lint + be:verify + fe:verify + infra:types
+task db:test:rls  # tenant-isolation suite — a required check that verify does NOT run
+                  # (it needs PostgreSQL server binaries); run it when you touch
+                  # the tenant boundary. See docs/database/row-level-security.md
+task verify:fast  # same, minus only the slow production build
 
-# Backend
-.venv/Scripts/python.exe -m pytest tests/
-.venv/Scripts/ruff.exe check .
+task fe:types     # or fe:lint / fe:test / fe:build
+task be:test      # or be:lint
+task infra:types
 ```
+
+`task --list` shows everything. The tasks absorb the venv layout
+(`.venv/Scripts` vs `.venv/bin`) and the required `PYTHONPATH=src`.
 
 Note: the UI tsconfig includes test files, so spec type errors block the production `next build`. See [AGENTS.md](AGENTS.md) for the full contributor workflow.
 

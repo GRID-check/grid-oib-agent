@@ -15,6 +15,7 @@
 import { type FC } from 'react'
 import { Volume2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { useTranslations, type Translator } from '@/i18n'
 import { fmtNum, LimitBar, SchematicCard, statusColor, worstStatus } from './kit'
 import type { AcousticCheckItemData, AcousticMetric, DimensionCheckData } from './types'
 
@@ -27,11 +28,19 @@ interface AcousticCheckCardProps {
 
 const METRIC_INFO: Record<
   AcousticMetric,
-  { label: string; kind: string; lowerBetter: boolean }
+  { label: string; kind: (t: Translator) => string; lowerBetter: boolean }
 > = {
-  DnTw: { label: 'DnT,w', kind: 'Luftschall', lowerBetter: false },
-  LnTw: { label: 'LnT,w', kind: 'Trittschall', lowerBetter: true },
-  Rw_res: { label: 'Rw,res', kind: 'Luftschall (resultierend)', lowerBetter: false },
+  DnTw: {
+    label: 'DnT,w',
+    kind: (t) => t('cards.schematics.acoustic.airborne'),
+    lowerBetter: false,
+  },
+  LnTw: { label: 'LnT,w', kind: (t) => t('cards.schematics.acoustic.impact'), lowerBetter: true },
+  Rw_res: {
+    label: 'Rw,res',
+    kind: (t) => t('cards.schematics.acoustic.airborneResultant'),
+    lowerBetter: false,
+  },
 }
 
 export const AcousticCheckCard: FC<AcousticCheckCardProps> = ({
@@ -40,12 +49,12 @@ export const AcousticCheckCard: FC<AcousticCheckCardProps> = ({
   sound_class,
   note,
 }) => {
+  const t = useTranslations('chat')
   const footerRef = checks[0]?.reference ?? null
 
   return (
     <SchematicCard
       icon={Volume2}
-      eyebrow="Schematic"
       title={title}
       verdict={worstStatus(checks.map((c) => c.check.status))}
       note={note}
@@ -53,7 +62,7 @@ export const AcousticCheckCard: FC<AcousticCheckCardProps> = ({
     >
       {sound_class && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>Schallschutzklasse</span>
+          <span>{t('cards.schematics.acoustic.soundClass')}</span>
           <Badge variant="outline" className="font-mono text-xs font-normal">
             {sound_class}
           </Badge>
@@ -66,7 +75,7 @@ export const AcousticCheckCard: FC<AcousticCheckCardProps> = ({
           const comparator = item.check.comparator ?? (info.lowerBetter ? '<=' : '>=')
           const gauge: DimensionCheckData = {
             ...item.check,
-            label: `${info.label} · ${info.kind}`,
+            label: `${info.label} · ${info.kind(t)}`,
             unit: item.check.unit ?? 'dB',
             comparator,
           }
@@ -90,7 +99,9 @@ export const AcousticCheckCard: FC<AcousticCheckCardProps> = ({
                   {item.path_label}
                 </span>
                 <span className="shrink-0 text-xs text-muted-foreground">
-                  {info.lowerBetter ? '↓ niedriger ist besser' : '↑ höher ist besser'}
+                  {info.lowerBetter
+                    ? t('cards.schematics.acoustic.lowerIsBetter')
+                    : t('cards.schematics.acoustic.higherIsBetter')}
                 </span>
               </div>
               <LimitBar check={gauge} />
@@ -98,8 +109,10 @@ export const AcousticCheckCard: FC<AcousticCheckCardProps> = ({
                 {margin != null ? (
                   <span className="font-mono" style={{ color: statusColor(gauge.status) }}>
                     {margin >= 0
-                      ? `Reserve +${fmtNum(margin)} dB`
-                      : `Fehlbetrag ${fmtNum(Math.abs(margin))} dB`}
+                      ? t('cards.schematics.acoustic.reserve', { margin: fmtNum(margin) })
+                      : t('cards.schematics.acoustic.shortfall', {
+                          margin: fmtNum(Math.abs(margin)),
+                        })}
                   </span>
                 ) : (
                   <span />

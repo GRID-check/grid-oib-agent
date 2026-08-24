@@ -5,20 +5,34 @@ basis, a dimension/stair diagram, a summary, …) communicates better than
 prose. The card is validated against the shared card schema and pushed into
 the conversation-scoped :class:`~aiq_agent.cards.registry.CardRegistry`; the
 chat entrypoint reads that registry after the turn and attaches the cards to
-the response. This replaces the old post-hoc "re-derive cards from the finished
-prose" LLM call — the agent now emits cards from full context, as a visible
-tool step, on both the shallow and (future) deep paths.
+the response.
+
+This is the SYNCHRONOUS card channel: the answering agent emits cards from full
+context, as a visible tool step, on the shallow chat path. The async
+deep-research job runner has no card registry bound in its Dask worker, so it
+still derives cards post-hoc from the finished report via
+:func:`aiq_agent.cards.generate.generate_cards`. Both surfaces describe the same
+schema AND the same trigger doctrine to the model through the shared
+:mod:`aiq_agent.cards.catalog`; each adds only what is true of itself.
 """
 
 import json
 import logging
-import types
-import typing
-from typing import Literal
 
-from pydantic import BaseModel
-from pydantic_core import PydanticUndefined
+# Importing this module runs its ``@register_function`` so NAT discovers the
+# ``surface_documents`` tool through the same ``aiq_cards`` entry point that
+# imports this file — no extra plugin entry needed.
+from aiq_agent.cards import surface_documents as _surface_documents  # noqa: F401
 
+# Re-exported so the shape-hint retry loop and tests keep importing them from
+# here; the definitions live in the framing-free catalog module.
+from aiq_agent.cards.catalog import CARD_EXAMPLES as _CARD_EXAMPLES  # noqa: F401
+from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
+from aiq_agent.cards.catalog import model_facing_card_types
+from aiq_agent.cards.catalog import render_card_details
+from aiq_agent.cards.catalog import render_card_doctrine
+from aiq_agent.cards.catalog import render_card_index
+from aiq_agent.cards.catalog import shape_hint_for as _shape_hint_for
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
@@ -26,308 +40,58 @@ from nat.data_models.function import FunctionBaseConfig
 
 logger = logging.getLogger(__name__)
 
-# One worked example per hard-to-nest card, so the model sees the exact shape
-# instead of discovering it through repeated validation failures. Keys are the
-# card ``type`` values; values are validated in the card model tests.
-_CARD_EXAMPLES: dict[str, dict] = {
-    "daylight_incidence": {
-        "type": "daylight_incidence",
-        "title": "Belichtung – freier Lichteinfall (Gästezimmer)",
-        "room_floor_area_m2": 25,
-        "glass_area": {
-            "label": "Lichteintrittsfläche",
-            "value": 3.0,
-            "required": 2.5,
-            "unit": "m²",
-            "comparator": ">=",
-            "status": "pass",
-        },
-        "window_sill_height_m": 0.9,
-        "window_head_height_m": 2.4,
-        "obstruction": None,
-        "reference": {
-            "document": "OIB-Richtlinie 3",
-            "section": "Pkt. 9.1.1",
-            "edition": "Ausgabe Mai 2023",
-        },
-    },
-    "building_section": {
-        "type": "building_section",
-        "title": "Gebäudeschnitt – Höhenprüfung",
-        "storeys": [
-            {"label": "KG", "height_m": 3.0, "below_grade": True},
-            {"label": "EG", "height_m": 3.5},
-            {"label": "1.OG", "height_m": 3.2},
-        ],
-        "markers": [{"label": "Fluchtniveau", "height_m": 9.8, "kind": "fluchtniveau"}],
-        "reference": {
-            "document": "OIB-Richtlinie 2",
-            "section": "Pkt. 2 (Gebäudeklassen)",
-            "edition": "Ausgabe Mai 2023",
-        },
-    },
-    "fire_compartment": {
-        "type": "fire_compartment",
-        "title": "Brandabschnitte – Regelgeschoss",
-        "storey_label": "2.OG",
-        "gebaeudeklasse": "GK 5",
-        "compartments": [
-            {
-                "label": "BA 1",
-                "use": "Wohnen",
-                "area": {
-                    "label": "BA 1",
-                    "value": 1200,
-                    "required": 1600,
-                    "unit": "m²",
-                    "comparator": "<=",
-                    "status": "pass",
-                },
-            },
-            {
-                "label": "BA 2",
-                "use": "Büro",
-                "area": {
-                    "label": "BA 2",
-                    "value": 1850,
-                    "required": 1600,
-                    "unit": "m²",
-                    "comparator": "<=",
-                    "status": "fail",
-                },
-            },
-        ],
-        "reference": {"document": "OIB-Richtlinie 2", "section": "Pkt. 3.1", "edition": "Ausgabe Mai 2023"},
-    },
-    "thermal_envelope": {
-        "type": "thermal_envelope",
-        "title": "Wärmeschutz – U-Werte der Gebäudehülle",
-        "components": [
-            {
-                "label": "Außenwand",
-                "kind": "wall",
-                "u_value": {
-                    "label": "Außenwand",
-                    "value": 0.28,
-                    "required": 0.35,
-                    "unit": "W/(m²K)",
-                    "comparator": "<=",
-                    "status": "pass",
-                },
-            },
-            {
-                "label": "Fenster",
-                "kind": "window",
-                "u_value": {
-                    "label": "Fenster",
-                    "value": 1.4,
-                    "required": 1.4,
-                    "unit": "W/(m²K)",
-                    "comparator": "<=",
-                    "status": "pass",
-                },
-            },
-        ],
-        "reference": {"document": "OIB-Richtlinie 6", "section": "Tabelle 3", "edition": "Ausgabe Mai 2023"},
-    },
-    "parking_requirement": {
-        "type": "parking_requirement",
-        "title": "Stellplatznachweis – Wohnbau",
-        "basis": "1 Stpl. je 100 m² BGF",
-        "car_spaces": {
-            "label": "Kfz-Stellplätze",
-            "value": 8,
-            "required": 10,
-            "unit": "Stpl.",
-            "comparator": ">=",
-            "status": "fail",
-        },
-        "bicycle_spaces": {
-            "label": "Fahrradabstellplätze",
-            "value": 20,
-            "required": 16,
-            "unit": "Stpl.",
-            "comparator": ">=",
-            "status": "pass",
-        },
-        "reference": {"document": "Wiener Garagengesetz", "section": "§ 48"},
-    },
-    "requirement_checklist": {
-        "type": "requirement_checklist",
-        "title": "Anforderungen GK 4 – Brandschutz",
-        "items": [
-            {
-                "label": "Tragende Bauteile REI 60",
-                "status": "pass",
-                "detail": "Stahlbetondecken erfüllen REI 90.",
-                "reference": {"document": "OIB-Richtlinie 2", "section": "Tabelle 1b"},
-            },
-            {
-                "label": "Zweiter Fluchtweg oder Anleiterbarkeit",
-                "status": "needs_input",
-                "detail": "Anleiterbarkeit der Nordfassade noch nicht geklärt.",
-            },
-        ],
-        "reference": {"document": "OIB-Richtlinie 2", "edition": "Ausgabe Mai 2023"},
-    },
-    "comparison_table": {
-        "type": "comparison_table",
-        "title": "GK 4 vs. GK 5 – wesentliche Anforderungen",
-        "options": ["GK 4", "GK 5"],
-        "rows": [
-            {"label": "Fluchtniveau", "values": ["≤ 11 m", "≤ 22 m"], "highlight_index": 0},
-            {"label": "Tragende Bauteile", "values": ["REI 60", "REI 90"], "highlight_index": 0},
-        ],
-        "recommendation": "Mit Fluchtniveau 9,8 m bleibt das Projekt in GK 4.",
-        "reference": {"document": "OIB-Richtlinie 2", "section": "Tabelle 1b", "edition": "Ausgabe Mai 2023"},
-    },
-}
 
+# What only THIS surface can promise: a marker comes back from the tool call, and writing it into
+# the answer puts the card at that point in the text. Post-hoc generation is handed a report that
+# is already written, so it has nothing to place into — which is why this paragraph stays here and
+# the trigger table it follows does not (see `catalog.render_card_doctrine`).
+_PLACEMENT_CONTRACT = """\
+WHERE IT GOES. Every emit_card call hands you back a marker like [[card:2]]. Put that marker on a
+line of its own at the point in your answer the card belongs to, and the card is drawn there —
+the stair diagram beside the paragraph about the stair, not three screens above it. A marker you
+never write puts its card after the whole answer, which is also where every card lands if you
+place none: the reader scrolls past the drawings to reach the answer they asked for."""
 
-def _annotation_str(annotation: object, nested: list[type]) -> str:
-    """Render a field annotation as a compact JSON-ish type string.
-
-    Nested pydantic models are shown by name and collected into ``nested`` so
-    their full shape is defined once in a shared "building blocks" section.
-    """
-    origin = typing.get_origin(annotation)
-    args = typing.get_args(annotation)
-
-    if origin in (typing.Union, types.UnionType):
-        non_none = [a for a in args if a is not type(None)]
-        return " | ".join(_annotation_str(a, nested) for a in non_none)
-    if origin in (list, typing.List):  # noqa: UP006
-        return f"[{_annotation_str(args[0], nested)}]"
-    if origin is Literal:
-        return " | ".join(json.dumps(a, ensure_ascii=False) for a in args)
-    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
-        if annotation not in nested:
-            nested.append(annotation)
-        return annotation.__name__
-    return {str: "string", float: "number", int: "integer", bool: "boolean"}.get(
-        annotation, getattr(annotation, "__name__", str(annotation))
-    )
-
-
-def _field_constraints(field_info: object) -> list[str]:
-    """Extract human-readable constraints (>0, non-empty, defaults) from a field."""
-    out: list[str] = []
-    for meta in getattr(field_info, "metadata", []) or []:
-        gt = getattr(meta, "gt", None)
-        ge = getattr(meta, "ge", None)
-        min_length = getattr(meta, "min_length", None)
-        if gt is not None:
-            out.append(f"> {gt}")
-        elif ge is not None:
-            out.append(f">= {ge}")
-        if min_length:
-            out.append("non-empty")
-    default = getattr(field_info, "default", PydanticUndefined)
-    if default not in (PydanticUndefined, None) and not field_info.is_required():
-        out.append(f"default {json.dumps(default, ensure_ascii=False)}")
-    return out
-
-
-def _shape(model_cls: type, nested: list[type], *, with_desc: bool) -> str:
-    """Render a model's fields as `{ name*: type (desc; constraints), ... }`."""
-    parts: list[str] = []
-    for field_name, field_info in model_cls.model_fields.items():
-        if field_name == "type":
-            continue
-        req = "*" if field_info.is_required() else ""
-        type_str = _annotation_str(field_info.annotation, nested)
-        notes: list[str] = []
-        if with_desc and field_info.description:
-            notes.append(field_info.description)
-        notes.extend(_field_constraints(field_info))
-        suffix = f" ({'; '.join(notes)})" if notes else ""
-        parts.append(f"{field_name}{req}: {type_str}{suffix}")
-    return "{ " + ", ".join(parts) + " }"
-
-
-def _card_shape(card_cls: type, nested: list[type]) -> str:
-    """The one-line shape spec for a card body (top-level fields, no descriptions)."""
-    return _shape(card_cls, nested, with_desc=False)
-
-
-def _shape_hint_for(card_type: str) -> str | None:
-    """Return the expected shape (plus referenced building blocks) for one card type."""
-    from aiq_agent.cards.models import GridCard
-
-    for card_cls in GridCard.__args__:
-        type_value = getattr(card_cls.model_fields["type"].annotation, "__args__", ("?",))[0]
-        if type_value != card_type:
-            continue
-        nested: list[type] = []
-        body = _card_shape(card_cls, nested)
-        seen: set[type] = set()
-        blocks: list[str] = []
-        i = 0
-        while i < len(nested):
-            model_cls = nested[i]
-            i += 1
-            if model_cls in seen:
-                continue
-            seen.add(model_cls)
-            blocks.append(f"{model_cls.__name__} = {_shape(model_cls, nested, with_desc=True)}")
-        hint = f"{card_type}: {body}"
-        if blocks:
-            hint += " where " + "; ".join(blocks)
-        example = _CARD_EXAMPLES.get(card_type)
-        if example:
-            hint += f". Example: {json.dumps(example, ensure_ascii=False)}"
-        return hint
-    return None
+# The CONTRACT of the tool, and only that: which trigger takes which card, when to emit none, and
+# where a card lands. Every line here is paid on every turn whether or not a card is emitted, so
+# the CRAFT — which of the generic cards actually improves an ordinary answer, and how to tell the
+# three table-shaped cards apart — lives in the `piloti-cards` platform skill instead. That skill
+# is applied on every answering turn anyway, and being a database row it can be edited without a
+# deploy. A new card type earns a trigger line in the shared doctrine; its paragraph belongs in the
+# skill. The doctrine itself moved to `catalog.py` when the post-hoc generator started rendering it
+# too — a trigger table that exists twice is a trigger table that will disagree with itself.
+_CARD_DOCTRINE = render_card_doctrine() + "\n\n" + _PLACEMENT_CONTRACT
 
 
 def _build_tool_description() -> str:
-    """Describe every card type, its exact nested shape, and worked examples."""
-    from aiq_agent.cards.models import GridCard
+    """Frame ``emit_card`` with the card INDEX; shapes are fetched on demand.
 
-    nested: list[type] = []
-    card_lines: list[str] = []
-    for card_cls in GridCard.__args__:
-        type_value = getattr(card_cls.model_fields["type"].annotation, "__args__", ("?",))[0]
-        doc = (card_cls.__doc__ or "").strip().split("\n")[0]
-        shape = _card_shape(card_cls, nested)
-        card_lines.append(f'  - "{type_value}": {doc}\n      shape: {shape}')
-
-    # Define every shared building block ONCE (with field descriptions), so a
-    # card body can reference e.g. `DimensionCheck` by name without repetition.
-    # `nested` grows while rendering card shapes; expand transitively.
-    seen: set[type] = set()
-    block_lines: list[str] = []
-    i = 0
-    while i < len(nested):
-        model_cls = nested[i]
-        i += 1
-        if model_cls in seen:
-            continue
-        seen.add(model_cls)
-        block_lines.append(f"  {model_cls.__name__} = {_shape(model_cls, nested, with_desc=True)}")
-
-    examples = "\n".join(
-        f"  {type_value}:\n    {json.dumps(payload, ensure_ascii=False)}"
-        for type_value, payload in _CARD_EXAMPLES.items()
-    )
-
+    Rendering every shape and worked example here costs ~5,200 tokens on every
+    turn whether or not a card is emitted, and grows ~190 per card type we add.
+    The index plus ``describe_card`` costs ~700 and ~23 respectively, which is
+    what makes a growing vocabulary affordable on a cost-optimised model tier.
+    """
     return (
-        "Render a rich UI card alongside your answer. Call this when a STRUCTURED element "
-        "communicates better than prose — e.g. the legal basis grounding an answer, a "
-        "dimension/stair/egress diagram, or a concise summary of a longer reply. Emit a card "
-        "only when it adds real value; never fabricate fields or references. You may call this "
-        "multiple times to attach several cards. The card renders in addition to your normal "
-        "written answer, so still write your prose reply.\n\n"
-        "Pass `card_json`: a JSON object with a `type` field plus that type's fields. Fields "
-        "marked * are required; every other field is optional and may be omitted (do NOT pass "
-        "null for optional objects — omit them). Numbers are plain JSON numbers. For schematic "
-        "cards, supply measured/actual values from the question or project profile and the OIB "
-        "limit in `required`; if a value is unknown, omit it and set that check's status to "
-        '"needs_input" — never estimate.\n\n'
-        "Building blocks (reused object shapes):\n" + "\n".join(block_lines) + "\n\n"
-        "Card types:\n" + "\n".join(card_lines) + "\n\n"
-        "Worked examples (copy the nesting exactly):\n" + examples
+        "Render a rich UI card alongside your answer, in addition to your written reply — always "
+        "write the prose too. You may call this several times to attach several cards.\n\n"
+        + _CARD_DOCTRINE
+        + "\n\nHOW. Pass `card_json`: a JSON object with a `type` field plus that type's fields. "
+        "Unless a card's exact shape is already in this conversation, call `describe_card` with the "
+        "type first — one call, several type names at once, so looking a shape up is never a reason "
+        "to skip a card the answer called for. Fields marked * are "
+        "required; omit optional ones rather than passing null. Numbers are plain JSON numbers. For "
+        "schematic cards, supply the measured/actual value from the question or project profile and "
+        "the OIB limit in `required`; if a value is unknown, omit it and set that check's status to "
+        '"needs_input" — never estimate.\n\n' + render_card_index()
     )
+
+
+_DESCRIBE_DESCRIPTION = (
+    "Return the exact JSON shape, the shared building blocks and a worked example for one or more "
+    "card types, so you can fill `emit_card` in correctly on the first attempt. Pass `card_types`: "
+    "one type name, or several separated by commas. Call this once for the types you intend to "
+    "emit; the shapes stay in context afterwards."
+)
 
 
 class EmitCardConfig(FunctionBaseConfig, name="emit_card"):
@@ -340,13 +104,25 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
     from aiq_agent.cards.registry import get_card_registry
 
     async def _emit(card_json: str) -> str:
-        """Validate and register one Grid response card."""
+        """Validate and register one Grid response card.
+
+        Every exit logs, including the refusals. A turn that came back with no
+        card used to be indistinguishable, after the fact, between "the model
+        never called this" and "the model called it and we refused": only the
+        success at the bottom wrote a line, so both left the same silence. Those
+        two call for opposite fixes — a doctrine that does not get the card
+        named, versus a shape the model cannot fill in — and a triage that
+        cannot tell them apart picks by guess. Refusals are ``warning`` because
+        each one is a card the reader was supposed to get and did not.
+        """
         try:
             payload = json.loads(card_json) if isinstance(card_json, str) else card_json
         except (json.JSONDecodeError, TypeError) as exc:
+            logger.warning("emit_card rejected a card: card_json is not valid JSON (%s)", exc)
             return f"Error: card_json is not valid JSON ({exc}). Pass a single JSON object with a 'type' field."
 
         if not isinstance(payload, dict):
+            logger.warning("emit_card rejected a card: card_json is a %s, not a JSON object", type(payload).__name__)
             return "Error: card_json must be a single JSON object with a 'type' field."
 
         try:
@@ -354,10 +130,24 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
         except Exception as exc:
             card_type = payload.get("type", "?")
             hint = _shape_hint_for(card_type)
+            # The TYPE is the load-bearing half: it says which card the model
+            # knew it wanted, which is exactly what a silent turn cannot tell
+            # you. The validation message rides along on one line so the shape
+            # it tripped over is readable without reproducing the turn.
+            logger.warning("emit_card rejected a '%s' card: it failed validation: %s", card_type, exc)
             return (
                 f"Error: card of type '{card_type}' failed validation: {exc}. "
                 + (f"Expected shape — {hint} " if hint else "")
                 + "Fix the fields and try again, or skip the card."
+            )
+
+        # System cards (e.g. memory_proposal) are emitted only by their owning
+        # tool on a sanctioned path — the model must never emit one directly.
+        if validated["type"] in SYSTEM_CARD_TYPES:
+            logger.warning("emit_card rejected a '%s' card: that type is system-emitted", validated["type"])
+            return (
+                f"Error: card type '{validated['type']}' is system-emitted and cannot be created with "
+                "emit_card. Do not emit this card type."
             )
 
         registry = get_card_registry()
@@ -368,7 +158,47 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
             return "Noted, but no card channel is available in this context; continue with your written answer."
 
         registry.add(validated)
-        logger.info("emit_card registered a '%s' card", validated["type"])
-        return f"Card '{validated['type']}' will be shown with your answer."
+        # The marker names the card by its POSITION in this turn's registry, which
+        # is the same 1-based index the frontend counts with — the registry keeps
+        # emission order, and the response carries the cards in that order. Cards
+        # gained no id field for this: an id would have to survive validation,
+        # persistence and the deep-research path that builds cards post-hoc.
+        position = len(registry)
+        logger.info("emit_card registered a '%s' card as card %d", validated["type"], position)
+        return (
+            f"Card '{validated['type']}' will be shown with your answer, as card {position}. "
+            f"Write [[card:{position}]] on a line of its own at the point in your answer where the "
+            "card belongs, and it is drawn there instead of after the whole answer. Leave the marker "
+            "out and the card lands at the end."
+        )
 
     yield FunctionInfo.from_fn(_emit, description=_build_tool_description())
+
+
+class DescribeCardConfig(FunctionBaseConfig, name="describe_card"):
+    """Configuration for the ``describe_card`` tool."""
+
+
+@register_function(config_type=DescribeCardConfig)
+async def describe_card(tool_config: DescribeCardConfig, builder: Builder):
+    """L2 of the card vocabulary: shapes on demand, so L1 can stay one line each."""
+
+    async def _describe(card_types: str) -> str:
+        requested = [t.strip() for t in str(card_types).replace(" ", ",").split(",") if t.strip()]
+        if not requested:
+            return "Error: pass at least one card type name, e.g. 'stair_diagram'."
+
+        known = model_facing_card_types()
+        # Report the unknown names rather than rendering only what resolved: a
+        # silently shorter answer reads as "that card does not exist", and the
+        # model's next move would be to invent a shape for it.
+        unknown = [t for t in requested if t not in known]
+        detail = render_card_details(requested)
+
+        if not detail:
+            return f"No such card type: {', '.join(unknown)}. Available types: {', '.join(sorted(known))}."
+        if unknown:
+            detail += f"\n\nNot a card type, ignored: {', '.join(unknown)}."
+        return detail
+
+    yield FunctionInfo.from_fn(_describe, description=_DESCRIBE_DESCRIPTION)

@@ -3,7 +3,6 @@ import {
   validateFileUpload,
   isValidFileExtension,
   isValidMimeType,
-  formatBytes,
   createEmptyValidationContext,
   type ValidationContext,
 } from './validation'
@@ -25,12 +24,21 @@ describe('validation', () => {
     test('rejects invalid extensions', () => {
       expect(isValidFileExtension('document.exe')).toBe(false)
       expect(isValidFileExtension('document.js')).toBe(false)
-      expect(isValidFileExtension('document.png')).toBe(false)
+      expect(isValidFileExtension('document.zip')).toBe(false)
       expect(isValidFileExtension('document.html')).toBe(false)
     })
 
     test('rejects files without extension', () => {
       expect(isValidFileExtension('document')).toBe(false)
+    })
+
+    test('rejects image extensions by default (opt-in only, needs a VLM)', () => {
+      // Images are not a shipped default; a deployment opts in via
+      // FILE_UPLOAD_ACCEPTED_TYPES, which flows through AppConfig, not the
+      // default validation config used here.
+      expect(isValidFileExtension('photo.png')).toBe(false)
+      expect(isValidFileExtension('photo.jpg')).toBe(false)
+      expect(isValidFileExtension('photo.jpeg')).toBe(false)
     })
 
     test('handles case insensitivity', () => {
@@ -51,20 +59,14 @@ describe('validation', () => {
     })
 
     test('rejects invalid mime types', () => {
-      expect(isValidMimeType('image/png')).toBe(false)
+      expect(isValidMimeType('image/gif')).toBe(false)
       expect(isValidMimeType('application/javascript')).toBe(false)
       expect(isValidMimeType('text/html')).toBe(false)
     })
-  })
 
-  describe('formatBytes', () => {
-    test('formats bytes correctly', () => {
-      expect(formatBytes(0)).toBe('0 B')
-      expect(formatBytes(500)).toBe('500 B')
-      expect(formatBytes(1024)).toBe('1 KB')
-      expect(formatBytes(1536)).toBe('1.5 KB')
-      expect(formatBytes(1048576)).toBe('1 MB')
-      expect(formatBytes(1073741824)).toBe('1 GB')
+    test('rejects image mime types by default (opt-in only, needs a VLM)', () => {
+      expect(isValidMimeType('image/png')).toBe(false)
+      expect(isValidMimeType('image/jpeg')).toBe(false)
     })
   })
 
@@ -112,6 +114,28 @@ describe('validation', () => {
         expect(result.validFiles).toHaveLength(0)
         expect(result.fileErrors).toHaveLength(1)
         expect(result.fileErrors[0].code).toBe('FILE_TOO_LARGE')
+      })
+
+      /*
+        The size named in an error is the same size the user can read off the
+        file card beside it, so it has to be punctuated the same way — and it
+        has to be the same NUMBER. Both now go through the one `formatBytes`
+        with the APP's locale, over a limit stored in decimal MB, so a
+        deployment configured for 100 MB says exactly that.
+      */
+      test('punctuates the size with the caller-supplied locale', () => {
+        // Half a megabyte over, so the file's own size carries a decimal and
+        // the locale's separator is actually exercised.
+        const files = [createFile('large.pdf', MAX_FILE_SIZE + 500_000)]
+
+        const german = validateFileUpload(files, createEmptyValidationContext(), undefined, 'de')
+        const english = validateFileUpload(files, createEmptyValidationContext(), undefined, 'en-US')
+
+        expect(german.fileErrors[0].message).toContain('100,5 MB')
+        expect(english.fileErrors[0].message).toContain('100.5 MB')
+        // And the LIMIT reads as the number a deployment configured, exactly.
+        expect(german.fileErrors[0].message).toContain('100 MB')
+        expect(english.fileErrors[0].message).toContain('100 MB')
       })
     })
 
@@ -214,6 +238,21 @@ describe('validation', () => {
         expect(result.batchErrors[0].code).toBe('MAX_FILES_EXCEEDED')
       })
 
+      test('does not apply the session file cap to a durable project or Archiv corpus', () => {
+        const files = [createFile('new.pdf')]
+        const context: ValidationContext = {
+          existingTotalSize: 1024,
+          existingFileCount: MAX_FILE_COUNT,
+          existingFileNames: new Set(),
+          durableCorpus: true,
+        }
+
+        const result = validateFileUpload(files, context)
+
+        expect(result.valid).toBe(true)
+        expect(result.batchErrors).toHaveLength(0)
+      })
+
       test('blocks all files when max count exceeded including existing', () => {
         const files = [createFile('new.pdf')]
         const context: ValidationContext = {
@@ -258,7 +297,7 @@ describe('validation', () => {
       })
 
       test('generates summary for multiple file errors', () => {
-        const files = [createFile('a.exe'), createFile('b.png')]
+        const files = [createFile('a.exe'), createFile('b.zip')]
 
         const result = validateFileUpload(files)
 
@@ -289,6 +328,7 @@ describe('validation', () => {
           acceptedMimeTypes: ['text/csv', 'application/json'],
           maxTotalSizeMB: 100,
           maxFileSize: 100 * 1024 * 1024,
+          maxIfcFileSize: 0,
           maxTotalSize: 100 * 1024 * 1024,
           maxFileCount: 10,
           fileExpirationCheckIntervalHours: 0,
@@ -308,6 +348,7 @@ describe('validation', () => {
           acceptedMimeTypes: ['text/csv', 'application/json'],
           maxTotalSizeMB: 100,
           maxFileSize: 100 * 1024 * 1024,
+          maxIfcFileSize: 0,
           maxTotalSize: 100 * 1024 * 1024,
           maxFileCount: 10,
           fileExpirationCheckIntervalHours: 0,
@@ -324,6 +365,7 @@ describe('validation', () => {
           acceptedMimeTypes: ['application/pdf', 'text/plain'],
           maxTotalSizeMB: 1,
           maxFileSize: 1 * 1024 * 1024, // 1MB limit
+          maxIfcFileSize: 0,
           maxTotalSize: 1 * 1024 * 1024,
           maxFileCount: 10,
           fileExpirationCheckIntervalHours: 0,
@@ -347,6 +389,7 @@ describe('validation', () => {
           acceptedMimeTypes: ['application/pdf', 'text/plain'],
           maxTotalSizeMB: 100,
           maxFileSize: 100 * 1024 * 1024,
+          maxIfcFileSize: 0,
           maxTotalSize: 100 * 1024 * 1024,
           maxFileCount: 3, // Only 3 files allowed
           fileExpirationCheckIntervalHours: 0,
@@ -371,6 +414,7 @@ describe('validation', () => {
           acceptedMimeTypes: ['application/pdf', 'text/plain'],
           maxTotalSizeMB: 1,
           maxFileSize: 100 * 1024 * 1024, // Individual files can be large
+          maxIfcFileSize: 0,
           maxTotalSize: 1 * 1024 * 1024, // But total is limited to 1MB
           maxFileCount: 10,
           fileExpirationCheckIntervalHours: 0,
@@ -394,6 +438,7 @@ describe('validation', () => {
           acceptedMimeTypes: ['text/csv', 'application/json'],
           maxTotalSizeMB: 100,
           maxFileSize: 100 * 1024 * 1024,
+          maxIfcFileSize: 0,
           maxTotalSize: 100 * 1024 * 1024,
           maxFileCount: 10,
           fileExpirationCheckIntervalHours: 0,
@@ -407,5 +452,163 @@ describe('validation', () => {
         expect(result.fileErrors[0].message).toContain('.csv,.json')
       })
     })
+
+    describe('image rejected due to missing VLM (flag on, capability off)', () => {
+      const nonImageConfig = {
+        acceptedTypes: '.pdf,.docx,.txt,.md',
+        acceptedMimeTypes: ['application/pdf'],
+        maxTotalSizeMB: 100,
+        maxFileSize: 100 * 1024 * 1024,
+        maxIfcFileSize: 0,
+        maxTotalSize: 100 * 1024 * 1024,
+        maxFileCount: 10,
+        fileExpirationCheckIntervalHours: 0,
+      }
+
+      test('tags an image rejection with reason image-vlm-unavailable when blocked by VLM', () => {
+        const config = { ...nonImageConfig, imageUploadBlockedReason: 'vlm-unavailable' as const }
+        const result = validateFileUpload([createFile('photo.png')], createEmptyValidationContext(), config)
+
+        expect(result.fileErrors[0].code).toBe('INVALID_TYPE')
+        expect(result.fileErrors[0].reason).toBe('image-vlm-unavailable')
+      })
+
+      test('does NOT tag a non-image rejection even when images are VLM-blocked', () => {
+        const config = { ...nonImageConfig, imageUploadBlockedReason: 'vlm-unavailable' as const }
+        const result = validateFileUpload([createFile('malware.exe')], createEmptyValidationContext(), config)
+
+        expect(result.fileErrors[0].code).toBe('INVALID_TYPE')
+        expect(result.fileErrors[0].reason).toBeUndefined()
+      })
+
+      test('does NOT tag an image rejection when the block is not VLM-related', () => {
+        // imageUploadBlockedReason null (e.g. flag off) → generic rejection, no
+        // VLM-specific reason.
+        const config = { ...nonImageConfig, imageUploadBlockedReason: null }
+        const result = validateFileUpload([createFile('photo.png')], createEmptyValidationContext(), config)
+
+        expect(result.fileErrors[0].code).toBe('INVALID_TYPE')
+        expect(result.fileErrors[0].reason).toBeUndefined()
+      })
+    })
+  })
+})
+
+describe('a building model is not measured against the document limit', () => {
+  // `FILE_UPLOAD_MAX_SIZE_MB` is sized for PDFs (100 MB). An Einreichung IFC is
+  // routinely 50–500 MB, so a real model was refused for being a large FILE,
+  // with a message that named no limit the user could act on and said nothing
+  // about IFC.
+  const config = {
+    acceptedTypes: '.pdf,.ifc',
+    acceptedMimeTypes: ['application/pdf', 'application/octet-stream'],
+    maxTotalSizeMB: 100,
+    maxFileSize: 100 * 1024 * 1024,
+    maxIfcFileSize: 250 * 1024 * 1024,
+    maxTotalSize: 250 * 1024 * 1024,
+    maxFileCount: 10,
+    fileExpirationCheckIntervalHours: 0,
+  }
+  const file = (name: string, bytes: number): File => {
+    const f = new File(['x'], name)
+    Object.defineProperty(f, 'size', { value: bytes })
+    return f
+  }
+
+  test('admits a 150 MB .ifc that exceeds the document limit', () => {
+    const result = validateFileUpload([file('Lacknergasse-98.ifc', 150 * 1024 * 1024)], undefined, config)
+
+    expect(result.fileErrors).toEqual([])
+    expect(result.batchErrors).toEqual([])
+    expect(result.validFiles).toHaveLength(1)
+  })
+
+  test('still refuses a .ifc past the IFC ceiling', () => {
+    const result = validateFileUpload([file('federated.ifc', 300 * 1024 * 1024)], undefined, config)
+
+    expect(result.fileErrors[0].code).toBe('FILE_TOO_LARGE')
+  })
+
+  test('leaves the document limit alone for everything else', () => {
+    const result = validateFileUpload([file('Einreichplan.pdf', 150 * 1024 * 1024)], undefined, config)
+
+    expect(result.fileErrors[0].code).toBe('FILE_TOO_LARGE')
+  })
+
+  test('a batch carrying a model gets the IFC total, not the document one', () => {
+    // Otherwise the 150 MB model clears the per-file check and then fails a
+    // 100 MB BATCH limit it could never satisfy.
+    const batch = validateFileUpload([file('Lacknergasse-98.ifc', 150 * 1024 * 1024)], undefined, {
+      ...config,
+      maxTotalSize: 100 * 1024 * 1024,
+    })
+
+    expect(batch.batchErrors).toEqual([])
+  })
+
+  test('a batch of ordinary documents keeps the document total', () => {
+    // The reason the ceiling is lifted per-batch instead of in the config:
+    // three 40 MB PDFs must not start passing because IFC is enabled.
+    const batch = validateFileUpload(
+      [file('a.pdf', 40 * 1024 * 1024), file('b.pdf', 40 * 1024 * 1024), file('c.pdf', 40 * 1024 * 1024)],
+      undefined,
+      { ...config, maxTotalSize: 100 * 1024 * 1024 }
+    )
+
+    expect(batch.batchErrors[0].code).toBe('TOTAL_SIZE_EXCEEDED')
+  })
+})
+
+describe('a model already in the session keeps the IFC ceiling', () => {
+  // Reported from staging: with a 149.3 MB model in the session, the next
+  // action reported `Total size would be 149.3 MB. Only 0 B available (100.0 MB
+  // limit)`. The lift only looked at the NEW files, so a session already past
+  // the document limit could never be added to again — and re-dropping the
+  // model itself is rejected as a duplicate in pass 1, so it never reached the
+  // list the lift was computed from.
+  const config = {
+    acceptedTypes: '.pdf,.ifc',
+    acceptedMimeTypes: ['application/pdf', 'application/octet-stream'],
+    maxTotalSizeMB: 100,
+    maxFileSize: 100 * 1024 * 1024,
+    maxIfcFileSize: 250 * 1024 * 1024,
+    maxTotalSize: 100 * 1024 * 1024,
+    maxFileCount: 10,
+    fileExpirationCheckIntervalHours: 0,
+  }
+  const file = (name: string, bytes: number): File => {
+    const f = new File(['x'], name)
+    Object.defineProperty(f, 'size', { value: bytes })
+    return f
+  }
+  const sessionWithModel = () => ({
+    existingTotalSize: Math.round(149.3 * 1024 * 1024),
+    existingFileCount: 1,
+    existingFileNames: new Set(['2026-02-17_WB_Lacknergasse-98.ifc']),
+  })
+
+  test('adding a small document alongside it is not refused', () => {
+    const result = validateFileUpload([file('Einreichplan.pdf', 2 * 1024 * 1024)], sessionWithModel(), config)
+
+    expect(result.batchErrors).toEqual([])
+    expect(result.validFiles).toHaveLength(1)
+  })
+
+  test('re-dropping the model reports the duplicate, not a phantom size failure', () => {
+    const result = validateFileUpload(
+      [file('2026-02-17_WB_Lacknergasse-98.ifc', Math.round(149.3 * 1024 * 1024))],
+      sessionWithModel(),
+      config
+    )
+
+    expect(result.fileErrors[0].code).toBe('DUPLICATE_FILE')
+    expect(result.batchErrors).toEqual([])
+  })
+
+  test('the IFC ceiling still bounds the session', () => {
+    // Lifted, not removed: 149.3 MB + 120 MB is past the 250 MB IFC ceiling.
+    const result = validateFileUpload([file('zweiter-stand.ifc', 120 * 1024 * 1024)], sessionWithModel(), config)
+
+    expect(result.batchErrors[0].code).toBe('TOTAL_SIZE_EXCEEDED')
   })
 })

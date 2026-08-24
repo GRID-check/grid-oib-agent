@@ -1,0 +1,185 @@
+/**
+ * `@uiw/react-md-editor`, dressed in GRID's tokens.
+ *
+ * The library styles itself with GitHub's variable names (`--color-canvas-*`,
+ * `--color-prettylights-syntax-*`) and picks a set of them from a
+ * `data-color-mode` attribute. We never set that attribute: this app switches
+ * themes with a `.dark` class on <html>, and every value below resolves through
+ * OUR tokens — which already have a dark definition — so the editor follows the
+ * theme for free and cannot drift into a second, half-maintained palette.
+ *
+ * Everything is scoped to `.grid-md-editor`, which the component puts on the
+ * editor root. `.w-md-editor.grid-md-editor` outranks the library's own
+ * single-class rules regardless of which stylesheet a bundler emits first.
+ */
+
+.w-md-editor.grid-md-editor {
+  /* --- the names the library reads, answered with the names we own --- */
+  --color-canvas-default: var(--input-background);
+  --color-border-default: var(--input);
+  --color-fg-default: var(--foreground);
+  --color-neutral-muted: var(--accent);
+  /* The library paints hover in "accent" and :active in "danger". Both become
+     plain foreground here: a toolbar button turning red while held is a
+     warning this product does not mean. */
+  --color-accent-fg: var(--foreground);
+  --color-danger-fg: var(--foreground);
+
+  /* Markdown source is code; it gets the mono face, not Helvetica. */
+  --md-editor-font-family: var(--font-mono);
+
+  /* Source highlighting, muted on purpose: it should make structure legible
+     while typing, not turn the instruction into a paint chart. */
+  --color-prettylights-syntax-comment: var(--text-color-placeholder);
+  --color-prettylights-syntax-constant: var(--source-law-text);
+  --color-prettylights-syntax-entity: var(--source-oib-text);
+  --color-prettylights-syntax-markup-bold: var(--foreground);
+  --color-prettylights-syntax-markup-deleted-text: var(--signal-error);
+
+  /* A hairline border and the app's radius, in place of the library's stacked
+     box-shadow ring and 3px corners. */
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  box-shadow: none;
+  overflow: hidden;
+  font-family: inherit;
+}
+
+/* The focus ring belongs to the whole control, not the invisible textarea
+   inside it — the textarea has `outline: 0` and paints its text transparently,
+   so without this there is no focus affordance at all. */
+.w-md-editor.grid-md-editor:focus-within {
+  border-color: color-mix(in oklch, var(--ring) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 18%, transparent);
+}
+
+.w-md-editor.grid-md-editor[aria-invalid='true'] {
+  border-color: var(--destructive);
+}
+
+/* --- toolbar --- */
+
+.w-md-editor.grid-md-editor .w-md-editor-toolbar {
+  background-color: var(--background-color-surface-raised);
+  border-bottom: 1px solid var(--input);
+  border-radius: 0;
+  padding: 4px 6px;
+  gap: 2px;
+}
+
+/* The library lays the toolbar out with inline-block <li>s, which baseline-align
+   a text button ("H1") against an <svg> one and drop the headings onto a second
+   row. Flex, so every button sits on one centred line whatever its content. */
+.w-md-editor.grid-md-editor .w-md-editor-toolbar ul {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1px;
+}
+
+.w-md-editor.grid-md-editor .w-md-editor-toolbar li {
+  display: inline-flex;
+}
+
+.w-md-editor.grid-md-editor .w-md-editor-toolbar li > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  min-width: 28px;
+  padding: 0 6px;
+  border-radius: calc(var(--radius) - 6px);
+  color: var(--text-color-secondary);
+  transition:
+    background-color 180ms ease-out,
+    color 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w-md-editor.grid-md-editor .w-md-editor-toolbar li > button {
+    transition: none;
+  }
+}
+
+@media (pointer: coarse) {
+  .w-md-editor.grid-md-editor .w-md-editor-toolbar li > button {
+    height: 36px;
+    min-width: 36px;
+  }
+}
+
+.w-md-editor.grid-md-editor .w-md-editor-toolbar li > button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.w-md-editor.grid-md-editor .w-md-editor-toolbar li.active > button {
+  background-color: var(--background-color-interaction-base);
+  color: var(--foreground);
+}
+
+.w-md-editor.grid-md-editor .w-md-editor-toolbar-divider {
+  background-color: var(--input);
+  align-self: center;
+  margin: 0 6px !important;
+}
+
+/* --- writing surface --- */
+
+.w-md-editor.grid-md-editor .w-md-editor-content {
+  border-radius: 0;
+}
+
+.w-md-editor.grid-md-editor .w-md-editor-text {
+  padding: 14px 16px;
+}
+
+/* The highlight layer and the textarea must agree to the pixel or the caret
+   drifts away from the glyphs, so the two metrics are set together. */
+.w-md-editor.grid-md-editor .w-md-editor-text,
+.w-md-editor.grid-md-editor .w-md-editor-text-pre > code {
+  font-size: 13px !important;
+  line-height: 22px !important;
+}
+
+.w-md-editor.grid-md-editor .w-md-editor-text-input {
+  caret-color: var(--foreground);
+}
+
+.w-md-editor.grid-md-editor .w-md-editor-text-input::selection {
+  background-color: color-mix(in oklch, var(--ring) 22%, transparent);
+}
+
+/* The textarea paints its own text transparent (the layer underneath shows
+   through), which would take the placeholder with it. */
+.w-md-editor.grid-md-editor .w-md-editor-text-input::placeholder {
+  color: var(--text-color-placeholder);
+  -webkit-text-fill-color: var(--text-color-placeholder);
+}
+
+/* --- preview pane --- */
+
+.w-md-editor.grid-md-editor .w-md-editor-preview {
+  padding: 14px 18px;
+  background-color: var(--card);
+  box-shadow: inset 1px 0 0 0 var(--input);
+}
+
+.w-md-editor.grid-md-editor.w-md-editor-show-preview .w-md-editor-preview {
+  box-shadow: none;
+}
+
+/* --- drag handle --- */
+
+.w-md-editor.grid-md-editor .w-md-editor-bar {
+  color: var(--text-color-placeholder);
+}
+
+/* Fullscreen escapes the dialog, so it has to bring its own ground: the
+   library only sets position/z-index and would otherwise show the page behind
+   it through the editor's corners. */
+.w-md-editor.grid-md-editor.w-md-editor-fullscreen {
+  border-radius: 0;
+  border: 0;
+  background-color: var(--card);
+}

@@ -70,17 +70,31 @@ vi.mock('./FileSourceCard', () => ({
   FileSourceCard: ({
     title,
     onDelete,
+    onOpen,
     id,
   }: {
     title: string
     onDelete: (id: string) => void
+    onOpen?: (id: string) => void
     id: string
   }) => (
     <div data-testid={`file-card-${id}`}>
-      {title}
+      {onOpen ? (
+        <button onClick={() => onOpen(id)}>Open {title}</button>
+      ) : (
+        <span>{title}</span>
+      )}
       <button onClick={() => onDelete(id)}>Delete</button>
     </div>
   ),
+  FileSourceCardSkeleton: () => <div data-testid="file-card-skeleton" />,
+}))
+
+// FilePreviewDialog pulls the heavy preview-pane graph; stub it to a marker that
+// surfaces the previewed file name so the row-open path can be asserted.
+vi.mock('@/features/documents/components/file-preview-dialog', () => ({
+  FilePreviewDialog: ({ file }: { file: { filename: string } | null }) =>
+    file ? <div data-testid="file-preview">{file.filename}</div> : null,
 }))
 
 vi.mock('./DeleteFileConfirmationModal', () => ({
@@ -200,6 +214,47 @@ describe('FileSourcesTab', () => {
     await user.click(screen.getByRole('button', { name: /confirm delete/i }))
 
     expect(mockDeleteFile).toHaveBeenCalledWith('file-1')
+  })
+
+  test('opens the read-only preview when a file row is opened', async () => {
+    const user = userEvent.setup()
+
+    vi.mocked(useFileUpload).mockReturnValue({
+      uploadFiles: mockUploadFiles,
+      deleteFile: mockDeleteFile,
+      sessionFiles: [
+        { id: 'file-1', fileName: 'doc.pdf', status: 'success', collectionName: 'session-1' },
+      ],
+      isUploading: false,
+      error: null,
+      clearError: mockClearError,
+    } as unknown as ReturnType<typeof useFileUpload>)
+
+    render(<FileSourcesTab />)
+
+    expect(screen.queryByTestId('file-preview')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /open doc\.pdf/i }))
+
+    expect(screen.getByTestId('file-preview')).toHaveTextContent('doc.pdf')
+  })
+
+  test('renders skeleton rows (not a bare spinner) while awaiting files', () => {
+    vi.mocked(useFileUpload).mockReturnValue({
+      uploadFiles: mockUploadFiles,
+      deleteFile: mockDeleteFile,
+      sessionFiles: [],
+      isUploading: true,
+      isPolling: false,
+      error: null,
+      clearError: mockClearError,
+    } as unknown as ReturnType<typeof useFileUpload>)
+
+    render(<FileSourcesTab />)
+
+    expect(screen.getAllByTestId('file-card-skeleton').length).toBeGreaterThan(0)
+    // The status text is retained for screen readers.
+    expect(screen.getByText('Checking for files...')).toBeInTheDocument()
   })
 
   test('shows processing spinner when uploading but sessionFiles is empty', () => {

@@ -1,0 +1,278 @@
+# =============================================================================
+# OIB Compliance Golden Eval Suite — runner entry point (backlog T4-5)
+#
+# Runs the 4 golden OIB-compliance cases in
+# ../fixtures/oib_compliance_golden.json through the REAL production OIB
+# agent workflow (llms/functions/workflow below are copied from the working
+# reference config, configs/config_oib_openrouter.yml, minus the `front_end`
+# block — `nat eval` drives the workflow function directly, it doesn't need
+# the API server). The custom `oib_compliance_checklist_evaluator` (see
+# ../src/oib_compliance_eval/evaluator.py) then grades each case on two
+# independent axes with NO LLM judge call of its own:
+#   - correctness: a deterministic substring/keyword checklist of expected
+#     key facts (per-item detail in the output's reasoning.checklist)
+#   - performance: wall-clock seconds / LLM call count / completion tokens,
+#     read from the trajectory NAT's eval runner already captures for every
+#     run, checked against generous calibration-pending bounds
+#     (reasoning.bounds) — this is what makes the 2026-07-16 latency-bug
+#     fixes (and any future regression back toward 20+ minute runs)
+#     measurable in CI/by humans, not just felt anecdotally.
+#
+# PREREQUISITES (this suite is NOT run in this sandbox — no live LLM access):
+#   1. Install this suite's evaluator plugin (editable, from repo root):
+#        pip install -e frontends/benchmarks/oib_compliance
+#   2. Set OPENROUTER_API_KEY (deploy/.env or exported) — the workflow below
+#      tracks the production boot floor. NOTE: production's effective model
+#      is an admin decision at runtime (Platform → Models); the literals below
+#      track the boot floor in config_oib_openrouter.yml, so if the fleet has
+#      been moved under Platform → Models this benchmark no longer mirrors it.
+#   3. Set TAVILY_API_KEY if you want web_search/advanced_web_search live
+#      (the deep_research_agent tool list below requires it to be usable,
+#      though a case can still run using knowledge_search/RIS alone).
+#   4. The OIB knowledge base should be ingested (see AGENTS.md "Docker-first
+#      quick start" / scripts/ingest_oib.py) — cases (a)/(b) depend on
+#      knowledge_search actually finding OIB-RL 2/4 content to answer from.
+#
+# RUN:
+#   dotenv -f deploy/.env run nat eval \
+#     --config_file frontends/benchmarks/oib_compliance/configs/config_oib_compliance_eval.yml
+#
+# Results (per-case checklist + bounds detail, aggregate pass counts) go to
+# ./results/ (gitignored, regeneratable — see eval.general.output_dir below).
+# =============================================================================
+
+general:
+  use_uvloop: true
+  telemetry:
+    logging:
+      console:
+        _type: console
+        level: INFO
+
+llms:
+  intent_llm:
+    _type: openai
+    model_name: openai/gpt-5.6-luna
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 4096
+    max_retries: 5
+    reasoning_effort: none
+
+  shallow_llm:
+    _type: openai
+    model_name: openai/gpt-5.6-luna
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 65536
+    max_retries: 5
+    reasoning_effort: high
+
+  clarifier_llm:
+    _type: openai
+    model_name: openai/gpt-5.6-luna
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 65536
+    max_retries: 5
+    reasoning_effort: high
+
+  deep_orchestrator_llm:
+    _type: openai
+    model_name: openai/gpt-5.6-luna
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 128000
+    max_retries: 10
+    reasoning_effort: high
+
+  deep_planner_llm:
+    _type: openai
+    model_name: openai/gpt-5.6-luna
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 128000
+    max_retries: 10
+    reasoning_effort: high
+
+  deep_researcher_llm:
+    _type: openai
+    model_name: openai/gpt-5.6-luna
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 65536
+    max_retries: 5
+    reasoning_effort: high
+
+  deep_router_llm:
+    _type: openai
+    model_name: openai/gpt-5.6-luna
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 8192
+    max_retries: 5
+    reasoning_effort: high
+
+  card_llm:
+    _type: openai
+    model_name: openai/gpt-5.6-luna
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 65536
+    max_retries: 5
+    reasoning_effort: high
+
+  summary_llm:
+    _type: openai
+    model_name: openai/gpt-5.6-luna
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+    temperature: 1.0
+    top_p: 0.95
+    max_tokens: 100
+    max_retries: 5
+    reasoning_effort: none
+
+functions:
+  web_search_tool:
+    _type: tavily_web_search
+    max_results: 5
+    max_content_length: 1000
+
+  advanced_web_search_tool:
+    _type: tavily_web_search
+    max_results: 2
+    advanced_search: true
+
+  ris_search_tool:
+    _type: ris_search
+    page_size: 20
+    max_results: 10
+    planner_llm: deep_router_llm
+
+  ris_fetch_tool:
+    _type: ris_fetch_document
+    max_chars: 40000
+    ingest_into_knowledge: true
+
+  knowledge_search:
+    _type: knowledge_retrieval
+    backend: llamaindex
+    collection_name: ${COLLECTION_NAME:-oib_knowledge}
+    include_base_collection: true
+    include_session_collection: true
+    project_collections: []
+    generate_summary: true
+    summary_model: summary_llm
+    summary_db: ${AIQ_SUMMARY_DB:-sqlite+aiosqlite:///./summaries.db}
+    top_k: 5
+    chroma_dir: ${AIQ_CHROMA_DIR:-/tmp/chroma_data}
+
+  remember:
+    _type: project_memory_remember
+
+  emit_card:
+    _type: emit_card
+
+  intent_classifier:
+    _type: intent_classifier
+    llm: intent_llm
+    tools:
+      - web_search_tool
+      - knowledge_search
+      - ris_search_tool
+      - ris_fetch_tool
+      - remember
+    verbose: true
+
+  clarifier_agent:
+    _type: clarifier_agent
+    llm: clarifier_llm
+    planner_llm: clarifier_llm
+    max_turns: 3
+    enable_plan_approval: true
+    log_response_max_chars: 2000
+    verbose: true
+
+  shallow_research_agent:
+    _type: shallow_research_agent
+    llm: shallow_llm
+    tools:
+      - web_search_tool
+      - knowledge_search
+      - ris_search_tool
+      - ris_fetch_tool
+      - remember
+      - emit_card
+    verbose: true
+    max_llm_turns: 10
+    max_tool_iterations: 5
+
+  deep_research_agent:
+    _type: deep_research_agent
+    enable_citation_verification: true
+    orchestrator_llm: deep_orchestrator_llm
+    source_router_llm: deep_router_llm
+    researcher_llm: deep_researcher_llm
+    planner_llm: deep_planner_llm
+    writer_llm: deep_orchestrator_llm
+    tools:
+      - knowledge_search
+      - ris_search_tool
+      - ris_fetch_tool
+      - advanced_web_search_tool
+      - remember
+      - emit_card
+    verbose: true
+
+workflow:
+  _type: chat_deepresearcher_agent
+  verbose: true
+  # Clarifier off for eval: golden cases are meant to run unattended/batched;
+  # HITL clarification would stall `nat eval` waiting on a human turn.
+  enable_clarifier: false
+  enable_escalation: true
+  use_async_deep_research: false
+  checkpoint_db: ${AIQ_EVAL_CHECKPOINT_DB:-./checkpoints_oib_compliance_eval.db}
+  card_generator_llm: card_llm
+
+eval:
+  general:
+    workflow_alias: "oib_compliance_golden_v1"
+    output_dir: frontends/benchmarks/oib_compliance/results
+    max_concurrency: 2
+    dataset:
+      _type: json
+      file_path: frontends/benchmarks/oib_compliance/fixtures/oib_compliance_golden.json
+      structure:
+        question_key: question
+        answer_key: expected_output
+        generated_answer_key: generated_answer
+
+  evaluators:
+    oib_compliance:
+      _type: oib_compliance_checklist_evaluator
+      # Fallback bounds/threshold for cases that don't set their own — every
+      # golden case currently sets its own, so these are a safety net for
+      # future additions to the fixture file.
+      default_pass_threshold: 0.75
+      default_bounds:
+        max_wall_clock_s: 600
+        max_llm_calls: 150
+        max_completion_tokens: 60000

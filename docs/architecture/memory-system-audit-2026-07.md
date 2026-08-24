@@ -118,7 +118,7 @@ never, or read never**:
 |---|---|---|
 | `salience` | default `0.5`; patchable via service type only; **never read** for ranking | The digest orders by `pinned, updatedAt` — salience does nothing. |
 | `last_referenced_at` | set on dedup-refresh; **never read** | No decay/rotation is possible; the column is write-only. |
-| `supersedes_id` | **never written** by memory-service (only `budgets`) | No contradiction adjudication / supersede-with-link; stale items are only ever hidden via manual `status` edits. |
+| `supersedes_id` | ~~never written~~ **written since 2026-07-31** — see the note below | Contradiction adjudication now exists in first form: a correction retires the entry it replaces and links to it. |
 | `provenance_type='profile_graduation'` | enum value exists; **no writer** | The profile-graduation path (design §6/decision 7) is unimplemented. |
 | RAG recall (`mem_<project>`, `embedding_synced`) | **absent entirely** | Serve is digest-only; there is no per-query recall, so memory does not scale past the 20-item / 1800-char digest budget. |
 
@@ -128,6 +128,20 @@ component" (§3.2) is not present** beyond exact-normalized dedup. Semantic
 paraphrase and contradictions accumulate silently. Recommend either building the
 consolidation gate or trimming the schema/enum to what is actually implemented so
 the data model does not overstate the system's guarantees.
+
+**Update 2026-07-31 — contradictions no longer accumulate silently.**
+`createProjectMemoryItem` now classifies a paraphrase match instead of merging it
+blindly: same polarity → merge as before, opposed polarity → the new finding
+supersedes the old one (`status='superseded'` + `supersedes_id`, one transaction).
+This closed a defect the merge itself introduced — a correction scores ~0.9
+Jaccard against the claim it corrects, so it was landing in the merge branch,
+which keeps the OLD content and only refreshes confidence/timestamps. Corrections
+were therefore being *discarded* while the stale row came back looking freshly
+confirmed. Agents can also name the entry they are overturning explicitly
+(`supersedesContent`, resolved server-side), which is how the reflection stage
+retires what it corrects. Human-curated entries (pinned / `user_confirmed` /
+`provenance_type='user'`) are never retired this way. Still open from this row:
+`salience`, `last_referenced_at`, `profile_graduation`, and RAG recall.
 
 ### F9 — Core digest was frozen for the connection's life; captured memory not served within a session — HIGH — **Fixed**
 
@@ -284,7 +298,7 @@ present:
 ### Environment / config keys
 
 `GRID_INTERNAL_API_TOKEN` (both services), `FRONTEND_INTERNAL_URL`/`FRONTEND_URL`,
-`GRID_ALLOW_AGENT_ORG_MEMORY` (default deny), `MEMORY_REFLECTION_ENABLED`
-(anonymous fallback), `REQUIRE_AUTH`, `APP_ENV`/`NODE_ENV` (dev-token check),
-WorkOS flag `memory-reflection` (+ `WORKOS_API_KEY`), workflow key
+`GRID_ALLOW_AGENT_ORG_MEMORY` (default deny), `REQUIRE_AUTH`,
+`APP_ENV`/`NODE_ENV` (dev-token check), WorkOS flag `memory-reflection`
+(+ `WORKOS_API_KEY`; sole runtime gate, no env-var fallback), workflow key
 `memory_reflection_llm`.

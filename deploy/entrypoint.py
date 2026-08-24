@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.  # noqa: E501
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Launch a local Dask cluster and the web server."""
 
 from __future__ import annotations
@@ -83,46 +68,6 @@ def _clear_directory_contents(path: Path) -> None:
             child.unlink()
 
 
-def _maybe_restore_oib_seed() -> None:
-    """Restore a baked OIB embedding snapshot into the data dir on first boot.
-
-    The image may carry a pre-generated Chroma snapshot at ``/opt/oib-seed``
-    (see the ``oib-seed`` stage in deploy/Dockerfile). When the persistent data
-    volume is still empty, copy the snapshot into place so the subsequent
-    ``oib_sync`` finds a matching registry and skips re-embedding the entire OIB
-    corpus. Idempotent: once the knowledge base exists — or no seed was baked —
-    this is a no-op. Set ``OIB_FORCE_REINGEST`` to override (it wipes the KB and
-    re-ingests regardless of the seed).
-    """
-    seed_dir = Path(os.environ.get("OIB_SEED_DIR", "/opt/oib-seed"))
-    seed_chroma = seed_dir / "chroma_data"
-    if not seed_chroma.is_dir() or not any(seed_chroma.iterdir()):
-        return  # image built without a seed
-
-    chroma_dir = Path(os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data"))
-    registry = Path(os.environ.get("OIB_REGISTRY_PATH", "data/oib_registry.json"))
-
-    # Already populated (restored earlier or ingested live) — leave it alone.
-    if (chroma_dir / "chroma.sqlite3").exists() or registry.exists():
-        return
-
-    print(f"Restoring baked OIB seed from {seed_dir} ...", flush=True)
-    chroma_dir.mkdir(parents=True, exist_ok=True)
-    for child in seed_chroma.iterdir():
-        dest = chroma_dir / child.name
-        if child.is_dir():
-            shutil.copytree(child, dest, dirs_exist_ok=True)
-        else:
-            shutil.copy2(child, dest)
-
-    seed_registry = seed_dir / "oib_registry.json"
-    if seed_registry.exists():
-        registry.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(seed_registry, registry)
-
-    print("OIB seed restored — ingestion will skip re-embedding.", flush=True)
-
-
 def _run_oib_sync_background() -> None:
     """Run OIB PDF ingestion in the background after the server starts."""
     # The entrypoint process never configures logging, so oib_sync's INFO
@@ -157,12 +102,40 @@ def main() -> int:
     if len(sys.argv) > 1:
         os.execvp(sys.argv[1], sys.argv[1:])
 
+    # Role split for horizontal scaling (ADR-0021). A dedicated worker container
+    # runs the DB-claimed research worker — no web server, no Dask cluster.
+    role = os.getenv("GRID_ROLE", "web").strip().lower()
+    if role == "worker":
+        print("Starting DB-claimed research worker (GRID_ROLE=worker)...", flush=True)
+        os.execvp("python", ["python", "-m", "aiq_api.jobs.worker"])
+
     config_file = os.getenv(
         "CONFIG_FILE",
         "/app/configs/config_web_default_llamaindex.yml",
     )
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))
+
+    # In db-execution mode the web tier runs NO in-pod Dask cluster; research
+    # jobs are executed by dedicated worker containers instead. This is what lets
+    # the web/agent tier run as multiple stateless replicas.
+    if os.getenv("GRID_JOB_EXECUTION", "dask").strip().lower() == "db":
+        print("============================================", flush=True)
+        print("Grid agent web tier (db-execution, no Dask)", flush=True)
+        print(f"Config: {config_file}", flush=True)
+        print(f"API:    http://{host}:{port}", flush=True)
+        print("============================================", flush=True)
+        web_proc = subprocess.Popen(["python", "/app/deploy/start_web.py"])
+        threading.Thread(target=_run_oib_sync_background, daemon=True).start()
+
+        def _handle_web_signal(_signum: int, _frame: object) -> None:
+            print("Shutting down...", flush=True)
+            _terminate_process(web_proc)
+            sys.exit(0)
+
+        signal.signal(signal.SIGTERM, _handle_web_signal)
+        signal.signal(signal.SIGINT, _handle_web_signal)
+        return web_proc.wait()
     scheduler_port = int(os.getenv("DASK_SCHEDULER_PORT", "8786"))
     nworkers = os.getenv("DASK_NWORKERS", "1")
     nthreads = os.getenv("DASK_NTHREADS", "4")
@@ -225,14 +198,10 @@ def main() -> int:
     print("--------------------------------------------", flush=True)
     print("", flush=True)
 
-    # Restore a baked OIB snapshot (if any) BEFORE the web server accepts
-    # queries and before the background sync runs, so retrieval is ready
-    # immediately and ingestion no-ops instead of re-embedding.
-    try:
-        _maybe_restore_oib_seed()
-    except Exception as exc:  # non-fatal: fall back to live ingestion
-        print(f"OIB seed restore failed (non-fatal): {exc}", flush=True)
-
+    # The OIB knowledge base is purely volume-based: it persists on the mounted
+    # data volume across redeploys, and on a fresh volume the background sync
+    # below ingests the repo-shipped corpus (data/oib/*.pdf) live. There is no
+    # baked seed to restore.
     web_proc = subprocess.Popen(["python", "/app/deploy/start_web.py"])
 
     threading.Thread(target=_run_oib_sync_background, daemon=True).start()

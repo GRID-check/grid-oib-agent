@@ -56,6 +56,18 @@ export const NATMessageType = {
   USER_INTERACTION: 'user_interaction_message',
   OBSERVABILITY_TRACE: 'observability_trace_message',
   ERROR: 'error_message',
+  /**
+   * A post-answer STAGE's payload for one turn (`docs/architecture/post-answer-stages.md` §4).
+   *
+   * Grid-owned and `grid_`-prefixed, deliberately NOT a NAT enum member: NAT
+   * resolves its frame schemas through a vendored `StrEnum` that cannot gain a
+   * member without patching the dependency.
+   *
+   * Its own type, and not a second `system_response_message`, because a stage
+   * frame arrives BY DEFINITION when the turn is no longer streaming — and the
+   * response path drops anything that arrives then.
+   */
+  STAGE: 'grid_stage_message',
 } as const
 
 /** NAT workflow schema types */
@@ -66,14 +78,26 @@ export const NATSchemaType = {
   CHAT_STREAM: 'chat_stream',
 } as const
 
-/** Human prompt input types from NAT */
+/**
+ * Human prompt input types from NAT.
+ *
+ * Aligned with NAT's real HITL enum: `text | notification | binary_choice |
+ * radio | checkbox | dropdown | oauth_consent`. The legacy `multiple_choice`
+ * and `approval` values are kept for back-compat with older backends and
+ * persisted sessions. `radio`/`checkbox`/`dropdown` all map to the existing
+ * choice rendering (OptionsList) — see `mapHumanPromptType`.
+ */
 export const HumanPromptType = {
   TEXT: 'text',
-  MULTIPLE_CHOICE: 'multiple_choice',
-  BINARY_CHOICE: 'binary_choice',
-  APPROVAL: 'approval',
   NOTIFICATION: 'notification',
+  BINARY_CHOICE: 'binary_choice',
+  RADIO: 'radio',
+  CHECKBOX: 'checkbox',
+  DROPDOWN: 'dropdown',
   OAUTH_CONSENT: 'oauth_consent',
+  // Legacy values (kept for back-compat, not part of NAT's current enum)
+  MULTIPLE_CHOICE: 'multiple_choice',
+  APPROVAL: 'approval',
 } as const
 
 /** Message status for WebSocket messages */
@@ -139,15 +163,49 @@ export const NATUserInteractionResponseSchema = z.object({
 export const NATHumanPromptSchema = z.object({
   input_type: z.enum([
     HumanPromptType.TEXT,
-    HumanPromptType.MULTIPLE_CHOICE,
-    HumanPromptType.BINARY_CHOICE,
-    HumanPromptType.APPROVAL,
     HumanPromptType.NOTIFICATION,
+    HumanPromptType.BINARY_CHOICE,
+    HumanPromptType.RADIO,
+    HumanPromptType.CHECKBOX,
+    HumanPromptType.DROPDOWN,
     HumanPromptType.OAUTH_CONSENT,
+    // Legacy values still accepted for back-compat.
+    HumanPromptType.MULTIPLE_CHOICE,
+    HumanPromptType.APPROVAL,
   ]),
   text: z.string(),
-  /** Options for multiple choice prompts */
-  options: z.array(z.string()).optional(),
+  /**
+   * Options for multiple choice prompts, normalised to the strings the UI sends back.
+   *
+   * NAT serialises a picker's choices as OBJECTS — `{id, label, value, description}`
+   * on `HumanPromptRadio`/`Checkbox`/`Dropdown` — while older/simpler producers send
+   * bare strings. Declaring only `z.array(z.string())` made the object form fail the
+   * whole `NATIncomingMessageSchema` discriminated union, and `websocket-client`
+   * `safeParse`s that: the entire `system_interaction` frame was dropped as an
+   * unrecognised message, leaving the turn parked on its HITL future until the
+   * 30-minute timeout. A silently discarded prompt is the worst failure this frame
+   * has, because nothing surfaces — the answer simply never arrives.
+   *
+   * Normalised on `value`, not `label`: `value` is what the agent tier expects back
+   * (NAT re-wraps the reply into `HumanResponse*.selected_option.value`), so if a
+   * producer ever makes the two differ, the round-trip stays correct and only the
+   * label shown degrades. That is the safe direction to fail in.
+   */
+  options: z
+    .array(
+      z.union([
+        z.string(),
+        z
+          .object({
+            id: z.string().optional(),
+            label: z.string().optional(),
+            value: z.string(),
+            description: z.string().optional(),
+          })
+          .transform((option) => option.value),
+      ])
+    )
+    .optional(),
   /** Default value for text input */
   default_value: z.string().optional(),
 })
@@ -181,6 +239,14 @@ export const NATGenerateResponseContentSchema = z.object({
   intermediate_steps: z.array(z.unknown()).nullable().optional(),
 })
 
+/**
+ * Wire cap for `answer_confidence_reason`, mirroring the backend's
+ * `_CONFIDENCE_REASON_MAX_CHARS` (`shallow_researcher/markers.py`) and the
+ * documented protocol limit (`docs/api/websocket-protocol.md`). A longer value
+ * is a contract violation and degrades to "absent".
+ */
+export const ANSWER_CONFIDENCE_REASON_MAX_CHARS = 300
+
 /** System Response Message - final or streaming response */
 export const NATSystemResponseMessageSchema = z.object({
   type: z.literal(NATMessageType.SYSTEM_RESPONSE),
@@ -188,8 +254,11 @@ export const NATSystemResponseMessageSchema = z.object({
   thread_id: z.string().optional(),
   parent_id: z.string().optional(),
   conversation_id: z.string().optional(),
-  // Content can be: string, SystemResponseContent (with text), or GenerateResponse (with output)
-  content: NATSystemResponseContentSchema.or(NATGenerateResponseContentSchema).or(z.string()),
+  // Content can be: string, SystemResponseContent (with text), or GenerateResponse (with output).
+  // GenerateResponse must be tried FIRST: SystemResponseContent has only
+  // optional fields and zod strips unknown keys, so it matches {output: ...}
+  // too and would parse it to {} — silently discarding the response text.
+  content: NATGenerateResponseContentSchema.or(NATSystemResponseContentSchema).or(z.string()),
   status: z.enum([
     WebSocketMessageStatus.IN_PROGRESS,
     WebSocketMessageStatus.COMPLETE,
@@ -200,6 +269,128 @@ export const NATSystemResponseMessageSchema = z.object({
   // Structured deep-research job id (present when the turn dispatched an async
   // job). Preferred over regex-parsing the response prose.
   deep_research_job_id: z.string().optional(),
+  // The model's guarded self-assessment of how well the answer is grounded in
+  // its sources. Absent on error/escalation/marker-less turns → no chip. An
+  // out-of-enum value degrades to `undefined` (no chip) via `.catch` rather than
+  // failing the whole message parse and dropping the response text.
+  answer_confidence: z.enum(['low', 'medium', 'high']).optional().catch(undefined),
+  // Structured sources from the source registry (KB file/page/collection, RIS/web URLs).
+  // Fail-open: PER-ENTRY tolerance — a single malformed source degrades to
+  // undefined and is dropped, while the remaining (valid) citations survive.
+  // The outer `.catch(undefined)` still guards against a non-array `sources`.
+  sources: z
+    .array(
+      z
+        .object({
+          content: z.string().optional(),
+          url: z.string().nullable().optional(),
+          title: z.string().nullable().optional(),
+          citation_key: z.string().nullable().optional(),
+          collection: z.string().nullable().optional(),
+          source_type: z.string().nullable().optional(),
+          tool: z.string().nullable().optional(),
+          origin: z.string().nullable().optional(),
+          // The [N] citation label this source carries in the answer prose, so
+          // the provenance block can render as the answer's numbered source
+          // list instead of duplicating a written one.
+          number: z.number().nullable().optional(),
+          file_name: z.string().nullable().optional(),
+          page: z.number().nullable().optional(),
+        })
+        .passthrough()
+        // Per-entry tolerance: `.optional()` makes `undefined` a valid element
+        // output so `.catch(undefined)` can degrade a single malformed source to
+        // a hole (rather than needing a full object fallback), which the
+        // transform below compacts out.
+        .optional()
+        .catch(undefined)
+    )
+    .optional()
+    .catch(undefined)
+    // Compact out the per-entry `.catch(undefined)` holes so consumers only see
+    // the well-formed citations.
+    .transform((arr) => (arr ? arr.filter((entry) => entry != null) : arr)),
+
+  // ── Transparency extras (WP-A → WP-B wire contract) ──────────────────────
+  // All optional + per-field `.catch(undefined)`: one malformed extra degrades
+  // to "absent" and NEVER kills the whole frame (the response text survives).
+  // These ride the same terminal-chunk "extras lift" as answer_confidence /
+  // sources / deep_research_job_id.
+
+  // Which path the turn took after intent classification.
+  routing_decision: z.enum(['meta', 'shallow', 'deep', 'error']).optional().catch(undefined),
+  // Human-readable "why" for the routing decision (verbatim from the classifier).
+  routing_reason: z.string().optional().catch(undefined),
+  // Present only when a shallow→deep escalation happened this turn.
+  escalation_reason: z.string().optional().catch(undefined),
+  // Present only when the self-reported confidence was downgraded. Five causes:
+  //   'ungrounded'              — nothing verified and nothing measured.
+  //   'quote_unverified'        — a quoted span did not match any source passage.
+  //   'normative_claim_uncited' — the answer WAS grounded in an IFC measurement
+  //                               but also asserts something normative with no
+  //                               verified citation, so it is held at 'low'
+  //                               instead of riding out on the measurement.
+  //   'measurement_only'        — measured and purely descriptive, so 'high' was
+  //                               reduced to 'medium'.
+  //   'citation_fallback'       — the only citation came from the single-source
+  //                               fallback, not from anything the model wrote,
+  //                               so it lifts no further than a measurement.
+  answer_confidence_capped_reason: z
+    .enum([
+      'ungrounded',
+      'quote_unverified',
+      'normative_claim_uncited',
+      'measurement_only',
+      'citation_fallback',
+    ])
+    .optional()
+    .catch(undefined),
+  // The model's own one-clause justification for its self-assessment
+  // (`[CONFIDENCE:level | reason]`). Shown verbatim in the chip tooltip. Capped
+  // at the documented wire limit — an oversized reason degrades to "absent",
+  // never kills the frame.
+  answer_confidence_reason: z
+    .string()
+    .max(ANSWER_CONFIDENCE_REASON_MAX_CHARS)
+    .optional()
+    .catch(undefined),
+  // Present only when citation verification removed ≥1 citation.
+  citations_removed: z
+    .object({
+      count: z.number(),
+      reasons: z.array(z.string()),
+    })
+    .optional()
+    .catch(undefined),
+  // The skills the agent ACTIVATED this turn — i.e. the ones whose full
+  // instructions it pulled into context with `use_skill`, in activation order.
+  // Absent when the turn loaded none, which is the common case: a skill being
+  // *available* costs a line of catalogue and is not reported.
+  skills_activated: z.array(z.string()).optional().catch(undefined),
+  // The subset of skills_activated marked grid-hidden — de-emphasised in the
+  // disclosure, never dropped (the transparency doctrine).
+  skills_hidden: z.array(z.string()).optional().catch(undefined),
+  // The research turn hit its tool-iteration ceiling and was forced into
+  // synthesis: evidence-gathering was CUT OFF, not completed. `literal(true)`
+  // because the backend sends it or omits it — presence is the fact, and a
+  // `false` on the wire would be one more default to interpret. Orthogonal to
+  // `answer_confidence`, which grades whether the claims are sourced.
+  research_truncated: z.literal(true).optional().catch(undefined),
+  // WHY it stopped, as a stable token (`wall_clock` / `step_limit`). A plain
+  // string rather than an enum: the words belong to the frontend dictionary, so
+  // a token this build has no sentence for renders NOTHING — and an enum here
+  // would drop it one layer earlier for no reader-visible difference while
+  // making every new backend token a schema change too.
+  truncation_reason: z.string().optional().catch(undefined),
+  // Ways this answer is weaker than a clean run, as stable tokens
+  // (`no_report_file`, `no_valid_citations`). `z.array(z.string())` for the same
+  // reason: an enum would fail the whole array over one unknown entry, and
+  // `.catch(undefined)` would then discard the known ones with it.
+  degraded_reasons: z.array(z.string()).optional().catch(undefined),
+  // Marks the answer text as a queue-rejection notice (NOT a research answer).
+  job_admission_rejected: z.literal(true).optional().catch(undefined),
+  // Retry hint (seconds) — only alongside job_admission_rejected.
+  retry_after_seconds: z.number().optional().catch(undefined),
 })
 
 /** Intermediate step content */
@@ -221,6 +412,81 @@ export const NATSystemIntermediateMessageSchema = z.object({
     WebSocketMessageStatus.COMPLETE,
     WebSocketMessageStatus.ERROR,
   ]),
+  timestamp: z.string().optional(),
+})
+
+/**
+ * Observability Trace Message — diagnostic/tracing frame from NAT.
+ *
+ * The frontend does not render these; the variant exists so the frame is
+ * TOLERATED (parsed + ignored) instead of tripping the discriminated-union
+ * fallback and spamming `console.warn`. Payload is kept opaque (`z.unknown`)
+ * and passthrough so a schema drift on the backend never fails the parse.
+ */
+export const NATObservabilityTraceMessageSchema = z
+  .object({
+    type: z.literal(NATMessageType.OBSERVABILITY_TRACE),
+    id: z.string().optional(),
+    thread_id: z.string().optional(),
+    parent_id: z.string().optional(),
+    conversation_id: z.string().optional(),
+    content: z.unknown().optional(),
+    status: z.string().optional(),
+    timestamp: z.string().optional(),
+  })
+  .passthrough()
+
+/**
+ * The contract version of the stage envelope this client understands.
+ *
+ * Pinned, not tolerated: `v` is bumped only when the envelope changes in a way
+ * that cannot be read by the previous shape, so a frame at another version is a
+ * frame this build genuinely cannot interpret. Failing the parse routes it into
+ * the warn-once-and-drop fallback, which is the same degradation an unknown
+ * frame type already gets.
+ */
+export const STAGE_FRAME_VERSION = 1
+
+/**
+ * The stage values this client renders. A frame naming any other stage fails
+ * the parse and is dropped — which is exactly what an old tab should do when a
+ * new backend starts shipping a stage it has never heard of (§4.1, additive
+ * only). Adding a stage here is a deliberate act with a renderer behind it.
+ */
+export const STAGE_IDS = ['follow_ups', 'memory_reflection'] as const
+
+/**
+ * Post-answer stage frame (`docs/architecture/post-answer-stages.md` §4.1).
+ *
+ * `parent_id` is the correlation key and the ONLY one: the browser's WS turn id
+ * is the single id both halves genuinely share (§1.6). A frame whose
+ * `parent_id` matches no message is dropped silently.
+ *
+ * `status` rides even when there is nothing to show — `empty` is not the same
+ * fact as "no frame arrived", and only the former lets the client stop
+ * reserving space. `failed` carries no reason: failure reasons are machine keys
+ * for the ledger, not user-facing text, and the client renders `failed` and
+ * `empty` identically.
+ *
+ * `payload` is kept `unknown` here on purpose. This schema owns the ENVELOPE;
+ * what a given stage may put inside it belongs to that stage's own schema
+ * (`features/chat/lib/stage-payloads.ts`), which runs before anything is
+ * rendered or persisted. One schema that knew every stage's payload would have
+ * to be edited by every future stage, which is the coupling §2 exists to avoid.
+ *
+ * The one envelope invariant this schema cannot state — a payload may ride only
+ * a `ready` frame — is enforced where the frame is dispatched
+ * (`websocket-client.ts`), because a discriminated-union member may not carry a
+ * refinement.
+ */
+export const NATStageMessageSchema = z.object({
+  type: z.literal(NATMessageType.STAGE),
+  v: z.literal(STAGE_FRAME_VERSION),
+  conversation_id: z.string(),
+  parent_id: z.string().nullish(),
+  stage: z.enum(STAGE_IDS),
+  status: z.enum(['ready', 'empty', 'failed']),
+  payload: z.unknown().optional(),
   timestamp: z.string().optional(),
 })
 
@@ -246,7 +512,9 @@ export const NATIncomingMessageSchema = z.discriminatedUnion('type', [
   NATSystemResponseMessageSchema,
   NATSystemIntermediateMessageSchema,
   NATSystemInteractionMessageSchema,
+  NATObservabilityTraceMessageSchema,
   NATErrorMessageSchema,
+  NATStageMessageSchema,
 ])
 
 // ----------------------------------------------------------------------------
@@ -361,9 +629,12 @@ export type NATSystemInteractionMessage = z.infer<typeof NATSystemInteractionMes
 export type NATSystemResponseMessage = z.infer<typeof NATSystemResponseMessageSchema>
 export type NATSystemResponseContent = z.infer<typeof NATSystemResponseContentSchema>
 export type NATSystemIntermediateMessage = z.infer<typeof NATSystemIntermediateMessageSchema>
+export type NATObservabilityTraceMessage = z.infer<typeof NATObservabilityTraceMessageSchema>
 export type NATIntermediateStepContent = z.infer<typeof NATIntermediateStepContentSchema>
 export type NATErrorMessage = z.infer<typeof NATErrorMessageSchema>
 export type NATErrorContent = z.infer<typeof NATErrorContentSchema>
+export type NATStageMessage = z.infer<typeof NATStageMessageSchema>
+export type StageId = (typeof STAGE_IDS)[number]
 export type NATIncomingMessage = z.infer<typeof NATIncomingMessageSchema>
 
 // Legacy WebSocket Types (kept for backwards compatibility)

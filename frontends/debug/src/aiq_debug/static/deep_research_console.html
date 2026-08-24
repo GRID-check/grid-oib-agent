@@ -1,27 +1,18 @@
-<!--
-SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-SPDX-License-Identifier: Apache-2.0
-
-Deep Research Debug Console
-============================
-- API: /v1/jobs/async (agent-agnostic async job routes)
-- Checkpointing: SQLite (local) or PostgreSQL (production)
-- HITL: interrupt_after: [planner-agent] for plan approval
-
-Usage:
-1. Connect via WebSocket to submit queries
-2. Deep research queries trigger async jobs
-3. Jobs support pause/resume via HITL checkpoints
--->
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Deep Research Debug Console</title>
+    <!-- Optional markdown renderer. On-prem/air-gapped deployments without CDN
+         access degrade gracefully: renderMarkdown() falls back to escaped
+         plain text in a <pre> when window.marked is unavailable. -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
-      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap');
+      /* No webfont imports: system font stacks keep this file self-contained
+         and fully functional in offline/air-gapped deployments. 'Inter' /
+         'JetBrains Mono' are used when installed locally, else the fallbacks
+         in each font-family declaration apply. */
 
       :root {
         --bg-primary: #0a0c10;
@@ -1829,7 +1820,14 @@ Usage:
 
       function renderMarkdown(text) {
         if (window.marked) return window.marked.parse(text || '');
-        return (text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>');
+        // Fallback when the CDN copy of `marked` did not load (offline /
+        // air-gapped deployment): render escaped plain text in a <pre> so
+        // reports stay readable instead of failing.
+        const escaped = (text || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        return `<pre style="white-space: pre-wrap; word-break: break-word; font-family: inherit; margin: 0;">${escaped}</pre>`;
       }
 
       function appendChat(role, text, options = {}, persist = true) {
@@ -1838,20 +1836,39 @@ Usage:
 
         if (options.viewReport) {
           const jobId = activeJobId || options.jobId || '';
-          bubble.innerHTML = `
-            <div class="research-complete-bubble">
-              <div class="status-text">✅ Deep research complete</div>
-              ${jobId ? `<div style="font-size: 10px; color: var(--text-muted); margin-bottom: 6px; font-family: 'JetBrains Mono', monospace;">Job: ${jobId}</div>` : ''}
-              <div class="button-row">
-                <button class="view-report-btn" onclick="viewReportWithReplay('${jobId}')">
-                  📄 View Report
-                </button>
-                <button class="view-stream-btn" onclick="viewStreamWithReplay('${jobId}')">
-                  📡 View Stream
-                </button>
-              </div>
-            </div>
-          `;
+          // jobId is untrusted (user-typed or backend payload); build the
+          // bubble with DOM APIs so it is never parsed as markup and never
+          // escapes into an inline handler string (js/xss).
+          const complete = document.createElement('div');
+          complete.className = 'research-complete-bubble';
+
+          const status = document.createElement('div');
+          status.className = 'status-text';
+          status.textContent = '✅ Deep research complete';
+          complete.appendChild(status);
+
+          if (jobId) {
+            const meta = document.createElement('div');
+            meta.style.cssText = "font-size: 10px; color: var(--text-muted); margin-bottom: 6px; font-family: 'JetBrains Mono', monospace;";
+            meta.textContent = `Job: ${jobId}`;
+            complete.appendChild(meta);
+          }
+
+          const buttonRow = document.createElement('div');
+          buttonRow.className = 'button-row';
+          const reportBtn = document.createElement('button');
+          reportBtn.className = 'view-report-btn';
+          reportBtn.textContent = '📄 View Report';
+          reportBtn.addEventListener('click', () => viewReportWithReplay(jobId));
+          const streamBtn = document.createElement('button');
+          streamBtn.className = 'view-stream-btn';
+          streamBtn.textContent = '📡 View Stream';
+          streamBtn.addEventListener('click', () => viewStreamWithReplay(jobId));
+          buttonRow.appendChild(reportBtn);
+          buttonRow.appendChild(streamBtn);
+          complete.appendChild(buttonRow);
+
+          bubble.appendChild(complete);
         } else {
           bubble.innerHTML = renderMarkdown(text);
         }
@@ -3031,6 +3048,14 @@ Usage:
         });
       }
 
+      function makeButton(text, className, onClick) {
+        const btn = document.createElement('button');
+        btn.className = className;
+        btn.textContent = text;
+        btn.addEventListener('click', onClick);
+        return btn;
+      }
+
       function showJobBanner(jobId, status = 'running') {
         activeJobId = jobId;
 
@@ -3074,25 +3099,40 @@ Usage:
 
         const config = statusConfig[status] || statusConfig.running;
 
-        const actionsHtml = config.showActions ? `
-          <div class="job-banner-actions">
-            <button class="btn btn-primary" onclick="startStream('${jobId}')">Stream</button>
-            <button class="btn" onclick="fetchState('${jobId}')">State</button>
-            <button class="btn" onclick="fetchReport('${jobId}')">Report</button>
-            <button class="btn btn-danger" onclick="cancelJob('${jobId}')">Cancel</button>
-          </div>
-        ` : '';
+        // jobId is untrusted (user-typed or backend payload); build the
+        // banner with DOM APIs so it is never parsed as markup and never
+        // escapes into an inline handler string (js/xss).
+        const banner = document.createElement('div');
+        banner.className = 'job-banner';
+        banner.style.borderColor = config.borderColor;
 
-        jobBannerContainer.innerHTML = `
-          <div class="job-banner" style="border-color: ${config.borderColor};">
-            <div class="job-banner-title">${config.icon} ${config.title}</div>
-            <div class="job-banner-id">Job ID: ${jobId}</div>
-            <div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 8px;">
-              ${config.subtitle}
-            </div>
-            ${actionsHtml}
-          </div>
-        `;
+        const title = document.createElement('div');
+        title.className = 'job-banner-title';
+        title.textContent = `${config.icon} ${config.title}`;
+        banner.appendChild(title);
+
+        const idLine = document.createElement('div');
+        idLine.className = 'job-banner-id';
+        idLine.textContent = `Job ID: ${jobId}`;
+        banner.appendChild(idLine);
+
+        const subtitle = document.createElement('div');
+        subtitle.style.cssText = 'font-size: 10px; color: var(--text-secondary); margin-bottom: 8px;';
+        subtitle.textContent = config.subtitle;
+        banner.appendChild(subtitle);
+
+        if (config.showActions) {
+          const actions = document.createElement('div');
+          actions.className = 'job-banner-actions';
+          actions.appendChild(makeButton('Stream', 'btn btn-primary', () => startStream(jobId)));
+          actions.appendChild(makeButton('State', 'btn', () => fetchState(jobId)));
+          actions.appendChild(makeButton('Report', 'btn', () => fetchReport(jobId)));
+          actions.appendChild(makeButton('Cancel', 'btn btn-danger', () => cancelJob(jobId)));
+          banner.appendChild(actions);
+        }
+
+        jobBannerContainer.innerHTML = '';
+        jobBannerContainer.appendChild(banner);
         renderSubagents(cachedState.subagents);
       }
 

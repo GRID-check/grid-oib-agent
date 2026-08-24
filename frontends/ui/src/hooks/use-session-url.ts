@@ -13,6 +13,7 @@ import { useEffect, useCallback, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { useChatStore } from '@/features/chat'
+import { resumableSessionId } from '@/features/chat/lib/resume-session'
 
 interface UseSessionUrlOptions {
   /** Whether the user is authenticated (sessions only work when authenticated) */
@@ -35,10 +36,19 @@ export function useSessionUrl({ isAuthenticated }: UseSessionUrlOptions): UseSes
   const pathname = usePathname() ?? '/'
   const searchParams = useSearchParams()
 
-  const { currentConversation, currentUserId } = useChatStore(useShallow((s) => ({
-    currentConversation: s.currentConversation,
-    currentUserId: s.currentUserId,
-  })))
+  const { currentConversation, currentUserId, conversations, serverConversationsLoaded } =
+    useChatStore(
+      useShallow((s) => ({
+        currentConversation: s.currentConversation,
+        currentUserId: s.currentUserId,
+        // Not read directly — it is the RETRY TRIGGER. A deep-linked id that this
+        // browser has never seen (an inbox notification for a conversation a
+        // colleague shared) only becomes resolvable once the server list lands,
+        // which is after this effect first runs.
+        conversations: s.conversations,
+        serverConversationsLoaded: s.serverConversationsLoaded,
+      })),
+    )
   const selectConversation = useChatStore((s) => s.selectConversation)
   const getUserConversations = useChatStore((s) => s.getUserConversations)
 
@@ -48,10 +58,23 @@ export function useSessionUrl({ isAuthenticated }: UseSessionUrlOptions): UseSes
   // Read session from URL on mount and select it
   // Wait for both isAuthenticated AND currentUserId to be set (user ID is synced by chat hooks)
   useEffect(() => {
-    if (!isAuthenticated || !currentUserId || !searchParams || initialSyncDone.current) return
+    if (!isAuthenticated || !currentUserId || !searchParams || !pathname || initialSyncDone.current)
+      return
 
     const sessionId = searchParams.get('session')
     if (!sessionId) {
+      // No session in the URL: resume the last one if continuing it is clearly
+      // what the user meant (see `resumableSessionId` for why the rule is
+      // narrow). Reloading a tab should not cost three clicks to get back.
+      const resumeId = resumableSessionId(getUserConversations())
+      if (resumeId) {
+        selectConversation(resumeId)
+        // Put it back in the URL so a further reload is a plain URL restore
+        // rather than a second round of inference.
+        const params = new URLSearchParams(searchParams.toString())
+        params.set('session', resumeId)
+        router.replace(`${pathname}?${params.toString()}`)
+      }
       initialSyncDone.current = true
       return
     }
@@ -63,8 +86,17 @@ export function useSessionUrl({ isAuthenticated }: UseSessionUrlOptions): UseSes
     if (sessionExists) {
       // Select the session from URL
       selectConversation(sessionId)
+    } else if (!serverConversationsLoaded) {
+      // Not stale — just not fetched yet. Leaving `initialSyncDone` false means
+      // this effect runs again when the server list arrives (it depends on
+      // `conversations`), which is the only way a link into a conversation this
+      // browser has never seen can ever open. Stripping the id here instead —
+      // what this did before — silently broke every inbox notification: the
+      // recipient landed on whatever session was last active, and the row was
+      // marked read, consuming their one signal.
+      return
     } else {
-      // Invalid session ID - clear it from URL
+      // Genuinely unknown after we have asked the server: a stale URL. Clear it.
       const newParams = new URLSearchParams(searchParams.toString())
       newParams.delete('session')
       const newUrl = newParams.toString() ? `${pathname}?${newParams.toString()}` : pathname
@@ -80,11 +112,14 @@ export function useSessionUrl({ isAuthenticated }: UseSessionUrlOptions): UseSes
     router,
     selectConversation,
     getUserConversations,
+    conversations,
+    serverConversationsLoaded,
   ])
 
   // Update URL when current conversation changes (but not on initial load)
   useEffect(() => {
-    if (!isAuthenticated || !currentUserId || !searchParams || !initialSyncDone.current) return
+    if (!isAuthenticated || !currentUserId || !searchParams || !pathname || !initialSyncDone.current)
+      return
 
     const urlSessionId = searchParams.get('session')
     const currentSessionId = currentConversation?.id
@@ -106,6 +141,7 @@ export function useSessionUrl({ isAuthenticated }: UseSessionUrlOptions): UseSes
   // Manual URL update function
   const updateSessionUrl = useCallback(
     (sessionId: string | null) => {
+      if (!pathname) return
       const currentParams = searchParams?.toString() ?? ''
       const newParams = new URLSearchParams(currentParams)
 

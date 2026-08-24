@@ -1,12 +1,16 @@
 /* =============================================================================
    GRID design tokens — the single source of truth for color, radius, shadow.
 
-   Design language: precision-minimal, hardware-grade. Pure neutral surfaces
-   (no blue-tinted grays), hairline alpha borders that composite correctly on
-   any surface, layered soft shadows for elevation, and a single refined blue
-   accent. Depth comes from surface steps + shadow, never from heavy borders.
+   Design language: warm paper monochrome (click-dummy overhaul, see
+   docs/design/click-dummy-overhaul-spec.md §4 and
+   docs/design/grid-design-language.md). Warm paper surfaces, a near-black ink
+   ramp, hairline alpha-ink borders that composite correctly on any surface,
+   layered soft shadows for elevation, and NO brand accent color on actions —
+   the primary action is near-black ink. The only chroma is the
+   source/provenance signal system (--source-*, --status-*, --signal-*),
+   always paired with icon + label in the UI (color never travels alone).
 
-   Two var vocabularies are defined here:
+   Three var vocabularies are defined here:
 
    1. shadcn/ui vars (--background, --primary, ...) consumed by the vendored
       primitives in src/components/ui.
@@ -15,161 +19,401 @@
       (text-subtle, bg-surface-sunken, border-base, ...). These carry the
       original semantic names so existing markup keeps rendering; they resolve
       to the same palette as (1).
+   3. Provenance signal vars (--source-law/project/office/auto with -tint and
+      -text variants, --status-active/done, --signal-error) — the click
+      dummy's source-color system. Blue now belongs to the Baurecht signal,
+      not to actions; --grid-blue is kept as a legacy alias of the law blue.
 
    Dark mode is driven by the .dark root class (set in app/providers.tsx).
    The `dark:` Tailwind variant is bound to it in globals.css via
-   @custom-variant.
+   @custom-variant. Dark mode is a derived warm-charcoal equivalent of the
+   paper system (the dummy ships light-only): same warm hues, no cold
+   blue-grays, paper-white action on ink.
+
+   Dark is a DERIVED theme, not a mirrored one. The two blocks below deliberately
+   differ in how they build depth, because the physics differ: on paper a card
+   separates mainly through its drop shadow and needs only a small surface step,
+   whereas on charcoal a black shadow contributes nothing, so the dark block
+   widens the surface steps and adds a lit top edge to raised planes instead.
+   Mirroring light's ratios into dark is exactly what flattened it. See the
+   long note above the dark shadcn vars before re-tuning any surface value.
    ============================================================================= */
 
 :root {
-  /* ---- palette ---- */
-  --grid-blue: oklch(0.564 0.181 253.7); /* refined system blue, ~#0071e3 */
-  --grid-blue-hover: oklch(0.52 0.185 254.5);
-  --grid-blue-active: oklch(0.474 0.185 255.5);
+  /* ---- ink ramp (light) — #1f2023 → #b3b3af ---- */
+  --ink: oklch(0.244 0.006 271.2); /* #1f2023 — strongest ink, the action color */
+  --ink-hover: oklch(0.31 0.006 271.2); /* lifted ink for hover on ink surfaces */
+  --ink-active: oklch(0.2 0.006 271.2); /* pressed ink */
+  --ink-border: oklch(0.234 0.007 258.4); /* #1c1e21 — alpha-hairline base (rgba(28,30,33,…)) */
 
-  /* ---- shadcn vars (light) ---- */
-  --background: oklch(0.988 0.001 275); /* warm-neutral paper, one step off white */
-  --foreground: oklch(0.235 0.006 286); /* ink, ~#1d1d1f */
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.235 0.006 286);
+  /* ---- legacy alias: the old accent name now resolves to the Baurecht/law
+     signal blue (#2359d3). It is NOT the action color anymore. ---- */
+  --grid-blue: oklch(0.506 0.197 263.2); /* #2359d3 — source-law signal */
+  --grid-blue-hover: oklch(0.46 0.19 263.4);
+  --grid-blue-active: oklch(0.434 0.167 263.4); /* #1c47ab */
+
+  /* ---- provenance signal system (light) — color + tint surface + text ---- */
+  --source-law: oklch(0.506 0.197 263.2); /* #2359d3 — Rechtsquellen (RIS/BO/Behörde), icon "§" */
+  --source-law-tint: oklch(0.945 0.02 264.5); /* #e6edfb */
+  --source-law-text: oklch(0.434 0.167 263.4); /* #1c47ab */
+  /* OIB corpus — an ACCENT inside the law family, not a fifth signal. OIB and
+     RIS are both Baurecht (same icon, same `law` signal everywhere the coarse
+     stratum is what matters), but they are the two provenance tiers users
+     compare most often, and one shared blue made a fan-out of both unreadable.
+     Same lightness/chroma as law, shifted to indigo so they stay siblings. */
+  --source-oib: oklch(0.506 0.185 295); /* indigo — OIB-Richtlinien & Erläuterungen */
+  --source-oib-tint: oklch(0.945 0.022 296);
+  --source-oib-text: oklch(0.434 0.158 295);
+  --source-project: oklch(0.578 0.144 152.3); /* #17914d — Projektwissen, doc icon */
+  --source-project-tint: oklch(0.942 0.023 157.6); /* #e0f1e6 */
+  --source-project-text: oklch(0.509 0.13 151.5); /* #0f7a3d */
+  --source-office: oklch(0.674 0.127 79); /* #c08c28 — Büroarchiv, archive-box icon */
+  --source-office-tint: oklch(0.951 0.033 88.1); /* #f8eed6 */
+  --source-office-text: oklch(0.554 0.111 77.9); /* #96690e */
+  --source-auto: oklch(0.609 0.006 106.6); /* #83837f — Automatisch / Lücke (knowledge gap) */
+  --source-auto-tint: oklch(0.939 0.004 106.5); /* #ebebe8 */
+  --source-auto-text: oklch(0.47 0.006 106.6); /* #5b5b57 */
+  /* Modellmessung — a value measured off the BIM model. Its OWN family, not an
+     accent inside another: the other four signals are retrieved documents and
+     this one is the building itself, so it must not read as a sibling of the
+     PDF it was measured against. Teal sits between the project green and the
+     law blue and is the only remaining hue with the separation both need. */
+  --source-model: oklch(0.556 0.098 202); /* teal — am Modell gemessen, Lineal-Icon */
+  --source-model-tint: oklch(0.945 0.023 203);
+  --source-model-text: oklch(0.474 0.086 202);
+  --status-active: var(--source-project); /* "Aktiv" doubles the project green */
+  --status-active-tint: var(--source-project-tint);
+  --status-done: var(--source-auto-text); /* "Abgeschlossen" — quiet warm gray */
+  --status-done-tint: var(--source-auto-tint);
+  --signal-error: oklch(0.567 0.157 31); /* #c14a38 — errors only */
+  --signal-error-tint: oklch(0.941 0.02 32.5); /* #f9e7e3 */
+
+  /* ---- shadcn vars (light) — warm paper ---- */
+  --background: oklch(0.973 0.003 106.4); /* #f6f6f4 — warm paper app bg */
+  --foreground: var(--ink); /* #1f2023 */
+  --card: oklch(1 0 0); /* white cards on paper */
+  --card-foreground: var(--ink);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.235 0.006 286);
-  --primary: var(--grid-blue);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink); /* near-black action — no accent color */
   --primary-foreground: oklch(0.995 0 0);
-  --secondary: oklch(0.955 0.002 275); /* quiet fill */
-  --secondary-foreground: oklch(0.235 0.006 286);
-  --muted: oklch(0.955 0.002 275);
-  --muted-foreground: oklch(0.53 0.008 275); /* ~#6e6e73 */
-  --accent: oklch(0.945 0.003 275);
-  --accent-foreground: oklch(0.235 0.006 286);
-  --destructive: oklch(0.577 0.215 27.3); /* calibrated red */
+  --secondary: oklch(0.961 0.003 106.4); /* #f2f2f0 — chip / quiet fill */
+  --secondary-foreground: var(--ink);
+  --muted: oklch(0.961 0.003 106.4); /* #f2f2f0 */
+  --muted-foreground: oklch(0.543 0.006 118); /* #6f706c — mid ink */
+  --accent: oklch(0.943 0.003 106.5); /* #ececea — inset / hover fill */
+  --accent-foreground: var(--ink);
+  --destructive: var(--signal-error); /* #c14a38 */
   --destructive-foreground: oklch(0.995 0 0);
-  --border: color-mix(in oklch, var(--foreground) 6%, transparent); /* hairline, composites everywhere */
-  --input: color-mix(in oklch, var(--foreground) 10%, transparent);
-  --input-background: var(--card);
-  --ring: var(--grid-blue);
-  --overlay: color-mix(in oklch, var(--foreground) 35%, transparent); /* modal/backdrop scrim */
+  --border: color-mix(in oklch, var(--ink-border) 8%, transparent); /* hairline .08, composites everywhere */
+  --input: color-mix(in oklch, var(--ink-border) 12%, transparent); /* .12 */
+  --input-background: oklch(0.985 0.003 106.4); /* #fafaf8 — subtle surface, one step off card white */
+  --ring: color-mix(in oklch, var(--ink) 64%, transparent); /* ink-based focus ring */
+  --overlay: color-mix(in oklch, var(--ink) 35%, transparent); /* modal/backdrop scrim */
 
-  --radius: 0.75rem; /* 12px — continuous, generous */
+  --radius: 0.75rem; /* 12px — inside the dummy's 7–14px range */
 
-  /* ---- elevation (layered, soft — never a hard edge) ---- */
-  --shadow-hairline: 0 0 0 1px color-mix(in oklch, var(--foreground) 5%, transparent);
-  --elevation-xs: 0 1px 2px color-mix(in oklch, var(--foreground) 5%, transparent);
-  --elevation-sm: 0 1px 2px color-mix(in oklch, var(--foreground) 4%, transparent), 0 2px 8px color-mix(in oklch, var(--foreground) 4%, transparent);
-  --elevation-md: 0 2px 4px color-mix(in oklch, var(--foreground) 4%, transparent), 0 8px 24px color-mix(in oklch, var(--foreground) 7%, transparent);
-  --elevation-lg: 0 4px 12px color-mix(in oklch, var(--foreground) 6%, transparent), 0 24px 64px color-mix(in oklch, var(--foreground) 12%, transparent);
+  /* ---- elevation (Apple-style layered depth: a tight contact shadow + a mid
+     lift + a soft ambient spread, all low-opacity so paper stays calm) ---- */
+  --shadow-hairline: 0 0 0 1px color-mix(in oklch, var(--ink-border) 6%, transparent);
+  --elevation-xs:
+    0 1px 1px color-mix(in oklch, var(--ink-border) 6%, transparent),
+    0 1px 3px color-mix(in oklch, var(--ink-border) 4%, transparent); /* raised chip/button */
+  --elevation-sm:
+    0 1px 1px color-mix(in oklch, var(--ink-border) 5%, transparent),
+    0 2px 5px color-mix(in oklch, var(--ink-border) 4%, transparent),
+    0 6px 16px color-mix(in oklch, var(--ink-border) 5%, transparent); /* card */
+  --elevation-md:
+    0 1px 2px color-mix(in oklch, var(--ink-border) 5%, transparent),
+    0 4px 10px color-mix(in oklch, var(--ink-border) 5%, transparent),
+    0 16px 40px color-mix(in oklch, var(--ink-border) 8%, transparent); /* popover */
+  --elevation-lg:
+    0 2px 4px color-mix(in oklch, var(--ink-border) 5%, transparent),
+    0 10px 24px color-mix(in oklch, var(--ink-border) 7%, transparent),
+    0 32px 80px color-mix(in oklch, var(--ink-border) 12%, transparent); /* modal */
 
   /* ---- legacy semantic vars (light) — same palette, KUI names ---- */
-  --text-color-primary: oklch(0.235 0.006 286);
-  --text-color-secondary: oklch(0.42 0.008 280);
-  --text-color-subtle: oklch(0.53 0.008 275);
-  --text-color-base: oklch(0.29 0.006 285);
-  --text-color-placeholder: oklch(0.66 0.008 275);
-  --text-color-inverse: oklch(0.995 0 0);
-  --text-color-brand: var(--grid-blue);
-  --text-color-feedback-success: oklch(0.527 0.137 150.1); /* green-700 */
-  --text-color-feedback-danger: oklch(0.577 0.215 27.3);
-  --text-color-feedback-warning: oklch(0.555 0.115 66.4); /* amber-700 */
-  --text-color-feedback-info: var(--grid-blue);
+  --text-color-primary: var(--ink); /* #1f2023 */
+  --text-color-secondary: oklch(0.454 0.007 274.9); /* #55565a */
+  --text-color-subtle: oklch(0.543 0.006 118); /* #6f706c */
+  --text-color-base: oklch(0.29 0.006 272); /* strong body, one step off ink */
+  --text-color-placeholder: oklch(0.632 0.006 106.6); /* #8a8a86 (ghost step: #b3b3af / oklch(0.766 0.006 106.5)) */
+  --text-color-inverse: oklch(0.985 0.003 106.4);
+  --text-color-brand: var(--ink); /* brand/active accent is ink now, not blue */
+  --text-color-feedback-success: var(--source-project-text); /* #0f7a3d */
+  --text-color-feedback-danger: var(--signal-error);
+  --text-color-feedback-warning: var(--source-office-text); /* #96690e */
+  --text-color-feedback-info: var(--source-law-text); /* #1c47ab */
 
-  --background-color-surface-base: oklch(0.988 0.001 275);
-  --background-color-surface-raised: oklch(0.955 0.002 275);
-  --background-color-surface-sunken: oklch(0.966 0.002 275); /* sidebar / rails */
+  --background-color-surface-base: oklch(0.973 0.003 106.4); /* #f6f6f4 */
+  --background-color-surface-raised: oklch(0.961 0.003 106.4); /* #f2f2f0 — chip */
+  --background-color-surface-sunken: oklch(0.958 0.003 106.4); /* #f1f1ef — sidebar / rails */
   --background-color-surface-overlay: oklch(1 0 0);
-  --background-color-interaction-base: oklch(0.945 0.003 275);
-  --background-color-interaction-primary-base: var(--grid-blue);
-  --background-color-interaction-primary-hover: var(--grid-blue-hover);
-  --background-color-interaction-primary-selected: var(--grid-blue-active);
-  --background-color-accent-gray: color-mix(in oklch, var(--foreground) 16%, transparent);
-  --background-color-accent-gray-hover: color-mix(in oklch, var(--foreground) 28%, transparent);
-  --background-color-feedback-success-subtle: oklch(0.962 0.031 156.7);
-  --background-color-feedback-danger-subtle: oklch(0.971 0.013 17.4);
-  --background-color-feedback-warning-subtle: oklch(0.983 0.022 95.3);
-  --background-color-feedback-info-subtle: oklch(0.966 0.014 254.6);
+  --background-color-interaction-base: oklch(0.943 0.003 106.5); /* #ececea — inset */
+  --background-color-interaction-primary-base: var(--ink);
+  --background-color-interaction-primary-hover: var(--ink-hover);
+  --background-color-interaction-primary-selected: var(--ink-active);
+  --background-color-accent-gray: color-mix(in oklch, var(--ink-border) 16%, transparent);
+  --background-color-accent-gray-hover: color-mix(in oklch, var(--ink-border) 28%, transparent);
+  --background-color-feedback-success-subtle: var(--source-project-tint); /* #e0f1e6 */
+  --background-color-feedback-danger-subtle: var(--signal-error-tint); /* #f9e7e3 */
+  --background-color-feedback-warning-subtle: var(--source-office-tint); /* #f8eed6 */
+  --background-color-feedback-info-subtle: var(--source-law-tint); /* #e6edfb */
 
-  --border-color-base: color-mix(in oklch, var(--foreground) 8%, transparent);
-  --border-color-brand: var(--grid-blue);
-  --border-color-interaction-selected: var(--grid-blue);
-  --border-color-interaction-primary-base: var(--grid-blue);
-  --border-color-feedback-success: oklch(0.723 0.192 149.6 / 55%);
-  --border-color-feedback-danger: oklch(0.637 0.237 25.3 / 55%);
-  --border-color-feedback-warning: oklch(0.769 0.188 70.1 / 55%);
-  --border-color-feedback-info: oklch(0.564 0.181 253.7 / 55%);
+  /* hairline ramp: .08 border / .12 input / .16 strong / .22 selected / .32 max */
+  --border-color-base: color-mix(in oklch, var(--ink-border) 8%, transparent);
+  --border-color-brand: color-mix(in oklch, var(--ink-border) 32%, transparent); /* strongest hairline — selected/active */
+  --border-color-interaction-selected: color-mix(in oklch, var(--ink-border) 32%, transparent);
+  --border-color-interaction-primary-base: var(--ink);
+  --border-color-feedback-success: oklch(0.578 0.144 152.3 / 55%); /* #17914d */
+  --border-color-feedback-danger: oklch(0.567 0.157 31 / 55%); /* #c14a38 */
+  --border-color-feedback-warning: oklch(0.674 0.127 79 / 55%); /* #c08c28 */
+  --border-color-feedback-info: oklch(0.506 0.197 263.2 / 55%); /* #2359d3 */
 }
 
 .dark {
-  /* ---- shadcn vars (dark) ---- */
-  --background: oklch(0.165 0.004 280); /* graphite content plane */
-  --foreground: oklch(0.955 0.002 275);
-  --card: oklch(0.205 0.005 280);
-  --card-foreground: oklch(0.955 0.002 275);
-  --popover: oklch(0.225 0.005 280);
-  --popover-foreground: oklch(0.955 0.002 275);
-  --primary: oklch(0.665 0.157 252); /* lifted system blue, ~#2997ff */
-  --primary-foreground: oklch(0.145 0.004 280);
-  --secondary: oklch(0.255 0.005 280);
-  --secondary-foreground: oklch(0.955 0.002 275);
-  --muted: oklch(0.245 0.005 280);
-  --muted-foreground: oklch(0.685 0.008 275);
-  --accent: oklch(0.265 0.005 280);
-  --accent-foreground: oklch(0.955 0.002 275);
-  --destructive: oklch(0.69 0.185 24); /* lifted red */
-  --destructive-foreground: oklch(0.145 0.004 280);
-  --border: color-mix(in oklch, var(--foreground) 10%, transparent); /* hairline, quieter than before */
-  --input: color-mix(in oklch, var(--foreground) 14%, transparent);
-  --input-background: color-mix(in oklch, var(--input) 30%, transparent);
-  --ring: oklch(0.665 0.157 252);
-  --overlay: color-mix(in oklch, var(--background) 92%, transparent); /* deeper scrim for dark surfaces */
+  /* ---- ink ramp (dark) — paper-white acts as "ink" on warm charcoal ---- */
+  --ink: oklch(0.958 0.004 91.4); /* #f2f1ee — warm paper white */
+  --ink-hover: oklch(0.9 0.004 91.4);
+  --ink-active: oklch(0.86 0.005 93);
+  --ink-border: oklch(0.958 0.004 91.4); /* hairlines are alpha paper on charcoal */
 
-  /* ---- elevation (dark: deeper, still soft) ---- */
-  --shadow-hairline: 0 0 0 1px color-mix(in oklch, var(--foreground) 6%, transparent);
-  --elevation-xs: 0 1px 2px color-mix(in oklch, var(--foreground) 8%, transparent);
-  --elevation-sm: 0 1px 2px color-mix(in oklch, var(--foreground) 8%, transparent), 0 2px 8px color-mix(in oklch, var(--foreground) 8%, transparent);
-  --elevation-md: 0 2px 4px color-mix(in oklch, var(--foreground) 8%, transparent), 0 8px 24px color-mix(in oklch, var(--foreground) 12%, transparent);
-  --elevation-lg: 0 4px 12px color-mix(in oklch, var(--foreground) 10%, transparent), 0 24px 64px color-mix(in oklch, var(--foreground) 18%, transparent);
+  /* ---- legacy alias: lifted law blue for dark surfaces ---- */
+  --grid-blue: oklch(0.711 0.125 266); /* lifted #2359d3 */
+  --grid-blue-hover: oklch(0.75 0.11 266.5);
+  --grid-blue-active: oklch(0.68 0.13 266);
 
-  /* ---- legacy semantic vars (dark) ---- */
-  --text-color-primary: oklch(0.955 0.002 275);
-  --text-color-secondary: oklch(0.845 0.005 275);
-  --text-color-subtle: oklch(0.685 0.008 275);
-  --text-color-base: oklch(0.9 0.003 275);
-  --text-color-placeholder: oklch(0.53 0.008 275);
-  --text-color-inverse: oklch(0.165 0.004 280);
-  --text-color-brand: oklch(0.665 0.157 252);
-  --text-color-feedback-success: oklch(0.792 0.171 152.6); /* green-400 */
-  --text-color-feedback-danger: oklch(0.72 0.17 22.5);
-  --text-color-feedback-warning: oklch(0.828 0.156 84.4); /* amber-400 */
-  --text-color-feedback-info: oklch(0.665 0.157 252);
+  /* ---- provenance signal system (dark) — same hues, lifted for charcoal.
+     Tints sit ~0.07L above --card (not ~0.04) and carry ~30% more chroma than
+     the first pass: a tint one hair off the card reads as a smudge rather than
+     as "this chip belongs to the law family", and desaturating it to stay calm
+     is what turned all four families into the same brown-gray. ---- */
+  --source-law: oklch(0.719 0.132 266);
+  --source-law-tint: oklch(0.317 0.055 266.8); /* deep blue-tinted chip surface */
+  --source-law-text: oklch(0.834 0.088 266.9);
+  --source-oib: oklch(0.719 0.126 297); /* indigo sibling of law — see light block */
+  --source-oib-tint: oklch(0.317 0.058 297);
+  --source-oib-text: oklch(0.834 0.084 297);
+  --source-project: oklch(0.746 0.152 154.6);
+  --source-project-tint: oklch(0.319 0.049 160.3);
+  --source-project-text: oklch(0.857 0.109 158.3);
+  --source-office: oklch(0.769 0.13 80.1);
+  --source-office-tint: oklch(0.327 0.046 80.6);
+  --source-office-text: oklch(0.868 0.096 83.7);
+  --source-auto: oklch(0.72 0.008 97.4);
+  --source-auto-tint: oklch(0.315 0.007 91.6);
+  --source-auto-text: oklch(0.833 0.008 97.4);
+  --source-model: oklch(0.735 0.096 203); /* teal, lifted for charcoal — see light block */
+  --source-model-tint: oklch(0.32 0.045 203);
+  --source-model-text: oklch(0.851 0.069 203);
+  --status-active: var(--source-project);
+  --status-active-tint: var(--source-project-tint);
+  --status-done: var(--source-auto-text);
+  --status-done-tint: var(--source-auto-tint);
+  --signal-error: oklch(0.672 0.144 31.6); /* lifted #c14a38 */
+  --signal-error-tint: oklch(0.316 0.062 31.6);
 
-  --background-color-surface-base: oklch(0.165 0.004 280);
-  --background-color-surface-raised: oklch(0.255 0.005 280);
-  --background-color-surface-sunken: oklch(0.14 0.004 280); /* sidebar sits below content */
-  --background-color-surface-overlay: oklch(0.225 0.005 280);
-  --background-color-interaction-base: oklch(0.265 0.005 280);
-  --background-color-interaction-primary-base: var(--grid-blue);
-  --background-color-interaction-primary-hover: var(--grid-blue-hover);
-  --background-color-interaction-primary-selected: var(--grid-blue-active);
-  --background-color-accent-gray: color-mix(in oklch, var(--foreground) 16%, transparent);
-  --background-color-accent-gray-hover: color-mix(in oklch, var(--foreground) 26%, transparent);
-  --background-color-feedback-success-subtle: oklch(0.266 0.05 152.9);
-  --background-color-feedback-danger-subtle: oklch(0.258 0.07 26.8);
-  --background-color-feedback-warning-subtle: oklch(0.279 0.058 70.7);
-  --background-color-feedback-info-subtle: oklch(0.276 0.07 262);
+  /* ---- shadcn vars (dark) — warm charcoal paper.
 
-  --border-color-base: color-mix(in oklch, var(--foreground) 10%, transparent);
-  --border-color-brand: oklch(0.665 0.157 252);
-  --border-color-interaction-selected: oklch(0.665 0.157 252);
-  --border-color-interaction-primary-base: oklch(0.665 0.157 252);
-  --border-color-feedback-success: oklch(0.627 0.17 149.2 / 60%);
-  --border-color-feedback-danger: oklch(0.577 0.215 27.3 / 60%);
-  --border-color-feedback-warning: oklch(0.666 0.179 58.3 / 60%);
-  --border-color-feedback-info: oklch(0.665 0.157 252 / 60%);
+     ELEVATION IS CARRIED BY LIGHTNESS HERE, NOT BY SHADOW. This is the single
+     structural difference from the light block and the reason the first pass
+     read as mud: on paper, a white card separates from the background mostly
+     through its DROP SHADOW (dark-on-light, high contrast), and the surface
+     step itself only has to do ~0.03L of work. Re-use that ratio on charcoal
+     and the shadow contributes nothing — black on near-black is invisible — so
+     the 0.03L step was left carrying the entire hierarchy alone, and every
+     nested surface flattened into one plane.
+
+     So the dark ramp does three things the light ramp does not need:
+       1. WIDER STEPS. bg→card is 0.048L (was 0.034), and each plane above it
+          steps again, so depth survives with the shadows removed entirely.
+       2. A LIT TOP EDGE. Raised planes get an inset 1px paper highlight
+          (see --elevation-*): light comes from above, so the top edge of a
+          raised surface catches it. This is what actually reads as "raised" on
+          a dark UI, and it works where a drop shadow cannot.
+       3. DEEPER, TIGHTER SHADOWS that anchor rather than lift — they still
+          separate a floating plane from what it covers.
+
+     Direction is preserved from light: sunken < background < card < popover,
+     and warmth is deliberately a touch stronger than the first pass (chroma
+     ~0.006 vs ~0.004) so "warm charcoal" is actually perceptible instead of
+     resolving to a neutral gray. ---- */
+  --background: oklch(0.199 0.006 86); /* #191816 — warm charcoal plane */
+  --foreground: oklch(0.958 0.004 91.4); /* #f2f1ee */
+  --card: oklch(0.247 0.007 86); /* #232120 — raised content plane */
+  --card-foreground: oklch(0.958 0.004 91.4);
+  --popover: oklch(0.279 0.007 87); /* floats above cards */
+  --popover-foreground: oklch(0.958 0.004 91.4);
+  --primary: var(--ink); /* paper-white action on ink */
+  --primary-foreground: oklch(0.199 0.006 86);
+  --secondary: oklch(0.294 0.007 88); /* chip / quiet fill */
+  --secondary-foreground: oklch(0.958 0.004 91.4);
+  --muted: oklch(0.294 0.007 88);
+  --muted-foreground: oklch(0.727 0.006 92); /* #a7a5a1 */
+  --accent: oklch(0.33 0.008 88); /* hover / inset fill */
+  --accent-foreground: oklch(0.958 0.004 91.4);
+  --destructive: var(--signal-error);
+  --destructive-foreground: oklch(0.175 0.005 80);
+  --border: color-mix(in oklch, var(--foreground) 12%, transparent); /* hairline */
+  --input: color-mix(in oklch, var(--foreground) 17%, transparent);
+  /* A RECESSED WELL, one step BELOW --card — an input is cut into its surface,
+     it is not raised off it. Previously this was
+     `color-mix(--input 30%, transparent)`, i.e. a mix of an ALREADY transparent
+     token: 14% × 30% ≈ 4% paper alpha, so every input, textarea and select in
+     dark mode rendered as an all-but-invisible wash instead of a field. */
+  --input-background: oklch(0.222 0.006 86);
+  --ring: color-mix(in oklch, var(--foreground) 55%, transparent); /* paper-based focus ring */
+  /* A real scrim. Previously `--background` at 92% — the app's own plane at
+     near-full opacity, which (with the dialog's backdrop-blur) erased the page
+     behind a modal instead of dimming it, so a dialog lost all sense of
+     sitting ON something. Near-black at 66% dims and keeps context. */
+  --overlay: color-mix(in oklch, oklch(0.12 0.004 84) 66%, transparent);
+
+  /* ---- elevation (dark) — a lit top edge + an anchoring shadow.
+     The inset highlight is first so it composites over the surface fill; it is
+     what makes a raised plane read as raised once black-on-black shadows stop
+     contributing. --elevation-xs stays shadow-only: it dresses chips and
+     buttons, which are small enough that a top highlight reads as a seam. ---- */
+  --shadow-hairline: 0 0 0 1px color-mix(in oklch, var(--foreground) 8%, transparent);
+  --elevation-xs:
+    0 1px 2px oklch(0 0 0 / 44%),
+    0 1px 3px oklch(0 0 0 / 30%);
+  --elevation-sm:
+    inset 0 1px 0 color-mix(in oklch, var(--foreground) 7%, transparent),
+    0 1px 2px oklch(0 0 0 / 40%),
+    0 4px 10px oklch(0 0 0 / 34%),
+    0 12px 28px oklch(0 0 0 / 32%);
+  --elevation-md:
+    inset 0 1px 0 color-mix(in oklch, var(--foreground) 9%, transparent),
+    0 2px 4px oklch(0 0 0 / 44%),
+    0 8px 20px oklch(0 0 0 / 42%),
+    0 20px 48px oklch(0 0 0 / 44%);
+  --elevation-lg:
+    inset 0 1px 0 color-mix(in oklch, var(--foreground) 11%, transparent),
+    0 4px 8px oklch(0 0 0 / 46%),
+    0 16px 32px oklch(0 0 0 / 48%),
+    0 40px 88px oklch(0 0 0 / 56%);
+
+  /* ---- legacy semantic vars (dark) — same ramp as the shadcn block above ---- */
+  --text-color-primary: oklch(0.958 0.004 91.4);
+  --text-color-secondary: oklch(0.851 0.006 93); /* warm mid paper */
+  --text-color-subtle: oklch(0.727 0.006 92); /* #a7a5a1 */
+  --text-color-base: oklch(0.909 0.005 91.4);
+  --text-color-placeholder: oklch(0.607 0.006 91.5); /* lifted: it sits on the darker input well */
+  --text-color-inverse: oklch(0.199 0.006 86);
+  --text-color-brand: oklch(0.958 0.004 91.4); /* active accent is paper, not blue */
+  --text-color-feedback-success: var(--source-project);
+  --text-color-feedback-danger: oklch(0.72 0.13 31.5);
+  --text-color-feedback-warning: var(--source-office);
+  --text-color-feedback-info: var(--source-law-text);
+
+  --background-color-surface-base: oklch(0.199 0.006 86);
+  --background-color-surface-raised: oklch(0.294 0.007 88);
+  --background-color-surface-sunken: oklch(0.168 0.005 84); /* sidebar sits below content */
+  --background-color-surface-overlay: oklch(0.279 0.007 87);
+  --background-color-interaction-base: oklch(0.33 0.008 88);
+  --background-color-interaction-primary-base: var(--ink);
+  --background-color-interaction-primary-hover: var(--ink-hover);
+  --background-color-interaction-primary-selected: var(--ink-active);
+  --background-color-accent-gray: color-mix(in oklch, var(--foreground) 18%, transparent);
+  --background-color-accent-gray-hover: color-mix(in oklch, var(--foreground) 28%, transparent);
+  --background-color-feedback-success-subtle: var(--source-project-tint);
+  --background-color-feedback-danger-subtle: var(--signal-error-tint);
+  --background-color-feedback-warning-subtle: var(--source-office-tint);
+  --background-color-feedback-info-subtle: var(--source-law-tint);
+
+  --border-color-base: color-mix(in oklch, var(--foreground) 12%, transparent);
+  --border-color-brand: color-mix(in oklch, var(--foreground) 38%, transparent);
+  --border-color-interaction-selected: color-mix(in oklch, var(--foreground) 38%, transparent);
+  --border-color-interaction-primary-base: var(--ink);
+  --border-color-feedback-success: oklch(0.739 0.147 154.6 / 60%);
+  --border-color-feedback-danger: oklch(0.672 0.144 31.6 / 60%);
+  --border-color-feedback-warning: oklch(0.761 0.125 80.1 / 60%);
+  --border-color-feedback-info: oklch(0.711 0.125 266 / 60%);
+}
+
+/* =============================================================================
+   Motion — the timing half of the design language.
+
+   One vocabulary of movement, same as there is one ink ramp. Before this block
+   the app had ELEVEN distinct interaction durations spread across Tailwind
+   classes, framer props and inline CSS — and 199 of the 245 uses were already
+   `duration-200`. So these tokens mostly NAME what was already true and give
+   the other 46 somewhere to land.
+
+   Motion has no light/dark variant, so these live in their own :root block
+   rather than being duplicated into the two palettes.
+
+   | token            | value  | what it is for                                  |
+   |------------------|--------|-------------------------------------------------|
+   | snap             |  120ms | a control acknowledging a press or a toggle      |
+   |                  |        | flipping. Under ~150ms the eye reads "instant    |
+   |                  |        | feedback", not "travel".                         |
+   | quick            |  180ms | a small local change: chip in, icon swap, a row  |
+   |                  |        | revealing its actions.                           |
+   | base             |  240ms | THE DEFAULT. Transcript entrances, accordion     |
+   |                  |        | heights, hover-to-open surfaces. If you are      |
+   |                  |        | unsure, it is this one.                          |
+   | deliberate       |  320ms | a large surface arriving (drawer, dialog, sheet).|
+   |                  |        | Long travel at 240ms reads as yanked.            |
+   | ambient          | 1600ms | looping background motion (skeleton pulse).      |
+   | ambient-slow     | 2600ms | the slowest loop (text shimmer) — slow enough to |
+   |                  |        | read as breathing rather than as a progress bar  |
+   |                  |        | making a claim about how long something takes.   |
+
+   Nothing above 320ms is an INTERACTION duration: the two ambient values are
+   for things that loop, and a loop is not a response.
+   ============================================================================= */
+:root {
+  --motion-snap: 120ms;
+  --motion-quick: 180ms;
+  --motion-base: 240ms;
+  --motion-deliberate: 320ms;
+  --motion-ambient: 1600ms;
+  --motion-ambient-slow: 2600ms;
+}
+
+/* Easings.
+
+   These sit in `@theme static` rather than the `:root` + `@theme inline` pair
+   every other token here uses, and the reason is mechanical: `--ease-*` IS
+   Tailwind v4's easing namespace, so the usual `--ease-entrance:
+   var(--ease-entrance)` mapping would be a self-reference. `static` gets both
+   halves at once — it generates the `ease-entrance` / `ease-exit` /
+   `ease-cycle` utilities AND emits the custom properties on :root, so
+   hand-written CSS (keyframes, @utility blocks below in globals.css) can say
+   `var(--ease-entrance)` too. Theme variables are otherwise tree-shaken unless
+   some utility happens to pull them in, which is not a dependency a keyframe
+   should have.
+
+   --ease-out restates Tailwind's own default with the identical value, for that
+   same reason: the token is then guaranteed present for raw CSS.
+
+   out       the workhorse. Fast off the mark, settling into place. Anything
+             responding to a pointer.
+   entrance  for things ARRIVING. Note the ease-OUT shape: the previous
+             `easeQuiet` was cubic-bezier(0.25, 0.1, 0.25, 1), which is CSS's
+             default `ease` — it ramps IN, so entrances started slowly and the
+             element appeared to hesitate before committing. An arrival should
+             be decided at the start and gentle at the end, never the reverse.
+   exit      for things LEAVING. The mirror: gentle start, accelerating away.
+             A dismissal that decelerates looks reluctant.
+   cycle     symmetric in/out, for loops and shuttles where neither end is an
+             arrival (shimmer sweeps, indeterminate progress).
+   ============================================================================= */
+@theme static {
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-entrance: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-cycle: cubic-bezier(0.65, 0, 0.35, 1);
 }
 
 /* Expose the shadcn vars as Tailwind theme colors (bg-background, text-primary
    is taken by a legacy utility — shadcn primitives use bg-primary/text-foreground
-   etc. via these mappings). Shadow utilities (shadow-xs … shadow-lg) are bound
-   to the layered elevation tokens so every drop shadow in the app is soft and
+   etc. via these mappings). The provenance signal vars are mapped too, so
+   utilities like bg-source-law-tint / text-source-law-text / border-source-law
+   work anywhere. Shadow utilities (shadow-xs … shadow-lg) are bound to the
+   layered elevation tokens so every drop shadow in the app is soft and
    theme-aware. */
 @theme inline {
   --color-background: var(--background);
@@ -195,6 +439,42 @@
   --color-ring: var(--ring);
   --color-overlay: var(--overlay);
 
+  /* sidebar primitive — aliases onto the existing paper/ink tokens, not a second palette */
+  --color-sidebar: var(--background-color-surface-sunken);
+  --color-sidebar-foreground: var(--foreground);
+  --color-sidebar-primary: var(--primary);
+  --color-sidebar-primary-foreground: var(--primary-foreground);
+  --color-sidebar-accent: var(--accent);
+  --color-sidebar-accent-foreground: var(--foreground);
+  --color-sidebar-border: var(--border);
+  --color-sidebar-ring: var(--ring);
+
+  /* provenance signal system */
+  --color-source-law: var(--source-law);
+  --color-source-law-tint: var(--source-law-tint);
+  --color-source-law-text: var(--source-law-text);
+  --color-source-oib: var(--source-oib);
+  --color-source-oib-tint: var(--source-oib-tint);
+  --color-source-oib-text: var(--source-oib-text);
+  --color-source-project: var(--source-project);
+  --color-source-project-tint: var(--source-project-tint);
+  --color-source-project-text: var(--source-project-text);
+  --color-source-office: var(--source-office);
+  --color-source-office-tint: var(--source-office-tint);
+  --color-source-office-text: var(--source-office-text);
+  --color-source-auto: var(--source-auto);
+  --color-source-auto-tint: var(--source-auto-tint);
+  --color-source-auto-text: var(--source-auto-text);
+  --color-source-model: var(--source-model);
+  --color-source-model-tint: var(--source-model-tint);
+  --color-source-model-text: var(--source-model-text);
+  --color-status-active: var(--status-active);
+  --color-status-active-tint: var(--status-active-tint);
+  --color-status-done: var(--status-done);
+  --color-status-done-tint: var(--status-done-tint);
+  --color-signal-error: var(--signal-error);
+  --color-signal-error-tint: var(--signal-error-tint);
+
   --radius-sm: calc(var(--radius) - 6px);
   --radius-md: calc(var(--radius) - 4px);
   --radius-lg: var(--radius);
@@ -208,6 +488,20 @@
   --shadow-md: var(--elevation-md);
   --shadow-lg: var(--elevation-lg);
   --shadow-xl: var(--elevation-lg);
+
+  /* motion durations → `duration-snap`, `duration-quick`, `duration-base`,
+     `duration-deliberate`, `duration-ambient`, `duration-ambient-slow`.
+     Tailwind v4 resolves the `duration-*` utility against the
+     --transition-duration-* namespace; `inline` keeps each utility pointing at
+     the --motion-* token, so a timing number is still written in exactly one
+     place. Bare numeric durations (`duration-200`) keep working — Tailwind
+     falls back to them when no theme key matches. */
+  --transition-duration-snap: var(--motion-snap);
+  --transition-duration-quick: var(--motion-quick);
+  --transition-duration-base: var(--motion-base);
+  --transition-duration-deliberate: var(--motion-deliberate);
+  --transition-duration-ambient: var(--motion-ambient);
+  --transition-duration-ambient-slow: var(--motion-ambient-slow);
 
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, 'SF Mono', 'Cascadia Code', monospace;

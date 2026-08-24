@@ -8,8 +8,12 @@ Use Docker Compose to run the backend, UI, and PostgreSQL locally:
 
 - [compose/README.md](compose/README.md)
 
-## Helm (Kubernetes)
+## Kubernetes (Pulumi)
 
-Deploy to a Kubernetes cluster using pre-built NGC Helm charts or the source chart:
+Deploy the full stack to a Kubernetes cluster with the Pulumi (TypeScript)
+program — backend, frontend, workers, CloudNativePG Postgres, Dragonfly, and
+SeaweedFS, behind Envoy Gateway (Gateway API) + cert-manager TLS:
 
-- [helm/README.md](helm/README.md)
+- [pulumi/README.md](pulumi/README.md) — deploy steps
+- [../docs/deployment/kubernetes.md](../docs/deployment/kubernetes.md) —
+  architecture, storage/SeaweedFS decisions, and the agent-scaling roadmap

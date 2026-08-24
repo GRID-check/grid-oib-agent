@@ -1,0 +1,232 @@
+---
+import { ui, type Locale } from '../../i18n/ui'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale]
+---
+
+<div
+  data-chat-anchor
+  class="overflow-hidden rounded-2xl border border-ink/15 bg-white shadow-mock"
+  data-reveal
+>
+  <div
+    class="flex items-center justify-between border-b border-ink/10 bg-paper-dim px-6 py-3"
+  >
+    <div class="flex items-center gap-2.5">
+      <span class="size-2 rounded-full bg-ok" aria-hidden="true"></span>
+      <span
+        class="font-display text-xs font-semibold uppercase tracking-wider text-ink-mute"
+        >{t.chat.header}</span
+      >
+    </div>
+    <span class="text-2xs text-ink-ghost">{t.chat.fictional}</span>
+  </div>
+  <div data-stage class="relative h-[430px] overflow-hidden bg-paper">
+    <!-- Everything inside [data-cam] lives in a fixed 1160x620 coordinate space
+         that the camera keyframes in scripts/landing.ts pan and zoom across, so
+         the left/top/width values below are diagram geometry, not spacing. -->
+    <div data-cam class="absolute inset-0 origin-top-left will-change-transform" aria-hidden="true">
+      <div
+        class="absolute left-0 top-0 w-[360px] rounded-2xl bg-bubble px-4 py-3 shadow-card"
+      >
+        <div class="text-sm leading-normal text-ink">
+          <span data-q-text>{t.chat.question}</span><span
+            data-q-caret
+            class="ml-0.5 hidden h-3.5 w-0.5 bg-accent-500 align-[-2px]"
+            style="animation: chain-pulse 0.9s steps(1, end) infinite"></span>
+        </div>
+      </div>
+
+      <div
+        data-step-eq="1"
+        class="absolute left-1 top-[106px] flex items-center gap-2"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#6e7d52"
+          stroke-width="2.4"
+          stroke-linecap="round"
+          style="animation: chain-spin 0.9s linear infinite"
+          aria-hidden="true"
+        >
+          <path d="M12 3a9 9 0 1 0 9 9"></path>
+        </svg>
+        <span class="text-xs text-ink-faint">{t.chat.scanning}</span>
+      </div>
+
+      <svg
+        width="1160"
+        height="620"
+        class="pointer-events-none absolute left-0 top-[92px] overflow-visible"
+        aria-hidden="true"
+      >
+        <g data-step-gte="2">
+          <line x1="14" y1="0" x2="14" y2="272" stroke="#26272a" stroke-width="1.6" stroke-dasharray="460" class="draw" style="--dur: 0.9s"></line>
+          <circle cx="14" cy="40" r="3" fill="#26272a"></circle>
+          <line x1="14" y1="40" x2="34" y2="40" stroke="#26272a" stroke-width="1.6" stroke-dasharray="460" class="draw" style="--dur: 0.45s"></line>
+          <circle cx="124" cy="40" r="3" fill="#26272a"></circle>
+          <line x1="124" y1="40" x2="150" y2="40" stroke="#26272a" stroke-width="1.6" stroke-dasharray="460" class="draw" style="--dur: 0.45s"></line>
+        </g>
+        <g data-step-gte="3">
+          <circle cx="14" cy="132" r="3" fill="#26272a"></circle>
+          <line x1="14" y1="132" x2="34" y2="132" stroke="#26272a" stroke-width="1.6" stroke-dasharray="460" class="draw" style="--dur: 0.45s"></line>
+          <circle cx="124" cy="132" r="3" fill="#26272a"></circle>
+          <line x1="124" y1="132" x2="150" y2="132" stroke="#26272a" stroke-width="1.6" stroke-dasharray="460" class="draw" style="--dur: 0.45s"></line>
+        </g>
+        <g data-step-gte="4">
+          <circle cx="14" cy="228" r="3" fill="#26272a"></circle>
+          <line x1="14" y1="228" x2="34" y2="228" stroke="#26272a" stroke-width="1.6" stroke-dasharray="460" class="draw" style="--dur: 0.45s"></line>
+          <circle cx="124" cy="228" r="3" fill="#26272a"></circle>
+          <line x1="124" y1="228" x2="150" y2="228" stroke="#26272a" stroke-width="1.6" stroke-dasharray="460" class="draw" style="--dur: 0.45s"></line>
+        </g>
+        <g data-step-gte="6">
+          <path d="M450,40 C620,40 620,168 780,168" fill="none" stroke="#26272a" stroke-width="1.6" stroke-dasharray="460" class="draw" style="--dur: 0.8s"></path>
+          <path d="M450,132 C620,132 620,168 780,168" fill="none" stroke="#26272a" stroke-width="1.6" stroke-dasharray="460" class="draw" style="--dur: 0.8s; --delay: 0.18s"></path>
+          <path d="M450,228 C620,228 620,168 780,168" fill="none" stroke="#26272a" stroke-width="1.6" stroke-dasharray="460" class="draw" style="--dur: 0.8s; --delay: 0.36s"></path>
+        </g>
+        <g data-step-gte="9">
+          <path d="M930,330 C930,394 990,398 990,428" fill="none" stroke="#26272a" stroke-width="1.6" stroke-dasharray="460" class="draw" style="--dur: 0.7s"></path>
+        </g>
+      </svg>
+
+      <div data-step-gte="2" class="pop absolute left-[34px] top-[118px] flex h-7 w-[90px] items-center justify-center rounded-lg bg-chip-law text-2xs font-semibold text-chip-law-ink">OIB-RL 2</div>
+      <div data-step-gte="2" class="pop absolute left-[150px] top-[106px] w-[280px] rounded-xl border border-hairline bg-white px-3.5 py-2.5 shadow-card">
+        <div class="text-xs font-semibold text-ink">{t.chat.oibTitle}</div>
+        <div class="mt-0.5 text-2xs leading-snug text-ink-faint">{t.chat.oibSub}</div>
+      </div>
+
+      <div data-step-gte="3" class="pop absolute left-[34px] top-[210px] flex h-7 w-[90px] items-center justify-center rounded-lg bg-chip-law text-2xs font-semibold text-chip-law-ink">BO Wien</div>
+      <div data-step-gte="3" class="pop absolute left-[150px] top-[198px] w-[280px] rounded-xl border border-hairline bg-white px-3.5 py-2.5 shadow-card">
+        <div class="text-xs font-semibold text-ink">{t.chat.boTitle}</div>
+        <div class="mt-0.5 text-2xs leading-snug text-ink-faint">{t.chat.boSub}</div>
+      </div>
+
+      <div data-step-gte="4" class="pop absolute left-[34px] top-[306px] flex h-7 w-[90px] items-center justify-center rounded-lg bg-chip-project text-2xs font-semibold text-chip-project-ink">{t.chat.projTag}</div>
+      <div data-step-gte="4" class="pop absolute left-[150px] top-[294px] w-[280px] rounded-xl border border-hairline bg-white px-3.5 py-2.5 shadow-card">
+        <div class="text-xs font-semibold text-ink">Einreichplan_EG.pdf</div>
+        <div class="mt-0.5 text-2xs leading-snug text-ink-faint">{t.chat.projSub}</div>
+      </div>
+
+      <div
+        data-step-gte="7"
+        class="pop absolute left-[780px] top-[172px] w-[300px] overflow-hidden rounded-2xl border border-hairline bg-white shadow-lift"
+      >
+        <div class="bg-ink px-4 py-3">
+          <span class="font-display text-2xs font-bold uppercase tracking-wider text-on-dark-strong">{t.chat.decision}</span>
+        </div>
+        <div class="px-4 pb-0.5 pt-3 text-xs leading-normal text-ink-soft">{t.chat.decisionIntro}</div>
+        <div class="flex flex-col gap-2 px-3.5 pb-3.5 pt-3">
+          <div data-opt="a" class="opt flex items-start gap-3 rounded-lg border-l-2 border-hairline bg-white px-3.5 py-2.5">
+            <span class="text-xs font-bold text-ok">A</span>
+            <div>
+              <div class="text-sm font-semibold text-ink">{t.chat.optATitle}</div>
+              <div class="mt-0.5 text-2xs leading-snug text-ink-faint">{t.chat.optASub}</div>
+            </div>
+          </div>
+          <div data-opt="b" class="opt flex items-start gap-3 rounded-lg border-l-2 border-hairline bg-white px-3.5 py-2.5">
+            <span class="text-xs font-bold text-ok">B</span>
+            <div>
+              <div class="text-sm font-semibold text-ink">{t.chat.optBTitle}</div>
+              <div class="mt-0.5 text-2xs leading-snug text-ink-faint">{t.chat.optBSub}</div>
+            </div>
+          </div>
+          <div data-opt="c" class="opt flex items-start gap-3 rounded-lg border-l-2 border-hairline bg-white px-3.5 py-2.5">
+            <span class="text-xs font-bold text-ok">C</span>
+            <div>
+              <div class="text-sm font-semibold text-ink">{t.chat.optCTitle}</div>
+              <div class="mt-0.5 text-2xs leading-snug text-ink-faint">{t.chat.optCSub}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        data-step-gte="9"
+        class="pop absolute left-[840px] top-[520px] w-[320px] overflow-hidden rounded-2xl border border-hairline bg-white shadow-lift"
+      >
+        <div class="flex items-center justify-between bg-accent-900 px-4 py-3">
+          <span class="font-display text-2xs font-bold uppercase tracking-wider text-surface">{t.chat.impl}</span>
+          <span class="rounded-lg bg-tint px-2.5 py-0.5 text-2xs font-semibold text-accent-900">{t.chat.stepsBadge}</span>
+        </div>
+        <div class="flex flex-col gap-2 px-4 pb-4 pt-3">
+          <div class="flex items-baseline gap-2.5"><span class="font-display text-2xs text-accent-500">01</span><span class="text-xs leading-snug text-ink">{t.chat.steps[0]}</span></div>
+          <div class="flex items-baseline gap-2.5"><span class="font-display text-2xs text-accent-500">02</span><span class="text-xs leading-snug text-ink">{t.chat.steps[1]}</span></div>
+          <div class="flex items-baseline gap-2.5"><span class="font-display text-2xs text-accent-500">03</span><span class="text-xs leading-snug text-ink">{t.chat.steps[2]}</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="absolute inset-x-0 bottom-0 flex items-center gap-2.5 px-5 py-3"
+      style="background: linear-gradient(180deg, rgb(251 251 249 / 0) 0%, rgb(251 251 249 / 0.9) 40%, #fbfbf9 100%)"
+    >
+      <span
+        class="h-1.5 w-1.5 rounded-full bg-accent-500"
+        style="animation: chain-pulse 1.4s ease-in-out infinite"
+        aria-hidden="true"></span>
+      <span
+        data-status
+        class="font-display text-2xs uppercase tracking-widest text-ink-faint transition-opacity duration-400"
+        aria-live="polite">{t.chain.typing}</span
+      >
+      <button
+        data-replay
+        type="button"
+        class="ml-auto cursor-pointer border-none bg-none font-display text-2xs uppercase tracking-widest text-ink-ghost hover:text-accent-500"
+        >{t.chat.replay}</button
+      >
+    </div>
+  </div>
+</div>
+
+<style>
+  html.js [data-step-gte],
+  html.js [data-step-eq] {
+    opacity: 0;
+  }
+  html.js [data-step-gte][data-active],
+  html.js [data-step-eq][data-active] {
+    opacity: 1;
+  }
+  html.js .pop[data-step-gte][data-active],
+  html.js [data-step-eq][data-active] {
+    animation: chain-fade-in 0.55s ease-out both;
+  }
+  html.js [data-step-eq='1'][data-active] {
+    animation-duration: 0.3s;
+  }
+  html.js g[data-step-gte] line,
+  html.js g[data-step-gte] path {
+    stroke-dashoffset: 460;
+  }
+  html.js g[data-step-gte][data-active] line,
+  html.js g[data-step-gte][data-active] path {
+    animation: chain-draw var(--dur, 0.9s) var(--delay, 0s) ease-out both;
+  }
+  html.js g[data-step-gte] circle {
+    opacity: 0;
+  }
+  html.js g[data-step-gte][data-active] circle {
+    opacity: 1;
+  }
+  .opt {
+    transition:
+      opacity 700ms ease,
+      background 700ms ease,
+      border-color 700ms ease;
+  }
+  [data-opt][data-dimmed] {
+    opacity: 0.32;
+  }
+  [data-opt='b'][data-picked] {
+    background: #eef6ee;
+    border-left-color: #17914d;
+  }
+</style>

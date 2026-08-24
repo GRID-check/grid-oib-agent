@@ -29,6 +29,16 @@ export interface GridSession {
 
   /** WorkOS permissions within the active organization */
   permissions: string[]
+
+  /**
+   * WorkOS feature flags enabled for this user+org context (JWT
+   * `feature_flags` claim). `null` when the token carries no claim —
+   * distinguishable from "no flags enabled" for fail-closed enforcement.
+   */
+  featureFlags: string[] | null
+
+  /** WorkOS profile picture URL, or null when none is set. */
+  profilePictureUrl?: string | null
 }
 
 /**

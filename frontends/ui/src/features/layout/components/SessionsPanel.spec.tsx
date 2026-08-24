@@ -1,18 +1,44 @@
-import { render, screen } from '@/test-utils'
+import type { ReactNode } from 'react'
+import { render, screen, waitFor } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { SessionsPanel } from './SessionsPanel'
+import type { ResearchRun } from '@/adapters/api/research-runs-client'
+import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
+import type { LayoutStore } from '../types'
+import type { ChatStoreWithHydration } from '@/features/chat/store'
 
 // Mock the layout store
 const mockSetSessionsPanelOpen = vi.fn()
 
+// The footer surfaces the browser storage quota only once it is high enough to
+// act on, so the spec has to be able to drive it.
+const mockCheckStorageHealth = vi.fn(() => ({ percentUsed: 0 }))
+vi.mock('@/features/chat/lib/storage-manager', () => ({
+  checkStorageHealth: () => mockCheckStorageHealth(),
+}))
+
+// FB-10: the Deep Research section fetches server-truth runs on panel open.
+const mockListResearchRuns = vi.fn()
+vi.mock('@/adapters/api/research-runs-client', () => ({
+  listResearchRuns: (...args: unknown[]) => mockListResearchRuns(...args),
+}))
+
+vi.mock('next/link', () => ({
+  default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}))
+
 vi.mock('../store', () => ({
-  useLayoutStore: vi.fn((selector?: (s: any) => any) => {
-    const state = {
+  useLayoutStore: vi.fn((selector?: StoreSelector<LayoutStore>) => {
+    const state: DeepPartial<LayoutStore> = {
       isSessionsPanelOpen: true,
       setSessionsPanelOpen: mockSetSessionsPanelOpen,
     }
-    return selector ? selector(state) : state
+    return selector ? selector(asStoreState<LayoutStore>(state)) : state
   }),
 }))
 
@@ -65,9 +91,9 @@ const createMockChatState = (
 
 const setupChatStoreMock = (overrides: Parameters<typeof createMockChatState>[0] = {}) => {
   const state = createMockChatState(overrides)
-  vi.mocked(useChatStore).mockImplementation((selector: (s: any) => any) => {
+  vi.mocked(useChatStore).mockImplementation((selector: StoreSelector<ChatStoreWithHydration>) => {
     if (typeof selector === 'function') {
-      return selector(state)
+      return selector(asStoreState<ChatStoreWithHydration>(state))
     }
     return undefined
   })
@@ -86,27 +112,34 @@ describe('SessionsPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setupChatStoreMock()
+    mockCheckStorageHealth.mockReturnValue({ percentUsed: 0 })
 
     // Reset mock to default open state
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         isSessionsPanelOpen: true,
         setSessionsPanelOpen: mockSetSessionsPanelOpen,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
   })
 
   test('renders panel with heading', () => {
     render(<SessionsPanel sessions={mockSessions} />)
 
-    expect(screen.getByText('Sessions')).toBeInTheDocument()
+    expect(screen.getByText('Chat history')).toBeInTheDocument()
   })
 
-  test('renders new session button', () => {
+  test('renders the new-chat button', () => {
     render(<SessionsPanel sessions={mockSessions} />)
 
-    expect(screen.getByText('New Session')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /start a new chat/i })).toBeInTheDocument()
+  })
+
+  test('states how many chats the project has', () => {
+    render(<SessionsPanel sessions={mockSessions} />)
+
+    expect(screen.getByText('2 chats')).toBeInTheDocument()
   })
 
   test('renders session list grouped by date', () => {
@@ -121,8 +154,62 @@ describe('SessionsPanel', () => {
   test('shows empty state when no sessions', () => {
     render(<SessionsPanel sessions={[]} />)
 
-    expect(screen.getByText('No sessions yet')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /start a new session/i })).toBeInTheDocument()
+    expect(screen.getByText('No chats yet')).toBeInTheDocument()
+    // The pinned New chat button is the only CTA — the empty state does not add
+    // a second identical one two rows below it.
+    expect(screen.getAllByRole('button', { name: /start a new chat/i })).toHaveLength(1)
+  })
+
+  test('hides search and delete-all when there is nothing to search or delete', () => {
+    render(<SessionsPanel sessions={[]} />)
+
+    expect(screen.queryByRole('textbox', { name: /search chats/i })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /delete all chats in this project/i })
+    ).not.toBeInTheDocument()
+  })
+
+  test('shows the search-specific empty state, quoting the query, when nothing matches', async () => {
+    const user = userEvent.setup()
+    render(<SessionsPanel sessions={mockSessions} />)
+
+    await user.type(screen.getByRole('textbox', { name: /search chats/i }), 'zzzzz')
+
+    expect(screen.getByText('No matching chats')).toBeInTheDocument()
+    expect(screen.getByText(/zzzzz/)).toBeInTheDocument()
+  })
+
+  test('reports how much of the list the query is hiding', async () => {
+    const user = userEvent.setup()
+    render(<SessionsPanel sessions={mockSessions} />)
+
+    await user.type(screen.getByRole('textbox', { name: /search chats/i }), 'First')
+
+    expect(screen.getByText('1 of 2 chats')).toBeInTheDocument()
+  })
+
+  test('clearing the search restores the full list', async () => {
+    const user = userEvent.setup()
+    render(<SessionsPanel sessions={mockSessions} />)
+
+    const search = screen.getByRole('textbox', { name: /search chats/i })
+    await user.type(search, 'First')
+    expect(screen.queryByText('Second Session')).not.toBeInTheDocument()
+
+    // Two ways out of a filtered list, both real controls.
+    await user.click(screen.getAllByRole('button', { name: /clear search/i })[0])
+
+    expect(screen.getByText('Second Session')).toBeInTheDocument()
+    expect(search).toHaveValue('')
+  })
+
+  test('finds an untitled chat by the placeholder the user actually sees', async () => {
+    const user = userEvent.setup()
+    render(<SessionsPanel sessions={[{ id: 'blank', title: '', date: today }]} />)
+
+    await user.type(screen.getByRole('textbox', { name: /search chats/i }), 'untitled')
+
+    expect(screen.getByRole('button', { name: /chat: untitled chat/i })).toBeInTheDocument()
   })
 
   test('calls onNewSession when new session button clicked', async () => {
@@ -131,7 +218,7 @@ describe('SessionsPanel', () => {
 
     render(<SessionsPanel sessions={mockSessions} onNewSession={onNewSession} />)
 
-    await user.click(screen.getByText('New Session'))
+    await user.click(screen.getByRole('button', { name: /start a new chat/i }))
 
     expect(onNewSession).toHaveBeenCalled()
     expect(mockSetSessionsPanelOpen).toHaveBeenCalledWith(false)
@@ -143,7 +230,7 @@ describe('SessionsPanel', () => {
 
     render(<SessionsPanel sessions={mockSessions} onSelectSession={onSelectSession} />)
 
-    await user.click(screen.getByRole('button', { name: /session: first session/i }))
+    await user.click(screen.getByRole('button', { name: /chat: first session/i }))
 
     expect(onSelectSession).toHaveBeenCalledWith('session-1')
     expect(mockSetSessionsPanelOpen).toHaveBeenCalledWith(false)
@@ -152,25 +239,85 @@ describe('SessionsPanel', () => {
   test('highlights selected session', () => {
     render(<SessionsPanel sessions={mockSessions} selectedSessionId="session-1" />)
 
-    const firstSession = screen.getByRole('button', { name: /session: first session/i })
-    expect(firstSession).toHaveClass('border-accent-primary', 'bg-muted')
+    const firstSession = screen.getByRole('button', { name: /chat: first session/i })
+    expect(firstSession).toHaveClass('bg-accent')
   })
 
   test('shows edit and delete icons on hover', async () => {
     const user = userEvent.setup()
     render(<SessionsPanel sessions={mockSessions} />)
 
-    const sessionItem = screen.getByRole('button', { name: /session: first session/i })
+    const sessionItem = screen.getByRole('button', { name: /chat: first session/i })
     await user.hover(sessionItem)
 
-    expect(screen.getByRole('button', { name: /rename session/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /delete session/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /rename chat/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /delete chat/i })).toBeInTheDocument()
   })
 
   test('renders footer text', () => {
     render(<SessionsPanel sessions={mockSessions} />)
 
-    expect(screen.getByText(/Chat sessions are saved in this browser/i)).toBeInTheDocument()
+    expect(screen.getByText(/Chats are saved in this browser/i)).toBeInTheDocument()
+  })
+
+  test('says why every row is dimmed while a turn is in flight', () => {
+    setupChatStoreMock({ isStreaming: true })
+
+    render(<SessionsPanel sessions={mockSessions} />)
+
+    expect(
+      screen.getByText(/Starting or switching chats is paused until it finishes/i)
+    ).toBeInTheDocument()
+  })
+
+  test('says nothing about the block when nothing is in flight', () => {
+    render(<SessionsPanel sessions={mockSessions} />)
+
+    expect(screen.queryByText(/switching chats is paused/i)).not.toBeInTheDocument()
+  })
+
+  test('keeps the storage quota quiet until it is worth acting on', () => {
+    mockCheckStorageHealth.mockReturnValue({ percentUsed: 12 })
+
+    render(<SessionsPanel sessions={mockSessions} />)
+
+    expect(screen.queryByText(/Browser storage is/i)).not.toBeInTheDocument()
+  })
+
+  test('warns, with what to do about it, once storage is nearly full', () => {
+    mockCheckStorageHealth.mockReturnValue({ percentUsed: 83 })
+
+    render(<SessionsPanel sessions={mockSessions} />)
+
+    expect(
+      screen.getByText(/Browser storage is 83% full — delete old chats to free space/i)
+    ).toBeInTheDocument()
+  })
+
+  test('drops a stale query when the panel closes', async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(<SessionsPanel sessions={mockSessions} />)
+
+    await user.type(screen.getByRole('textbox', { name: /search chats/i }), 'First')
+    expect(screen.queryByText('Second Session')).not.toBeInTheDocument()
+
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
+        isSessionsPanelOpen: false,
+        setSessionsPanelOpen: mockSetSessionsPanelOpen,
+      }
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
+    })
+    // A fresh array so the memoized component actually re-renders — in the app
+    // the store subscription does that job.
+    rerender(<SessionsPanel sessions={[...mockSessions]} />)
+
+    // `hidden: true` because a closed panel is deliberately OUT of the
+    // accessibility tree (aria-hidden + inert) even though forceMount keeps it
+    // in the DOM — the assertion below would otherwise pass for the wrong reason.
+    expect(
+      screen.getByRole('textbox', { name: /search chats/i, hidden: true })
+    ).toHaveValue('')
   })
 
   test('checks persisted deep research jobs when the sessions panel opens', () => {
@@ -192,12 +339,12 @@ describe('SessionsPanel', () => {
         })
     )
     setupChatStoreMock({ refreshDeepResearchSessionStatuses })
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         isSessionsPanelOpen: isPanelOpen,
         setSessionsPanelOpen: mockSetSessionsPanelOpen,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
 
     const { rerender } = render(<SessionsPanel sessions={mockSessions} />)
@@ -228,19 +375,19 @@ describe('SessionsPanel', () => {
   })
 
   test('does not show session content when panel is closed', () => {
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         isSessionsPanelOpen: false,
         setSessionsPanelOpen: mockSetSessionsPanelOpen,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
 
     render(<SessionsPanel sessions={mockSessions} />)
 
     // SidePanel has forceMount, so DOM exists but should be hidden
     // Check that sessions heading is not accessible when closed
-    const sessionsHeading = screen.queryByText('Sessions')
+    const sessionsHeading = screen.queryByText('Chat history')
     // Panel content may be in DOM due to forceMount but not visible
     expect(sessionsHeading).toBeInTheDocument() // forceMount keeps it in DOM
   })
@@ -248,12 +395,12 @@ describe('SessionsPanel', () => {
   test('does not refresh deep research job state when panel is closed', () => {
     const refreshDeepResearchSessionStatuses = vi.fn().mockResolvedValue(undefined)
     setupChatStoreMock({ refreshDeepResearchSessionStatuses })
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         isSessionsPanelOpen: false,
         setSessionsPanelOpen: mockSetSessionsPanelOpen,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
 
     render(<SessionsPanel sessions={mockSessions} />)
@@ -261,15 +408,15 @@ describe('SessionsPanel', () => {
     expect(refreshDeepResearchSessionStatuses).not.toHaveBeenCalled()
   })
 
-  test('shows chat icon for sessions with no report', async () => {
+  // The leading icon is decorative; the row is one button whose accessible name
+  // carries the same state in words, so none of it is visual-only.
+  test('an ordinary chat row is named by its title alone', () => {
     render(<SessionsPanel sessions={mockSessions} />)
 
-    await vi.waitFor(() => {
-      expect(screen.getAllByLabelText('Chat session').length).toBeGreaterThan(0)
-    })
+    expect(screen.getByRole('button', { name: 'Chat: First Session' })).toBeInTheDocument()
   })
 
-  test('shows document-checkmark icon for completed report sessions', async () => {
+  test('a chat with a finished report says so in its name', () => {
     render(
       <SessionsPanel
         sessions={[
@@ -283,12 +430,12 @@ describe('SessionsPanel', () => {
       />
     )
 
-    await vi.waitFor(() => {
-      expect(screen.getByLabelText('Report completed')).toBeInTheDocument()
-    })
+    expect(
+      screen.getByRole('button', { name: 'Chat: Completed Report — Report ready' })
+    ).toBeInTheDocument()
   })
 
-  test('shows select-ellipse icon for expired report sessions', async () => {
+  test('a chat with an expired report says so in its name', () => {
     render(
       <SessionsPanel
         sessions={[
@@ -302,12 +449,12 @@ describe('SessionsPanel', () => {
       />
     )
 
-    await vi.waitFor(() => {
-      expect(screen.getByLabelText('Report expired')).toBeInTheDocument()
-    })
+    expect(
+      screen.getByRole('button', { name: 'Chat: Expired Report — Report expired' })
+    ).toBeInTheDocument()
   })
 
-  test('shows spinner for active shallow sessions', () => {
+  test('a chat Piloti is working on says so in its name', () => {
     setupChatStoreMock({
       isSessionBusy: (sessionId: string) => sessionId === 'session-1',
       hasAnyBusySession: () => true,
@@ -315,7 +462,9 @@ describe('SessionsPanel', () => {
 
     render(<SessionsPanel sessions={mockSessions} />)
 
-    expect(screen.getByRole('status', { name: /session active/i })).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Chat: First Session — Working on this chat' })
+    ).toBeInTheDocument()
   })
 })
 
@@ -328,12 +477,12 @@ describe('SessionsPanel - Session Switching', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setupChatStoreMock()
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         isSessionsPanelOpen: true,
         setSessionsPanelOpen: mockSetSessionsPanelOpen,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
   })
 
@@ -358,10 +507,10 @@ describe('SessionsPanel - Session Switching', () => {
 
     // Deep research session should be clickable (not visually disabled)
     const deepResearchSession = screen.getByRole('button', {
-      name: /session: deep research session/i,
+      name: /chat: deep research session/i,
     })
     expect(deepResearchSession).not.toHaveClass('cursor-not-allowed')
-    expect(deepResearchSession).toHaveAttribute('aria-disabled', 'false')
+    expect(deepResearchSession).not.toBeDisabled()
 
     await user.click(deepResearchSession)
     expect(onSelectSession).toHaveBeenCalledWith('session-1')
@@ -385,10 +534,10 @@ describe('SessionsPanel - Session Switching', () => {
 
     // All sessions should be visually disabled
     const session2 = screen.getByRole('button', {
-      name: /session: idle session \(processing in progress\)/i,
+      name: /chat: idle session \(processing in progress\)/i,
     })
     expect(session2).toHaveClass('cursor-not-allowed')
-    expect(session2).toHaveAttribute('aria-disabled', 'true')
+    expect(session2).toBeDisabled()
 
     await user.click(session2)
     expect(onSelectSession).not.toHaveBeenCalled()
@@ -411,9 +560,9 @@ describe('SessionsPanel - Session Switching', () => {
     )
 
     const session2 = screen.getByRole('button', {
-      name: /session: idle session \(processing in progress\)/i,
+      name: /chat: idle session \(processing in progress\)/i,
     })
-    expect(session2).toHaveAttribute('aria-disabled', 'true')
+    expect(session2).toBeDisabled()
 
     await user.click(session2)
     expect(onSelectSession).not.toHaveBeenCalled()
@@ -435,7 +584,7 @@ describe('SessionsPanel - Session Switching', () => {
       />
     )
 
-    const session2 = screen.getByRole('button', { name: /session: idle session/i })
+    const session2 = screen.getByRole('button', { name: /chat: idle session/i })
     expect(session2).not.toHaveClass('cursor-not-allowed')
 
     await user.click(session2)
@@ -443,18 +592,18 @@ describe('SessionsPanel - Session Switching', () => {
   })
 })
 
-describe('SessionsPanel - New Session Button', () => {
+describe('SessionsPanel - New chat button', () => {
   const mockSessions = [{ id: 'session-1', title: 'First Session', date: new Date() }]
 
   beforeEach(() => {
     vi.clearAllMocks()
     setupChatStoreMock()
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         isSessionsPanelOpen: true,
         setSessionsPanelOpen: mockSetSessionsPanelOpen,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
   })
 
@@ -464,7 +613,7 @@ describe('SessionsPanel - New Session Button', () => {
     render(<SessionsPanel sessions={mockSessions} />)
 
     const newSessionBtn = screen.getByRole('button', {
-      name: /start new session \(disabled during active operations\)/i,
+      name: /start a new chat \(disabled during active operations\)/i,
     })
     expect(newSessionBtn).toBeDisabled()
   })
@@ -477,7 +626,7 @@ describe('SessionsPanel - New Session Button', () => {
     render(<SessionsPanel sessions={mockSessions} />)
 
     const newSessionBtn = screen.getByRole('button', {
-      name: /start new session \(disabled during active operations\)/i,
+      name: /start a new chat \(disabled during active operations\)/i,
     })
     expect(newSessionBtn).toBeDisabled()
   })
@@ -493,7 +642,7 @@ describe('SessionsPanel - New Session Button', () => {
     render(<SessionsPanel sessions={mockSessions} />)
 
     // Deep research does NOT block navigation — new session should be enabled
-    const newSessionBtn = screen.getByRole('button', { name: /^start new session$/i })
+    const newSessionBtn = screen.getByRole('button', { name: /^start a new chat$/i })
     expect(newSessionBtn).not.toBeDisabled()
   })
 
@@ -502,7 +651,7 @@ describe('SessionsPanel - New Session Button', () => {
 
     render(<SessionsPanel sessions={mockSessions} />)
 
-    const newSessionBtn = screen.getByRole('button', { name: /^start new session$/i })
+    const newSessionBtn = screen.getByRole('button', { name: /^start a new chat$/i })
     expect(newSessionBtn).not.toBeDisabled()
   })
 })
@@ -516,12 +665,12 @@ describe('SessionsPanel - Delete Button States', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setupChatStoreMock()
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         isSessionsPanelOpen: true,
         setSessionsPanelOpen: mockSetSessionsPanelOpen,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
   })
 
@@ -538,11 +687,11 @@ describe('SessionsPanel - Delete Button States', () => {
     render(<SessionsPanel sessions={mockSessions} />)
 
     // Hover over first session to show action buttons
-    const firstSession = screen.getByRole('button', { name: /session: first session/i })
+    const firstSession = screen.getByRole('button', { name: /chat: first session/i })
     await user.hover(firstSession)
 
     // Delete button for session with active deep research should be disabled
-    const deleteButton = screen.getByRole('button', { name: /delete session \(disabled\)/i })
+    const deleteButton = screen.getByRole('button', { name: /delete chat \(disabled\)/i })
     expect(deleteButton).toBeDisabled()
   })
 
@@ -552,15 +701,15 @@ describe('SessionsPanel - Delete Button States', () => {
     const user = userEvent.setup()
     render(<SessionsPanel sessions={mockSessions} />)
 
-    // With streaming active, session buttons have aria-disabled and show
+    // With streaming active, chat rows are disabled and show
     // "(processing in progress)" in their aria-label
     const firstSession = screen.getByRole('button', {
-      name: /session: first session \(processing in progress\)/i,
+      name: /chat: first session \(processing in progress\)/i,
     })
     await user.hover(firstSession)
 
     // Delete button should be disabled due to global streaming
-    const deleteButton = screen.getByRole('button', { name: /delete session \(disabled\)/i })
+    const deleteButton = screen.getByRole('button', { name: /delete chat \(disabled\)/i })
     expect(deleteButton).toBeDisabled()
   })
 
@@ -576,11 +725,11 @@ describe('SessionsPanel - Delete Button States', () => {
     render(<SessionsPanel sessions={mockSessions} />)
 
     // Hover over first session
-    const firstSession = screen.getByRole('button', { name: /session: first session/i })
+    const firstSession = screen.getByRole('button', { name: /chat: first session/i })
     await user.hover(firstSession)
 
     // Delete button should be enabled
-    const deleteButton = screen.getByRole('button', { name: /^delete session$/i })
+    const deleteButton = screen.getByRole('button', { name: /^delete chat$/i })
     expect(deleteButton).not.toBeDisabled()
   })
 
@@ -595,7 +744,7 @@ describe('SessionsPanel - Delete Button States', () => {
     render(<SessionsPanel sessions={mockSessions} />)
 
     const deleteAllButton = screen.getByRole('button', {
-      name: /delete all sessions \(disabled\)/i,
+      name: /delete all chats in this project \(disabled\)/i,
     })
     expect(deleteAllButton).toBeDisabled()
   })
@@ -610,7 +759,9 @@ describe('SessionsPanel - Delete Button States', () => {
 
     render(<SessionsPanel sessions={mockSessions} />)
 
-    const deleteAllButton = screen.getByRole('button', { name: /^delete all sessions$/i })
+    const deleteAllButton = screen.getByRole('button', {
+      name: /^delete all chats in this project$/i,
+    })
     expect(deleteAllButton).not.toBeDisabled()
   })
 
@@ -626,11 +777,191 @@ describe('SessionsPanel - Delete Button States', () => {
     render(<SessionsPanel sessions={mockSessions} />)
 
     // Hover over session to show buttons
-    const firstSession = screen.getByRole('button', { name: /session: first session/i })
+    const firstSession = screen.getByRole('button', { name: /chat: first session/i })
     await user.hover(firstSession)
 
     // Check that delete button has appropriate title attribute
-    const deleteButton = screen.getByRole('button', { name: /delete session \(disabled\)/i })
+    const deleteButton = screen.getByRole('button', { name: /delete chat \(disabled\)/i })
     expect(deleteButton).toHaveAttribute('title', 'Cannot delete while operations are in progress')
+  })
+})
+
+describe('SessionsPanel - Deep Research section (FB-10)', () => {
+  const today = new Date()
+
+  const makeRun = (overrides: Partial<ResearchRun>): ResearchRun => ({
+    job_id: 'job-aaaaaaaa1111',
+    status: 'completed',
+    created_at: today.toISOString(),
+    conversation_id: null,
+    project_collection: 'proj_1',
+    ...overrides,
+  })
+
+  const sessions = [{ id: 'conv-1', title: 'Fire safety review', date: today }]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    setupChatStoreMock()
+    mockListResearchRuns.mockResolvedValue({ jobs: [], total: 0 })
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
+        isSessionsPanelOpen: true,
+        setSessionsPanelOpen: mockSetSessionsPanelOpen,
+      }
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
+    })
+  })
+
+  test('does not render the section or fetch runs when the flag is off', async () => {
+    render(<SessionsPanel sessions={sessions} projectId="p1" projectCollection="proj_1" />)
+
+    expect(screen.queryByRole('button', { name: /Deep Research/i })).not.toBeInTheDocument()
+    // Effect early-returns when showDeepResearchSection is false.
+    expect(mockListResearchRuns).not.toHaveBeenCalled()
+  })
+
+  test('renders a count badge and fetches runs scoped to the project collection', async () => {
+    mockListResearchRuns.mockResolvedValue({
+      jobs: [makeRun({ job_id: 'job-1' }), makeRun({ job_id: 'job-2' })],
+      total: 2,
+    })
+
+    render(
+      <SessionsPanel
+        sessions={sessions}
+        showDeepResearchSection
+        projectId="p1"
+        projectCollection="proj_1"
+      />
+    )
+
+    expect(await screen.findByRole('button', { name: /Deep Research \(2\)/i })).toBeInTheDocument()
+    expect(mockListResearchRuns).toHaveBeenCalledWith(
+      expect.objectContaining({ projectCollection: 'proj_1' })
+    )
+  })
+
+  test('expands to show runs: session-title label, untitled fallback, and deep-link hrefs', async () => {
+    const user = userEvent.setup()
+    mockListResearchRuns.mockResolvedValue({
+      jobs: [
+        makeRun({ job_id: 'job-completed', status: 'completed', conversation_id: 'conv-1' }),
+        makeRun({ job_id: 'job-failed', status: 'failed', conversation_id: null }),
+      ],
+      total: 2,
+    })
+
+    render(
+      <SessionsPanel
+        sessions={sessions}
+        showDeepResearchSection
+        projectId="p1"
+        projectCollection="proj_1"
+      />
+    )
+
+    const toggle = await screen.findByRole('button', { name: /Deep Research \(2\)/i })
+    await user.click(toggle)
+
+    // Completed run inherits its originating session's title and links to the report.
+    const completed = await screen.findByRole('link', {
+      name: /Open deep research run: Fire safety review/i,
+    })
+    expect(completed.getAttribute('href')).toBe('/app/projects/p1/chat?job=job-completed')
+
+    // Failed run with no local session falls back to the shared untitled label
+    // and deep-links to the thinking tab.
+    const failed = screen.getByRole('link', {
+      name: /Open deep research run: Deep research run/i,
+    })
+    expect(failed.getAttribute('href')).toBe('/app/projects/p1/chat?job=job-failed&tab=thinking')
+  })
+
+  test('a run states its status in words, not only in its icon', async () => {
+    const user = userEvent.setup()
+    mockListResearchRuns.mockResolvedValue({
+      jobs: [
+        makeRun({ job_id: 'job-ok', status: 'completed', conversation_id: 'conv-1' }),
+        makeRun({ job_id: 'job-bad', status: 'failed', conversation_id: null }),
+        makeRun({ job_id: 'job-live', status: 'running', conversation_id: null }),
+      ],
+      total: 3,
+    })
+
+    render(
+      <SessionsPanel
+        sessions={sessions}
+        showDeepResearchSection
+        projectId="p1"
+        projectCollection="proj_1"
+      />
+    )
+
+    await user.click(await screen.findByRole('button', { name: /Deep Research \(3\)/i }))
+
+    expect(screen.getByText('Report ready')).toBeInTheDocument()
+    expect(screen.getByText('Failed')).toBeInTheDocument()
+    expect(screen.getByText('Running')).toBeInTheDocument()
+    // ...and the same word reaches assistive tech through the row's own name.
+    expect(
+      screen.getByRole('link', { name: /Open deep research run: .* — Failed/i })
+    ).toBeInTheDocument()
+  })
+
+  test('marks research-carrying sessions with a Deep Research chip', async () => {
+    render(
+      <SessionsPanel
+        sessions={[{ id: 'conv-1', title: 'Research chat', date: today, hasCompletedReport: true }]}
+        showDeepResearchSection
+        projectId="p1"
+        projectCollection="proj_1"
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Deep Research')).toBeInTheDocument()
+    })
+  })
+
+  test('populates the section after a quick close→reopen while the fetch is pending', async () => {
+    // The component stays mounted when the panel closes, so a pending fetch that
+    // resolves during a close→reopen must NOT be discarded — the section should
+    // show the runs once resolved.
+    let isPanelOpen = true
+    let resolveRuns: (value: { jobs: ResearchRun[]; total: number }) => void = () => {}
+    mockListResearchRuns.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRuns = resolve
+      })
+    )
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
+        isSessionsPanelOpen: isPanelOpen,
+        setSessionsPanelOpen: mockSetSessionsPanelOpen,
+      }
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
+    })
+
+    const { rerender } = render(
+      <SessionsPanel sessions={sessions} showDeepResearchSection projectId="p1" projectCollection="proj_1" />
+    )
+
+    expect(mockListResearchRuns).toHaveBeenCalledTimes(1)
+
+    // Close, then reopen — all while the fetch is still in flight.
+    isPanelOpen = false
+    rerender(
+      <SessionsPanel sessions={sessions} showDeepResearchSection projectId="p1" projectCollection="proj_1" />
+    )
+    isPanelOpen = true
+    rerender(
+      <SessionsPanel sessions={sessions} showDeepResearchSection projectId="p1" projectCollection="proj_1" />
+    )
+
+    // Now the original fetch resolves; the result must land in the section.
+    resolveRuns({ jobs: [makeRun({ job_id: 'job-1' }), makeRun({ job_id: 'job-2' })], total: 2 })
+
+    expect(await screen.findByRole('button', { name: /Deep Research \(2\)/i })).toBeInTheDocument()
   })
 })

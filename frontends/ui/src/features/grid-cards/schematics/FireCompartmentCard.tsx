@@ -15,7 +15,7 @@ import { Flame } from 'lucide-react'
 import {
   DimChecksList,
   fmtDim,
-  MISSING_LABEL,
+  missingLabel,
   SchematicCanvas,
   SchematicCard,
   statusColor,
@@ -23,6 +23,7 @@ import {
   worstStatus,
 } from './kit'
 import { sketchRect } from './rough'
+import { useTranslations } from '@/i18n'
 import type { FireCompartmentData, NormReferenceData } from './types'
 
 interface FireCompartmentCardProps {
@@ -42,6 +43,7 @@ export const FireCompartmentCard: FC<FireCompartmentCardProps> = ({
   reference,
   note,
 }) => {
+  const t = useTranslations('chat')
   const px = 20
   const py = 30
   const PW = 300
@@ -117,7 +119,9 @@ export const FireCompartmentCard: FC<FireCompartmentCardProps> = ({
           size={8.5}
           fill={known ? color : 'var(--muted-foreground)'}
         >
-          {known ? fmtDim(compartment.area.value, compartment.area.unit ?? 'm²') : MISSING_LABEL}
+          {known
+            ? fmtDim(compartment.area.value, compartment.area.unit ?? 'm²', t)
+            : missingLabel(t)}
         </SvgLabel>
       </g>
     )
@@ -133,15 +137,16 @@ export const FireCompartmentCard: FC<FireCompartmentCardProps> = ({
   return (
     <SchematicCard
       icon={Flame}
-      eyebrow="Schematic"
       title={title}
       verdict={worstStatus(compartments.map((c) => c.area.status))}
       note={note}
       reference={reference}
     >
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={340} label={title}>
+      <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         <SvgLabel x={px} y={py - 12} size={9}>
-          {storeyLabel ? `Geschoss ${storeyLabel}` : 'Grundriss'}
+          {storeyLabel
+            ? t('cards.schematics.fireCompartment.storey', { label: storeyLabel })
+            : t('cards.schematics.fireCompartment.plan')}
           {gebaeudeklasse ? ` · ${gebaeudeklasse}` : ''}
         </SvgLabel>
         {/* outer storey outline */}

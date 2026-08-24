@@ -1,0 +1,15 @@
+---
+interface Props {
+  tone?: 'light' | 'dark'
+  class?: string
+}
+const { tone = 'light', class: className = '' } = Astro.props
+const tones = {
+  light: 'text-accent-600',
+  dark: 'text-on-dark-label',
+}
+---
+
+<p class={`font-display text-xs font-medium uppercase tracking-label ${tones[tone]} ${className}`}>
+  <slot />
+</p>

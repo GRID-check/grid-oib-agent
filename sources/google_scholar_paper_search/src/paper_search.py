@@ -1,17 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """Paper search tool using Serper (Google Scholar).
 
 This module contains the NAT-independent PaperSearchTool class.
@@ -67,15 +53,22 @@ class PaperSearchTool:
         self,
         query: str,
         num: int,
-        offset: int,
+        page: int,
         start_year: str | None,
         end_year: str | None,
     ) -> dict[str, Any]:
-        """Fetch a single page from Serper."""
+        """Fetch a single page from Serper.
+
+        Args:
+            page: Zero-based page index; Serper paginates with a 1-based
+                ``page`` parameter (``start`` is a SerpAPI/Google parameter
+                that Serper ignores, which would return the first page for
+                every request and duplicate results).
+        """
         payload: dict[str, Any] = {
             "q": query,
             "num": min(num, 20),  # API limit per request
-            "start": offset,
+            "page": page + 1,
         }
 
         if start_year:
@@ -136,7 +129,7 @@ class PaperSearchTool:
                 self._fetch_serper_page(
                     query,
                     current_limit,
-                    page * page_size,
+                    page,
                     start_year,
                     end_year,
                 )
@@ -144,10 +137,18 @@ class PaperSearchTool:
 
         page_results = await asyncio.gather(*tasks)
 
+        # Dedupe by link across pages — providers occasionally repeat entries
+        # at page boundaries, and duplicates would silently eat the limit.
         all_papers = []
+        seen_links: set[str] = set()
         for result in page_results:
-            if result.get("organic"):
-                all_papers.extend(result["organic"])
+            for paper in result.get("organic") or []:
+                link = paper.get("link")
+                if link and link in seen_links:
+                    continue
+                if link:
+                    seen_links.add(link)
+                all_papers.append(paper)
 
         return all_papers[:limit]
 

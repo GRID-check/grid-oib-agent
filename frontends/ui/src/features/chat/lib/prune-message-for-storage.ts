@@ -6,6 +6,7 @@
  */
 
 import type { ChatMessage } from '../types'
+import { extractTraceLanesFromPayload } from './trace-lanes'
 
 /**
  * Cap string content to prevent excessively large values.
@@ -15,30 +16,48 @@ export const capString = (value: string, max: number): string => {
 }
 
 /**
- * Strip thinking steps for storage. ChatThinking only renders displayName
- * and timestamp — content/rawPayload/category are never displayed.
+ * Strip thinking steps for storage. ChatThinking renders displayName,
+ * timestamp, and the Herleitung lane fan-out — not full payloads.
  *
  * - Deep research steps (isDeepResearch=true) are removed entirely since
  *   they are refetched from the async backend API.
- * - Shallow steps keep only the fields needed for ChatThinking display.
+ * - Shallow steps keep display fields + compact `traceLanes` so the sources
+ *   fan-out survives reload. A step that reported a `## Trace-Lanes` block
+ *   already carries them: `updateThinkingStepByFunctionName` accumulates the
+ *   lanes of every completion frame there, so its `traceLanes` is the union of
+ *   all calls while `content` only holds the last payload — taking the step's
+ *   own field first is therefore not just cheaper, it is the only version that
+ *   still knows what the earlier calls retrieved. Deriving from the payload
+ *   remains the path for steps with no structured block (web/RIS URL scan),
+ *   and runs here, before that payload is dropped.
  */
 export const stripThinkingStepsForStorage = (
   steps: NonNullable<ChatMessage['thinkingSteps']>
 ): NonNullable<ChatMessage['thinkingSteps']> => {
   return steps
     .filter((step) => !step.isDeepResearch)
-    .map((step) => ({
-      id: step.id,
-      userMessageId: step.userMessageId,
-      functionName: step.functionName,
-      displayName: step.displayName,
-      content: '',
-      timestamp: step.timestamp,
-      isComplete: step.isComplete,
-      isDeepResearch: step.isDeepResearch,
-      isTopLevel: step.isTopLevel,
-      category: step.category,
-    }))
+    .map((step) => {
+      const payload = [step.content, step.rawPayload].filter(Boolean).join('\n')
+      const derived =
+        step.traceLanes && step.traceLanes.length > 0
+          ? step.traceLanes
+          : payload.trim()
+            ? extractTraceLanesFromPayload(payload)
+            : undefined
+      return {
+        id: step.id,
+        userMessageId: step.userMessageId,
+        functionName: step.functionName,
+        displayName: step.displayName,
+        content: '',
+        timestamp: step.timestamp,
+        isComplete: step.isComplete,
+        isDeepResearch: step.isDeepResearch,
+        isTopLevel: step.isTopLevel,
+        category: step.category,
+        ...(derived && derived.length > 0 ? { traceLanes: derived } : {}),
+      }
+    })
 }
 
 /**
@@ -64,6 +83,9 @@ export const prunePlanMessages = (
  *
  * KEEPS (Essential for UI):
  * - Core message fields (id, role, content, timestamp, messageType)
+ * - citations (compact source metadata for the "Belegt durch" chips — capped
+ *   content; a shallow answer's sources are NOT refetchable, so dropping them
+ *   made the chips vanish on reload while the Herleitung fan-out survived)
  * - thinkingSteps (stripped: content removed, deep research steps dropped)
  * - planMessages (capped: text 10k, userResponse 2k — cannot be refetched)
  * - enabledDataSources, messageFiles (for "Selected Data Sources")
@@ -73,16 +95,20 @@ export const prunePlanMessages = (
  * - Other message type data (status, file, error, banner data)
  *
  * REMOVES (Can fetch from backend via importStreamOnly):
- * - reportContent, citations, deepResearchLLMSteps, deepResearchAgents,
+ * - reportContent, deepResearchLLMSteps, deepResearchAgents,
  *   deepResearchToolCalls, deepResearchFiles
  * - intermediateSteps (legacy, unused)
  * - thinkingStep content/rawPayload (never displayed in ChatThinking)
  * - Deep research thinking steps (refetched from async API)
  */
+
+/** Max characters of citation `content` kept in storage — chips need the
+ * metadata (kind/lane/locator), not the full captured passage. */
+const MAX_CITATION_CONTENT = 300
+
 export const pruneMessageForStorage = (message: ChatMessage): ChatMessage => {
   const {
     reportContent: _reportContent,
-    citations: _citations,
     deepResearchLLMSteps: _deepResearchLLMSteps,
     deepResearchAgents: _deepResearchAgents,
     deepResearchToolCalls: _deepResearchToolCalls,
@@ -90,6 +116,17 @@ export const pruneMessageForStorage = (message: ChatMessage): ChatMessage => {
     intermediateSteps: _intermediateSteps,
     ...prunedMessage
   } = message
+
+  // Keep the provenance chips across reload: citations are small metadata, but
+  // cap the captured-passage `content` so storage stays bounded. Deep-research
+  // citations are still refetched from the async API and simply overwrite these.
+  if (prunedMessage.citations?.length) {
+    prunedMessage.citations = prunedMessage.citations.map((c) =>
+      c.content.length > MAX_CITATION_CONTENT
+        ? { ...c, content: capString(c.content, MAX_CITATION_CONTENT) }
+        : c
+    )
+  }
 
   if (prunedMessage.thinkingSteps?.length) {
     prunedMessage.thinkingSteps = stripThinkingStepsForStorage(prunedMessage.thinkingSteps)

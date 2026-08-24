@@ -1,4 +1,4 @@
-import { render, screen } from '@/test-utils'
+import { render, screen, fireEvent } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ResearchPanel } from './ResearchPanel'
@@ -202,6 +202,62 @@ describe('ResearchPanel', () => {
     })
   })
 
+  describe('keyboard and focus', () => {
+    test('Escape closes the panel', () => {
+      mockRightPanel = 'research'
+
+      render(<ResearchPanel />)
+
+      fireEvent.keyDown(window, { key: 'Escape' })
+
+      expect(mockCloseRightPanel).toHaveBeenCalled()
+    })
+
+    test('moves focus to the close button on open and restores it on Escape', () => {
+      // Start closed so we can drive the false -> true open transition.
+      mockRightPanel = null
+
+      const { rerender } = render(
+        <>
+          <button data-testid="research-toggle">Research</button>
+          <ResearchPanel />
+        </>
+      )
+
+      const toggle = screen.getByTestId('research-toggle')
+      toggle.focus()
+      expect(toggle).toHaveFocus()
+
+      // Open the panel (as the toolbar toggle would). Pass children so `memo`
+      // sees changed props and re-renders (the mocked store can't notify).
+      mockRightPanel = 'research'
+      rerender(
+        <>
+          <button data-testid="research-toggle">Research</button>
+          <ResearchPanel>opened</ResearchPanel>
+        </>
+      )
+
+      const closeButton = screen.getByTestId('research-panel-close')
+      expect(closeButton).toHaveFocus()
+
+      fireEvent.keyDown(window, { key: 'Escape' })
+
+      expect(mockCloseRightPanel).toHaveBeenCalled()
+      expect(toggle).toHaveFocus()
+    })
+
+    test('Escape is inert while the panel is closed', () => {
+      mockRightPanel = null
+
+      render(<ResearchPanel />)
+
+      fireEvent.keyDown(window, { key: 'Escape' })
+
+      expect(mockCloseRightPanel).not.toHaveBeenCalled()
+    })
+  })
+
   describe('stop researching button', () => {
     test('is always rendered', () => {
       mockIsDeepResearchStreaming = false
@@ -225,6 +281,38 @@ describe('ResearchPanel', () => {
       render(<ResearchPanel />)
 
       expect(screen.getByTestId('research-panel-stop')).not.toBeDisabled()
+    })
+
+    test('asks for confirmation before cancelling and only cancels on confirm', async () => {
+      const user = userEvent.setup()
+      const { cancelJob } = await import('@/adapters/api')
+      mockIsDeepResearchStreaming = true
+      mockDeepResearchJobId = 'job-123'
+
+      render(<ResearchPanel />)
+
+      // Clicking Stop must NOT cancel immediately — it opens the confirm dialog.
+      await user.click(screen.getByTestId('research-panel-stop'))
+      expect(cancelJob).not.toHaveBeenCalled()
+      expect(screen.getByText('Stop research?')).toBeInTheDocument()
+
+      // Confirming performs the cancellation.
+      await user.click(screen.getByTestId('stop-research-confirm'))
+      expect(cancelJob).toHaveBeenCalledWith('job-123', 'mock-token')
+    })
+
+    test('dismissing the confirmation does not cancel the run', async () => {
+      const user = userEvent.setup()
+      const { cancelJob } = await import('@/adapters/api')
+      mockIsDeepResearchStreaming = true
+      mockDeepResearchJobId = 'job-123'
+
+      render(<ResearchPanel />)
+
+      await user.click(screen.getByTestId('research-panel-stop'))
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+      expect(cancelJob).not.toHaveBeenCalled()
     })
   })
 

@@ -71,7 +71,7 @@ export const NoSourcesBanner: FC<NoSourcesBannerProps> = ({ isAuthenticated = fa
   if (!isAuthenticated || !shouldShow || isDismissedByUser) return null
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 mx-auto w-full max-w-3xl px-4 duration-base ease-entrance motion-reduce:animate-none">
       <Alert variant="warning" className="relative">
         <AlertTriangle />
         <AlertDescription className="pr-6">{t('noSources.warning')}</AlertDescription>
@@ -81,7 +81,7 @@ export const NoSourcesBanner: FC<NoSourcesBannerProps> = ({ isAuthenticated = fa
           aria-label={t('actions.dismiss')}
           className="text-muted-foreground hover:text-foreground absolute right-3 top-3 rounded-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
         >
-          <X className="h-4 w-4" aria-hidden="true" />
+          <X className="size-4" aria-hidden="true" />
         </button>
       </Alert>
     </div>

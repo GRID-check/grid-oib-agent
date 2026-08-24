@@ -1,8 +1,3 @@
-<!--
-SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-SPDX-License-Identifier: Apache-2.0
--->
-
 # AI-Q validation matrix
 
 Map the change to a surface, run that surface's checks, and broaden only when
@@ -86,6 +81,12 @@ Other harness configs:
 - `frontends/benchmarks/freshqa/configs/config_full_workflow.yml`
 - `frontends/benchmarks/freshqa/configs/config_shallow_research_only.yml`
 - `frontends/benchmarks/deepsearch_qa/configs/config_deepsearch_qa.yml`
+- `frontends/benchmarks/oib_compliance/configs/config_oib_compliance_eval.yml` —
+  golden OIB-compliance eval suite (backlog T4-5, 2026-07-16): 4 fixed cases
+  through the real `chat_deepresearcher_agent` workflow, bounding
+  wall-clock/LLM-calls/completion-tokens and grading answer correctness via a
+  checklist (no LLM judge). See `frontends/benchmarks/oib_compliance/README.md`
+  — calibration is still pending a live run.
 
 Expected: the eval run completes and writes its results. Evals call models and
 data sources, so they need the relevant API keys present in `deploy/.env`.

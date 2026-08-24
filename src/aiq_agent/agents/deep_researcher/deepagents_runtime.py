@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """DeepAgents skills and sandbox runtime support for deep research."""
 
 from __future__ import annotations
@@ -22,6 +7,7 @@ import logging
 import re
 import shlex
 import threading
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from typing import Literal
@@ -33,6 +19,10 @@ from deepagents.backends import StateBackend
 from deepagents.backends.protocol import ExecuteResponse
 from deepagents.backends.protocol import FileDownloadResponse
 from deepagents.backends.protocol import FileUploadResponse
+from deepagents.backends.protocol import GlobResult
+from deepagents.backends.protocol import GrepResult
+from deepagents.backends.protocol import LsResult
+from deepagents.backends.protocol import ReadResult
 from deepagents.backends.sandbox import BaseSandbox
 from pydantic import ConfigDict
 from pydantic import Field
@@ -42,7 +32,9 @@ from nat.data_models.function import FunctionBaseConfig
 
 logger = logging.getLogger(__name__)
 
-BUILTIN_SKILLS_DIR = Path(__file__).with_name("skills")
+# Builtin skills moved to the shared substrate layout (src/aiq_agent/skills/builtin):
+# collection = mid-level dir name (research|synthesis), skill = leaf dir name.
+BUILTIN_SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills" / "builtin"
 BUILTIN_SKILL_SOURCE = "/skills/"
 SHARED_ROUTE = "/shared/"
 SKILL_AGENT_NAMES = frozenset({"researcher-agent", "writer-agent"})
@@ -167,9 +159,80 @@ def _build_backend(
     return CompositeBackend(default=default, routes=routes)
 
 
+def _curated_skill_dir_names() -> frozenset[str]:
+    """Skill directory names that are offers, not machinery.
+
+    The chat resolver already drops these from ``always_on``. The DeepAgents
+    filesystem used to mount the whole ``builtin/`` tree, so a researcher could
+    ``read_file`` an offer the org never switched on. Same gate, both agents.
+    """
+    from aiq_agent.skills.builtin import discover_builtin_skills
+    from aiq_agent.skills.resolver import _is_curated
+
+    return frozenset(skill.name for skill in discover_builtin_skills() if _is_curated(skill))
+
+
+def _path_is_curated_offer(path: str, curated: frozenset[str]) -> bool:
+    parts = path.replace("\\", "/").strip("/").split("/")
+    return any(part in curated for part in parts)
+
+
+class MachineryOnlyFilesystemBackend(FilesystemBackend):
+    """Filesystem skills route with curated offers removed.
+
+    Chat's ``SkillResolver.always_on`` already excludes ``grid-catalog: curated``.
+    This backend is the other half of that gate: a path whose skill directory is
+    an offer 404s, and listings omit those directories. Activated offers reach
+    a run through the BFF payload, not through this mount.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._curated = _curated_skill_dir_names()
+
+    def ls(self, path: str) -> LsResult:
+        result = super().ls(path)
+        if result.entries is None:
+            return result
+        kept = [entry for entry in result.entries if not _path_is_curated_offer(entry["path"], self._curated)]
+        return replace(result, entries=kept)
+
+    def read(self, file_path: str, offset: int = 0, limit: int = 2000) -> ReadResult:
+        if _path_is_curated_offer(file_path, self._curated):
+            return ReadResult(error=f"Path '{file_path}': path_not_found", file_data=None)
+        return super().read(file_path, offset=offset, limit=limit)
+
+    def glob(self, pattern: str, path: str | None = None) -> GlobResult:
+        result = super().glob(pattern, path=path)
+        if result.matches is None:
+            return result
+        kept = [entry for entry in result.matches if not _path_is_curated_offer(entry["path"], self._curated)]
+        return replace(result, matches=kept)
+
+    def grep(self, pattern: str, path: str | None = None, glob: str | None = None) -> GrepResult:
+        result = super().grep(pattern, path=path, glob=glob)
+        if result.matches is None:
+            return result
+        kept = [match for match in result.matches if not _path_is_curated_offer(match["path"], self._curated)]
+        return replace(result, matches=kept)
+
+    def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:
+        visible = [path for path in paths if not _path_is_curated_offer(path, self._curated)]
+        responses = super().download_files(visible) if visible else []
+        by_path = {item.path: item for item in responses}
+
+        def _one(path: str) -> FileDownloadResponse:
+            found = by_path.get(path)
+            if found is not None:
+                return found
+            return FileDownloadResponse(path=path, content=None, error="file_not_found")
+
+        return [_one(path) for path in paths]
+
+
 def _skills_backend() -> FilesystemBackend:
-    """Return the filesystem-backed built-in skills route."""
-    return FilesystemBackend(root_dir=BUILTIN_SKILLS_DIR.resolve(), virtual_mode=True)
+    """Return the filesystem-backed built-in skills route, offers stripped."""
+    return MachineryOnlyFilesystemBackend(root_dir=BUILTIN_SKILLS_DIR.resolve(), virtual_mode=True)
 
 
 def discover_skill_collections(root: Path = BUILTIN_SKILLS_DIR) -> dict[str, str]:

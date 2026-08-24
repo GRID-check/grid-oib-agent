@@ -1,0 +1,46 @@
+version: 2
+
+# Free, auto-fix PRs for vulnerable/outdated dependencies. Complements
+# OSV-Scanner (.github/workflows/security.yml), which blocks vulnerable deps in
+# CI while Dependabot opens the PRs that fix them. Keep the dependency graph and
+# Dependabot alerts enabled in repo Settings -> Code security.
+#
+# `cooldown` delays adopting a freshly-published release for a few days, so a
+# compromised or yanked version has time to be caught before Dependabot opens a
+# PR for it (supply-chain hardening; flagged by Semgrep's dependabot-missing-cooldown).
+updates:
+  # Python backend (uv workspace: pyproject.toml + uv.lock at the repo root).
+  - package-ecosystem: uv
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+
+  # Frontend (Next.js UI).
+  - package-ecosystem: npm
+    directory: "/frontends/ui"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+
+  # Landing site (Astro microservice).
+  - package-ecosystem: npm
+    directory: "/frontends/web"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+
+  # Keep the Actions in our workflows current (also picked up by Semgrep's
+  # p/github-actions rules).
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7

@@ -1,0 +1,47 @@
+-- Let the element list stop reading once it has a page.
+--
+-- `bim_elements_model_type_idx` was `(model_id, ifc_type)`, and every element
+-- page orders by `(ifc_type, express_id)`. The index therefore delivered the
+-- first ordering column and not the second, so a page could only be produced
+-- by reading a whole `ifc_type` group and sorting it — with a correlated
+-- `EXISTS (jsonb_each(properties) …)` in the WHERE, that means unnesting tens
+-- of thousands of elements to return twenty-five.
+--
+-- Adding `express_id` makes the index satisfy the ORDER BY outright, so the
+-- scan stops at the twenty-fifth match. Measured on a seeded 200 000-element
+-- model, a filter matching a quarter of it:
+--
+--   (model_id, ifc_type)               1 277 ms   Index Scan + Incremental Sort
+--   (model_id, ifc_type, express_id)       3 ms   Index Scan, no sort, early exit
+--
+-- The two-column prefix still serves everything the old index served — type
+-- counts, type filters — so nothing loses an index by this.
+--
+-- This is one half of a pair. The other is `search_keys` (0038), which is the
+-- fast plan for the OPPOSITE case: a filter matching a handful of elements,
+-- where an ordered walk would read the whole model before finding them. Which
+-- of the two a given query wants is decided in `listBimElements`, because
+-- Postgres cannot decide it — jsonb containment has no statistics, so `@>` is
+-- costed at a hardcoded 0.5 % selectivity no matter what the model holds.
+--
+-- The new index gets a NEW NAME, and is built BEFORE the old one is dropped,
+-- to keep the table readable while it builds. `drizzle-kit migrate` wraps a
+-- migration in one transaction, so a `DROP INDEX` placed first would hold its
+-- ACCESS EXCLUSIVE lock until COMMIT — that is, for the whole duration of the
+-- rebuild behind it, blocking every read and write on `bim_elements`. Ordered
+-- this way the build takes only SHARE, and the ACCESS EXCLUSIVE window shrinks
+-- to the drop at the very end. Renaming back to the old name is deliberately
+-- NOT done: `ALTER INDEX … RENAME` takes ACCESS EXCLUSIVE too, so it would put
+-- back a second lock for no gain beyond a tidier name.
+--
+-- This is NOT an online migration. `CREATE INDEX` still blocks WRITES to
+-- `bim_elements` for the length of the build; only reads survive. The fully
+-- online form is `CONCURRENTLY`, which cannot run inside a transaction block
+-- at all and so needs a non-transactional migration runner this repo does not
+-- have. Element writes happen at model ingest, and the build is seconds on a
+-- 200 000-row table, so the stall is bounded and lands on ingest, not on the
+-- element list.
+CREATE INDEX IF NOT EXISTS bim_elements_model_type_express_idx
+  ON bim_elements (model_id, ifc_type, express_id);
+
+DROP INDEX IF EXISTS bim_elements_model_type_idx;

@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Result models for chat research agent."""
 
 from typing import Literal
@@ -26,7 +11,17 @@ class ShallowResult(BaseModel):
 
     Attributes:
         answer: The research answer or response text.
-        confidence: Confidence level in the shallow research result.
+        confidence: INTERNAL control-flow proxy — NOT a measure of answer
+            quality and never surfaced to users. It is assigned only on the
+            error/escalation branches of ``shallow_research_node``: "high" means
+            "the system is certain an error occurred and the canned error text is
+            the correct response", "low" means "the shallow agent flagged its
+            answer insufficient and asked to escalate". "medium" is never
+            assigned, and the normal success path leaves ``shallow_result`` as
+            ``None`` entirely. The user-facing self-assessment of answer quality
+            is a SEPARATE signal (the model's ``[CONFIDENCE:...]`` marker,
+            surfaced via ``ChatResearcherState.answer_confidence``); do not
+            conflate the two.
         escalate_to_deep: Whether this query should be escalated to deep research.
         escalation_reason: Optional explanation for why escalation is needed.
     """

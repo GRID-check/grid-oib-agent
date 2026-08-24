@@ -1,0 +1,20 @@
+-- Drop the GIN index on `bim_elements.properties`.
+--
+-- `0034` created it as `gin (properties jsonb_path_ops)` with a comment saying
+-- containment "is the only one the query layer uses". That was true of the
+-- design and never of the code: `grep -rn '@>' src/lib/bim/` returns nothing.
+-- Every property predicate is built as a correlated
+-- `EXISTS (jsonb_each(properties) … jsonb_each(set_value) …)` with `lower()`
+-- on both sides (`query.ts`), because property-set and property NAMES are
+-- chosen by whichever tool exported the model and have to match
+-- case-insensitively. `jsonb_path_ops` indexes `@>` and nothing else, so it
+-- cannot serve that predicate — and could not serve the case-insensitive
+-- comparison even if the operator matched.
+--
+-- Measured on a seeded 400 000-element model: `idx_scan = 0`, 47 MB. Across
+-- 40 revisions of one building that is ~1.9 GB of a 20 GiB volume, plus GIN
+-- maintenance on every 500-row insert batch during extraction, for zero reads.
+--
+-- Reinstating it is only worthwhile together with a query layer that emits
+-- `@>`, which would mean giving up case-insensitive key matching.
+DROP INDEX IF EXISTS bim_elements_properties_idx;

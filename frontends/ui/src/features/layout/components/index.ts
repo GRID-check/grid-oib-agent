@@ -7,7 +7,6 @@ export { MainLayout } from './MainLayout'
 export { SessionsPanel } from './SessionsPanel'
 export { ChatArea } from './ChatArea'
 export { InputArea } from './InputArea'
-export { SettingsPanel } from './SettingsPanel'
 
 // Research panel and tabs
 export { ResearchPanel } from './ResearchPanel'
@@ -37,10 +36,7 @@ export type { SourceInfo } from './SourceCard'
 export { ReportCard } from './ReportCard'
 export { ExportFooter } from './ExportFooter'
 
-// Data sources panel and tabs
-export { DataSourcesPanel } from './DataSourcesPanel'
-export { DataConnectionsTab } from './DataConnectionsTab'
-export { DataConnectionCard } from './DataConnectionCard'
+// Data sources tabs and cards (reused by the composer sources popover)
 export { FileSourcesTab } from './FileSourcesTab'
 export { FileSourceCard } from './FileSourceCard'
 

@@ -69,6 +69,34 @@ export function documentStatusVariant(status: string | null | undefined): Status
   return STATUS_VARIANT[(status ?? '').toLowerCase()] ?? 'secondary'
 }
 
+/**
+ * Statuses that are going to change on their own — the `info` family above.
+ * Anything else (citable, failed) is terminal and needs no watching.
+ *
+ * Callers use this to decide what to re-ask for: the workspace polls the
+ * document list while one is unsettled, and a card treats a "no thumbnail yet"
+ * answer for one as provisional rather than as the final word.
+ */
+const SETTLING_STATUSES = new Set(['uploading', 'ingesting', 'pending', 'processing'])
+
+/** Ingestion wrote `completed`; the badge already treats that as citable. */
+const CITABLE_STATUSES = new Set(['ready', 'uploaded', 'ingested', 'success', 'completed'])
+
+const FAILED_STATUSES = new Set(['failed', 'error'])
+
+export function isSettlingStatus(status: string | null | undefined): boolean {
+  return SETTLING_STATUSES.has((status ?? '').toLowerCase())
+}
+
+/** The document is indexed and Ask may open it — not only the literal `ready`. */
+export function isCitableStatus(status: string | null | undefined): boolean {
+  return CITABLE_STATUSES.has((status ?? '').toLowerCase())
+}
+
+export function isFailedStatus(status: string | null | undefined): boolean {
+  return FAILED_STATUSES.has((status ?? '').toLowerCase())
+}
+
 export function documentStatusLabel(status: string | null | undefined, t: Translator): string {
   const key = (status ?? '').toLowerCase()
   const labelKey = STATUS_LABEL_KEY[key]
@@ -79,12 +107,18 @@ export function documentStatusLabel(status: string | null | undefined, t: Transl
 interface DocumentStatusBadgeProps {
   status: string | null | undefined
   className?: string
+  /**
+   * Hover/AT text saying what the status MEANS where the badge alone does not
+   * carry it — the chat peek, where "processing" has a consequence ("Piloti
+   * cannot read it yet") that the word on its own does not state.
+   */
+  title?: string
 }
 
-export function DocumentStatusBadge({ status, className }: DocumentStatusBadgeProps) {
+export function DocumentStatusBadge({ status, className, title }: DocumentStatusBadgeProps) {
   const t = useTranslations('files')
   return (
-    <Badge variant={documentStatusVariant(status)} className={cn('shrink-0', className)}>
+    <Badge variant={documentStatusVariant(status)} className={cn('shrink-0', className)} title={title}>
       {documentStatusLabel(status, t)}
     </Badge>
   )

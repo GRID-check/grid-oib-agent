@@ -1,6 +1,10 @@
 # =============================================================================
-# Grid OIB Agent — Coolify Docker Compose
+# Grid OIB Agent — Coolify Docker Compose (SeaweedFS)
 # =============================================================================
+#
+# MinIO → SeaweedFS migration completed 2026-07-21. The transitional compose
+# (docker-compose.coolify.yaml with both stores) was replaced by the permanent
+# SeaweedFS-only stack. See docs/deployment/minio-to-seaweedfs-migration.md.
 #
 # A Coolify-tuned variant of docker-compose.yaml. Deploy this with Coolify's
 # "Docker Compose" build pack (New Resource -> Docker Compose -> this repo).
@@ -11,24 +15,34 @@
 #   1. No `container_name:` — Coolify namespaces containers per deployment.
 #      Fixed names collide across per-PR preview environments.
 #   2. No published host `ports:` — the two host-facing services (frontend,
-#      minio) are exposed through Coolify's Traefik proxy via SERVICE_FQDN_*
+#      seaweedfs) are exposed through Coolify's Traefik proxy via SERVICE_FQDN_*
 #      magic vars instead. Publishing host ports would collide the moment a
 #      second preview tries to bind the same port.
 #   3. Secrets use ${VAR:?} (required — deploy fails if unset) or
 #      ${SERVICE_PASSWORD_*} (Coolify auto-generates, stable per stack).
-#   4. CORS + MINIO_PUBLIC_ENDPOINT + WorkOS redirect derive from the generated
+#   4. CORS + SEAWEED_PUBLIC_ENDPOINT + WorkOS redirect derive from the generated
 #      FQDNs, so each preview is self-configuring.
 #
 # Coolify magic variables used here (generated per deployment, consistent
 # across all services in the stack):
-#   SERVICE_FQDN_FRONTEND_3000  -> exposes frontend:3000 under a generated
-#                                  https domain; readable as ${SERVICE_FQDN_FRONTEND}
-#   SERVICE_FQDN_MINIO_9000     -> exposes minio:9000 (S3 API) under a domain;
-#                                  readable as ${SERVICE_FQDN_MINIO}
-#   SERVICE_PASSWORD_POSTGRES / _MINIO / _INTERNALTOKEN -> generated secrets
+#   SERVICE_FQDN_FRONTEND_3000   -> exposes frontend:3000 under a generated
+#                                   https domain; readable as ${SERVICE_FQDN_FRONTEND}
+#   SERVICE_FQDN_SEAWEEDFS_8333  -> exposes seaweedfs:8333 (S3 API) under a
+#                                   domain; readable as ${SERVICE_FQDN_SEAWEEDFS}
+#   SERVICE_PASSWORD_POSTGRES / _SEAWEEDFS / _SEAWEEDTENANT / _INTERNALTOKEN
+#                                   -> generated secrets
+#   SERVICE_PASSWORD_GRIDRUNTIME -> login for grid_app_rw, the least-privilege
+#     role the app connects as under row-level security (ADR-0041). The
+#     frontend container synchronises the role's password from its own
+#     GRID_APP_DATABASE_URL at startup, so nothing else needs to know it.
 # =============================================================================
 
 services:
+  # WARNING: do NOT add a `ports:` mapping to this internal service. Coolify
+  # binds the published host port on the server regardless of Traefik routing,
+  # which would expose the backend (8000) to the public internet. Keep it on
+  # `expose:` only — it stays reachable in-cluster over Coolify's managed
+  # network (service-name DNS; see the networking note below).
   aiq-agent:
     build:
       # Paths are relative to the Compose *project directory*, which Coolify sets
@@ -38,18 +52,6 @@ services:
       context: .
       dockerfile: deploy/Dockerfile
       target: ${BUILD_TARGET:-release}
-      args:
-        # URL of the pre-generated OIB seed tarball (see docs §7). When set, the
-        # oib-seed Dockerfile stage bakes the knowledge base into the image so
-        # previews skip re-embedding. Leave empty for live ingestion on boot.
-        OIB_SEED_URL: ${OIB_SEED_URL:-}
-        # Credentials for fetching the seed from a PRIVATE S3/MinIO bucket. When
-        # both are set the build signs the download with SigV4 (no public bucket
-        # needed). Set these as Coolify Build Variables (secrets). Leave empty to
-        # fetch an anonymous/presigned URL instead.
-        OIB_SEED_ACCESS_KEY: ${OIB_SEED_ACCESS_KEY:-}
-        OIB_SEED_SECRET_KEY: ${OIB_SEED_SECRET_KEY:-}
-        OIB_SEED_REGION: ${OIB_SEED_REGION:-us-east-1}
     environment:
       - APP_ENV=${APP_ENV:-production}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -58,14 +60,22 @@ services:
       # here ever calls a NVIDIA endpoint.
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY}
       - TAVILY_API_KEY=${TAVILY_API_KEY:?set TAVILY_API_KEY}
-      # Embeddings + VLM route through OpenRouter. LlamaIndex's embedding client
-      # reads NVIDIA_API_KEY as its api_key, so we point it at the OpenRouter key
-      # while base_url stays on OpenRouter. These model/base_url values MUST match
-      # whatever generated the OIB seed (see docs/deployment/coolify.md §6) — a
-      # restored snapshot only works if query embeddings use the same model.
+      # Embeddings + VLM route through OpenRouter. The backend now resolves each
+      # LLM key through the shared credential resolver, which INFERS the provider
+      # key from the base URL: with a base URL on openrouter.ai it picks up
+      # OPENROUTER_API_KEY automatically, so no per-family key wiring is required.
+      # The OIB corpus is embedded on first boot into the persistent Chroma
+      # volume with this model; keep it stable across redeploys so stored vectors
+      # and query embeddings always use the same model.
       - AIQ_EMBED_MODEL=${AIQ_EMBED_MODEL:-openai/text-embedding-3-large}
       - AIQ_EMBED_BASE_URL=${AIQ_EMBED_BASE_URL:-https://openrouter.ai/api/v1}
+      # AIQ_EMBED_API_KEY is the embeddings key override (now read by the adapter
+      # via the shared resolver); explicit here so the OpenRouter key is used even
+      # if provider inference is ever disabled.
       - AIQ_EMBED_API_KEY=${OPENROUTER_API_KEY}
+      # NVIDIA_API_KEY alias kept for back-compat (it is the embeddings/VLM
+      # fallback env); provider inference from the openrouter.ai base URL now
+      # covers this natively, so this line is belt-and-suspenders.
       - NVIDIA_API_KEY=${NVIDIA_API_KEY:-${OPENROUTER_API_KEY}}
       - AIQ_VLM_MODEL=${AIQ_VLM_MODEL:-google/gemma-4-31b-it}
       - AIQ_VLM_BASE_URL=${AIQ_VLM_BASE_URL:-https://openrouter.ai/api/v1}
@@ -73,10 +83,49 @@ services:
       - NAT_JOB_STORE_DB_URL=postgresql+asyncpg://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/aiq_jobs
       - AIQ_CHECKPOINT_DB=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/aiq_checkpoints
       - AIQ_SUMMARY_DB=postgresql+psycopg://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/aiq_jobs
+      # SSE LISTEN/NOTIFY needs a direct Postgres session; explicit so a future
+      # PgBouncer in front of the pooled DSNs never breaks job streams.
+      - AIQ_LISTEN_DB_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/aiq_jobs
+      # ── Shared cache (Dragonfly, ADR-0020) ──
+      - REDIS_URL=redis://dragonfly:6379/0
+      # Stateless chat tier via the Dragonfly pub/sub conversation bus (ADR-0028).
+      # On by default; fails open to local delivery. Set to 0 to opt out.
+      - GRID_CONVERSATION_BUS=${GRID_CONVERSATION_BUS:-1}
+      # ── Deep-research execution (ADR-0021), mirroring the Kubernetes topology ──
+      # db = DB-claimed jobs run by the dedicated `agent-worker` service below
+      # (FOR UPDATE SKIP LOCKED), so the token-heavy research workload scales and
+      # crashes independently of the chat/web tier. Set to `dask` to fall back to
+      # the legacy in-process executor (no worker/chroma server needed) — kept as a
+      # dev escape hatch; on this stack it is redundant now that a worker exists.
+      - GRID_JOB_EXECUTION=${GRID_JOB_EXECUTION:-db}
+      # Encrypts DB-claimed job payloads at rest (AES-256-GCM). Empty = plaintext
+      # (a one-time warning is logged); acceptable on a single trusted node. Set a
+      # base64 32-byte key to encrypt: `openssl rand -base64 32`.
+      - GRID_JOB_PAYLOAD_KEK=${GRID_JOB_PAYLOAD_KEK:-}
       # ── Single-writer memory bridge to the frontend BFF ──
       - FRONTEND_INTERNAL_URL=http://frontend:3000
       - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
-      # ── Knowledge base (embedded Chroma, persisted to a volume) ──
+      # Object storage for `view_knowledge_image` (ADR-0039). Without these the
+      # tool fails its credential guard and every project/Archiv image silently
+      # degrades to a text-only block — no error anyone would look at.
+      #
+      # READ-ONLY, and that is the point. This tier only ever calls get_object;
+      # it used to carry the `grid` credential, which holds Write and Tagging on
+      # every document bucket, so a compromise here could overwrite or delete any
+      # tenant document. `agent-worker` inherits this block through `extends`, so
+      # the narrowing covers both.
+      - SEAWEED_ENDPOINT=http://seaweedfs:8333
+      - SEAWEED_ACCESS_KEY=${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
+      - SEAWEED_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDREADONLY}
+      - SEAWEED_BUCKET=grid-documents
+      # ── Knowledge base (shared Chroma server, ADR-0021) ──
+      # Every replica and the agent-worker talk to ONE Chroma server over HTTP
+      # (the `chroma` service below), so the vector store is no longer pinned to a
+      # single container's disk — the precondition for db-mode workers. AIQ_CHROMA_DIR
+      # remains the embedded fallback, used only if AIQ_CHROMA_URL is unset (e.g.
+      # GRID_JOB_EXECUTION=dask). The OIB corpus is (re-)embedded into the server on
+      # first boot; keep AIQ_EMBED_MODEL stable so stored + query vectors match.
+      - AIQ_CHROMA_URL=${AIQ_CHROMA_URL:-http://chroma:8000}
       - AIQ_CHROMA_DIR=/app/data/chroma_data
       - COLLECTION_NAME=${COLLECTION_NAME:-oib_knowledge}
       - CONFIG_FILE=${BACKEND_CONFIG:-/app/configs/config_oib_openrouter.yml}
@@ -87,19 +136,34 @@ services:
       - DASK_NWORKERS=${DASK_NWORKERS:-1}
       - DASK_NTHREADS=${DASK_NTHREADS:-4}
       # ── Ingestion / document extraction (match deploy/.env) ──
-      # Table + image extraction from PDFs during ingestion. Only exercised when
-      # ingesting live (uploaded docs, or OIB when no seed is baked). VLM-backed.
+      # Table + image extraction from PDFs during ingestion (uploaded docs and
+      # the OIB corpus on first boot into a fresh volume). VLM-backed.
       - AIQ_EXTRACT_TABLES=${AIQ_EXTRACT_TABLES:-true}
       - AIQ_EXTRACT_IMAGES=${AIQ_EXTRACT_IMAGES:-true}
-      # Must stay false with a baked OIB seed — true wipes Chroma + re-embeds all
-      # PDFs on every boot.
+      # Leave false in normal operation — true wipes the persistent Chroma volume
+      # and re-embeds the whole OIB corpus on every boot.
       - OIB_FORCE_REINGEST=${OIB_FORCE_REINGEST:-false}
       # ── Misc runtime tuning (match deploy/.env) ──
       - DASK_DISTRIBUTED__LOGGING__DISTRIBUTED=${DASK_DISTRIBUTED__LOGGING__DISTRIBUTED:-warning}
       - PYTHONWARNINGS=${PYTHONWARNINGS:-ignore}
       # ── Optional keys (unused by the OpenRouter config; passthrough if set) ──
       - KIMI_API_KEY=${KIMI_API_KEY:-}
-      - GRID_ADMIN_TOKEN=${GRID_ADMIN_TOKEN:-}
+      # ── Auth / admin control-plane ──
+      # Required: gates POST /v1/admin/oib/sync (KB re-ingestion). An empty value
+      # makes routes/oib.py fail OPEN, so the deploy fails fast if it is unset
+      # (matches the :? pattern used for OPENROUTER_API_KEY / TAVILY_API_KEY).
+      - GRID_ADMIN_TOKEN=${GRID_ADMIN_TOKEN:?set GRID_ADMIN_TOKEN}
+      # Default ON for this production compose; kept consistent with the frontend.
+      # REQUIRE_AUTH only gates EXTERNAL requests (Host in AIQ_EXTERNAL_HOSTNAMES);
+      # internal frontend->backend calls are always classified internal, so this
+      # never breaks in-cluster traffic.
+      - REQUIRE_AUTH=${REQUIRE_AUTH:-true}
+      # Defense-in-depth: hostnames the backend treats as external. Bare domain,
+      # comma-separated, no scheme/port — matched against the request Host header
+      # (see auth/middleware.py::_load_external_hostnames). If port 8000 is ever
+      # exposed under this FQDN, those requests hit the path allowlist + auth
+      # instead of being trusted as internal.
+      - AIQ_EXTERNAL_HOSTNAMES=${SERVICE_FQDN_FRONTEND}
     expose:
       - "8000"
     volumes:
@@ -109,15 +173,22 @@ services:
       - ./data/oib:/app/data/oib:ro
       - aiq-data:/app/data
       - chroma_data:/app/data/chroma_data
-    networks:
-      - aiq-network
     depends_on:
       aiq-data-permissions:
         condition: service_completed_successfully
-      minio:
+      seaweedfs:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      # Shared vector store must be up before the agent boots (it embeds the OIB
+      # corpus into it on first start). Only gates when db mode uses AIQ_CHROMA_URL;
+      # in dask mode chroma still runs but the embedded dir is used instead.
+      chroma:
+        condition: service_healthy
+      # service_started, NOT service_healthy: the cache is optional by design
+      # (fail-open in both tiers) and must never block the stack.
+      dragonfly:
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 15s
@@ -132,58 +203,226 @@ services:
     volumes:
       - aiq-data:/app/data
       - chroma_data:/app/data/chroma_data
-    networks:
-      - aiq-network
     restart: "no"
 
-  minio:
-    image: minio/minio:RELEASE.2024-06-29T01-20-47Z
-    environment:
-      # SERVICE_FQDN_MINIO_9000 tells Coolify to expose the S3 API (9000) under
-      # a generated https domain — required so the browser can fetch presigned
-      # PDF URLs (the internal `minio` hostname is not browser-reachable).
-      - SERVICE_FQDN_MINIO_9000
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_ROOT_PASSWORD=${SERVICE_PASSWORD_MINIO}
-    command: server /data --console-address ":9001"
+  # ── Shared ChromaDB server (ADR-0021), the docker-compose mirror of the
+  #    Kubernetes StatefulSet in deploy/pulumi/src/data/chroma.ts ──
+  # ONE Chroma process that every aiq-agent replica and the agent-worker query
+  # over HTTP, so the vector store stops being pinned to a single container's
+  # disk. Chroma's OSS server is itself single-node (one process on a durable
+  # volume) — that is fine here: it is the *shared* store, not a per-replica one.
+  chroma:
+    # MUST track the `chromadb` client version the app is built against (see
+    # sources/knowledge_layer). Chroma 1.x changed the collection-config wire
+    # schema, so a 1.x client against a 0.5.x server fails ingestion with
+    # KeyError('_type'). 1.x is a Rust server configured by a baked /config.yaml
+    # (persist_path: /data) — the 0.5.x IS_PERSISTENT/PERSIST_DIRECTORY env vars
+    # are ignored, so persistence comes purely from mounting the volume at /data.
+    image: ${CHROMA_IMAGE:-chromadb/chroma:1.5.9}
+    expose:
+      - "8000"
     volumes:
-      - minio-data:/data
+      # ADOPT the existing embedded store instead of starting from an empty
+      # volume. The pre-server deploy embedded the whole corpus (oib_knowledge +
+      # project/archiv uploads) into this volume via the chromadb 1.5.9
+      # PersistentClient. The 1.5.9 server uses the SAME on-disk persist format,
+      # so pointing its persist dir (/data) at that volume brings every existing
+      # collection back with ZERO re-embedding — no migration script needed.
+      # (aiq-agent also mounts this volume at /app/data/chroma_data, but in db
+      # mode it talks to the server over HTTP and never opens the dir, so the
+      # server is the only writer.)
+      - chroma_data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - aiq-network
+      # The 1.x image is near-distroless (no python/curl), but ships bash — so
+      # probe /api/v2/heartbeat (v1 was removed in 1.0) over bash's /dev/tcp.
+      # $$s escapes to a literal $s so compose doesn't interpolate it away.
+      test:
+        - "CMD"
+        - "bash"
+        - "-c"
+        - 'exec 3<>/dev/tcp/localhost/8000; printf "GET /api/v2/heartbeat HTTP/1.0\r\n\r\n" >&3; read -r s <&3; [[ "$$s" == *200* ]]'
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
     restart: unless-stopped
 
-  minio-init:
-    image: minio/mc:latest
+  # ── Deep-research worker tier (ADR-0021), the docker-compose mirror of the
+  #    Kubernetes Deployment in deploy/pulumi/src/app/agent-worker.ts ──
+  # Same backend image and env as aiq-agent (via `extends`, so the two can never
+  # drift — critically, they share AIQ_EMBED_MODEL, so ingest- and query-side
+  # vectors always match), but launched with GRID_ROLE=worker: the entrypoint
+  # then execs `python -m aiq_api.jobs.worker` instead of the web server. Workers
+  # claim jobs from Postgres (FOR UPDATE SKIP LOCKED) and read/write the shared
+  # Chroma server — no web port, no Dask. Only meaningful when
+  # GRID_JOB_EXECUTION=db (the default); harmless idle in dask mode.
+  agent-worker:
+    extends:
+      service: aiq-agent
+    environment:
+      # GRID_ROLE flips entrypoint.py to the worker module (no uvicorn, no Dask).
+      - GRID_ROLE=worker
+      # Concurrent research jobs claimed per worker process (K8s: agentWorker.concurrency).
+      - GRID_RESEARCH_WORKERS=${GRID_RESEARCH_WORKERS:-1}
+    # extends does NOT carry depends_on — declare the worker's own start ordering.
+    depends_on:
+      aiq-data-permissions:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+      dragonfly:
+        condition: service_started
+    # The web healthcheck inherited from aiq-agent would never pass (no HTTP
+    # server here). Mirror the K8s liveness marker instead: worker.py touches
+    # /tmp/research-worker.alive each claim-loop tick; fail if it is missing or
+    # stale (loop hung). The long start_period covers the cold import + DB/Chroma
+    # connect before the first tick (K8s uses a 10-min startupProbe for this).
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import os,sys,time; f='/tmp/research-worker.alive'; sys.exit(0 if os.path.exists(f) and time.time()-os.path.getmtime(f) < 180 else 1)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+    restart: unless-stopped
+
+  seaweedfs:
+    # SeaweedFS S3-compatible object storage (replaces MinIO). One
+    # `weed server -s3` process runs master (9333), volume (8080), filer (8888)
+    # and the S3 gateway (8333). S3 identities are generated at boot from the
+    # access/secret keys into s3.json (SeaweedFS has no MINIO_ROOT_* env).
+    image: chrislusf/seaweedfs:3.80
+    environment:
+      # SERVICE_FQDN_SEAWEEDFS_8333 tells Coolify to expose the S3 API (8333)
+      # under a generated https domain — required so the browser can fetch
+      # presigned PDF URLs (the internal `seaweedfs` hostname is not
+      # browser-reachable).
+      - SERVICE_FQDN_SEAWEEDFS_8333
+      - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDFS}
+      # Bucket lifecycle gets its own identity and its own Coolify-generated
+      # secret. These must be on THIS service, not only on the frontend: the
+      # printf below runs inside this container, and an undefined variable
+      # there expands to an empty string — which SeaweedFS accepts without
+      # complaint, so the failure would be a silent InvalidAccessKeyId on the
+      # first tenant upload rather than anything at boot.
+      - SEAWEED_TENANT_ADMIN_ACCESS_KEY=${SEAWEED_TENANT_ADMIN_ACCESS_KEY:-grid-tenant-admin}
+      - SEAWEED_TENANT_ADMIN_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDTENANT}
+      # The READ-ONLY identity the agent tier uses (ADR-0039), with its own
+      # Coolify-generated secret. It was missing from this file entirely, so
+      # `aiq-agent` and `agent-worker` ran on the write-capable `grid`
+      # credential — able to overwrite or delete any document object in any
+      # bucket, for a tool that only ever calls get_object.
+      - SEAWEED_READONLY_ACCESS_KEY=${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
+      - SEAWEED_READONLY_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDREADONLY}
+      # The Langfuse trace archive's identity (ADR-0044), with its own
+      # Coolify-generated secret. Declared even though this stack runs no
+      # Langfuse: the identity list here is pinned against `s3IdentityCatalog`
+      # by the parity test, and an unused identity is the cheap half of keeping
+      # the compose authorization model equal to production's.
+      - SEAWEED_LANGFUSE_ACCESS_KEY=${SEAWEED_LANGFUSE_ACCESS_KEY:-grid-langfuse}
+      - SEAWEED_LANGFUSE_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDLANGFUSE}
+    # The identity below is bucket-scoped, not `Admin`. SeaweedFS compares a
+    # BARE action before it ever looks at the bucket, so `"Admin"` on its own
+    # matched every bucket that will ever exist here — and authorised
+    # DeleteBucket from the credential the upload path carries. The buckets
+    # themselves are created by `weed shell` over gRPC (below), which does not
+    # pass through S3 auth at all, so scoping costs nothing. `grid-org-*` covers
+    # the per-organization buckets the app creates at runtime (ADR-0043).
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >
-        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${SERVICE_PASSWORD_MINIO} &&
-        mc mb local/grid-documents --ignore-existing
+        apk add --no-cache curl >/dev/null 2>&1 &&
+        mkdir -p /etc/seaweedfs &&
+        printf '{"identities":[{"name":"grid","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:grid-documents","Read:grid-org-*","Write:grid-documents","Write:grid-org-*","List:grid-documents","List:grid-org-*","Tagging:grid-documents","Tagging:grid-org-*"]},{"name":"grid-backend-read","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:grid-documents","Read:grid-org-*"]},{"name":"grid-tenant-admin","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin:grid-org-*"]},{"name":"grid-langfuse","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:langfuse","Write:langfuse","List:langfuse","Tagging:langfuse"]}]}\n' "$$SEAWEED_ACCESS_KEY" "$$SEAWEED_SECRET_KEY" "$$SEAWEED_READONLY_ACCESS_KEY" "$$SEAWEED_READONLY_SECRET_KEY" "$$SEAWEED_TENANT_ADMIN_ACCESS_KEY" "$$SEAWEED_TENANT_ADMIN_SECRET_KEY" "$$SEAWEED_LANGFUSE_ACCESS_KEY" "$$SEAWEED_LANGFUSE_SECRET_KEY" > /etc/seaweedfs/s3.json &&
+        exec weed server -dir=/data -volume.max=0 -s3 -s3.config=/etc/seaweedfs/s3.json -s3.port=8333
+    volumes:
+      - seaweedfs-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "-o", "/dev/null", "http://localhost:9333/cluster/status"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+      start_period: 25s
+    restart: unless-stopped
+
+  seaweedfs-init:
+    # Pre-create the documents bucket (SeaweedFS does not auto-create buckets).
+    # `|| true` keeps re-runs idempotent.
+    image: chrislusf/seaweedfs:3.80
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        echo 's3.bucket.create -name grid-documents' | weed shell -master=seaweedfs:9333 || true
     depends_on:
-      minio:
+      seaweedfs:
         condition: service_healthy
-    networks:
-      - aiq-network
     restart: "no"
+
+  # One-shot migrator, matching compose and Kubernetes. It exists so the
+  # long-lived container that serves requests never holds the schema-owner
+  # credential: an owner connection is exempt from every row-level-security
+  # policy, so any bug in the serving process that reached it would get a full
+  # tenant-isolation bypass inside the very process RLS exists to constrain
+  # (ADR-0041). This stack was the last one where that credential was still
+  # mounted on `frontend`.
+  grid-migrate:
+    build:
+      context: ./frontends/ui
+      dockerfile: deploy/Dockerfile
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - node scripts/ensure-rls-roles.mjs && node node_modules/drizzle-kit/bin.cjs migrate
+    environment:
+      # Schema owner: DDL and data backfills. RLS does not apply to a table's
+      # owner, which is what keeps backfills working.
+      - GRID_APP_MIGRATION_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
+      # Read only so `ensure-rls-roles` can keep grid_app_rw's login in step
+      # with the credential the app actually uses.
+      - GRID_APP_DATABASE_URL=postgresql://grid_app_rw:${SERVICE_PASSWORD_GRIDRUNTIME}@postgres:5432/grid_app
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   frontend:
     build:
       context: ./frontends/ui
       dockerfile: deploy/Dockerfile
+    # The image CMD migrates then serves; migration has moved to grid-migrate,
+    # so this container only serves.
+    command: ["node", "server.js"]
     environment:
       # Exposes this service (port 3000) under a generated https domain and
       # makes the FQDN available as ${SERVICE_FQDN_FRONTEND} to the whole stack.
       - SERVICE_FQDN_FRONTEND_3000
-      - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
+      # Default ON for this production compose. Set REQUIRE_AUTH=false explicitly
+      # (plus leave the WorkOS keys empty) only for a throwaway unauthenticated
+      # preview. Production requires the WorkOS AuthKit vars below.
+      - REQUIRE_AUTH=${REQUIRE_AUTH:-true}
       - APP_ENV=${APP_ENV:-production}
       - BACKEND_URL=http://aiq-agent:8000
-      - GRID_APP_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
+      # Least-privilege runtime role: DML only, subject to row-level security
+      # (ADR-0041). The container's CMD synchronises this role's login from
+      # this very URL before starting, so there is one source of truth.
+      - GRID_APP_DATABASE_URL=postgresql://grid_app_rw:${SERVICE_PASSWORD_GRIDRUNTIME}@postgres:5432/grid_app
+      # No GRID_APP_MIGRATION_DATABASE_URL here, deliberately: the owner
+      # credential belongs to `grid-migrate` above and nowhere else.
       - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
+      # S1 security default: agent org-wide memory writes are OFF unless explicitly
+      # enabled here (see app/api/internal/memory/route.ts). Leave false in production.
+      - GRID_ALLOW_AGENT_ORG_MEMORY=${GRID_ALLOW_AGENT_ORG_MEMORY:-false}
+      # Admin token for the backend's /v1/admin/oib/* endpoints (must match the
+      # aiq-agent value). Powers the platform-owner base-knowledge management UI.
+      - GRID_ADMIN_TOKEN=${GRID_ADMIN_TOKEN:?set GRID_ADMIN_TOKEN}
       # WorkOS AuthKit — only consumed when REQUIRE_AUTH=true. Safe to leave the
       # keys empty for an unauthenticated preview.
       - WORKOS_CLIENT_ID=${WORKOS_CLIENT_ID:-}
@@ -191,31 +430,67 @@ services:
       - NEXT_PUBLIC_WORKOS_REDIRECT_URI=https://${SERVICE_FQDN_FRONTEND}/api/auth/callback
       - WORKOS_REDIRECT_URI=https://${SERVICE_FQDN_FRONTEND}/api/auth/callback
       - WORKOS_COOKIE_PASSWORD=${WORKOS_COOKIE_PASSWORD:-}
+      # BYOK LLM credentials (ADR-0022): secret backend for tenant API keys.
+      - GRID_BYOK_SECRET_BACKEND=${GRID_BYOK_SECRET_BACKEND:-}
+      - GRID_BYOK_LOCAL_KEK=${GRID_BYOK_LOCAL_KEK:-}
+      - GRID_BYOK_ALLOW_PRIVATE_BASE_URLS=${GRID_BYOK_ALLOW_PRIVATE_BASE_URLS:-false}
       - FILE_UPLOAD_ACCEPTED_TYPES=${FILE_UPLOAD_ACCEPTED_TYPES:-.pdf,.docx,.txt,.md}
       - FILE_UPLOAD_MAX_SIZE_MB=${FILE_UPLOAD_MAX_SIZE_MB:-100}
       - FILE_UPLOAD_MAX_FILE_COUNT=${FILE_UPLOAD_MAX_FILE_COUNT:-10}
       - FILE_EXPIRATION_CHECK_INTERVAL_HOURS=${FILE_EXPIRATION_CHECK_INTERVAL_HOURS:-0}
       # Internal (server-side uploads) vs public (browser presigned URLs).
-      - MINIO_ENDPOINT=http://minio:9000
-      - MINIO_PUBLIC_ENDPOINT=https://${SERVICE_FQDN_MINIO}
-      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_SECRET_KEY=${SERVICE_PASSWORD_MINIO}
-      - MINIO_BUCKET=grid-documents
-      - MINIO_PRESIGNED_URL_TTL_SECONDS=600
+      - SEAWEED_ENDPOINT=http://seaweedfs:8333
+      - SEAWEED_PUBLIC_ENDPOINT=https://${SERVICE_FQDN_SEAWEEDFS}
+      - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDFS}
+      - SEAWEED_BUCKET=grid-documents
+      # Per-organization buckets (ADR-0043). Off by default; the bucket each
+      # document lives in is recorded on its row, so this can be turned on later
+      # without moving anything.
+      - SEAWEED_PER_ORG_BUCKETS=${SEAWEED_PER_ORG_BUCKETS:-false}
+      - SEAWEED_TENANT_BUCKET_PREFIX=${SEAWEED_TENANT_BUCKET_PREFIX:-grid-org-}
+      - SEAWEED_TENANT_ADMIN_ACCESS_KEY=${SEAWEED_TENANT_ADMIN_ACCESS_KEY:-grid-tenant-admin}
+      - SEAWEED_TENANT_ADMIN_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDTENANT}
+      - SEAWEED_PRESIGNED_URL_TTL_SECONDS=600
       - PROJECT_PURGE_GRACE_DAYS=${PROJECT_PURGE_GRACE_DAYS:-7}
       # OpenRouter model catalog for the org model-config picker/validation.
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY}
       # Euros per 1 USD for comparing EUR budget limits against USD costs.
       - GRID_BUDGET_EUR_PER_USD=${GRID_BUDGET_EUR_PER_USD:-0.86}
+      # Platform tier (ADR-0016): break-glass owner bootstrap, platform-org
+      # external id override, and the self-serve org creation gate.
+      - GRID_PLATFORM_OWNER_EMAILS=${GRID_PLATFORM_OWNER_EMAILS:-}
+      - GRID_PLATFORM_ORG_EXTERNAL_ID=${GRID_PLATFORM_ORG_EXTERNAL_ID:-grid-platform}
+      - GRID_DISABLE_SELF_SERVE_ORGS=${GRID_DISABLE_SELF_SERVE_ORGS:-false}
+      # ── Shared cache (Dragonfly, ADR-0020) ──
+      - REDIS_URL=redis://dragonfly:6379/0
+      - GRID_WS_UPGRADE_RATE_LIMIT=${GRID_WS_UPGRADE_RATE_LIMIT:-30}
+      # ── Agent Skills (ADR-0046): dark-launch gate + save-time cron validation ──
+      - GRID_SKILLS_ENABLED=${GRID_SKILLS_ENABLED:-false}
+      - GRID_SKILL_MIN_INTERVAL_MINUTES=${GRID_SKILL_MIN_INTERVAL_MINUTES:-15}
+      # ── Collaboration (ADR-0032…0035): shared chats, @-mentions, the inbox ──
+      # Dark-launch gate, default-deny: with it off the inbox nav entry, the
+      # share surfaces and the mention picker do not exist and the
+      # /api/inbox|sharing|mentions|stream routes 403.
+      - GRID_COLLABORATION_ENABLED=${GRID_COLLABORATION_ENABLED:-false}
+      # IFC/BIM models (ADR-0045). ON by default; set false to withdraw the
+      # feature without turning on flag enforcement for everything else.
+      - GRID_IFC_MODELS_ENABLED=${GRID_IFC_MODELS_ENABLED:-true}
+      # Extraction bounds. BIM_MAX_IFC_BYTES is also the UPLOAD ceiling for a
+      # .ifc — the two must not disagree. Defaults: 250 MB / 200 000 rows.
+      - BIM_MAX_IFC_BYTES=${BIM_MAX_IFC_BYTES:-}
+      - BIM_ELEMENT_LIMIT=${BIM_ELEMENT_LIMIT:-}
     expose:
       - "3000"
-    networks:
-      - aiq-network
     depends_on:
+      grid-migrate:
+        condition: service_completed_successfully
       aiq-agent:
         condition: service_healthy
-      minio:
+      seaweedfs:
         condition: service_healthy
+      seaweedfs-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     # Liveness for Coolify/Traefik. Hits the dependency-free /api/healthz (not
@@ -236,26 +511,102 @@ services:
       dockerfile: deploy/Dockerfile
     command: ["node", "purger/index.js"]
     environment:
-      - GRID_APP_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
+      # Least-privilege runtime role (ADR-0041). This worker spans tenants, so
+      # it steps up to grid_app_platform per transaction.
+      - GRID_APP_DATABASE_URL=postgresql://grid_app_rw:${SERVICE_PASSWORD_GRIDRUNTIME}@postgres:5432/grid_app
       - BACKEND_URL=http://aiq-agent:8000
       - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
-      - MINIO_ENDPOINT=http://minio:9000
-      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_SECRET_KEY=${SERVICE_PASSWORD_MINIO}
-      - MINIO_BUCKET=grid-documents
+      - SEAWEED_ENDPOINT=http://seaweedfs:8333
+      - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
+      - SEAWEED_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDFS}
+      - SEAWEED_BUCKET=grid-documents
+      # No per-organization bucket variables here on purpose: the purge reads
+      # the buckets its documents recorded rather than deriving them, so it
+      # needs neither the naming rule nor the feature flag (ADR-0043).
       - WORKOS_API_KEY=${WORKOS_API_KEY:-}
       - PURGER_POLL_INTERVAL_MS=${PURGER_POLL_INTERVAL_MS:-60000}
-    networks:
-      - aiq-network
     depends_on:
+      # Reaches Postgres directly rather than through the frontend, so it needs
+      # the migration to have finished on its own account.
+      grid-migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
-      minio:
+      seaweedfs:
         condition: service_healthy
+      seaweedfs-init:
+        condition: service_completed_successfully
       aiq-agent:
         condition: service_healthy
     restart: unless-stopped
 
+  skill-scheduler:
+    # Agent Skills cron scheduler (ADR-0046) — dedicated worker off the frontend
+    # image (like the purger). DB-claimed ticks advance each due workflow's
+    # next_run_at, then POST the BFF internal fire endpoint. No-ops and exits 0
+    # unless the workflows feature gate is on.
+    build:
+      context: ./frontends/ui
+      dockerfile: deploy/Dockerfile
+    command: ["node", "scheduler/index.js"]
+    environment:
+      # Least-privilege runtime role (ADR-0041). This worker spans tenants, so
+      # it steps up to grid_app_platform per transaction.
+      - GRID_APP_DATABASE_URL=postgresql://grid_app_rw:${SERVICE_PASSWORD_GRIDRUNTIME}@postgres:5432/grid_app
+      - FRONTEND_INTERNAL_URL=http://frontend:3000
+      - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
+      - GRID_SKILLS_ENABLED=${GRID_SKILLS_ENABLED:-false}
+      - GRID_ENFORCE_FEATURE_FLAGS=${GRID_ENFORCE_FEATURE_FLAGS:-false}
+      - GRID_SKILL_SCHEDULER_POLL_MS=${GRID_SKILL_SCHEDULER_POLL_MS:-30000}
+      - GRID_SKILL_SCHEDULER_BATCH=${GRID_SKILL_SCHEDULER_BATCH:-20}
+      - GRID_SKILL_RUNS_RETENTION_DAYS=${GRID_SKILL_RUNS_RETENTION_DAYS:-90}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # WARNING: do NOT add a `ports:` mapping to this internal service. Coolify
+  # binds the published host port on the server regardless of Traefik routing,
+  # which would expose the cache (6379) publicly. In-cluster access only.
+  dragonfly:
+    # Redis-protocol shared cache (ADR-0020). Cache semantics only: every
+    # value is reconstructible, so no persistence volume — cache_mode evicts
+    # under memory pressure instead of failing writes.
+    # --force_epoll: Dragonfly defaults to io_uring and CRASHES on boot where
+    # the kernel/seccomp denies it (common on VPS/managed Docker hosts);
+    # epoll is universally available and far above our throughput needs.
+    # --proactor_threads=1: Dragonfly refuses to start unless maxmemory is at
+    # least 256MiB per thread, so 2 threads would need a 512MiB cap. One
+    # thread keeps the 256MiB footprint and is ample for a small cache.
+    image: dragonflydb/dragonfly:v1.27.1
+    command:
+      [
+        "dragonfly",
+        "--logtostderr",
+        "--force_epoll",
+        "--proactor_threads=1",
+        "--maxmemory=256mb",
+        "--cache_mode=true",
+        "--dbfilename=",
+      ]
+    ulimits:
+      memlock: -1
+    # Observability only — nothing depends_on this being healthy: both app
+    # tiers fail open to in-process caches (ADR-0020), so a broken cache must
+    # never block a deployment.
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -p 6379 ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # WARNING: do NOT add a `ports:` mapping to this internal service. Coolify
+  # binds the published host port on the server regardless of Traefik routing,
+  # which would expose Postgres (5432) publicly. In-cluster access only.
   postgres:
     # Custom image bakes in init-db.sql (creates aiq_checkpoints + grid_app on
     # first boot). Not a bind mount: Coolify pre-creates bind-mount sources as
@@ -271,8 +622,6 @@ services:
       - "5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    networks:
-      - aiq-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aiq -d aiq_jobs && pg_isready -U aiq -d aiq_checkpoints && pg_isready -U aiq -d grid_app"]
       interval: 5s
@@ -284,13 +633,30 @@ services:
 volumes:
   aiq-data:
     driver: local
+  # The vector store. Written originally by the embedded chromadb 1.5.9
+  # PersistentClient (aiq-agent, /app/data/chroma_data) and now ALSO served by
+  # the `chroma` 1.5.9 server (mounted at /data) — same version, same on-disk
+  # format, so the existing corpus is reused with no re-embedding.
   chroma_data:
     driver: local
-  minio-data:
+  seaweedfs-data:
     driver: local
   postgres-data:
     driver: local
 
-networks:
-  aiq-network:
-    driver: bridge
+# NOTE: intentionally NO top-level `networks:` block. Coolify auto-creates one
+# managed bridge network per compose stack (named after the resource UUID) and
+# attaches every service to it, so service-name DNS (aiq-agent, frontend,
+# postgres, seaweedfs, dragonfly, …) already works across the stack. Declaring a
+# custom network here would make each container DUAL-HOMED — attached to BOTH
+# the custom bridge and Coolify's managed network. Coolify's Traefik proxy sits
+# only on the managed network and then non-deterministically picks which of a
+# container's two IPs to route to; when it picks the custom-network IP it cannot
+# reach the container, so requests hang and surface as intermittent 504s.
+# Dual-homed containers also get two resolver entries, which is the source of the
+# sporadic "Temporary failure in name resolution" seen at startup. Removing the
+# custom network makes every container single-homed on the managed network and
+# fixes both symptoms. See docs/deployment/coolify.md §"Networking".
+#
+# To reach a service in ANOTHER Coolify stack (e.g. an external DB), do NOT add a
+# custom network — enable "Connect To Predefined Network" on the resource instead.

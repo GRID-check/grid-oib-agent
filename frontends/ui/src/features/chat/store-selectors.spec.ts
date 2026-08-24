@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Tests for chat store session busy selectors
  */
 
@@ -434,7 +437,7 @@ describe('ChatStore - Session Busy Selectors', () => {
           parentId: 'msg-1',
           inputType: 'approval',
           text: 'Do you approve this research plan?',
-        } as any,
+        },
       })
 
       const { hasAnyBusySession } = useChatStore.getState()

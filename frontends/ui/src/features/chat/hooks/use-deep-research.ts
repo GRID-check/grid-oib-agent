@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { useTranslations } from '@/i18n'
 import {
   createDeepResearchClient,
   cancelJob,
@@ -21,9 +22,10 @@ import {
 import { useChatStore } from '../store'
 import { useAuth } from '@/adapters/auth'
 import { useLayoutStore } from '@/features/layout/store'
-import { checkBackendHealthCached } from '@/shared/hooks/use-backend-health'
-import { isLikelyAuthRelatedTransportError, isDeepResearchReplayCompleteMode } from '../lib/transport-auth-signals'
+import { isDeepResearchReplayCompleteMode } from '../lib/transport-auth-signals'
 import { normalizeDeepResearchTodos } from '../lib/deep-research-todos'
+import { dedupeBufferedCitations } from '../lib/wire-citation'
+import type { WireCitationSource } from '../types'
 
 /** Timeout in milliseconds before showing a warning (60 seconds) */
 const TIMEOUT_WARNING_MS = 60000
@@ -72,11 +74,14 @@ interface UseDeepResearchReturn {
 export const useDeepResearch = (): UseDeepResearchReturn => {
   // Refs for SSE client lifecycle
   const clientRef = useRef<DeepResearchClient | null>(null)
-  const connectRef = useRef<((jobId: string, bufferReplay?: boolean) => void) | null>(null)
+  const connectRef = useRef<((jobId: string, bufferReplay?: boolean, lastEventId?: string) => void) | null>(null)
+  // Handle to the current connection's replay buffer so every teardown path
+  // can deactivate it — otherwise its 30s safety timer could later flush a
+  // stale partial snapshot over newer state.
+  const replayBufferRef = useRef<{ deactivate: () => void; isActive: () => boolean } | null>(null)
   const lastEventTimeRef = useRef<number>(Date.now())
   const timeoutIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const cancelFallbackRef = useRef<NodeJS.Timeout | null>(null)
-  const researchStartTimeRef = useRef<number | null>(null)
 
 
   // State for timeout warning
@@ -84,7 +89,9 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
 
   // Auth token for authenticated requests
   // Note: idToken is used for backend auth, not accessToken
-  const { idToken, authRequired, error: authError } = useAuth()
+  const { idToken } = useAuth()
+
+  const tChat = useTranslations('chat')
 
   // Chat store — reactive state only
   const { deepResearchJobId, isDeepResearchStreaming, deepResearchStatus } =
@@ -118,18 +125,28 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
   const patchConversationMessage = useChatStore((s) => s.patchConversationMessage)
   const addDeepResearchBanner = useChatStore((s) => s.addDeepResearchBanner)
   const setStreamLoaded = useChatStore((s) => s.setStreamLoaded)
+  const setDeepResearchStalled = useChatStore((s) => s.setDeepResearchStalled)
+  const setDeepResearchConnectionLost = useChatStore((s) => s.setDeepResearchConnectionLost)
+  const setReconnectDeepResearchFn = useChatStore((s) => s.setReconnectDeepResearchFn)
 
   /**
    * Check if the current session owns the active deep research stream.
    * This prevents SSE events from mutating the wrong session.
+   *
+   * A run with no owning conversation is an *attached* run (a workflow run or
+   * a run opened from the history — `attachToDeepResearchJob`). It belongs to
+   * the research panel rather than to a thread, so the job-id match is the
+   * whole guard there; there is no session it could leak into.
    */
   const isOwnerActive = useCallback((expectedJobId?: string): boolean => {
     const state = useChatStore.getState()
+    const ownerConversationId = state.deepResearchOwnerConversationId
     return Boolean(
       state.isDeepResearchStreaming &&
         (!expectedJobId || state.deepResearchJobId === expectedJobId) &&
-        state.deepResearchOwnerConversationId &&
-        state.currentConversation?.id === state.deepResearchOwnerConversationId
+        (ownerConversationId
+          ? state.currentConversation?.id === ownerConversationId
+          : true)
     )
   }, [])
 
@@ -140,6 +157,11 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
   // Ref to track active thinking step IDs by name
   const activeStepIdsRef = useRef<Map<string, string>>(new Map())
 
+  // Per-name stacks of in-flight tool calls (live mode). Concurrent same-name
+  // tools (two sub-agents both running web_search) must not overwrite each
+  // other, so ends pop the most recent start — mirroring the buffered path.
+  const activeToolCallStacksRef = useRef<Map<string, Array<{ thinkingStepId?: string; toolCallId: string }>>>(new Map())
+
   /**
    * Reset the timeout tracker - called when we receive any live event.
    */
@@ -147,28 +169,6 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
     lastEventTimeRef.current = Date.now()
     setIsTimedOut(false)
   }, [])
-
-  /**
-   * Classify a deep research stream failure as auth-related or generic.
-   * Used when the backend is healthy but the SSE stream errored,
-   * which typically means the auth cookie or token drifted.
-   */
-  const getDeepResearchStreamFailure = useCallback(
-    (message: string, details?: string): { code: string; message: string; details?: string } => {
-      if (!authRequired) {
-        return { code: 'connection.failed', message, details }
-      }
-      if (authError === 'RefreshAccessTokenError' || isLikelyAuthRelatedTransportError(message)) {
-        return {
-          code: 'auth.session_expired',
-          message: 'Your session has expired. Please sign in again to continue.',
-          details,
-        }
-      }
-      return { code: 'connection.failed', message, details }
-    },
-    [authRequired, authError]
-  )
 
   /**
    * Create and connect to the SSE stream
@@ -182,14 +182,22 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
    * 2. Live phase: subsequent events go straight to individual store actions (fine for low volume).
    */
   const connect = useCallback(
-    (jobId: string, bufferReplay = false) => {
+    (jobId: string, bufferReplay = false, lastEventId?: string) => {
       if (clientRef.current) {
         clientRef.current.disconnect()
         clientRef.current = null
       }
+      // Deactivate the previous connection's replay buffer so its stale 30s
+      // safety timer cannot fire later and clobber this connection's state.
+      replayBufferRef.current?.deactivate()
+      replayBufferRef.current = null
 
       activeStepIdsRef.current.clear()
+      activeToolCallStacksRef.current.clear()
       resetTimeout()
+      // Any (re)connect attempt clears the "connection lost" recovery state; if the
+      // stream fails again onError will set it back.
+      setDeepResearchConnectionLost(false)
 
       // ---------- inline buffer for replay phase ----------
       // bufferReplay=true on page-refresh reconnect: buffer ALL replayed events
@@ -209,7 +217,9 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
         llmSteps: new Map<string, { name: string; workflow?: string; content: string; thinking?: string; usage?: { input_tokens: number; output_tokens: number } }>(),
         toolCalls: new Map<string, { name: string; input?: Record<string, unknown>; output?: string; workflow?: string; agentId?: string }>(),
         todos: null as TodoItem[] | null,
-        citations: [] as Array<{ url: string; content: string; isCited: boolean }>,
+        // Buffered as the raw wire so the flush below normalizes exactly once,
+        // through the same `citationFromWire` the live path uses.
+        citations: [] as Array<{ wire: WireCitationSource; isCited: boolean }>,
         files: new Map<string, string>(),
         reportContent: null as string | null,
         reportCards: null as unknown[] | null,
@@ -222,6 +232,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
         buf.active = false
         if (buf.timer) { clearTimeout(buf.timer); buf.timer = null }
       }
+      replayBufferRef.current = { deactivate: deactivateBuffer, isActive: () => buf.active }
 
       /** Flush buffer to store in one setState, deactivate buffer, switch to live. */
       const flushBuffer = (): boolean => {
@@ -236,7 +247,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
         const agents = Array.from(buf.agents.entries()).map(([id, a]) => ({ id, name: a.name, input: a.input, output: a.output, status: 'complete' as const, startedAt: now, completedAt: now }))
         const llmSteps = Array.from(buf.llmSteps.entries()).map(([id, s]) => ({ id, name: s.name, workflow: s.workflow, content: s.content, thinking: s.thinking, usage: s.usage, isComplete: true, timestamp: now }))
         const toolCalls = Array.from(buf.toolCalls.entries()).map(([id, t]) => ({ id, name: t.name, input: t.input, output: t.output, workflow: t.workflow, agentId: t.agentId, status: 'complete' as const, timestamp: now }))
-        const citations = buf.citations.map((c, i) => ({ id: `citation-${i}`, url: c.url, content: c.content, isCited: c.isCited, timestamp: now }))
+        const citations = dedupeBufferedCitations(buf.citations, now)
         const files = Array.from(buf.files.entries()).map(([filename, content], i) => ({ id: `file-${i}`, filename, content, timestamp: now }))
         const todos = buf.todos ? normalizeDeepResearchTodos(buf.todos) : undefined
 
@@ -268,10 +279,8 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
           }
         }
         for (const [name, stack] of buf.activeToolStacks) {
-          const lastId = stack[stack.length - 1]
-          if (lastId) {
-            activeStepIdsRef.current.set(`tool:${name}`, lastId)
-            activeStepIdsRef.current.set(`toolCall:${name}`, lastId)
+          if (stack.length > 0) {
+            activeToolCallStacksRef.current.set(name, stack.map((toolCallId) => ({ toolCallId })))
           }
         }
         return true
@@ -285,13 +294,13 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
       // Create SSE client — callbacks check buf.active to decide buffer vs real-time
       const client = createDeepResearchClient({
         jobId,
+        lastEventId,
         authToken: idToken || undefined,
         callbacks: {
           onStreamStart: () => {
             if (buf.active) return
             if (!isActiveJob()) return
             resetTimeout()
-            researchStartTimeRef.current = Date.now()
             setCurrentStatus('researching')
           },
 
@@ -317,6 +326,11 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
             const state = useChatStore.getState()
             const ownerConvId = state.deepResearchOwnerConversationId
             const messageId = state.activeDeepResearchMessageId
+            // An attached run (no owning conversation — a workflow run opened
+            // from the run history) has no thread to write into. Its banner
+            // and error card would land in whatever conversation happens to be
+            // open, so the outcome is left to the research panel instead.
+            const isAttachedRun = !ownerConvId
 
             if (status === 'success') {
               setCurrentStatus('complete')
@@ -333,8 +347,9 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
                   showViewReport: hasReport,
                 })
               }
-              addDeepResearchBanner('success', jobId, ownerConvId || undefined, { totalTokens, toolCallCount })
-              researchStartTimeRef.current = null
+              if (!isAttachedRun) {
+                addDeepResearchBanner('success', jobId, ownerConvId, { totalTokens, toolCallCount })
+              }
               stopAllDeepResearchSpinners(true)
               setStreamLoaded(true)
               completeDeepResearch()
@@ -353,18 +368,28 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
                   showViewReport: hasReport,
                 })
               }
-              addDeepResearchBanner(isUserCancelled ? 'cancelled' : 'failure', jobId, ownerConvId || undefined)
-              researchStartTimeRef.current = null
+              if (!isAttachedRun) {
+                addDeepResearchBanner(isUserCancelled ? 'cancelled' : 'failure', jobId, ownerConvId)
+              }
               clientRef.current?.disconnect()
               setStreamLoaded(true)
               completeDeepResearch()
               setStreaming(false)
-              if (error && !isUserCancelled) {
+              // Error cards are thread artifacts too: an attached run has no
+              // thread, and the research panel's outcome notice carries its
+              // failure instead.
+              if (!isAttachedRun && error && !isUserCancelled) {
+                // The failure banner above carries the user-facing outcome and
+                // its View-report/Thinking affordances; the error card adds the
+                // technical context. No explicit message: ErrorBanner localizes
+                // the registry default via messageKey, while the raw backend
+                // string stays collapsed behind the details toggle instead of
+                // being shown as the headline.
                 const { addErrorCard } = useChatStore.getState()
-                addErrorCard('agent.deep_research_failed', error)
-              } else if (status === 'interrupted' && !isUserCancelled) {
+                addErrorCard('agent.deep_research_failed', undefined, error)
+              } else if (!isAttachedRun && status === 'interrupted' && !isUserCancelled) {
                 const { addErrorCard } = useChatStore.getState()
-                addErrorCard('agent.deep_research_failed', 'Research was interrupted before completion.')
+                addErrorCard('agent.deep_research_failed', tChat('deepResearchErrors.interrupted'))
               }
             }
           },
@@ -451,26 +476,43 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
             if (!isActiveJob()) return
             resetTimeout(); setCurrentStatus('searching')
             const hasUserMsg = Boolean(useChatStore.getState().currentUserMessageId)
+            let thinkingStepId: string | undefined
             if (hasUserMsg) {
               const inputText = input ? ('_raw' in input && typeof input._raw === 'string' ? input._raw : JSON.stringify(input, null, 2)) : null
-              const stepId = addThinkingStep({ category: 'tools', functionName: name, displayName: name, content: inputText ? `Input: ${inputText}\n` : 'Executing...\n', isComplete: false, isDeepResearch: true })
-              activeStepIdsRef.current.set(`tool:${name}`, stepId)
+              thinkingStepId = addThinkingStep({ category: 'tools', functionName: name, displayName: name, content: inputText ? `Input: ${inputText}\n` : 'Executing...\n', isComplete: false, isDeepResearch: true })
             }
             const toolCallId = addDeepResearchToolCall({ name, input, workflow, agentId })
-            activeStepIdsRef.current.set(`toolCall:${name}`, toolCallId)
+            let stack = activeToolCallStacksRef.current.get(name)
+            if (!stack) { stack = []; activeToolCallStacksRef.current.set(name, stack) }
+            stack.push({ thinkingStepId, toolCallId })
           },
 
           onToolEnd: (name, output) => {
             if (name === 'task') return
             if (buf.active) {
-              const stack = buf.activeToolStacks.get(name); const id = stack?.pop(); if (id) { const t = buf.toolCalls.get(id); if (t) t.output = output ? JSON.stringify(output) : undefined }; return
+              const stack = buf.activeToolStacks.get(name); const id = stack?.pop(); if (id) { const t = buf.toolCalls.get(id); if (t) t.output = output ? (typeof output === 'string' ? output : JSON.stringify(output)) : undefined }; return
             }
             if (!isActiveJob()) return
-            const stepId = activeStepIdsRef.current.get(`tool:${name}`)
-            if (stepId) { if (output) { const truncated = output.length > 500 ? output.substring(0, 500) + '...' : output; appendToThinkingStep(stepId, `\nOutput: ${truncated}`) }; completeThinkingStep(stepId); activeStepIdsRef.current.delete(`tool:${name}`) }
-            const toolCallId = activeStepIdsRef.current.get(`toolCall:${name}`)
-            if (toolCallId) { completeDeepResearchToolCall(toolCallId, output); activeStepIdsRef.current.delete(`toolCall:${name}`) }
+            const entry = activeToolCallStacksRef.current.get(name)?.pop()
+            if (entry?.thinkingStepId) {
+              if (output) { const truncated = output.length > 500 ? output.substring(0, 500) + '...' : output; appendToThinkingStep(entry.thinkingStepId, `\nOutput: ${truncated}`) }
+              completeThinkingStep(entry.thinkingStepId)
+            }
+            if (entry) { completeDeepResearchToolCall(entry.toolCallId, output) }
             setCurrentStatus('researching')
+          },
+
+          onPhase: (phase) => {
+            // Coarse backend phase transitions drive the status pill directly, so
+            // the UI reflects progress even before any tool/artifact event lands.
+            if (buf.active) return
+            if (!isActiveJob()) return
+            resetTimeout()
+            if (phase === 'planning_started') setCurrentStatus('planning')
+            else if (phase === 'research_started') setCurrentStatus('researching')
+            else if (phase === 'writing_started' || phase === 'citation_verification_started') {
+              setCurrentStatus('writing')
+            }
           },
 
           onTodoUpdate: (todos: TodoItem[], workflow?: string) => {
@@ -483,10 +525,13 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
 
           },
 
-          onCitationUpdate: (url, content, isCited) => {
-            if (buf.active) { buf.citations.push({ url, content, isCited: isCited ?? false }); return }
+          onCitationUpdate: (wire, isCited) => {
+            if (buf.active) {
+              buf.citations.push({ wire, isCited })
+              return
+            }
             if (!isActiveJob()) return
-            resetTimeout(); addDeepResearchCitation(url, content, isCited)
+            resetTimeout(); addDeepResearchCitation(wire, isCited)
           },
 
           onFileUpdate: (filename, content) => {
@@ -520,47 +565,22 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
             if (buf.active) flushBuffer()
           },
 
-          onError: async (error) => {
+          onError: (error) => {
             console.warn('Deep research SSE error:', error.message)
             if (buf.active) flushBuffer()
             if (!isActiveJob()) return
             const { isDeepResearchStreaming, deepResearchStatus } = useChatStore.getState()
             if (isDeepResearchStreaming && deepResearchStatus !== 'interrupted' && deepResearchStatus !== 'failure') {
-              const backendUp = await checkBackendHealthCached()
-
-              const errorInfo = backendUp
-                ? getDeepResearchStreamFailure(error.message, error.stack)
-                : { code: 'agent.deep_research_failed' as const, message: error.message, details: error.stack }
-
-              console.error(
-                backendUp
-                  ? 'Deep research SSE failed while backend remained reachable:'
-                  : 'Deep research SSE failed (backend unreachable):',
-                error
-              )
-              setCurrentStatus('error')
-
-              const state = useChatStore.getState()
-              const ownerConvId = state.deepResearchOwnerConversationId
-              const messageId = state.activeDeepResearchMessageId
-              const hasReport = Boolean(state.reportContent?.trim())
-
-              if (ownerConvId && messageId) {
-                patchConversationMessage(ownerConvId, messageId, {
-                  content: '',
-                  deepResearchJobStatus: 'failure',
-                  isDeepResearchActive: false,
-                  showViewReport: hasReport,
-                })
-              }
-
-              state.addErrorCard(errorInfo.code as Parameters<typeof state.addErrorCard>[0], errorInfo.message, errorInfo.details)
-              addDeepResearchBanner('failure', jobId, ownerConvId || undefined)
-              stopAllDeepResearchSpinners()
+              // The SSE transport gave up after exhausting its reconnection retries.
+              // This is a lost CONNECTION, not a job failure — the backend job may
+              // still be running (and billing). Do NOT mark it failed/interrupted or
+              // tear down streaming state (that would disable Stop and pretend the job
+              // died). Surface a distinct "connection lost" state that keeps Stop
+              // enabled and offers Reconnect. Only onJobStatus — the server's own
+              // verdict — is allowed to mark the job failed/interrupted.
+              console.error('Deep research SSE connection lost while the job may still be running:', error)
               clientRef.current?.disconnect()
-              setStreamLoaded(true)
-              completeDeepResearch()
-              setStreaming(false)
+              setDeepResearchConnectionLost(true)
             }
           },
 
@@ -582,7 +602,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
       addDeepResearchToolCall, completeDeepResearchToolCall, addDeepResearchFile,
       setDeepResearchCards,
       patchConversationMessage, addDeepResearchBanner, setStreaming, setStreamLoaded,
-      getDeepResearchStreamFailure,
+      setDeepResearchConnectionLost, tChat,
     ]
   )
 
@@ -593,6 +613,10 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
    * Disconnect from the SSE stream
    */
   const disconnect = useCallback(() => {
+    // Deactivate any in-flight replay buffer so its stale 30s safety timer
+    // cannot flush a partial snapshot after this teardown.
+    replayBufferRef.current?.deactivate()
+    replayBufferRef.current = null
     if (clientRef.current) {
       clientRef.current.disconnect()
       clientRef.current = null
@@ -600,13 +624,29 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
   }, [])
 
   /**
-   * Reconnect to the SSE stream from the beginning
+   * Reconnect to the SSE stream.
+   *
+   * Used by the research panel's recovery notice for BOTH failure modes:
+   * - stalled: the EventSource is still "open" but silent, so we cannot rely on
+   *   isConnected() being false — connect() tears down the stale client and
+   *   rebuilds from scratch.
+   * - connection lost: onError already disconnected; connect() clears the flag.
+   *
+   * When the previous client tracked a last event id AND the store already
+   * holds the full history (no replay buffer still active), resume from that
+   * id: the backend's /stream/{last_event_id} endpoint replays only newer
+   * events, which append live to the existing state instead of replaying the
+   * whole job. Otherwise fall back to a full buffered replay.
    */
   const reconnect = useCallback(() => {
-    if (deepResearchJobId && !clientRef.current?.isConnected()) {
-      connectRef.current?.(deepResearchJobId, true)
-    }
-  }, [deepResearchJobId])
+    if (!deepResearchJobId) return
+    setDeepResearchStalled(false)
+    const bufferStillActive = replayBufferRef.current?.isActive() ?? false
+    const lastEventId = bufferStillActive
+      ? undefined
+      : clientRef.current?.getLastEventId() ?? undefined
+    connectRef.current?.(deepResearchJobId, !lastEventId, lastEventId)
+  }, [deepResearchJobId, setDeepResearchStalled])
 
   /**
    * Cancel the current job (useful for hung jobs)
@@ -646,7 +686,11 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
             showViewReport: hasReport,
           })
         }
-        addDeepResearchBanner('cancelled', cancelledJobId, ownerConvId || undefined)
+        // Attached runs (no owning conversation) get no thread banner — it
+        // would land in an unrelated conversation.
+        if (ownerConvId) {
+          addDeepResearchBanner('cancelled', cancelledJobId, ownerConvId)
+        }
         stopAllDeepResearchSpinners()
         clientRef.current?.disconnect()
         clientRef.current = null
@@ -688,7 +732,16 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
         // Fresh jobs (status 'submitted') use per-event store writes for live updates.
         // Reconnections (status 'running') buffer historical events then flush once
         // when the backend sends stream.mode: "live".
-        const isReconnect = useChatStore.getState().deepResearchStatus !== 'submitted'
+        // A remount can happen before the first 'running' status lands, so ALSO
+        // treat as a reconnect when the store already holds deep-research events
+        // for this job — replaying into live mode would append duplicates.
+        const stateAtConnect = useChatStore.getState()
+        const hasReplayedEvents =
+          stateAtConnect.deepResearchAgents.length > 0 ||
+          stateAtConnect.deepResearchLLMSteps.length > 0 ||
+          stateAtConnect.deepResearchToolCalls.length > 0 ||
+          stateAtConnect.deepResearchCitations.length > 0
+        const isReconnect = stateAtConnect.deepResearchStatus !== 'submitted' || hasReplayedEvents
         connectRef.current?.(effectJobId, isReconnect)
 
         setResearchPanelTab('tasks')
@@ -702,9 +755,6 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
           }
         }, TIMEOUT_CHECK_INTERVAL_MS)
       }, 50)
-
-      // Session persistence is now handled by debounced resetTimeout()
-      // (fires 2s after each event instead of fixed 10s interval)
     }
 
     return () => {
@@ -727,6 +777,18 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- connectRef avoids re-triggering on token refresh; store actions are stable refs
   }, [deepResearchJobId, isDeepResearchStreaming, disconnect, setResearchPanelTab, openRightPanel])
+
+  // Mirror the local stall flag into the store so panel components (TasksTab)
+  // that don't own this hook can render the recovery notice in context.
+  useEffect(() => {
+    setDeepResearchStalled(isTimedOut)
+  }, [isTimedOut, setDeepResearchStalled])
+
+  // Register reconnect so the research panel's recovery notice can trigger it.
+  useEffect(() => {
+    setReconnectDeepResearchFn(reconnect)
+    return () => setReconnectDeepResearchFn(null)
+  }, [reconnect, setReconnectDeepResearchFn])
 
   return {
     isStreaming: isDeepResearchStreaming,

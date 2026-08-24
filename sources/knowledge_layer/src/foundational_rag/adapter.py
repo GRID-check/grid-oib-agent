@@ -1,17 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """
 Foundational RAG adapter for NVIDIA RAG Blueprint endpoints.
 
@@ -134,12 +120,15 @@ def _create_session(timeout: int = DEFAULT_TIMEOUT, verify_ssl: bool = True) -> 
     # Disable SSL verification if requested (for self-signed certificates)
     session.verify = verify_ssl
 
-    # Configure retry strategy for resilience
+    # Configure retry strategy for resilience. POST is deliberately absent:
+    # POST /documents is not idempotent — a 502 after the ingestion task was
+    # already enqueued would silently re-submit the same documents and spawn
+    # concurrent duplicate ingestion tasks.
     retries = Retry(
         total=3,
         backoff_factor=0.5,
         status_forcelist=[500, 502, 503, 504],
-        allowed_methods=["HEAD", "GET", "POST", "PUT", "DELETE", "PATCH"],
+        allowed_methods=["HEAD", "GET", "PUT", "DELETE"],
     )
     adapter = HTTPAdapter(max_retries=retries)
     session.mount("http://", adapter)
@@ -217,7 +206,7 @@ def _extract_text(file_path: str, max_chars: int = SUMMARY_MAX_CHARS) -> str | N
     return None
 
 
-def _generate_file_summary(file_path: str, llm=None) -> str | None:
+def _generate_file_summary(file_path: str, llm=None, text: str | None = None) -> str | None:
     """
     Generate one-sentence summary from a local file.
 
@@ -227,6 +216,9 @@ def _generate_file_summary(file_path: str, llm=None) -> str | None:
     Args:
         file_path: Path to the file to summarize.
         llm: LangChain LLM object. Required - no default fallback.
+        text: Pre-extracted text. When provided, the caller has already run
+            ``_extract_text`` (so summary + tags share a single extraction);
+            when ``None`` the text is extracted here (backwards-compatible).
 
     Returns:
         One-sentence summary or None if unsupported format, no LLM, or generation fails.
@@ -237,19 +229,53 @@ def _generate_file_summary(file_path: str, llm=None) -> str | None:
     if Path(file_path).suffix.lower() not in SUMMARIZABLE_EXTENSIONS:
         return None
 
-    text = _extract_text(file_path)
+    if text is None:
+        text = _extract_text(file_path)
     if not text:
         return None
 
-    prompt = f"Summarize in ONE sentence:\n\n{text}"
+    # Prompt + call + parse are shared with the LlamaIndex backend so the two
+    # can never drift; only text extraction differs (client-side here).
+    from aiq_agent.knowledge.document_classification import summarize_document_text
 
-    try:
-        response = llm.invoke(prompt)
-        content = response.content if hasattr(response, "content") else str(response)
-        return content.strip()
-    except Exception as e:
-        logger.warning("Summary generation via LLM failed: %s", e)
+    return summarize_document_text(text, Path(file_path).name, llm)
+
+
+def _generate_file_tags(file_path: str, llm=None, text: str | None = None) -> list[str] | None:
+    """
+    Classify a local file into controlled German tags (document type + OIB
+    discipline).
+
+    Runs client-side in parallel with FRAG upload, mirroring
+    ``_generate_file_summary``: same supported formats, same client-side text
+    extraction, shared prompt/call/parse via the backend-agnostic
+    ``classify_document_tags``. Fully fail-open.
+
+    Args:
+        file_path: Path to the file to classify.
+        llm: LangChain LLM object. Required - no default fallback.
+        text: Pre-extracted text. When provided, the caller has already run
+            ``_extract_text`` (so summary + tags share a single extraction);
+            when ``None`` the text is extracted here (backwards-compatible).
+
+    Returns:
+        A validated list of tags, or ``None`` (unsupported format, no LLM,
+        no text, or classification failure).
+    """
+    if llm is None:
         return None
+
+    if Path(file_path).suffix.lower() not in SUMMARIZABLE_EXTENSIONS:
+        return None
+
+    if text is None:
+        text = _extract_text(file_path)
+    if not text:
+        return None
+
+    from aiq_agent.knowledge.document_classification import classify_document_tags
+
+    return classify_document_tags(text, Path(file_path).name, llm)
 
 
 @register_retriever("foundational_rag")
@@ -497,7 +523,14 @@ class FoundationalRagRetriever(BaseRetriever):
         # Extract page_number from multiple locations (FRAG puts it in metadata)
         page_number = result.get("page_number") or metadata.get("page_number") or content_metadata.get("page_number")
 
-        if page_number in (-1, 0, None):
+        # Coerce to a positive int or None: Chunk enforces ge=1, and a stray
+        # string/negative value would raise inside retrieve() and be swallowed
+        # upstream into "No relevant documents found".
+        try:
+            page_number = int(page_number) if page_number is not None else None
+        except (TypeError, ValueError):
+            page_number = None
+        if page_number is not None and page_number < 1:
             page_number = None
 
         # Generate chunk_id for citation tracking
@@ -528,7 +561,10 @@ class FoundationalRagRetriever(BaseRetriever):
         return Chunk(
             chunk_id=chunk_id,
             content=content if content else "",
-            score=float(score),
+            # Clamp: reranker relevance scores are logits (routinely negative)
+            # and vector scores can drift past [0, 1]; Chunk enforces the range
+            # and a ValidationError here silently empties the whole result set.
+            score=min(1.0, max(0.0, float(score))),
             file_name=display_name,
             page_number=page_number,
             display_citation=display_citation,
@@ -768,6 +804,11 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
                 return
             job.status = JobState.PROCESSING
             job.started_at = datetime.now()
+            # Stable snapshot: delete_files() may REPLACE job.file_details
+            # concurrently, which would break index alignment with file_paths
+            # (worst case IndexError killing this thread). The snapshot list
+            # stays index-consistent for the whole upload.
+            file_details = job.file_details
         config = config or {}
 
         # Original filenames for temp file uploads
@@ -775,11 +816,14 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
 
         task_ids = []
 
-        # Track summary futures for parallel generation
+        # Track summary + tag futures for parallel generation
         summary_futures: dict[int, tuple[str, Any]] = {}  # index -> (file_name, future)
+        tags_futures: dict[int, Any] = {}  # index -> future
+        extracted_texts: dict[int, str | None] = {}  # index -> pre-extracted text
         executor = None
         if self.generate_summary:
-            executor = ThreadPoolExecutor(max_workers=min(len(file_paths), 4))
+            # Two futures per file (summary + tags), so scale the pool up to 8.
+            executor = ThreadPoolExecutor(max_workers=min(len(file_paths) * 2, 8))
 
         # Pre-loop: update statuses and kick off summary generation
         file_handles = []
@@ -788,13 +832,20 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
             file_name = original_filenames[i] if i < len(original_filenames) else Path(file_path).name
             file_path_obj = Path(file_path)
 
-            job.file_details[i].status = FileStatus.INGESTING
+            with self._lock:
+                file_details[i].status = FileStatus.INGESTING
 
-            # Start client-side summary generation in parallel (if enabled)
+            # Start client-side summary + tag generation in parallel (if enabled)
             if self.generate_summary and file_path_obj.suffix.lower() in SUMMARIZABLE_EXTENSIONS:
-                logger.info("Starting client-side summary generation")
-                future = executor.submit(_generate_file_summary, file_path, self.summary_llm)
+                logger.info("Starting client-side summary + tag generation")
+                # Extract text ONCE and feed both futures (summary + tags),
+                # avoiding a redundant second extraction per file. The text is
+                # also retained for a deterministic fallback summary below.
+                extracted_text = _extract_text(file_path)
+                extracted_texts[i] = extracted_text
+                future = executor.submit(_generate_file_summary, file_path, self.summary_llm, extracted_text)
                 summary_futures[i] = (file_name, future)
+                tags_futures[i] = executor.submit(_generate_file_tags, file_path, self.summary_llm, extracted_text)
 
             # Open file handle for batch upload
             try:
@@ -802,10 +853,22 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
                 file_handles.append(fh)
                 files_payload.append(("documents", (file_name, fh, "application/octet-stream")))
             except Exception as e:
+                # Raising here would silently kill this background thread and
+                # leave the job stuck in PROCESSING forever — fail it instead.
                 logger.error(f"Failed to open file {file_path}: {e}")
                 for fh in file_handles:
                     fh.close()
-                raise
+                if executor:
+                    executor.shutdown(wait=False)
+                with self._lock:
+                    for fd in file_details:
+                        fd.status = FileStatus.FAILED
+                    file_details[i].error_message = str(e)
+                    job.processed_files = job.total_files
+                    job.status = JobState.FAILED
+                    job.error_message = f"Failed to open file for upload: {e}"
+                    job.completed_at = datetime.now()
+                return
 
         # Single batch upload - all files in one POST request
         # This matches the RAG UI behavior and prevents concurrent ingestion deadlocks
@@ -837,47 +900,79 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
             if task_id:
                 task_ids.append(task_id)
                 # Map single task_id to all file indices
-                job.metadata["task_to_file"] = {task_id: list(range(len(file_paths)))}
+                with self._lock:
+                    job.metadata["task_to_file"] = {task_id: list(range(len(file_paths)))}
 
             logger.info(f"Uploaded {len(file_paths)} file(s) to RAG server in batch, task_id: {task_id}")
 
         except Exception as e:
             logger.error(f"Batch upload failed: {e}")
-            for i in range(len(file_paths)):
-                job.file_details[i].status = FileStatus.FAILED
-                job.file_details[i].error_message = str(e)
-            job.processed_files = len(file_paths)
+            with self._lock:
+                for i in range(len(file_paths)):
+                    file_details[i].status = FileStatus.FAILED
+                    file_details[i].error_message = str(e)
+                job.processed_files = len(file_paths)
 
         finally:
             for fh in file_handles:
                 fh.close()
 
-        # Collect summaries from parallel generation and register them
+        # Collect summaries + tags from parallel generation and register them.
+        # Summary and tags are INDEPENDENT: the tags future is awaited regardless
+        # of the summary's outcome, otherwise a failed/timed-out summary would
+        # orphan the tags future (wasted LLM cost) and discard good tags. When the
+        # summary failed but tags succeeded, anchor the row with a deterministic
+        # fallback summary derived from the already-extracted text (the summary
+        # column is NOT NULL) so the tags still persist.
         if summary_futures:
             from aiq_agent.knowledge import register_summary
+            from aiq_agent.knowledge.document_classification import fallback_summary_from_text
 
             for idx, (file_name, future) in summary_futures.items():
+                summary = None
                 try:
                     summary = future.result(timeout=30)
-                    if summary:
-                        register_summary(collection_name, file_name, summary)
-                        logger.info(f"  Summary generated ({len(summary)} chars)")
                 except Exception as e:
                     logger.debug(f"Summary generation failed for {file_name}: {e}")
+
+                tags = None
+                tags_future = tags_futures.get(idx)
+                if tags_future is not None:
+                    try:
+                        tags = tags_future.result(timeout=30)
+                    except Exception as te:
+                        logger.debug(f"Tag classification failed for {file_name}: {te}")
+
+                if not summary and tags:
+                    summary = fallback_summary_from_text(extracted_texts.get(idx))
+
+                if summary:
+                    register_summary(collection_name, file_name, summary, tags=tags)
+                    # The folder the BFF filed this document in, carried on the
+                    # job config from POST /v1/ingest (ADR-0049). Parity with the
+                    # llamaindex adapter: the filing belongs to the document, not
+                    # to whichever backend happens to have indexed it.
+                    folder_path = (config.get("folder_path") or "").strip() or None
+                    if folder_path:
+                        from aiq_agent.knowledge import set_document_folder_path
+
+                        set_document_folder_path(collection_name, file_name, folder_path)
+                    logger.info(f"  Summary generated ({len(summary)} chars)")
 
         # Clean up executor
         if executor:
             executor.shutdown(wait=False)
 
         # Store task IDs for status polling
-        job.metadata["task_ids"] = task_ids
+        with self._lock:
+            job.metadata["task_ids"] = task_ids
 
-        # Check if all uploads failed immediately
-        failed_count = sum(1 for fd in job.file_details if fd.status == FileStatus.FAILED)
-        if failed_count == job.total_files:
-            job.status = JobState.FAILED
-            job.error_message = "File upload failed"
-            job.completed_at = datetime.now()
+            # Check if all uploads failed immediately
+            failed_count = sum(1 for fd in file_details if fd.status == FileStatus.FAILED)
+            if failed_count == job.total_files:
+                job.status = JobState.FAILED
+                job.error_message = "File upload failed"
+                job.completed_at = datetime.now()
         # Otherwise keep as PROCESSING - get_job_status will poll FRAG and update
 
     def get_job_status(self, job_id: str) -> IngestionJobStatus:
@@ -913,16 +1008,12 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
             task_ids = job.metadata.get("task_ids", [])
             task_to_file = job.metadata.get("task_to_file", {})
 
+            # Fetch every task status over HTTP first, WITHOUT holding the
+            # lock; the state mutations below then run under the lock so a
+            # concurrent delete_files replacing job.file_details (or another
+            # poller thread) can't race the read-modify-write sequences.
+            task_statuses: dict[str, dict] = {}
             for task_id in task_ids:
-                # Get file indices for this task (list for batch, int for legacy single-file)
-                file_idx_raw = task_to_file.get(task_id)
-                if isinstance(file_idx_raw, list):
-                    file_indices = file_idx_raw
-                elif file_idx_raw is not None:
-                    file_indices = [file_idx_raw]
-                else:
-                    file_indices = []
-
                 try:
                     response = self.session.get(
                         f"{self.rag_url}/status",
@@ -931,138 +1022,144 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
                         timeout=30,
                     )
                     if response.status_code == 200:
-                        status_data = response.json()
-                        state = status_data.get("state", "").lower()
-                        logger.debug(f"FRAG task {task_id[:8]} state={state}")
-
-                        if state in ("success", "completed", "finished"):
-                            result = status_data.get("result", {})
-                            failed_docs = result.get("failed_documents", [])
-                            failed_names: dict[str, str] = {}
-                            for fdoc in failed_docs:
-                                fname = fdoc.get("document_name", "")
-                                ferr = fdoc.get("error_message", "Ingestion failed")
-                                if fname:
-                                    failed_names[fname] = ferr
-
-                            if failed_names:
-                                logger.warning(
-                                    f"FRAG task {task_id[:8]} completed with "
-                                    f"{len(failed_names)} failed file(s): {list(failed_names.keys())}"
-                                )
-
-                            if file_indices:
-                                for idx in file_indices:
-                                    if (
-                                        idx < len(job.file_details)
-                                        and job.file_details[idx].status == FileStatus.INGESTING
-                                    ):
-                                        fd = job.file_details[idx]
-                                        # Check if this file appears in failed_documents
-                                        matched_error = next(
-                                            (err for fname, err in failed_names.items() if fname == fd.file_name),
-                                            None,
-                                        )
-                                        if matched_error:
-                                            fd.status = FileStatus.FAILED
-                                            fd.error_message = matched_error
-                                        else:
-                                            fd.status = FileStatus.SUCCESS
-                                succeeded = sum(
-                                    1
-                                    for i in file_indices
-                                    if i < len(job.file_details) and job.file_details[i].status == FileStatus.SUCCESS
-                                )
-                                failed = sum(
-                                    1
-                                    for i in file_indices
-                                    if i < len(job.file_details) and job.file_details[i].status == FileStatus.FAILED
-                                )
-                                logger.debug(f"Batch ingestion done: {succeeded} succeeded, {failed} failed")
-                            else:
-                                # Fallback: match by document name
-                                docs = result.get("documents", [])
-                                for doc in docs:
-                                    doc_name = doc.get("document_name", "")
-                                    for fd in job.file_details:
-                                        if doc_name == fd.file_name and fd.status == FileStatus.INGESTING:
-                                            fd.status = FileStatus.SUCCESS
-                                            logger.debug("File ingestion succeeded")
-                                for fname, ferr in failed_names.items():
-                                    for fd in job.file_details:
-                                        if fname == fd.file_name and fd.status == FileStatus.INGESTING:
-                                            fd.status = FileStatus.FAILED
-                                            fd.error_message = ferr
-                                            logger.warning(f"File ingestion failed: {ferr}")
-                        elif state == "failed":
-                            result = status_data.get("result", {})
-                            # Try multiple fields for error message
-                            # FRAG puts detailed errors in result.message
-                            error_msg = (
-                                status_data.get("error")
-                                or status_data.get("error_message")
-                                or status_data.get("message")
-                                or result.get("message")  # FRAG uses this field
-                                or result.get("error")
-                                or result.get("error_message")
-                                or "Unknown error"
-                            )
-                            failed_docs = result.get("failed_documents", [])
-                            logger.warning(f"FRAG task {task_id[:8]} failed: {error_msg}")
-
-                            # Mark all files in this batch task as failed
-                            if file_indices:
-                                for idx in file_indices:
-                                    if (
-                                        idx < len(job.file_details)
-                                        and job.file_details[idx].status == FileStatus.INGESTING
-                                    ):
-                                        job.file_details[idx].status = FileStatus.FAILED
-                                        job.file_details[idx].error_message = error_msg
-                            elif failed_docs:
-                                # Fallback: use failed_docs list
-                                for fdoc in failed_docs:
-                                    doc_name = fdoc.get("document_name", "")
-                                    doc_error = fdoc.get("error_message", error_msg)
-                                    for fd in job.file_details:
-                                        if doc_name == fd.file_name and fd.status == FileStatus.INGESTING:
-                                            fd.status = FileStatus.FAILED
-                                            fd.error_message = doc_error
-                                            logger.warning(f"File ingestion failed: {doc_error}")
-                        elif state in ("pending", "started", "processing", "running"):
-                            # Check per-document status for incremental progress
-                            # The RAG server provides nv_ingest_status.document_wise_status
-                            # which shows individual file completion before the batch finishes
-                            nv_status = status_data.get("nv_ingest_status", {})
-                            doc_statuses = nv_status.get("document_wise_status", {})
-                            if doc_statuses:
-                                for fd in job.file_details:
-                                    if fd.status == FileStatus.INGESTING:
-                                        doc_state = doc_statuses.get(fd.file_name, "")
-                                        if doc_state == "completed":
-                                            fd.status = FileStatus.SUCCESS
-                                            logger.debug(f"File {fd.file_name} completed (batch still processing)")
+                        task_statuses[task_id] = response.json()
                     else:
                         logger.warning(f"FRAG status check returned {response.status_code} for task {task_id[:8]}")
                 except Exception as e:
                     logger.warning(f"Failed to check FRAG task {task_id[:8]} status: {e}")
 
-            # After checking all tasks, update job completion status
-            success_count = sum(1 for fd in job.file_details if fd.status == FileStatus.SUCCESS)
-            failed_count = sum(1 for fd in job.file_details if fd.status == FileStatus.FAILED)
-            total_done = success_count + failed_count
+            with self._lock:
+                for task_id, status_data in task_statuses.items():
+                    # Get file indices for this task (list for batch, int for legacy single-file)
+                    file_idx_raw = task_to_file.get(task_id)
+                    if isinstance(file_idx_raw, list):
+                        file_indices = file_idx_raw
+                    elif file_idx_raw is not None:
+                        file_indices = [file_idx_raw]
+                    else:
+                        file_indices = []
 
-            if total_done == job.total_files:
-                # All files have terminal status
-                job.processed_files = total_done
-                if failed_count == job.total_files:
-                    job.status = JobState.FAILED
-                    job.error_message = "File ingestion failed"
-                else:
-                    job.status = JobState.COMPLETED
-                job.completed_at = datetime.now()
+                    state = status_data.get("state", "").lower()
+                    logger.debug(f"FRAG task {task_id[:8]} state={state}")
 
-                logger.info(f"Job {job_id[:8]} completed: {success_count} succeeded, {failed_count} failed")
+                    if state in ("success", "completed", "finished"):
+                        result = status_data.get("result", {})
+                        failed_docs = result.get("failed_documents", [])
+                        failed_names: dict[str, str] = {}
+                        for fdoc in failed_docs:
+                            fname = fdoc.get("document_name", "")
+                            ferr = fdoc.get("error_message", "Ingestion failed")
+                            if fname:
+                                failed_names[fname] = ferr
+
+                        if failed_names:
+                            logger.warning(
+                                f"FRAG task {task_id[:8]} completed with "
+                                f"{len(failed_names)} failed file(s): {list(failed_names.keys())}"
+                            )
+
+                        if file_indices:
+                            for idx in file_indices:
+                                if idx < len(job.file_details) and job.file_details[idx].status == FileStatus.INGESTING:
+                                    fd = job.file_details[idx]
+                                    # Check if this file appears in failed_documents
+                                    matched_error = next(
+                                        (err for fname, err in failed_names.items() if fname == fd.file_name),
+                                        None,
+                                    )
+                                    if matched_error:
+                                        fd.status = FileStatus.FAILED
+                                        fd.error_message = matched_error
+                                    else:
+                                        fd.status = FileStatus.SUCCESS
+                            succeeded = sum(
+                                1
+                                for i in file_indices
+                                if i < len(job.file_details) and job.file_details[i].status == FileStatus.SUCCESS
+                            )
+                            failed = sum(
+                                1
+                                for i in file_indices
+                                if i < len(job.file_details) and job.file_details[i].status == FileStatus.FAILED
+                            )
+                            logger.debug(f"Batch ingestion done: {succeeded} succeeded, {failed} failed")
+                        else:
+                            # Fallback: match by document name
+                            docs = result.get("documents", [])
+                            for doc in docs:
+                                doc_name = doc.get("document_name", "")
+                                for fd in job.file_details:
+                                    if doc_name == fd.file_name and fd.status == FileStatus.INGESTING:
+                                        fd.status = FileStatus.SUCCESS
+                                        logger.debug("File ingestion succeeded")
+                            for fname, ferr in failed_names.items():
+                                for fd in job.file_details:
+                                    if fname == fd.file_name and fd.status == FileStatus.INGESTING:
+                                        fd.status = FileStatus.FAILED
+                                        fd.error_message = ferr
+                                        logger.warning(f"File ingestion failed: {ferr}")
+                    elif state == "failed":
+                        result = status_data.get("result", {})
+                        # Try multiple fields for error message
+                        # FRAG puts detailed errors in result.message
+                        error_msg = (
+                            status_data.get("error")
+                            or status_data.get("error_message")
+                            or status_data.get("message")
+                            or result.get("message")  # FRAG uses this field
+                            or result.get("error")
+                            or result.get("error_message")
+                            or "Unknown error"
+                        )
+                        failed_docs = result.get("failed_documents", [])
+                        logger.warning(f"FRAG task {task_id[:8]} failed: {error_msg}")
+
+                        # Mark all files in this batch task as failed
+                        if file_indices:
+                            for idx in file_indices:
+                                if idx < len(job.file_details) and job.file_details[idx].status == FileStatus.INGESTING:
+                                    job.file_details[idx].status = FileStatus.FAILED
+                                    job.file_details[idx].error_message = error_msg
+                        elif failed_docs:
+                            # Fallback: use failed_docs list
+                            for fdoc in failed_docs:
+                                doc_name = fdoc.get("document_name", "")
+                                doc_error = fdoc.get("error_message", error_msg)
+                                for fd in job.file_details:
+                                    if doc_name == fd.file_name and fd.status == FileStatus.INGESTING:
+                                        fd.status = FileStatus.FAILED
+                                        fd.error_message = doc_error
+                                        logger.warning(f"File ingestion failed: {doc_error}")
+                    elif state in ("pending", "started", "processing", "running"):
+                        # Check per-document status for incremental progress
+                        # The RAG server provides nv_ingest_status.document_wise_status
+                        # which shows individual file completion before the batch finishes
+                        nv_status = status_data.get("nv_ingest_status", {})
+                        doc_statuses = nv_status.get("document_wise_status", {})
+                        if doc_statuses:
+                            for fd in job.file_details:
+                                if fd.status == FileStatus.INGESTING:
+                                    doc_state = doc_statuses.get(fd.file_name, "")
+                                    if doc_state == "completed":
+                                        fd.status = FileStatus.SUCCESS
+                                        logger.debug(f"File {fd.file_name} completed (batch still processing)")
+
+                # After checking all tasks, update job completion status
+                success_count = sum(1 for fd in job.file_details if fd.status == FileStatus.SUCCESS)
+                failed_count = sum(1 for fd in job.file_details if fd.status == FileStatus.FAILED)
+                total_done = success_count + failed_count
+
+                if total_done == job.total_files:
+                    # All files have terminal status
+                    job.processed_files = total_done
+                    if failed_count == job.total_files:
+                        job.status = JobState.FAILED
+                        job.error_message = "File ingestion failed"
+                    else:
+                        job.status = JobState.COMPLETED
+                    job.completed_at = datetime.now()
+
+                    logger.info(f"Job {job_id[:8]} completed: {success_count} succeeded, {failed_count} failed")
 
         return job
 
@@ -1299,13 +1396,19 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
             metadata=metadata or {},
         )
 
-        # Start client-side summary generation in background (parallel with upload)
+        # Start client-side summary + tag generation in background (parallel with upload)
         summary_future = None
+        tags_future = None
+        extracted_text = None
         executor = None
         if self.generate_summary and file_path_obj.suffix.lower() in SUMMARIZABLE_EXTENSIONS:
-            logger.info("Starting client-side summary generation for %s", file_path_obj.name)
-            executor = ThreadPoolExecutor(max_workers=1)
-            summary_future = executor.submit(_generate_file_summary, file_path, self.summary_llm)
+            logger.info("Starting client-side summary + tag generation for %s", file_path_obj.name)
+            executor = ThreadPoolExecutor(max_workers=2)
+            # Extract text ONCE and feed both futures (summary + tags); retained
+            # for a deterministic fallback summary below.
+            extracted_text = _extract_text(file_path)
+            summary_future = executor.submit(_generate_file_summary, file_path, self.summary_llm, extracted_text)
+            tags_future = executor.submit(_generate_file_tags, file_path, self.summary_llm, extracted_text)
 
         try:
             # Build the data payload
@@ -1350,25 +1453,49 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
             file_info.error_message = str(e)
             logger.error(f"Failed to upload file {file_path}: {e}")
 
-        # Wait for client-side summary (non-blocking during upload)
+        # Wait for client-side tags first (independent, fail-open) so they can
+        # ride along in the single summary upsert below.
+        tags = None
+        if tags_future:
+            try:
+                tags = tags_future.result(timeout=30)
+            except TimeoutError:
+                logger.warning("Tag classification timed out for %s", file_path_obj.name)
+            except Exception as e:
+                logger.warning("Tag classification failed for %s: %s", file_path_obj.name, e)
+
+        # Wait for client-side summary (non-blocking during upload). Independent
+        # of the tags outcome above.
+        summary = None
         if summary_future:
             try:
                 summary = summary_future.result(timeout=15)
-                file_info.metadata["summary"] = summary
-
-                # Register in centralized summary registry (backend-agnostic)
-                if summary:
-                    from aiq_agent.knowledge import register_summary
-
-                    register_summary(collection_name, file_info.file_name, summary)
-                    logger.info(f"  Summary generated ({len(summary)} chars)")
-
             except TimeoutError:
                 logger.warning("Summary generation timed out for %s", file_path_obj.name)
-                file_info.metadata["summary"] = None
             except Exception as e:
                 logger.warning("Summary generation failed for %s: %s", file_path_obj.name, e)
-                file_info.metadata["summary"] = None
+
+        # When the summary failed/timed out but tags succeeded, anchor the row
+        # with a deterministic fallback summary derived from the already-extracted
+        # text (the summary column is NOT NULL) so the tags still persist.
+        if not summary and tags:
+            from aiq_agent.knowledge.document_classification import fallback_summary_from_text
+
+            summary = fallback_summary_from_text(extracted_text)
+
+        file_info.metadata["summary"] = summary
+
+        # Register in centralized summary registry (backend-agnostic). Tags ride
+        # along in the same upsert (may be None).
+        if summary:
+            from aiq_agent.knowledge import register_summary
+
+            register_summary(collection_name, file_info.file_name, summary, tags=tags)
+            logger.info(f"  Summary generated ({len(summary)} chars)")
+
+        # FileInfo.tags must mirror what was actually persisted — tags only exist
+        # in storage when a summary row was written (no FileInfo/store divergence).
+        file_info.tags = tags if summary else None
 
         # Clean up executor
         if executor:
@@ -1459,6 +1586,12 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
             with self._lock:
                 for job in self._jobs.values():
                     if job.collection_name != collection_name:
+                        continue
+                    # Only touch terminal jobs: removing an entry from an
+                    # in-flight job shrinks file_details below total_files, so
+                    # get_job_status could never see it complete and the job
+                    # would stay PROCESSING forever.
+                    if job.status not in (JobState.COMPLETED, JobState.FAILED):
                         continue
                     job.file_details = [fd for fd in job.file_details if fd.file_name not in deleted_set]
 

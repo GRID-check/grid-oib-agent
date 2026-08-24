@@ -12,7 +12,12 @@ export default defineConfig({
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.GRID_APP_DATABASE_URL,
+    // The OWNER credential — migrations run DDL and backfills, and `grid_app_rw`
+    // can do neither (ADR-0041). The fallback exists only so a local checkout
+    // pointed at a single-credential throwaway database still works; it is not a
+    // supported way to migrate a deployment.
+    url:
+      process.env.GRID_APP_MIGRATION_DATABASE_URL ?? process.env.GRID_APP_DATABASE_URL,
   },
 })
 ```
@@ -20,7 +25,7 @@ export default defineConfig({
 - **Schema source:** `./src/lib/db/schema/*.ts` (6 files, barrel-exported)
 - **Output directory:** `./drizzle/`
 - **Dialect:** PostgreSQL
-- **Connection:** via `GRID_APP_DATABASE_URL` environment variable — must point to the `grid_app` database.
+- **Connection:** via `GRID_APP_MIGRATION_DATABASE_URL` — the schema OWNER, and what every deployment must use. `GRID_APP_DATABASE_URL` is only a fallback for a local single-credential database; it is the DML-only runtime role, which cannot run DDL and whose backfills would touch zero rows under row-level security (ADR-0041). Either way it must point at the `grid_app` database.
 
 ---
 
@@ -40,6 +45,18 @@ npx drizzle-kit generate
 This reads the current schema, diffs against the last snapshot in `drizzle/meta/`, and produces a new `.sql` file in `drizzle/` (e.g., `0004_next_migration.sql`) plus a snapshot JSON.
 
 ### 3. Apply Migration
+
+> **Migrations connect as the schema OWNER.** `GRID_APP_DATABASE_URL` now points
+> at `grid_app_rw`, which holds DML only and is subject to row-level security —
+> correct for serving requests, useless for DDL, and actively dangerous for a
+> data backfill, which would silently touch zero rows. Set
+> `GRID_APP_MIGRATION_DATABASE_URL` to the owner credential; `drizzle.config.ts`
+> prefers it and falls back to `GRID_APP_DATABASE_URL` for a throwaway local
+> database. See [row-level-security.md](row-level-security.md) and ADR-0041.
+>
+> **A new table must join the tenant boundary in the same migration that creates
+> it** — one `SELECT grid_secure_table('<table>', '<predicate>');` line.
+> `src/lib/db/rls-coverage.spec.ts` fails by name until it does.
 
 ```bash
 # Locally
@@ -174,6 +191,11 @@ CREATE INDEX "documents_status_idx" ON "documents" ("status");
 **Tables:** `documents`
 **Indexes:** `project_idx`, `collection_idx`, `status_idx`
 
+> **Note:** `minio_key` was later renamed to `storage_key` by migration
+> `0023_rename_minio_key_to_storage_key` when object storage moved from MinIO to
+> SeaweedFS (both S3-compatible — a pure `RENAME COLUMN`, values unchanged). The
+> live schema (`docs/database/schema.md`) reflects the post-rename name.
+
 ---
 
 ## Migration Timeline
@@ -210,8 +232,27 @@ These tables are separate from Drizzle ORM (the Next.js app only manages `grid_a
 
 ---
 
+## Runtime schema migration: `document_metadata` (rename + column adds)
+
+The Python backend has **no migration framework** for its own tables (`aiq_jobs`) — `DocumentMetadataStore` (`src/aiq_agent/knowledge/document_metadata_store.py`) creates and evolves the `document_metadata` table itself at store init (both the sync `_ensure_table_sync` and async `_ensure_table_async` paths call the shared `_run_schema`).
+
+This table was originally named `summaries` (class `SummaryStore`) and has since grown a `tags TEXT` column (controlled ingestion tags), a `doc_class TEXT` column (explicit "Dokumentart"), a `display_title TEXT` column (the user-facing citation-chip name — the OIB corpus never shows a raw filename), and a `folder_path TEXT` column (the materialised project-folder path the BFF filed the document under — ADR-0049; `NULL` means the project root). Because it now holds far more than summaries, both the table and the store class were renamed to `document_metadata`. `_run_schema` reconciles any prior shape on first access, idempotently:
+
+- **Legacy `summaries` table present, `document_metadata` absent** (an existing deployment): `ALTER TABLE summaries RENAME TO document_metadata` — the rows are preserved untouched — then the collection index is recreated under `idx_document_metadata_collection` and the old `idx_summaries_collection` is dropped.
+- **Fresh table** (neither present): `document_metadata` is created with all columns.
+- **Column backfill** (always, after the above): each optional column (`tags`, `doc_class`, `display_title`) is added if missing.
+  - **PostgreSQL** — `ALTER TABLE document_metadata ADD COLUMN IF NOT EXISTS <col> TEXT`.
+  - **SQLite** — no `IF NOT EXISTS` for columns, so a `PRAGMA table_info(document_metadata)` existence check runs first, then `ALTER TABLE ... ADD COLUMN` only when missing.
+
+The migration reports success/failure: the store URL is added to the in-memory `_tables_initialized` cache **only when the schema is confirmed ready**, so a failed migration is retried on the next access instead of caching a half-initialized store. This mirrors the `job_access` migration pattern in `frontends/aiq_api/src/aiq_api/jobs/access.py`. `init-db.sql` now pre-creates `document_metadata` (with only `summary`) on fresh deployments; the rename path above is what carries an already-running deployment across the name change, and the column-adds are still exercised on every deployment.
+
+> **Back-compat note:** the DB *file* (default `summaries.db`), the `AIQ_SUMMARY_DB` env var, and the NAT `summary_db` config field intentionally keep their names — they identify the *database*, not the table, and renaming them would orphan existing databases / break deployment configs.
+
+---
+
 ## Safety Notes
 
+- **A migration file without a journal entry is never applied.** `drizzle-kit migrate` executes what `drizzle/meta/_journal.json` lists, not what is on disk — so a hand-written `NNNN_*.sql` added without its entry is inert, and every check passes while reporting success: the file is in the diff, review sees it, and the migrate step "succeeds" having skipped it. The first symptom is a 500 from the route that queries the table (issue #283, `relation "platform_retrieval_settings" does not exist`). `frontends/ui/tests/db/migrations-journal.test.ts` now fails the build on that mismatch in both directions; `*.down.sql` companions are hand-run rollbacks and deliberately stay out of the journal.
 - **Generated migrations are idempotent** — `drizzle-kit generate` always produces SQL that can be safely reapplied (though `drizzle-kit migrate` only applies pending ones).
 - **Snapshot diffing** — Drizzle stores snapshots in `drizzle/meta/` for each migration. These are used to compute the diff for the next `generate` run.
 - **Never edit generated SQL manually** — always modify the schema `.ts` file and re-generate. Manual edits will be overwritten on the next `generate` run.

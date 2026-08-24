@@ -17,7 +17,9 @@
 'use client'
 
 import { useCallback, useRef, useEffect, useState, useMemo } from 'react'
+import { v4 as uuidv4 } from 'uuid'
 import { useShallow } from 'zustand/react/shallow'
+import { useTranslations } from '@/i18n'
 import { useAuth } from '@/adapters/auth'
 import { getTokenExpiration } from '@/adapters/auth/token'
 import {
@@ -28,15 +30,26 @@ import {
   type NATHumanPrompt,
   type NATIntermediateStepContent,
   type NATErrorContent,
+  type NATResponseTransparency,
+  type NATStageMessage,
   HumanPromptType,
 } from '@/adapters/api/websocket-client'
 import { checkBackendHealthCached, invalidateHealthCache } from '@/shared/hooks/use-backend-health'
+import { useThreadSharing } from '@/shared/collaboration/thread-sharing'
+import type { AddresseeSet } from '@/lib/mentions/types'
 import { useChatStore } from '../store'
+import {
+  isFilePeekVisible,
+  useFilePreviewStore,
+} from '@/features/documents/stores/file-preview-store'
+import { registerStopStreamingHandler } from '../stores/messages-store'
 import { useConnectionRecovery } from './use-connection-recovery'
 import { useLayoutStore } from '@/features/layout/store'
+
 import { useDocumentsStore } from '@/features/documents/store'
 import { isLikelyAuthRelatedTransportError } from '../lib/transport-auth-signals'
 import { validateGridCards } from '@/shared/cards/schemas'
+import { citationsFromWireList } from '../lib/wire-citation'
 import type { GridCard } from '@/shared/cards/schemas'
 import type {
   ChatMessage,
@@ -59,6 +72,140 @@ import {
 const EMPTY_MESSAGES: ChatMessage[] = []
 const EMPTY_CONVERSATIONS: Conversation[] = []
 
+/** A mention as the composer holds it: the structured target plus its text token. */
+export interface SendMessageMention {
+  targetId: string
+  display: string
+}
+
+export interface SendMessageOptions {
+  /**
+   * Mentions chosen from the `@` picker (spec MN-3). Their presence switches the
+   * send onto the addressee path: persistence is awaited and the SERVER decides
+   * whether the agent answers.
+   */
+  mentions?: readonly SendMessageMention[]
+  /** The asker's question, carried into the recipient's inbox item (spec MN-12). */
+  mentionNote?: string | null
+  /**
+   * The thread is visibly waiting on a named person (an `open` mention request).
+   *
+   * A plain message in that state is a remark to the people in the thread, not a
+   * question for the agent (ADR-0034 addendum) — so it must go down the same
+   * awaited-persist path as a mention and let the SERVER rule on it. This flag only
+   * decides whether the ruling is ASKED FOR; it never decides what the ruling is,
+   * so a stale read costs a round trip and nothing else.
+   */
+  awaitingHuman?: boolean
+  /**
+   * Skill names the user invoked with `/name` in the composer.
+   *
+   * Structured, and reconciled against the composer text at send time rather
+   * than remembered — the same discipline `mentions` follows, for the same
+   * reason: the token can be edited away after it was inserted, and what is
+   * sent must be what the text still says.
+   */
+  skills?: readonly string[]
+}
+
+/** A refusal the composer can localise from `details.reason`. */
+export interface SendMessageFailure {
+  reason: string | null
+  message: string | null
+  /** The mention target the refusal names, when the server supplied one. */
+  targetId?: string | null
+}
+
+/** What a mention send resolves to — the server's ruling, or why it was refused. */
+export interface SendMessageOutcome {
+  ok: boolean
+  /** The server's addressee ruling (spec MN-1/MN-2), when it answered. */
+  addressees?: AddresseeSet
+  failure?: SendMessageFailure
+}
+
+/** Normalise either send path's result for a caller that just wants "did it go". */
+export function sendSucceeded(result: boolean | SendMessageOutcome): boolean {
+  return typeof result === 'boolean' ? result : result.ok
+}
+
+/** Read the standard error envelope so the composer can name the reason. */
+async function readSendFailure(response: Response): Promise<SendMessageFailure> {
+  try {
+    const body = (await response.json()) as {
+      error?: string
+      details?: { reason?: string; targetId?: string } | null
+    }
+    return {
+      reason: body.details?.reason ?? null,
+      message: body.error ?? null,
+      targetId: body.details?.targetId ?? null,
+    }
+  } catch {
+    return { reason: null, message: null }
+  }
+}
+
+/**
+ * Pull this message's addressee ruling out of the persist response.
+ *
+ * `POST /api/conversations/:id/messages` answers with the persisted rows (an array,
+ * even for one message), each carrying `addressees`. A row that is missing means the
+ * insert conflicted — i.e. something else already wrote this id — and the ruling is
+ * then NOT ours to act on, so it comes back null and no turn is opened.
+ */
+function readAddresseeRuling(body: unknown, messageId: string): AddresseeSet | null {
+  const rows = (Array.isArray(body) ? body : [body]) as Array<{
+    id?: string
+    addressees?: AddresseeSet
+  } | null>
+  const row = rows.find((entry) => entry?.id === messageId) ?? null
+  const addressees = row?.addressees
+  if (!addressees || typeof addressees.agent !== 'boolean' || !Array.isArray(addressees.users)) {
+    return null
+  }
+  return addressees
+}
+
+/**
+ * Append a user message to the thread WITHOUT persisting it.
+ *
+ * Deliberately not `addUserMessage`, and this is the one subtle thing about the
+ * mention path. `addUserMessage` persists fire-and-forget, WITHOUT the mentions —
+ * and the server's ruling only comes back on the request that CREATES the row: a
+ * second POST for the same id reads the first ruling back and drops the mentions
+ * (`prepareMessage`, `lib/conversations/service.ts`). Letting the store's POST race
+ * ours would therefore, whenever it won, store the message as "addressed to the
+ * agent", create no request, notify nobody — and silently swallow the mention. So
+ * the mention path owns the persist (awaited, with the mentions, with the id it
+ * generated) and writes the echo straight into the thread here.
+ *
+ * `setState` is guarded because suites that mock the store wholesale do not supply
+ * it; the send then still resolves, it simply renders nothing locally.
+ */
+function appendLocalUserMessage(message: ChatMessage): void {
+  const store = useChatStore as unknown as {
+    getState: () => { currentConversation: Conversation | null; conversations: Conversation[] }
+    setState?: (partial: Partial<{ currentConversation: Conversation | null; conversations: Conversation[] }>) => void
+  }
+  const { currentConversation, conversations } = store.getState()
+  if (!currentConversation || typeof store.setState !== 'function') return
+
+  const updated: Conversation = {
+    ...currentConversation,
+    // First message names the session, exactly like the store's own path does.
+    title: currentConversation.title || message.content.trim().slice(0, 50),
+    messages: [...currentConversation.messages, message],
+    updatedAt: new Date(),
+  }
+  store.setState({
+    currentConversation: updated,
+    conversations: conversations.map((conversation) =>
+      conversation.id === updated.id ? updated : conversation,
+    ),
+  })
+}
+
 /**
  * Buffer entry for an outgoing payload that has to bridge a socket
  * rotation. Discriminated by `kind` because both chat messages and HITL
@@ -67,8 +214,31 @@ const EMPTY_CONVERSATIONS: Conversation[] = []
  * right `NATWebSocketClient` method.
  */
 type PendingOutgoing =
-  | { kind: 'message'; content: string; dataSources: string[]; deliveryRetryCount?: number }
+  | {
+      kind: 'message'
+      content: string
+      dataSources: string[]
+      /** Skills invoked with `/name`; travels WITH the payload so a frame that
+       *  is queued through a reconnect is replayed with its invocation intact. */
+      skills?: string[]
+      focusFileName?: string
+      focusShelf?: 'project' | 'archiv' | 'session'
+      sourcePreset?: 'law' | 'project' | 'office'
+      deliveryRetryCount?: number
+    }
   | { kind: 'interaction'; interactionId: string; parentId: string; response: string; deliveryRetryCount?: number }
+
+/**
+ * A human message the agent must SEE but was not asked to answer (ADR-0034
+ * addendum), held until there is a socket to put it on. `authorName` is captured
+ * at enqueue time so a drain that happens later still attributes it correctly.
+ */
+type PendingContext = { content: string; dataSources: string[]; authorName: string | null }
+
+/** How many context frames may wait for one handshake before the oldest is
+ * dropped. Context is best-effort by design (the message is already persisted in
+ * Postgres), so a bound is cheaper than unbounded memory. */
+const MAX_PENDING_CONTEXT = 8
 
 type UnacknowledgedOutgoing = {
   payload: PendingOutgoing
@@ -135,6 +305,28 @@ const MAX_UNACKNOWLEDGED_OUTGOING_REPLAYS = 1
 const UNACKNOWLEDGED_OUTGOING_ACK_TIMEOUT_MS = 7_000
 
 /**
+ * Overall turn watchdog. The 7s delivery timeout above only covers the gap
+ * before the FIRST backend frame; it is cleared once any frame arrives. After
+ * that, a backend that stalls mid-stream (or dies without sending a terminal
+ * frame) would leave `isStreaming=true` forever -- a spinner that never stops
+ * with the composer and session list locked.
+ *
+ * This watchdog fires when NO frame has arrived for this long while streaming.
+ * It is (re)armed on send and reset on every incoming frame, and cleared on
+ * completion / error / disconnect / HITL pause / unmount. On fire it ends the
+ * turn, marks it interrupted, and surfaces a retryable timeout banner.
+ */
+const STREAMING_INACTIVITY_TIMEOUT_MS = 180_000
+
+/**
+ * Debounce window for reconnect-triggered answer recovery (FIX 2). A burst of
+ * rotation reconnects (token refresh, flaky network) can emit several
+ * `connected` events in quick succession; recovery is a server round-trip, so
+ * we run it at most once per window rather than per event.
+ */
+const RECONNECT_RECOVERY_DEBOUNCE_MS = 3_000
+
+/**
  * Map NAT/backend error codes to frontend ErrorCode for consistent UI display.
  * This provides a generic mapping for any backend error.
  */
@@ -148,26 +340,72 @@ const mapNATErrorToErrorCode = (natErrorCode: string): ErrorCode => {
       return 'agent.response_failed'
     case 'CONNECTION_FAILED':
       return 'connection.failed'
+    // Backend catch-all: a workflow raised mid-turn. See
+    // websocket_reconnect.py `_run_workflow`.
+    case 'workflow_error':
+      return 'agent.workflow_error'
     case 'unknown_error':
     default:
       return 'system.unknown'
   }
 }
 
+/**
+ * Message kinds that count as "part of the conversation" when deciding whether a
+ * turn is still open. Mirrors `restoreSessionState`'s own `meaningfulTypes` set
+ * (sessions-store) on purpose: the two are answering the same question — "is the
+ * last thing in this thread an unfinished turn?" — and they must not disagree.
+ */
+const MEANINGFUL_MESSAGE_TYPES = new Set(['user', 'assistant', 'agent_response', 'error', 'prompt'])
+
 interface UseWebSocketChatOptions {
   /** Auto-connect on mount (default: true) */
   autoConnect?: boolean
+  /**
+   * Whether collaboration is reachable for this org (the dark-launch flag).
+   *
+   * **Defaults to false, and false means "exactly today"** (spec NF-8): the socket
+   * opens on mount, before the user has done anything, with no request in front of
+   * it. Only with the flag ON does the socket wait to learn whether the thread is
+   * shared — see `socketPermitted` below for why that is not a latency cost for
+   * private threads either.
+   */
+  canCollaborate?: boolean
 }
 
 interface UseWebSocketChatReturn {
-  /** Send a message via WebSocket */
-  sendMessage: (content: string) => void
+  /**
+   * Send a message via WebSocket.
+   *
+   * With nothing tagged and no hand-off open this is the unchanged fast path and
+   * returns `false` when the message could not be sent or queued (so the caller can
+   * preserve the user's input). With mentions — or with `awaitingHuman`, a plain
+   * message while the thread waits on a person — it returns a promise carrying the
+   * server's addressee ruling. The agent answers only if that ruling says so
+   * (ADR-0034 §4); either way it is DELIVERED the message, as context when it is not
+   * the addressee. Plus a localisable `failure` when the send was refused. Use
+   * `sendSucceeded` when all the caller needs is "did it go".
+   */
+  sendMessage: (
+    content: string,
+    options?: SendMessageOptions,
+  ) => boolean | Promise<SendMessageOutcome>
   /** Respond to a pending interaction (clarification, approval, etc.) */
   respondToInteraction: (response: string) => void
   /** Disconnect from the WebSocket server */
   disconnect: () => void
   /** Reconnect the WebSocket */
   connect: () => void
+  /**
+   * Declare that the user means to write something (composer focus, or a send).
+   *
+   * In a **shared** thread this is what opens the agent socket, because merely
+   * opening the thread must not (ADR-0033 §7: a participant who did not start a
+   * turn observes it over the SSE channel and needs no socket). Idempotent, and a
+   * no-op wherever the socket is already permitted — so a private thread and a
+   * gated org never reach it.
+   */
+  noteSendIntent: () => void
   /** Whether WebSocket is connected */
   isConnected: boolean
   /** Whether a response is currently being received */
@@ -195,12 +433,20 @@ interface UseWebSocketChatReturn {
 }
 
 /**
- * Map NAT human prompt types to our PromptType
+ * Map NAT human prompt types to our PromptType.
+ *
+ * Exported for direct unit testing of the choice-shaped input mapping
+ * (`radio`/`checkbox`/`dropdown` + legacy `multiple_choice` → `'choice'`).
  */
-const mapHumanPromptType = (natType: string): PromptType => {
+export const mapHumanPromptType = (natType: string): PromptType => {
   switch (natType) {
     case HumanPromptType.TEXT:
       return 'text-input'
+    // NAT's real choice-shaped inputs all render with the existing OptionsList
+    // choice UI. `multiple_choice` is the legacy alias for the same thing.
+    case HumanPromptType.RADIO:
+    case HumanPromptType.CHECKBOX:
+    case HumanPromptType.DROPDOWN:
     case HumanPromptType.MULTIPLE_CHOICE:
       return 'choice'
     case HumanPromptType.BINARY_CHOICE:
@@ -220,7 +466,7 @@ const mapHumanPromptType = (natType: string): PromptType => {
  * and approval flows.
  */
 export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebSocketChatReturn => {
-  const { autoConnect = true } = options
+  const { autoConnect = true, canCollaborate = false } = options
 
   // WebSocket client ref
   const wsClientRef = useRef<NATWebSocketClient | null>(null)
@@ -256,6 +502,22 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   const lastSentOutgoingRef = useRef<PendingOutgoing | null>(null)
 
   /**
+   * Context-only frames waiting for a socket (see `deliverAsContext`).
+   *
+   * Deliberately a SEPARATE queue from `pendingOutgoingRef`: that single slot
+   * belongs to a real turn, and a remark must never displace one. Deliberately a
+   * small list rather than a slot: a burst of remarks during one handshake is
+   * ordinary in a shared thread, and the agent's memory of the thread should not
+   * depend on which one arrived last.
+   *
+   * Why it exists at all: with the connection driven by intent, a user who focuses
+   * and sends fast can hit a socket that is still handshaking, where before this
+   * change the socket had been warm since mount. That window is real, so the frame
+   * is queued and drained on `connected` instead of being dropped with a warning.
+   */
+  const pendingContextRef = useRef<PendingContext[]>([])
+
+  /**
    * Payload that has been written to a WebSocket but has not yet produced any
    * backend frame. Browser `readyState === OPEN` is not a delivery guarantee:
    * a proxy/backend close can arrive immediately after `send()`. This ref lets
@@ -264,6 +526,13 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    */
   const unacknowledgedOutgoingRef = useRef<UnacknowledgedOutgoing | null>(null)
   const unacknowledgedOutgoingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /**
+   * Overall streaming-inactivity watchdog timer. Armed while a turn is in
+   * flight, reset on every inbound frame, and cleared on any terminal state.
+   * See `STREAMING_INACTIVITY_TIMEOUT_MS`.
+   */
+  const streamingWatchdogTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   /**
    * Set by the soft timer when it fires while streaming; consumed by the
@@ -284,6 +553,30 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   const consecutiveAuthExpiredRef = useRef(0)
 
   /**
+   * Guards budget-reason discovery to a single query per failure episode. The
+   * browser cannot read the 403 body the gateway collapses into a bare failed
+   * WS upgrade, so on CONNECTION_FAILED we ask a same-origin BFF endpoint
+   * whether the real cause was budget exhaustion. Set once when we run that
+   * check; reset on a successful `connected` (a new episode) and on unmount so
+   * the diagnostics call can never loop or spam while connection-recovery keeps
+   * re-firing CONNECTION_FAILED.
+   */
+  const budgetDiagnosticsCheckedRef = useRef(false)
+
+  /**
+   * Reconnect-rehydrate guards (protocol-robustness FIX 2). A silent socket
+   * drop mid-turn (deep-research, rotation) is caught server-side and the
+   * finished answer persisted; on the SAME mount there is no remount to trigger
+   * `restoreSessionState`, so the persisted answer never appears. On every
+   * reconnect we re-run the interrupted-answer recovery for the current
+   * conversation. `hasConnectedOnceRef` skips the very first connect of a fresh
+   * mount (that path already hydrated), and `lastReconnectRecoveryAtRef`
+   * debounces so rapid rotation reconnects fire recovery at most once per window.
+   */
+  const hasConnectedOnceRef = useRef(false)
+  const lastReconnectRecoveryAtRef = useRef(0)
+
+  /**
    * Single rotation primitive. Delegates to `client.rotate()` -- an atomic
    * client-side swap that detaches handlers from the old socket before
    * closing it, eliminating the `onclose` race where a late close from
@@ -302,6 +595,33 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   }, [])
 
   const { user, authRequired, isLoading: authLoading, getAccessToken } = useAuth()
+  const tChat = useTranslations('chat')
+
+  /**
+   * Ask the same-origin diagnostics endpoint whether the WS failure was
+   * actually a budget block the browser couldn't read from the collapsed
+   * upgrade. Returns the localized banner message (admin vs member copy) when
+   * budget-exhausted, or null for any other cause / on error (so the caller
+   * falls back to the generic connection-failed banner). Never throws.
+   */
+  const discoverBudgetFailureMessage = useCallback(async (): Promise<string | null> => {
+    try {
+      const activeProjectId = useChatStore.getState().projectId
+      const query = activeProjectId ? `?projectId=${encodeURIComponent(activeProjectId)}` : ''
+      const res = await fetch(`/api/auth/connection-diagnostics${query}`, {
+        credentials: 'same-origin',
+        headers: { accept: 'application/json' },
+      })
+      if (!res.ok) return null
+      const body = (await res.json()) as { budgetExhausted?: boolean; canManageBudgets?: boolean }
+      if (!body.budgetExhausted) return null
+      return body.canManageBudgets
+        ? tChat('budgetExhausted.adminMessage')
+        : tChat('budgetExhausted.memberMessage')
+    } catch {
+      return null
+    }
+  }, [tChat])
 
   /**
    * Token expiry (seconds since epoch) that authenticates the *current*
@@ -365,7 +685,11 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
 
   // Actions — stable references, individual selectors won't cause re-renders
   const addUserMessage = useChatStore((s) => s.addUserMessage)
-  const addAgentResponse = useChatStore((s) => s.addAgentResponse)
+  const appendAgentResponseDelta = useChatStore((s) => s.appendAgentResponseDelta)
+  const finalizeAgentResponse = useChatStore((s) => s.finalizeAgentResponse)
+  const setTurnWsParentId = useChatStore((s) => s.setTurnWsParentId)
+  const applyStageFrame = useChatStore((s) => s.applyStageFrame)
+  const discardStreamingAssistantMessage = useChatStore((s) => s.discardStreamingAssistantMessage)
   const addAgentResponseWithMeta = useChatStore((s) => s.addAgentResponseWithMeta)
   const addThinkingStep = useChatStore((s) => s.addThinkingStep)
   const appendToThinkingStep = useChatStore((s) => s.appendToThinkingStep)
@@ -390,12 +714,118 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   const addPlanMessage = useChatStore((s) => s.addPlanMessage)
   const updatePlanMessageResponse = useChatStore((s) => s.updatePlanMessageResponse)
   const updateConversationTitle = useChatStore((s) => s.updateConversationTitle)
+  const maybeGenerateConversationName = useChatStore((s) => s.maybeGenerateConversationName)
 
   // Sync authenticated user ID to store when auth state changes
   useEffect(() => {
     const userId = user?.id ?? null
     setCurrentUser(userId)
   }, [user?.id, setCurrentUser])
+
+  /* ────────────────────────────────────────────────────────────────────────────
+   * MAY THIS BROWSER HOLD AN AGENT SOCKET FOR THIS CONVERSATION?
+   *
+   * The Python registry keys live sockets by conversation_id
+   * (`websocket_reconnect.py`, `WebSocketSessionRegistry._sockets`), so a second
+   * socket on the same conversation REPLACES the first. For one user reconnecting
+   * that is the feature. For two participants in a shared thread it is a defect:
+   * a reader who merely OPENS the thread takes over the asker's registration, so
+   * his answer streams into her connection and disappears from his — and because
+   * `clear_socket` is identity-guarded, her leaving unregisters the conversation
+   * outright rather than handing it back.
+   *
+   * The frontend cause is that this hook auto-connected on MOUNT. ADR-0033 §7
+   * already decided the shape of the fix: an observer sees turn *state* over the
+   * SSE channel ("Piloti is answering Anna's question", then the answer), not
+   * token streaming. So a participant who is only reading has no reason to hold a
+   * socket, and the connection can follow **intent to send** instead of mounting.
+   *
+   * Four things open the gate, and the order matters:
+   *
+   *   1. `!canCollaborate` — the flag is off. Byte-identical to today, evaluated
+   *      synchronously on the first render, with no request in front of it (NF-8).
+   *      This is the overwhelming majority of usage and it pays nothing.
+   *   2. `sharing === 'private'` — the server has said this thread is solo. Also
+   *      connect-on-mount. The access read this reads from is the one
+   *      `useSharedThread` already issues on open (ADR-0033 §1), so it costs no
+   *      extra round trip and it resolves while the thread is still painting —
+   *      long before anyone can focus a composer. A private thread therefore
+   *      keeps today's first-message latency.
+   *   3. `intent` — composer focus (or a send). See `noteSendIntent`.
+   *   4. `ownsUnansweredTurn` — this browser is the one waiting on an answer, so
+   *      it must reconnect WITHOUT being touched: reattachment happens in
+   *      `_restore_execution_state` on the new handshake, and a refresh mid-answer
+   *      would otherwise sit there until the user clicked the composer.
+   *
+   * `'unknown'` (collaboration on, access read not yet answered) deliberately does
+   * NOT open the gate: guessing "private" there would re-open the collision, while
+   * guessing "unknown" only defers a connect that (1)-(4) will make anyway.
+   *
+   * The result is LATCHED per conversation. Once a socket is permitted it stays
+   * permitted until the conversation changes, because every input above is
+   * transient — `ownsUnansweredTurn` flips false the moment the answer starts
+   * arriving, and re-evaluating the gate then would tear down the very socket the
+   * answer is streaming on.
+   * ──────────────────────────────────────────────────────────────────────────── */
+  const threadSharing = useThreadSharing(currentConversationId)
+
+  const socketGateRef = useRef<{
+    conversationId: string | undefined
+    intent: boolean
+    open: boolean
+  }>({ conversationId: undefined, intent: false, open: false })
+
+  // Re-render trigger for `noteSendIntent`. The intent itself lives in the ref, not
+  // in state, so that switching conversations resets it in the SAME render that
+  // resets the latch — a state reset lands one render late, which would let the
+  // previous thread's intent open the gate on the new one.
+  const [, bumpSocketGate] = useState(0)
+
+  if (socketGateRef.current.conversationId !== currentConversationId) {
+    socketGateRef.current = { conversationId: currentConversationId, intent: false, open: false }
+  }
+
+  const noteSendIntent = useCallback(() => {
+    if (socketGateRef.current.intent) return
+    socketGateRef.current.intent = true
+    bumpSocketGate((n) => n + 1)
+  }, [])
+
+  /**
+   * Is the newest thing in this thread an unfinished turn that belongs to ME?
+   *
+   * "Mine" is `authorUserId === currentUserId`, or absent — a solo thread renders
+   * no attribution and writes no author, so absent means "there is only me".
+   * An unresponded HITL prompt counts: the thread is paused on an answer only this
+   * browser can give. So does a still-`isStreaming` assistant message, which is
+   * what a mid-stream refresh leaves behind locally.
+   */
+  const ownsUnansweredTurn = useMemo(() => {
+    const messages = currentConversation?.messages
+    if (!messages?.length) return false
+    for (let index = messages.length - 1; index >= 0; index--) {
+      const message = messages[index]
+      if (!MEANINGFUL_MESSAGE_TYPES.has(message.messageType ?? '')) continue
+      if (message.messageType === 'prompt') return !message.isPromptResponded
+      if (message.messageType === 'user') {
+        return !message.authorUserId || message.authorUserId === currentUserId
+      }
+      // An assistant/error message closes the turn — unless it is the partial
+      // bubble a refresh interrupted, which is exactly a turn to reattach to.
+      return message.isStreaming === true
+    }
+    return false
+  }, [currentConversation?.messages, currentUserId])
+
+  if (
+    !canCollaborate ||
+    threadSharing === 'private' ||
+    socketGateRef.current.intent ||
+    ownsUnansweredTurn
+  ) {
+    socketGateRef.current.open = true
+  }
+  const socketPermitted = socketGateRef.current.open
 
   /**
    * Classify a transport failure as auth-related or generic connection error.
@@ -460,6 +890,67 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     setLoading,
     setStreaming,
   ])
+
+  const clearStreamingWatchdog = useCallback((): void => {
+    if (streamingWatchdogTimeoutRef.current) {
+      clearTimeout(streamingWatchdogTimeoutRef.current)
+      streamingWatchdogTimeoutRef.current = null
+    }
+  }, [])
+
+  /**
+   * Fired when a streaming turn goes silent for too long. End the turn the
+   * same way an interrupt does (complete the open thinking step, reset
+   * streaming/loading/status, clear any HITL prompt), drop the resend buffers
+   * so nothing replays behind the user's back, and surface the existing
+   * timeout banner so the user can retry.
+   */
+  const handleStreamingWatchdogTimeout = useCallback((): void => {
+    clearStreamingWatchdog()
+    // Only act if we're still streaming -- a terminal frame may have landed
+    // in the same tick the timer fired.
+    if (!useChatStore.getState().isStreaming) return
+
+    if (currentThinkingStepIdRef.current) {
+      completeThinkingStep(currentThinkingStepIdRef.current)
+      currentThinkingStepIdRef.current = null
+      currentStatusRef.current = null
+    }
+
+    // Reuse the interrupted-turn banner: warning status, "please resend".
+    addErrorCard(
+      'agent.response_interrupted',
+      'The assistant stopped responding. Please resend your message.',
+    )
+    setCurrentStatus(null)
+    setStreaming(false)
+    setLoading(false)
+    clearPendingInteraction()
+    lastSentOutgoingRef.current = null
+    pendingOutgoingRef.current = null
+    clearUnacknowledgedOutgoing()
+  }, [
+    addErrorCard,
+    clearPendingInteraction,
+    clearStreamingWatchdog,
+    clearUnacknowledgedOutgoing,
+    completeThinkingStep,
+    setCurrentStatus,
+    setLoading,
+    setStreaming,
+  ])
+
+  /**
+   * (Re)arm the watchdog. Called when a turn starts and on every inbound
+   * frame so the deadline is measured from the last sign of life.
+   */
+  const armStreamingWatchdog = useCallback((): void => {
+    clearStreamingWatchdog()
+    streamingWatchdogTimeoutRef.current = setTimeout(
+      handleStreamingWatchdogTimeout,
+      STREAMING_INACTIVITY_TIMEOUT_MS,
+    )
+  }, [clearStreamingWatchdog, handleStreamingWatchdogTimeout])
 
   const handleUnacknowledgedOutgoingTimeout = useCallback((): void => {
     const unacknowledged = unacknowledgedOutgoingRef.current
@@ -545,8 +1036,25 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       const client = wsClientRef.current
       if (!client?.isConnected()) return false
 
+      // The two-argument call is load-bearing, not stylistic: an ordinary
+      // message must stay the exact call it has always been (three specs assert
+      // on arity), so a message with no invoked skill never grows a third
+      // `undefined` argument.
+      const sendChatMessage = (): string | null => {
+        if (payload.kind !== 'message') return null
+        const extras = {
+          ...(payload.skills && payload.skills.length > 0 ? { skills: payload.skills } : {}),
+          ...(payload.focusFileName ? { focusFileName: payload.focusFileName } : {}),
+          ...(payload.focusShelf ? { focusShelf: payload.focusShelf } : {}),
+          ...(payload.sourcePreset ? { sourcePreset: payload.sourcePreset } : {}),
+        }
+        return Object.keys(extras).length > 0
+          ? client.sendMessage(payload.content, payload.dataSources, extras)
+          : client.sendMessage(payload.content, payload.dataSources)
+      }
+
       const outboundId = payload.kind === 'message'
-        ? client.sendMessage(payload.content, payload.dataSources)
+        ? sendChatMessage()
         : client.sendInteractionResponse(
           payload.interactionId,
           payload.parentId,
@@ -581,7 +1089,10 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         isFinal: boolean,
         parentId?: string,
         cards?: unknown[],
-        deepResearchJobId?: string
+        deepResearchJobId?: string,
+        answerConfidence?: 'low' | 'medium' | 'high',
+        sources?: unknown[],
+        transparency?: NATResponseTransparency
       ) => {
         // A response on the wire proves the post-rotation auth is alive --
         // clear the consecutive auth_expired counter so a *future* (and
@@ -607,9 +1118,57 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           return
         }
         acknowledgeOutgoingDelivery(parentId)
+        // The turn key, recorded from the turn's own frames
+        // (`docs/architecture/post-answer-stages.md` §1.6): the answer bubble is
+        // stamped with it as it is built, which is what lets a post-answer stage
+        // frame — whose only handle on the turn is this id — find its message
+        // seconds after the socket has gone quiet.
+        if (parentId) setTurnWsParentId(parentId)
+        // A live frame proves the turn is progressing -- restart the
+        // inactivity deadline from now.
+        armStreamingWatchdog()
 
         // Validate grid cards carried on the response message
         const validatedCards: GridCard[] = validateGridCards(cards)
+
+        // Queue-rejection notice (WP-A `job_admission_rejected`): the terminal
+        // frame's text is NOT a research answer but a "queue full, try later"
+        // message. Render it as a warning-styled banner (research.queue_full)
+        // and, crucially, leave the composer UNLOCKED so the user can retry —
+        // do not open an answer bubble or start a research job.
+        if (transparency?.jobAdmissionRejected) {
+          clearStreamingWatchdog()
+          if (currentThinkingStepIdRef.current) {
+            completeThinkingStep(currentThinkingStepIdRef.current)
+            currentThinkingStepIdRef.current = null
+            currentStatusRef.current = null
+          }
+
+          const retryAfter = transparency.retryAfterSeconds
+          const parts: string[] = []
+          if (content && content.trim() && content !== 'null') parts.push(content.trim())
+          if (typeof retryAfter === 'number' && retryAfter > 0) {
+            parts.push(tChat('errorRegistry.researchQueueFull.retryHint', { seconds: retryAfter }))
+          }
+          addErrorCard('research.queue_full', parts.length > 0 ? parts.join(' ') : undefined)
+
+          // Defensive (old backends still stream the rejection prose as deltas):
+          // earlier deltas of THIS turn may have opened a streaming answer bubble.
+          // The banner is the surface for a rejection, so drop that orphaned
+          // bubble entirely and clear streamingAssistantMessageId — otherwise its
+          // caret blinks forever next to the banner.
+          discardStreamingAssistantMessage()
+
+          setCurrentStatus(null)
+          setStreaming(false)
+          setLoading(false)
+          clearPendingInteraction()
+          // Nothing to replay — the turn resolved (rejected), not interrupted.
+          lastSentOutgoingRef.current = null
+          pendingOutgoingRef.current = null
+          clearUnacknowledgedOutgoing()
+          return
+        }
 
         // Deep research escalation signal. Prefer the STRUCTURED job id sent
         // as a dedicated field; fall back to regex-parsing the response prose
@@ -686,8 +1245,10 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
             }
           }
 
-          // Add 'starting' banner as a persistent message
-          addDeepResearchBanner('starting', jobId)
+          // Add 'starting' banner as a persistent message. When this turn
+          // escalated shallow→deep, the escalation reason rides above the
+          // banner (contract: `Eskaliert zur Tiefenrecherche: <reason>`).
+          addDeepResearchBanner('starting', jobId, undefined, undefined, transparency?.escalationReason)
 
           // Empty-content tracking message carries job metadata for session
           // restoration; AgentResponse returns null for empty content so it
@@ -705,6 +1266,10 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           )
           // Start deep research SSE streaming bound to this message
           startDeepResearch(jobId, messageId)
+          // Hand off to the deep-research SSE stream: it drives its own
+          // progress signal, so the WS inactivity watchdog must stand down
+          // (no WS frames arrive during deep research).
+          clearStreamingWatchdog()
           // Keep isStreaming=true to block input -- deep research SSE will
           // release it on completion.
           setLoading(false)
@@ -714,14 +1279,25 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
 
         // reportContent is only populated by deep research SSE events
         // (use-deep-research.ts), not by regular WebSocket responses.
-        if ((content && content.trim()) || validatedCards.length > 0) {
-          // Add to chat area as AgentResponse
-          // Note: reportContent is only set by deep research SSE events (use-deep-research.ts)
-          addAgentResponse(content, false, validatedCards)
+        //
+        // Answer frames are routed by their frame SEMANTICS (status), not any
+        // client flag: `in_progress` frames are deltas that accumulate into a
+        // single bubble; the terminal `complete` frame replaces the text with
+        // the authoritative full answer and attaches cards/sources/confidence.
+        // With the legacy single-frame backend this collapses to "one delta
+        // (full text + cards) then an empty complete", which finalizes the same
+        // one bubble — identical to the previous single-shot behaviour.
+        const citations = citationsFromWireList(sources)
+        if (isFinal) {
+          finalizeAgentResponse(content, validatedCards, answerConfidence, citations, transparency)
+        } else if ((content && content.trim()) || validatedCards.length > 0) {
+          appendAgentResponseDelta(content, validatedCards, answerConfidence, citations)
         }
 
         // status: "complete" with null text signals task completion
         if (isFinal) {
+          // Turn finished -- stand the inactivity watchdog down.
+          clearStreamingWatchdog()
           // Complete any pending thinking step
           if (currentThinkingStepIdRef.current) {
             completeThinkingStep(currentThinkingStepIdRef.current)
@@ -738,7 +1314,36 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
 
           // Workflow finished cleanly -- drop the resend buffer.
           lastSentOutgoingRef.current = null
+
+          // ChatGPT-style naming: once the first answer lands, replace the
+          // provisional first-message title with a generated name + OIB tags.
+          // Best-effort and self-gated (fires once, first turn only, skips deep
+          // research); reads the finalized conversation straight from the store.
+          const finishedConversationId = useChatStore.getState().currentConversation?.id
+          if (finishedConversationId) {
+            maybeGenerateConversationName(finishedConversationId)
+          }
         }
+      },
+
+      onStage: (frame: NATStageMessage) => {
+        // NOT behind the `isStreaming` guard `onResponse` runs under, and this
+        // is the whole reason a stage needs its own frame type: a stage frame
+        // arrives by definition when the turn is no longer streaming, so that
+        // guard would drop every one of them.
+        //
+        // No staleness check either. `isStaleMessage` compares against the
+        // socket's ACTIVE turn, and a stage frame is always about a turn that
+        // has already finished; the correlation is the `parent_id` on the
+        // message itself, which the store matches.
+        if (!frame.parent_id) return
+        applyStageFrame({
+          conversationId: frame.conversation_id,
+          parentId: frame.parent_id,
+          stage: frame.stage,
+          status: frame.status,
+          payload: frame.payload,
+        })
       },
 
       onIntermediateStep: (content: NATIntermediateStepContent | string, status: string, _parentId?: string) => {
@@ -761,6 +1366,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         // backend received the outbound message even when NAT uses internal
         // workflow parent IDs that do not match the user-message id.
         clearUnacknowledgedOutgoing()
+        // Progress signal -- restart the inactivity deadline.
+        armStreamingWatchdog()
 
         // Legacy string-content path: synthesize a generic thinking step.
         if (typeof content === 'string') {
@@ -840,7 +1447,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         // restoration).
         addPlanMessage({
           text: prompt.text,
-          inputType: prompt.input_type as 'text' | 'multiple_choice' | 'binary_choice' | 'approval' | 'notification',
+          inputType: prompt.input_type,
         })
 
         // Add as an agent prompt in the chat with HITL routing info for persistence
@@ -848,12 +1455,19 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         const promptType = mapHumanPromptType(prompt.input_type)
         addAgentPrompt(promptType, prompt.text, prompt.options, undefined, promptId, parentId, inputType)
 
-        // Pause streaming while waiting for user response
+        // Pause streaming while waiting for user response. The user may take
+        // arbitrarily long to answer, so stand the inactivity watchdog down.
+        clearStreamingWatchdog()
         setStreaming(false)
         setLoading(false)
       },
 
       onError: async (errorContent: NATErrorContent) => {
+        // Any error resolves the current turn one way or another; stand the
+        // inactivity watchdog down. Paths that keep streaming alive (the
+        // auth_expired rotation below) re-arm it before they return.
+        clearStreamingWatchdog()
+
         // Auth expired mid-workflow: backend contract is `code ===
         // 'user_auth_error'` + `message === 'auth_expired'` (see
         // websocket_reconnect.py `_send_auth_expired_error`). Buffer the
@@ -897,6 +1511,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
             pendingOutgoingRef.current = lastSent
           }
           clearUnacknowledgedOutgoing()
+          // The turn stays "in progress" across the rotation, so keep a
+          // deadline running against the fresh socket.
+          armStreamingWatchdog()
           rotateSocket('auth_expired')
           return
         }
@@ -905,6 +1522,27 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         // on a health check so we can distinguish "backend down" from a
         // likely auth/cookie drift.
         if (errorContent.code === 'CONNECTION_FAILED') {
+          // Reason discovery: the gateway refuses a budget-exhausted upgrade
+          // with a bare failed handshake the browser can't read, so it looks
+          // identical to a network outage here. Ask the diagnostics endpoint
+          // once per failure episode; if it's a budget block, surface the
+          // distinct non-retryable banner instead of "check your network".
+          if (!budgetDiagnosticsCheckedRef.current) {
+            budgetDiagnosticsCheckedRef.current = true
+            const budgetMessage = await discoverBudgetFailureMessage()
+            if (budgetMessage) {
+              addErrorCard('budget.exhausted', budgetMessage)
+              setCurrentStatus(null)
+              setStreaming(false)
+              setLoading(false)
+              clearPendingInteraction()
+              lastSentOutgoingRef.current = null
+              pendingOutgoingRef.current = null
+              clearUnacknowledgedOutgoing()
+              return
+            }
+          }
+
           const backendUp = await checkBackendHealthCached()
 
           const errorInfo = backendUp
@@ -960,6 +1598,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         if (status === 'connected') {
           invalidateHealthCache()
           dismissConnectionErrors()
+          // Fresh, healthy socket -- a later failure is a new episode, so let
+          // budget-reason discovery run again.
+          budgetDiagnosticsCheckedRef.current = false
 
           // Drain any payload buffered by a pre-flight rotation or
           // `auth_expired`. Keeps the UX silent: the user acted once and
@@ -972,6 +1613,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           if (pending && client) {
             pendingOutgoingRef.current = null
             if (sendOutgoingPayload(pending)) {
+              // A buffered turn just went back on the wire -- (re)start the
+              // inactivity deadline for it.
+              armStreamingWatchdog()
               // Match each send path's loading contract: chat sends clear the
               // composer spinner after putting the message on the wire, while
               // HITL answers keep it visible until the backend processes them.
@@ -979,6 +1623,54 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
             } else {
               pendingOutgoingRef.current = pending
             }
+          }
+
+          // Drain context-only frames that were written while there was no socket
+          // (see `deliverAsContext`). AFTER the turn drain, because a turn is what
+          // the user is waiting for and context is not. No streaming state, no
+          // watchdog, no ack tracking: a frame that is answered by design must not
+          // look like a turn to any of that machinery.
+          if (client && pendingContextRef.current.length > 0) {
+            const contextFrames = pendingContextRef.current
+            pendingContextRef.current = []
+            for (const frame of contextFrames) {
+              try {
+                client.sendMessage(frame.content, frame.dataSources, {
+                  contextOnly: true,
+                  authorName: frame.authorName,
+                })
+              } catch (err) {
+                // Best effort, exactly as at the call site: the message is already
+                // in Postgres, so a lost frame costs the agent one line of memory.
+                console.warn('[WS] Context-only message not delivered on drain', err)
+              }
+            }
+          }
+
+          // FIX 2: on a RECONNECT (not the first connect of a fresh mount),
+          // re-run the interrupted-answer recovery for the current conversation.
+          // A mid-turn drop is persisted server-side; without a remount nothing
+          // else re-fetches it, so the finished answer would stay invisible.
+          // `_recoverInterruptedAssistantMessage` is idempotent (it only appends
+          // a persisted assistant message that is missing locally and no-ops
+          // otherwise) and sets the store's recovery-pending flag while it runs.
+          if (hasConnectedOnceRef.current) {
+            const now = Date.now()
+            if (now - lastReconnectRecoveryAtRef.current >= RECONNECT_RECOVERY_DEBOUNCE_MS) {
+              lastReconnectRecoveryAtRef.current = now
+              const state = useChatStore.getState()
+              const conversation = state.currentConversation
+              if (conversation && !state.isStreaming) {
+                const lastUserMessage = [...conversation.messages]
+                  .reverse()
+                  .find((m) => m.messageType === 'user')
+                if (lastUserMessage) {
+                  void state._recoverInterruptedAssistantMessage(conversation.id, lastUserMessage.id)
+                }
+              }
+            }
+          } else {
+            hasConnectedOnceRef.current = true
           }
           return
         }
@@ -1022,6 +1714,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           }
 
           // Reset streaming/loading state if connection dropped mid-request
+          clearStreamingWatchdog()
           setStreaming(false)
           setLoading(false)
           clearPendingInteraction()
@@ -1029,7 +1722,11 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       },
     }
   }, [
-    addAgentResponse,
+    appendAgentResponseDelta,
+    finalizeAgentResponse,
+    setTurnWsParentId,
+    applyStageFrame,
+    discardStreamingAssistantMessage,
     addAgentResponseWithMeta,
     addThinkingStep,
     appendToThinkingStep,
@@ -1048,18 +1745,74 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     addDeepResearchBanner,
     addPlanMessage,
     updateConversationTitle,
+    maybeGenerateConversationName,
     getTransportFailure,
     rotateSocket,
     acknowledgeOutgoingDelivery,
     clearUnacknowledgedOutgoing,
     sendOutgoingPayload,
+    armStreamingWatchdog,
+    clearStreamingWatchdog,
+    discoverBudgetFailureMessage,
+    tChat,
   ])
 
   /**
-   * Initialize WebSocket client when conversation changes
+   * Latest callback set + auth-refresh fn, mirrored into refs so the socket
+   * lifecycle effect below can depend ONLY on the conversation id.
+   *
+   * ROOT CAUSE of the connect/disconnect churn this fixes: the lifecycle
+   * effect used to list `createCallbacks` and `refreshAuthBeforeReconnect` in
+   * its dependency array. Its cleanup unconditionally closes the socket and
+   * nulls the ref, so any render where either identity changed tore the socket
+   * down and the re-run opened a fresh one. `refreshAuthBeforeReconnect`
+   * depends on `getAccessToken`, which AuthKit's `useAccessToken()` returns as
+   * a NEW function reference whenever the access-token state updates -- and
+   * this hook re-renders constantly while a turn streams (it subscribes to
+   * isStreaming / thinkingSteps / status). The net effect was a socket that
+   * reconnected repeatedly (each rotate()/reconnect also resets the client's
+   * reconnect counter, so its own CONNECTION_FAILED backstop never tripped).
+   * Routing both through refs keeps the socket stable for the conversation's
+   * lifetime while the callbacks still observe fresh state via getState().
+   */
+  const latestCallbacksRef = useRef<NATWebSocketClientCallbacks>({})
+  const latestRefreshAuthRef = useRef<() => Promise<void>>(async () => {})
+  const memoizedCallbacks = useMemo(() => createCallbacks(), [createCallbacks])
+  latestCallbacksRef.current = memoizedCallbacks
+  latestRefreshAuthRef.current = refreshAuthBeforeReconnect
+
+  /**
+   * Build a WebSocket client whose callbacks and auth-refresh hook delegate to
+   * the refs above. Stable (empty deps) so creating a client never depends on
+   * a changing callback identity. Seeds projectId from the store like the
+   * lifecycle effect did; later project changes are pushed via updateProjectId.
+   */
+  const buildWsClient = useCallback((conversationId: string): NATWebSocketClient => {
+    return createNATWebSocketClient({
+      conversationId,
+      projectId: useChatStore.getState().projectId || undefined,
+      callbacks: {
+        onResponse: (...args) => latestCallbacksRef.current.onResponse?.(...args),
+        onStage: (...args) => latestCallbacksRef.current.onStage?.(...args),
+        onIntermediateStep: (...args) => latestCallbacksRef.current.onIntermediateStep?.(...args),
+        onHumanPrompt: (...args) => latestCallbacksRef.current.onHumanPrompt?.(...args),
+        onError: (...args) => latestCallbacksRef.current.onError?.(...args),
+        onConnectionChange: (...args) => latestCallbacksRef.current.onConnectionChange?.(...args),
+      },
+      onBeforeReconnect: () => latestRefreshAuthRef.current(),
+    })
+  }, [])
+
+  /**
+   * Initialize WebSocket client when conversation changes.
+   *
+   * Gated on `socketPermitted` as well as `autoConnect`: see the socket-gate block
+   * above. `socketPermitted` is latched, so within one conversation it only ever
+   * goes false → true and this effect cannot tear down a live socket behind the
+   * user's back.
    */
   useEffect(() => {
-    if (!currentConversationId || !autoConnect) return
+    if (!currentConversationId || !autoConnect || !socketPermitted) return
 
     // Create new client if needed. Seed projectId from the store at creation
     // time; subsequent changes are pushed by the dedicated projectId effect
@@ -1067,12 +1820,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     // effect on projectId -- doing so tears the socket down mid-connect and
     // produces "closed before the connection is established" churn.
     if (!wsClientRef.current) {
-      wsClientRef.current = createNATWebSocketClient({
-        conversationId: currentConversationId,
-        projectId: useChatStore.getState().projectId || undefined,
-        callbacks: createCallbacks(),
-        onBeforeReconnect: refreshAuthBeforeReconnect,
-      })
+      wsClientRef.current = buildWsClient(currentConversationId)
       wsClientRef.current.connect()
     } else {
       // Update conversation ID on existing client
@@ -1106,8 +1854,14 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       }
       pendingOutgoingRef.current = null
       lastSentOutgoingRef.current = null
+      // Context frames are conversation-scoped for the same reason a turn is:
+      // draining one into the NEXT conversation's socket would leak a message
+      // across a conversation boundary.
+      pendingContextRef.current = []
       clearUnacknowledgedOutgoing()
+      clearStreamingWatchdog()
       consecutiveAuthExpiredRef.current = 0
+      budgetDiagnosticsCheckedRef.current = false
       pendingRotationRef.current = false
       currentThinkingStepIdRef.current = null
       currentStatusRef.current = null
@@ -1115,9 +1869,10 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   }, [
     currentConversationId,
     autoConnect,
-    createCallbacks,
-    refreshAuthBeforeReconnect,
+    socketPermitted,
+    buildWsClient,
     clearUnacknowledgedOutgoing,
+    clearStreamingWatchdog,
     setStreaming,
     setLoading,
     setCurrentStatus,
@@ -1138,46 +1893,129 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   }, [projectId])
 
   /**
-   * Send a message via WebSocket
+   * Deliver a human message to the agent as CONTEXT ONLY — "always send, never
+   * always judge" (ADR-0034 addendum).
+   *
+   * The hand-off suppresses the agent by not invoking it, which is right about
+   * tokens and was wrong about MEMORY: the agent's history is its LangGraph
+   * checkpoint, so a turn that never reached it leaves a hole, and `@Piloti given
+   * that, recheck` then refers to nothing. This closes the hole without making
+   * routing probabilistic — the server already ruled that the agent is not
+   * addressed; only DELIVERY changes.
+   *
+   * Deliberately NOT `sendOutgoingPayload`:
+   *   - no turn state (no streaming, no loading, no thinking step, no watchdog) —
+   *     there is nothing to wait for;
+   *   - no delivery-ack tracking. An ordinary send is watched by a 7s ack timeout
+   *     whose expiry rotates the socket and shows "No response received from the
+   *     server."; a frame that is answered by design would trip it every time;
+   *   - no rotation buffer. The single-slot buffer belongs to a real turn, and
+   *     context must never displace one.
+   *
+   * Best effort by design: the human's message is already persisted in Postgres, so
+   * a frame that cannot go out costs the agent a line of memory and costs the thread
+   * nothing. Never throws, never surfaces anything.
+   *
+   * **No socket yet?** It is QUEUED, not dropped. Connecting on intent rather than
+   * on mount widens the window in which a fast "focus, paste, Enter" arrives while
+   * the handshake is still in flight, so the frame waits in `pendingContextRef` and
+   * goes out on `connected`. If no socket ever comes up (the user never focused the
+   * composer, the handshake fails, they navigate away) the frame is discarded with
+   * the conversation, silently — which is the same outcome as before, for the same
+   * reason: the message itself is already safe in Postgres.
    */
-  const sendMessage = useCallback(
-    (content: string) => {
-      if (!content.trim()) return
+  const deliverAsContext = useCallback(
+    (content: string, dataSourcesForMessage: string[]): boolean => {
+      const authorName = user?.name ?? user?.email ?? null
+      const client = wsClientRef.current
 
-      // Collect metadata about data sources and files before adding user message
-      const layoutState = useLayoutStore.getState()
-      const enabledDataSources = layoutState.enabledDataSourceIds
+      const queue = (): boolean => {
+        pendingContextRef.current.push({ content, dataSources: dataSourcesForMessage, authorName })
+        if (pendingContextRef.current.length > MAX_PENDING_CONTEXT) {
+          pendingContextRef.current.shift()
+        }
+        return false
+      }
 
-      // Get session files
-      const sessionId = useChatStore.getState().currentConversation?.id
-      const trackedFiles = useDocumentsStore.getState().trackedFiles
-      const sessionFiles = sessionId
-        ? trackedFiles.filter(
-            (f) => f.collectionName === sessionId && (f.status === 'ingesting' || f.status === 'success')
-          )
-        : []
+      if (!client?.isConnected()) {
+        queue()
+        // Bring a socket up for it. The user just wrote in this thread, so they are
+        // not an observer any more — the same intent a composer focus declares. The
+        // latch is set too, so the lifecycle effect and the ref agree about whether
+        // this conversation is allowed a socket.
+        noteSendIntent()
+        const conversationId = useChatStore.getState().currentConversation?.id
+        if (!wsClientRef.current && conversationId) {
+          wsClientRef.current = buildWsClient(conversationId)
+        }
+        void wsClientRef.current?.connect()
+        return false
+      }
 
+      try {
+        const delivered =
+          client.sendMessage(content, dataSourcesForMessage, {
+            contextOnly: true,
+            authorName,
+          }) !== null
+        if (!delivered) {
+          // The socket refused the frame (rotating, closing). Same window, same
+          // answer: hold it for the next `connected`.
+          console.warn('[WS] Context-only message deferred (socket refused the frame)')
+          return queue()
+        }
+        return delivered
+      } catch (err) {
+        console.warn('[WS] Context-only message deferred', err)
+        return queue()
+      }
+    },
+    [user?.name, user?.email, buildWsClient, noteSendIntent],
+  )
+
+  /**
+   * The send metadata both paths need: which sources are live, and which of this
+   * session's files are attached.
+   */
+  const collectSendMetadata = useCallback(() => {
+    const layoutState = useLayoutStore.getState()
+    const enabledDataSources = layoutState.enabledDataSourceIds
+
+    // Get session files
+    const sessionId = useChatStore.getState().currentConversation?.id
+    const trackedFiles = useDocumentsStore.getState().trackedFiles
+    const sessionFiles = sessionId
+      ? trackedFiles.filter(
+          (f) => f.collectionName === sessionId && (f.status === 'ingesting' || f.status === 'success')
+        )
+      : []
+
+    return {
       // Keep internal knowledge available for base/project/session corpora even though it is hidden from toggles.
-      const dataSourcesForMessage = layoutState.knowledgeLayerAvailable
+      dataSourcesForMessage: layoutState.knowledgeLayerAvailable
         ? Array.from(new Set([...enabledDataSources, 'knowledge_layer']))
-        : enabledDataSources
-
+        : enabledDataSources,
       // Prepare file metadata for display
-      const messageFiles = sessionFiles.map((f) => ({
-        id: f.id,
-        fileName: f.fileName,
-      }))
+      messageFiles: sessionFiles.map((f) => ({ id: f.id, fileName: f.fileName })),
+    }
+  }, [])
 
-      // Add user message to store with metadata
-      addUserMessage(content, {
-        enabledDataSources: dataSourcesForMessage,
-        messageFiles,
-      })
-
-      // currentConversation may have just been created inside addUserMessage.
-      const storeState = useChatStore.getState()
-      const conversationId = storeState.currentConversation?.id
-
+  /**
+   * Open an agent turn for `content`: reset the turn-scoped state, put the payload
+   * on the wire (or buffer it across a handshake / token rotation) and arm the
+   * inactivity watchdog.
+   *
+   * Extracted so both send paths share ONE definition of "a turn starts", and so
+   * the mention path can decline to call it at all — the whole point of MN-7 is
+   * that nothing is started rather than started and cancelled.
+   */
+  const openAgentTurn = useCallback(
+    (
+      content: string,
+      dataSourcesForMessage: string[],
+      conversationId: string | undefined,
+      skills?: string[],
+    ): boolean => {
       // thinkingSteps are NOT cleared here -- they persist per userMessageId
       // so chat history still renders prior thinking blocks.
       clearReportContent()
@@ -1192,21 +2030,38 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       setStreaming(true)
       setLoading(true)
 
+      // Retrieval follows the composer bar ("Asking about this file").
+      // A visible peek is the fallback when there is no bar yet.
+      const preview = useFilePreviewStore.getState()
+      const subject = useChatStore.getState().composerSubject
+      const subjectName = subject?.filename?.trim() || subject?.title?.trim() || undefined
+      const peekName = isFilePeekVisible(preview) ? preview.file?.filename.trim() || undefined : undefined
+      const focusFileName = subjectName || peekName
+      const focusShelf = subject?.shelf
+      const sourcePreset = useLayoutStore.getState().activeSourcePreset
       const outgoingPayload: PendingOutgoing = {
         kind: 'message',
         content,
         dataSources: dataSourcesForMessage,
+        ...(skills && skills.length > 0 ? { skills } : {}),
+        ...(focusFileName ? { focusFileName } : {}),
+        ...(focusShelf ? { focusShelf } : {}),
+        ...(sourcePreset ? { sourcePreset } : {}),
       }
 
       // Helper to actually send the message
-      const doSend = () => {
+      const doSend = (): boolean => {
         if (sendOutgoingPayload(outgoingPayload)) {
+          // Turn is on the wire -- start the overall inactivity deadline.
+          armStreamingWatchdog()
           setLoading(false)
-        } else {
-          addErrorCard('connection.failed', 'WebSocket connection failed')
-          setStreaming(false)
-          setLoading(false)
+          return true
         }
+        clearStreamingWatchdog()
+        addErrorCard('connection.failed', 'WebSocket connection failed')
+        setStreaming(false)
+        setLoading(false)
+        return false
       }
 
       // Pre-flight: the socket may report connected, but if its JWT is
@@ -1221,11 +2076,11 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       if (wsClientRef.current?.isConnected() && tokenIsStale()) {
         pendingOutgoingRef.current = outgoingPayload
         rotateSocket('preflight')
-        return
+        return true
       }
 
       if (wsClientRef.current?.isConnected()) {
-        doSend()
+        return doSend()
       } else if (conversationId) {
         // A client can exist but still be handshaking or reconnecting.
         // Queue this outbound payload for the normal 'connected' drain
@@ -1233,36 +2088,182 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         pendingOutgoingRef.current = outgoingPayload
 
         if (!wsClientRef.current) {
-          wsClientRef.current = createNATWebSocketClient({
-            conversationId,
-            callbacks: createCallbacks(),
-            onBeforeReconnect: refreshAuthBeforeReconnect,
-          })
+          // buildWsClient seeds projectId from the store; the updateProjectId
+          // effect only fires when the store value CHANGES, so a client created
+          // without it would handshake unscoped for its whole life.
+          wsClientRef.current = buildWsClient(conversationId)
         }
         void wsClientRef.current.connect()
+        return true
       } else {
         // Defensive: shouldn't happen because addUserMessage creates a
         // conversation if one is missing.
+        clearStreamingWatchdog()
         addErrorCard('system.unknown', 'No active conversation')
         setStreaming(false)
         setLoading(false)
+        return false
       }
     },
     [
-      addUserMessage,
       addErrorCard,
       clearReportContent,
       clearPendingInteraction,
       setCurrentStatus,
       setStreaming,
       setLoading,
-      createCallbacks,
-      refreshAuthBeforeReconnect,
+      buildWsClient,
       rotateSocket,
       sendOutgoingPayload,
+      armStreamingWatchdog,
+      clearStreamingWatchdog,
       authRequired,
       activeSocketTokenExpiresAt,
     ]
+  )
+
+  /**
+   * Send a message the SERVER rules on — THE ADDRESSEE CONTRACT (ADR-0034 §4).
+   *
+   * Taken by a message that carries mentions, and by a plain message sent while the
+   * thread waits on a named person (the addendum's second state, where a remark is
+   * not a question). Everything that makes this path different from the fast one
+   * follows from one rule: **the server decides who answers.** So persistence is
+   * awaited, the `addressees` ruling is read off the response, and an agent turn is
+   * opened only when `addressees.agent` is true. When it is false nothing is STARTED
+   * — no status, no thinking bubble, no tokens (spec MN-7) — and the thread's
+   * awaiting-state explains the silence instead.
+   *
+   * The message still reaches the agent, as context only (see `deliverAsContext`).
+   * Not answering is a routing decision; not remembering was a bug.
+   *
+   * It also means a refusal (a collaborator tagging a non-participant, a target
+   * outside the project, a rate limit) refuses the WHOLE send: nothing is echoed
+   * into the thread, so the composer can keep the user's text and say why.
+   */
+  const sendRuledMessage = useCallback(
+    async (content: string, options: SendMessageOptions): Promise<SendMessageOutcome> => {
+      const mentions = options.mentions ?? []
+      const store = useChatStore.getState()
+      const conversationId = store.currentConversation?.id ?? store.ensureSession?.()
+      if (!conversationId) {
+        addErrorCard('system.unknown', 'No active conversation')
+        return { ok: false }
+      }
+
+      const { dataSourcesForMessage, messageFiles } = collectSendMetadata()
+      // Our id, generated up front: it is the anchor the mention request points at,
+      // and the idempotency key the server rules on.
+      const messageId = uuidv4()
+
+      let ruling: AddresseeSet | null = null
+      try {
+        // The conversation row has to exist before a message can be posted onto it.
+        // Shared with the store's own append path, so it is at most one round trip.
+        await store._ensureConversationExists?.()
+
+        const response = await fetch(
+          `/api/conversations/${encodeURIComponent(conversationId)}/messages`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: messageId,
+              role: 'user',
+              content,
+              messageType: 'user',
+              metadata: {
+                enabledDataSources: dataSourcesForMessage,
+                ...(messageFiles.length > 0 ? { messageFiles } : {}),
+              },
+              createdAt: new Date().toISOString(),
+              // Structured references, never a text match on a name (spec MN-3).
+              mentions: mentions.map((mention) => ({ targetId: mention.targetId })),
+              ...(options.mentionNote ? { mentionNote: options.mentionNote } : {}),
+            }),
+          },
+        )
+
+        if (!response.ok) {
+          return { ok: false, failure: await readSendFailure(response) }
+        }
+        ruling = readAddresseeRuling(await response.json(), messageId)
+      } catch {
+        // Network/offline: nothing was stored, so nothing is echoed and no turn is
+        // opened. The composer keeps the text.
+        return { ok: false, failure: { reason: null, message: null } }
+      }
+
+      if (!ruling) return { ok: false, failure: { reason: null, message: null } }
+
+      appendLocalUserMessage({
+        id: messageId,
+        role: 'user',
+        content,
+        timestamp: new Date(),
+        messageType: 'user',
+        enabledDataSources: dataSourcesForMessage,
+        messageFiles: messageFiles.length > 0 ? messageFiles : undefined,
+        // Kept on the message so the bubble can render the tokens as chips
+        // without re-deriving anything from the text.
+        mentions: mentions.map((mention) => ({ ...mention })),
+        addressees: ruling,
+      })
+
+      if (!ruling.agent) {
+        // The thread now waits for a human. Nothing is STARTED (MN-7) — but the
+        // agent still has to see what was written, or the next `@Piloti given
+        // that…` has nothing to refer to. Free, silent, best-effort.
+        deliverAsContext(content, dataSourcesForMessage)
+        return { ok: true, addressees: ruling }
+      }
+
+      const started = openAgentTurn(content, dataSourcesForMessage, conversationId)
+      return { ok: started, addressees: ruling }
+    },
+    [addErrorCard, collectSendMetadata, deliverAsContext, openAgentTurn],
+  )
+
+  /**
+   * Send a message via WebSocket.
+   *
+   * Two paths, deliberately asymmetric:
+   *   - **a thread in its normal state, with nothing tagged** — today's fast path,
+   *     unchanged: the message is echoed and persisted fire-and-forget and the turn
+   *     opens immediately. This is the 99% case and it must not pay for the feature
+   *     (returns a plain boolean).
+   *   - **mentions, or a plain message while the thread waits on a person** — the
+   *     addressee contract: persistence is awaited and the server decides whether a
+   *     turn opens at all (returns an outcome). Both cases need the ruling for the
+   *     same reason: the answer is not "the agent, obviously".
+   */
+  const sendMessage = useCallback(
+    (content: string, options?: SendMessageOptions): boolean | Promise<SendMessageOutcome> => {
+      if (!content.trim()) return false
+
+      if ((options?.mentions && options.mentions.length > 0) || options?.awaitingHuman) {
+        return sendRuledMessage(content, options ?? {})
+      }
+
+      const { dataSourcesForMessage, messageFiles } = collectSendMetadata()
+
+      // Add user message to store with metadata
+      addUserMessage(content, {
+        enabledDataSources: dataSourcesForMessage,
+        messageFiles,
+      })
+
+      // currentConversation may have just been created inside addUserMessage.
+      const conversationId = useChatStore.getState().currentConversation?.id
+
+      return openAgentTurn(
+        content,
+        dataSourcesForMessage,
+        conversationId,
+        options?.skills ? [...options.skills] : undefined,
+      )
+    },
+    [addUserMessage, collectSendMetadata, openAgentTurn, sendRuledMessage],
   )
 
   /**
@@ -1312,6 +2313,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         if (sendOutgoingPayload(interactionPayload)) {
           setStreaming(true)
           setLoading(true)
+          // HITL answer is on the wire -- resume the inactivity deadline.
+          armStreamingWatchdog()
         } else {
           addErrorCard('connection.failed', 'WebSocket not connected')
         }
@@ -1350,6 +2353,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       activeSocketTokenExpiresAt,
       rotateSocket,
       sendOutgoingPayload,
+      armStreamingWatchdog,
     ]
   )
 
@@ -1360,14 +2364,10 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     if (wsClientRef.current) {
       wsClientRef.current.connect()
     } else if (currentConversation) {
-      wsClientRef.current = createNATWebSocketClient({
-        conversationId: currentConversation.id,
-        callbacks: createCallbacks(),
-        onBeforeReconnect: refreshAuthBeforeReconnect,
-      })
+      wsClientRef.current = buildWsClient(currentConversation.id)
       wsClientRef.current.connect()
     }
-  }, [currentConversation, createCallbacks, refreshAuthBeforeReconnect])
+  }, [currentConversation, buildWsClient])
 
   // Activate recovery polling when connection error cards are visible
   useConnectionRecovery(connect)
@@ -1431,6 +2431,32 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   }, [setStreaming, setLoading])
 
   /**
+   * Cancel path for the store's `stopStreaming()` action [C1]. The store action
+   * owns the UI-state reset (flush batched deltas, finalize the streaming
+   * bubble, clear isStreaming/isLoading/currentStatus); here we tear down the
+   * socket. `disconnect()` closes it intentionally, so the onConnectionChange
+   * handler returns early (no error card, no auto-replay), and the existing
+   * `activeParentId` stale-guard in createCallbacks drops any frame still in
+   * flight for the cancelled turn. Stand the watchdog down and drop the resend
+   * buffers so a cancelled turn never replays behind the user's back.
+   */
+  const cancelStreaming = useCallback(() => {
+    clearStreamingWatchdog()
+    lastSentOutgoingRef.current = null
+    pendingOutgoingRef.current = null
+    clearUnacknowledgedOutgoing()
+    disconnect()
+  }, [clearStreamingWatchdog, clearUnacknowledgedOutgoing, disconnect])
+
+  // Register the cancel path so useChatStore.getState().stopStreaming() (called
+  // from the composer's stop button) can reach the socket without importing the
+  // hook. Cleared on unmount.
+  useEffect(() => {
+    registerStopStreamingHandler(cancelStreaming)
+    return () => registerStopStreamingHandler(null)
+  }, [cancelStreaming])
+
+  /**
    * Create a new conversation
    */
   const createConversation = useCallback(() => {
@@ -1458,6 +2484,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     respondToInteraction,
     disconnect,
     connect,
+    noteSendIntent,
     isConnected,
     isStreaming,
     isLoading,

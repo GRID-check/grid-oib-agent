@@ -1,0 +1,32 @@
+name: Setup Python env
+description: Python + uv + a synced dev virtualenv (.venv), shared across jobs.
+
+inputs:
+  python-version:
+    description: Python version to provision.
+    required: false
+    default: "3.13"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Setup uv
+      uses: astral-sh/setup-uv@v4
+      with:
+        enable-cache: true
+
+    - name: Create venv and sync dev deps
+      shell: bash
+      # Pass the input through env rather than interpolating ${{ }} straight into
+      # the run script — avoids the shell-injection pattern Semgrep flags
+      # (run-shell-injection), even though this input is CI-controlled today.
+      env:
+        PYTHON_VERSION: ${{ inputs.python-version }}
+      run: |
+        uv venv --python "$PYTHON_VERSION" .venv
+        uv sync --group dev

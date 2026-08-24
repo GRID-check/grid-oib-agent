@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/auth/require-auth', () => ({
@@ -30,10 +33,16 @@ const session = {
   organizationMembershipId: 'om_admin',
   role: 'member',
   permissions: [] as string[],
+  featureFlags: null,
 }
 
 function makeParams(id: string): { params: Promise<{ id: string }> } {
   return { params: Promise.resolve({ id }) }
+}
+
+/** WorkOS list calls resolve to an AutoPaginatable; the route drains it via autoPagination(). */
+function paginated<T>(data: T[]): { autoPagination: () => Promise<T[]> } {
+  return { autoPagination: () => Promise.resolve(data) }
 }
 
 describe('/api/projects/[id]/members', () => {
@@ -44,48 +53,73 @@ describe('/api/projects/[id]/members', () => {
   })
 
   it('lists project-resource memberships by effective project permissions and merges user details', async () => {
-    const listUsers = vi.fn().mockResolvedValue({
-      data: [
-        { id: 'user_viewer', email: 'viewer@example.com', firstName: 'View', lastName: 'Only', name: null },
-        { id: 'user_editor', email: 'editor@example.com', firstName: null, lastName: null, name: 'Editor Person' },
-        { id: 'user_admin', email: 'admin@example.com', firstName: 'Admin', lastName: 'Person', name: null },
-      ],
-    })
-    const listOrganizationMemberships = vi.fn().mockResolvedValue({
-      data: [
+    const listUsers = vi.fn().mockResolvedValue(
+      paginated([
+        {
+          id: 'user_viewer',
+          email: 'viewer@example.com',
+          firstName: 'View',
+          lastName: 'Only',
+          name: null,
+          profilePictureUrl: 'https://cdn.example.com/viewer.png',
+        },
+        {
+          id: 'user_editor',
+          email: 'editor@example.com',
+          firstName: null,
+          lastName: null,
+          name: 'Editor Person',
+          profilePictureUrl: null,
+        },
+        {
+          id: 'user_admin',
+          email: 'admin@example.com',
+          firstName: 'Admin',
+          lastName: 'Person',
+          name: null,
+          profilePictureUrl: 'https://cdn.example.com/admin.png',
+        },
+      ])
+    )
+    const listOrganizationMemberships = vi.fn().mockResolvedValue(
+      paginated([
         { id: 'om_viewer', userId: 'user_viewer' },
         { id: 'om_editor', userId: 'user_editor' },
         { id: 'om_admin', userId: 'user_admin' },
-      ],
-    })
+      ])
+    )
     const listMembershipsForResourceByExternalId = vi
       .fn()
-      .mockResolvedValueOnce({
-        data: [
+      .mockResolvedValueOnce(
+        paginated([
           { id: 'om_viewer', userId: 'user_viewer' },
           { id: 'om_editor', userId: 'user_editor' },
           { id: 'om_admin', userId: 'user_admin' },
-        ],
-      })
-      .mockResolvedValueOnce({
-        data: [
+        ])
+      )
+      .mockResolvedValueOnce(
+        paginated([
           { id: 'om_editor', userId: 'user_editor' },
           { id: 'om_admin', userId: 'user_admin' },
-        ],
-      })
-      .mockResolvedValueOnce({
-        data: [{ id: 'om_admin', userId: 'user_admin' }],
-      })
+        ])
+      )
+      .mockResolvedValueOnce(paginated([{ id: 'om_admin', userId: 'user_admin' }]))
 
     mockGetWorkOS.mockReturnValue({
       userManagement: { listUsers, listOrganizationMemberships },
       authorization: { listMembershipsForResourceByExternalId },
     } as never)
 
-    const res = await GET(new Request('http://localhost/api/projects/proj_1/members'), makeParams('proj_1'))
+    const res = await GET(
+      new Request('http://localhost/api/projects/proj_1/members'),
+      makeParams('proj_1')
+    )
 
     expect(res.status).toBe(200)
-    expect(mockRequireProjectAccess).toHaveBeenCalledWith(session, 'proj_1', 'project:manage')
+    expect(mockRequireProjectAccess).toHaveBeenCalledWith(session, 'proj_1', [
+      'project:members:manage',
+      'project:manage',
+    ])
     expect(listUsers).toHaveBeenCalledWith({ organizationId: 'org_1' })
     expect(listOrganizationMemberships).toHaveBeenCalledWith({ organizationId: 'org_1' })
     expect(listMembershipsForResourceByExternalId).toHaveBeenNthCalledWith(1, {
@@ -117,6 +151,7 @@ describe('/api/projects/[id]/members', () => {
           userId: 'user_viewer',
           email: 'viewer@example.com',
           name: 'View Only',
+          profilePictureUrl: 'https://cdn.example.com/viewer.png',
           role: 'project-viewer',
         },
         {
@@ -124,6 +159,7 @@ describe('/api/projects/[id]/members', () => {
           userId: 'user_editor',
           email: 'editor@example.com',
           name: 'Editor Person',
+          profilePictureUrl: null,
           role: 'project-editor',
         },
         {
@@ -131,6 +167,7 @@ describe('/api/projects/[id]/members', () => {
           userId: 'user_admin',
           email: 'admin@example.com',
           name: 'Admin Person',
+          profilePictureUrl: 'https://cdn.example.com/admin.png',
           role: 'project-admin',
         },
       ],

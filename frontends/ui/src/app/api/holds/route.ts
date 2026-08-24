@@ -2,14 +2,14 @@
  * Legal holds: preserve data and block purge (GDPR Art. 18 restriction).
  * Org-admin only. No management UI yet by design — holds are rare,
  * deliberate legal events driven via API.
+ *
+ * Thin handlers; all logic lives in `@/lib/compliance/service`.
  */
 
-import { NextResponse } from 'next/server'
-import { and, desc, eq, isNull } from 'drizzle-orm'
-import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { getDb } from '@/lib/db'
-import { legalHolds } from '@/lib/db/schema'
 import { z } from 'zod'
+import { apiRoute, parseJsonBody } from '@/lib/api/handler'
+import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
+import { createHold, listOpenHolds } from '@/lib/compliance/service'
 
 const createHoldSchema = z.object({
   entityType: z.enum(['project', 'document', 'conversation', 'organization', 'user']),
@@ -17,60 +17,12 @@ const createHoldSchema = z.object({
   reason: z.string().min(1).max(2000),
 })
 
-export async function GET(): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    if (session.role !== 'admin') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+export const GET = apiRoute(async ({ session }) => listOpenHolds(session), {
+  authz: { permission: ORG_PERMISSIONS.complianceManage },
+})
 
-    const db = getDb()
-    const rows = await db
-      .select()
-      .from(legalHolds)
-      .where(
-        and(
-          eq(legalHolds.organizationId, session.organizationId),
-          isNull(legalHolds.releasedAt),
-        ),
-      )
-      .orderBy(desc(legalHolds.createdAt))
-
-    return NextResponse.json(rows)
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
-
-export async function POST(request: Request): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    if (session.role !== 'admin') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-
-    const body = await request.json().catch(() => null)
-    const parsed = createHoldSchema.safeParse(body)
-    if (!parsed.success) {
-      return NextResponse.json({ error: 'Invalid hold request.' }, { status: 400 })
-    }
-
-    const db = getDb()
-    const [hold] = await db
-      .insert(legalHolds)
-      .values({
-        ...parsed.data,
-        organizationId: session.organizationId,
-        createdBy: session.userId,
-      })
-      .returning()
-
-    return NextResponse.json(hold, { status: 201 })
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
+export const POST = apiRoute(
+  async ({ session, request }) =>
+    createHold(session, await parseJsonBody(request, createHoldSchema), request),
+  { status: 201, authz: { permission: ORG_PERMISSIONS.complianceManage } }
+)

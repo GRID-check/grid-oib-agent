@@ -58,7 +58,7 @@ Key responsibilities of the BFF:
 
 1. **Authentication**: WorkOS AuthKit middleware (`proxy.ts`) enforces session-based auth. The `REQUIRE_AUTH` env var controls whether auth is required.
 2. **Collection scoping**: On WebSocket upgrade, the gateway fetches `/api/auth/websocket-scope` to compute the `X-Grid-Collection-Scope` header, which tells the Python backend which ChromaDB collections to search.
-3. **File uploads**: Handles multipart uploads, validates against `FILE_UPLOAD_ACCEPTED_TYPES` and `FILE_UPLOAD_MAX_SIZE_MB`, then uploads to MinIO and triggers backend ingestion.
+3. **File uploads**: Handles multipart uploads, validates against `FILE_UPLOAD_ACCEPTED_TYPES` and `FILE_UPLOAD_MAX_SIZE_MB`, then uploads to SeaweedFS and triggers backend ingestion.
 
 ### Tier 2: Python FastAPI Backend (port 8000)
 
@@ -108,13 +108,13 @@ Browser
   ▼
 Next.js BFF
   │  1. Validates file type and size
-  │  2. Uploads to MinIO (grid-documents bucket)
+  │  2. Uploads to SeaweedFS (grid-documents bucket)
   │  3. Calls backend /api/v1/ingest
   ▼
 Python FastAPI
   │  4. LlamaIndex ingestor chunks and embeds document
   │  5. ChromaDB persists vectors
-  │  6. Document summary stored in PostgreSQL (summaries table)
+  │  6. Document summary stored in PostgreSQL (document_metadata table)
   ▼
 Return: job_id for status polling
 ```
@@ -124,7 +124,7 @@ Return: job_id for status polling
 | Service | Technology | Purpose |
 |---------|-----------|---------|
 | PostgreSQL | postgres:16-alpine | Job metadata, checkpoints, app state |
-| MinIO | minio/minio | S3-compatible document storage |
+| SeaweedFS | chrislusf/seaweedfs:3.80 | S3-compatible document storage |
 | ChromaDB | embedded in Python | Vector storage for embeddings |
 | Dask | NAT-managed | Distributed job execution |
 

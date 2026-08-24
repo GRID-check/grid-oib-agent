@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 const mockMiddleware = vi.fn()
@@ -23,9 +26,13 @@ describe('AuthKit v4 proxy', () => {
             '/',
             '/api/healthz',
             '/api/auth/callback',
+            '/api/auth/signin',
             '/api/auth/websocket-scope',
             '/auth/error',
             '/api/internal/(.*)',
+            // The image optimizer re-enters the router in-process, so
+            // middleware runs on this route with a cookie-less mocked request.
+            '/api/documents/(.*)/image',
           ],
         }),
       })

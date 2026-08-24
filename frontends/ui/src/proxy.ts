@@ -14,23 +14,27 @@
 
 import { authkitMiddleware } from '@workos-inc/authkit-nextjs'
 import type { NextFetchEvent, NextRequest } from 'next/server'
-
-const isAuthRequired = (): boolean => {
-  return process.env.REQUIRE_AUTH?.toLowerCase() === 'true'
-}
+import { isAuthRequired } from '@/lib/auth/auth-required'
 
 const middleware = authkitMiddleware({
   debug: process.env.NODE_ENV === 'development',
   middlewareAuth: {
     enabled: isAuthRequired(),
     unauthenticatedPaths: [
-      // Public marketing landing. AuthKit compiles these paths with
+      // Root redirect page (sends logged-out visitors to the public landing
+      // site via GRID_LANDING_URL). AuthKit compiles these paths with
       // path-to-regexp (anchored), so '/' matches only the root.
       '/',
       // Liveness probe — must return 200 even when auth is required, so the
       // container / Coolify / Traefik health check never redirects to login.
       '/api/healthz',
       '/api/auth/callback',
+      // Sign-in entry point behind /?sign-in (the landing site's "Anmelden"
+      // target). Like the callback it runs BEFORE a session exists — it mints
+      // the AuthKit authorization redirect and its PKCE cookie. Without this
+      // entry middlewareAuth would intercept it and 303 to WorkOS itself,
+      // bypassing the handler.
+      '/api/auth/signin',
       '/api/auth/websocket-scope',
       '/auth/error',
       // Internal service-to-service endpoints (e.g. the backend agent's
@@ -38,6 +42,16 @@ const middleware = authkitMiddleware({
       // enforces its own shared-token auth (X-Grid-Internal-Token). Without
       // this entry AuthKit 303-redirects the POST to WorkOS sign-in.
       '/api/internal/(.*)',
+      // Signed document images. `_next/image` is excluded from the matcher
+      // below, but the optimizer does not fetch the underlying route over the
+      // network — it re-enters the router server handler in-process, so
+      // middleware DOES run on it, with a mocked request that carries no
+      // cookies. Without this entry AuthKit 303-redirects our own optimizer to
+      // WorkOS sign-in and every document image breaks. The route is not
+      // unguarded: it verifies the HMAC signature on the URL itself
+      // (`@/lib/images/signed-image-url`), which is the same shape of argument
+      // as the internal endpoints above.
+      '/api/documents/(.*)/image',
     ],
   },
 })

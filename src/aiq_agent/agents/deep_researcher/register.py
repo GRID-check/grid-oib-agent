@@ -1,21 +1,8 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """NAT register function for deep research agent."""
 
+import asyncio
 import logging
+from typing import Any
 from typing import TypeVar
 
 from langchain_core.messages import HumanMessage
@@ -30,7 +17,10 @@ from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import _create_chat_response
 from aiq_agent.common import all_mapped_tools_filtered_out
 from aiq_agent.common import filter_tools_by_sources
+from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_model_overrides_from_context
+from aiq_agent.common import get_org_llm_credential_from_context
+from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -44,6 +34,7 @@ from nat.data_models.function import FunctionBaseConfig
 
 from .agent import DEFAULT_MAX_CONCURRENT_SOURCE_TOOL_CALLS
 from .agent import DEFAULT_MAX_RESEARCH_CONCURRENCY
+from .agent import DEFAULT_MAX_RUN_SECONDS
 from .agent import DEFAULT_MAX_SOURCE_TOOL_BATCH_SIZE
 from .agent import DeepResearcherAgent
 from .deepagents_runtime import DeepResearchSandboxConfig
@@ -108,6 +99,19 @@ class DeepResearchAgentConfig(FunctionBaseConfig, name="deep_research_agent"):
         default=DEFAULT_MAX_SOURCE_TOOL_BATCH_SIZE,
         ge=1,
         description="Maximum concrete inputs accepted by batch-capable source tool wrappers.",
+    )
+    max_run_seconds: int = Field(
+        default=DEFAULT_MAX_RUN_SECONDS,
+        ge=0,
+        description="Wall-clock budget for one deep-research run in seconds; 0 disables the guard.",
+    )
+    checkpoint_db: str | None = Field(
+        default=None,
+        description="Optional SQLite database path or Postgres DSN for durable per-job checkpointing of "
+        "deep-research runs (LangGraph thread_id = job_id), enabling resume of a re-invoked job after a "
+        "worker crash. None (default) keeps current behavior: an in-memory-only graph with no execution-"
+        "state durability. Mirrors the workflow-level chat_researcher checkpoint_db pattern, but opt-in "
+        "here since deep-research jobs run in ephemeral Dask worker processes.",
     )
 
     @field_validator("skills", mode="before")
@@ -174,81 +178,161 @@ async def deep_research_agent(config: DeepResearchAgentConfig, builder: Builder)
     """Deep research agent using multi-phase workflow."""
     skills_config, sandbox_config = resolve_deep_research_runtime_config(config, builder)
 
+    async def _resolve_tools(tool_refs: list[str]) -> list:
+        resolved = await builder.get_tools(tool_names=tool_refs, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+        if config.exclude_tools:
+            excluded = set(config.exclude_tools)
+            resolved = [t for t in resolved if getattr(t, "name", "") not in excluded]
+        return resolved
+
+    # Tool resolution is eager only when tools are configured explicitly. When
+    # tools are inherited (config.tools empty), the data_source_registry may not
+    # be populated at BUILD time -- NAT adds no build-order dependency in that
+    # case -- so eager resolution would capture an empty list. Resolve those
+    # lazily on the first request instead (see _ensure_resolved below).
+    explicit_tools: list | None = None
     if config.tools:
-        tool_refs = config.tools
-    else:
-        from aiq_agent.common import get_all_tool_refs
+        explicit_tools = await _resolve_tools(list(config.tools))
 
-        tool_refs = get_all_tool_refs()
+        from aiq_agent.common import validate_tool_availability
 
-    tools = await builder.get_tools(tool_names=tool_refs, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-
-    if config.exclude_tools:
-        excluded = set(config.exclude_tools)
-        tools = [t for t in tools if getattr(t, "name", "") not in excluded]
-
-    from aiq_agent.common import validate_tool_availability
-
-    is_valid, available_count, unavailable = validate_tool_availability(
-        tools,
-        research_type="deep research",
-    )
-    if not is_valid:
-        logger.warning(
-            "Startup check: no tools available for deep research. "
-            "All queries will fail until at least one tool is properly configured.",
+        is_valid, available_count, unavailable = validate_tool_availability(
+            explicit_tools,
+            research_type="deep research",
         )
+        if not is_valid:
+            logger.warning(
+                "Startup check: no tools available for deep research. "
+                "All queries will fail until at least one tool is properly configured.",
+            )
 
-    llm = await builder.get_llm(config.orchestrator_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    llm = await get_langchain_llm(builder, config.orchestrator_llm)
 
     provider = LLMProvider()
     provider.set_default(llm, group=AgentGroup.DEEP_RESEARCH)
 
     provider.configure(LLMRole.ORCHESTRATOR, llm, group=AgentGroup.DEEP_RESEARCH)
     if config.source_router_llm:
-        source_router_llm = await builder.get_llm(config.source_router_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+        source_router_llm = await get_langchain_llm(builder, config.source_router_llm)
         provider.configure(LLMRole.ROUTER, source_router_llm, group=AgentGroup.DEEP_RESEARCH_ROUTER)
     if config.researcher_llm:
-        researcher_llm = await builder.get_llm(config.researcher_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+        researcher_llm = await get_langchain_llm(builder, config.researcher_llm)
         provider.configure(LLMRole.RESEARCHER, researcher_llm, group=AgentGroup.DEEP_RESEARCH)
     if config.planner_llm:
-        planner_llm = await builder.get_llm(config.planner_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+        planner_llm = await get_langchain_llm(builder, config.planner_llm)
         provider.configure(LLMRole.PLANNER, planner_llm, group=AgentGroup.DEEP_RESEARCH)
     if config.writer_llm:
-        writer_llm = await builder.get_llm(config.writer_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+        writer_llm = await get_langchain_llm(builder, config.writer_llm)
         provider.configure(LLMRole.REPORT_WRITER, writer_llm, group=AgentGroup.DEEP_RESEARCH)
 
     verbose = is_verbose(config.verbose)
     callbacks = [VerboseTraceCallback()] if verbose else []
 
-    agent = DeepResearcherAgent(
-        llm_provider=provider,
-        tools=tools,
-        verbose=verbose,
-        callbacks=callbacks,
-        domain_catalog_path=config.domain_catalog_path,
-        enable_source_router=config.enable_source_router,
-        enable_citation_verification=config.enable_citation_verification,
-        skills=skills_config,
-        sandbox=sandbox_config,
-        max_research_concurrency=config.max_research_concurrency,
-        max_concurrent_source_tool_calls=config.max_concurrent_source_tool_calls,
-        max_source_tool_batch_size=config.max_source_tool_batch_size,
-    )
+    # Optional durable checkpointer (T3-8): built once at registration time and
+    # shared by every agent instance this function builds, matching the
+    # chat_researcher precedent (register.py:387). get_checkpointer caches by
+    # checkpoint_db path/DSN, so this is a no-op cache hit if the async job
+    # runner (frontends/aiq_api/.../jobs/runner.py) already built the same
+    # checkpointer for this config's checkpoint_db.
+    checkpointer = None
+    if config.checkpoint_db:
+        from aiq_agent.common import get_checkpointer
+
+        # Fail OPEN: durable checkpointing is an optional resilience feature —
+        # an unopenable/unwritable checkpoint DB (read-only container FS,
+        # missing volume, bad DSN) must degrade to the in-memory default with
+        # a loud warning, never take application startup down.
+        try:
+            checkpointer = await get_checkpointer(config.checkpoint_db)
+        except Exception:  # noqa: BLE001 - deliberate fail-open boundary
+            logger.warning(
+                "Durable deep-research checkpointing DISABLED: cannot open checkpoint_db %r "
+                "(set AIQ_DEEP_CHECKPOINT_DB to a writable path/DSN to enable resume-by-job_id)",
+                config.checkpoint_db,
+                exc_info=True,
+            )
+            checkpointer = None
+
+    def _build_agent(
+        tool_list: list,
+        *,
+        llm_provider: Any = None,
+        job_id: str | None = None,
+    ) -> DeepResearcherAgent:
+        # Optional overrides let per-request paths (model overrides / BYOK
+        # credential, source-filtered tools, sandbox-scoped job_id) reuse this
+        # single constructor call instead of duplicating every kwarg. Omitted
+        # overrides fall back to the module-level provider / a fresh job_id,
+        # matching the eager and lazy build sites.
+        return DeepResearcherAgent(
+            llm_provider=llm_provider if llm_provider is not None else provider,
+            tools=tool_list,
+            verbose=verbose,
+            callbacks=callbacks,
+            domain_catalog_path=config.domain_catalog_path,
+            enable_source_router=config.enable_source_router,
+            enable_citation_verification=config.enable_citation_verification,
+            skills=skills_config,
+            sandbox=sandbox_config,
+            job_id=job_id,
+            max_research_concurrency=config.max_research_concurrency,
+            max_concurrent_source_tool_calls=config.max_concurrent_source_tool_calls,
+            max_source_tool_batch_size=config.max_source_tool_batch_size,
+            max_run_seconds=config.max_run_seconds,
+            checkpointer=checkpointer,
+        )
+
+    # Cache of the lazily-resolved (tools, prebuilt agent) pair. For explicit
+    # config.tools this is populated eagerly at build time; for inherited tools
+    # it is filled on the first request that resolves a non-empty tool set.
+    _resolved: dict[str, Any] = {"tools": None, "agent": None}
+    if explicit_tools is not None:
+        _resolved["tools"] = explicit_tools
+        _resolved["agent"] = _build_agent(explicit_tools)
+    _resolve_lock = asyncio.Lock()
+
+    async def _ensure_resolved() -> tuple[list, DeepResearcherAgent]:
+        """Resolve inherited tools + prebuilt agent, lazily and once."""
+        if _resolved["tools"] is not None:
+            return _resolved["tools"], _resolved["agent"]
+        async with _resolve_lock:
+            if _resolved["tools"] is not None:
+                return _resolved["tools"], _resolved["agent"]
+            from aiq_agent.common import get_all_tool_refs
+
+            tool_refs = get_all_tool_refs()
+            resolved_tools = await _resolve_tools(tool_refs)
+            agent_local = _build_agent(resolved_tools)
+            # Cache only a successful (non-empty) resolution so an early request
+            # that races registry population is retried on the next call. A
+            # genuinely-empty set is handled by the runtime gate below.
+            if resolved_tools:
+                _resolved["tools"] = resolved_tools
+                _resolved["agent"] = agent_local
+            return resolved_tools, agent_local
 
     async def _run(state: DeepResearchAgentState) -> DeepResearchAgentState:
         """Run deep research with a list of messages or payload."""
         try:
+            tools, agent = await _ensure_resolved()
             data_sources = state.data_sources
             selected_tools = filter_tools_by_sources(tools, data_sources)
             # Per-org runtime model overrides (X-Grid-Model-Overrides); identity
             # check means "no override for deep research" keeps the prebuilt agent.
-            active_provider = provider.with_model_overrides(get_model_overrides_from_context())
+            # Model overrides + the org's BYOK credential (ADR-0022); identity
+            # check means "nothing to apply" keeps the prebuilt agent.
+            active_provider = (
+                provider.with_model_overrides(get_model_overrides_from_context())
+                .with_credential(get_org_llm_credential_from_context())
+                .with_zdr(get_zdr_only_from_context())
+            )
             active_agent = agent
             if (
                 active_provider is not provider
                 or sandbox_config is not None
-                or (data_sources is not None and selected_tools != tools)
+                # No `data_sources is not None` guard: org-disabled sources
+                # (ADR-0022) narrow selected_tools even on "all tools" requests.
+                or selected_tools != tools
             ):
                 # Scope the Modal sandbox to the async job_id when one is in
                 # NAT context (set by aiq_api/jobs/runner.py). Falls back to a
@@ -260,21 +344,7 @@ async def deep_research_agent(config: DeepResearchAgentConfig, builder: Builder)
                     job_id = Context.get().workflow_run_id
                 except Exception:  # noqa: BLE001 - Context may be unavailable in sync/eval paths
                     job_id = None
-                active_agent = DeepResearcherAgent(
-                    llm_provider=active_provider,
-                    tools=selected_tools,
-                    verbose=verbose,
-                    callbacks=callbacks,
-                    domain_catalog_path=config.domain_catalog_path,
-                    enable_source_router=config.enable_source_router,
-                    enable_citation_verification=config.enable_citation_verification,
-                    skills=skills_config,
-                    sandbox=sandbox_config,
-                    job_id=job_id,
-                    max_research_concurrency=config.max_research_concurrency,
-                    max_concurrent_source_tool_calls=config.max_concurrent_source_tool_calls,
-                    max_source_tool_batch_size=config.max_source_tool_batch_size,
-                )
+                active_agent = _build_agent(selected_tools, llm_provider=active_provider, job_id=job_id)
 
             if all_mapped_tools_filtered_out(tools, selected_tools, data_sources):
                 logger.warning("Deep research received data_sources with no matching tools")

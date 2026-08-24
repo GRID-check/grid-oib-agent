@@ -59,6 +59,12 @@ COPY frontends/aiq_api/ ./frontends/aiq_api/
 COPY frontends/cli/ ./frontends/cli/
 COPY frontends/debug/ ./frontends/debug/
 COPY configs/ ./configs/
+COPY scripts/ ./scripts/
+# The spatial engine behind `ifc_measure` (ADR-0045 amendment / roadmap §13b).
+# It is not a uv workspace member — its dependency set (IfcOpenShell, shapely)
+# has nothing to do with the rest of the backend — so it is copied and installed
+# on its own below.
+COPY packages/ifc-spatial-py/ ./packages/ifc-spatial-py/
 # Only copy runtime scripts from deploy/ — never copy the full directory
 # to avoid leaking .env, Helm charts, compose files, or other dev artifacts.
 COPY deploy/entrypoint.py deploy/start_web.py ./deploy/
@@ -71,11 +77,25 @@ RUN uv pip install --no-deps -e . \
     && uv pip install --no-deps -e ./sources/google_scholar_paper_search \
     && uv pip install --no-deps -e ./sources/tavily_web_search \
     && uv pip install --no-deps -e ./sources/exa_web_search \
+    && uv pip install --no-deps -e ./sources/ris_adapter \
     && uv pip install --no-deps -e "./sources/knowledge_layer[all]" \
     && uv pip install --no-deps -e ./frontends/aiq_api \
-    && uv pip install "psycopg[binary]>=3.0.0"
+    && uv pip install "psycopg[binary]>=3.0.0" "beautifulsoup4>=4.12.0"
 
-RUN /app/.venv/bin/python -c "import aiq_api; import knowledge_layer; print('✓ Base packages installed')"
+# The spatial engine, installed WITH its dependencies (unlike the workspace
+# packages above, whose deps come from the lockfile). Deliberately a separate
+# layer and deliberately not in `uv.lock`: IfcOpenShell ships prebuilt wheels
+# per platform, it is the only consumer of shapely in this image, and a
+# deployment that never answers a geometric question should be able to drop
+# this one line. `ifc_measure` degrades to a plain refusal when the import
+# fails — it never reports a missing engine as an unreadable building.
+# `[ids]` pulls ifctester for the IDS shopping-list export. Optional in the
+# package because the tool degrades to a named refusal without it; installed
+# here because on THIS deployment the capability is wanted.
+RUN uv pip install -e './packages/ifc-spatial-py[ids]'
+
+RUN /app/.venv/bin/python -c "import aiq_api; import knowledge_layer; import ris_adapter.register; print('✓ Base packages installed')" \
+    && /app/.venv/bin/python -c "import ifc_spatial.tools; print('✓ Spatial engine installed')"
 
 RUN chmod +x /app/deploy/start_web.py \
     && mkdir -p /app/data \
@@ -98,54 +118,6 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 RUN /app/.venv/bin/python -c "import aiq_api; import aiq_research_cli; import aiq_debug; import knowledge_layer; print('✓ All packages installed')"
 
 # =============================================================================
-# Stage: OIB knowledge seed (optional)
-# =============================================================================
-# Downloads a pre-generated OIB embedding snapshot (chroma_data + registry) so
-# deployed environments — especially ephemeral per-PR previews — start with the
-# knowledge base ready instead of re-embedding the whole corpus on first boot.
-# Produce the snapshot with scripts/make_oib_seed.sh and host it somewhere the
-# builder can reach, then pass its URL at build time:
-#   docker build --build-arg OIB_SEED_URL=<url> ...   (Coolify: Build Variables)
-# If OIB_SEED_URL is empty the image ships with an empty seed dir and the backend
-# falls back to live ingestion. The tarball must contain `chroma_data/` and
-# `oib_registry.json` at its top level (that is what make_oib_seed.sh produces).
-#
-# Private (non-public) buckets: also pass OIB_SEED_ACCESS_KEY / OIB_SEED_SECRET_KEY
-# (and optionally OIB_SEED_REGION, default us-east-1). When both are set the
-# download is signed with AWS SigV4, so the seed can live in a private S3/MinIO
-# bucket that denies anonymous reads. Leave them empty to fetch anonymously
-# (public object or a presigned URL). These are build-only ARGs, scoped to this
-# throwaway stage — only /opt/oib-seed is COPYed forward, so the credentials
-# never reach the final image's layers or config.
-FROM debian:bookworm-slim AS oib-seed
-ARG OIB_SEED_URL=""
-ARG OIB_SEED_ACCESS_KEY=""
-ARG OIB_SEED_SECRET_KEY=""
-ARG OIB_SEED_REGION="us-east-1"
-WORKDIR /opt/oib-seed
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-RUN set -eux; \
-    if [ -n "$OIB_SEED_URL" ]; then \
-      if [ -n "$OIB_SEED_ACCESS_KEY" ] && [ -n "$OIB_SEED_SECRET_KEY" ]; then \
-        echo "Fetching OIB seed with SigV4 auth (private bucket) ..."; \
-        curl -fsSL --aws-sigv4 "aws:amz:${OIB_SEED_REGION}:s3" \
-          --user "${OIB_SEED_ACCESS_KEY}:${OIB_SEED_SECRET_KEY}" \
-          "$OIB_SEED_URL" -o /tmp/seed.tar.gz; \
-      else \
-        echo "Fetching OIB seed anonymously (public or presigned URL) ..."; \
-        curl -fsSL "$OIB_SEED_URL" -o /tmp/seed.tar.gz; \
-      fi; \
-      tar -xzf /tmp/seed.tar.gz -C /opt/oib-seed; \
-      rm /tmp/seed.tar.gz; \
-      echo "Baked OIB seed:"; ls -la /opt/oib-seed; \
-    else \
-      echo "No OIB_SEED_URL — building without a baked OIB seed (live ingestion on first boot)."; \
-    fi
-
-# =============================================================================
 # Stage 3: Development runtime
 # =============================================================================
 FROM debian:bookworm-slim AS dev
@@ -161,10 +133,6 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 
 COPY --from=dev-builder /opt/uv-python /opt/uv-python
 COPY --from=dev-builder /app /app
-
-# Baked OIB knowledge seed (empty if no OIB_SEED_URL was passed). entrypoint.py
-# restores it into /app/data on first boot when the KB is still empty.
-COPY --from=oib-seed /opt/oib-seed /opt/oib-seed
 
 USER 1000:1000
 
@@ -193,10 +161,6 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 # Copy from base builder (no CLI)
 COPY --from=builder /opt/uv-python /opt/uv-python
 COPY --from=builder /app /app
-
-# Baked OIB knowledge seed (empty if no OIB_SEED_URL was passed). entrypoint.py
-# restores it into /app/data on first boot when the KB is still empty.
-COPY --from=oib-seed /opt/oib-seed /opt/oib-seed
 
 USER 1000:1000
 

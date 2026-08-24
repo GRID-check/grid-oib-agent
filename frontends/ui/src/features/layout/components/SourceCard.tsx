@@ -14,7 +14,8 @@
 import { type FC } from 'react'
 import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
+import { formatTime } from '@/shared/utils/format-time'
 
 /** Source information from SSE events */
 export interface SourceInfo {
@@ -38,14 +39,6 @@ interface SourceCardProps {
 }
 
 /**
- * Format timestamp for display
- */
-const formatTime = (date: Date | string): string => {
-  const dateObj = typeof date === 'string' ? new Date(date) : date
-  return dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-/**
  * Extract domain from URL for display
  */
 const getDomain = (url: string): string => {
@@ -62,24 +55,26 @@ const getDomain = (url: string): string => {
  */
 export const SourceCard: FC<SourceCardProps> = ({ source }) => {
   const t = useTranslations('research')
+  const { locale } = useLocale()
   return (
     <a
       href={source.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+      className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
     >
       <div
         className={cn(
-          'flex flex-col gap-1 rounded-lg border p-3 transition-colors hover:bg-accent',
-          source.isCited && 'border-l-2 border-l-success'
+          'flex flex-col gap-1 rounded-xl border bg-card p-3 shadow-xs transition-colors hover:bg-accent',
+          // Cited: inset provenance rail, matching the chat's reasoning SourceCard.
+          source.isCited && '[box-shadow:inset_3px_0_0_0_var(--source-project)]'
         )}
       >
         {/* Header row */}
         <div className="flex items-center gap-2">
           {/* Cited indicator */}
           {source.isCited && (
-            <Check className="h-4 w-4 shrink-0 text-success" aria-label={t('sourceCard.cited')} role="img" />
+            <Check className="size-4 shrink-0 text-success" aria-label={t('sourceCard.cited')} role="img" />
           )}
 
           {/* Title or domain */}
@@ -90,7 +85,7 @@ export const SourceCard: FC<SourceCardProps> = ({ source }) => {
           {/* Timestamp */}
           {source.discoveredAt && (
             <span className="shrink-0 text-xs text-muted-foreground">
-              {formatTime(source.discoveredAt)}
+              {formatTime(source.discoveredAt, locale)}
             </span>
           )}
         </div>

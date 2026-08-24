@@ -2,28 +2,40 @@
 export const profile = {
   title: 'Profile',
   subtitle: 'Manage your account, appearance, and language preferences.',
+  loading: 'Loading profile…',
   backToApp: 'Back to projects',
   savedToast: 'Preferences saved',
   saveError: 'Could not save your preferences. Please try again.',
   account: {
     title: 'Account',
-    description: 'Your identity within Grid.',
+    description: 'Your identity within Piloti.',
     name: 'Name',
     email: 'Email',
     organization: 'Organization',
     role: 'Role',
     noName: 'Not set',
     noOrganization: 'No organization',
+    roles: {
+      'org-platform-owner': 'Platform owner',
+      admin: 'Administrator',
+      member: 'Member',
+    },
   },
   appearance: {
     title: 'Appearance',
-    description: 'Choose how Grid looks. System follows your device setting.',
+    description: 'Choose how Piloti looks. System follows your device setting.',
     theme: 'Theme',
   },
   language: {
     title: 'Language',
-    description: 'The language used across the Grid interface.',
+    description: 'The language used across the Piloti interface.',
     label: 'Interface language',
+  },
+  reasoning: {
+    title: 'Reasoning trace',
+    description: "How much of Piloti's reasoning is shown with an answer.",
+    label: 'Show technical reasoning',
+    hint: 'Reveals the individual technical steps (which agent or tool ran). Off by default — you normally see the plain-language trace.',
   },
   security: {
     title: 'Security & sessions',

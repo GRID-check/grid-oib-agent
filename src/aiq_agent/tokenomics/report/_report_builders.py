@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Data aggregation helpers for the tokenomics report."""
 
 from __future__ import annotations
@@ -340,7 +325,11 @@ def _build_comparison_data(run_datas: list[dict]) -> dict:
         cost_b = qb["cost_usd"] if qb else None
         if in_both:
             cost_delta: float | None = round(cost_b - cost_a, 6)  # type: ignore[operator]
-            cost_pct: float | None = round((cost_delta / cost_a * 100) if cost_a else 0.0, 1)
+            if cost_a:
+                cost_pct: float | None = round(cost_delta / cost_a * 100, 1)
+            else:
+                # Zero baseline: a nonzero delta is an infinite change, not 0%.
+                cost_pct = 0.0 if not cost_delta else None
         else:
             cost_delta = cost_pct = None
 

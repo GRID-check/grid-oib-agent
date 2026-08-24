@@ -4,28 +4,40 @@ import type { en } from '../en'
 export const profile: typeof en.profile = {
   title: 'Profil',
   subtitle: 'Verwalten Sie Ihr Konto, das Erscheinungsbild und Ihre Spracheinstellungen.',
+  loading: 'Profil wird geladen…',
   backToApp: 'Zurück zu den Projekten',
   savedToast: 'Einstellungen gespeichert',
   saveError: 'Ihre Einstellungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.',
   account: {
     title: 'Konto',
-    description: 'Ihre Identität innerhalb von Grid.',
+    description: 'Ihre Identität innerhalb von Piloti.',
     name: 'Name',
     email: 'E-Mail',
     organization: 'Organisation',
     role: 'Rolle',
     noName: 'Nicht festgelegt',
     noOrganization: 'Keine Organisation',
+    roles: {
+      'org-platform-owner': 'Plattform-Inhaber',
+      admin: 'Administrator',
+      member: 'Mitglied',
+    },
   },
   appearance: {
     title: 'Erscheinungsbild',
-    description: 'Wählen Sie, wie Grid aussieht. „System“ folgt der Einstellung Ihres Geräts.',
+    description: 'Wählen Sie, wie Piloti aussieht. „System“ folgt der Einstellung Ihres Geräts.',
     theme: 'Design',
   },
   language: {
     title: 'Sprache',
-    description: 'Die in der Grid-Oberfläche verwendete Sprache.',
+    description: 'Die in der Piloti-Oberfläche verwendete Sprache.',
     label: 'Sprache der Oberfläche',
+  },
+  reasoning: {
+    title: 'Herleitung',
+    description: 'Wie viel von Pilotis Denkweg in der Antwort gezeigt wird.',
+    label: 'Technische Herleitung anzeigen',
+    hint: 'Zeigt die einzelnen technischen Schritte (welcher Agent bzw. welches Werkzeug lief). Standardmäßig aus — normalerweise sehen Sie die verständliche Herleitung.',
   },
   security: {
     title: 'Sicherheit & Sitzungen',

@@ -1,6 +1,9 @@
 /**
  * LLM budgets & usage service (ADR-0015, docs/architecture/usage-budgets.md).
  *
+ * Business logic and authorization only — all DB access lives in
+ * `./repository` (ADR-0017).
+ *
  * Limits are stored in EUR (org seed default: €10/day, €100/month); the
  * ledger stores cost in USD exactly as OpenRouter reports it. Comparison
  * happens here at read time via a deployment-configured conversion rate
@@ -16,15 +19,26 @@
  */
 
 import 'server-only'
-import { and, desc, eq, gte, isNotNull, isNull, sql } from 'drizzle-orm'
-import { getDb } from '@/lib/db'
-import {
-  budgetPolicies,
-  llmUsageEvents,
-  type BudgetPolicy,
-  type BudgetScope,
-  type NewLlmUsageEvent,
-} from '@/lib/db/schema'
+import type { BudgetPolicy, BudgetScope, NewLlmUsageEvent } from '@/lib/db/schema'
+import { getCached, invalidateCached } from '@/lib/cache'
+import { canManageBudgets } from '@/lib/authz/organizations'
+import { requireProjectAccess } from '@/lib/authz/projects'
+import { findProjectTenancy } from '@/lib/projects/repository'
+import { recordAuditEvent } from '@/lib/audit/service'
+import { BadRequestError, ForbiddenError, UnprocessableError } from '@/lib/api/errors'
+import type { AuthorizedSession } from '@/lib/auth/types'
+import * as repository from './repository'
+import type {
+  DailySpendRow,
+  MemberSpend,
+  ModelSpend,
+  OrganizationSpend,
+  SpendSummary,
+  SpendTotals,
+} from './repository'
+
+export { utcDayStart, utcMonthStart } from './repository'
+export type { DailySpendRow, MemberSpend, ModelSpend, OrganizationSpend, SpendSummary, SpendTotals }
 
 export const DEFAULT_ORG_DAILY_LIMIT_EUR = 10
 export const DEFAULT_ORG_MONTHLY_LIMIT_EUR = 100
@@ -63,32 +77,9 @@ function toLimits(policy: BudgetPolicy): BudgetLimits {
   }
 }
 
-async function activePolicy(
-  organizationId: string,
-  scope: BudgetScope,
-  subjectId: string | null,
-): Promise<BudgetPolicy | null> {
-  const db = getDb()
-  const subjectCondition =
-    subjectId === null ? isNull(budgetPolicies.subjectId) : eq(budgetPolicies.subjectId, subjectId)
-  const [row] = await db
-    .select()
-    .from(budgetPolicies)
-    .where(
-      and(
-        eq(budgetPolicies.organizationId, organizationId),
-        eq(budgetPolicies.scope, scope),
-        subjectCondition,
-        eq(budgetPolicies.status, 'active'),
-      ),
-    )
-    .limit(1)
-  return row ?? null
-}
-
 /** The org-wide limits: explicit row or the seeded €10/€100 defaults. */
 export async function getOrgBudget(organizationId: string): Promise<EffectiveBudgetPolicy> {
-  const policy = await activePolicy(organizationId, 'organization', null)
+  const policy = await repository.findActivePolicy(organizationId, 'organization', null)
   if (policy) {
     return { scope: 'organization', subjectId: null, explicit: true, policy, ...toLimits(policy) }
   }
@@ -107,30 +98,19 @@ export async function getScopedBudget(
   scope: 'member' | 'project',
   subjectId: string,
 ): Promise<EffectiveBudgetPolicy | null> {
-  const policy = await activePolicy(organizationId, scope, subjectId)
+  const policy = await repository.findActivePolicy(organizationId, scope, subjectId)
   if (!policy) return null
   return { scope, subjectId, explicit: true, policy, ...toLimits(policy) }
 }
 
 /** All active member/project policies of an org (for the settings UI). */
 export async function listActivePolicies(organizationId: string): Promise<BudgetPolicy[]> {
-  const db = getDb()
-  return db
-    .select()
-    .from(budgetPolicies)
-    .where(and(eq(budgetPolicies.organizationId, organizationId), eq(budgetPolicies.status, 'active')))
-    .orderBy(budgetPolicies.scope, budgetPolicies.subjectId)
+  return repository.listActivePolicies(organizationId)
 }
 
 /** Full policy history (audit view). */
 export async function listPolicyHistory(organizationId: string, limit = 100): Promise<BudgetPolicy[]> {
-  const db = getDb()
-  return db
-    .select()
-    .from(budgetPolicies)
-    .where(eq(budgetPolicies.organizationId, organizationId))
-    .orderBy(desc(budgetPolicies.createdAt))
-    .limit(limit)
+  return repository.listPolicyHistory(organizationId, limit)
 }
 
 export class BudgetValidationError extends Error {}
@@ -186,42 +166,17 @@ export async function setBudgetPolicy(params: {
     }
   }
 
-  const db = getDb()
-  return db.transaction(async (tx) => {
-    const subjectCondition =
-      subjectId === null ? isNull(budgetPolicies.subjectId) : eq(budgetPolicies.subjectId, subjectId)
-    const [previous] = await tx
-      .select()
-      .from(budgetPolicies)
-      .where(
-        and(
-          eq(budgetPolicies.organizationId, organizationId),
-          eq(budgetPolicies.scope, scope),
-          subjectCondition,
-          eq(budgetPolicies.status, 'active'),
-        ),
-      )
-      .limit(1)
-    if (previous) {
-      await tx.update(budgetPolicies).set({ status: 'superseded' }).where(eq(budgetPolicies.id, previous.id))
-    }
-    const [inserted] = await tx
-      .insert(budgetPolicies)
-      .values({
-        organizationId,
-        scope,
-        subjectId,
-        dailyLimit: params.dailyLimitEur === null ? null : params.dailyLimitEur.toFixed(4),
-        monthlyLimit: params.monthlyLimitEur === null ? null : params.monthlyLimitEur.toFixed(4),
-        currency: 'EUR',
-        status: 'active',
-        supersedesId: previous?.id ?? null,
-        createdBy: params.actorUserId,
-        note: params.note ?? null,
-      })
-      .returning()
-    return inserted
+  const inserted = await repository.insertPolicySuperseding({
+    organizationId,
+    scope,
+    subjectId,
+    dailyLimit: params.dailyLimitEur === null ? null : params.dailyLimitEur.toFixed(4),
+    monthlyLimit: params.monthlyLimitEur === null ? null : params.monthlyLimitEur.toFixed(4),
+    createdBy: params.actorUserId,
+    note: params.note ?? null,
   })
+  await invalidateLimitsCache(organizationId, scope, subjectId)
+  return inserted
 }
 
 /**
@@ -236,55 +191,35 @@ export async function clearBudgetPolicy(params: {
   subjectId: string
   actorUserId: string
 }): Promise<boolean> {
-  const db = getDb()
-  const [previous] = await db
-    .select()
-    .from(budgetPolicies)
-    .where(
-      and(
-        eq(budgetPolicies.organizationId, params.organizationId),
-        eq(budgetPolicies.scope, params.scope),
-        eq(budgetPolicies.subjectId, params.subjectId),
-        eq(budgetPolicies.status, 'active'),
-      ),
-    )
-    .limit(1)
-  if (!previous) return false
-  await db.update(budgetPolicies).set({ status: 'superseded' }).where(eq(budgetPolicies.id, previous.id))
-  return true
+  const removed = await repository.supersedeActivePolicy(params.organizationId, params.scope, params.subjectId)
+  if (removed) {
+    await invalidateLimitsCache(params.organizationId, params.scope, params.subjectId)
+  }
+  return removed
 }
 
 // ---------------------------------------------------------------------------
 // Ledger
 // ---------------------------------------------------------------------------
 
+/**
+ * Append ledger rows; the write-through daily rollup (ADR-0019) is
+ * incremented in the same transaction by the repository.
+ */
 export async function recordUsageEvents(events: NewLlmUsageEvent[]): Promise<number> {
-  if (events.length === 0) return 0
-  const db = getDb()
-  const inserted = await db.insert(llmUsageEvents).values(events).returning({ id: llmUsageEvents.id })
-  return inserted.length
+  return repository.insertUsageEventsWithRollups(events)
 }
 
-export function utcDayStart(now = new Date()): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-}
-
-export function utcMonthStart(now = new Date()): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
-}
-
-export interface ModelSpend {
-  model: string
-  dayUsd: number
-  monthUsd: number
-  dayEvents: number
-  monthEvents: number
-}
-
-export interface SpendSummary {
-  dayUsd: number
-  monthUsd: number
-  perModel: ModelSpend[]
+/**
+ * Day/month spend totals from the write-through rollup (ADR-0019) — the
+ * enforcement hot path. Per-model breakdowns stay on getSpendSummary
+ * (admin views only).
+ */
+export async function getSpendTotals(
+  organizationId: string,
+  filter: { userId?: string; projectId?: string } = {},
+): Promise<SpendTotals> {
+  return repository.sumRollupTotals(organizationId, filter)
 }
 
 /**
@@ -295,53 +230,7 @@ export async function getSpendSummary(
   organizationId: string,
   filter: { userId?: string; projectId?: string } = {},
 ): Promise<SpendSummary> {
-  const db = getDb()
-  const dayStart = utcDayStart()
-  const monthStart = utcMonthStart()
-  // Raw `sql` fragments bypass drizzle's column-type mapping, and the
-  // postgres-js driver rejects Date instances for inferred parameters — pass
-  // ISO strings there (the typed gte() below handles the Date itself).
-  const dayStartIso = dayStart.toISOString()
-
-  const conditions = [eq(llmUsageEvents.organizationId, organizationId), gte(llmUsageEvents.createdAt, monthStart)]
-  if (filter.userId) conditions.push(eq(llmUsageEvents.userId, filter.userId))
-  if (filter.projectId) conditions.push(eq(llmUsageEvents.projectId, filter.projectId))
-
-  const rows = await db
-    .select({
-      model: sql<string>`coalesce(${llmUsageEvents.model}, 'unknown')`,
-      monthUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}), 0)`,
-      dayUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso}), 0)`,
-      monthEvents: sql<string>`count(*)`,
-      dayEvents: sql<string>`count(*) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso})`,
-    })
-    .from(llmUsageEvents)
-    .where(and(...conditions))
-    .groupBy(sql`coalesce(${llmUsageEvents.model}, 'unknown')`)
-
-  const perModel: ModelSpend[] = rows
-    .map((row) => ({
-      model: row.model,
-      dayUsd: Number.parseFloat(row.dayUsd) || 0,
-      monthUsd: Number.parseFloat(row.monthUsd) || 0,
-      dayEvents: Number.parseInt(row.dayEvents, 10) || 0,
-      monthEvents: Number.parseInt(row.monthEvents, 10) || 0,
-    }))
-    .sort((a, b) => b.monthUsd - a.monthUsd)
-
-  return {
-    dayUsd: perModel.reduce((total, m) => total + m.dayUsd, 0),
-    monthUsd: perModel.reduce((total, m) => total + m.monthUsd, 0),
-    perModel,
-  }
-}
-
-export interface MemberSpend {
-  userId: string
-  dayUsd: number
-  monthUsd: number
-  dayEvents: number
-  monthEvents: number
+  return repository.aggregateSpendSummary(organizationId, filter)
 }
 
 /**
@@ -349,37 +238,53 @@ export interface MemberSpend {
  * Events without a user id (anonymous mode) are excluded.
  */
 export async function getSpendByMember(organizationId: string): Promise<MemberSpend[]> {
-  const db = getDb()
-  const dayStartIso = utcDayStart().toISOString()
-  const monthStart = utcMonthStart()
+  return repository.aggregateSpendByMember(organizationId)
+}
 
-  const rows = await db
-    .select({
-      userId: llmUsageEvents.userId,
-      monthUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}), 0)`,
-      dayUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso}), 0)`,
-      monthEvents: sql<string>`count(*)`,
-      dayEvents: sql<string>`count(*) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso})`,
+/**
+ * Windowed spend per organization across the WHOLE platform (platform-tier
+ * dashboards only — caller must hold `platform:usage:view`, ADR-0016).
+ */
+export async function getSpendAcrossOrganizations(): Promise<OrganizationSpend[]> {
+  return repository.aggregateSpendAcrossOrganizations()
+}
+
+export interface DailySpendPoint {
+  /** UTC day, `YYYY-MM-DD`. */
+  day: string
+  usd: number
+  events: number
+}
+
+/**
+ * Daily spend series for trend charts — one point per UTC day, zero-filled
+ * so the series is continuous. Org-scoped when `organizationId` is given,
+ * platform-wide otherwise (platform dashboards only).
+ */
+export async function getDailySpendTrend(options: {
+  organizationId?: string
+  days?: number
+} = {}): Promise<DailySpendPoint[]> {
+  const days = Math.min(Math.max(options.days ?? 30, 1), 90)
+  const start = repository.utcDayStart()
+  start.setUTCDate(start.getUTCDate() - (days - 1))
+
+  const rows = await repository.aggregateDailySpend({ organizationId: options.organizationId, start })
+
+  const byDay = new Map(rows.map((row) => [row.day, row]))
+  const series: DailySpendPoint[] = []
+  const cursor = new Date(start)
+  for (let i = 0; i < days; i += 1) {
+    const key = cursor.toISOString().slice(0, 10)
+    const row = byDay.get(key)
+    series.push({
+      day: key,
+      usd: row?.usd ?? 0,
+      events: row?.events ?? 0,
     })
-    .from(llmUsageEvents)
-    .where(
-      and(
-        eq(llmUsageEvents.organizationId, organizationId),
-        gte(llmUsageEvents.createdAt, monthStart),
-        isNotNull(llmUsageEvents.userId),
-      ),
-    )
-    .groupBy(llmUsageEvents.userId)
-
-  return rows
-    .map((row) => ({
-      userId: row.userId as string,
-      dayUsd: Number.parseFloat(row.dayUsd) || 0,
-      monthUsd: Number.parseFloat(row.monthUsd) || 0,
-      dayEvents: Number.parseInt(row.dayEvents, 10) || 0,
-      monthEvents: Number.parseInt(row.monthEvents, 10) || 0,
-    }))
-    .sort((a, b) => b.monthUsd - a.monthUsd)
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+  return series
 }
 
 // ---------------------------------------------------------------------------
@@ -395,12 +300,50 @@ export interface BudgetStatus {
   remainingProjectUsd: number | null
 }
 
-function remainingUsd(limits: BudgetLimits, spend: SpendSummary): number | null {
+function remainingUsd(limits: BudgetLimits, spend: SpendTotals): number | null {
   const candidates: number[] = []
   if (limits.dailyLimitEur !== null) candidates.push(eurToUsd(limits.dailyLimitEur) - spend.dayUsd)
   if (limits.monthlyLimitEur !== null) candidates.push(eurToUsd(limits.monthlyLimitEur) - spend.monthUsd)
   if (candidates.length === 0) return null
   return Math.max(0, Math.min(...candidates))
+}
+
+/**
+ * Policy LIMITS for the enforcement path, via the shared cache
+ * (write-invalidate on policy writes, ADR-0020). Only the numeric limits are
+ * cached — policy rows with their audit fields stay uncached in the
+ * settings/admin reads.
+ */
+const LIMITS_CACHE_TTL_MS = 5 * 60 * 1000
+
+const limitsCacheKey = (organizationId: string, scope: BudgetScope, subjectId: string | null): string =>
+  `budgetlimits:${organizationId}:${scope}:${subjectId ?? ''}`
+
+async function getCachedOrgLimits(organizationId: string): Promise<BudgetLimits> {
+  return getCached(limitsCacheKey(organizationId, 'organization', null), LIMITS_CACHE_TTL_MS, async () => {
+    const org = await getOrgBudget(organizationId)
+    return { dailyLimitEur: org.dailyLimitEur, monthlyLimitEur: org.monthlyLimitEur }
+  })
+}
+
+async function getCachedScopedLimits(
+  organizationId: string,
+  scope: 'member' | 'project',
+  subjectId: string,
+): Promise<BudgetLimits | null> {
+  return getCached(limitsCacheKey(organizationId, scope, subjectId), LIMITS_CACHE_TTL_MS, async () => {
+    const scoped = await getScopedBudget(organizationId, scope, subjectId)
+    if (!scoped) return null
+    return { dailyLimitEur: scoped.dailyLimitEur, monthlyLimitEur: scoped.monthlyLimitEur }
+  })
+}
+
+async function invalidateLimitsCache(
+  organizationId: string,
+  scope: BudgetScope,
+  subjectId: string | null,
+): Promise<void> {
+  await invalidateCached(limitsCacheKey(organizationId, scope, subjectId))
 }
 
 /**
@@ -412,25 +355,24 @@ export async function getBudgetStatus(
   userId: string | null,
   projectId: string | null,
 ): Promise<BudgetStatus> {
-  const orgBudget = await getOrgBudget(organizationId)
-  const orgSpend = await getSpendSummary(organizationId)
+  // Two parallel waves instead of up to six serial round-trips: policies and
+  // org spend first, then the scoped spend aggregations only where a policy
+  // actually exists.
+  const [orgBudget, orgSpend, memberBudget, projectBudget] = await Promise.all([
+    getCachedOrgLimits(organizationId),
+    getSpendTotals(organizationId),
+    userId ? getCachedScopedLimits(organizationId, 'member', userId) : Promise.resolve(null),
+    projectId ? getCachedScopedLimits(organizationId, 'project', projectId) : Promise.resolve(null),
+  ])
   const remainingOrg = remainingUsd(orgBudget, orgSpend)
 
-  let remainingUser: number | null = null
-  if (userId) {
-    const memberBudget = await getScopedBudget(organizationId, 'member', userId)
-    if (memberBudget) {
-      remainingUser = remainingUsd(memberBudget, await getSpendSummary(organizationId, { userId }))
-    }
-  }
+  const [memberSpend, projectSpend] = await Promise.all([
+    memberBudget && userId ? getSpendTotals(organizationId, { userId }) : Promise.resolve(null),
+    projectBudget && projectId ? getSpendTotals(organizationId, { projectId }) : Promise.resolve(null),
+  ])
 
-  let remainingProject: number | null = null
-  if (projectId) {
-    const projectBudget = await getScopedBudget(organizationId, 'project', projectId)
-    if (projectBudget) {
-      remainingProject = remainingUsd(projectBudget, await getSpendSummary(organizationId, { projectId }))
-    }
-  }
+  const remainingUser = memberBudget && memberSpend ? remainingUsd(memberBudget, memberSpend) : null
+  const remainingProject = projectBudget && projectSpend ? remainingUsd(projectBudget, projectSpend) : null
 
   const scopes: Array<[BudgetScope, number | null]> = [
     ['organization', remainingOrg],
@@ -445,5 +387,233 @@ export async function getBudgetStatus(
     remainingOrgUsd: remainingOrg,
     remainingUserUsd: remainingUser,
     remainingProjectUsd: remainingProject,
+  }
+}
+
+export interface ConnectionDiagnostics {
+  /** True when a budget scope that applies to this caller is already exhausted. */
+  budgetExhausted: boolean
+  /** Which scope is blocking (organization/member/project), or null. */
+  blockedScope: BudgetScope | null
+  /** Whether the caller can raise limits (budget admin) — drives the UI copy. */
+  canManageBudgets: boolean
+}
+
+/**
+ * Read-only reason discovery for a failed chat WebSocket upgrade.
+ *
+ * When a budget scope is exhausted the gateway (server.js) refuses the WS
+ * upgrade with a bare failed handshake the browser cannot read, so chat only
+ * sees a generic connection failure. After its retries are exhausted the chat
+ * client calls this same-origin endpoint to learn whether the real cause was
+ * budget exhaustion and render a distinct, actionable banner.
+ *
+ * Reuses the exact enforcement snapshot the websocket-scope route uses
+ * (`getBudgetStatus`) so the answer can never disagree with what actually
+ * blocked the upgrade. No side effects.
+ */
+export async function getConnectionDiagnostics(
+  session: AuthorizedSession,
+  requested: { projectId?: string } = {},
+): Promise<ConnectionDiagnostics> {
+  const status = await getBudgetStatus(session.organizationId, session.userId, requested.projectId ?? null)
+  return {
+    budgetExhausted: status.blocked,
+    blockedScope: status.blockedScope,
+    canManageBudgets: canManageBudgets(session),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Session-facing operations (route handlers delegate here)
+// ---------------------------------------------------------------------------
+
+export interface BudgetOverview {
+  organization: EffectiveBudgetPolicy
+  ownMemberLimit: EffectiveBudgetPolicy | null
+  /** Only present for budget admins: every active member/project policy. */
+  policies?: BudgetPolicy[]
+}
+
+/**
+ * Budget view for the settings page: every member sees the org limits and
+ * their own member limit; budget admins additionally get all active policies.
+ */
+export async function getBudgetOverview(session: AuthorizedSession): Promise<BudgetOverview> {
+  const [organization, ownMemberLimit] = await Promise.all([
+    getOrgBudget(session.organizationId),
+    getScopedBudget(session.organizationId, 'member', session.userId),
+  ])
+  const overview: BudgetOverview = { organization, ownMemberLimit }
+  if (canManageBudgets(session)) {
+    overview.policies = await listActivePolicies(session.organizationId)
+  }
+  return overview
+}
+
+/**
+ * Authorization for policy writes. Org and member scopes: budget admins only.
+ * Project scope: budget admins (with the subject validated against the org)
+ * or that project's admins (requireProjectAccess enforces tenancy + FGA).
+ */
+async function authorizePolicyWrite(
+  session: AuthorizedSession,
+  scope: BudgetScope,
+  subjectId: string | null,
+): Promise<void> {
+  if (scope === 'project') {
+    if (!subjectId) {
+      throw new BadRequestError('project scope requires subjectId')
+    }
+    if (canManageBudgets(session)) {
+      // Admins skip the per-project FGA check, but the subject must still be
+      // a real project of THIS org — never store a foreign or made-up id.
+      const project = await findProjectTenancy(subjectId)
+      if (!project || project.organizationId !== session.organizationId) {
+        throw new BadRequestError('Unknown project')
+      }
+    } else {
+      // Project admins may manage their own project's budget.
+      await requireProjectAccess(session, subjectId, 'project:manage')
+    }
+    return
+  }
+  // TODO: for scope='member' the subjectId is not verified against the
+  // organization's member roster — an admin can store a policy for an
+  // arbitrary user id (it simply never matches spend).
+  if (!canManageBudgets(session)) {
+    throw new ForbiddenError()
+  }
+}
+
+export interface BudgetPolicyInput {
+  scope: BudgetScope
+  subjectId?: string | null
+  dailyLimitEur: number | null
+  monthlyLimitEur: number | null
+  note?: string | null
+}
+
+/** Set a budget policy for the caller's org (authz + validation + audit). */
+export async function saveBudgetPolicy(
+  session: AuthorizedSession,
+  input: BudgetPolicyInput,
+  request: Request,
+): Promise<BudgetPolicy> {
+  const { scope, dailyLimitEur, monthlyLimitEur } = input
+  const subjectId = input.subjectId ?? null
+
+  await authorizePolicyWrite(session, scope, subjectId)
+
+  let policy: BudgetPolicy
+  try {
+    policy = await setBudgetPolicy({
+      organizationId: session.organizationId,
+      scope,
+      subjectId: scope === 'organization' ? null : subjectId,
+      dailyLimitEur,
+      monthlyLimitEur,
+      actorUserId: session.userId,
+      note: input.note ?? null,
+    })
+  } catch (error) {
+    if (error instanceof BudgetValidationError) {
+      throw new UnprocessableError(error.message)
+    }
+    throw error
+  }
+
+  await recordAuditEvent({
+    organizationId: session.organizationId,
+    actor: { userId: session.userId, email: session.email },
+    action: 'budget.policy.set',
+    targetType: 'budget_policy',
+    targetId: policy.id,
+    metadata: { scope, subjectId, dailyLimitEur, monthlyLimitEur },
+    request,
+  })
+  return policy
+}
+
+/** Remove a scoped limit — the subject falls back to the org limits alone. */
+export async function removeBudgetPolicy(
+  session: AuthorizedSession,
+  input: { scope: 'member' | 'project'; subjectId: string },
+  request: Request,
+): Promise<boolean> {
+  const { scope, subjectId } = input
+
+  await authorizePolicyWrite(session, scope, subjectId)
+
+  const removed = await clearBudgetPolicy({
+    organizationId: session.organizationId,
+    scope,
+    subjectId,
+    actorUserId: session.userId,
+  })
+  if (removed) {
+    await recordAuditEvent({
+      organizationId: session.organizationId,
+      actor: { userId: session.userId, email: session.email },
+      action: 'budget.policy.cleared',
+      targetType: 'budget_policy',
+      targetId: subjectId,
+      metadata: { scope, subjectId },
+      request,
+    })
+  }
+  return removed
+}
+
+export interface UsageOverview {
+  summary: SpendSummary
+  perMember: MemberSpend[] | null
+  dailyTrend: DailySpendPoint[] | null
+  orgBudget: { dailyLimitEur: number | null; monthlyLimitEur: number | null; explicit: boolean }
+  status: BudgetStatus
+  eurPerUsd: number
+  scope: { userId?: string; projectId?: string }
+}
+
+/**
+ * Spend summary for the budget UI. Budget admins see the org-wide summary
+ * (optionally narrowed to one member/project); everyone else always gets
+ * their own usage only.
+ */
+export async function getUsageOverview(
+  session: AuthorizedSession,
+  requested: { userId?: string; projectId?: string } = {},
+): Promise<UsageOverview> {
+  const admin = canManageBudgets(session)
+
+  const filter: { userId?: string; projectId?: string } = {}
+  if (admin) {
+    if (requested.userId) filter.userId = requested.userId
+    if (requested.projectId) filter.projectId = requested.projectId
+  } else {
+    filter.userId = session.userId
+  }
+
+  const [summary, orgBudget, status, perMember, dailyTrend] = await Promise.all([
+    getSpendSummary(session.organizationId, filter),
+    getOrgBudget(session.organizationId),
+    getBudgetStatus(session.organizationId, session.userId, null),
+    // Member breakdown + trend feed the admin dashboard only.
+    admin ? getSpendByMember(session.organizationId) : Promise.resolve(null),
+    admin ? getDailySpendTrend({ organizationId: session.organizationId, days: 30 }) : Promise.resolve(null),
+  ])
+
+  return {
+    summary,
+    perMember,
+    dailyTrend,
+    orgBudget: {
+      dailyLimitEur: orgBudget.dailyLimitEur,
+      monthlyLimitEur: orgBudget.monthlyLimitEur,
+      explicit: orgBudget.explicit,
+    },
+    status,
+    eurPerUsd: eurPerUsd(),
+    scope: admin ? filter : { userId: session.userId },
   }
 }

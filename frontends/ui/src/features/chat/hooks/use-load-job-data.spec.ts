@@ -21,6 +21,7 @@ const mockCompleteDeepResearch = vi.fn()
 const mockSetStreaming = vi.fn()
 const mockPatchConversationMessage = vi.fn()
 const mockAddDeepResearchBanner = vi.fn()
+const mockAttachToDeepResearchJob = vi.fn()
 const mockOpenRightPanel = vi.fn()
 const mockSetResearchPanelTab = vi.fn()
 
@@ -80,6 +81,7 @@ type MockChatSelectorState = {
   setStreaming: typeof mockSetStreaming
   patchConversationMessage: typeof mockPatchConversationMessage
   addDeepResearchBanner: typeof mockAddDeepResearchBanner
+  attachToDeepResearchJob: typeof mockAttachToDeepResearchJob
 }
 
 type MockLayoutSelectorState = {
@@ -111,6 +113,7 @@ vi.mock('../store', () => ({
         setStreaming: mockSetStreaming,
         patchConversationMessage: mockPatchConversationMessage,
         addDeepResearchBanner: mockAddDeepResearchBanner,
+        attachToDeepResearchJob: mockAttachToDeepResearchJob,
       }
       return selector ? selector(state) : state
     }),
@@ -190,6 +193,54 @@ describe('useLoadJobData', () => {
     expect(mockGetJobStatus).not.toHaveBeenCalled()
     expect(mockGetJobReport).not.toHaveBeenCalled()
     expect(mockCreateDeepResearchClient).not.toHaveBeenCalled()
+  })
+
+  test('follows a still-running job live instead of failing with "still running"', async () => {
+    // A workflow run opened from its run history: the job is in flight, so the
+    // panel must attach to its live stream rather than report a dead end.
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-live', status: 'running', error: null })
+
+    const { result } = renderHook(() => useLoadJobData())
+
+    await act(async () => {
+      await result.current.loadResearchPanelTab('job-live', 'report')
+    })
+
+    expect(mockAttachToDeepResearchJob).toHaveBeenCalledWith('job-live')
+    // Progress lives on the Tasks tab — there is no report yet.
+    expect(mockSetResearchPanelTab).toHaveBeenLastCalledWith('tasks')
+    expect(mockOpenRightPanel).toHaveBeenCalledWith('research')
+    expect(result.current.error).toBeNull()
+    expect(mockAddErrorCard).not.toHaveBeenCalled()
+    // No replay: the live stream delivers the backlog and then the new events.
+    expect(mockCreateDeepResearchClient).not.toHaveBeenCalled()
+  })
+
+  test('follows a still-running job from a stream-backed tab too', async () => {
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-live', status: 'submitted', error: null })
+
+    const { result } = renderHook(() => useLoadJobData())
+
+    await act(async () => {
+      await result.current.loadResearchPanelTab('job-live', 'thinking')
+    })
+
+    expect(mockAttachToDeepResearchJob).toHaveBeenCalledWith('job-live')
+    expect(mockCreateDeepResearchClient).not.toHaveBeenCalled()
+  })
+
+  test('does not re-attach a job that is already streaming live into the panel', async () => {
+    mockStoreState.deepResearchJobId = 'job-live'
+    mockStoreState.isDeepResearchStreaming = true
+
+    const { result } = renderHook(() => useLoadJobData())
+
+    await act(async () => {
+      await result.current.loadResearchPanelTab('job-live', 'report')
+    })
+
+    expect(mockGetJobStatus).not.toHaveBeenCalled()
+    expect(mockAttachToDeepResearchJob).not.toHaveBeenCalled()
   })
 
   test('loads thinking tab data by replaying the full stream', async () => {
@@ -289,11 +340,104 @@ describe('useLoadJobData', () => {
     expect(mockStopAllDeepResearchSpinners).not.toHaveBeenCalled()
     expect(mockCompleteDeepResearch).not.toHaveBeenCalled()
     expect(mockSetStreaming).not.toHaveBeenCalled()
+    // End-user copy (localized via chat.deepResearchErrors.serviceUnreachable;
+    // English fallback without an i18n provider) with the technical cause in
+    // the details slot.
     expect(mockAddErrorCard).toHaveBeenCalledWith(
       'connection.failed',
-      'The backend is not reachable. Start the backend and try again.',
+      'The service is currently unreachable. Please try again later.',
       'Failed to get job status: 500 - PROXY_ERROR: fetch failed'
     )
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+    consoleErrorSpy.mockRestore()
+  })
+
+  test('does not clear live deep research state when loading a different job (importJobStream)', async () => {
+    // A DIFFERENT job is actively streaming — deep-linking to an old run must
+    // not wipe its live state or disconnect its SSE.
+    mockStoreState.deepResearchJobId = 'job-live'
+    mockStoreState.isDeepResearchStreaming = true
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-old', status: 'success', error: null })
+
+    const { result } = renderHook(() => useLoadJobData())
+
+    await act(async () => {
+      await result.current.importJobStream('job-old')
+    })
+
+    expect(mockClearDeepResearch).not.toHaveBeenCalled()
+    expect(mockCreateDeepResearchClient).not.toHaveBeenCalled()
+    expect(mockGetJobStatus).not.toHaveBeenCalled()
+    expect(result.current.error).toBeNull()
+  })
+
+  test('does not clear live deep research state when loading a different job (importStreamOnly)', async () => {
+    mockStoreState.deepResearchJobId = 'job-live'
+    mockStoreState.isDeepResearchStreaming = true
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-old', status: 'success', error: null })
+
+    const { result } = renderHook(() => useLoadJobData())
+
+    await act(async () => {
+      await result.current.importStreamOnly('job-old')
+    })
+
+    expect(mockClearDeepResearch).not.toHaveBeenCalled()
+    expect(mockCreateDeepResearchClient).not.toHaveBeenCalled()
+    expect(mockGetJobStatus).not.toHaveBeenCalled()
+    expect(result.current.error).toBeNull()
+  })
+
+  test('aborts before clearing when another job starts streaming during the status check', async () => {
+    // The live run starts while getJobStatus is in flight — the re-check after
+    // the await must skip the destructive clear.
+    mockGetJobStatus.mockImplementation(async () => {
+      mockStoreState.deepResearchJobId = 'job-live'
+      mockStoreState.isDeepResearchStreaming = true
+      return { job_id: 'job-old', status: 'success', error: null }
+    })
+
+    const { result } = renderHook(() => useLoadJobData())
+
+    await act(async () => {
+      await result.current.importStreamOnly('job-old')
+    })
+
+    expect(mockClearDeepResearch).not.toHaveBeenCalled()
+    expect(mockCreateDeepResearchClient).not.toHaveBeenCalled()
+  })
+
+  test('completes a failed job replay normally instead of surfacing an error card', async () => {
+    // The target job is terminal 'failure'; the replayed stream re-delivers
+    // that status. That is data, not a load error — the load must complete,
+    // cache the stream, and add no error card.
+    mockGetJobStatus.mockResolvedValue({
+      job_id: 'job-failed',
+      status: 'failure',
+      error: 'worker crashed',
+    })
+    mockCreateDeepResearchClient.mockImplementation(({ callbacks }) => ({
+      connect: vi.fn(() => {
+        callbacks.onJobStatus?.('failure', 'worker crashed')
+        // The real client fires onError right after a terminal failure status.
+        callbacks.onError?.(new Error('worker crashed'))
+      }),
+      disconnect: vi.fn(),
+      isConnected: vi.fn(() => false),
+      getLastEventId: vi.fn(() => null),
+    }))
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const { result } = renderHook(() => useLoadJobData())
+
+    await act(async () => {
+      await result.current.importStreamOnly('job-failed')
+    })
+
+    expect(mockAddErrorCard).not.toHaveBeenCalled()
+    expect(mockSetStreamLoaded).toHaveBeenCalledWith(true)
+    expect(mockSetLoadedJobId).toHaveBeenCalledWith('job-failed')
+    expect(result.current.error).toBeNull()
     expect(consoleErrorSpy).not.toHaveBeenCalled()
     consoleErrorSpy.mockRestore()
   })

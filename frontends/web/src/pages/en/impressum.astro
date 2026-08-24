@@ -1,0 +1,11 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import ImpressumBody from '../../components/organisms/ImpressumBody.astro'
+import { ui } from '../../i18n/ui'
+
+const t = ui.en.legal.impressum
+---
+
+<BaseLayout locale="en" title={t.metaTitle} description={t.metaDescription}>
+  <ImpressumBody locale="en" />
+</BaseLayout>

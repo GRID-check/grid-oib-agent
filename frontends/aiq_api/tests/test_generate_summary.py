@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Tests for the AI project summary generation endpoint."""
 
 from unittest.mock import AsyncMock
@@ -63,6 +48,15 @@ def _fake_async_client(post_mock):
     return MagicMock(return_value=client)
 
 
+def _summary_response(content: str):
+    """A 200 chat-completions response carrying ``content``."""
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = {"choices": [{"message": {"content": content}}]}
+    return mock_response
+
+
 @pytest.mark.asyncio
 async def test_generate_summary_success(app):
     """Test successful summary generation from profile text."""
@@ -103,12 +97,78 @@ async def test_generate_summary_empty_profile_text(app):
 
 
 @pytest.mark.asyncio
+async def test_generate_summary_defaults_to_german(app):
+    """Without an explicit locale the summary is requested in German (UI default)."""
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = {"choices": [{"message": {"content": "Ein Projekt."}}]}
+    mock_post = AsyncMock(return_value=mock_response)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post(
+                "/v1/generate-summary",
+                json={"profile_text": "Main use: Residential"},
+            )
+
+    assert response.status_code == 200
+    payload = mock_post.call_args.kwargs["json"]
+    user_content = payload["messages"][1]["content"]
+    assert user_content.startswith("Write the summary in German.")
+    assert "Main use: Residential" in user_content
+
+
+@pytest.mark.asyncio
+async def test_generate_summary_english_locale(app):
+    """An 'en' locale asks for the summary in English."""
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = {"choices": [{"message": {"content": "A project."}}]}
+    mock_post = AsyncMock(return_value=mock_response)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post(
+                "/v1/generate-summary",
+                json={"profile_text": "Main use: Residential", "locale": "en"},
+            )
+
+    assert response.status_code == 200
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["messages"][1]["content"].startswith("Write the summary in English.")
+
+
+@pytest.mark.asyncio
 async def test_generate_summary_missing_field(app):
     """Test that a missing profile_text field is a validation error."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post("/v1/generate-summary", json={})
 
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_generate_summary_null_choices_returns_malformed_not_500(app):
+    """An OpenAI-compatible 200 with `choices: null` (an OpenRouter failure mode)
+    must degrade to an llm_response_malformed 200, not raise a 500. Indexing
+    ``None[0]`` raises TypeError, which the handler must also catch."""
+    null_choices = MagicMock(spec=httpx.Response)
+    null_choices.status_code = 200
+    null_choices.raise_for_status = MagicMock()
+    null_choices.json.return_value = {"choices": None}
+    mock_post = AsyncMock(return_value=null_choices)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+            response = await client.post(
+                "/v1/generate-summary",
+                json={"profile_text": "Project type: office renovation."},
+            )
+
+    assert response.status_code == 200
+    assert response.json() == {"summary": "", "error": "llm_response_malformed"}
 
 
 @pytest.mark.asyncio
@@ -151,6 +211,75 @@ async def test_generate_summary_upstream_error_returns_empty_summary(app):
 
 
 @pytest.mark.asyncio
+async def test_generate_summary_uses_byok_credential_when_org_header_present(app, monkeypatch):
+    """When the BFF forwards an org id and BYOK resolves, the route calls the
+    tenant's endpoint/key rather than the env credential."""
+    from aiq_agent.common.llm_credentials import OrgLLMCredential
+
+    monkeypatch.delenv("SUMMARY_LLM_API_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "platform-key")
+
+    byok = OrgLLMCredential(
+        credential_id="cred-1",
+        provider="openrouter",
+        base_url="https://tenant.example.com/v1",
+        api_key="sk-tenant",
+        key_fingerprint="fp",
+    )
+
+    captured: dict = {}
+
+    async def _capture(url, json=None, headers=None):  # noqa: A002 - mirrors httpx kwarg
+        captured["url"] = url
+        captured["headers"] = headers
+        return _summary_response("Tenant summary.")
+
+    mock_post = AsyncMock(side_effect=_capture)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("aiq_agent.common.llm_credentials.resolve_org_llm_credential", return_value=byok):
+            with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+                response = await client.post(
+                    "/v1/generate-summary",
+                    json={"profile_text": "Project type: office renovation."},
+                    headers={"x-grid-organization-id": "org-1"},
+                )
+
+    assert response.status_code == 200
+    assert response.json()["summary"] == "Tenant summary."
+    # BYOK swapped base URL and key.
+    assert captured["url"] == "https://tenant.example.com/v1/chat/completions"
+    assert captured["headers"]["Authorization"] == "Bearer sk-tenant"
+
+
+@pytest.mark.asyncio
+async def test_generate_summary_env_fallback_when_byok_absent(app, monkeypatch):
+    """With an org header but no BYOK credential, the route falls back to the env
+    chain (fail-open)."""
+    monkeypatch.setenv("SUMMARY_LLM_API_KEY", "env-key")
+
+    captured: dict = {}
+
+    async def _capture(url, json=None, headers=None):  # noqa: A002 - mirrors httpx kwarg
+        captured["headers"] = headers
+        return _summary_response("Env summary.")
+
+    mock_post = AsyncMock(side_effect=_capture)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("aiq_agent.common.llm_credentials.resolve_org_llm_credential", return_value=None):
+            with patch("httpx.AsyncClient", _fake_async_client(mock_post)):
+                response = await client.post(
+                    "/v1/generate-summary",
+                    json={"profile_text": "Project type: office renovation."},
+                    headers={"x-grid-organization-id": "org-1"},
+                )
+
+    assert response.status_code == 200
+    assert captured["headers"]["Authorization"] == "Bearer env-key"
+
+
+@pytest.mark.asyncio
 async def test_generate_summary_no_api_key_returns_not_configured(app, monkeypatch):
     """Test that with no resolvable API key the route short-circuits without any HTTP call."""
     monkeypatch.delenv("SUMMARY_LLM_API_KEY", raising=False)
@@ -169,3 +298,22 @@ async def test_generate_summary_no_api_key_returns_not_configured(app, monkeypat
     assert response.status_code == 200
     assert response.json() == {"summary": "", "error": "llm_not_configured"}
     mock_post.assert_not_called()
+
+
+def test_placeholder_openrouter_key_does_not_select_the_openrouter_endpoint(monkeypatch):
+    """Same placeholder trap as the consistency route: an uninterpolated
+    `${OPENROUTER_API_KEY}` is truthy but not a key, and reading it raw sent
+    LLM_API_KEY to openrouter.ai."""
+    from aiq_api.routes.generate_summary import _llm_settings
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "${OPENROUTER_API_KEY}")
+    monkeypatch.setenv("LLM_API_KEY", "sk-some-other-provider")
+    for name in ("SUMMARY_LLM_MODEL", "SUMMARY_LLM_BASE_URL", "SUMMARY_LLM_API_KEY", "LLM_MODEL", "LLM_BASE_URL"):
+        monkeypatch.delenv(name, raising=False)
+
+    model, api_key, base_url = _llm_settings()
+
+    assert "openrouter.ai" not in base_url
+    assert base_url == "https://api.openai.com/v1"
+    assert model == "gpt-4o-mini"
+    assert api_key == "sk-some-other-provider"  # pragma: allowlist secret

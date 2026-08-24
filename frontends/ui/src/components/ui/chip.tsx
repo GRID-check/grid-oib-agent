@@ -5,10 +5,12 @@ import { Slot } from '@radix-ui/react-slot'
 import { cva, type VariantProps } from 'class-variance-authority'
 
 import { cn } from '@/lib/utils'
+import { CountPill } from '@/components/ui/count-pill'
+import { FOCUS_RING } from '@/components/ui/focus-ring'
 
 /**
  * Chip — a small, reusable inline pill for lightweight agent affordances
- * (memory "Grid noted N", source counts, tool tags, filters, …).
+ * (memory "Piloti noted N", source counts, tool tags, filters, …).
  *
  * Composable and design-system-aligned:
  * - `variant` picks a semantic token pair (muted / success / warning / info / …).
@@ -21,10 +23,10 @@ import { cn } from '@/lib/utils'
  * Chip is meant to be clicked, counted, and reused across features.
  */
 const chipVariants = cva(
-  'inline-flex items-center gap-1 rounded-full border font-medium w-fit whitespace-nowrap shrink-0 ' +
-    'align-middle transition-[color,background-color,box-shadow] ' +
-    '[&>svg]:pointer-events-none [&>svg]:shrink-0 ' +
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+  'inline-flex items-center gap-1 rounded-md border font-medium w-fit whitespace-nowrap shrink-0 ' +
+    'align-middle outline-none transition-[transform,opacity] duration-200 ease-out ' +
+    'motion-reduce:transition-none [&>svg]:pointer-events-none [&>svg]:shrink-0 ' +
+    FOCUS_RING,
   {
     variants: {
       variant: {
@@ -41,8 +43,18 @@ const chipVariants = cva(
         sm: 'h-5 px-2 text-[11px] [&>svg]:size-3',
         md: 'h-6 px-2.5 text-xs [&>svg]:size-3.5',
       },
+      // A chip that can be tapped needs a finger-sized catchment, but a 44px-tall
+      // chip is not a chip any more — the small size IS the signal that it is a
+      // secondary affordance. `touch-target` widens the hit area and leaves the
+      // pill alone; a non-interactive chip is not a target and gets nothing.
+      // A disabled chip has to say so, and it is routinely `asChild` an anchor
+      // or a Radix trigger — neither of which honours `disabled` — so the
+      // `aria-disabled` mirror carries the same treatment as the real attribute.
       interactive: {
-        true: 'cursor-pointer hover:brightness-95 active:brightness-90 dark:hover:brightness-125',
+        true:
+          'cursor-pointer touch-target hover:brightness-95 active:brightness-90 dark:hover:brightness-125 active:scale-[0.98] motion-reduce:active:scale-100 ' +
+          'disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 ' +
+          'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
         false: '',
       },
     },
@@ -76,16 +88,22 @@ const Chip = React.forwardRef<HTMLSpanElement, ChipProps>(
 )
 Chip.displayName = 'Chip'
 
-/** A count pill for the trailing edge of a Chip (e.g. "Grid noted · 3"). */
+/**
+ * A count pill for the trailing edge of a Chip (e.g. "Piloti noted \u00b7 3").
+ *
+ * It IS {@link CountPill} — the design language's one rounded-full numeric pill
+ * — not a second shape with its own padding and min-width, which is what this
+ * used to be. The only thing it overrides is the fill: `CountPill`'s `bg-muted`
+ * would vanish on a `muted` chip (the default), so the count rides on the chip's
+ * own ink at 10% and inherits the chip's text colour, and it therefore reads on
+ * every chip variant instead of only the ones that happen not to be muted.
+ */
 const ChipCount = React.forwardRef<HTMLSpanElement, React.HTMLAttributes<HTMLSpanElement>>(
   ({ className, ...props }, ref) => (
-    <span
+    <CountPill
       ref={ref}
       data-slot="chip-count"
-      className={cn(
-        'inline-flex min-w-4 items-center justify-center rounded-full bg-foreground/10 px-1 text-[10px] font-semibold tabular-nums',
-        className
-      )}
+      className={cn('bg-foreground/10 font-semibold text-inherit', className)}
       {...props}
     />
   )

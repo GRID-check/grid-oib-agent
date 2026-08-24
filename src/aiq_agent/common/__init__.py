@@ -1,22 +1,8 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Common utilities for the AI-Q blueprint."""
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import logging
 import os
@@ -24,6 +10,7 @@ import os
 import aiosqlite
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
@@ -34,6 +21,9 @@ from nat.data_models.api_server import ChoiceMessage
 from nat.data_models.api_server import Usage
 from nat.data_models.api_server import UserMessageContentRoleType
 
+from .budget_guard import BudgetGuardCallback
+from .budget_guard import RunBudgetExceededError
+from .budget_guard import create_budget_guard_callback
 from .callbacks import VerboseTraceCallback
 from .citation_verification import SourceRegistry
 from .citation_verification import get_or_create_session_registry
@@ -46,21 +36,44 @@ from .citation_verification import verify_citations
 from .data_source_registry import get_all_tool_refs
 from .data_source_registry import get_source_id_for_tool
 from .data_sources import DEFAULT_DATA_SOURCES
+from .data_sources import DISABLED_SOURCES_HEADER
 from .data_sources import all_mapped_tools_filtered_out
 from .data_sources import extract_messages_and_sources
 from .data_sources import filter_tools_by_sources
 from .data_sources import format_data_source_tools
+from .data_sources import get_disabled_sources_from_context
 from .data_sources import parse_data_sources
+from .data_sources import parse_disabled_sources
+from .db_utils import redact_db_url
+from .human_prompt import build_human_prompt
+from .human_prompt import extract_user_response
 from .json_utils import extract_json
+from .llm_credentials import OrgLLMCredential
+from .llm_credentials import apply_org_credential
+from .llm_credentials import get_org_llm_credential_from_context
+from .llm_credentials import resolve_org_llm_credential
+from .llm_factory import apply_openrouter_structured_defaults
+from .llm_factory import enforce_chat_request_contract
+from .llm_factory import get_langchain_llm
+from .llm_factory import strict_json_response_format
+from .llm_factory import strict_response_format
 from .llm_provider import LLMProvider
 from .llm_provider import LLMRole
+from .message_contract import CONTINUATION_TURN
+from .message_contract import ends_on_model_turn
+from .message_contract import normalize_chat_request
+from .message_utils import content_to_text
 from .message_utils import get_latest_user_query
 from .model_overrides import MODEL_OVERRIDES_HEADER
 from .model_overrides import AgentGroup
 from .model_overrides import apply_model_override
+from .model_overrides import apply_zdr_routing
 from .model_overrides import get_model_overrides_from_context
+from .model_overrides import get_zdr_only_from_context
+from .model_overrides import is_reasoning_incompatible_error
 from .model_overrides import parse_model_overrides
 from .model_overrides import sanitize_model_overrides
+from .nat_step_repair import SpanClosingProfilerHandler
 from .prompt_utils import load_prompt
 from .prompt_utils import render_prompt_template
 from .tool_validation import format_tool_unavailability_error
@@ -72,21 +85,54 @@ logger = logging.getLogger(__name__)
 # Shared checkpointer caches
 _checkpointers: dict[str, BaseCheckpointSaver] = {}
 _postgres_pools: dict[str, AsyncConnectionPool] = {}
+# Serializes checkpointer creation: connect/setup are awaits, so a bare
+# check-then-act would let two concurrent callers both connect and leak the
+# loser's connection when it is overwritten in the cache.
+_checkpointer_lock = asyncio.Lock()
+
+
+def _pool_int_env(name: str, default: int) -> int:
+    """Positive-int env override for pool sizing; falls back on unset/invalid/≤0."""
+    try:
+        val = int(os.environ.get(name, ""))
+        return val if val > 0 else default
+    except (TypeError, ValueError):
+        return default
+
 
 __all__ = [
     "DEFAULT_DATA_SOURCES",
+    "DISABLED_SOURCES_HEADER",
     "AgentGroup",
+    "BudgetGuardCallback",
     "LLMProvider",
     "MODEL_OVERRIDES_HEADER",
     "LLMRole",
+    "OrgLLMCredential",
+    "RunBudgetExceededError",
     "SourceRegistry",
+    "SpanClosingProfilerHandler",
     "VerboseTraceCallback",
     "all_mapped_tools_filtered_out",
+    "CONTINUATION_TURN",
+    "content_to_text",
+    "create_budget_guard_callback",
     "apply_model_override",
+    "apply_zdr_routing",
+    "get_zdr_only_from_context",
+    "is_reasoning_incompatible_error",
+    "apply_org_credential",
+    "get_disabled_sources_from_context",
     "get_model_overrides_from_context",
+    "get_org_llm_credential_from_context",
+    "parse_disabled_sources",
+    "resolve_org_llm_credential",
     "parse_model_overrides",
+    "redact_db_url",
     "sanitize_model_overrides",
+    "build_human_prompt",
     "extract_json",
+    "extract_user_response",
     "extract_messages_and_sources",
     "filter_tools_by_sources",
     "format_data_source_tools",
@@ -107,6 +153,13 @@ __all__ = [
     "sanitize_report",
     "set_session_registry",
     "validate_tool_availability",
+    "apply_openrouter_structured_defaults",
+    "ends_on_model_turn",
+    "enforce_chat_request_contract",
+    "get_langchain_llm",
+    "normalize_chat_request",
+    "strict_response_format",
+    "strict_json_response_format",
     "verify_citations",
 ]
 
@@ -159,6 +212,27 @@ def is_postgres_dsn(value: str) -> bool:
         return value.startswith(("postgresql://", "postgres://"))
 
 
+def _build_checkpointer_serde() -> JsonPlusSerializer:
+    """Build the checkpointer serializer with an explicit msgpack allow-list.
+
+    This flips the checkpointer from permissive to STRICT deserialization: only
+    the listed pydantic state types may be reconstructed from a checkpoint. The
+    list below is the complete set of custom pydantic types carried in
+    ``ChatResearcherState`` (the shallow graph has no checkpointer). Any NEW
+    pydantic state type MUST be added here or restore will break for it.
+    """
+    # Imported lazily to avoid a circular import: the agent state modules import
+    # from ``aiq_agent.common`` at module load time.
+    from aiq_agent.agents.chat_researcher.models.depth import DepthDecision
+    from aiq_agent.agents.chat_researcher.models.intent import IntentResult
+    from aiq_agent.agents.chat_researcher.models.result import ShallowResult
+    from aiq_agent.knowledge.schema import AvailableDocument
+
+    return JsonPlusSerializer(
+        allowed_msgpack_modules=[IntentResult, DepthDecision, ShallowResult, AvailableDocument],
+    )
+
+
 async def get_checkpointer(checkpoint_db: str) -> BaseCheckpointSaver:
     """Return a shared checkpointer for the given database/DSN.
 
@@ -176,24 +250,36 @@ async def get_checkpointer(checkpoint_db: str) -> BaseCheckpointSaver:
     if checkpointer is not None:
         return checkpointer
 
-    if is_postgres_dsn(checkpoint_db):
-        pool = _postgres_pools.get(checkpoint_db)
-        if pool is None:
-            pool = AsyncConnectionPool(
-                conninfo=checkpoint_db,
-                min_size=1,
-                max_size=3,
-                kwargs={"autocommit": True, "row_factory": dict_row},
-            )
-            _postgres_pools[checkpoint_db] = pool
-        checkpointer = AsyncPostgresSaver(pool)
-        await checkpointer.setup()
-        logger.info("Postgres checkpointer initialized via async pool.")
-    else:
-        conn = await aiosqlite.connect(checkpoint_db)
-        checkpointer = AsyncSqliteSaver(conn)
-        await checkpointer.setup()
-        logger.info("SQLite checkpointer initialized: %s", checkpoint_db)
+    async with _checkpointer_lock:
+        # Re-check: another caller may have created it while we waited.
+        checkpointer = _checkpointers.get(checkpoint_db)
+        if checkpointer is not None:
+            return checkpointer
 
-    _checkpointers[checkpoint_db] = checkpointer
-    return checkpointer
+        if is_postgres_dsn(checkpoint_db):
+            pool = _postgres_pools.get(checkpoint_db)
+            if pool is None:
+                # Per-replica connection ceiling for checkpoint reads/writes. The
+                # old hard-coded max_size=3 throttled the chat tier's concurrent
+                # turns (every super-step checks out a connection); make it tunable
+                # and default higher now that the tier scales (ADR-0028).
+                min_size = _pool_int_env("GRID_CHECKPOINT_POOL_MIN_SIZE", 1)
+                max_size = max(min_size, _pool_int_env("GRID_CHECKPOINT_POOL_MAX_SIZE", 10))
+                pool = AsyncConnectionPool(
+                    conninfo=checkpoint_db,
+                    min_size=min_size,
+                    max_size=max_size,
+                    kwargs={"autocommit": True, "row_factory": dict_row},
+                )
+                _postgres_pools[checkpoint_db] = pool
+            checkpointer = AsyncPostgresSaver(pool, serde=_build_checkpointer_serde())
+            await checkpointer.setup()
+            logger.info("Postgres checkpointer initialized via async pool.")
+        else:
+            conn = await aiosqlite.connect(checkpoint_db)
+            checkpointer = AsyncSqliteSaver(conn, serde=_build_checkpointer_serde())
+            await checkpointer.setup()
+            logger.info("SQLite checkpointer initialized: %s", checkpoint_db)
+
+        _checkpointers[checkpoint_db] = checkpointer
+        return checkpointer

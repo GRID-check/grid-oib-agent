@@ -9,6 +9,8 @@
  */
 
 import { apiConfig } from './config'
+import { ApiRequestError } from './api-error'
+import type { WireCitationSource } from '@/features/chat/types'
 
 // ============================================================
 // Types
@@ -17,12 +19,22 @@ import { apiConfig } from './config'
 /** Job status values */
 export type DeepResearchJobStatus = 'submitted' | 'running' | 'success' | 'failure' | 'interrupted'
 
+/** Valid job status values, used to validate unvalidated SSE payloads */
+const VALID_JOB_STATUSES: ReadonlySet<DeepResearchJobStatus> = new Set([
+  'submitted',
+  'running',
+  'success',
+  'failure',
+  'interrupted',
+])
+
 /** SSE event types from the deep research stream */
 export type DeepResearchEventType =
   | 'stream.start'
   | 'stream.mode'
   | 'job.status'
   | 'job.heartbeat'
+  | 'job.phase'
   | 'workflow.start'
   | 'workflow.end'
   | 'llm.start'
@@ -158,6 +170,22 @@ export interface ArtifactUpdateEvent extends DeepResearchSSEEvent {
       url?: string // For citation_source and citation_use types
       output_category?: string // For output type (e.g. "final_report")
       cards?: unknown[] // Grid response cards attached to the final report output
+      // Structured citation fields: the backend spreads the whole citation wire
+      // (`source_entry_to_wire`) onto citation_source / citation_use artifacts,
+      // so the payload IS a WireCitationSource and is handed over as one.
+      title?: string
+      citation_key?: string
+      collection?: string
+      source_type?: string
+      tool?: string
+      origin?: string
+      file_name?: string
+      page?: number
+      kind?: string
+      lane?: string
+      lane_label?: string
+      binding_note?: string
+      number?: number
     }
     metadata?: {
       workflow?: string
@@ -206,7 +234,15 @@ export interface DeepResearchCallbacks {
   onToolEnd?: (name: string, output?: string, eventId?: string, agentId?: string) => void
   /** Called on artifact updates */
   onTodoUpdate?: (todos: TodoItem[], workflow?: string) => void
-  onCitationUpdate?: (url: string, content: string, isCited?: boolean) => void
+  /**
+   * A citation source arrived. `wire` is the backend's citation payload
+   * (`source_entry_to_wire`) verbatim — pass it to `citationFromWire` rather
+   * than re-mapping field by field. Hand-mapping here is how the deep-research
+   * path silently lost `kind`/`lane`/`lane_label`/`binding_note`/`number` and
+   * fell back to the pre-ADR-0026 origin heuristic that tints the OIB corpus as
+   * project material.
+   */
+  onCitationUpdate?: (wire: WireCitationSource, isCited: boolean) => void
   onFileUpdate?: (filename: string, content: string) => void
   onOutputUpdate?: (
     content: string,
@@ -216,6 +252,8 @@ export interface DeepResearchCallbacks {
   ) => void
   /** Called on job heartbeat (confirms job is alive during long operations) */
   onHeartbeat?: (uptimeSeconds: number) => void
+  /** Called on coarse deep-research phase transitions (planning/research/writing/…) */
+  onPhase?: (phase: string, data?: Record<string, unknown>) => void
   /** Called when job completes successfully */
   onComplete?: () => void
   /** Called on errors */
@@ -393,25 +431,49 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
         break
       }
 
+      case 'job.phase': {
+        // Coarse phase transitions emitted by the backend job runner
+        // (planning_started, research_started, writing_started, …).
+        const phaseWrapper = rawData as { data?: { phase?: string } & Record<string, unknown>; phase?: string }
+        const phaseData = phaseWrapper.data || phaseWrapper
+        const phase = phaseData.phase
+        if (typeof phase === 'string' && phase.length > 0) {
+          callbacks.onPhase?.(phase, phaseData as Record<string, unknown>)
+        } else if (process.env.NODE_ENV === 'development') {
+          console.warn('[SSE:job.phase] Ignoring event without a phase string')
+        }
+        break
+      }
+
       case 'job.status': {
         // job.status wraps status in data property
-        const statusWrapper = rawData as { data?: { status: DeepResearchJobStatus; error?: string }; status?: DeepResearchJobStatus; error?: string }
+        const statusWrapper = rawData as { data?: { status?: DeepResearchJobStatus; error?: string }; status?: DeepResearchJobStatus; error?: string }
         const statusData = statusWrapper.data || statusWrapper
-        callbacks.onJobStatus?.(statusData.status!, statusData.error)
+        const status = statusData.status
+        // Validate before use — the payload is unvalidated JSON from the wire.
+        if (!status || !VALID_JOB_STATUSES.has(status)) {
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('[SSE:job.status] Ignoring event with invalid status:', status)
+          }
+          break
+        }
+        callbacks.onJobStatus?.(status, statusData.error)
 
         // Check for terminal states — close EventSource immediately to prevent
         // auto-reconnection loops (EventSource reconnects on its own if left open)
-        if (statusData.status === 'success') {
+        if (status === 'success') {
           isTerminated = true
           eventSource?.close()
           callbacks.onComplete?.()
-        } else if (statusData.status === 'failure' || statusData.status === 'interrupted') {
+        } else if (status === 'failure' || status === 'interrupted') {
           isTerminated = true
           eventSource?.close()
-          // Only call onError for actual failures, not user-initiated cancellations
-          const isUserCancelled = statusData.status === 'interrupted' && statusData.error?.toLowerCase().includes('cancelled by user')
-          if (!isUserCancelled && statusData.error) {
-            callbacks.onError?.(new Error(statusData.error || `Job ${statusData.status}`))
+          // Only call onError for actual failures, not user-initiated cancellations.
+          // A failure without an error string is still a failure — fall back to a
+          // generic message so the caller is always notified of the terminal state.
+          const isUserCancelled = status === 'interrupted' && statusData.error?.toLowerCase().includes('cancelled by user')
+          if (!isUserCancelled) {
+            callbacks.onError?.(new Error(statusData.error || `Job ${status}`))
           }
         }
         break
@@ -506,13 +568,15 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
             callbacks.onTodoUpdate?.(artifactData.content as TodoItem[], artifactWorkflow)
             break
           case 'citation_source':
-            // citation_source = "Referenced" sources (discovered during search)
-            callbacks.onCitationUpdate?.(artifactData.url || '', artifactData.content as string, false)
+          case 'citation_use': {
+            // citation_source = discovered; citation_use = cited in the report.
+            // The artifact IS the citation wire (the backend spreads
+            // `source_entry_to_wire` onto it), so hand it over whole and let the
+            // one normalizer own the mapping.
+            const isCited = artifactData.type === 'citation_use'
+            callbacks.onCitationUpdate?.(artifactData as WireCitationSource, isCited)
             break
-          case 'citation_use':
-            // citation_use = "Cited" sources (actually used in the report)
-            callbacks.onCitationUpdate?.(artifactData.url || '', artifactData.content as string, true)
-            break
+          }
           case 'file': {
             // file artifacts are written during research — extract filename from path
             const raw = artifactData as Record<string, unknown>
@@ -531,7 +595,7 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
             break
           default:
             if (process.env.NODE_ENV === 'development') {
-              console.warn(`[SSE:artifact.update] Unknown artifact type: ${artifactData.type}`)
+              console.warn('[SSE:artifact.update] Unknown artifact type:', artifactData.type)
             }
         }
         break
@@ -540,7 +604,7 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
       default:
         // Unknown event type - log in dev
         if (process.env.NODE_ENV === 'development') {
-          console.warn(`[SSE] Unknown event type: ${eventType}`, rawData)
+          console.warn('[SSE] Unknown event type:', eventType, rawData)
         }
         break
     }
@@ -704,14 +768,24 @@ const getDeepResearchErrorDetails = async (response: Response): Promise<string |
 
 const throwDeepResearchApiError = async (response: Response, context: string): Promise<never> => {
   const details = await getDeepResearchErrorDetails(response)
-  throw new Error(`${context}: ${response.status}${details ? ` - ${details}` : ''}`)
+  // ApiRequestError carries the HTTP status so consumers can classify the
+  // failure structurally instead of parsing the message text.
+  throw new ApiRequestError(
+    `${context}: ${response.status}${details ? ` - ${details}` : ''}`,
+    response.status
+  )
 }
 
 /** Get job status */
 export const getJobStatus = async (
   jobId: string,
   authToken?: string
-): Promise<{ job_id: string; status: DeepResearchJobStatus; error: string | null }> => {
+): Promise<{
+  job_id: string
+  status: DeepResearchJobStatus
+  error: string | null
+  created_at?: string | null
+}> => {
   const url = `${getDeepResearchBaseUrl()}/job/${jobId}`
   const headers: HeadersInit = {
     'Content-Type': 'application/json',

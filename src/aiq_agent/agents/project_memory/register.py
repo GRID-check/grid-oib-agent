@@ -26,6 +26,46 @@ from nat.data_models.function import FunctionBaseConfig
 
 logger = logging.getLogger(__name__)
 
+# Tool-result string returned once the confirmation card has been shown. It must
+# make clear to the model that NOTHING was saved — the user decides through their
+# own authenticated session.
+_CARD_SHOWN_RESULT = (
+    "A confirmation was shown to the user asking whether to remember this org-wide or save it to "
+    "this project. It has NOT been saved yet — do not claim it was saved; the user decides."
+)
+
+
+def _emit_memory_proposal_card(*, content: str, kind: str, confidence: str) -> bool:
+    """Build and register a ``memory_proposal`` confirmation card.
+
+    Returns True if the card was added to a bound conversation-scoped card
+    registry, False when no card channel is available (so the caller can fall
+    back to an honest error string). Mirrors ``emit_card``'s None handling.
+    """
+    from aiq_agent.cards.models import grid_card_adapter
+    from aiq_agent.cards.registry import get_card_registry
+
+    registry = get_card_registry()
+    if registry is None:
+        return False
+
+    card = {
+        "type": "memory_proposal",
+        "title": "Neue Erkenntnis merken",
+        "content": content,
+        "kind": kind,
+        "confidence": confidence,
+    }
+    try:
+        validated = grid_card_adapter.validate_python(card).model_dump(exclude_none=True)
+    except Exception:
+        logger.exception("Failed to build memory_proposal card")
+        return False
+    registry.add(validated)
+    logger.info("Emitted memory_proposal card (kind=%s) for user-authorized memory write", kind)
+    return True
+
+
 _TOOL_DESCRIPTION = (
     "Record ONE durable finding in long-term memory. Use when the conversation establishes "
     "something worth knowing in future conversations: a decision the client/user made "
@@ -36,7 +76,13 @@ _TOOL_DESCRIPTION = (
     "user's projects (e.g. firm-wide conventions or preferences). Do NOT record general "
     "building-code knowledge, transient conversation details, restatements of the user's "
     "message, or facts already in the project profile. Content must be one concise, "
-    "self-contained sentence."
+    "self-contained sentence.\n"
+    "When this finding CORRECTS something already in the PROJECT_MEMORY shown in your context "
+    "— the user changed a project fact, or an earlier note turned out to be wrong — pass the "
+    "outdated entry's text VERBATIM as 'supersedes' (without its [kind | confidence | "
+    "verification] tag and surrounding quotes). That retires the stale entry instead of leaving "
+    "two contradictory notes in memory. Leave 'supersedes' empty when the finding simply adds "
+    "something new."
 )
 
 
@@ -50,17 +96,25 @@ class ProjectMemoryRememberConfig(FunctionBaseConfig, name="project_memory_remem
 async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, builder: Builder):
     from aiq_agent.knowledge.project_memory import VALID_CONFIDENCES
     from aiq_agent.knowledge.project_memory import VALID_KINDS
+    from aiq_agent.knowledge.project_memory import OrgMemoryDisabledError
     from aiq_agent.knowledge.project_memory import insert_memory_item
     from aiq_agent.project_context import get_conversation_id_from_context
     from aiq_agent.project_context import get_organization_id_from_context
     from aiq_agent.project_context import get_project_id_from_context
 
-    async def _remember(kind: str, content: str, confidence: str = "medium", scope: str = "project") -> str:
+    async def _remember(
+        kind: str,
+        content: str,
+        confidence: str = "medium",
+        scope: str = "project",
+        supersedes: str = "",
+    ) -> str:
         """Record one durable finding in project or organization memory."""
         kind = (kind or "").strip().lower()
         confidence = (confidence or "medium").strip().lower()
         scope = (scope or "project").strip().lower()
         content = (content or "").strip()
+        supersedes = (supersedes or "").strip()
 
         if kind not in VALID_KINDS:
             return f"Error: invalid kind '{kind}'. Use one of: {', '.join(sorted(VALID_KINDS))}."
@@ -78,7 +132,13 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
 
         if scope == "project" and not project_id:
             if organization_id:
-                # No project in scope but the finding is still worth keeping.
+                # No project in scope but the finding is still worth keeping, so
+                # escalate to org scope. NOTE: in default deployments the frontend
+                # denies agent org-wide writes (ORG_MEMORY_DISABLED, audit finding
+                # S1) unless GRID_ALLOW_AGENT_ORG_MEMORY=true; when that happens the
+                # OrgMemoryDisabledError branch below returns an honest message that
+                # explains it to the user. (Escalation kept intentionally — product
+                # decision deferred.)
                 scope = "organization"
             else:
                 return (
@@ -100,15 +160,51 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
                 content=content,
                 confidence=confidence,
                 conversation_id=conversation_id,
+                # Retires the entry this finding corrects. The frontend resolves
+                # the quote and ignores it when nothing matches or the target is
+                # human-curated, so the write lands either way.
+                supersedes_content=supersedes or None,
+            )
+        except OrgMemoryDisabledError:
+            # The agent's service token is blocked from org-wide writes (default
+            # deny). Rather than silently failing, offer the user the sanctioned
+            # path: a confirmation card lets them complete the write through their
+            # OWN authenticated session (org-wide) or save it to just this project.
+            # This clear() branch is taken whenever an org write is refused by policy.
+            logger.warning("Org-scoped remember denied by frontend policy (org memory disabled)")
+            if _emit_memory_proposal_card(content=content, kind=kind, confidence=confidence):
+                return _CARD_SHOWN_RESULT
+            # No card channel bound — fall back to the honest error string.
+            return (
+                "Error: organization-wide memory is disabled by the administrator in this "
+                "deployment; the finding was NOT saved. Tell the user that firm-wide rules "
+                "currently have to be added by hand in the organization memory panel. Do not retry."
             )
         except Exception:
             logger.exception("Failed to record memory item")
-            return "Error: could not record the finding (memory service unavailable). Continue without it."
+            # For an ORG-scoped write, a generic failure is also blocked by the
+            # agent's service token — offer the same user-authorized confirmation
+            # card instead of a dead end. Project-scoped failures keep the existing
+            # honest error string.
+            if scope == "organization" and _emit_memory_proposal_card(
+                content=content, kind=kind, confidence=confidence
+            ):
+                return _CARD_SHOWN_RESULT
+            return (
+                "Error: the finding was NOT saved — long-term memory is unavailable. Do not tell "
+                "the user it has been noted; if they asked you to remember this, tell them it could "
+                "not be stored. Continue the main task."
+            )
 
         if item_id is None:
             return "Error: unknown project — nothing recorded."
 
         logger.info("Recorded %s memory item %s (%s)", scope, item_id, kind)
+        if supersedes:
+            # Deliberately not claiming the old entry WAS retired: the frontend
+            # ignores a quote it cannot resolve, or one naming a human-curated
+            # entry, and this call does not learn which happened.
+            return f"Recorded {kind} in {scope} memory, replacing the earlier note where it still matched."
         return f"Recorded {kind} in {scope} memory."
 
     yield FunctionInfo.from_fn(_remember, description=_TOOL_DESCRIPTION)

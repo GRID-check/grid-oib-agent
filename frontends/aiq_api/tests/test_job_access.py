@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 from __future__ import annotations
 
 import asyncio
@@ -123,7 +108,10 @@ class TestAuthorizeJobAccess:
 
         assert result is job
 
-    def test_cross_user_access_denied_with_404(self, db_url):
+    def test_cross_user_access_denied_with_404(self, db_url, monkeypatch):
+        # Ownership is only enforced when auth is on; without this the test
+        # exercises the early-return path and never checks denial.
+        monkeypatch.setenv("REQUIRE_AUTH", "true")
         _insert_job_info(db_url, "job-1")
         create_job_access("job-1", Principal(type="jwt", sub="user-1"), db_url)
         job = SimpleNamespace(job_id="job-1", status="running", created_at=None, error=None)
@@ -134,7 +122,8 @@ class TestAuthorizeJobAccess:
 
         assert exc.value.status_code == 404
 
-    def test_missing_access_row_denied_with_404(self, db_url):
+    def test_missing_access_row_denied_with_404(self, db_url, monkeypatch):
+        monkeypatch.setenv("REQUIRE_AUTH", "true")
         _insert_job_info(db_url, "job-1")
         job = SimpleNamespace(job_id="job-1", status="running", created_at=None, error=None)
         job_store = SimpleNamespace(get_job=AsyncMock(return_value=job))

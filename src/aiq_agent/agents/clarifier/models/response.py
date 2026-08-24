@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Response models for clarifier agent."""
 
 from pydantic import BaseModel
@@ -28,6 +13,9 @@ class ClarificationResponse(BaseModel):
             False if the agent has enough information to proceed.
         clarification_question: The clarification question to ask the user.
             Required when needs_clarification is True, should be None otherwise.
+        options: Short labels for the answers offered by the question, so the
+            UI can render a picker instead of asking the user to retype one of
+            them. Empty when the question has no enumerable answers.
     """
 
     needs_clarification: bool = Field(
@@ -38,6 +26,18 @@ class ClarificationResponse(BaseModel):
         default=None,
         description="The clarification question to ask the user. Required when needs_clarification is True.",
     )
+    options: list[str] = Field(
+        default_factory=list,
+        # The options are a *duplicate* of the choices already spelled out in
+        # clarification_question, not a replacement: the question carries the
+        # framing sentence and the skip line, the options carry the pickable
+        # labels. Optional even when clarification is needed, because a question
+        # with no enumerable answers is a perfectly valid clarification and
+        # inventing labels for it would put words in the user's mouth.
+        description="Short label of each offered answer (the pickable part only, not the explanation). "
+        "Omit or leave empty when the question has no enumerable answers, and always when "
+        "needs_clarification is false.",
+    )
 
     def is_complete(self) -> bool:
         """Check if clarification is complete."""
@@ -47,4 +47,7 @@ class ClarificationResponse(BaseModel):
         """Check if the response is valid (has question when needed)."""
         if self.needs_clarification:
             return bool(self.clarification_question)
-        return True
+        # Nothing is being asked, so there is nothing to offer answers to.
+        # Options here mean the model contradicted itself; treating that as
+        # invalid keeps a stale picker from being shown next to no question.
+        return not self.options

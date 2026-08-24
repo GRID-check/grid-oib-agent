@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Tests for prompt utility functions."""
 
 from pathlib import Path
@@ -23,6 +8,7 @@ import pytest
 from aiq_agent.common.prompt_utils import PromptError
 from aiq_agent.common.prompt_utils import load_prompt
 from aiq_agent.common.prompt_utils import render_prompt_template
+from aiq_agent.common.source_kinds import Shelf
 
 
 class TestLoadPrompt:
@@ -202,3 +188,12 @@ Description: {{ step.description }}
         assert "Step 1: Literature Review" in result
         assert "Step 2: Data Collection" in result
         assert "Handle with care" in result
+
+    def test_empty_docs_still_show_in_scope_empty_archiv(self, monkeypatch):
+        """An authorized empty Büroarchiv must render as empty, not vanish."""
+        from aiq_agent.knowledge import inventory as inventory_mod
+
+        monkeypatch.setattr(inventory_mod, "in_scope_shelves_from_context", lambda: [Shelf.ARCHIV, Shelf.BASE])
+        rendered = render_prompt_template("{{ document_inventory }}", available_documents=[])
+        assert "### Büroarchiv" in rendered
+        assert "empty" in rendered.lower()

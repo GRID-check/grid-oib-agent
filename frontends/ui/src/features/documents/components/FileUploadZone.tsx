@@ -9,13 +9,15 @@
 'use client'
 
 import { type ChangeEvent, type FC, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { CheckCircle2, FileText, Loader2, Upload, XCircle } from 'lucide-react'
+import { CheckCircle2, FileText, Upload, XCircle } from 'lucide-react'
+import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 import { useDocumentsStore } from '../store'
 import { useIsCurrentSessionBusy } from '@/features/chat'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { ACCEPTED_FILE_TYPES, MAX_FILE_SIZE } from '../'
 import { AnimatePresence, motion, springGentle, springSnappy } from '@/components/motion'
+import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 
 // ============================================================================
@@ -27,7 +29,6 @@ interface UploadedFile {
   file: File
   status: 'uploading' | 'success' | 'error'
   errorMessage?: string
-  uploadedBytes?: number
 }
 
 interface FileUploadZoneProps {
@@ -91,7 +92,6 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
               ? ('success' as const)
               : ('uploading' as const),
         errorMessage: tf.errorMessage ?? undefined,
-        uploadedBytes: tf.progress ? Math.floor((tf.progress / 100) * tf.fileSize) : undefined,
       }))
     setUploadValue(mapped)
   }, [collectionFiles])
@@ -128,11 +128,7 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
 
   return (
     <div className="flex flex-col gap-3">
-      {label ? (
-        <label htmlFor={inputId} className="text-sm font-medium text-foreground">
-          {label}
-        </label>
-      ) : null}
+      {label ? <Label htmlFor={inputId}>{label}</Label> : null}
 
       <motion.div
         {...dragHandlers}
@@ -149,10 +145,10 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
           }
         }}
         className={cn(
-          'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-6 py-10 text-center transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+          'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-6 py-10 text-center transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
           isDragging && isUnsupportedDrag && 'border-destructive bg-destructive/5',
           isDragging && !isUnsupportedDrag && 'border-ring bg-primary/5',
-          !isDragging && 'border-border bg-muted/30 hover:border-ring hover:bg-primary/5',
+          !isDragging && 'border-border bg-muted hover:border-ring hover:bg-primary/5',
           uploadDisabled && 'pointer-events-none cursor-not-allowed opacity-50'
         )}
       >
@@ -167,7 +163,7 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
           data-testid="nv-upload-input-element"
           className="hidden"
         />
-        <Upload className="h-6 w-6 text-muted-foreground" aria-hidden />
+        <Upload className="size-6 text-muted-foreground" aria-hidden />
         <p className="text-sm text-muted-foreground">
           <span className="font-medium text-primary">{t('uploadZone.clickToUpload')}</span>{t('uploadZone.orDragAndDrop')}
         </p>
@@ -191,16 +187,16 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
               transition={springGentle}
               className="flex items-center gap-3 rounded-xl border bg-card px-3 py-2 shadow-xs"
             >
-              <FileText className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+              <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm text-foreground">{item.file.name}</p>
                 {item.errorMessage ? <p className="text-xs text-destructive">{item.errorMessage}</p> : null}
               </div>
               {item.status === 'uploading' ? (
-                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+                <Spinner size="sm" className="shrink-0 text-muted-foreground" />
               ) : null}
-              {item.status === 'success' ? <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-hidden /> : null}
-              {item.status === 'error' ? <XCircle className="h-4 w-4 shrink-0 text-destructive" aria-hidden /> : null}
+              {item.status === 'success' ? <CheckCircle2 className="size-4 shrink-0 text-success" aria-hidden /> : null}
+              {item.status === 'error' ? <XCircle className="size-4 shrink-0 text-destructive" aria-hidden /> : null}
             </motion.li>
           ))}
           </AnimatePresence>

@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Tests for session-activity utility functions
  */
 
@@ -29,8 +32,7 @@ describe('hasNoUserChatMessages', () => {
     expect(
       hasNoUserChatMessages([
         makeMessage({
-          messageType: 'file_upload_status',
-          fileUploadStatusData: { type: 'uploaded', fileCount: 1, jobId: 'j1' },
+          messageType: 'status',
         }),
       ])
     ).toBe(true)

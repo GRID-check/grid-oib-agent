@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Unified LLM cost capture and budget enforcement.
 
 One handler, zero per-agent wiring: ``GridCostTracker`` is installed through
@@ -263,6 +248,19 @@ class GridCostTracker(BaseCallbackHandler):
         self._pending: list[UsageEvent] = []
         self._events_recorded = 0
         self._turn_cost_usd = 0.0
+        # Token totals alongside the cost total. The ledger keeps the per-call
+        # detail; these exist so an in-process caller that wraps a bounded piece
+        # of work — a post-answer stage — can put what it spent on its own
+        # telemetry, which `llm_usage_events` cannot answer because it has no
+        # stage dimension.
+        self._prompt_tokens = 0
+        self._completion_tokens = 0
+        # Requested model per LLM run: deep research fires concurrent LLM
+        # calls (possibly on different models), so a single shared slot would
+        # attribute one call's usage to whichever model started last. Keyed by
+        # the callback run_id; the last-seen value is kept as a fallback for
+        # callers that don't propagate run_id.
+        self._requested_models: dict[Any, str] = {}
         self._requested_model: str | None = None
 
     # -- budget gate ---------------------------------------------------------
@@ -294,11 +292,18 @@ class GridCostTracker(BaseCallbackHandler):
         params = kwargs.get("invocation_params") or {}
         model = params.get("model") or params.get("model_name")
         if isinstance(model, str):
-            self._requested_model = model
+            run_id = kwargs.get("run_id")
+            with self._lock:
+                if run_id is not None:
+                    self._requested_models[run_id] = model
+                self._requested_model = model
 
     # -- capture ---------------------------------------------------------------
 
     def on_llm_end(self, response: Any, **kwargs: Any) -> None:
+        run_id = kwargs.get("run_id")
+        with self._lock:
+            requested = self._requested_models.pop(run_id, None) if run_id is not None else None
         try:
             event = extract_usage_event(response)
         except Exception:
@@ -306,14 +311,23 @@ class GridCostTracker(BaseCallbackHandler):
             return
         if event is None:
             return
-        event.requested_model = self._requested_model
+        event.requested_model = requested or self._requested_model
         with self._lock:
             self._pending.append(event)
             self._events_recorded += 1
             self._turn_cost_usd += event.cost_usd
+            self._prompt_tokens += event.prompt_tokens
+            self._completion_tokens += event.completion_tokens
             should_flush = len(self._pending) >= _FLUSH_BATCH_SIZE
         if should_flush:
             self.flush(wait=False)
+
+    def on_llm_error(self, error: BaseException, **kwargs: Any) -> None:
+        # Drop the per-run model entry so failed runs don't accumulate.
+        run_id = kwargs.get("run_id")
+        if run_id is not None:
+            with self._lock:
+                self._requested_models.pop(run_id, None)
 
     # -- ledger flush ----------------------------------------------------------
 
@@ -324,6 +338,16 @@ class GridCostTracker(BaseCallbackHandler):
     @property
     def events_recorded(self) -> int:
         return self._events_recorded
+
+    @property
+    def prompt_tokens(self) -> int:
+        """Prompt tokens across every call tracked in this scope."""
+        return self._prompt_tokens
+
+    @property
+    def completion_tokens(self) -> int:
+        """Completion tokens (reasoning included) across every call tracked."""
+        return self._completion_tokens
 
     def flush(self, *, wait: bool) -> None:
         """Send pending events to the internal ledger endpoint.
@@ -467,6 +491,11 @@ def track_llm_costs(
             grid_cost_tracker_var.reset(token)
         if tracker is not None:
             try:
-                tracker.flush(wait=False)
+                # Inline post at teardown: a wait=False flush would hand the
+                # final batch to the daemon executor, which a worker exiting
+                # right after this turn can strand — dropping the last (often
+                # largest) cost events. _post_usage_events never raises and is
+                # bounded by _REQUEST_TIMEOUT_SECONDS.
+                tracker.flush(wait=True)
             except Exception:
                 logger.warning("Failed to flush usage events at end of turn", exc_info=True)

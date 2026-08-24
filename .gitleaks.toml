@@ -1,0 +1,53 @@
+title = "grid-oib-agent gitleaks config"
+
+# gitleaks auto-loads this file from the root of the scanned source
+# (see .github/workflows/security.yml). Start from the full default ruleset and
+# add allowlist entries for known false positives (test fixtures, example keys,
+# lockfiles). Add real exceptions here rather than weakening the scan globally.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Global false-positive allowlist"
+
+# The detect-secrets baseline (.pre-commit-config.yaml) already tracks accepted
+# findings; these paths hold fixtures, examples, generated lockfiles, and docs
+# that legitimately contain secret-shaped strings.
+paths = [
+  '''\.secrets\.baseline$''',
+  '''(^|/)tests?/''',
+  # Shared fixtures that are not under `tests/` and are not themselves specs —
+  # `deploy/pulumi/src/test-support/` holds the stack config every Pulumi spec
+  # builds from. It was already in scope and simply never tripped a rule, because
+  # its placeholder values are short and low-entropy; the first one that wasn't
+  # (a URL-safe ClickHouse password) failed the scan on a file whose whole
+  # purpose is non-credentials.
+  '''(^|/)test-support/''',
+  '''(^|/)__mocks__/''',
+  '''(^|/)mocks/''',
+  '''\.spec\.tsx?$''',
+  '''test_.*\.py$''',
+  '''conftest\.py$''',
+  '''\.env\.example$''',
+  '''(^|/)uv\.lock$''',
+  '''package-lock\.json$''',
+  '''(^|/)docs/''',
+]
+
+# Placeholder / obviously-fake credentials used in examples and docs.
+regexes = [
+  '''(?i)(example|dummy|placeholder|changeme|your[-_]?token|test[-_]?key)''',
+  # Pulumi's PUBLIC secret sentinel. Every Pulumi state file and the Pulumi
+  # source itself carry this exact string as the key that marks a value as
+  # secret — it is a magic number, not a credential, and it has to appear
+  # verbatim in any code that unwraps a `requireSecret` output (the
+  # architecture extractor does). `generic-api-key` fires on it purely for
+  # being 32 hex characters.
+  #
+  # Allowlisted as an EXACT literal rather than by path: a rule scoped to the
+  # file would also hide a genuine key someone later pastes beside it, and
+  # gitleaks scans full history across refs, so one occurrence on any branch
+  # fails the scan for every open PR in the repo.
+  '''4dabf18193072939515e22adb298388d''', # pragma: allowlist secret
+]

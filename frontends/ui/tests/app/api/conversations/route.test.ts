@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/auth/require-auth', () => ({
@@ -27,6 +30,7 @@ const session = {
   organizationMembershipId: 'om_1',
   role: 'member' as const,
   permissions: [] as string[],
+  featureFlags: null,
 }
 
 function mockDbChain(overrides: Record<string, unknown> = {}) {
@@ -41,6 +45,7 @@ function mockDbChain(overrides: Record<string, unknown> = {}) {
     orderBy: vi.fn(() => chain),
     returning: vi.fn(() => Promise.resolve([])),
     values: vi.fn(() => chain),
+    onConflictDoNothing: vi.fn(() => chain),
     set: vi.fn(() => chain),
     ...overrides,
   }
@@ -60,7 +65,8 @@ describe('/api/conversations', () => {
         { id: 's_conv_2', organizationId: 'org_1', createdBy: 'user_1', title: 'Chat 2', projectId: null, createdAt: new Date(), updatedAt: new Date() },
       ]
       const whereFn = vi.fn().mockReturnThis()
-      const orderByFn = vi.fn().mockResolvedValue(rows)
+      // The bounded list query chains .orderBy().limit(); limit resolves rows.
+      const orderByFn = vi.fn(() => ({ limit: vi.fn().mockResolvedValue(rows) }))
 
       mockGetDb.mockReturnValue(mockDbChain({
         from: vi.fn(() => ({ where: whereFn, orderBy: orderByFn })),

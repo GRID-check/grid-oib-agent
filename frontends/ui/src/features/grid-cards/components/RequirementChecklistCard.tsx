@@ -1,23 +1,32 @@
 /**
- * RequirementChecklistCard — several pass/fail criteria for one question
- * ("Was muss ich für GK 4 erfüllen?"), each with its own verdict and, where
- * given, its own norm reference.
+ * RequirementChecklistCard — the "Voraussetzungen" checklist of the click-dummy
+ * Ergebnis card: an uppercase section label over check-circle rows, each with
+ * the requirement text and — where given — its own provenance citation chip.
  *
- * Reuses the schematic chrome (eyebrow, verdict pill, norm footer) so the
- * card reads as part of the same family: one row per requirement with the
- * status icon + German verdict, an optional detail line, and a per-item
- * reference shown inline when it differs from the card's footer reference.
+ * Rendered flat (no card chrome) so it sits directly inside the result block.
+ * The per-row status icon carries the verdict (colour + shape + aria-label);
+ * a fail/warning/needs_input row also shows its German verdict inline so the
+ * signal never travels by colour alone.
+ *
+ * A `needs_input` row additionally carries an {@link AskAboutChip}: the row
+ * already says which requirement is open and what is missing about it, and
+ * making the reader retype that into the composer is what kept the question
+ * from being asked at all. The chip only queues a draft — nothing is sent,
+ * fetched or decided by it — so this stays `presentational`.
  */
 
 import { type FC } from 'react'
-import { ListChecks } from 'lucide-react'
 import {
-  SchematicCard,
-  statusColor,
-  statusLabel,
-  worstStatus,
-} from '../schematics/kit'
-import { CircleCheck, CircleHelp, CircleX, TriangleAlert, type LucideIcon } from 'lucide-react'
+  CircleCheck,
+  CircleHelp,
+  CircleX,
+  TriangleAlert,
+  type LucideIcon,
+} from 'lucide-react'
+import { SectionLabel } from '@/components/ui/section-label'
+import { useTranslations } from '@/i18n'
+import { AskAboutChip } from './AskAboutChip'
+import { statusColor, statusLabel } from '../schematics/kit'
 import type { ChecklistItemData, DimStatus, NormReferenceData } from '../schematics/types'
 
 interface RequirementChecklistCardProps {
@@ -44,49 +53,70 @@ export const RequirementChecklistCard: FC<RequirementChecklistCardProps> = ({
   reference,
   note,
 }) => {
+  const t = useTranslations('chat')
   const sameAsFooter = (ref: NormReferenceData): boolean =>
     reference != null && ref.document === reference.document && ref.section === reference.section
 
   return (
-    <SchematicCard
-      icon={ListChecks}
-      eyebrow="Checkliste"
-      title={title}
-      verdict={worstStatus(items.map((i) => i.status))}
-      note={note}
-      reference={reference}
-    >
-      <ul className="flex flex-col divide-y divide-border/60">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex flex-col">
+      {/* Section label — the shared eyebrow primitive, not a hand-rolled copy.
+          `tracking-[0.05em]` was exactly `tracking-wider` and the weight was a
+          step heavy (the ramp says `font-medium`); SectionLabel carries both. */}
+      <SectionLabel as="div">{title}</SectionLabel>
+
+      <div className="mt-[9px] flex flex-col gap-[9px]">
         {items.map((item, index) => {
-          const Icon = STATUS_ICON[item.status]
+          // `?? CircleHelp`, because the nested card fields are `z.any()` in
+          // the generated schema: a status this build does not know reaches
+          // here as a string, `Icon` is `undefined`, and rendering it throws
+          // — taking the whole conversation with it, since nothing wraps
+          // `GridCards` in an error boundary.
+          const Icon = STATUS_ICON[item.status] ?? CircleHelp
           const color = statusColor(item.status)
+          // The dummy checklist reference chip resolves against a per-item
+          // reference, else the card's footer reference.
+          const itemRef = item.reference ?? reference ?? null
+          const showRef = itemRef != null && (item.reference == null || !sameAsFooter(item.reference))
           return (
-            <li key={`${item.label}-${index}`} className="flex gap-2.5 py-2 first:pt-0 last:pb-0">
+            <div key={`${item.label}-${index}`} className="flex items-start gap-2.5">
               <Icon
-                className="mt-0.5 size-4 shrink-0"
+                className="mt-[3px] size-3.5 shrink-0"
                 style={{ color }}
-                aria-label={statusLabel(item.status)}
+                aria-label={statusLabel(item.status, t)}
               />
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-sm text-foreground">{item.label}</span>
-                  <span className="shrink-0 text-xs font-medium" style={{ color }}>
-                    {statusLabel(item.status)}
-                  </span>
-                </div>
+                <span className="text-[13.5px] leading-[1.6] text-default">{item.label}</span>
                 {item.detail && (
-                  <p className="max-w-prose text-xs leading-relaxed text-muted-foreground">
-                    {item.detail}
-                  </p>
+                  <p className="text-xs leading-relaxed text-muted-foreground">{item.detail}</p>
                 )}
-                {item.reference && !sameAsFooter(item.reference) && (
-                  <p className="text-[11px] text-muted-foreground">{shortRef(item.reference)}</p>
+                {/* Verdict inline for non-pass rows (colour never travels alone).
+                    A row that cannot be decided also offers the question it
+                    implies: the row already names the requirement and what is
+                    open about it, so the reader should not have to retype
+                    either — one click puts the whole sentence in the composer,
+                    where they still edit it and press send. */}
+                {item.status !== 'pass' && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] font-medium" style={{ color }}>
+                      {statusLabel(item.status, t)}
+                    </span>
+                    {item.status === 'needs_input' && (
+                      <AskAboutChip subject={item.label} missing={item.detail} />
+                    )}
+                  </div>
                 )}
               </div>
-            </li>
+              {showRef && itemRef && (
+                <span className="shrink-0 whitespace-nowrap rounded-md bg-source-law-tint px-2 py-[3px] text-[11px] text-source-law-text">
+                  {shortRef(itemRef)}
+                </span>
+              )}
+            </div>
           )
         })}
-      </ul>
-    </SchematicCard>
+      </div>
+
+      {note && <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{note}</p>}
+    </div>
   )
 }

@@ -4,10 +4,20 @@ import type { en } from '../en'
 export const research: typeof en.research = {
   dismissError: 'Fehler ausblenden',
 
+  detailsHelp:
+    'Diese Details erscheinen während einer laufenden Recherche und sind für abgeschlossene Berichte möglicherweise nicht verfügbar.',
+
   runsPage: {
     title: 'Recherchedurchläufe',
     subtitle:
-      'Deep-Research-Berichte, die Grid für dieses Projekt erstellt hat, neueste zuerst.',
+      'Deep-Research-Berichte, die Piloti für dieses Projekt erstellt hat, neueste zuerst.',
+  },
+
+  // Labels for the per-project research-runs list rows (research-runs-list.tsx).
+  runsList: {
+    untitledRun: 'Deep-Research-Durchlauf',
+    sessionLabel: 'Sitzung {id}',
+    viewThinking: 'Denkschritte anzeigen',
   },
 
   dockedPanel: {
@@ -16,21 +26,22 @@ export const research: typeof en.research = {
 
   chatArea: {
     ariaMessages: 'Chat-Nachrichten',
-    secureWorkspace: 'sicherer Arbeitsbereich',
-    loggedOutTitle: 'Grid wird verfügbar, sobald Ihre Organisation verifiziert ist.',
+    loading: 'Unterhaltung wird geladen',
+    typing: 'Piloti antwortet …',
+    scrollToLatest: 'Zum neuesten Beitrag springen',
+    status: {
+      thinking: 'Denkt nach …',
+      searching: 'Sucht …',
+      planning: 'Plant …',
+      researching: 'Recherchiert …',
+      writing: 'Schreibt …',
+    },
+    loggedOutTitle: 'Piloti wird verfügbar, sobald Ihre Organisation verifiziert ist.',
     loggedOutBody:
-      'Melden Sie sich an, um projektbezogene OIB-Recherche, Dokumenten-Ingestion und Zugriffskontrollen für Mitglieder freizuschalten.',
+      'Melden Sie sich an, um projektbezogene OIB-Recherche, das Einlesen Ihrer Dokumente und Zugriffsrechte für Mitglieder freizuschalten.',
     signInSso: 'Mit SSO anmelden',
-    featureWorkos: 'WorkOS-Authentifizierung',
-    featureRetrieval: 'Projektbezogene Suche',
-    featureRbac: 'Rollenbasierter Zugriff',
-    cockpit: 'OIB-Recherche-Cockpit',
-    title: 'Beginnen Sie mit einem Projekt und fragen Sie nach belegter baurechtlicher Argumentation.',
-    body: 'Grid hält die Suche auf den ausgewählten Arbeitsbereich beschränkt und verwandelt lange Richtliniendokumente in nachvollziehbare Entscheidungen.',
-    openProjects: 'Projekte öffnen',
-    openProjectsDesc: 'Arbeitsbereiche anlegen, Dokumente verwalten und Rollen einladen.',
-    selectContext: 'Kontext auswählen',
-    selectContextDesc: 'Nutzen Sie die Arbeitsbereichsauswahl, bevor Sie eine Analyse starten.',
+    welcomeTitle: 'Wie kann Piloti bei Ihrem Projekt helfen?',
+    usePrompt: 'Vorschlag verwenden: {prompt}',
     prompt1: 'Vergleiche die Brandschutzpflichten nach OIB 2 über die Gebäudeklassen hinweg.',
     prompt2: 'Fasse die Barrierefreiheitsanforderungen für eine öffentliche Sanierung zusammen.',
     prompt3: 'Finde Widersprüche zwischen den hochgeladenen Plänen und den OIB-Richtlinien.',
@@ -42,13 +53,17 @@ export const research: typeof en.research = {
     cannotCreateActive:
       'Es kann keine neue Sitzung erstellt werden, solange die aktuelle Sitzung aktiv ist',
     newChat: 'Neuer Chat',
-    toggleSessions: 'Sitzungsleiste umschalten',
-    signInToView: 'Melden Sie sich an, um Sitzungen anzuzeigen',
+    toggleSessions: 'Chatverlauf',
+    signInToView: 'Melden Sie sich an, um Ihren Chatverlauf zu sehen',
     sessions: 'Sitzungen',
     addSources: 'Datenquellen hinzufügen',
     signInToManage: 'Melden Sie sich an, um Datenquellen zu verwalten',
     sources: 'Quellen',
     research: 'Recherche',
+    /** Trigger for the thread menu that holds every non-primary header action. */
+    moreActions: 'Weitere Aktionen',
+    renameSession: 'Chat umbenennen',
+    researchReport: 'Recherchebericht',
   },
 
   dataSources: {
@@ -56,42 +71,65 @@ export const research: typeof en.research = {
     loadingEllipsis: 'Datenquellen werden geladen...',
     unableToLoad: 'Datenquellen konnten nicht geladen werden',
     retryAria: 'Laden der Datenquellen erneut versuchen',
-    none: 'Keine Datenquellen verfügbar',
-    changesDisabledBusy: 'Änderungen an Datenquellen sind während aktiver Vorgänge deaktiviert',
   },
 
-  dataConnectionCard: {
-    enabled: 'aktiviert',
-    disabled: 'deaktiviert',
-    disabledParenthetical: '(deaktiviert)',
-    noPermission: 'Sie haben keine Berechtigung, auf diese Datenquelle zuzugreifen',
-    enableName: '{name} aktivieren',
-    disableName: '{name} deaktivieren',
-    nameDisabled: '{name} (deaktiviert)',
-  },
-
-  dataConnectionsTab: {
-    availableSources: 'Verfügbare Quellen ({count})',
-  },
-
-  dataSourcesPanel: {
-    title: 'Datenquellen',
-    footerConnections:
-      '{enabled} von {available} verfügbaren Verbindungen aktiviert. Aktivierte Verbindungen stehen dem KI-Assistenten zur Verfügung.',
-    footerFiles: 'Angehängte Dateien stehen den Agenten bis zur Löschung dauerhaft zur Verfügung.',
-    tabConnections: 'Verbindungen',
-    tabFiles: 'Dateien',
-    enableAuthBanner: 'Aktivieren Sie die Authentifizierung, um auf weitere Datenquellen zuzugreifen.',
-    signInBanner: 'Melden Sie sich an, um auf weitere Datenquellen zuzugreifen.',
-    allConnections: 'Alle Verbindungen',
-    allAvailableDisabledOps: 'Alle verfügbaren Verbindungen (während Vorgängen deaktiviert)',
-    allAvailableState: 'Alle verfügbaren Verbindungen: {state}',
-    disableEnableAll: 'Alle deaktivieren / aktivieren',
-    toggleAllDisabled: 'Alle Verbindungen umschalten (deaktiviert)',
-    disableAll: 'Alle Verbindungen deaktivieren',
-    enableAll: 'Alle Verbindungen aktivieren',
-    individualConnections: 'Einzelne Verbindungen ({count})',
-    signInRequiredSource: 'Anmeldung erforderlich, um auf diese Datenquelle zuzugreifen',
+  /**
+   * Datenbasis — der Verfasser-Regler dafür, WORIN Piloti suchen darf.
+   *
+   * Ein Name für eine Sache: dieses Objekt löst die vier konkurrierenden
+   * Bezeichnungen ab, die dieselbe Fläche früher trugen (aria-label
+   * „Datengrundlage“, sichtbar „Datengrundlage“, title „Ausgewählte
+   * Datenverbindungen“, Kopfzeile „Datenquellen“).
+   *
+   * Zeitform ist hier Bedeutung: der Regler spricht ausschließlich in der
+   * Gegenwart/Möglichkeit („darf suchen“). Was tatsächlich benutzt wurde, sagt
+   * die Herleitung — nie dieses Bedienelement.
+   */
+  sourceBasis: {
+    label: 'Datenbasis',
+    triggerAria: 'Datenbasis: {summary}. Öffnet die Auswahl.',
+    description:
+      'Worin Piloti suchen darf. Was tatsächlich verwendet wurde, steht in der Herleitung.',
+    allSources: 'Alle Quellen',
+    internalOnly: 'Nur Projektwissen',
+    overflowAria: '{count, plural, one {# weitere Quellenart} other {# weitere Quellenarten}}',
+    alwaysOn: 'Immer dabei',
+    alwaysOnChip: 'Immer aktiv',
+    external: 'Externe Quellen',
+    signInRequired: 'Anmeldung nötig',
+    signInReason: 'Melden Sie sich an, um diese Quelle zu nutzen.',
+    lockedBusy: 'Während einer laufenden Recherche lässt sich die Datenbasis nicht ändern.',
+    noExternalWarning: 'Piloti sucht dann nur noch in Ihren Projektunterlagen.',
+    presetsLabel: 'Voreinstellungen',
+    emptyTitle: 'Keine externen Quellen',
+    emptyBody:
+      'Für dieses Projekt sind derzeit keine externen Quellen freigeschaltet. Piloti sucht in Ihren Projektunterlagen.',
+    toggleAria: '{name} zulassen',
+    /** Wortmarken der Provenienz-Straten — immer mit Icon und Farbe zusammen. */
+    strata: {
+      law: 'Baurecht',
+      office: 'Büroarchiv',
+      project: 'Projektwissen',
+      auto: 'Web',
+    },
+    /** Voreinstellungen im Fuß der Auswahl — „Alle“ macht den Normalfall benennbar. */
+    presets: {
+      all: 'Alle Quellen',
+      law: 'Baurecht & Richtlinien',
+      project: 'Projektunterlagen',
+      office: 'Büroarchiv',
+    },
+    /**
+     * Die Wissensschicht ist keine umschaltbare Quelle — sie geht bei jedem Zug
+     * mit auf die Leitung. Deshalb steht sie hier sichtbar drin, statt gefiltert
+     * zu verschwinden und die Zählung zu verfälschen.
+     */
+    knowledge: {
+      projectName: 'Projektwissen',
+      projectDescription: 'Ihre Projektunterlagen in diesem Projekt.',
+      officeName: 'Büroarchiv',
+      officeDescription: 'Freigegebene Unterlagen Ihres Büros.',
+    },
   },
 
   deleteModals: {
@@ -101,10 +139,13 @@ export const research: typeof en.research = {
     lossSuffix:
       ' zu löschen. Dabei gehen sämtliche Fortschritte verloren und alle von Ihnen angehängten Dateien werden entfernt.',
     all: {
-      title: 'Alle Sitzungen löschen',
-      countSessions: 'alle {count} Sitzungen',
-      allSessions: 'ALLE Sitzungen',
-      confirm: 'ALLE Sitzungen löschen',
+      title: 'Alle Chats dieses Projekts löschen?',
+      countSessions:
+        '{count, plural, one {der eine Chat dieses Projekts} other {alle # Chats dieses Projekts}}',
+      allSessions: 'JEDEN Chat dieses Projekts',
+      scopeNote:
+        'Es werden nur Chats dieses Projekts gelöscht. Ihre Chats in anderen Projekten sind nicht betroffen.',
+      confirm: 'Alle Chats löschen',
     },
     file: {
       title: 'Datei löschen',
@@ -113,9 +154,9 @@ export const research: typeof en.research = {
       confirm: 'Datei löschen',
     },
     session: {
-      title: 'Sitzung löschen',
-      thisSession: 'diese Sitzung',
-      confirm: 'Sitzung löschen',
+      title: 'Diesen Chat löschen?',
+      thisSession: 'diesen Chat',
+      confirm: 'Chat löschen',
     },
   },
 
@@ -146,12 +187,18 @@ export const research: typeof en.research = {
     title: 'Agenten',
     runningCount: '{count} aktiv',
     queriesProgress: '{completed}/{total} Abfragen',
-    description: 'Aktive Planer-, Rechercheur- und Autoren-Agenten führen Aufgaben aus.',
+    description: 'Piloti plant, recherchiert und schreibt — hier steht, woran gerade gearbeitet wird.',
     empty: 'Keine Agentenaktivität verfügbar.',
   },
 
+  filesTab: {
+    title: 'Dateien',
+    description: 'Entwürfe, Berichte und weitere Dateien, die diese Recherche erzeugt hat.',
+    empty: 'Noch keine Dateien erzeugt.',
+  },
+
   fileCard: {
-    lines: '{count} Zeilen',
+    lines: '{count, plural, one {# Zeile} other {# Zeilen}}',
     content: 'Inhalt',
   },
 
@@ -168,20 +215,21 @@ export const research: typeof en.research = {
     waitUpload: 'Warten Sie, bis der Upload abgeschlossen ist',
     cannotDeleteBusy: 'Dateien können während aktiver Vorgänge nicht gelöscht werden',
     deleteFile: 'Datei löschen',
+    open: 'Vorschau öffnen: {title}',
   },
 
   fileSourcesTab: {
     uploadTo: 'Hochladen nach',
-    targetProject: 'Projekt-Korpus',
+    targetProject: 'Projektwissen',
     targetSession: 'Private Sitzung',
-    targetProjectLower: 'Projekt-Korpus',
-    targetSessionLower: 'private Sitzung',
+    targetProjectLower: 'das Projektwissen',
+    targetSessionLower: 'die private Sitzung',
     availableInProject: 'In diesem Projekt verfügbar.',
-    preparingCorpus: 'Projekt-Korpus wird vorbereitet...',
+    preparingCorpus: 'Projektwissen wird vorbereitet...',
     onlyThisSession: 'Nur in dieser Chat-Sitzung verfügbar.',
     loadingFiles: 'Dateien werden geladen',
     checkingFiles: 'Dateien werden geprüft...',
-    setupBackend: 'Richten Sie das Backend ein, um Dateien zu aktivieren.',
+    setupBackend: 'Dateien stehen erst zur Verfügung, wenn die Verbindung zu Piloti steht.',
     noAttachedFiles: 'Keine angehängten Dateien',
     filesGoTo: 'Hier hochgeladene Dateien gelangen in {target}, sofern nicht entfernt.',
     filesCount: '{target} – Dateien ({count})',
@@ -192,11 +240,17 @@ export const research: typeof en.research = {
   },
 
   inputArea: {
+    subjectCleared: 'Frage bezieht sich nicht mehr auf diese Datei.',
+    subjectClearedUndo: 'Rückgängig',
+    aiDisclosure:
+      'Piloti ist ein KI-System — Antworten können falsch sein; prüfen Sie sie anhand der zitierten Richtlinie.',
     placeholderDefault: 'Datenquellen prüfen und eine Recherchefrage stellen...',
     signInToStart: 'Melden Sie sich an, um mit der Recherche zu beginnen',
     researchCompletedNewSession:
       'Recherche abgeschlossen. Erstellen Sie für weitere Fragen eine neue Sitzung.',
-    typeResponse: 'Geben Sie Ihre Antwort an den Agenten ein...',
+    researchFailedFollowUp:
+      'Die Recherche wurde nicht abgeschlossen. Stellen Sie eine Anschlussfrage oder versuchen Sie es erneut.',
+    typeResponse: 'Geben Sie Ihre Antwort an Piloti ein...',
     pleaseWait: 'Bitte warten...',
     messageNotSent: 'Nachricht nicht gesendet',
     messageNotSentDesc:
@@ -204,8 +258,6 @@ export const research: typeof en.research = {
     unsupportedFileType: 'Nicht unterstützter Dateityp',
     dropToUpload: 'Dateien zum Hochladen ablegen',
     accepts: 'Akzeptiert: {types}',
-    toggleDataSources: 'Datenquellen-Verbindungen umschalten',
-    selectedConnections: 'Ausgewählte Datenverbindungen',
     openFiles: 'Hochgeladene Dateien öffnen',
     availableFiles: 'Verfügbare Dateien',
     uploadNotAvailable: 'Datei-Upload nicht verfügbar',
@@ -216,6 +268,7 @@ export const research: typeof en.research = {
     researchCompleted: 'Recherche abgeschlossen',
     researchCompletedPopover:
       'Recherche abgeschlossen. Für weitere Fragen oder Berichte erstellen Sie bitte eine neue Sitzung.',
+    startNewSession: 'Neue Sitzung starten',
     researchInProgressAria: 'Recherche läuft – bitte warten',
     researchInProgress: 'Recherche läuft',
     researchInProgressPopover:
@@ -225,30 +278,64 @@ export const research: typeof en.research = {
     sendQuery: 'Anfrage senden',
     responseInput: 'Antworteingabe',
     chatMessageInput: 'Chat-Nachrichteneingabe',
+    stopStreaming: 'Antwort stoppen',
+    sendWhilePending: 'Dateien werden noch verarbeitet – trotzdem senden?',
+    removeFile: 'Datei entfernen: {name}',
+    retryUpload: 'Upload erneut versuchen',
+    manageFiles: 'Dateien verwalten',
+    manageFilesCount: 'Angehängte Dateien verwalten ({count})',
+    manageFilesMobile: '{count, plural, one {# Datei} other {# Dateien}} verwalten',
+    openFile: 'Datei öffnen: {name}',
+    fileUploadingStatus: 'Wird hochgeladen',
+    fileFailedStatus: 'Upload fehlgeschlagen',
+    fileReadyStatus: 'Bereit',
   },
 
   reportCard: {
     reportWhenComplete: 'Der Bericht erscheint hier, sobald die Recherche abgeschlossen ist.',
     exportAsMdPdf: 'Sie können ihn als Markdown oder PDF exportieren.',
     draft: 'Entwurf',
-    words: '{count} Wörter',
+    words: '{count, plural, one {# Wort} other {# Wörter}}',
   },
 
   reportTab: {
     contentWhenAvailable: 'Berichtsinhalt erscheint hier, sobald verfügbar.',
-    notesBanner: 'Rechercheanmerkungen der Agenten – der finale Bericht wird noch erstellt.',
+    notesBanner: 'Zwischennotizen aus der Recherche – der finale Bericht wird noch erstellt.',
+    sourcesTitle: 'Quellen',
+    sourceBadge: {
+      kb: 'Wissensbasis',
+      web: 'Web',
+      ris: 'RIS',
+    },
+  },
+
+  /**
+   * Die Gliederung über dem fertigen Bericht: die Überschriften des Berichts
+   * als Sprungliste, mit einer Markierung auf dem Abschnitt, den die Leserin
+   * gerade liest.
+   */
+  reportOutline: {
+    label: 'Gliederung des Berichts',
+    title: 'Gliederung',
+    sectionCount: '{count, plural, one {# Abschnitt} other {# Abschnitte}}',
+    show: 'Gliederung einblenden',
+    hide: 'Gliederung ausblenden',
   },
 
   researchPanel: {
     closePanel: 'Recherchebereich schließen',
     openPanel: 'Recherchebereich öffnen',
     signInToAccess: 'Melden Sie sich an, um auf den Recherchebereich zuzugreifen',
-    researching: 'Recherchiert',
+    researching: 'Recherche läuft',
     tabTasks: 'Aufgaben',
     tabThinking: 'Denken',
     tabReport: 'Bericht',
     stopResearchingButton: 'Recherche stoppen',
     stopResearching: 'Recherche stoppen',
+    stopConfirmTitle: 'Recherche stoppen?',
+    stopConfirmBody:
+      'Die laufende Recherche wird abgebrochen und kann nicht fortgesetzt werden. Der bisherige Teilfortschritt bleibt im Recherchebereich sichtbar.',
+    stopConfirmConfirm: 'Recherche stoppen',
     noActiveResearch: 'Keine aktive Recherche',
     loadingData: 'Recherchedaten werden geladen',
     loadingDataEllipsis: 'Recherchedaten werden geladen...',
@@ -258,38 +345,64 @@ export const research: typeof en.research = {
   },
 
   sessionsPanel: {
-    title: 'Sitzungen',
-    storageQuota: '{percent}% des Browser-Speicherkontingents belegt',
+    title: 'Chatverlauf',
+    /** Steht neben dem Titel, damit der Bereich seinen eigenen Umfang nennt. */
+    countLabel: '{count, plural, one {# Chat} other {# Chats}}',
+    countLabelOne: '1 Chat',
+    // Der Speicher wird erst eingeblendet, wenn er relevant wird — und sagt dann,
+    // was zu tun ist, statt nur eine Zahl zu melden.
+    storageQuota: 'Browser-Speicher zu {percent}% belegt — alte Chats löschen schafft Platz.',
     storageNote:
-      'Hinweis: Chat-Sitzungen werden in diesem Browser gespeichert. Rechercheberichte können auf dem Server ablaufen.',
-    deleteAllDisabled: 'Alle Sitzungen löschen (deaktiviert)',
-    deleteAll: 'Alle Sitzungen löschen',
+      'Chats werden in diesem Browser gespeichert. Rechercheberichte können auf dem Server ablaufen.',
+    deleteAllDisabled: 'Alle Chats dieses Projekts löschen (deaktiviert)',
+    deleteAll: 'Alle Chats dieses Projekts löschen',
     cannotDeleteBusy: 'Löschen nicht möglich, während Vorgänge laufen',
-    deleteAllButton: 'Alle löschen',
-    newSessionDisabled: 'Neue Sitzung starten (während aktiver Vorgänge deaktiviert)',
-    startNewSession: 'Neue Sitzung starten',
+    deleteAllButton: 'Alle Chats löschen',
+    newSessionDisabled: 'Neuen Chat starten (während aktiver Vorgänge deaktiviert)',
+    startNewSession: 'Neuen Chat starten',
     cannotCreateActive:
-      'Es kann keine neue Sitzung erstellt werden, solange die aktuelle Sitzung aktiv ist',
-    newSessionButton: 'Neue Sitzung',
-    searchPlaceholder: 'Sitzungen durchsuchen...',
-    searchAria: 'Sitzungen durchsuchen',
-    noMatching: 'Keine passenden Sitzungen',
-    noSessions: 'Noch keine Sitzungen',
-    startNewSessionButton: 'Neue Sitzung starten',
+      'Es kann kein neuer Chat gestartet werden, solange dieser noch antwortet',
+    newSessionButton: 'Neuer Chat',
+    searchPlaceholder: 'Chats durchsuchen',
+    searchAria: 'Chats durchsuchen',
+    clearSearch: 'Suche zurücksetzen',
+    /** Live-Trefferanzahl unter dem Suchfeld, solange eine Suche aktiv ist. */
+    searchResults: '{count} von {total} Chats',
+    noMatching: 'Keine passenden Chats',
+    noMatchingDescription: 'Nichts in diesem Projekt passt zu „{query}“.',
+    noSessions: 'Noch keine Chats',
+    noSessionsDescription: 'Ihre Chats mit Piloti in diesem Projekt erscheinen hier.',
+    /** Erklärt, warum alle Zeilen während einer Antwort ausgegraut sind. */
+    navigationBlocked:
+      'Piloti antwortet noch. Neue Chats und der Wechsel zwischen Chats pausieren bis zum Abschluss.',
     today: 'Heute',
     yesterday: 'Gestern',
-    editTitle: 'Sitzungstitel bearbeiten',
-    renameDisabled: 'Sitzung umbenennen (deaktiviert)',
-    rename: 'Sitzung umbenennen',
+    editTitle: 'Chat-Titel bearbeiten',
+    untitledSession: 'Chat ohne Titel',
+    renameDisabled: 'Chat umbenennen (deaktiviert)',
+    rename: 'Chat umbenennen',
     cannotRenameBusy: 'Umbenennen nicht möglich, während Vorgänge laufen',
-    deleteDisabled: 'Sitzung löschen (deaktiviert)',
-    deleteSession: 'Sitzung löschen',
-    sessionActive: 'Sitzung aktiv',
+    deleteDisabled: 'Chat löschen (deaktiviert)',
+    deleteSession: 'Chat löschen',
+    sessionActive: 'Piloti arbeitet an diesem Chat',
     reportExpired: 'Bericht abgelaufen',
-    reportCompleted: 'Bericht abgeschlossen',
-    chatSession: 'Chat-Sitzung',
-    sessionLabelBusy: 'Sitzung: {title} (Verarbeitung läuft)',
-    sessionLabel: 'Sitzung: {title}',
+    reportCompleted: 'Bericht fertig',
+    chatSession: 'Chat',
+    sessionLabelBusy: 'Chat: {title} (Verarbeitung läuft)',
+    sessionLabel: 'Chat: {title}',
+    /** Dieselbe Zeile, ergänzt um den Zustand, den ihr Symbol zeigt. */
+    sessionLabelWithStatus: 'Chat: {title} — {status}',
+    // FB-10: Deep-Research-Bereich im Sitzungsbereich.
+    deepResearchHeading: 'Deep Research ({count})',
+    deepResearchChip: 'Deep Research',
+    deepResearchRunLabel: 'Deep-Research-Durchlauf öffnen: {label} — {status}',
+    /** Der Zustand eines Durchlaufs in Worten — das Symbol allein ließ „fehlgeschlagen“ und „fertig“ gleich aussehen. */
+    runStatus: {
+      running: 'Läuft',
+      completed: 'Bericht fertig',
+      failed: 'Fehlgeschlagen',
+      cancelled: 'Abgebrochen',
+    },
   },
 
   taskCard: {
@@ -303,11 +416,26 @@ export const research: typeof en.research = {
 
   tasksTab: {
     title: 'Aufgaben',
-    description: 'Aufschlüsselung und Fortschritt des Rechercheplans während der Deep Research.',
+    description:
+      'Aufschlüsselung und Fortschritt des Rechercheplans während der Deep-Research-Ausführung.',
     empty: 'Rechercheaufgaben erscheinen hier.',
-    emptyHelp: 'Zeigt die Aufschlüsselung des Plans und den Fortschritt während der Deep Research.',
+    emptyHelp:
+      'Zeigt die Aufschlüsselung des Plans und den Fortschritt während der Deep-Research-Ausführung.',
     progressAria: 'Fortschritt der Aufgabenerledigung',
+    elapsed: 'Läuft seit {minutes} Min.',
     writingReport: 'Finaler Bericht wird geschrieben... Dies kann einige Minuten dauern.',
+    stalledTitle: 'Seit einer Weile keine Rückmeldung',
+    stalledBody:
+      'Die Recherche hat sich seit einiger Zeit nicht gemeldet. Sie läuft möglicherweise noch – stellen Sie die Verbindung wieder her, um die Live-Anzeige fortzusetzen.',
+    connectionLostTitle: 'Verbindung zur laufenden Recherche verloren',
+    connectionLostBody:
+      'Die Live-Verbindung wurde unterbrochen, aber die Recherche läuft möglicherweise noch auf dem Server. Stellen Sie die Verbindung wieder her, um fortzufahren, oder stoppen Sie sie über die Leiste oben.',
+    reconnect: 'Erneut verbinden',
+    // Ergebnis einer Ausführung, die hier ohne eigenen Chat-Verlauf verfolgt
+    // wird (Workflow-Ausführung) — sie hat kein Banner im Verlauf.
+    attachedRunFinished: 'Diese Ausführung ist abgeschlossen. Der Bericht steht im Reiter „Bericht“.',
+    attachedRunFailed: 'Diese Ausführung ist vor dem Abschluss fehlgeschlagen.',
+    attachedRunStopped: 'Diese Ausführung wurde vor dem Abschluss gestoppt.',
   },
 
   thinkingTab: {
@@ -326,25 +454,43 @@ export const research: typeof en.research = {
     noRead: 'Keine gelesenen Quellen verfügbar.',
   },
 
+  /**
+   * Der Abschnitt eines Recherchedurchlaufs, aus dem eine Karte stammt.
+   *
+   * Die Karten gaben bisher die rohe Kennung des Backends aus („über
+   * researcher-agent“) — eine Kennung mitten im Satz, die niemand gelernt hat.
+   * Hier steht stattdessen die Arbeit, in denselben Worten wie auf der übrigen
+   * Recherchefläche. Eine Herkunft, für die dieser Build keinen Namen hat,
+   * liest „intern“ — nie die Kennung. Siehe `features/layout/lib/workflow-names`.
+   */
+  workflowName: {
+    planning: 'Planung',
+    research: 'Recherche',
+    sourceSelection: 'Quellenauswahl',
+    writing: 'Berichtstext',
+    internal: 'intern',
+    // Dieselbe Sache als Überschrift, wo kein Satz das Substantiv liefert.
+    internalStep: 'Interner Schritt',
+  },
+
   thoughtCard: {
     detailsWhenComplete: 'Details verfügbar, sobald die Generierung abgeschlossen ist',
     generating: 'Generiert',
-    via: 'über {workflow}',
-    tokens: 'Tokens: {prompt} rein / {completion} raus',
+    step: 'Schritt: {name}',
     output: 'Ausgabe',
   },
 
   thoughtTracesTab: {
-    title: 'Gedankenspuren',
+    title: 'Gedankengang',
     runningCount: '{count} aktiv',
-    description: 'Gedankenkette und Inferenzaktivität des LLM.',
-    empty: 'Keine Gedankenspuren verfügbar.',
+    description: 'Wie Piloti während der Recherche nachgedacht hat.',
+    empty: 'Kein Gedankengang verfügbar.',
   },
 
   toolCallCard: {
     detailsWhenComplete: 'Details verfügbar, sobald der Werkzeugaufruf abgeschlossen ist',
     isRunning: '{name} läuft',
-    via: 'über {workflow}',
+    step: 'Schritt: {name}',
     arguments: 'Argumente',
     result: 'Ergebnis',
     error: 'Fehler',
@@ -353,7 +499,7 @@ export const research: typeof en.research = {
   toolCallsTab: {
     title: 'Werkzeugaufrufe',
     runningCount: '{count} aktiv',
-    description: 'Websuchen, Dateioperationen und andere Werkzeugaufrufe.',
+    description: 'Websuchen, Dateizugriffe und weitere Werkzeugaufrufe.',
     empty: 'Keine Werkzeugaufrufe verfügbar.',
   },
 

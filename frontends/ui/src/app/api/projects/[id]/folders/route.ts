@@ -1,72 +1,39 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { requireProjectAccess } from '@/lib/authz/projects'
-import { listProjectFolders, createProjectFolder } from '@/lib/projects/folder-service'
+/**
+ * Project folders API — list and create folders for a project.
+ * Thin handlers; authz and logic live in `@/lib/projects/folder-service`.
+ */
+
 import { z } from 'zod'
+import { apiRoute, parseJsonBody } from '@/lib/api/handler'
+import { BadRequestError } from '@/lib/api/errors'
+import { createProjectFolder, listProjectFolders } from '@/lib/projects/folder-service'
+
+type Params = { id: string }
 
 const createFolderSchema = z.object({
   name: z.string().min(1).max(255),
   parentId: z.string().uuid().nullable().optional(),
 })
 
-export async function GET(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const { id } = await params
-    await requireProjectAccess(session, id, 'project:view')
+export const GET = apiRoute<Params>(
+  async ({ session, params }) => ({
+    folders: await listProjectFolders(params.id, session),
+  }),
+  { authz: { enforcedBy: 'listProjectFolders (requireProjectAccess project:view)' } }
+)
 
-    const folders = await listProjectFolders(id)
-    return NextResponse.json({ folders })
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    console.error('GET /api/projects/[id]/folders error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
-      { status: 500 },
+export const POST = apiRoute<Params>(
+  async ({ session, params, request }) => {
+    const { name, parentId } = await parseJsonBody(request, createFolderSchema)
+    const result = await createProjectFolder(
+      { projectId: params.id, name, parentId: parentId ?? null },
+      session
     )
+    if (!result.ok) throw new BadRequestError(result.error)
+    return { folder: result.folder }
+  },
+  {
+    status: 201,
+    authz: { enforcedBy: 'createProjectFolder (requireProjectAccess project:documents:write)' },
   }
-}
-
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const { id } = await params
-    await requireProjectAccess(session, id, 'project:edit')
-
-    const body = await request.json()
-    const parsed = createFolderSchema.safeParse(body)
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: 'Invalid request', details: parsed.error.flatten() },
-        { status: 400 },
-      )
-    }
-
-    const result = await createProjectFolder({
-      projectId: id,
-      name: parsed.data.name,
-      parentId: parsed.data.parentId ?? null,
-    })
-
-    if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: 400 })
-    }
-
-    return NextResponse.json({ folder: result.folder }, { status: 201 })
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    console.error('POST /api/projects/[id]/folders error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
-      { status: 500 },
-    )
-  }
-}
+)

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.astro/
+# Astro's build cache, relocated out of node_modules so `npm ci` cannot wipe it
+# (frontends/web/astro.config.mjs). Restored by actions/cache in CI.
+.astro-cache/
+.env
+.env.*
+!.env.example

@@ -1,0 +1,214 @@
+/**
+ * One saved answer, assembled into a document.
+ *
+ * Pure: it takes the facts already read out of the database and returns blocks.
+ * Nothing here queries, authorizes or renders XML, which is what lets the shape
+ * of the exported document be asserted directly in a spec instead of by
+ * unzipping a package.
+ *
+ * ## The rule the whole module is built around
+ *
+ * **A field the stored answer does not have produces no section.** No "Projekt:
+ * —", no empty Quellen heading, no placeholder date. An exported document is
+ * read away from the app by someone who cannot check it against anything, so a
+ * blank the reader might mistake for a fact is worse than a document that is
+ * one section shorter. Every conditional below is that rule, applied once per
+ * section.
+ */
+
+import type { Translator } from '@/i18n/translate'
+import type { Locale } from '@/i18n/config'
+import { compact, labelled, type DocBlock, type DocRun } from './blocks'
+import { cardsBlocks } from './cards'
+import { referencesFromStored, splitProse, type ReferenceEntry } from './citations'
+import { markdownToBlocks } from './markdown'
+
+/** The answer's confidence self-assessment (ADR-0037), as stored on the message. */
+export interface AnswerConfidence {
+  level: 'low' | 'medium' | 'high'
+  /** The model's own one-clause justification, quoted verbatim. */
+  reason?: string
+  cappedReason?: 'ungrounded' | 'quote_unverified'
+}
+
+export interface AnswerDocumentInput {
+  /** The conversation's title — the document's own heading when it has one. */
+  conversationTitle?: string | null
+  /** The project the conversation belongs to; absent for an unfiled chat. */
+  projectName?: string | null
+  /** The question that produced this answer (the preceding user message). */
+  question?: string | null
+  /** The answer's prose, as markdown. */
+  answer: string
+  /**
+   * When the answer was written — never "now", and absent rather than guessed.
+   * A caller that does not know the instant (an export assembled from a report
+   * the client is holding, rather than from a stored message) must leave this
+   * out: the honesty rule above applies to the date more than to anything else,
+   * because a wrong date on a project document is the error nobody catches.
+   */
+  createdAt?: Date | null
+  /** `metadata.citations`, in the stored wire shape. */
+  citations?: unknown
+  /** `metadata.cards`, in the stored card shape. */
+  cards?: unknown
+  confidence?: AnswerConfidence | null
+}
+
+/**
+ * A reference-list entry as one paragraph.
+ *
+ * `[3]` in bold so the eye can find the marker the prose used, then the
+ * Fundstelle, then the address on its own line — an architect checking a
+ * citation reads the locator first and the URL only if the locator is not
+ * enough.
+ */
+export const referenceParagraph = (entry: ReferenceEntry): DocBlock => {
+  const runs: DocRun[] = [{ text: `[${entry.number}] `, bold: true }, { text: entry.label }]
+  if (entry.page) runs.push({ text: `, ${entry.page}` })
+  if (entry.note) runs.push({ text: ` — ${entry.note}`, italic: true })
+  if (entry.url) runs.push({ text: `\n${entry.url}` })
+  return { kind: 'paragraph', runs }
+}
+
+const confidenceBlocks = (confidence: AnswerConfidence, t: Translator): DocBlock[] => {
+  const level = t(`confidenceLevels.${confidence.level}`)
+  const blocks: DocBlock[] = [labelled(t('confidence'), level)]
+  if (confidence.cappedReason) {
+    const key = confidence.cappedReason === 'ungrounded' ? 'ungrounded' : 'quoteUnverified'
+    blocks.push({ kind: 'paragraph', runs: [{ text: t(`confidenceCapped.${key}`) }], style: 'meta' })
+  }
+  // Quoted rather than paraphrased: it is the model's own sentence about its own
+  // answer, and rewriting it would make the export the author of a claim it only
+  // carries.
+  if (confidence.reason?.trim()) {
+    blocks.push({
+      kind: 'paragraph',
+      runs: [{ text: `${t('confidenceReason')}: `, bold: true }, { text: confidence.reason.trim() }],
+      style: 'meta',
+    })
+  }
+  return blocks
+}
+
+/**
+ * One header fact: the small `Label: value` line under the document's title.
+ *
+ * Kept as data rather than pre-rendered into a paragraph because the two
+ * exporters put the header in different PLACES. Word wants it inline, as the
+ * first lines of the body — that is what a reader edits. The PDF puts it on a
+ * cover, in a ruled label/value column, where a `Projekt: …` paragraph would
+ * look like body text that escaped upward.
+ */
+export interface DocumentFact {
+  label: string
+  value: string
+}
+
+/**
+ * An answer, split into the parts a document is assembled from.
+ *
+ * The split exists so a second output format can present the header its own way
+ * without re-deriving the header FACTS — which is where the honesty rule at the
+ * top of this file lives, and therefore the one part that must not be written
+ * twice.
+ */
+export interface AnswerSections {
+  /** The document's own name; already fallen back, so never empty. */
+  title: string
+  /** Project and date, in reading order. Empty when the answer stated neither. */
+  facts: DocumentFact[]
+  /** Everything below the header: question, answer, findings, sources. */
+  body: DocBlock[]
+}
+
+/**
+ * Assemble one answer into title, header facts and body.
+ *
+ * The prose's own written sources section is lifted out before the answer is
+ * rendered, and used as the reference list only when no structured citations
+ * were stored — otherwise the document would state the answer's sources twice,
+ * in two lists with no guarantee of agreeing.
+ */
+export function buildAnswerSections(
+  input: AnswerDocumentInput,
+  t: Translator,
+  locale: Locale
+): AnswerSections {
+  const { body, references: written } = splitProse(input.answer ?? '')
+  const stored = referencesFromStored(input.citations, t)
+  const references = stored.length > 0 ? stored : written
+
+  const title = input.conversationTitle?.trim() || t('documentTitle')
+
+  const projectName = input.projectName?.trim()
+  const facts: DocumentFact[] = [
+    ...(projectName ? [{ label: t('project'), value: projectName }] : []),
+    ...(input.createdAt
+      ? [
+          {
+            label: t('createdAt'),
+            value: new Intl.DateTimeFormat(locale, { dateStyle: 'long' }).format(input.createdAt),
+          },
+        ]
+      : []),
+  ]
+
+  const question = input.question?.trim()
+  const questionSection: (DocBlock | null)[] = question
+    ? [
+        { kind: 'heading', level: 2, text: t('question') },
+        { kind: 'paragraph', runs: [{ text: question }], style: 'quote' },
+      ]
+    : []
+
+  const prose = markdownToBlocks(body)
+  const answerSection: (DocBlock | null)[] =
+    prose.length > 0 ? [{ kind: 'heading', level: 2, text: t('answer') }, ...prose] : []
+
+  const confidence = input.confidence ? confidenceBlocks(input.confidence, t) : []
+
+  const cards = cardsBlocks(input.cards, t)
+  const cardSection: DocBlock[] =
+    cards.length > 0 ? [{ kind: 'heading', level: 2, text: t('findings') }, ...cards] : []
+
+  const sourceSection: DocBlock[] =
+    references.length > 0
+      ? [
+          { kind: 'heading', level: 2, text: t('sources') },
+          ...references.map(referenceParagraph),
+        ]
+      : []
+
+  return {
+    title,
+    facts,
+    body: compact([
+      ...questionSection,
+      ...answerSection,
+      ...confidence,
+      ...cardSection,
+      ...sourceSection,
+    ]),
+  }
+}
+
+/**
+ * Build the document for one answer, as one flat block list.
+ *
+ * The header is folded back in at the top — a heading and one `Label: value`
+ * paragraph per fact — which is the shape Word wants and the shape every
+ * existing caller of this function already renders.
+ */
+export function buildAnswerDocument(
+  input: AnswerDocumentInput,
+  t: Translator,
+  locale: Locale
+): DocBlock[] {
+  const { title, facts, body } = buildAnswerSections(input, t, locale)
+  return compact([
+    { kind: 'heading', level: 1, text: title },
+    ...facts.map((fact) => labelled(fact.label, fact.value)),
+    ...body,
+  ])
+}

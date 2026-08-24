@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Tests for ClarificationResponse model."""
 
 from aiq_agent.agents.clarifier.models import ClarificationResponse
@@ -86,3 +71,47 @@ class TestClarificationResponse:
         """Test clarification_question defaults to None."""
         response = ClarificationResponse(needs_clarification=False)
         assert response.clarification_question is None
+
+    def test_options_default_to_empty(self):
+        """Options are optional: a prose-only clarification is still valid."""
+        response = ClarificationResponse(needs_clarification=True, clarification_question="Which period?")
+        assert response.options == []
+        assert response.is_valid() is True
+
+    def test_options_are_kept_when_present(self):
+        """The short labels must survive validation as structured data."""
+        response = ClarificationResponse(
+            needs_clarification=True,
+            clarification_question="**Focus**: which area?\n\n1. Foo: explanation\n2. Bar: explanation",
+            options=["Foo", "Bar"],
+        )
+        assert response.options == ["Foo", "Bar"]
+        assert response.is_valid() is True
+
+    def test_options_from_model_validate(self):
+        """The field has to round-trip through the JSON envelope the LLM returns."""
+        data = {
+            "needs_clarification": True,
+            "clarification_question": "Which one?",
+            "options": ["A", "B"],
+        }
+        response = ClarificationResponse.model_validate(data)
+        assert response.options == ["A", "B"]
+
+    def test_options_absent_from_envelope_is_valid(self):
+        """A model that omits the key entirely must not be treated as malformed."""
+        response = ClarificationResponse.model_validate(
+            {"needs_clarification": True, "clarification_question": "Which one?"}
+        )
+        assert response.options == []
+        assert response.is_valid() is True
+
+    def test_is_valid_false_when_options_without_question(self):
+        """Options with nothing being asked would render a picker under no question."""
+        response = ClarificationResponse(needs_clarification=False, clarification_question=None, options=["A"])
+        assert response.is_valid() is False
+
+    def test_model_dump_json_includes_options(self):
+        """The agent replays this JSON through the graph; the field must survive."""
+        response = ClarificationResponse(needs_clarification=True, clarification_question="Which one?", options=["A"])
+        assert '"options":["A"]' in response.model_dump_json()

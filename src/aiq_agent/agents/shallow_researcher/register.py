@@ -1,22 +1,8 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """NAT register function for shallow research agent."""
 
 import logging
 
+from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from pydantic import Field
 
@@ -26,8 +12,14 @@ from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import _create_chat_response
 from aiq_agent.common import all_mapped_tools_filtered_out
 from aiq_agent.common import filter_tools_by_sources
+from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_model_overrides_from_context
+from aiq_agent.common import get_org_llm_credential_from_context
+from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
+from aiq_agent.common.citation_verification import EmptySourceRegistryError
+from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
+from aiq_agent.common.deferred_tool_loading import verify_deferred_tool_loading
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
@@ -38,8 +30,14 @@ from nat.data_models.component_ref import FunctionRef
 from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
 
+# Importing this module runs its ``@register_function`` so NAT discovers the
+# ``ask_user`` tool through the same ``aiq_shallow_researcher`` entry point
+# that imports this file — the pattern ``cards/register.py`` uses for
+# ``surface_documents``, and no extra plugin entry point to keep in sync.
+from . import ask_user as _ask_user  # noqa: F401
 from .agent import ShallowResearcherAgent
 from .models import ShallowResearchAgentState
+from .tool_search import ToolSearchSettings
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +57,41 @@ class ShallowResearchAgentConfig(FunctionBaseConfig, name="shallow_research_agen
     max_llm_turns: int = Field(default=10, description="Maximum number of LLM turns")
     max_tool_iterations: int = Field(default=5, description="Maximum tool-calling iterations before forcing synthesis")
     verbose: bool = Field(default=False, description="Whether to enable verbose logging")
+    skills_enabled: bool = Field(
+        default=True,
+        description="Whether agent skills (progressive-disclosure `use_skill` tool) are active on research turns.",
+    )
+    skill_allowlist: list[str] = Field(
+        default_factory=list,
+        description="Optional skill-name allowlist; empty = every resolved skill is offered.",
+    )
+    tool_search: ToolSearchSettings = Field(
+        default_factory=ToolSearchSettings,
+        description=(
+            "Retrieval-based tool narrowing (default OFF). When enabled, a local lexical ranking over "
+            "tool name + description picks the tools bound for a research turn, BEFORE the LLM call — "
+            "never as a tool the model has to call first, which would spend one of the five tool "
+            "iterations on discovery. Absent from the YAML this validates to enabled=false and the "
+            "agent binds every tool exactly as it always has."
+        ),
+    )
+    deferred_tool_loading: DeferredToolLoadingSettings = Field(
+        default_factory=DeferredToolLoadingSettings,
+        description=(
+            "OpenRouter server-side tool search (default OFF). When enabled, the tool "
+            "schemas are declared deferred and held by the provider instead of being sent "
+            "on every request; the model searches, loads and calls one inside a single "
+            "response, so no tool iteration is spent on discovery. Requires an OpenRouter "
+            "LLM with `api_type: responses` — enabling it against anything else fails the "
+            "workflow build rather than silently sending the schemas anyway."
+        ),
+    )
 
 
 @register_function(config_type=ShallowResearchAgentConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Builder):
     """Shallow research agent with tool-calling capabilities."""
-    llm = await builder.get_llm(config.llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    llm = await get_langchain_llm(builder, config.llm)
 
     if config.tools:
         tool_refs = config.tools
@@ -91,6 +118,15 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
             "All queries will fail until at least one tool is properly configured.",
         )
 
+    # Deferred tool loading is verified HERE, at build time, against the live
+    # endpoint — before a user turn exists to lose. The failure it guards is a
+    # request that looks configured and defers nothing (OpenRouter silently
+    # drops `defer_loading` from a top-level function tool), which is invisible
+    # from the inside: the agent still answers, and the only symptom is the
+    # token bill. A deployment that asked for deferral and cannot have it
+    # therefore fails to start instead.
+    await verify_deferred_tool_loading(llm, settings=config.deferred_tool_loading)
+
     provider = LLMProvider()
     provider.set_default(llm, group=AgentGroup.SHALLOW_RESEARCH)
 
@@ -103,24 +139,108 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
         max_llm_turns=config.max_llm_turns,
         max_tool_iterations=config.max_tool_iterations,
         callbacks=callbacks,
+        tool_search=config.tool_search,
+        deferred_tool_loading=config.deferred_tool_loading,
     )
 
     async def _run(state: ShallowResearchAgentState) -> ShallowResearchAgentState:
         try:
             data_sources = state.data_sources
             selected_tools = filter_tools_by_sources(tools, data_sources)
+            # Agent skills: resolved per RUN (ADR-0018 — never cached on the
+            # shared agent instance), builtin + org set from the resolver, then
+            # narrowed by the config allowlist. The runtime's `use_skill` tool
+            # is folded into the tool set on research turns
+            # (requires_sources=True): meta/conversational turns keep their
+            # interaction-only binding — a greeting cannot load a skill.
+            #
+            # A turn the user EXPLICITLY invoked a skill on (`/name` in the
+            # composer, arriving as `force_skills`) is wired regardless of that
+            # classification. The classifier decides whether an unprompted turn
+            # needs sources; it does not get to overrule a direct instruction,
+            # and dropping the tool there made `/name` a silent no-op on exactly
+            # the short, imperative messages people type after a slash command.
+            #
+            # This gate STAYS CLOSED for meta turns even though those turns may
+            # now emit a card (see the prompt's `<turn_classification>`), and the
+            # decision is a price rather than a principle. Opening it would hand
+            # every greeting the `piloti-cards` body — 5,239 cl100k tokens — plus
+            # the shapes its `grid-cards` list inlines, 2,157 after 0061: ~7,400
+            # tokens on turns whose usual content is "hallo" or "kürzer bitte".
+            # What a meta turn keeps without it is the whole always-on doctrine
+            # and the L1 index, which ride in `emit_card`'s description on every
+            # turn regardless, so the model can still NAME the right card; the
+            # shape costs it one `describe_card` call. Paying a round trip on the
+            # rare misclassified subject-matter question is the cheaper side of
+            # that trade by two orders of magnitude, and `describe_card` is bound
+            # on meta turns precisely so the round trip exists to be paid.
+            skill_runtime = None
+            run_tools = selected_tools
+            if config.skills_enabled and (state.requires_sources or state.force_skills):
+                from aiq_agent.project_context import get_organization_id_from_context
+                from aiq_agent.skills import SkillResolver
+                from aiq_agent.skills import SkillRuntime
+
+                resolver = SkillResolver(agent="shallow_researcher")
+                resolved_skills = resolver.resolve(get_organization_id_from_context())
+                if config.skill_allowlist:
+                    allow = set(config.skill_allowlist)
+                    resolved_skills = tuple(s for s in resolved_skills if s.name in allow)
+                skill_runtime = SkillRuntime(skills=resolved_skills, force_names=state.force_skills)
+                # Announce the catalog BEFORE the LLM runs: what was resolved
+                # and what the user forced, on the technical channel. The
+                # per-skill announcement does NOT happen here — a forced skill
+                # is a name in the prompt until the model calls `use_skill`,
+                # and saying "applying X" before its body has been handed over
+                # is a claim the turn cannot yet make. It fires at delivery
+                # instead, which on a normal turn is still well before the
+                # first answer token.
+                from aiq_agent.skills.events import emit_skills_offered
+
+                emit_skills_offered(skill_runtime)
+                run_tools = list(selected_tools) + list(skill_runtime.build_tools())
             # Per-org runtime model overrides (X-Grid-Model-Overrides). Returns
             # the build-time provider unchanged when no override targets this
             # agent, so the identity check below keeps the prebuilt agent.
-            active_provider = provider.with_model_overrides(get_model_overrides_from_context())
+            # Model overrides + the org's BYOK credential (ADR-0022); both
+            # return the build-time provider unchanged when inactive, so the
+            # identity check below keeps the prebuilt agent.
+            active_provider = (
+                provider.with_model_overrides(get_model_overrides_from_context())
+                .with_credential(get_org_llm_credential_from_context())
+                .with_zdr(get_zdr_only_from_context())
+            )
             active_agent = agent
-            if active_provider is not provider or (data_sources is not None and selected_tools != tools):
+            # No `data_sources is not None` guard: org-disabled sources (ADR-0022)
+            # narrow selected_tools even when the request selects "all tools".
+            if active_provider is not provider or run_tools != tools:
                 active_agent = ShallowResearcherAgent(
                     llm_provider=active_provider,
-                    tools=selected_tools,
+                    tools=run_tools,
                     max_llm_turns=config.max_llm_turns,
                     max_tool_iterations=config.max_tool_iterations,
+                    # The skills this DEPLOYMENT forces are overhead, not
+                    # research: nobody asked for them on this turn and each one
+                    # costs a `use_skill` call before a single source is read.
+                    # Charged to `max_tool_iterations` they would shorten every
+                    # research chain by one per published standard skill — the
+                    # config's traced floors assume ONE `use_skill`, and this
+                    # fleet already forces two. Reserved here rather than
+                    # written into the config number because the count is a
+                    # property of what the platform owner has published, which
+                    # changes without a deploy.
+                    reserved_tool_iterations=(skill_runtime.standard_count if skill_runtime is not None else 0),
                     callbacks=callbacks,
+                    # The per-run agent is narrowed by data_sources/skills, so
+                    # it indexes a DIFFERENT tool set — it has to carry the
+                    # setting or tool search would silently stop applying on
+                    # exactly the requests that select sources.
+                    tool_search=config.tool_search,
+                    # Same reason as tool_search: the per-run agent binds a
+                    # DIFFERENT tool set, so without carrying this the deferral
+                    # would silently stop applying on exactly the requests that
+                    # select sources or activate a skill.
+                    deferred_tool_loading=config.deferred_tool_loading,
                 )
 
             if all_mapped_tools_filtered_out(tools, selected_tools, data_sources):
@@ -142,13 +262,46 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
                 error_msg = format_user_facing_tool_error("shallow research", unavailable_tools)
 
                 # Return error state with error message - this prevents the agent from running
-                from langchain_core.messages import AIMessage
-
                 error_state = ShallowResearchAgentState(messages=state.messages + [AIMessage(content=error_msg)])
                 return error_state
 
+            if skill_runtime is not None:
+                state.skills_block = "\n\n".join(
+                    block for block in (skill_runtime.prompt_block(), skill_runtime.forced_block()) if block
+                )
             result = await active_agent.run(state)
+            if skill_runtime is not None:
+                # Delivered, not merely forced: `skills_activated` is rendered
+                # to the reader as what shaped this answer, so a skill the
+                # model never opened must not be in it (SkillRuntime.activated).
+                result.skills_activated = list(skill_runtime.activated)
+                hidden = list(skill_runtime.hidden_activated)
+                if hidden:
+                    result.skills_hidden = hidden
+                # The other half of the same fact, and the one nobody can see
+                # from the answer: the turn instructed the model to apply these
+                # and it never asked for them. Logged rather than reported —
+                # what the READER should be shown about it is a product
+                # decision — but countable per deployment, which is what makes
+                # "the house voice reached 8 answers in 10" knowable at all.
+                unread = skill_runtime.forced_not_activated
+                if unread:
+                    logger.warning(
+                        "Forced skills never loaded by the model: %s (activated=%s)",
+                        ", ".join(unread),
+                        ", ".join(skill_runtime.activated) or "-",
+                    )
             return result
+        except EmptySourceRegistryError:
+            # A scoped miss (this-file / this-shelf) is a valid empty
+            # answer, not an unhandled NAT error. Raising here became
+            # err2issue #447 and left the user with no reply.
+            logger.warning("Shallow research captured no sources; returning an empty-result answer.")
+            empty_msg = (
+                "I searched the available sources but couldn't retrieve anything usable. "
+                "Try a broader question, or ask without limiting to one file."
+            )
+            return ShallowResearchAgentState(messages=state.messages + [AIMessage(content=empty_msg)])
         except Exception:
             logger.exception("Error in shallow research execution.")
             raise

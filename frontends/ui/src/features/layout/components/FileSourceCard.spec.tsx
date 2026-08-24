@@ -53,8 +53,8 @@ describe('FileSourceCard', () => {
     render(<FileSourceCard {...defaultProps} status="ingesting" />)
 
     // Text appears twice: visible status span + sr-only spinner label
-    expect(screen.getAllByText('Ingesting...').length).toBeGreaterThan(0)
-    expect(screen.getByLabelText('Ingesting...')).toBeInTheDocument() // Spinner
+    expect(screen.getAllByText('Processing...').length).toBeGreaterThan(0)
+    expect(screen.getByLabelText('Processing...')).toBeInTheDocument() // Spinner
   })
 
   test('renders error status with error message', () => {
@@ -62,6 +62,35 @@ describe('FileSourceCard', () => {
 
     expect(screen.getByText('Error')).toBeInTheDocument()
     expect(screen.getByText('Upload failed')).toBeInTheDocument()
+  })
+
+  test('opens the preview when the row is clicked (available + onOpen)', async () => {
+    const user = userEvent.setup()
+    const onOpen = vi.fn()
+
+    render(<FileSourceCard {...defaultProps} status="available" onOpen={onOpen} />)
+
+    await user.click(screen.getByRole('button', { name: /open preview: document.pdf/i }))
+
+    expect(onOpen).toHaveBeenCalledWith('file-1')
+  })
+
+  test('does not render an open affordance while the file is still ingesting', () => {
+    const onOpen = vi.fn()
+
+    render(<FileSourceCard {...defaultProps} status="ingesting" onOpen={onOpen} />)
+
+    expect(
+      screen.queryByRole('button', { name: /open preview: document.pdf/i })
+    ).not.toBeInTheDocument()
+  })
+
+  test('does not render an open affordance when onOpen is not provided', () => {
+    render(<FileSourceCard {...defaultProps} status="available" />)
+
+    expect(
+      screen.queryByRole('button', { name: /open preview: document.pdf/i })
+    ).not.toBeInTheDocument()
   })
 
   test('calls onDelete when delete button is clicked', async () => {
@@ -91,13 +120,13 @@ describe('FileSourceCard', () => {
   test('renders formatted file size when provided', () => {
     render(<FileSourceCard {...defaultProps} fileSize={2048} />)
 
-    expect(screen.getByText('2.0 KB')).toBeInTheDocument()
+    expect(screen.getByText('2 kB')).toBeInTheDocument()
   })
 
   test('renders MB file size correctly', () => {
-    render(<FileSourceCard {...defaultProps} fileSize={5242880} />)
+    render(<FileSourceCard {...defaultProps} fileSize={5_200_000} />)
 
-    expect(screen.getByText('5.0 MB')).toBeInTheDocument()
+    expect(screen.getByText('5.2 MB')).toBeInTheDocument()
   })
 
   test('does not render file size when zero', () => {

@@ -35,7 +35,7 @@ flowchart TB
         App["Next.js<br/>UI + Application/BFF tier"]
         Agent["Python AI-Q agent<br/>stateless inference + embedding"]
         PG[("PostgreSQL server<br/>aiq_jobs · aiq_checkpoints · grid_app")]
-        Obj[("MinIO<br/>document bytes")]
+        Obj[("SeaweedFS<br/>document bytes")]
         Vec[("ChromaDB<br/>vectors")]
     end
 
@@ -141,7 +141,7 @@ flowchart TB
 
     subgraph Data["Data stores (Grid-controlled, EU-hostable)"]
         PG[("PostgreSQL server<br/>grid_app · aiq_jobs · aiq_checkpoints")]
-        Obj[("MinIO<br/>document bytes")]
+        Obj[("SeaweedFS<br/>document bytes")]
         Vec[("ChromaDB<br/>vectors")]
     end
 
@@ -165,7 +165,7 @@ flowchart TB
     Persist -->|direct put + presign| Obj
 ```
 
-> **Direct vs. delegated.** The BFF talks to **Postgres (`grid_app`) and MinIO directly**.
+> **Direct vs. delegated.** The BFF talks to **Postgres (`grid_app`) and SeaweedFS directly**.
 > Only **embedding and inference** go to the Python agent. The Python agent owns **no**
 > identity, tenancy, or system‑of‑record state — it trusts the caller, verifies the JWT, and
 > writes **only** to ChromaDB. It still owns its existing `aiq_jobs` and `aiq_checkpoints`
@@ -186,7 +186,7 @@ flowchart TB
         NextNode["Next.js container<br/>(UI + BFF)"]
         PyNode["Python AI-Q container<br/>(stateless; scale horizontally)"]
         PGNode[("PostgreSQL 16<br/>grid_app · aiq_jobs · aiq_checkpoints")]
-        MinioNode[("MinIO")]
+        SeaweedNode[("SeaweedFS")]
         ChromaNode[("ChromaDB")]
     end
 
@@ -195,16 +195,16 @@ flowchart TB
     User --> CDN --> NextNode
     NextNode -->|HTTP/WS| PyNode
     NextNode --> PGNode
-    NextNode --> MinioNode
+    NextNode --> SeaweedNode
     PyNode --> ChromaNode
     PyNode --> PGNode
-    PyNode --> MinioNode
+    PyNode --> SeaweedNode
     NextNode -. OAuth2/PKCE .-> WorkOSCloud
     PyNode -. JWKS .-> WorkOSCloud
 ```
 
 > Regulatory **content** (OIB now, RIS later) and all customer data live in
-> EU‑hostable Postgres / MinIO / ChromaDB that Grid controls. The only data that leaves to a
+> EU‑hostable Postgres / SeaweedFS / ChromaDB that Grid controls. The only data that leaves to a
 > third party is **identity** (WorkOS). EU‑region hosting of WorkOS PII is an **open item**
 > — see the spec's [Open Questions](multitenancy-and-auth-spec.md#open-questions).
 
@@ -217,6 +217,6 @@ flowchart TB
   identity, tenancy, storage, data model, contracts.
 - **[Grid Application Database](grid-app-database.md)** — how the BFF connects to `grid_app`,
   manages schemas with Drizzle, and runs migrations.
-- **[AI‑Q subsystem docs](../aiq/)** — how the existing AI‑Q machinery works.
+- **[Backend deep dive](backend-deep-dive.md)** — how the existing AI‑Q machinery works.
 - **[Architecture Decision Records](../README.md#decisions-adrs)** — the *why* behind each
   design choice.

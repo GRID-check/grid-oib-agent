@@ -1,0 +1,23 @@
+name: Setup Task
+description: >-
+  Install the go-task runner so CI executes the SAME commands as humans and
+  agents (root Taskfile.yml) instead of a second, independently drifting copy.
+
+inputs:
+  version:
+    description: go-task version to install. Pinned so a runner upgrade can't change the toolchain under CI.
+    required: false
+    default: "3.52.0"
+
+runs:
+  using: composite
+  steps:
+    # Installed from npm rather than the upstream shell installer: it is a
+    # registry this repo already depends on, it pins exactly, and every GitHub
+    # runner image ships Node — so this works in the Python jobs too, without
+    # adding a setup-node step just to get a task runner.
+    - name: Install go-task
+      shell: bash
+      env:
+        TASK_VERSION: ${{ inputs.version }}
+      run: npm i -g "@go-task/cli@${TASK_VERSION}"

@@ -4,7 +4,102 @@ import type { en } from '../en'
 export const organization: typeof en.organization = {
   title: 'Organisation',
   subtitle: 'Verwalten Sie Ihre Organisation, ihre Mitglieder und Zugriffe.',
+  loading: 'Organisation wird geladen…',
+  memberSubtitle: 'Ihr Verbrauch und Ihre Organisation auf einen Blick.',
   backToApp: 'Zurück zu den Projekten',
+  nav: {
+    label: 'Organisationsbereiche',
+    overview: 'Übersicht',
+    access: 'Personen & Zugriff',
+    models: 'Modelle',
+    budgets: 'Nutzung & Budgets',
+    storage: 'Speicher',
+    compliance: 'Compliance',
+    enterprise: 'Enterprise',
+  },
+  /** Seitentitel der Bereichsrouten — eine Überschrift pro Route, nicht pro Karte. */
+  sections: {
+    overview: {
+      title: 'Übersicht',
+      subtitle:
+        'Ihre Organisation auf einen Blick — Name, Domains, Mitglieder und die Piloti-Einstellungen, die für alle darin gelten.',
+    },
+    access: {
+      title: 'Personen & Zugriff',
+      subtitle:
+        'Wer in der Organisation ist, welche Rolle die Einzelnen haben und was diese Rolle erlaubt.',
+    },
+    models: {
+      title: 'Modelle',
+      subtitle:
+        'Mit welchem Modell jeder Teil des Agenten arbeitet — und ob dafür der Plattformschlüssel oder Ihr eigener verwendet wird.',
+    },
+    budgets: {
+      title: 'Nutzung & Budgets',
+      subtitle:
+        'LLM-Ausgaben im Verhältnis zu den Limits, gegen die sie geprüft werden. Administratoren sehen die gesamte Organisation, alle anderen ihren eigenen Verbrauch.',
+    },
+    storage: {
+      title: 'Speicher',
+      subtitle:
+        'Wie viel Dokumentenspeicher diese Organisation belegt und welches Kontingent ihn begrenzt.',
+    },
+    compliance: {
+      title: 'Compliance',
+      subtitle:
+        'Der Audit-Trail jeder privilegierten Änderung, dazu Legal Holds und Löschungen, mit denen Sie für Ihre Daten geradestehen.',
+    },
+    enterprise: {
+      title: 'Enterprise',
+      subtitle:
+        'SSO, Directory Sync, Domain-Verifizierung und Audit-Log-Streaming — die WorkOS-Steuerung, die nur Administratoren berühren dürfen.',
+    },
+  },
+  /** Personen & Zugriff: Mitgliederverzeichnis, Rollenkatalog, Berechtigungsübersicht. */
+  access: {
+    people: {
+      title: 'Personen',
+      description: 'Alle Mitglieder der Organisation und die Rolle, die ihnen zugewiesen wurde.',
+      columnName: 'Name',
+      columnEmail: 'E-Mail',
+      columnRole: 'Rolle',
+      columnStatus: 'Status',
+      noRole: 'Keine Rolle',
+      empty: 'Dieser Organisation ist noch niemand beigetreten.',
+      loadError:
+        'Das Mitgliederverzeichnis konnte gerade nicht geladen werden. Rollen lassen sich unten trotzdem ändern.',
+    },
+    roles: {
+      title: 'Rollen',
+      description: 'Die Rollen, die diese Organisation vergeben kann, und was jede davon freischaltet.',
+      // Singular/Plural wählt hier die Komponente. Neue gezählte Strings
+      // schreiben stattdessen einen Plural-Block (siehe `i18n/translate.ts`).
+      permissionCountOne: '1 Berechtigung',
+      permissionCountOther: '{count} Berechtigungen',
+      platformNotice:
+        'Nur für Plattform-Personal. Diese Rollen liegen in der Organisation „GRID Platform“ und können hier nicht vergeben werden.',
+    },
+    permissions: {
+      title: 'Berechtigungen',
+      description:
+        'Jede Berechtigung, die die Organisation kennt, und die Rollen, die sie vergeben.',
+      columnPermission: 'Berechtigung',
+      grantedBy: 'Vergeben durch',
+      noRoles: 'Keine Rolle vergibt dies',
+      deprecated: 'Veraltet',
+    },
+    tiers: {
+      org: 'Organisation',
+      project: 'Projekt',
+      skill: 'Skill-Zeitplan',
+      platform: 'Plattform',
+    },
+    notAllowed: {
+      title: 'Sie können hier keine Personen verwalten',
+      description:
+        'Für die Verwaltung von Personen und Rollen wird die Berechtigung „Personen und Rollen verwalten“ benötigt. Ein Organisations-Admin kann sie vergeben.',
+    },
+  },
   overview: {
     title: 'Übersicht',
     description: 'Ihre Organisation auf einen Blick.',
@@ -19,16 +114,20 @@ export const organization: typeof en.organization = {
   },
   settings: {
     title: 'Organisationseinstellungen',
-    description: 'Grid-spezifische Einstellungen für Ihre Organisation.',
+    description: 'Piloti-spezifische Einstellungen für Ihre Organisation.',
     displayName: 'Anzeigename',
-    displayNameHint: 'Wird innerhalb von Grid angezeigt. Leer lassen, um den WorkOS-Organisationsnamen zu verwenden.',
+    displayNameHint: 'Wird innerhalb von Piloti angezeigt. Leer lassen, um den WorkOS-Organisationsnamen zu verwenden.',
     displayNamePlaceholder: 'z. B. Acme Architektur GmbH',
     defaultLocale: 'Standardsprache für neue Mitglieder',
     defaultLocaleHint: 'Neue Mitglieder starten in dieser Sprache, bis sie ihre eigene wählen.',
+    webSearch: 'Websuche',
+    webSearchHint:
+      'Erlaubt den Agenten, das öffentliche Web zu durchsuchen. Wenn deaktiviert, verschwinden Websuche-Tools aus der Auswahl und werden serverseitig für alle Mitglieder blockiert.',
     save: 'Änderungen speichern',
     saving: 'Wird gespeichert…',
     saved: 'Organisationseinstellungen gespeichert',
     saveError: 'Die Organisationseinstellungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.',
+    loadError: 'Die Organisationseinstellungen konnten gerade nicht geladen werden. Bitte laden Sie die Seite neu.',
   },
   members: {
     title: 'Mitglieder',
@@ -55,7 +154,7 @@ export const organization: typeof en.organization = {
     title: 'KI-Modellkonfiguration',
     description:
       'Wählen Sie, mit welchem OpenRouter-Modell jede Agentengruppe arbeitet. Änderungen gelten sofort für neue Unterhaltungen; jeder Speichervorgang erzeugt eine neue Version, zu der Sie zurückkehren können.',
-    defaultModel: 'Workflow-Standard',
+    defaultModel: 'Plattform-Standard',
     defaultBadge: 'Standard',
     overrideBadge: 'Override',
     discard: 'Änderungen verwerfen',
@@ -72,19 +171,119 @@ export const organization: typeof en.organization = {
     saved: 'Modellkonfiguration gespeichert',
     saveError: 'Die Modellkonfiguration konnte nicht gespeichert werden.',
     history: 'Versionsverlauf',
-    historyEmpty: 'Noch keine Versionen — die Organisation nutzt die Workflow-Standards.',
+    historyEmpty: 'Noch keine Versionen — die Organisation nutzt die Plattform-Standards.',
     version: 'Version',
     activeBadge: 'Aktiv',
     activate: 'Aktivieren',
     activated: 'Version aktiviert',
     activateError: 'Diese Version konnte nicht aktiviert werden.',
-    useDefaults: 'Overrides deaktivieren (Workflow-Standards verwenden)',
+    activateTitle: 'Für die gesamte Organisation aktivieren?',
+    activateDescription:
+      'Setzt {target} sofort als Produktionsmodell für alle Mitglieder Ihrer Organisation — wirksam für neue Unterhaltungen. Sie können jederzeit zu einer anderen Version zurückkehren.',
+    activateConfirm: 'Jetzt aktivieren',
+    defaultsTarget: 'die Plattform-Standards',
+    useDefaults: 'Overrides deaktivieren (Plattform-Standards verwenden)',
     loadError: 'Die Modellkonfiguration konnte nicht geladen werden.',
+    byokCatalogHint:
+      'Ihr Organisationsschlüssel ({provider}) ist aktiv: Die Auswahl zeigt die Modelle, die IHR Provider-Konto anbietet, und der gesamte Traffic wird darüber abgerechnet. Wird der Schlüssel entfernt, gilt wieder der Plattformkatalog.',
+    zdrTitle: 'Nur Zero Data Retention',
+    zdrHint:
+      'Zeigt nur Modelle mit einem Zero-Data-Retention-Endpunkt und leitet jede Anfrage an einen solchen weiter, sodass der Anbieter keine Prompts oder Antworten speichert. Gilt für OpenRouter-Modelle.',
+    zdrEnabled: 'Zero Data Retention aktiviert',
+    zdrDisabled: 'Zero Data Retention deaktiviert',
+    zdrError: 'Die Zero-Data-Retention-Richtlinie konnte nicht geändert werden.',
+    zdrDisableTitle: 'Zero Data Retention deaktivieren?',
+    zdrDisableDescription:
+      'Anfragen können künftig an Endpunkte ohne Zero-Data-Retention gesendet werden, sodass der Anbieter Prompts und Antworten speichern kann. Dies betrifft alle Mitglieder Ihrer Organisation.',
+    zdrDisableConfirm: 'Deaktivieren',
+  },
+  byok: {
+    title: 'LLM-API-Schlüssel (BYOK)',
+    description:
+      'Bringen Sie Ihren eigenen LLM-Provider-Schlüssel mit: Research-Traffic wird über Ihr Provider-Konto abgerechnet und der Schlüssel pro Organisation verschlüsselt in WorkOS Vault abgelegt. Schlüssel werden vor der Aktivierung live geprüft; Rotation und Widerruf werden auditiert.',
+    loading: 'Zugangsdaten werden geladen…',
+    loadError: 'Die LLM-Zugangsdaten konnten nicht geladen werden.',
+    noCredential: 'Kein Organisationsschlüssel verbunden — Piloti nutzt den Plattformschlüssel.',
+    storageVaultNote:
+      'Neue Schlüssel werden verschlüsselt in WorkOS Vault unter dem Schlüsselkontext Ihrer Organisation gespeichert.',
+    storageLocalNote: 'Neue Schlüssel werden mit dem lokalen Schlüssel dieser Installation verschlüsselt gespeichert.',
+    activeBadge: 'Aktiv',
+    standbyBadge: 'Gespeichert, nicht in Verwendung',
+    modeTitle: 'Eigenen Schlüssel verwenden',
+    modeByokHint:
+      'Research-Traffic läuft über Ihren Schlüssel und wird über Ihr Provider-Konto abgerechnet. Die Modellauswahl zeigt die Modelle Ihres Providers.',
+    modePlatformHint:
+      'Research-Traffic läuft über den Piloti-Plattform-Service. Ihr Schlüssel bleibt sicher gespeichert und kann jederzeit wieder aktiviert werden.',
+    modeByokSet: 'Auf eigenen Schlüssel umgestellt — neue Unterhaltungen nutzen ihn innerhalb einer Minute.',
+    modePlatformSet: 'Auf den Piloti-Plattform-Service umgestellt — Ihr Schlüssel bleibt gespeichert, wird aber nicht verwendet.',
+    modeError: 'Der Provider-Modus konnte nicht geändert werden.',
+    keyLabel: 'Schlüssel',
+    storageLabel: 'Speicherung',
+    storageVault: 'WorkOS Vault (Verschlüsselung pro Organisation)',
+    storageLocal: 'Lokaler verschlüsselter Speicher',
+    baseUrl: 'Basis-URL',
+    baseUrlHint: 'HTTPS-Endpunkt einer OpenAI-kompatiblen API (z. B. Ihre Azure-OpenAI-Ressource oder Ihr Gateway).',
+    lastVerified: 'Zuletzt geprüft',
+    lastUsed: 'Zuletzt verwendet',
+    connectTitle: 'Organisationsschlüssel verbinden',
+    rotateTitle: 'Schlüssel rotieren',
+    provider: 'Provider',
+    providers: {
+      openrouter: 'OpenRouter',
+      openai: 'OpenAI',
+      'azure-openai': 'Azure OpenAI',
+      custom: 'Eigener (OpenAI-kompatibel)',
+    },
+    label: 'Bezeichnung',
+    labelPlaceholder: 'z. B. Firmen-OpenRouter-Konto',
+    // Labels for the BYOK key field, not a key. detect-secrets matches on the
+    // `apiKey` identifier regardless of the value being German UI copy.
+    apiKey: 'API-Schlüssel', // pragma: allowlist secret
+    apiKeyPlaceholder: 'sk-…', // pragma: allowlist secret
+    apiKeyHint:
+      'Wird vor dem Speichern beim Provider geprüft. Nach dem Speichern nie wieder angezeigt.', // pragma: allowlist secret
+    connect: 'Prüfen & verbinden',
+    rotate: 'Prüfen & rotieren',
+    saving: 'Wird geprüft…',
+    connected: 'Organisationsschlüssel verbunden — neue Unterhaltungen nutzen ihn sofort.',
+    rotated: 'Schlüssel rotiert — der vorherige Schlüssel wurde widerrufen.',
+    saveError: 'Der Schlüssel konnte nicht gespeichert werden.',
+    verify: 'Prüfen',
+    verified: 'Schlüssel geprüft — {count, plural, one {# Modell} other {# Modelle}} sichtbar.',
+    verifyError: 'Die Prüfung ist fehlgeschlagen.',
+    revoke: 'Widerrufen',
+    revokeConfirm:
+      'Organisationsschlüssel widerrufen? Research-Traffic fällt innerhalb einer Minute auf den Plattformschlüssel zurück.',
+    revoked: 'Schlüssel widerrufen — es wird wieder der Plattformschlüssel verwendet.',
+    revokeError: 'Der Schlüssel konnte nicht widerrufen werden.',
+    history: 'Schlüsselverlauf',
+    revokedOn: 'erstellt {date}',
+  },
+  /** Speicher: belegte Bytes im Verhältnis zum Kontingent, das Uploads stoppt. */
+  storage: {
+    title: 'Dokumentenspeicher',
+    description:
+      'Jedes hochgeladene Dokument wird aufbewahrt, damit es erneut gelesen, neu eingebettet und geprüft werden kann. Das Kontingent verhindert, dass eine Organisation den gemeinsamen Speicher füllt.',
+    used: 'Belegt',
+    ofQuota: '{used} von {quota}',
+    noQuota: '{used} belegt (kein Kontingent)',
+    overQuota: 'Kontingent erreicht — neue Uploads werden abgelehnt, bis Platz frei wird',
+    nearQuota: 'Fast voll — neue Uploads werden bald abgelehnt',
+    projectDocuments: 'Projektdokumente',
+    archivDocuments: 'Organisations-Archiv',
+    /** Count-neutral: wird auch bei genau einem Dokument gerendert. */
+    documentCount: 'Dokumente: {count}',
+    setByPlatform:
+      'Ihr Speicherkontingent wird von Piloti festgelegt. Wenden Sie sich an den Support, wenn Sie mehr Platz benötigen.',
+    loadError: 'Speichernutzung konnte nicht geladen werden.',
   },
   budgets: {
     title: 'Verbrauch & Budgets',
     description:
       'LLM-Ausgaben pro Modell im Verhältnis zu Ihren Organisationslimits. Die Kosten stammen aus dem OpenRouter-Usage-Accounting; Limits werden vor jeder Anfrage durchgesetzt.',
+    memberTitle: 'Ihr Verbrauch',
+    memberDescription:
+      'Ihre eigenen Ausgaben im Verhältnis zu Ihren Organisationslimits. Ist ein Budget aufgebraucht, wird der Chat pausiert, bis eine Administratorin oder ein Administrator das Limit erhöht.',
     today: 'Heute',
     thisMonth: 'Dieser Monat',
     ofLimit: '{spent} von {limit}',
@@ -92,8 +291,10 @@ export const organization: typeof en.organization = {
     overLimit: 'Budget ausgeschöpft — neue Anfragen werden blockiert',
     legendTitle: 'Ausgaben nach Modell',
     legendEmpty: 'In diesem Zeitraum wurde noch keine LLM-Nutzung erfasst.',
+    trendTitle: 'Letzte 30 Tage',
+    trendEmpty: 'In den letzten 30 Tagen wurde keine Nutzung erfasst.',
     otherModels: 'Weitere Modelle',
-    tooltipRequests: '{count} Anfragen',
+    tooltipRequests: '{count, plural, one {# Anfrage} other {# Anfragen}}',
     limitsTitle: 'Organisationslimits',
     limitsDescription:
       'Standardmäßig gelten 10 € pro Tag und 100 € pro Monat, bis Sie eigene Werte festlegen. EUR-Limits werden mit den USD-Kosten über einen konfigurierbaren Kurs verglichen.',
@@ -131,5 +332,12 @@ export const organization: typeof en.organization = {
     perDay: 'Tag',
     perMonth: 'Monat',
     loadError: 'Die Verbrauchsdaten konnten nicht geladen werden.',
+  },
+  audit: {
+    title: 'Audit-Logs',
+    description:
+      'Jede privilegierte Änderung — Budgets, Modellkonfiguration, Einstellungen, Legal Holds — wird im WorkOS-Audit-Trail Ihrer Organisation erfasst. Der Viewer öffnet sich in einem neuen Tab und kann Ereignisse exportieren.',
+    open: 'Audit-Logs ansehen',
+    error: 'Der Audit-Log-Viewer konnte nicht geöffnet werden.',
   },
 }

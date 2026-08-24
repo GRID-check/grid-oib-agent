@@ -1,5 +1,24 @@
-# Spec (phase 3): IFC/BIM Viewer Card
+# Spec (phase 3): IFC/BIM Viewer Card — **SUPERSEDED, BUILT DIFFERENTLY**
 
+> **Status (2026-08-08): superseded by
+> [ADR-0045](../adr/0045-ifc-models-as-a-queryable-building-not-a-document.md),
+> which is the record of what was actually built. This file is kept as the
+> design that was considered and where it turned out to be wrong.**
+>
+> Two things changed. The viewer library is **ifc-lite** (Rust/WASM +
+> WebGPU), not `web-ifc` + ThatOpen, and there is **no Fragments conversion
+> pipeline** — ifc-lite streams first triangles during the parse, so the
+> conversion step, its storage artefact and its cache-invalidation story all
+> disappeared. More importantly, the spec below treats the problem as "render
+> the model", and the larger half turned out to be "answer questions about it":
+> a structured index the agent queries deterministically, a validation pass that
+> qualifies those answers, and a revision comparison. The `ifc_viewer` card is
+> one surface of that, not the feature.
+>
+> ---
+>
+> Original text follows.
+>
 > Build-ready design for a card that renders an architect's **actual IFC/BIM
 > model** in the browser, with GRID's compliance findings overlaid. This is the
 > domain-native "3D model" no generic tool has. Scoped separately because it is a
@@ -29,9 +48,9 @@ unmatched by any generic file tool and turns GRID from "reads your PDFs" into
 ## Architecture (fits the existing system)
 
 ```
-Upload .ifc  → MinIO (org/<org>/project/<pid>/ifc/<docId>/model.ifc)
+Upload .ifc  → SeaweedFS (org/<org>/project/<pid>/ifc/<docId>/model.ifc)
              → conversion job (web-ifc → Fragments .frag)  [worker]
-             → cache .frag in MinIO + a `bim_models` row (grid_app)
+             → cache .frag in SeaweedFS + a `bim_models` row (grid_app)
 Chat/agent   → emits an `ifc_viewer` card { modelId, highlights[], camera? }
 Frontend     → lazy-loads @thatopen viewer (next/dynamic ssr:false)
              → streams the .frag from a presigned URL
@@ -40,7 +59,7 @@ Frontend     → lazy-loads @thatopen viewer (next/dynamic ssr:false)
 
 - **Conversion runs off the request** (like the deletion purger / ingest jobs) —
   either a new lightweight worker or an extension of the Python backend, writing
-  `.frag` back to MinIO. Reuses the existing MinIO + presign + job patterns.
+  `.frag` back to SeaweedFS. Reuses the existing SeaweedFS + presign + job patterns.
 - **`bim_models`** table (grid_app, single-writer BFF): `id`, `project_id`,
   `document_id`, `frag_key`, `status` (converting/ready/failed), `element_index`
   (optional: IFC GUID → human label map for the agent to reference).

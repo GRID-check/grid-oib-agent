@@ -21,6 +21,62 @@
 const http = require('http')
 const httpProxy = require('http-proxy')
 const { parse } = require('url')
+const crypto = require('crypto')
+
+// ── Signed context envelope (backlog T3-9 follow-up, 2026-07-16, user-mandated) ──
+// One consolidated, signed `X-Grid-Request-Context` header (+ integrity
+// signature `X-Grid-Request-Context-Sig`) carrying every x-grid-* field this
+// file already forwards individually below. Minted in ONE canonical place on
+// the TS side: `buildGridRequestContextEnvelope` /
+// `buildGridRequestContextEnvelopePayload` in
+// `frontends/ui/src/lib/request-context.ts`. server.js is plain CommonJS
+// (see the `require(...)` calls above — no ESM/TS imports anywhere in this
+// file) and cannot import that module, so the payload shape + signing logic
+// is DUPLICATED here. If the TS builder's field list, omission rules, or key
+// order ever change, this function must change identically — the
+// cross-language contract fixture (`tests/fixtures/grid_request_context.json`
+// `envelopeCases`) pins both sides' *output* so drift fails a test instead of
+// degrading silently in prod, but it cannot catch drift in this file's
+// *source* automatically since server.js has no test harness in this repo.
+// DUAL-WRITE: called alongside (not instead of) the individual x-grid-*
+// header assignments below — this is the transition-safety design agreed
+// with the user; removing the individual headers is a later cleanup.
+function buildGridRequestContextEnvelopeHeaders(input) {
+  const payload = {}
+  if (input.organizationId) payload.organizationId = input.organizationId
+  if (input.userId) payload.userId = input.userId
+  if (input.projectId) payload.projectId = input.projectId
+  if (input.collectionScope && input.collectionScope.length > 0) payload.collectionScope = input.collectionScope
+  if (input.projectContext) payload.projectContext = input.projectContext
+  if (input.projectMemory) payload.projectMemory = input.projectMemory
+  if (input.modelOverrides && Object.keys(input.modelOverrides).length > 0) {
+    payload.modelOverrides = input.modelOverrides
+  }
+  if (input.budget) payload.budget = input.budget
+  if (input.disabledSources && input.disabledSources.length > 0) payload.disabledSources = input.disabledSources
+  if (input.memoryReflectionEnabled !== undefined) payload.memoryReflectionEnabled = input.memoryReflectionEnabled
+  // `bundesland` (backlog T3-9 follow-up, 2026-07-16, user-mandated):
+  // envelope-only structured jurisdiction field, appended LAST in key order
+  // to keep every pre-existing signed payload byte-identical — see
+  // `buildGridRequestContextEnvelopePayload`'s docstring in request-context.ts
+  // (the canonical definition this function is pinned to).
+  if (input.bundesland) payload.bundesland = input.bundesland
+
+  const json = JSON.stringify(payload)
+  const headers = {
+    'x-grid-request-context': Buffer.from(json, 'utf8').toString('base64url'),
+  }
+  // Fail-open note (dev): when GRID_INTERNAL_API_TOKEN is unset, the envelope
+  // is still minted and forwarded (unsigned) — the backend's enforcement
+  // middleware mirrors this: signature verification is skipped when it also
+  // has no token configured, but envelope PRESENCE is still required for
+  // authenticated requests either way.
+  const secret = process.env.GRID_INTERNAL_API_TOKEN
+  if (secret) {
+    headers['x-grid-request-context-sig'] = crypto.createHmac('sha256', secret).update(json, 'utf8').digest('hex')
+  }
+  return headers
+}
 
 const dev = process.env.NODE_ENV !== 'production'
 const hostname = process.env.HOSTNAME || '0.0.0.0'
@@ -39,6 +95,234 @@ const getBackendWsUrl = () => {
 const BACKEND_HTTP_URL = getBackendUrl()
 const BACKEND_WS_URL = getBackendWsUrl()
 const NEXT_INTERNAL_URL = process.env.NEXT_INTERNAL_URL || 'http://localhost:3001'
+
+// ── Conversation affinity (horizontal aiq-agent scaling) ──
+// The backend keeps per-conversation WebSocket delivery, human-in-the-loop
+// futures, and the running LangGraph task IN PROCESS, so a given conversation
+// must always reach the SAME backend replica for reconnect + HITL to work. When
+// aiq-agent runs >1 replica (a StatefulSet), pin each conversation to a specific
+// pod via a stable hash of conversationId -> that pod's stable DNS name. Falls
+// back to the load-balanced Service when there's 1 replica, no pod template, or
+// no conversationId — so single-replica behavior is unchanged.
+const BACKEND_REPLICAS = Math.max(1, parseInt(process.env.BACKEND_REPLICAS || '1', 10) || 1)
+// Per-pod WS DNS template with a literal `{i}`, e.g.
+// an in-cluster headless-service pod address like
+// aiq-agent-{i}.aiq-agent-headless:8000 (ws, in-cluster only) supplied via env.
+// nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket
+const BACKEND_POD_WS_TEMPLATE = process.env.BACKEND_POD_WS_TEMPLATE || ''
+
+// How many frontend replicas this deployment runs (Pulumi passes the min count).
+// Used only to loudly flag a multi-replica deploy that is missing the shared
+// cache (REDIS_URL) — where the read-through caches and the WS rate limiter
+// would silently diverge per pod. Defaults to 1 (single-node / dev).
+const FRONTEND_REPLICAS = Math.max(1, parseInt(process.env.FRONTEND_REPLICAS || '1', 10) || 1)
+
+// ── Graceful shutdown / rolling-update drain ──
+// How long this process keeps serving after SIGTERM before forcing exit. Chat
+// WebSockets are long-lived (a streaming answer can run for minutes), so the
+// 2s local default would drop every in-flight response on every rollout. In
+// Kubernetes the deployment sets this to the tier's drain budget and sizes
+// terminationGracePeriodSeconds above it (deploy/pulumi/src/platform/rollout.ts).
+const SHUTDOWN_DRAIN_MS = Math.max(
+  0,
+  parseInt(process.env.GRID_SHUTDOWN_DRAIN_MS || '', 10) || 2000
+)
+// Set once SIGTERM/SIGINT arrives: readiness starts failing and new WebSocket
+// upgrades are refused, while everything already in flight runs to completion.
+let draining = false
+
+// FNV-1a: stable, dependency-free, well-distributed for short ids.
+function hashToIndex(str, mod) {
+  let h = 0x811c9dc5
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return (h >>> 0) % mod
+}
+
+function pickBackendWsTarget(conversationId) {
+  if (BACKEND_REPLICAS <= 1 || !BACKEND_POD_WS_TEMPLATE || !conversationId) {
+    return BACKEND_WS_URL
+  }
+  return BACKEND_POD_WS_TEMPLATE.replace('{i}', String(hashToIndex(String(conversationId), BACKEND_REPLICAS)))
+}
+
+// ── Upstream reachability ──
+// Socket-level failures reaching the aiq-agent Service. Every one of these
+// means "the backend was not there for this attempt", which during a rolling
+// deploy, a node drain or a pod restart is the expected state for a few
+// seconds: the chat client reconnects and the next upgrade lands on a ready
+// pod. Recording them at ERROR files one GitHub issue per reconnect
+// (issues #270 ECONNREFUSED, #272 EPERM) for an outcome that is already
+// handled — the upgrade is refused with a 502 and the socket destroyed.
+//
+// So they are logged at WARN, which keeps them in the dashboard in full while
+// the err2issue exporter (ADR-0031) leaves them alone; volume is what
+// distinguishes a rollout from an outage, and the dashboard shows volume where
+// a per-occurrence severity cannot. Anything NOT on this list — an invalid
+// header, a protocol error, a bug in the proxy — stays ERROR.
+//
+// Classified on `err.code` rather than the message, because the code is the
+// structured field Node guarantees; message text is not.
+const TRANSIENT_UPSTREAM_CODES = new Set([
+  'ECONNREFUSED', // no ready endpoint behind the Service (rollout, restart)
+  'ECONNRESET', // the pod went away mid-handshake
+  'EPERM', // connect blocked locally (NetworkPolicy/CNI reject during churn)
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'ENOTFOUND', // pod DNS not resolvable yet (StatefulSet scale-up)
+  'EAI_AGAIN', // cluster DNS temporarily unavailable (CoreDNS restart)
+  'ETIMEDOUT',
+  'EPIPE',
+])
+
+const isTransientUpstreamFailure = (err) => TRANSIENT_UPSTREAM_CODES.has(err?.code)
+
+// ── WebSocket rate limiting (ADR-0020, ADR-0040 layers L2 / L2b) ──
+//
+// Two limits live here, and the second is the reason this file matters:
+//
+//   1. **Upgrades, per client.** Every upgrade triggers session resolution, FGA
+//      checks and budget reads in the BFF, so a reconnect storm amplifies
+//      straight into WorkOS and Postgres. The edge now carries the same budget
+//      (`rateLimitAppWsUpgrade`); this one keeps working while that policy is
+//      in shadow mode, and covers anything that never crossed the gateway.
+//   2. **Frames on an ALREADY-OPEN socket.** Chat is WebSocket-only (ADR-0009),
+//      so from the edge's point of view a whole session — every turn, every
+//      agent run — is the single upgrade request above. No gateway policy can
+//      ever see a chat turn. This process owns the socket, so it is the only
+//      place that can count them.
+//
+// Both use the shared catalog and the shared `rate-limiter-flexible` wiring
+// (`src/lib/limits/`), so the WS proxy and the BFF cannot drift into different
+// budgets, key prefixes or failure behaviour. Fails open — an abuse bound must
+// never be the thing that takes chat down.
+const { WS_UPGRADE_LIMIT, CHAT_TURN_LIMIT, WS_CONTROL_LIMIT } = require('./src/lib/limits/rules.js')
+const { createLimiter, consumeLimiter } = require('./src/lib/limits/factory.js')
+const { createFrameObserver, classifyFrame } = require('./src/lib/limits/ws-frames.js')
+
+// `GRID_WS_UPGRADE_RATE_LIMIT` predates the catalog and stays honoured: an
+// operator who tuned it should not have it silently reverted by this refactor.
+// 0 still disables the upgrade limit entirely.
+const parsedUpgradeOverride = parseInt(
+  process.env.GRID_WS_UPGRADE_RATE_LIMIT || String(WS_UPGRADE_LIMIT.limit),
+  10
+)
+if (!Number.isFinite(parsedUpgradeOverride)) {
+  console.warn(
+    '[Gateway] invalid GRID_WS_UPGRADE_RATE_LIMIT=%s, using catalog default %d',
+    process.env.GRID_WS_UPGRADE_RATE_LIMIT,
+    WS_UPGRADE_LIMIT.limit
+  )
+}
+// A typo must not silently switch the limit off. `parseInt('thirty')` is NaN,
+// and `NaN > 0` is false — so without this guard a malformed value took the
+// `upgradeLimiter = null` path and disabled upgrade limiting with nothing in the
+// logs. Only an explicit 0 disables it.
+const WS_UPGRADE_OVERRIDE = Number.isFinite(parsedUpgradeOverride)
+  ? parsedUpgradeOverride
+  : WS_UPGRADE_LIMIT.limit
+// Frames per session. 0 disables, for an operator who needs the old behaviour
+// back in a hurry.
+const WS_MESSAGE_LIMITS_ENABLED = process.env.GRID_WS_MESSAGE_LIMITS !== '0'
+
+let limitStoreClient = null
+if (process.env.REDIS_URL) {
+  try {
+    const IORedis = require('ioredis')
+    limitStoreClient = new IORedis(process.env.REDIS_URL, {
+      connectTimeout: 1000,
+      commandTimeout: 500,
+      maxRetriesPerRequest: 1,
+      enableOfflineQueue: false,
+    })
+    limitStoreClient.on('error', (error) => {
+      console.warn('[Gateway] rate-limit store error:', error.message)
+    })
+  } catch (error) {
+    console.warn('[Gateway] shared rate limiter unavailable, using per-process buckets:', error.message)
+  }
+}
+
+const upgradeLimiter =
+  WS_UPGRADE_OVERRIDE > 0
+    ? createLimiter({ ...WS_UPGRADE_LIMIT, limit: WS_UPGRADE_OVERRIDE }, limitStoreClient)
+    : null
+const frameLimiters = WS_MESSAGE_LIMITS_ENABLED
+  ? {
+      'chat-turn': createLimiter(CHAT_TURN_LIMIT, limitStoreClient),
+      control: createLimiter(WS_CONTROL_LIMIT, limitStoreClient),
+    }
+  : null
+
+const getClientKey = (req) => {
+  const forwarded = req.headers['x-forwarded-for']
+  if (typeof forwarded === 'string' && forwarded.length > 0) {
+    return forwarded.split(',')[0].trim()
+  }
+  return req.socket?.remoteAddress || 'unknown'
+}
+
+/**
+ * Bucket key for frames on one socket.
+ *
+ * The session cookie, hashed — the same idiom `scopeCacheKey` uses below, and
+ * for the same reason: it identifies the session stably without putting a
+ * credential in a key. Deliberately NOT the client IP: several tabs of one user
+ * share a budget (they share an account), while two users behind one NAT do
+ * not.
+ */
+const sessionKey = (req) =>
+  crypto.createHash('sha256').update(req.headers.cookie || getClientKey(req)).digest('hex')
+
+async function wsUpgradeAllowed(clientKey) {
+  if (!upgradeLimiter) return true
+  const outcome = await consumeLimiter(upgradeLimiter, clientKey)
+  return outcome.allowed
+}
+
+/**
+ * Watch one client socket and close it if it exceeds its frame budget.
+ *
+ * Passive: the observer is an extra `data` listener, so nothing about what gets
+ * forwarded changes. Enforcement is necessarily *after the fact* — the frame
+ * has already been spliced upstream by the time we finish parsing it — so the
+ * action on refusal is to close the connection rather than to drop a message.
+ * That is the standard answer for WebSockets, where there is no 429 to send,
+ * and it is safe: the client reconnects on its jittered backoff and the
+ * upgrade limiter above then paces it.
+ */
+function watchClientFrames(socket, key) {
+  if (!frameLimiters) return null
+
+  let closing = false
+  const observer = createFrameObserver((frame) => {
+    const kind = classifyFrame(frame)
+    // The close handshake is never throttled, or a socket cannot shut down.
+    if (kind === 'ignore' || closing) return
+
+    consumeLimiter(frameLimiters[kind], `${kind}:${key}`)
+      .then((outcome) => {
+        if (outcome.allowed || closing) return
+        closing = true
+        console.warn('[WS Proxy] frame budget exceeded (%s), closing socket', kind)
+        try {
+          // Opcode 8, status 1008 "policy violation" — the close reason that
+          // tells an honest client this was a rule and not a crash.
+          socket.end(Buffer.from([0x88, 0x02, 0x03, 0xf0]))
+        } catch {
+          socket.destroy()
+        }
+      })
+      .catch(() => {
+        // Fail open: a store failure must not sever a live chat.
+      })
+  })
+
+  socket.on('data', (chunk) => observer.push(chunk))
+  return observer
+}
 
 // In production, we run Next.js in the same process
 let nextApp = null
@@ -163,6 +447,90 @@ const fetchCollectionScopeHeader = (req, projectId, conversationId) => {
   })
 }
 
+// ── WS-upgrade admission + scope memoisation ──
+// The per-IP limiter above throttles ONE abusive client. It does nothing about
+// the herd this deployment creates for itself: a rolling update severs every
+// socket on a pod at once, and those clients come back from thousands of
+// DISTINCT IPs, so every one of them passes the per-IP check and triggers a
+// fresh `/api/auth/websocket-scope` render (session resolution + FGA + budget
+// reads — ADR-0020). Two bounds on that amplification:
+//
+//   1. SINGLE-FLIGHT + short-TTL memo per (session, project, conversation).
+//      A client that reconnects within the TTL, or several tabs racing the same
+//      upgrade, cost one upstream resolution instead of N.
+//   2. A GLOBAL in-flight ceiling. Past it, upgrades are shed with 503 +
+//      Retry-After instead of queueing — the pod stays responsive for the
+//      connections it already holds, and the client's jittered backoff
+//      (`shared/utils/backoff.ts`) spreads the retry.
+//
+// The memo is per-process and in-memory ON PURPOSE: the payload carries an
+// access token, and a shared Dragonfly cache would put bearer credentials in a
+// store shared by every tier. Per-pod caching still cuts the amplification
+// proportionally, because a given client reconnects to one pod at a time.
+// TTL is deliberately short — it bounds how long a revoked session can still
+// ride a cached scope. 0 disables the memo entirely.
+const WS_UPGRADE_MAX_INFLIGHT = parseInt(process.env.GRID_WS_UPGRADE_MAX_INFLIGHT || '32', 10)
+const WS_SCOPE_CACHE_TTL_MS = parseInt(process.env.GRID_WS_SCOPE_CACHE_TTL_MS || '10000', 10)
+const WS_SCOPE_CACHE_MAX_ENTRIES = 5000
+
+let inflightScopeResolutions = 0
+const scopeCache = new Map()
+const scopeInflight = new Map()
+
+const scopeCacheKey = (req, projectId, conversationId) =>
+  crypto
+    .createHash('sha256')
+    .update(
+      JSON.stringify([req.headers.cookie || '', projectId ?? null, conversationId ?? null])
+    )
+    .digest('hex')
+
+/**
+ * Resolve the collection scope for an upgrade, memoised and admission-gated.
+ *
+ * Returns the same shape as `fetchCollectionScopeHeader`, plus `rejected: true`
+ * when the global in-flight ceiling shed this upgrade.
+ */
+const resolveCollectionScope = (req, projectId, conversationId) => {
+  // The memo and the admission ceiling are INDEPENDENT bounds: disabling the
+  // memo (TTL <= 0, e.g. to force fresh auth) must not also disable the ceiling.
+  const cacheEnabled = WS_SCOPE_CACHE_TTL_MS > 0
+  const key = cacheEnabled ? scopeCacheKey(req, projectId, conversationId) : null
+
+  if (cacheEnabled) {
+    const cached = scopeCache.get(key)
+    if (cached && cached.expiresAt > Date.now()) {
+      return Promise.resolve(cached.result)
+    }
+
+    // Coalesce concurrent upgrades for the same session onto one upstream call.
+    const pending = scopeInflight.get(key)
+    if (pending) return pending
+  }
+
+  if (WS_UPGRADE_MAX_INFLIGHT > 0 && inflightScopeResolutions >= WS_UPGRADE_MAX_INFLIGHT) {
+    return Promise.resolve({ ok: false, status: 503, header: null, data: null, rejected: true })
+  }
+
+  inflightScopeResolutions += 1
+  const request = fetchCollectionScopeHeader(req, projectId, conversationId)
+    .then((result) => {
+      // Only successes are memoised — a transient failure must not be sticky.
+      if (cacheEnabled && result.ok) {
+        if (scopeCache.size > WS_SCOPE_CACHE_MAX_ENTRIES) scopeCache.clear()
+        scopeCache.set(key, { expiresAt: Date.now() + WS_SCOPE_CACHE_TTL_MS, result })
+      }
+      return result
+    })
+    .finally(() => {
+      inflightScopeResolutions -= 1
+      if (cacheEnabled) scopeInflight.delete(key)
+    })
+
+  if (cacheEnabled) scopeInflight.set(key, request)
+  return request
+}
+
 const startServer = async () => {
   // In production, prepare Next.js
   if (!dev && nextApp) {
@@ -179,6 +547,17 @@ const startServer = async () => {
     } catch {
       res.writeHead(400, { 'Content-Type': 'text/plain' })
       res.end('Bad Request')
+      return
+    }
+
+    // Draining: fail readiness immediately so the kubelet marks this pod
+    // NotReady and the gateway stops sending it new traffic, while requests and
+    // WebSockets already in flight keep running to completion. Liveness uses the
+    // same path, but a NotReady pod that is already terminating is never
+    // restarted for it.
+    if (draining && parsedUrl.pathname === '/api/healthz') {
+      res.writeHead(503, { 'Content-Type': 'application/json', Connection: 'close' })
+      res.end(JSON.stringify({ status: 'draining' }))
       return
     }
 
@@ -211,14 +590,42 @@ const startServer = async () => {
     }
     const pathname = parsedUrl.pathname || '/'
 
+    // Refuse NEW sessions while draining — a pod that is going away must not
+    // accept a WebSocket it cannot see through. The client reconnects and the
+    // gateway routes it to a replica that is staying.
+    if (draining) {
+      socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n')
+      socket.destroy()
+      return
+    }
+
     // Proxy /websocket to backend
     if (pathname === '/websocket' || pathname.startsWith('/websocket')) {
+      if (!(await wsUpgradeAllowed(getClientKey(req)))) {
+        socket.write(
+          'HTTP/1.1 429 Too Many Requests\r\nRetry-After: 60\r\nConnection: close\r\n\r\n'
+        )
+        socket.destroy()
+        return
+      }
+
       const projectId = normalizeQueryParam(parsedUrl.query.projectId)
       const conversationId = normalizeQueryParam(parsedUrl.query.conversationId)
       req.url = '/websocket' + (parsedUrl.search || '')
 
       try {
-        const result = await fetchCollectionScopeHeader(req, projectId, conversationId)
+        const result = await resolveCollectionScope(req, projectId, conversationId)
+        if (result.rejected) {
+          // Shed rather than queue: the pod protects the connections it already
+          // holds, and the client retries on a jittered backoff.
+          try {
+            socket.write(
+              'HTTP/1.1 503 Service Unavailable\r\nRetry-After: 5\r\nConnection: close\r\n\r\n'
+            )
+          } catch {}
+          socket.destroy()
+          return
+        }
         if (result.ok && result.header) {
           req.headers['x-grid-collection-scope'] = result.header
 
@@ -277,10 +684,78 @@ const startServer = async () => {
               'utf8'
             ).toString('base64url')
           }
+          // Org-disabled data sources (e.g. web_search when the org toggle is
+          // off, ADR-0022). Decoded in aiq_agent (data_sources.py) and
+          // subtracted from every tool selection. Absent header = nothing
+          // disabled.
+          if (Array.isArray(result.data?.disabledSources) && result.data.disabledSources.length > 0) {
+            req.headers['x-grid-disabled-sources'] = Buffer.from(
+              JSON.stringify(result.data.disabledSources),
+              'utf8'
+            ).toString('base64url')
+          }
+          // Consolidated, signed context envelope (backlog T3-9 follow-up,
+          // 2026-07-16, user-mandated) — DUAL-WRITE alongside every
+          // individual x-grid-* header set above, built from the SAME
+          // `result.data` values. See buildGridRequestContextEnvelopeHeaders'
+          // own comment (top of file) for why this is duplicated rather than
+          // imported from request-context.ts.
+          // SAST: `express-data-exfiltration` fires on remote-looking data
+          // reaching `req.headers`. Here the data is not remote. `result` is
+          // this server's own `/api/auth/websocket-scope` render (see
+          // `resolveCollectionScope` above): same process, same trust domain,
+          // and every field is derived server-side from the authenticated
+          // session — organization and user from the session itself, the scope
+          // from `buildCollectionScopeFromRequest` after its FGA checks. None
+          // of it is caller-supplied, and the client cannot influence which
+          // fields come back.
+          //
+          // The rule is also not new to this change. The identical block is on
+          // `develop` at this line; ADR-0047 edited ONE field inside it
+          // (`collectionScope` now carries shelves), and the scan is
+          // diff-aware, so touching a line put the whole pre-existing pattern
+          // into the diff window. Suppressed narrowly, by rule id, on this call
+          // only — a broader ignore would hide the case where genuinely
+          // caller-supplied data starts reaching `req.headers`, which is what
+          // the rule is worth having for.
+          // nosemgrep: javascript.express.security.express-data-exfiltration.express-data-exfiltration
+          Object.assign(
+            req.headers,
+            buildGridRequestContextEnvelopeHeaders({
+              organizationId: result.data?.organizationId,
+              userId: result.data?.userId,
+              projectId: result.data?.projectId,
+              // Shelf-bearing entries when the resolver supplied them, bare
+              // names otherwise. The envelope is the copy `scoping.py` trusts
+              // for an authenticated turn, so the shelf has to ride HERE and
+              // not only on the raw header (ADR-0047).
+              collectionScope: result.data?.scopedCollections ?? result.data?.scope,
+              projectContext: result.data?.projectContext,
+              projectMemory: result.data?.projectMemory,
+              modelOverrides: result.data?.modelOverrides,
+              budget: result.data?.budget,
+              disabledSources: result.data?.disabledSources,
+              memoryReflectionEnabled: result.data?.memoryReflectionEnabled,
+              bundesland: result.data?.bundesland,
+            })
+          )
         } else if (result.status === 401 || result.status === 403) {
           const statusText = result.status === 401 ? 'Unauthorized' : 'Forbidden'
           try {
             socket.write(`HTTP/1.1 ${result.status} ${statusText}\r\n\r\n`)
+          } catch {}
+          socket.destroy()
+          return
+        } else {
+          // Fail CLOSED: any other scope-resolution failure (5xx, network
+          // error, malformed response) must not proxy the socket to the
+          // backend stripped of its collection-scope/auth/org headers.
+          console.warn(
+            '[WS Proxy] Collection scope unavailable (status: %s), rejecting upgrade',
+            result.status
+          )
+          try {
+            socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n')
           } catch {}
           socket.destroy()
           return
@@ -294,6 +769,18 @@ const startServer = async () => {
         return
       }
 
+      // Count what this client sends once the socket is live (ADR-0040 L2b).
+      // Attached BEFORE the splice so no frame is missed, and passive, so the
+      // proxying below is unchanged.
+      const frameObserver = watchClientFrames(socket, sessionKey(req))
+      // `head` holds bytes already read off the socket during the upgrade —
+      // Node hands them to us rather than leaving them in the stream, and
+      // `backendProxy.ws` forwards them upstream. They never arrive as a 'data'
+      // event, so an observer that only listens for 'data' would miss them. A
+      // partial frame there desynchronises the parser for the life of the
+      // connection, and the chat-turn limiter silently stops counting.
+      if (frameObserver && head && head.length > 0) frameObserver.push(head)
+
       // Guard the proxy call itself: http-proxy can throw SYNCHRONOUSLY from
       // ws() (e.g. an invalid header value) and an uncaught throw in the
       // 'upgrade' listener crashes the whole gateway process.
@@ -302,10 +789,22 @@ const startServer = async () => {
           req,
           socket,
           head,
-          { target: BACKEND_WS_URL, changeOrigin: true },
+          // Conversation affinity: pin this conversation to its owning backend
+          // replica so in-process WS/HITL/task state is always reachable.
+          { target: pickBackendWsTarget(conversationId), changeOrigin: true },
           (err) => {
             if (err) {
-              console.error('[WS Proxy] Error:', err.message)
+              // See TRANSIENT_UPSTREAM_CODES: backend-not-there is a WARN, so a
+              // rollout does not file an issue per reconnect. Everything else
+              // is still an ERROR.
+              if (isTransientUpstreamFailure(err)) {
+                console.warn(
+                  '[WS Proxy] Backend unreachable (%s), rejecting upgrade',
+                  err.code
+                )
+              } else {
+                console.error('[WS Proxy] Error:', err.message)
+              }
               try {
                 socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n')
               } catch {}
@@ -344,6 +843,19 @@ const startServer = async () => {
   server.headersTimeout = 65000
   server.requestTimeout = 0
 
+  // Multi-replica without a shared cache is a misconfiguration: the read-through
+  // caches (ADR-0019) and the WS-upgrade rate limiter fall back to per-process
+  // state, so they diverge across pods (e.g. the rate limit becomes N×). Fail
+  // open (don't crash — matches the cache/limiter philosophy) but warn loudly so
+  // it's caught. Single replica / dev with no REDIS_URL is fine and stays quiet.
+  if (FRONTEND_REPLICAS > 1 && !process.env.REDIS_URL) {
+    console.error(
+      `[Gateway] WARNING: FRONTEND_REPLICAS=${FRONTEND_REPLICAS} but REDIS_URL is unset — ` +
+        'the shared cache and WS rate limiter will run per-process and diverge across replicas. ' +
+        'Set REDIS_URL (Dragonfly) for correct multi-replica behavior.',
+    )
+  }
+
   server.listen(port, hostname, () => {
     console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -353,11 +865,15 @@ const startServer = async () => {
 `)
   })
 
-  // Graceful shutdown
+  // Graceful shutdown. `server.close()` stops accepting new connections and
+  // resolves once every existing one (including WebSockets) has ended, so the
+  // timer is the hard ceiling on how long a rolling update waits for this pod.
   const cleanExit = (signal) => {
-    console.log(`\nShutting down (${signal})...`)
+    if (draining) return
+    draining = true
+    console.log(`\nShutting down (${signal}) — draining for up to ${SHUTDOWN_DRAIN_MS}ms...`)
     server.close(() => process.exit(0))
-    setTimeout(() => process.exit(0), 2000)
+    setTimeout(() => process.exit(0), SHUTDOWN_DRAIN_MS)
   }
 
   process.once('SIGTERM', () => cleanExit('SIGTERM'))

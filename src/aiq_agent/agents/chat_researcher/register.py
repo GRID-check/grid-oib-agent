@@ -1,21 +1,10 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """NAT register function for chat researcher agent."""
 
+import asyncio
+import dataclasses
 import logging
+from collections.abc import AsyncGenerator
+from typing import Annotated
 from typing import Any
 
 import aiofiles
@@ -25,71 +14,424 @@ from pydantic import Field
 from aiq_agent.cards.registry import get_or_create_card_registry
 from aiq_agent.cards.registry import reset_card_registry
 from aiq_agent.cards.registry import set_card_registry
+from aiq_agent.common import AgentGroup
 from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import _create_chat_response
 from aiq_agent.common import format_data_source_tools
 from aiq_agent.common import get_checkpointer
+from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_model_overrides_from_context
 from aiq_agent.common import is_verbose
 from aiq_agent.common.citation_verification import get_or_create_session_registry
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.nat_converters import ensure_registered as _ensure_nat_converters_registered
+from aiq_agent.conversation_context import register_context_appender
 from aiq_agent.observability.otel_header_redaction_exporter import (
     ensure_registered as _ensure_otel_redaction_registered,
 )
+from aiq_agent.observability.otlp_logging_method import ensure_registered as _ensure_otlp_logging_registered
+from aiq_agent.project_context import get_memory_reflection_enabled_from_context
+from aiq_agent.project_context import get_user_message_id_from_context
+from aiq_agent.stages import TurnFacts
+from aiq_agent.stages import schedule_post_answer_stages
+from aiq_agent.stages.flags import resolve_enabled_stages
 from nat.builder.builder import Builder
 from nat.builder.context import Context
 from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.api_server import ChatResponse
+from nat.data_models.api_server import ChatResponseChunk
 from nat.data_models.component_ref import FunctionGroupRef
 from nat.data_models.component_ref import FunctionRef
 from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
+from nat.data_models.streaming import Streaming
 
 from .models import ChatResearcherState
-from .utils import _extract_query_and_sources
+from .utils import extract_turn_inputs
 
 logger = logging.getLogger(__name__)
 
 _ensure_otel_redaction_registered()
+_ensure_otlp_logging_registered()
 # Register a direct ChatResponse -> ChatResponseChunk converter so Grid cards
 # (attached as an extra field on the response) survive NAT's CHAT_STREAM
 # serialization instead of being dropped by the lossy indirect str conversion.
 _ensure_nat_converters_registered()
 
-# Canned error/empty answers that must never trigger a memory-reflection pass.
-_REFLECTION_NON_ANSWERS = (
-    "No response generated.",
-    "An error occurred",
-    "The search tools did not return any results",
+
+def _admission_organization_id() -> str | None:
+    """Tenant this turn is admitted against (ADR-0040 L3), or None.
+
+    Read from the signed request-context envelope rather than threaded down
+    through the turn: the organization is needed at exactly one point, and the
+    envelope is the authority for it. Degrades to None — the turn is then
+    admitted against the global pool only — because a missing tenant must cost
+    a coarser limit, never a failed answer.
+    """
+    try:
+        from aiq_agent.project_context import GridRequestContext
+
+        return GridRequestContext.from_context().organization_id
+    except Exception:
+        logger.debug("No organization in request context for turn admission", exc_info=True)
+        return None
+
+
+def _available_documents_limit() -> int:
+    """Top-N cap for the per-turn ``available_documents`` prompt block.
+
+    ``get_all_async`` does an unbounded ``SELECT`` of the project's document
+    summaries, and every chat turn injects the full list into ~5 prompt
+    templates (shallow/clarifier live, deep on escalation) — so per-turn LLM
+    cost grew linearly with the corpus, paid even on chit-chat. Cap it.
+    ``GRID_AVAILABLE_DOCUMENTS_MAX`` (default 50) tunes it; 0/negative disables.
+    """
+    import os
+
+    try:
+        return int(os.environ.get("GRID_AVAILABLE_DOCUMENTS_MAX", "50"))
+    except (TypeError, ValueError):
+        return 50
+
+
+def _as_scoped_collection(item):
+    """Normalize a scope entry to ``ScopedCollection``.
+
+    Bare strings (legacy tests / names-only callers) state no shelf — unknown,
+    never guessed from the collection-id prefix (ADR-0047).
+    """
+    from aiq_agent.knowledge.scoping import ScopedCollection
+
+    if isinstance(item, ScopedCollection):
+        return item
+    if isinstance(item, str) and item.strip():
+        return ScopedCollection(item.strip())
+    return None
+
+
+async def _aggregate_documents_across_collections(collections, fetch_one, max_documents=None):
+    """Concurrently load document summaries for each collection and merge them.
+
+    ``fetch_one`` is an async callable ``fetch_one(collection) -> list`` (its
+    per-collection round-trip). The reads run concurrently instead of one at a
+    time. Each row is stamped with the collection it came from and the shelf
+    the signed scope stated (unknown when the caller passed a bare name).
+
+    Identity is ``(collection, file_name)`` — the same filename on the
+    Büroarchiv and in a project is two documents (ADR-0047). The cap
+    (``max_documents`` or ``GRID_AVAILABLE_DOCUMENTS_MAX``) keeps user-shelf
+    files first so the OIB corpus cannot evict the archive. ``0``/negative
+    disables the cap.
+
+    Fail-open per collection: if ``fetch_one`` raises for a collection, that
+    collection contributes an empty list (matching the old ``continue``) rather
+    than failing the whole aggregation.
+    """
+    from aiq_agent.knowledge.inventory import allocate_inventory
+    from aiq_agent.knowledge.inventory import stamp_document
+
+    scoped = [entry for item in collections if (entry := _as_scoped_collection(item)) is not None]
+
+    async def _guarded(entry):
+        try:
+            return entry, await fetch_one(entry.collection)
+        except Exception as e:
+            logger.debug("No document summaries for collection %s: %s", entry.collection, e)
+            return entry, []
+
+    # gather preserves input order, so stamping still follows the scope order.
+    per_collection = await asyncio.gather(*(_guarded(entry) for entry in scoped))
+
+    aggregated = []
+    for entry, docs in per_collection:
+        for doc in docs or []:
+            aggregated.append(stamp_document(doc, collection=entry.collection, shelf=entry.shelf))
+
+    limit = _available_documents_limit() if max_documents is None else max_documents
+    before = len(aggregated)
+    aggregated = allocate_inventory(aggregated, limit)
+    if limit and limit > 0 and before > len(aggregated):
+        logger.info(
+            "Capping available_documents from %d to %d (GRID_AVAILABLE_DOCUMENTS_MAX)",
+            before,
+            len(aggregated),
+        )
+    return aggregated
+
+
+# --- Final-answer streaming ------------------------------------------------
+#
+# The chat turn is generated, citation-verified, and sanitized fully buffered
+# (verify_citations/sanitize_report need the complete answer, and a shallow
+# answer can still escalate to deep research — so raw token streaming would
+# leak unverified citations or superseded text). We therefore stream the
+# ALREADY-FINAL text as deltas: progressive rendering, not a change to the
+# answer. See docs/design/streaming-chat-answer.md.
+
+_STREAM_EXTRA_FIELDS = (
+    "cards",
+    "deep_research_job_id",
+    "answer_confidence",
+    "sources",
+    # Transparency extras (WP-A): each surfaced only when applicable.
+    "routing_decision",
+    "routing_reason",
+    "escalation_reason",
+    "answer_confidence_capped_reason",
+    "answer_confidence_reason",
+    "citations_removed",
+    # The research turn ran out of budget before it ran out of question.
+    "research_truncated",
+    "job_admission_rejected",
+    "retry_after_seconds",
+    # Agent Skills: which skills ran this turn — i.e. whose instructions the
+    # model actually fetched, in the order it fetched them — and the
+    # ``grid-hidden`` subset the disclosure mutes until the reader opens the
+    # reasoning view.
+    "skills_activated",
+    "skills_hidden",
 )
 
 
-def _reflection_answer_is_substantive(result: object, answer_text: str) -> bool:
-    """Whether a turn's answer is worth running memory reflection on.
+def _iter_answer_deltas(text: str, *, target_size: int = 24) -> list[str]:
+    """Split ``text`` into streaming deltas whose concatenation is EXACTLY
+    ``text`` (nothing added or lost).
 
-    Skips meta/conversational and error turns (by classified intent) and the
-    canned insufficiency/error answers — none carry a durable, project-specific
-    finding, and reflecting on them only risks spurious writes.
+    Splits on whitespace boundaries so words are not torn mid-token, coalescing
+    small tokens up to ``target_size`` chars per delta. ``"".join(result)`` is
+    guaranteed to reproduce ``text`` verbatim.
     """
-    from .agent import matches_escalation_keywords
+    if not text:
+        return []
+    import re
 
-    text = (answer_text or "").strip()
-    if not text or any(text.startswith(prefix) for prefix in _REFLECTION_NON_ANSWERS):
-        return False
-    if matches_escalation_keywords(text):
-        return False
+    # Each piece is a non-space run with its trailing whitespace, or a run of
+    # whitespace — together they tile the string with no gaps or overlaps.
+    pieces = re.findall(r"\S+\s*|\s+", text)
+    deltas: list[str] = []
+    buf = ""
+    for piece in pieces:
+        buf += piece
+        if len(buf) >= target_size:
+            deltas.append(buf)
+            buf = ""
+    if buf:
+        deltas.append(buf)
+    return deltas
 
-    user_intent = getattr(result, "user_intent", None)
-    if user_intent is None and isinstance(result, dict):
-        user_intent = result.get("user_intent")
+
+def _chunk_content(chunk: ChatResponseChunk) -> str | None:
+    """The content delta carried by a chunk, or None."""
+    try:
+        return chunk.choices[0].delta.content
+    except (AttributeError, IndexError):
+        return None
+
+
+def _chunk_finish_reason(chunk: ChatResponseChunk) -> str | None:
+    """The finish_reason carried by a chunk, or None."""
+    try:
+        return chunk.choices[0].finish_reason
+    except (AttributeError, IndexError):
+        return None
+
+
+def _result_field(result: object, name: str) -> Any:
+    """Read a graph-state field from the workflow result (state object or dict)."""
+    value = getattr(result, name, None)
+    if value is None and isinstance(result, dict):
+        value = result.get(name)
+    return value
+
+
+def _emitted_card_types(cards: object) -> frozenset[str]:
+    """Card types the model emitted in-turn, so a stage can decline to duplicate
+    something the reader already has. Defensive about the card shape: a stage
+    fact is never worth a failed turn."""
+    types: set[str] = set()
+    for card in cards or ():
+        card_type = card.get("type") if isinstance(card, dict) else getattr(card, "type", None)
+        if isinstance(card_type, str) and card_type:
+            types.add(card_type)
+    return frozenset(types)
+
+
+def _post_answer_turn_facts(
+    request_facts: TurnFacts,
+    *,
+    result: object,
+    response: ChatResponse,
+    query_text: str,
+    answer_text: str,
+    cards: object,
+    deep_research_job_id: str | None,
+    answer_confidence: str | None,
+) -> TurnFacts:
+    """Complete the turn's :class:`TurnFacts` from the finished graph state.
+
+    ``request_facts`` is the request-scoped half, captured earlier while the
+    request context was still live; this adds the turn-scoped half. A
+    module-level function rather than inline code in ``_run`` for the same reason
+    ``_apply_transparency_extras`` is one: it is the *crossing* from graph state
+    to a stage's inputs — state field name in, fact out — and inline it could
+    only be exercised by standing up the whole NAT workflow, which is how
+    ``research_truncated`` came to ride the wire for months without the one gate
+    that needed it ever reading it.
+    """
+    user_intent = _result_field(result, "user_intent")
     intent = getattr(user_intent, "intent", None)
-    if intent in {"meta", "error"}:
-        return False
-    return True
+    return dataclasses.replace(
+        request_facts,
+        query=query_text,
+        answer=answer_text,
+        intent=str(intent) if intent else None,
+        routing_decision=getattr(response, "routing_decision", None),
+        research_truncated=bool(_result_field(result, "research_truncated")),
+        deep_research_job_id=deep_research_job_id,
+        emitted_card_types=_emitted_card_types(cards),
+        answer_confidence=answer_confidence,
+    )
+
+
+def _apply_transparency_extras(response: ChatResponse, result: object) -> None:
+    """Lift the transparency extras (WP-A) and the Agent Skills pair off the
+    finished graph state onto the answer.
+
+    Every field follows the same rule: surfaced only when applicable, never
+    null-spammed — the frontend renders these on PRESENCE, so an empty value on
+    the wire is not the same as no value. ``_STREAM_EXTRA_FIELDS`` then carries
+    whatever was set here onto the terminal chunk, and the aiq_api handler onto
+    the websocket frame. See docs/architecture/backend-deep-dive.md.
+
+    A module-level function rather than inline code in ``_run`` because it is
+    the *crossing* from graph state to answer: state field name in, response
+    attribute out. Inline, it could only be exercised by standing up the whole
+    NAT workflow, which is why ``skills_hidden`` could be set by the shallow
+    researcher, declared by the frontend, and still never reach a reader.
+    """
+    from .agent import derive_routing_decision
+
+    depth_decision = _result_field(result, "depth_decision")
+    routing_decision = derive_routing_decision(_result_field(result, "user_intent"), depth_decision)
+    routing_reason = getattr(depth_decision, "raw_reasoning", None)
+    escalation_reason = _result_field(result, "escalation_reason")
+    answer_confidence_capped_reason = _result_field(result, "answer_confidence_capped_reason")
+    answer_confidence_reason = _result_field(result, "answer_confidence_reason")
+    citations_removed = _result_field(result, "citations_removed")
+    research_truncated = _result_field(result, "research_truncated")
+    job_admission_rejected = _result_field(result, "job_admission_rejected")
+    retry_after_seconds = _result_field(result, "retry_after_seconds")
+    skills_activated = _result_field(result, "skills_activated")
+    skills_hidden = _result_field(result, "skills_hidden")
+
+    if routing_decision:
+        response.routing_decision = routing_decision
+    if routing_reason:
+        response.routing_reason = routing_reason
+    if escalation_reason:
+        response.escalation_reason = escalation_reason
+    if answer_confidence_capped_reason:
+        response.answer_confidence_capped_reason = answer_confidence_capped_reason
+    if answer_confidence_reason:
+        response.answer_confidence_reason = answer_confidence_reason
+    if citations_removed:
+        response.citations_removed = citations_removed
+    # Truthiness, not `is not None`: the field is True-or-absent by
+    # construction, and an accidental False must stay off the wire rather
+    # than reach a frontend that renders on presence.
+    if research_truncated:
+        response.research_truncated = True
+    if job_admission_rejected:
+        response.job_admission_rejected = True
+        if retry_after_seconds is not None:
+            response.retry_after_seconds = retry_after_seconds
+    if skills_activated:
+        response.skills_activated = skills_activated
+        # Only alongside the list it is a subset of, and only when non-empty:
+        # an empty mute list is the same fact as no mute list, and putting it on
+        # the wire would null-spam a frame the frontend reads on presence.
+        if skills_hidden:
+            response.skills_hidden = skills_hidden
+
+
+def _response_to_chunks(response: ChatResponse, *, stream: bool) -> list[ChatResponseChunk]:
+    """Turn a fully-built ChatResponse into the chunk sequence to yield.
+
+    - ``stream=False``: a single terminal chunk (``finish_reason="stop"``) with
+      the full content and the Grid extras — identical delivery to the
+      pre-streaming single-response path.
+    - ``stream=True``: incremental delta chunks (``finish_reason=None``, no
+      extras) whose contents concatenate to exactly the final text, followed by
+      one terminal chunk carrying the FULL content and the extras. The terminal
+      is authoritative for persistence and the single-consumer fold.
+    """
+    try:
+        content = response.choices[0].message.content or ""
+    except (AttributeError, IndexError):
+        content = ""
+    model_name = getattr(response, "model", None)
+    response_id = getattr(response, "id", None)
+    extras = {field: value for field in _STREAM_EXTRA_FIELDS if (value := getattr(response, field, None)) is not None}
+
+    # A job-admission rejection ("queue full") is NOT a research answer: its
+    # prose is surfaced by the frontend as a warning banner, never an answer
+    # bubble. Emit ONLY the terminal chunk (carrying the extras) — no answer
+    # deltas — so no streaming assistant bubble is ever opened for it. Normal
+    # turns are unaffected and stream as usual.
+    job_admission_rejected = bool(getattr(response, "job_admission_rejected", None))
+
+    chunks: list[ChatResponseChunk] = []
+    if stream and content and not job_admission_rejected:
+        for delta in _iter_answer_deltas(content):
+            chunks.append(
+                ChatResponseChunk.create_streaming_chunk(delta, id_=response_id, model=model_name, finish_reason=None)
+            )
+    terminal = ChatResponseChunk.create_streaming_chunk(
+        content, id_=response_id, model=model_name, finish_reason="stop"
+    )
+    for field, value in extras.items():
+        setattr(terminal, field, value)
+    chunks.append(terminal)
+    return chunks
+
+
+def _fold_chunks_to_response(chunks: list[ChatResponseChunk]) -> ChatResponse:
+    """Collapse a streamed chunk sequence back into a single ChatResponse for
+    non-streaming consumers (the ``--input`` CLI, single-shot HTTP).
+
+    The terminal chunk's (``finish_reason="stop"``) content is authoritative, so
+    deltas are ignored when a terminal is present and the folded content is never
+    doubled. Grid extras are copied from whichever chunk carries them.
+    """
+    delta_parts: list[str] = []
+    final_content: str | None = None
+    extras: dict[str, object] = {}
+    model_name: str | None = None
+    response_id: str | None = None
+    for chunk in chunks:
+        model_name = model_name or getattr(chunk, "model", None)
+        response_id = response_id or getattr(chunk, "id", None)
+        content = _chunk_content(chunk)
+        if _chunk_finish_reason(chunk) == "stop":
+            if content:
+                final_content = content
+        elif content:
+            delta_parts.append(content)
+        model_extra = getattr(chunk, "model_extra", None) or {}
+        for field in _STREAM_EXTRA_FIELDS:
+            value = getattr(chunk, field, None)
+            if value is None:
+                value = model_extra.get(field)
+            if value is not None:
+                extras[field] = value
+    content = final_content if final_content is not None else "".join(delta_parts)
+    response = _create_chat_response(content, response_id=response_id or "research_response", model=model_name)
+    for field, value in extras.items():
+        setattr(response, field, value)
+    return response
 
 
 ########################################################
@@ -116,12 +458,89 @@ class IntentClassifierConfig(FunctionBaseConfig, name="intent_classifier"):
     )
 
 
+# Strong references to in-flight fire-and-forget persistence tasks so the event
+# loop cannot garbage-collect them mid-run (and so an unretrieved exception is
+# never logged as a warning). Entries are discarded on completion.
+_persist_tasks: set[asyncio.Task] = set()
+
+
+def _schedule_registry_persist(conversation_id: str) -> None:
+    """Persist the turn's citation registry to the shared cache off the TTFT path.
+
+    The write is best-effort/fail-open (ADR-0020 cross-replica/restart source
+    recovery) and nothing downstream reads its result, so it must not gate the
+    first streamed token. Mirrors ``schedule_memory_reflection``: run the
+    blocking cache write in a thread, swallow/log any failure, and hold a strong
+    reference until the task completes.
+    """
+
+    async def _persist() -> None:
+        try:
+            from aiq_agent.common.citation_verification import persist_session_registry
+
+            await asyncio.to_thread(persist_session_registry, conversation_id)
+        except Exception:
+            logger.debug("Citation registry persistence failed (non-fatal)", exc_info=True)
+
+    try:
+        task = asyncio.get_running_loop().create_task(_persist())
+    except RuntimeError:
+        # No running loop (e.g. sync test context) — persist inline as a fallback.
+        try:
+            from aiq_agent.common.citation_verification import persist_session_registry
+
+            persist_session_registry(conversation_id)
+        except Exception:
+            logger.debug("Citation registry persistence failed (non-fatal)", exc_info=True)
+        return
+    _persist_tasks.add(task)
+    task.add_done_callback(_persist_tasks.discard)
+
+
+def _compact_tool_blurb(tool_name: str, full_description: str) -> str:
+    """One-line routing blurb for a tool used by the intent classifier.
+
+    The classifier only needs each tool's PURPOSE to route (meta-vs-research,
+    shallow-vs-deep) — not its argument-level usage contract. It renders the
+    tool list below the KV-cache boundary and does not ``bind_tools``, so a
+    full agent-facing docstring (e.g. ris_search's ~40 lines) is pure prefill
+    weight on the gating LLM call of every turn.
+
+    Prefer the data-source registry's short description — the exact text the
+    pinned-sources path already renders via ``format_data_source_tools`` — so
+    the two paths converge. Fall back to the first sentence of the tool's own
+    description for non-registry tools (e.g. ``remember``). Always single-line.
+    """
+    try:
+        from aiq_agent.common.data_source_registry import get_source
+        from aiq_agent.common.data_source_registry import get_source_id_for_tool
+
+        source_id = get_source_id_for_tool(tool_name)
+        if source_id:
+            meta = get_source(source_id)
+            if meta and meta.description:
+                return " ".join(meta.description.split())
+    except Exception:
+        pass
+
+    text = " ".join((full_description or "").split())
+    if not text:
+        return ""
+    # First sentence, so a non-registry tool still conveys its purpose.
+    for sep in (". ", "! ", "? "):
+        idx = text.find(sep)
+        if idx != -1:
+            return text[: idx + 1]
+    # No sentence terminator: cap length so a stray long docstring can't bloat.
+    return text if len(text) <= 240 else text[:237] + "..."
+
+
 @register_function(config_type=IntentClassifierConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def intent_classifier(config: IntentClassifierConfig, builder: Builder):
     """Combined orchestration: classifies intent, produces meta response, and routes depth in one node."""
     from .nodes import IntentClassifier
 
-    llm = await builder.get_llm(config.llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    llm = await get_langchain_llm(builder, config.llm)
 
     if config.tools:
         tool_refs = config.tools
@@ -139,7 +558,16 @@ async def intent_classifier(config: IntentClassifierConfig, builder: Builder):
     verbose = is_verbose(config.verbose)
     callbacks = [VerboseTraceCallback()] if verbose else []
 
-    tools_info = [{"name": getattr(t, "name", str(t)), "description": getattr(t, "description", "")} for t in tools]
+    # Routing only needs each tool's purpose, not its full call docstring: keep
+    # the exact tool name (the registry/non-registry split below keys on it) but
+    # collapse the description to a short single-line blurb (see helper).
+    tools_info = [
+        {
+            "name": getattr(t, "name", str(t)),
+            "description": _compact_tool_blurb(getattr(t, "name", str(t)), getattr(t, "description", "")),
+        }
+        for t in tools
+    ]
     classifier = IntentClassifier(
         llm=llm,
         tools_info=tools_info,
@@ -156,9 +584,13 @@ async def intent_classifier(config: IntentClassifierConfig, builder: Builder):
     non_registry_tools_info = [t for t in tools_info if t["name"] not in registry_names]
 
     async def _run(state: ChatResearcherState) -> dict[str, Any]:
+        # Pass the narrowed list per request instead of mutating the shared
+        # classifier instance: a mutation would leak one request's data-source
+        # selection into every later request (and race between concurrent ones).
+        request_tools_info = None
         if state.data_sources is not None:
-            classifier.tools_info = format_data_source_tools(state.data_sources) + non_registry_tools_info
-        return await classifier.run(state)
+            request_tools_info = format_data_source_tools(state.data_sources) + non_registry_tools_info
+        return await classifier.run(state, tools_info=request_tools_info)
 
     yield FunctionInfo.from_fn(
         _run,
@@ -173,8 +605,9 @@ class ChatDeepResearcherConfig(FunctionBaseConfig, name="chat_deepresearcher_age
     """Configuration for the chat deep researcher orchestrator agent."""
 
     enable_escalation: bool = Field(default=False, description="Enable escalation from shallow to deep research")
-    max_history: int = Field(
-        default=20, description="Maximum number of messages to keep in history before invoking the agent"
+    max_history_tokens: int = Field(
+        default=8000,
+        description="Maximum number of tokens of chat history to keep before invoking the agent",
     )
     verbose: bool = Field(default=False, description="Enable verbose logging")
     enable_clarifier: bool = Field(default=False, description="Enable clarification of research queries")
@@ -197,6 +630,15 @@ class ChatDeepResearcherConfig(FunctionBaseConfig, name="chat_deepresearcher_age
             "answer is returned a background task reviews the turn against the project's existing "
             "memory and records any durable finding the in-turn `remember` tool missed. Unset "
             "disables reflection entirely (no extra LLM call)."
+        ),
+    )
+    follow_ups_llm: LLMRef | None = Field(
+        default=None,
+        description=(
+            "Optional LLM for the async post-answer follow-up-questions stage. When set, after a "
+            "substantive answer is returned a background task reads the finished answer and names "
+            "the two to four questions it made askable. Unset disables the stage entirely (no "
+            "extra LLM call) — the capability bit of `flag AND capability`."
         ),
     )
 
@@ -253,7 +695,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                     f"  1. Set these keys in your .env file or environment variables\n"
                     f"  2. Restart the application"
                 )
-                logger.error("Missing required API keys: %s", ", ".join(missing_keys))
+                logger.error("Missing %d required API key(s)", len(missing_keys))
                 # Create the error response here to avoid duplication
                 api_key_error_response = _create_chat_response(error_msg, response_id="api_key_error")
         except Exception as e:
@@ -332,10 +774,10 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 if not query:
                     if not state.messages:
                         raise RuntimeError("Cannot submit deep research job without messages.")
-                    query = state.messages[0].content
+                    from aiq_agent.common import get_latest_user_query
+
+                    query = get_latest_user_query(state.messages)
                 input_text = query if isinstance(query, str) else str(query)
-                if state.clarifier_result:
-                    input_text = f"{input_text}\n\n## Clarification Context\n{state.clarifier_result}"
 
                 # Serialize available_documents for the Dask worker
                 available_docs = None
@@ -355,6 +797,21 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                     collection_scope=state.collection_scope,
                     project_context=state.project_context,
                     model_overrides=get_model_overrides_from_context() or None,
+                    # Structured fields (not prose-folded into input_text) so the
+                    # worker sets them on DeepResearchAgentState and the deep
+                    # prompts render their dedicated sections, same as the
+                    # synchronous in-process deep research path.
+                    user_info=state.user_info,
+                    clarifier_result=state.clarifier_result,
+                    # Deep-research reflection runs on the worker once the report
+                    # exists (the sync post-answer stage skips deep jobs). Both
+                    # values are read here while the request context is live.
+                    memory_reflection_enabled=(
+                        config.memory_reflection_llm is not None and get_memory_reflection_enabled_from_context()
+                    ),
+                    # Plain str (LLMRef is a str subclass) so it crosses the Dask
+                    # pickle boundary without depending on the subclass.
+                    memory_reflection_llm=(str(config.memory_reflection_llm) if config.memory_reflection_llm else None),
                 )
 
             deep_research_job_submitter = _submit_deep_job
@@ -369,11 +826,29 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
     reflection_llm = None
     if config.memory_reflection_llm is not None:
         try:
-            reflection_llm = await builder.get_llm(
-                config.memory_reflection_llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN
-            )
+            reflection_llm = await get_langchain_llm(builder, config.memory_reflection_llm)
         except Exception:
             logger.warning("Could not build memory_reflection_llm; reflection disabled", exc_info=True)
+
+    # Optional LLM for the async post-answer follow-up-questions stage. Same
+    # shape and the same zero-cost-when-unset rule.
+    follow_ups_llm = None
+    if config.follow_ups_llm is not None:
+        try:
+            follow_ups_llm = await get_langchain_llm(builder, config.follow_ups_llm)
+        except Exception:
+            logger.warning("Could not build follow_ups_llm; the follow-ups stage is disabled", exc_info=True)
+
+    # The models the post-answer stages run on, keyed by agent group so the
+    # runner can apply the org's override and BYOK credential per group without
+    # anything here naming a stage. A group with no model is the capability bit:
+    # its stages are a no-op, and — see the flag resolution below — a no-op must
+    # cost nothing, not a per-turn round-trip.
+    _stage_llms = {
+        AgentGroup.MEMORY_REFLECTION: reflection_llm,
+        AgentGroup.FOLLOW_UPS: follow_ups_llm,
+    }
+    _any_stage_llm = any(llm is not None for llm in _stage_llms.values())
 
     checkpointer = await get_checkpointer(config.checkpoint_db)
 
@@ -385,22 +860,37 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         enable_clarifier=config.enable_clarifier,
         enable_escalation=config.enable_escalation,
         callbacks=callbacks,
-        max_history=config.max_history,
+        max_history_tokens=config.max_history_tokens,
         deep_research_job_submitter=deep_research_job_submitter,
         checkpointer=checkpointer,
         validate_deep_research_tools_fn=validate_deep_research_tools,
     )
 
-    async def _run(query: object) -> ChatResponse:
-        import os
+    # Ingest-only context (ADR-0034 addendum). The WebSocket front end owns the
+    # socket and this tier owns the graph, so the appender is published rather than
+    # imported: a `context_only` frame lands in this conversation's checkpoint
+    # without a turn, so the agent can see what a colleague wrote the next time it
+    # IS addressed. Registered here because this is where the compiled graph (and
+    # its checkpointer) exists.
+    register_context_appender(agent.append_context_message)
+
+    async def _run(
+        query: object,
+    ) -> Annotated[AsyncGenerator[ChatResponseChunk, None], Streaming(convert=_fold_chunks_to_response)]:
         import sys
         import uuid
 
         # Read the X-Grid-Collection-Scope header from NAT context, if present.
+        # Prefer the shelf-bearing entries (ADR-0047) so the inventory can
+        # group Büroarchiv / Projekt / session / Basiswissen instead of dumping
+        # every filename into one unlabeled list.
         _collection_scope = None
+        _scoped_collections = None
         try:
             from aiq_agent.knowledge.scoping import get_collection_scope_from_context
+            from aiq_agent.knowledge.scoping import get_scoped_collections_from_context
 
+            _scoped_collections = get_scoped_collections_from_context()
             _collection_scope = get_collection_scope_from_context()
         except ImportError:
             pass
@@ -410,52 +900,92 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         # frozen for the connection's life, so memory written mid-session would
         # not reach the agent until a reconnect. Re-fetch a LIVE digest per turn
         # and fall back to the frozen header value only when the fetch fails.
-        _project_context = None
-        # Values the async memory-reflection stage needs, captured while the
-        # request context is still live (the task runs after this returns).
-        _reflection_project_id = None
-        _reflection_org_id = None
-        _reflection_memory_digest = None
-        _reflection_flag_enabled = False
-        try:
-            from aiq_agent.project_context import compose_project_context
-            from aiq_agent.project_context import get_memory_digest_from_context
-            from aiq_agent.project_context import get_memory_reflection_enabled_from_context
-            from aiq_agent.project_context import get_organization_id_from_context
-            from aiq_agent.project_context import get_profile_context_from_context
-            from aiq_agent.project_context import get_project_id_from_context
+        #
+        # This and the available-documents aggregation below are two independent
+        # blocking I/O paths that used to run strictly one after the other before
+        # intent classification. They are now defined as coroutines and awaited
+        # together via asyncio.gather (see below), so the digest fetch and the
+        # per-collection document reads overlap. Each degrades independently:
+        # a failure in one never affects the other.
+        async def _load_project_context():
+            """Live per-turn project context (profile + memory digest).
 
-            _profile_context = get_profile_context_from_context()
-            _project_id = get_project_id_from_context()
-            _org_id = get_organization_id_from_context()
+            Returns the 5-tuple consumed below. Fail-open: on any error the
+            defaults are returned so the turn proceeds without a live digest.
+            """
+            _project_context = None
+            # The request-scoped half of the post-answer stages' TurnFacts,
+            # captured while the request context is still live — the stage tasks
+            # run after this returns, when the context is gone. The turn-scoped
+            # half (query, answer, intent, truncation) is filled in at the call
+            # site with dataclasses.replace.
+            _stage_facts = TurnFacts()
+            try:
+                from aiq_agent.project_context import GridRequestContext
+                from aiq_agent.project_context import compose_project_context
 
-            # Live per-turn digest; fall back to the connection-time header value.
-            _memory_digest = get_memory_digest_from_context()
-            if _project_id or _org_id:
-                try:
-                    from aiq_agent.knowledge.project_memory import fetch_memory_digest
+                # Parse the signed request-context envelope ONCE per turn: each
+                # accessor helper otherwise re-reads the header and re-runs the
+                # base64 + HMAC-SHA256 + JSON parse of the same payload (the
+                # module docstring instructs calling from_context() once when
+                # more than one field is needed).
+                _ctx = GridRequestContext.from_context()
+                _profile_context = _ctx.project_context
+                _project_id = _ctx.project_id
+                _org_id = _ctx.organization_id
 
-                    _live_digest = await asyncio.to_thread(
-                        fetch_memory_digest, project_id=_project_id, organization_id=_org_id
+                # Live per-turn digest; fall back to the connection-time header value.
+                _memory_digest = _ctx.project_memory
+                if _project_id or _org_id:
+                    try:
+                        from aiq_agent.knowledge.project_memory import fetch_memory_digest
+
+                        _live_digest = await asyncio.to_thread(
+                            fetch_memory_digest, project_id=_project_id, organization_id=_org_id
+                        )
+                        # A successful fetch is authoritative even when empty (memory
+                        # may have been cleared); only a failure keeps the header value.
+                        _memory_digest = _live_digest
+                    except Exception:
+                        logger.warning("Live memory digest fetch failed; using connection-time digest", exc_info=True)
+
+                _project_context = compose_project_context(_profile_context, _memory_digest)
+
+                # Which post-answer stages are on is decided per TURN, not per
+                # socket. The feature header is written once at the WS upgrade
+                # and then frozen for the life of the connection, so an operator
+                # switching a stage off did not reach an already-open tab — the
+                # opposite of what a kill switch is for. Same shape as the live
+                # digest above: ask the BFF, and fall back to the frozen value
+                # only when the call fails.
+                #
+                # Skipped entirely when no stage has a model to run on: the flag
+                # would decide nothing, and a deployment that compiled the stages
+                # out must not pay an internal round-trip per turn for the
+                # privilege.
+                _enabled_stages = (
+                    await resolve_enabled_stages(
+                        organization_id=_org_id,
+                        memory_reflection_enabled=_ctx.memory_reflection_enabled,
                     )
-                    # A successful fetch is authoritative even when empty (memory
-                    # may have been cleared); only a failure keeps the header value.
-                    _memory_digest = _live_digest
-                except Exception:
-                    logger.warning(
-                        "Live memory digest fetch failed; using connection-time digest", exc_info=True
-                    )
+                    if _any_stage_llm
+                    else frozenset()
+                )
 
-            _project_context = compose_project_context(_profile_context, _memory_digest)
-
-            if reflection_llm is not None:
-                _reflection_flag_enabled = get_memory_reflection_enabled_from_context()
-                _reflection_project_id = _project_id
-                _reflection_org_id = _org_id
-                # Reflect against the digest the agent actually saw this turn.
-                _reflection_memory_digest = _memory_digest
-        except ImportError:
-            pass
+                _stage_facts = TurnFacts(
+                    conversation_id=nat_context_conversation_id,
+                    ws_parent_id=get_user_message_id_from_context(),
+                    organization_id=_org_id,
+                    project_id=_project_id,
+                    user_id=_ctx.user_id,
+                    # Reflect against the digest the agent actually saw this turn.
+                    memory_digest=_memory_digest,
+                    bundesland=_ctx.bundesland,
+                    enabled_stages=_enabled_stages,
+                )
+            except ImportError:
+                pass
+            return (_project_context, _stage_facts)
 
         # Check if API keys are missing and return graceful error response
         if api_key_error_response:
@@ -470,7 +1000,11 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
 
                 threading.Thread(target=exit_after_error, daemon=False).start()
 
-            return api_key_error_response
+            # Error responses are short and fully known up front — deliver as a
+            # single terminal chunk regardless of the streaming flag.
+            for _chunk in _response_to_chunks(api_key_error_response, stream=False):
+                yield _chunk
+            return
 
         # For --input mode, use a fresh conversation_id to avoid loading old checkpoint state
         # This ensures each run starts with a clean conversation history
@@ -511,7 +1045,10 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 pass
         logger.info("skip_clarifier=%s", skip_clarifier)
 
-        query_text, data_sources = _extract_query_and_sources(query)
+        # Retrieval reads the turn's focus from the ContextVars this parse sets;
+        # taking it from the same call is what also puts the subject in front of
+        # the classifier and the answering model.
+        query_text, data_sources, force_skills, _focus_file_name, _focus_shelf = extract_turn_inputs(query)
         logger.info("ChatDeepResearcherAgent: %s", query_text)
         logger.info("ChatDeepResearcherAgent: Data sources: %s", data_sources)
 
@@ -520,62 +1057,111 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         # BOTH the base OIB corpus and the per-session collection
         # (conversation_id) so the agent sees uploads and the persistent corpus.
         # The registry is populated by backends during ingestion (backend-agnostic).
-        available_documents = None
-        try:
-            from aiq_agent.knowledge import get_available_documents_async
-            from aiq_agent.knowledge.scoping import get_collection_scope_from_context
+        async def _load_available_documents():
+            """Aggregate document summaries across the in-scope collections.
 
-            # Header-based collection scope takes precedence.
-            header_scope = get_collection_scope_from_context()
-            if header_scope:
-                collections_to_check = header_scope
-            else:
-                # Session collection (s_<conversation_id>), when present.
-                raw_conversation_id = Context.get().conversation_id if Context.get() else None
-                session_collection = None
-                if raw_conversation_id:
-                    session_collection = (
-                        raw_conversation_id if raw_conversation_id.startswith("s_") else f"s_{raw_conversation_id}"
+            Returns a list of documents (or None when nothing is found).
+            Fail-open: a total failure yields None; a single collection's
+            failure yields empty for that collection, not a total failure.
+            """
+            available_documents = None
+            try:
+                from aiq_agent.common.source_kinds import Shelf
+                from aiq_agent.knowledge import get_available_documents_async
+                from aiq_agent.knowledge.scoping import ScopedCollection
+
+                # Header-based collection scope takes precedence. Reuse the
+                # shelf-bearing entries decoded at the top of the turn so each
+                # inventory row can be stamped with its shelf.
+
+                header_scope = _scoped_collections or _collection_scope
+                if header_scope:
+                    collections_to_check = header_scope
+                else:
+                    # Session collection (s_<conversation_id>), when present.
+                    raw_conversation_id = Context.get().conversation_id if Context.get() else None
+                    session_collection = None
+                    if raw_conversation_id:
+                        session_collection = (
+                            raw_conversation_id if raw_conversation_id.startswith("s_") else f"s_{raw_conversation_id}"
+                        )
+                    # Base OIB corpus name, resolved from env with a sensible default.
+                    base_collection = (
+                        os.environ.get("COLLECTION_NAME") or os.environ.get("OIB_COLLECTION_NAME") or "oib_knowledge"
                     )
-                # Base OIB corpus name, resolved from env with a sensible default.
-                base_collection = (
-                    os.environ.get("COLLECTION_NAME") or os.environ.get("OIB_COLLECTION_NAME") or "oib_knowledge"
-                )
-                # Distinct collections to query, preserving order (base first).
-                collections_to_check: list[str] = []
-                for coll in (base_collection, session_collection):
-                    if coll and coll not in collections_to_check:
-                        collections_to_check.append(coll)
+                    # Distinct collections to query, preserving order (base first).
+                    # The fallback *builds* these layers, so the shelf is known
+                    # structurally — not guessed from the name.
+                    collections_to_check: list[ScopedCollection] = []
+                    for coll, shelf in (
+                        (base_collection, Shelf.BASE),
+                        (session_collection, Shelf.SESSION),
+                    ):
+                        if coll and all(entry.collection != coll for entry in collections_to_check):
+                            collections_to_check.append(ScopedCollection(coll, shelf))
 
-            aggregated = []
-            seen_files: set[str] = set()
-            for coll in collections_to_check:
-                try:
-                    docs = await get_available_documents_async(coll)
-                except Exception as e:
-                    logger.debug("No document summaries for collection %s: %s", coll, e)
-                    continue
-                for doc in docs or []:
-                    if doc.file_name in seen_files:
-                        continue
-                    seen_files.add(doc.file_name)
-                    aggregated.append(doc)
-
-            if aggregated:
-                available_documents = aggregated
-                logger.info(
-                    "Loaded %d document summaries across collections %s",
-                    len(aggregated),
-                    collections_to_check,
+                # Read every collection concurrently (instead of one round-trip
+                # at a time) and merge deterministically; see the helper for the
+                # order/dedup/fail-open contract.
+                aggregated = await _aggregate_documents_across_collections(
+                    collections_to_check, get_available_documents_async
                 )
-            else:
-                logger.info("No document summaries in DB for collections %s", collections_to_check)
-        except Exception as e:
-            logger.warning("Could not fetch available documents: %s", e)
+
+                scope_names = [
+                    entry.collection if hasattr(entry, "collection") else entry for entry in collections_to_check
+                ]
+                if aggregated:
+                    available_documents = aggregated
+                    logger.info(
+                        "Loaded %d document summaries across collections %s",
+                        len(aggregated),
+                        scope_names,
+                    )
+                else:
+                    logger.info("No document summaries in DB for collections %s", scope_names)
+            except Exception as e:
+                logger.warning("Could not fetch available documents: %s", e)
+            return available_documents
+
+        # Say what is happening in the FIRST hole of the turn. Nothing at all
+        # reached the client before the intent classifier's LLM call, so a turn
+        # scoped to an archive or a project sat silent through every one of
+        # these round-trips. Only emitted when one of the reader's OWN shelves
+        # is in scope -- the base OIB corpus is read on every research turn,
+        # and announcing a constant says nothing.
+        try:
+            from aiq_agent.common.turn_status import emit_documents_loading
+
+            emit_documents_loading(
+                [
+                    str(shelf)
+                    for entry in (_scoped_collections or ())
+                    if (shelf := getattr(entry, "shelf", None)) is not None
+                ]
+            )
+        except Exception:  # noqa: BLE001 — transparency must never take a turn down
+            logger.debug("Document-loading status not emitted", exc_info=True)
+
+        # Run the independent per-turn I/O paths concurrently: the live
+        # memory-digest fetch, the available-documents aggregation, and the
+        # session-registry hydration. None depends on the others, and each fails
+        # open on its own (see the helpers), so gather cannot let one failure
+        # lose the others' results. The registry hydration's blocking Dragonfly
+        # GET (cold-cache, ~0.5s socket timeout) is offloaded via asyncio.to_thread
+        # so it overlaps the gather instead of blocking the loop serially after it.
+        (
+            (_project_context, _stage_facts),
+            available_documents,
+            session_registry,
+        ) = await asyncio.gather(
+            _load_project_context(),
+            _load_available_documents(),
+            asyncio.to_thread(get_or_create_session_registry, nat_context_conversation_id),
+        )
         # Set session-scoped source registry for citation verification across turns.
         # When no conversation ID is available, get_or_create_session_registry returns a
         # fresh per-request registry to prevent anonymous sessions from sharing state.
-        session_registry = get_or_create_session_registry(nat_context_conversation_id)
+        # The hydrating read above ran in the gather; the ContextVar set stays inline.
         token = set_session_registry(session_registry)
         # Bind the conversation-scoped card registry so the `emit_card` tool can
         # push cards during the turn. Cleared here (registries are reused across
@@ -588,26 +1174,64 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 messages=[HumanMessage(content=query_text)],
                 user_info=user_info_dict,
                 data_sources=data_sources,
+                force_skills=force_skills,
                 available_documents=available_documents,
                 collection_scope=_collection_scope,
+                focus_file_name=_focus_file_name,
+                focus_shelf=_focus_shelf,
                 skip_clarifier=skip_clarifier,
                 project_context=_project_context,
             )
             # Unified LLM cost capture + budget enforcement for the whole turn
             # (every agent/LLM call inside inherits the tracker via LangChain's
-            # configure hook — see aiq_agent/common/cost_tracking.py).
+            # configure hook — see aiq_agent/common/cost_tracking.py). The
+            # profiler wraps the same turn, capturing a node/LLM/tool span
+            # timeline for the platform-owner profiler view (common/profiler.py).
             from aiq_agent.common.cost_tracking import BudgetExceededError
             from aiq_agent.common.cost_tracking import track_llm_costs
+            from aiq_agent.common.profiler import track_agent_profile
+            from aiq_agent.common.turn_admission import TurnAdmissionError
+            from aiq_agent.common.turn_admission import admit_turn_async
 
             try:
-                with track_llm_costs():
-                    result = await agent.run(state, thread_id=nat_context_conversation_id)
+                # Concurrency admission (ADR-0040 L3). A turn OCCUPIES capacity
+                # for as long as it runs, so the slot is held around the run
+                # itself — outside it, a per-minute rate limit would still admit
+                # an unbounded number of simultaneous research runs at a steady
+                # trickle. Interactive turns have their own pool, so background
+                # deep research can never crowd them out.
+                async with admit_turn_async(_admission_organization_id()):
+                    with track_agent_profile(agent_name="chat_researcher"), track_llm_costs():
+                        result = await agent.run(state, thread_id=nat_context_conversation_id)
+            except TurnAdmissionError as admission_error:
+                logger.warning("Turn refused by admission control: %s", admission_error)
+                busy_response = _create_chat_response(
+                    str(admission_error), response_id="turn_admission", model=workflow_id
+                )
+                # Same contract as every other refusal in the system: say WHEN to
+                # come back, not just no. Without it the client has to guess, and
+                # guessing is what turns a refusal into a retry storm.
+                busy_response.retry_after_seconds = admission_error.retry_after_seconds
+                for _chunk in _response_to_chunks(busy_response, stream=False):
+                    yield _chunk
+                return
             except BudgetExceededError as budget_error:
                 logger.warning("Turn stopped by budget enforcement: %s", budget_error)
-                return _create_chat_response(str(budget_error), response_id="budget_exceeded", model=workflow_id)
+                budget_response = _create_chat_response(
+                    str(budget_error), response_id="budget_exceeded", model=workflow_id
+                )
+                for _chunk in _response_to_chunks(budget_response, stream=False):
+                    yield _chunk
+                return
         finally:
             reset_session_registry(token)
             reset_card_registry(card_token)
+            # Persist the turn's captured citation sources to the shared cache
+            # (ADR-0020) so the conversation keeps prior-turn sources after a
+            # restart or on another replica. Best-effort and fire-and-forget: it
+            # must not sit between "answer ready" and "first streamed token".
+            if nat_context_conversation_id:
+                _schedule_registry_persist(nat_context_conversation_id)
 
         if isinstance(result, dict):
             messages = result.get("messages", [])
@@ -624,6 +1248,14 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         cards = card_registry.snapshot()
         deep_research_job_id = getattr(result, "deep_research_job_id", None) or (
             result.get("deep_research_job_id") if isinstance(result, dict) else None
+        )
+        # The model's guarded self-assessment of answer grounding (None on error,
+        # escalation, and marker-absent turns → no chip renders).
+        answer_confidence = getattr(result, "answer_confidence", None) or (
+            result.get("answer_confidence") if isinstance(result, dict) else None
+        )
+        verified_sources = getattr(result, "verified_sources", None) or (
+            result.get("verified_sources") if isinstance(result, dict) else None
         )
 
         # Exit after response when --input is provided
@@ -645,35 +1277,46 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             logger.info("No cards on this turn (cards=%r)", cards)
         if deep_research_job_id:
             response.deep_research_job_id = deep_research_job_id
+        if answer_confidence:
+            response.answer_confidence = answer_confidence
+        if verified_sources:
+            response.sources = verified_sources
+        # Transparency extras (WP-A) and the Agent Skills pair, read off the
+        # finished graph state and attached here.
+        _apply_transparency_extras(response, result)
 
-        # Post-processing phase: kick off memory reflection AFTER the answer is
-        # ready. Fire-and-forget — it runs on the event loop without delaying the
-        # response. Gated so it only reflects on a substantive research answer:
-        # deep-research job stubs carry no answer; meta/error turns and
-        # insufficiency answers ("I don't have enough information …") have nothing
-        # durable to record and would only invite spurious findings (audit gap).
-        # Runtime on/off is the `memory-reflection` WorkOS feature flag (or the
-        # MEMORY_REFLECTION_ENABLED env fallback), forwarded as a request header.
-        if reflection_llm is not None and _reflection_flag_enabled and not deep_research_job_id:
-            answer_text = response_content if isinstance(response_content, str) else str(response_content)
-            if _reflection_answer_is_substantive(result, answer_text):
-                from aiq_agent.agents.project_memory.reflection import schedule_memory_reflection
-                from aiq_agent.common import AgentGroup
-                from aiq_agent.common import apply_model_override
+        # Post-processing phase: kick off the post-answer stages AFTER the answer
+        # is ready. Fire-and-forget — they run on the event loop without delaying
+        # the response, each under its own declared hard timeout, and each
+        # recording an outcome whether it ran or not.
+        #
+        # ONE call site for every stage. Which stages exist, what gates them and
+        # what they cost is declared in `aiq_agent/stages/`; adding a stage never
+        # touches this block again. Every fact a gate or handler may read is
+        # captured HERE, while the request context is still live, because the
+        # tasks outlive it.
+        schedule_post_answer_stages(
+            _post_answer_turn_facts(
+                _stage_facts,
+                result=result,
+                response=response,
+                query_text=query_text,
+                answer_text=(response_content if isinstance(response_content, str) else str(response_content)),
+                cards=cards,
+                deep_research_job_id=deep_research_job_id,
+                answer_confidence=answer_confidence,
+            ),
+            # Keyed by agent group, not by stage id: the runner applies the org's
+            # model override and its ADR-0022 BYOK credential per group, here,
+            # while the override header is still readable.
+            llms=_stage_llms,
+        )
 
-                # Applied here — not inside the background task — because the
-                # override header is only readable while the request context is
-                # still live.
-                schedule_memory_reflection(
-                    llm=apply_model_override(reflection_llm, AgentGroup.MEMORY_REFLECTION),
-                    query=query_text,
-                    answer=answer_text,
-                    project_id=_reflection_project_id,
-                    organization_id=_reflection_org_id,
-                    conversation_id=nat_context_conversation_id,
-                    memory_digest=_reflection_memory_digest,
-                )
-
-        return response
+        # Deliver the fully verified/sanitized answer as a progressive stream:
+        # the already-final text is emitted as incremental deltas followed by a
+        # terminal chunk carrying cards/sources (single-output consumers fold it
+        # back to one ChatResponse via _fold_chunks_to_response).
+        for _chunk in _response_to_chunks(response, stream=True):
+            yield _chunk
 
     yield FunctionInfo.from_fn(_run, description="Chat deep researcher with intent routing and escalation.")

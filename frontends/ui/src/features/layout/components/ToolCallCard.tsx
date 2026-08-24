@@ -14,7 +14,9 @@ import { type FC, useState } from 'react'
 import { Check, ChevronDown, Clock, X } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
+import { formatTime } from '@/shared/utils/format-time'
+import { getWorkflowLabel } from '../lib/workflow-names'
 
 /** Tool call information from SSE events */
 export interface ToolCallInfo {
@@ -30,7 +32,11 @@ export interface ToolCallInfo {
   status: 'pending' | 'running' | 'complete' | 'error'
   /** When tool was called */
   timestamp?: Date | string
-  /** Parent agent that invoked the tool */
+  /**
+   * Which part of the run invoked the tool — the backend's raw role id
+   * ("researcher-agent"). Named for the reader by `getWorkflowLabel`; it is an
+   * identifier, never something to print.
+   */
   workflow?: string
   /** Error message if status is error */
   error?: string
@@ -39,14 +45,6 @@ export interface ToolCallInfo {
 interface ToolCallCardProps {
   /** Tool call information */
   toolCall: ToolCallInfo
-}
-
-/**
- * Format timestamp for display
- */
-const formatTime = (date: Date | string): string => {
-  const dateObj = typeof date === 'string' ? new Date(date) : date
-  return dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 /**
@@ -82,6 +80,7 @@ const getPreviewText = (toolCall: ToolCallInfo): string => {
 export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
   const [isExpanded, setIsExpanded] = useState(false)
   const t = useTranslations('research')
+  const { locale } = useLocale()
 
   const isRunning = toolCall.status === 'running'
   const isComplete = toolCall.status === 'complete'
@@ -103,7 +102,7 @@ export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
   const hasPreview = previewText.length > 0
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border bg-muted/40">
+    <div className="flex flex-col overflow-hidden rounded-lg border bg-muted">
       {/* Header - always visible */}
       <button
         type="button"
@@ -121,11 +120,11 @@ export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
           ) : (
             <span className={cn('shrink-0', statusTextClass)} aria-hidden="true">
               {isComplete ? (
-                <Check className="h-4 w-4" />
+                <Check className="size-4" />
               ) : isError ? (
-                <X className="h-4 w-4" />
+                <X className="size-4" />
               ) : (
-                <Clock className="h-4 w-4" />
+                <Clock className="size-4" />
               )}
             </span>
           )}
@@ -135,7 +134,7 @@ export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
             <span className={cn('text-sm font-semibold', statusTextClass)}>{toolCall.name}</span>
             {toolCall.workflow && (
               <span className="truncate text-xs text-muted-foreground">
-                {t('toolCallCard.via', { workflow: toolCall.workflow })}
+                {t('toolCallCard.step', { name: getWorkflowLabel(toolCall.workflow, t) })}
               </span>
             )}
           </div>
@@ -143,7 +142,7 @@ export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
           {/* Timestamp */}
           {toolCall.timestamp && (
             <span className="shrink-0 text-xs text-muted-foreground">
-              {formatTime(toolCall.timestamp)}
+              {formatTime(toolCall.timestamp, locale)}
             </span>
           )}
 
@@ -151,12 +150,12 @@ export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
           {canExpand && (
             <span
               className={cn(
-                'text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+                'text-muted-foreground transition-transform duration-quick motion-reduce:transition-none',
                 isExpanded && 'rotate-180'
               )}
               aria-hidden="true"
             >
-              <ChevronDown className="h-4 w-4" />
+              <ChevronDown className="size-4" />
             </span>
           )}
         </div>

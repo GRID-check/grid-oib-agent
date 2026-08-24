@@ -10,11 +10,17 @@
 import 'server-only'
 import { and, desc, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { getCached, invalidateCached } from '@/lib/cache'
 import {
   orgModelConfigs,
   orgModelConfigVersions,
   type OrgModelConfigVersion,
 } from '@/lib/db/schema'
+import { getPlatformModelDefaults } from './platform-defaults'
+
+const OVERRIDES_CACHE_TTL_MS = 5 * 60 * 1000
+
+const overridesCacheKey = (organizationId: string): string => `modeloverrides:${organizationId}`
 
 export interface ModelOverrides {
   [agentGroupId: string]: { model: string }
@@ -46,18 +52,55 @@ export async function getOrgModelConfig(organizationId: string): Promise<OrgMode
 }
 
 /**
- * The flat `{group: modelId}` map the runtime header carries, or null when
- * the org runs on workflow defaults. Read on every WS upgrade — keep cheap.
+ * The org's OWN `{group: modelId}` choices, or null when it has made none.
+ *
+ * This is the tenant layer only — it deliberately does not include the
+ * platform defaults, so admin surfaces can show "you chose this" separately
+ * from "you inherit this". Runtime paths want `getEffectiveModelOverrides`.
+ * Cached (write-invalidate: config saves/rollbacks drop the entry, ADR-0020).
  */
 export async function getActiveModelOverrides(organizationId: string): Promise<Record<string, string> | null> {
-  const { activeVersion } = await getOrgModelConfig(organizationId)
-  if (!activeVersion) return null
-  const overrides = activeVersion.overrides as ModelOverrides
-  const flat: Record<string, string> = {}
-  for (const [group, value] of Object.entries(overrides ?? {})) {
-    if (value && typeof value.model === 'string') flat[group] = value.model
-  }
-  return Object.keys(flat).length > 0 ? flat : null
+  return getCached(overridesCacheKey(organizationId), OVERRIDES_CACHE_TTL_MS, async () => {
+    const { activeVersion } = await getOrgModelConfig(organizationId)
+    if (!activeVersion) return null
+    const overrides = activeVersion.overrides as ModelOverrides
+    const flat: Record<string, string> = {}
+    for (const [group, value] of Object.entries(overrides ?? {})) {
+      if (value && typeof value.model === 'string') flat[group] = value.model
+    }
+    return Object.keys(flat).length > 0 ? flat : null
+  })
+}
+
+/**
+ * What the backend should actually run for this org: the platform defaults
+ * with the org's own choices layered on top.
+ *
+ * This is the map every runtime path forwards (WS upgrade header, the async-job
+ * proxy, scheduled workflows, and the backend's just-in-time
+ * `/api/internal/model-overrides` fallback) — resolving it here means the
+ * Python side keeps its single contract ("the header is model selection only")
+ * and needs no notion of platform defaults at all.
+ *
+ * Merge is PER GROUP, not all-or-nothing: an org that pinned only
+ * `deep_research` still follows the platform default for `intent`. That is the
+ * whole point — a fleet-wide model switch reaches every tenant that has not
+ * deliberately opted out of it, group by group.
+ *
+ * Fails open on the platform side: if the defaults table cannot be read, the
+ * org's own overrides still apply and anything else falls through to the
+ * workflow YAML, exactly as before this layer existed.
+ */
+export async function getEffectiveModelOverrides(organizationId: string): Promise<Record<string, string> | null> {
+  const [platformDefaults, orgOverrides] = await Promise.all([
+    getPlatformModelDefaults().catch((error) => {
+      console.warn('[Model Config] Could not resolve platform model defaults:', error)
+      return {} as Record<string, string>
+    }),
+    getActiveModelOverrides(organizationId),
+  ])
+  const merged: Record<string, string> = { ...platformDefaults, ...(orgOverrides ?? {}) }
+  return Object.keys(merged).length > 0 ? merged : null
 }
 
 export async function listVersions(organizationId: string, limit = 50): Promise<OrgModelConfigVersion[]> {
@@ -113,6 +156,9 @@ export async function createAndActivateVersion(params: {
       })
 
     return inserted
+  }).then(async (inserted) => {
+    await invalidateCached(overridesCacheKey(params.organizationId))
+    return inserted
   })
 }
 
@@ -153,5 +199,6 @@ export async function activateVersion(params: {
       target: orgModelConfigs.organizationId,
       set: { activeVersionId: params.versionId, updatedBy: params.actorUserId, updatedAt: new Date() },
     })
+  await invalidateCached(overridesCacheKey(params.organizationId))
   return version
 }

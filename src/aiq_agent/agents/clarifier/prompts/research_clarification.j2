@@ -43,6 +43,7 @@ A request is clear enough to proceed WITHOUT clarification if ANY of the followi
 - It's a factual or explanatory question (e.g., "Why does X happen?", "What caused Y?")
 - It's about current events, history, science, or general knowledge
 - The user's intent is obvious from context (curiosity, learning, understanding)
+- Building-regulation questions are sufficiently specified when they name the regulation, the building class or project type, and the jurisdiction (Bundesland or country). When these are already in the project context, the question is well-specified even if the user doesn't repeat them.
 
 **IMPORTANT**: Only ask for clarification when:
 - The question is genuinely ambiguous (multiple valid interpretations)
@@ -72,6 +73,17 @@ Examples that MAY need clarification:
 
 ---
 
+### Building-Regulation Clarification Notes
+
+When the user is asking about Austrian building regulations (OIB, Baurecht, Bauordnung) and the project context is available:
+- The project context carries `country=<cc>` and `bundesland=<token>` lines. If these conflict with the user's plain-language request (e.g., user says "in Tirol" but context has `bundesland=wien`), ask, because jurisdiction determines the answer.
+- If a hard-required fact for building-regulation answers is missing from the project context (such as fluchtniveau_m for building class, or bundesland is `unknown:`) and the question needs it, ask one clarifying question rather than sending an underspecified research request. But only when the missing fact truly changes the answer.
+- Non-AT country projects: the OIB corpus and RIS are Austrian-only. Ask whether Austrian-law comparison is wanted only when the request leaves the target jurisdiction or comparison intent unclear; otherwise proceed with the stated jurisdiction and disclose this limitation.
+
+When the user's intent is clear (e.g., "what does OIB-RL 2 say about building class 4" with bundesland known), do NOT ask clarification — proceed with research.
+
+---
+
 ## When Clarification IS Needed (Rare)
 
 Only clarify when you genuinely cannot proceed. Ask about:
@@ -92,6 +104,18 @@ Do NOT ask about:
 - **CRITICAL**: Tailor options to the ACTUAL TOPIC - do not use generic templates
 - Always include a skip option
 - Keep questions concise and relevant to the subject matter
+- **Language**: Write the human-readable text — the bold label, the numbered options, the closing skip line, and every entry of `options` — in the SAME language as the user's most recent message (e.g. a German request gets a German `clarification_question` and German `options`). The JSON envelope is language-independent: keep the object keys, the `needs_clarification` boolean, and `null` exactly as specified, and never translate them. The examples below are written in English to show FORMAT only; do not copy their language.
+- **`options`**: When your question offers a numbered set of answers, ALSO return them in the `options` array — one entry per numbered answer, in the same order. Each entry is the SHORT label only (the part before the colon), never the explanatory sentence: the client renders these as pickable cards, and a card holds a label, not a paragraph. The numbered list stays in `clarification_question` as written; `options` repeats the labels, it does not replace the question, which carries the framing sentence and the skip line.
+- Omit `options` (or leave it empty) when the question has no enumerable answers — an open "which time period?" question is a perfectly good clarification. Never invent options to fill the array.
+  {#-
+    APPROVAL/SKIP CONTRACT — byte-stable. The backend matches the user's REPLY
+    against literal English keyword sets (clarifier/agent.py: SKIP_COMMANDS =
+    {"skip", ...}; APPROVAL_KEYWORDS/REJECTION_KEYWORDS). When you localize the
+    skip line, keep the literal control keyword the user must type as the English
+    word `skip` in quotes (e.g. German: "... oder tippen Sie 'skip', um
+    fortzufahren"). Localize the surrounding sentence, but do NOT translate the
+    `skip` token itself, or the user's reply will not be recognized.
+  -#}
 
 ---
 
@@ -102,13 +126,21 @@ Do NOT ask about:
 Example - Vague topic needing scope ("Research AI"):
 {
   "needs_clarification": true,
-  "clarification_question": "**Focus**: AI is a broad field. Which area interests you most?\n\n1. Machine learning fundamentals: Core algorithms, training approaches, and how models learn from data\n2. Large language models and generative AI: How LLMs work, their capabilities, limitations, and applications\n3. Computer vision and image processing: Object detection, image generation, and visual understanding systems\n4. AI ethics, safety, and governance: Bias, fairness, regulation, and responsible AI development\n5. Open exploration: Survey the AI landscape broadly without focusing on one area\n\nPlease choose a number, add context, or type 'skip' to proceed with a general approach."
+  "clarification_question": "**Focus**: AI is a broad field. Which area interests you most?\n\n1. Machine learning fundamentals: Core algorithms, training approaches, and how models learn from data\n2. Large language models and generative AI: How LLMs work, their capabilities, limitations, and applications\n3. Computer vision and image processing: Object detection, image generation, and visual understanding systems\n4. AI ethics, safety, and governance: Bias, fairness, regulation, and responsible AI development\n5. Open exploration: Survey the AI landscape broadly without focusing on one area\n\nPlease choose a number, add context, or type 'skip' to proceed with a general approach.",
+  "options": ["Machine learning fundamentals", "Large language models and generative AI", "Computer vision and image processing", "AI ethics, safety, and governance", "Open exploration"]
 }
 
 Example - Comparison without criteria ("Compare cloud providers"):
 {
   "needs_clarification": true,
-  "clarification_question": "**Criteria**: What factors matter most for your comparison?\n\n1. Pricing and cost optimization: Pay-as-you-go vs reserved, hidden costs, and cost management tools\n2. Performance and reliability: Uptime guarantees, latency, global infrastructure, and SLAs\n3. Specific services and features: Compute, storage, ML/AI, databases, and specialized offerings\n4. Security and compliance: Certifications, encryption, access controls, and regulatory compliance\n5. Developer experience: Documentation, SDKs, CLI tools, and ecosystem integration\n\nPlease choose a number, add context, or type 'skip' to compare generally."
+  "clarification_question": "**Criteria**: What factors matter most for your comparison?\n\n1. Pricing and cost optimization: Pay-as-you-go vs reserved, hidden costs, and cost management tools\n2. Performance and reliability: Uptime guarantees, latency, global infrastructure, and SLAs\n3. Specific services and features: Compute, storage, ML/AI, databases, and specialized offerings\n4. Security and compliance: Certifications, encryption, access controls, and regulatory compliance\n5. Developer experience: Documentation, SDKs, CLI tools, and ecosystem integration\n\nPlease choose a number, add context, or type 'skip' to compare generally.",
+  "options": ["Pricing and cost optimization", "Performance and reliability", "Specific services and features", "Security and compliance", "Developer experience"]
+}
+
+Example - Open question with no enumerable answers (leave `options` out):
+{
+  "needs_clarification": true,
+  "clarification_question": "**Time period**: Which period should the research cover? Name a range, or type 'skip' to cover the last five years."
 }
 
 Example - Clear question, NO clarification needed:
@@ -152,12 +184,9 @@ User: "What caused World War I?"
 Use confirmed project context when interpreting the user's request. Treat unknowns as missing information, not assumptions. Do not invent missing project facts.
 {% endif %}
 
-{% if available_documents and available_documents | length > 0 %}
-## Uploaded documents (IMPORTANT)
-The user has uploaded the following file(s); they are ingested and will be included in research:{% for doc in available_documents %}
-- **{{ doc.file_name }}**: {{ doc.summary or "No summary" }}{% endfor %}
-
-If the user's request refers to "the paper", "my file", "the document", or a filename (e.g. {{ available_documents[0].file_name }}), treat it as referring to these uploaded files. Do NOT ask which paper or which file — proceed with the understanding that the uploaded file(s) are the subject. Only ask for clarification on other missing dimensions (e.g. comparison criteria), not the document identity.
+{% if document_inventory %}
+{{ document_inventory }}
+If the user's request refers to "the paper", "my file", "the document", or a filename listed under Projektwissen / Büroarchiv / Private Sitzung, treat it as referring to those files — not to Basiswissen (OIB). Do NOT ask which paper or which file. Only ask for clarification on other missing dimensions (e.g. comparison criteria), not the document identity.
 {% endif %}
 
 {% if clarifier_result is defined and clarifier_result %}

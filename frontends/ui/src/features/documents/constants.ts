@@ -6,16 +6,31 @@
  * Runtime configuration is provided via AppConfigContext from environment variables.
  */
 
-/** Default maximum file size in bytes per individual file (100MB) */
-export const DEFAULT_MAX_FILE_SIZE = 100 * 1024 * 1024
+/**
+ * Default maximum file size in bytes per individual file (100 MB).
+ *
+ * Decimal MB, matching `BYTES_PER_MB` in the config these values are the
+ * fallback for — the client-side fallback and the server-composed limit must
+ * agree, or a file passes one validator and is refused by the other with a
+ * different number in the message.
+ */
+export const DEFAULT_MAX_FILE_SIZE = 100 * 1e6
 
-/** Default maximum total size for all files including existing session files (100MB) */
-export const DEFAULT_MAX_TOTAL_SIZE = 100 * 1024 * 1024
+/** Default maximum total size for all files including existing session files (100 MB). */
+export const DEFAULT_MAX_TOTAL_SIZE = 100 * 1e6
 
 /** Default maximum number of files per session */
 export const DEFAULT_MAX_FILE_COUNT = 10
 
-/** Default accepted file extensions for upload (used by file inputs) */
+/**
+ * Default accepted file extensions for upload (used by file inputs).
+ *
+ * Images (.png/.jpg/.jpeg) are intentionally excluded here: they are a derived
+ * capability, offered only when the `image-upload` flag allows AND a VLM is
+ * configured (availability = flag AND capability). This constant is only the
+ * fallback used when no AppConfig is available; the real accepted-types list is
+ * composed server-side in getFileUploadConfigFromEnv.
+ */
 export const DEFAULT_ACCEPTED_FILE_TYPES = '.pdf,.docx,.txt,.md'
 
 /** Default accepted MIME types for upload (used for drag-drop validation) */

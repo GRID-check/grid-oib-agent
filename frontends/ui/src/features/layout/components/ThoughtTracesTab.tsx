@@ -12,7 +12,6 @@ import { type FC } from 'react'
 import { BrainCircuit } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 import { ThoughtCard, type ThoughtInfo } from './ThoughtCard'
-import { EMPTY_RESEARCH_DETAILS_HELP_TEXT } from './research-empty-state-copy'
 
 interface ThoughtTracesTabProps {
   /** Array of thought traces from SSE events */
@@ -51,14 +50,14 @@ export const ThoughtTracesTab: FC<ThoughtTracesTabProps> = ({ thoughtTraces = []
       {/* Content */}
       {isEmpty ? (
         <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-          <BrainCircuit className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
+          <BrainCircuit className="mb-3 size-8 text-muted-foreground" aria-hidden="true" />
           <p className="text-sm text-muted-foreground">{t('thoughtTracesTab.empty')}</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            {EMPTY_RESEARCH_DETAILS_HELP_TEXT}
+            {t('detailsHelp')}
           </p>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain">
           {thoughtTraces.map((thought) => (
             <div key={thought.id} className="shrink-0">
               <ThoughtCard thought={thought} />

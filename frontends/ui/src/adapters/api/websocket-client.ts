@@ -6,7 +6,9 @@
  * and error message types for full HITL (human-in-the-loop) support.
  */
 
+import { backoffWithJitter } from '@/shared/utils/backoff'
 import { trackAuthEvent } from '@/shared/utils/rum'
+import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
 import { getWebSocketUrl } from './config'
 import {
   // NAT protocol types
@@ -16,6 +18,7 @@ import {
   type NATHumanPrompt,
   type NATIntermediateStepContent,
   type NATErrorContent,
+  type NATStageMessage,
   NATIncomingMessageSchema,
   NATMessageType,
   NATSchemaType,
@@ -23,6 +26,101 @@ import {
 } from './schemas'
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
+
+/**
+ * Transparency extras lifted onto the TERMINAL system_response frame (WP-A →
+ * WP-B wire contract). Every field is optional and additive; absence means
+ * "unknown/not applicable". Bundled into one object so the already-wide
+ * `onResponse` signature does not grow another handful of positional params.
+ */
+export interface ResponseTransparency {
+  /** Which path the turn took after intent classification. */
+  routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
+  /** Human-readable "why" for the routing decision (verbatim from classifier). */
+  routingReason?: string
+  /** Present only when a shallow→deep escalation happened this turn. */
+  escalationReason?: string
+  /**
+   * Present only when confidence was downgraded. See
+   * {@link AnswerConfidenceCappedReason} for the causes it can carry.
+   */
+  answerConfidenceCappedReason?: AnswerConfidenceCappedReason
+  /** The model's own one-clause justification for its self-assessment, shown verbatim. */
+  answerConfidenceReason?: string
+  /** Present only when citation verification removed ≥1 citation. */
+  citationsRemoved?: { count: number; reasons: string[] }
+  /**
+   * Skills whose instructions the agent LOADED this turn, in activation order.
+   * Absent when none were — availability is not activation.
+   */
+  skillsActivated?: string[]
+  /** The grid-hidden subset of skillsActivated — muted in the disclosure until the reader opens reasoning. */
+  skillsHidden?: string[]
+  /**
+   * The turn ran out of research budget before it ran out of question: the
+   * answer is written from the evidence gathered up to that point. Present or
+   * absent, never false.
+   */
+  researchTruncated?: true
+  /** Why research stopped early, as a stable token the dictionary localizes. */
+  truncationReason?: string
+  /** Ways the answer came out weaker than a healthy run, as stable tokens. */
+  degradedReasons?: string[]
+  /** Marks the answer text as a queue-rejection notice, NOT a research answer. */
+  jobAdmissionRejected?: boolean
+  /** Retry hint (seconds) — only alongside jobAdmissionRejected. */
+  retryAfterSeconds?: number
+}
+
+/**
+ * Per-send options on the `user_message` frame (ADR-0034 addendum).
+ *
+ * THE INGEST-ONLY CONTRACT. The agent's history is its LangGraph checkpoint, so a
+ * message that never reaches the agent is a message the agent can never refer back
+ * to. Every human message is therefore sent, tagged with whether the agent is
+ * addressed — the server decides that, deterministically, at persist time. A frame
+ * marked `contextOnly` is appended to the agent's conversation state and answered
+ * with nothing: no generation, no stream, no status.
+ *
+ * Compatibility is by ABSENCE, in both directions:
+ *   - a NEW backend reading no flag runs the turn exactly as it always did;
+ *   - an OLD backend reading the flag ignores an unknown JSON key (it reads only
+ *     `query` / `text` / `data_sources`) and simply answers the message — the
+ *     behaviour that exists today. The frame stays a valid `user_message`, so
+ *     nothing throws, nothing closes the socket, and nothing is lost (the human's
+ *     message is persisted by the BFF regardless).
+ */
+export interface SendMessageWireOptions {
+  /** Deliver as context for the agent's history; it must generate nothing. */
+  contextOnly?: boolean
+  /** Display name of the human who wrote it, so the agent can attribute the turn. */
+  authorName?: string | null
+  /**
+   * Skill names the user invoked with `/name` in the composer.
+   *
+   * Structured, never re-derived from the message text: the backend lifts this
+   * onto the agent state as `force_skills`, which names the skills that MUST be
+   * applied to this turn. Omitted entirely when nothing was invoked, so an
+   * ordinary message stays byte-for-byte the envelope it always was.
+   */
+  skills?: string[]
+  /**
+   * Filename of the file this turn is about. Retrieval prefers it; the
+   * user does not have to type the name. Omitted when there is no subject.
+   */
+  focusFileName?: string | null
+  /**
+   * Shelf of that file, when known. The agent maps this to the shelves it
+   * may keep (`shelves_for_turn`); the client never sends an expanded list.
+   */
+  focusShelf?: 'project' | 'archiv' | 'session' | null
+  /**
+   * Composer shortcut chip (`law` / `project` / `office`). Intent only —
+   * the backend expands it. A focused file's shelf wins over this.
+   * Omitted when no chip is pressed.
+   */
+  sourcePreset?: 'law' | 'project' | 'office' | null
+}
 
 /** Context passed with connection status changes */
 export interface ConnectionChangeContext {
@@ -39,12 +137,29 @@ export interface NATWebSocketClientCallbacks {
     isFinal: boolean,
     parentId?: string,
     cards?: unknown[],
-    deepResearchJobId?: string
+    deepResearchJobId?: string,
+    answerConfidence?: 'low' | 'medium' | 'high',
+    sources?: unknown[],
+    transparency?: ResponseTransparency
   ) => void
   /** Called when intermediate steps arrive (thinking, tool calls) */
   onIntermediateStep?: (content: NATIntermediateStepContent | string, status: string, parentId?: string) => void
   /** Called when a human prompt arrives (clarification, approval, etc.) */
   onHumanPrompt?: (promptId: string, parentId: string, prompt: NATHumanPrompt) => void
+  /**
+   * Called when a POST-ANSWER STAGE frame arrives for a turn
+   * (`docs/architecture/post-answer-stages.md` §4.3).
+   *
+   * Its own callback, and not a branch of `onResponse`, for one reason that is
+   * the whole justification of the frame type: a stage frame arrives by
+   * definition when the turn is no longer streaming, and the response path
+   * drops everything that arrives then.
+   *
+   * The frame handed over is envelope-valid — right version, known stage, known
+   * status, and a payload only where a payload is allowed. What the payload
+   * CONTAINS is the stage's own business and is validated downstream.
+   */
+  onStage?: (frame: NATStageMessage) => void
   /** Called when an error occurs */
   onError?: (error: NATErrorContent) => void
   /** Called when connection status changes */
@@ -52,6 +167,44 @@ export interface NATWebSocketClientCallbacks {
 }
 
 /** Options for NAT WebSocket client */
+/**
+ * Ceiling for the reconnect curve, so the exponential growth flattens into a
+ * steady retry cadence instead of running away.
+ */
+const MAX_RECONNECT_DELAY_MS = 30_000
+
+/**
+ * How many reconnect attempts before the client gives up and raises
+ * `CONNECTION_FAILED` ("Unable to connect to the server").
+ *
+ * THIS NUMBER IS A DEPLOY BUDGET, not a network-flakiness budget. The socket
+ * that carries a chat is terminated by its serving pod, so an ordinary rolling
+ * update severs it by design — the frontend pod drains and exits, and (with
+ * conversation affinity, ADR-0028) the aiq-agent replica that conversation is
+ * pinned to restarts too. Nothing at the edge can hide that: retries and Envoy's
+ * drain (deploy/pulumi) cover the endpoint-programming race, but not the window
+ * where the owning pod genuinely is not running. The client has to outlast it.
+ *
+ * At 3 attempts (base 1s, factor 2, equal jitter) the whole budget was
+ * ~4-7 SECONDS. Every deploy therefore ended with this banner in front of every
+ * open chat, and the "Try again" it offers is exactly what the client had just
+ * stopped doing.
+ *
+ * Sizing against `deploy/pulumi/src/platform/rollout.ts`: a frontend pod spends
+ * up to its 60s grace period draining, and an aiq-agent replica up to 90s
+ * draining plus a cold start (heavy image, Dask spin-up, Chroma open). 12
+ * attempts on the curve below — 1, 2, 4, 8, 16, then 30s repeating, halved-to-
+ * full by jitter — spans ~2 to ~4 minutes, which covers a healthy roll of both
+ * tiers with room to spare.
+ *
+ * The upper bound is deliberate: a rollout that is genuinely wedged
+ * (`ProgressDeadlineExceeded`) must still surface as a failure rather than an
+ * indicator that spins forever. Note the user is NOT kept in the dark meanwhile
+ * — the first close already fires `onConnectionChange('disconnected')`; only the
+ * terminal error card waits for the budget to run out.
+ */
+const DEFAULT_RECONNECT_ATTEMPTS = 12
+
 export interface NATWebSocketClientOptions {
   /** Conversation/session ID */
   conversationId: string
@@ -59,9 +212,16 @@ export interface NATWebSocketClientOptions {
   projectId?: string
   /** Callback functions */
   callbacks: NATWebSocketClientCallbacks
-  /** Number of reconnection attempts (default: 3) */
+  /**
+   * Number of reconnection attempts before `CONNECTION_FAILED`
+   * (default: `DEFAULT_RECONNECT_ATTEMPTS` — sized to outlast a rolling deploy).
+   */
   reconnectAttempts?: number
-  /** Delay between reconnection attempts in ms (default: 1000) */
+  /**
+   * Base of the reconnect backoff curve in ms (default: 1000). The actual wait
+   * is exponential in the attempt number with equal jitter applied, capped at
+   * `MAX_RECONNECT_DELAY_MS` — not a fixed interval.
+   */
   reconnectDelay?: number
   /** Override WebSocket URL (uses same-origin by default, proxied through UI server) */
   websocketUrl?: string
@@ -91,6 +251,13 @@ export class NATWebSocketClient {
   private errorBeforeClose = false
   private messageIdCounter = 0
   /**
+   * Message `type` values we've already warned about after a failed parse.
+   * A never-before-seen or malformed frame type is logged ONCE here and then
+   * silently ignored — an unknown/renamed backend frame must not spam the
+   * console on every message or fail the whole parse pipeline.
+   */
+  private warnedUnknownTypes = new Set<string>()
+  /**
    * In-flight rotation promise, set for the duration of `rotate()`.
    * Subsequent rotate() calls await the same promise instead of each
    * one independently detaching handlers from a socket that the previous
@@ -99,12 +266,14 @@ export class NATWebSocketClient {
    * See the `rotate()` docstring.
    */
   private rotationInFlight: Promise<void> | null = null
+  private connectInFlight: Promise<void> | null = null
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   /** ID of the last user message sent -- used by callbacks to detect stale responses */
   activeParentId: string | null = null
 
   constructor(options: NATWebSocketClientOptions) {
     this.options = {
-      reconnectAttempts: 3,
+      reconnectAttempts: DEFAULT_RECONNECT_ATTEMPTS,
       reconnectDelay: 1000,
       ...options,
     }
@@ -129,7 +298,13 @@ export class NATWebSocketClient {
       params.set('projectId', this.options.projectId)
     }
     if (this.options.conversationId) {
+      // camelCase param the Grid backend scopes the collection on.
       params.set('conversationId', this.options.conversationId)
+      // snake_case duplicate that NAT's `_restore_execution_state` reads
+      // verbatim (it looks up `conversation_id`) to swap a reconnected socket
+      // into a still-running handler. Sending BOTH keeps the live-reattach
+      // path working without depending on the backend camelCase tolerance.
+      params.set('conversation_id', this.options.conversationId)
     }
 
     const queryString = params.toString()
@@ -140,31 +315,42 @@ export class NATWebSocketClient {
     const separator = baseUrl.includes('?') ? '&' : '?'
     return `${baseUrl}${separator}${queryString}`
   }
-  connect = async (): Promise<void> => {
+  connect = (): Promise<void> => {
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
-      return
+      return Promise.resolve()
     }
+    // Coalesce concurrent connect()s (mirrors rotationInFlight): between the
+    // readyState guard and `new WebSocket(...)` this method awaits auth
+    // refresh and URL building with `this.ws` still null, so a reconnect
+    // timer firing mid-rotate would otherwise open a second, orphaned socket.
+    if (this.connectInFlight) {
+      return this.connectInFlight
+    }
+    this.connectInFlight = (async () => {
+      this.isIntentionallyClosed = false
+      this.options.callbacks.onConnectionChange?.('connecting')
 
-    this.isIntentionallyClosed = false
-    this.options.callbacks.onConnectionChange?.('connecting')
-
-    try {
-      if (this.options.onBeforeReconnect) {
-        try {
-          await this.options.onBeforeReconnect()
-        } catch (err) {
-          // Auth refresh is best-effort; the upgrade still happens with whatever
-          // cookie the browser has. The backend will close the socket if it's bad.
-          console.warn('[WS] onBeforeReconnect failed, proceeding with current auth', err)
+      try {
+        if (this.options.onBeforeReconnect) {
+          try {
+            await this.options.onBeforeReconnect()
+          } catch (err) {
+            // Auth refresh is best-effort; the upgrade still happens with whatever
+            // cookie the browser has. The backend will close the socket if it's bad.
+            console.warn('[WS] onBeforeReconnect failed, proceeding with current auth', err)
+          }
         }
+        const wsUrl = await this.buildWebSocketUrl()
+        this.ws = new WebSocket(wsUrl)
+        this.setupEventHandlers()
+      } catch {
+        this.options.callbacks.onConnectionChange?.('error', { intentional: false })
+        this.handleReconnect()
+      } finally {
+        this.connectInFlight = null
       }
-      const wsUrl = await this.buildWebSocketUrl()
-      this.ws = new WebSocket(wsUrl)
-      this.setupEventHandlers()
-    } catch {
-      this.options.callbacks.onConnectionChange?.('error', { intentional: false })
-      this.handleReconnect()
-    }
+    })()
+    return this.connectInFlight
   }
 
   /**
@@ -173,6 +359,7 @@ export class NATWebSocketClient {
   disconnect = (): void => {
     this.isIntentionallyClosed = true
     this.reconnectCount = 0
+    this.clearReconnectTimer()
 
     if (this.ws) {
       this.ws.close()
@@ -236,6 +423,9 @@ export class NATWebSocketClient {
         this.isIntentionallyClosed = false
         this.reconnectCount = 0
         this.errorBeforeClose = false
+        // A pending backoff reconnect for the OLD socket must not fire during
+        // (or after) the rotation — it would race this connect() for this.ws.
+        this.clearReconnectTimer()
         await this.connect()
       } finally {
         this.rotationInFlight = null
@@ -248,12 +438,28 @@ export class NATWebSocketClient {
    * Send a user chat message
    * @param content - The message text content (query)
    * @param enabledDataSources - Optional array of enabled data source IDs to include in the query
+   * @param options - Ingest-only signal + author attribution (see `SendMessageWireOptions`)
    */
-  sendMessage = (content: string, enabledDataSources?: string[]): string | null => {
-    // Format the text content as JSON with query and data_sources
+  sendMessage = (
+    content: string,
+    enabledDataSources?: string[],
+    options?: SendMessageWireOptions
+  ): string | null => {
+    // Format the text content as JSON with query and data_sources. The ingest-only
+    // fields are spread in ONLY when set, never as `false`/`null` — a backend must
+    // be able to tell "not addressed to the agent" from "nothing said about it".
     const textContent = JSON.stringify({
       query: content,
       data_sources: enabledDataSources ?? [],
+      // Only when non-empty: the backend distinguishes "said nothing about
+      // skills" (undefined) from "explicitly no skills" ([]), exactly as it
+      // does for data_sources.
+      ...(options?.skills && options.skills.length > 0 ? { skills: options.skills } : {}),
+      ...(options?.focusFileName?.trim() ? { focus_file_name: options.focusFileName.trim() } : {}),
+      ...(options?.focusShelf ? { focus_shelf: options.focusShelf } : {}),
+      ...(options?.sourcePreset ? { source_preset: options.sourcePreset } : {}),
+      ...(options?.contextOnly ? { context_only: true } : {}),
+      ...(options?.contextOnly && options.authorName ? { author_name: options.authorName } : {}),
     })
 
     const messageId = this.generateMessageId()
@@ -275,7 +481,12 @@ export class NATWebSocketClient {
 
     if (!this.send(message)) return null
 
-    this.activeParentId = messageId
+    // An ingest-only frame is answered by NOTHING, so it must not become the
+    // `activeParentId` the stale-response guard measures inbound answers against —
+    // that would make the next real turn's frames look stale and drop the answer.
+    if (!options?.contextOnly) {
+      this.activeParentId = messageId
+    }
     return messageId
   }
 
@@ -404,7 +615,21 @@ export class NATWebSocketClient {
       const validated = NATIncomingMessageSchema.safeParse(parsed)
 
       if (!validated.success) {
-        console.warn('Invalid NAT WebSocket message:', validated.error, parsed)
+        // Tolerant fallback: an unknown or renamed frame type must not spam the
+        // console on every message. Log ONCE per distinct `type` value (or once
+        // for typeless/garbage payloads) and drop the frame without failing the
+        // rest of the pipeline.
+        const rawType =
+          parsed && typeof parsed === 'object' && typeof (parsed as { type?: unknown }).type === 'string'
+            ? (parsed as { type: string }).type
+            : '<no-type>'
+        if (!this.warnedUnknownTypes.has(rawType)) {
+          this.warnedUnknownTypes.add(rawType)
+          // The raw type is foreign payload text; interpolating it into the
+          // message would hand it to console's printf-style %-formatting
+          // (js/tainted-format-string). Pass it as data instead of a string.
+          console.warn('[WS] Ignoring unrecognized NAT message type (logged once):', rawType, validated.error)
+        }
         return
       }
 
@@ -428,14 +653,55 @@ export class NATWebSocketClient {
           }
 
           const isFinal = message.status === 'complete'
+          // Bundle the transparency extras lifted onto the terminal frame. Each
+          // is optional; the hook renders only those that are present.
+          const transparency: ResponseTransparency = {
+            routingDecision: message.routing_decision,
+            routingReason: message.routing_reason,
+            escalationReason: message.escalation_reason,
+            answerConfidenceCappedReason: message.answer_confidence_capped_reason,
+            answerConfidenceReason: message.answer_confidence_reason,
+            citationsRemoved: message.citations_removed,
+            researchTruncated: message.research_truncated,
+            truncationReason: message.truncation_reason,
+            degradedReasons: message.degraded_reasons,
+            skillsActivated: message.skills_activated,
+            skillsHidden: message.skills_hidden,
+            jobAdmissionRejected: message.job_admission_rejected,
+            retryAfterSeconds: message.retry_after_seconds,
+          }
           this.options.callbacks.onResponse?.(
             content,
             message.status,
             isFinal,
             message.parent_id,
             message.cards,
-            message.deep_research_job_id
+            message.deep_research_job_id,
+            message.answer_confidence,
+            message.sources,
+            transparency
           )
+          break
+        }
+
+        case NATMessageType.OBSERVABILITY_TRACE: {
+          // Diagnostic/tracing frame. Accepted so it no longer trips the
+          // unknown-type fallback, but the frontend renders nothing from it.
+          break
+        }
+
+        case NATMessageType.STAGE: {
+          // A payload may ride ONLY a `ready` frame (§4.1). A payload beside
+          // `empty`/`failed` means the two halves disagree about what happened,
+          // and rendering it would show a stage's output for a turn the stage
+          // declined — so the frame is dropped rather than half-believed. The
+          // union member cannot say this itself: a discriminated-union option
+          // may not carry a refinement.
+          if (message.status !== 'ready' && message.payload !== undefined) {
+            console.warn('[WS] Dropping stage frame: payload on a non-ready status', message.stage)
+            break
+          }
+          this.options.callbacks.onStage?.(message)
           break
         }
 
@@ -490,7 +756,7 @@ export class NATWebSocketClient {
   private handleReconnect = (): void => {
     const { reconnectAttempts, reconnectDelay } = this.options
 
-    if (this.reconnectCount >= (reconnectAttempts || 3)) {
+    if (this.reconnectCount >= (reconnectAttempts || DEFAULT_RECONNECT_ATTEMPTS)) {
       // All retries exhausted -- notify with final disconnected status
       this.options.callbacks.onConnectionChange?.('disconnected', { intentional: false })
       this.options.callbacks.onError?.({
@@ -502,11 +768,28 @@ export class NATWebSocketClient {
 
     this.reconnectCount++
 
-    setTimeout(() => {
+    // Exponential + equal jitter rather than a fixed delay. A rolling deploy
+    // drops every socket on a pod at the same instant; a fixed delay brings all
+    // of those clients back in lockstep, and each WS upgrade costs a session
+    // resolution + FGA checks + budget reads (ADR-0020). `reconnectDelay` is
+    // the base of the curve, not the whole delay.
+    this.clearReconnectTimer()
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
       if (!this.isIntentionallyClosed) {
         this.connect()
       }
-    }, reconnectDelay || 1000)
+    }, backoffWithJitter(this.reconnectCount - 1, {
+      baseMs: reconnectDelay || 1000,
+      maxMs: MAX_RECONNECT_DELAY_MS,
+    }))
+  }
+
+  private clearReconnectTimer = (): void => {
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
   }
 }
 
@@ -522,3 +805,7 @@ export const createNATWebSocketClient = (
 // Re-export NAT types for convenience
 export { NATMessageType, NATSchemaType, HumanPromptType }
 export type { NATHumanPrompt, NATIntermediateStepContent, NATErrorContent }
+export type { ResponseTransparency as NATResponseTransparency }
+// Re-exported so a consumer of `onStage` types its handler from the same module
+// it registers the callback on.
+export type { NATStageMessage }

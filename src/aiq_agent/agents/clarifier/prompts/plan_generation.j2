@@ -7,9 +7,25 @@ Generate a research plan with:
 2. 5-8 section headings that outline the report structure
 
 IMPORTANT RULES:
+- Plan for the user's CURRENT request ONLY. Earlier conversation is background context — never carry an earlier turn's topic into the plan unless the current request explicitly continues it. If the current request has moved to a new topic, the plan is about the new topic, not the old one.
 - Output ONLY valid JSON. No text before or after.
 - Do NOT include numbering in section names (e.g., use "Introduction" not "1. Introduction" or "Section 1: Introduction")
 - Keep section names concise (3-6 words each)
+- Language: write the `title` and every `sections` entry in the SAME language as the user's request (e.g. a German request gets a German title and German section names). Only the free-text values are localized; the JSON keys `title` and `sections` stay exactly as written.
+  {#-
+    APPROVAL ENVELOPE — byte-stable, do NOT emit it here. The backend
+    (clarifier/agent.py `_format_plan_for_user`) wraps your JSON title/sections
+    in a fixed English envelope — the "**Research Plan Preview**" header and the
+    "Reply **approve** to proceed, **reject** to cancel, ..." footer. That
+    footer is regex-matched by the frontend (AgentPrompt.tsx APPROVAL_PROMPT_RE)
+    and the approve/reject keywords are matched literally against the user's
+    reply (APPROVAL_KEYWORDS/REJECTION_KEYWORDS). You must output ONLY the JSON
+    object; never emit or translate the "Research Plan Preview" header or the
+    approve/reject instruction yourself, or the approval contract breaks.
+  -#}
+
+### Building-Regulation Planning
+When the project context contains a country=<cc> or bundesland=<token> line, the research plan will produce jurisdiction-specific results. For Austrian projects with confirmed `country=at` and no outside-Austria sentinel, the deep research pipeline will use OIB/RIS tools. For `country != at` OR `bundesland=ausserhalb_oesterreichs` (outside Austria even when no country line is present), note that the OIB corpus is Austrian-only and require jurisdiction limitations and local verification in the final answer. The project hard limits (fluchtniveau, storeys, area) should be reflected in the section headings when relevant (e.g., "Anforderungen an Gebäudeklasse 4 in Wien").
 
 OUTPUT FORMAT:
 ```json

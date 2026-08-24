@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """
 NAT register function for the clarifier agent.
 
@@ -40,8 +25,13 @@ from aiq_agent.common import LLMProvider
 from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import all_mapped_tools_filtered_out
 from aiq_agent.common import apply_model_override
+from aiq_agent.common import apply_org_credential
+from aiq_agent.common import build_human_prompt
 from aiq_agent.common import filter_tools_by_sources
+from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_model_overrides_from_context
+from aiq_agent.common import get_org_llm_credential_from_context
+from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from nat.builder.builder import Builder
 from nat.builder.context import Context
@@ -52,7 +42,6 @@ from nat.data_models.component_ref import FunctionGroupRef
 from nat.data_models.component_ref import FunctionRef
 from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
-from nat.data_models.interactive import HumanPromptText
 
 from .agent import ClarifierAgent
 from .models import ClarifierAgentState
@@ -135,16 +124,10 @@ async def clarifier_agent(config: ClarifierConfig, builder: Builder):
         FunctionInfo: A callable that accepts ClarifierAgentState or list[BaseMessage]
             and returns ClarifierAgentState with the clarification dialog results.
     """
-    llm = await builder.get_llm(
-        config.llm,
-        wrapper_type=LLMFrameworkEnum.LANGCHAIN,
-    )
+    llm = await get_langchain_llm(builder, config.llm)
     planner_llm = None
     if config.planner_llm is not None:
-        planner_llm = await builder.get_llm(
-            config.planner_llm,
-            wrapper_type=LLMFrameworkEnum.LANGCHAIN,
-        )
+        planner_llm = await get_langchain_llm(builder, config.planner_llm)
     if config.tools:
         tool_refs = config.tools
     else:
@@ -167,7 +150,7 @@ async def clarifier_agent(config: ClarifierConfig, builder: Builder):
     verbose = is_verbose(config.verbose)
     callbacks = [VerboseTraceCallback(log_reasoning=True, max_chars=config.log_response_max_chars)] if verbose else []
 
-    async def user_prompt_callback(question: str) -> str:
+    async def user_prompt_callback(question: str, options: list[str] | None = None) -> str:
         """
         NAT-specific callback for prompting user input.
 
@@ -176,18 +159,20 @@ async def clarifier_agent(config: ClarifierConfig, builder: Builder):
 
         Args:
             question: The clarification question to display to the user.
+            options: Short labels of the answers the question offers. When
+                present the prompt becomes a multiple-choice one so the client
+                can render a picker; the question text is unchanged either way,
+                and the user may still type a free-text answer or "skip".
 
         Returns:
-            The user's response text, extracted from the NAT response object.
+            The user's response text, extracted from the NAT response object —
+            a typed answer and a picked option arrive as different response
+            models, and `extract_user_response` normalizes both.
         """
         nat_context = Context.get()
         user_input_manager = nat_context.user_interaction_manager
 
-        prompt = HumanPromptText(
-            text=question,
-            required=True,
-            placeholder="Please provide more details...",
-        )
+        prompt = build_human_prompt(question, options)
         response = await user_input_manager.prompt_user_input(prompt)
         return extract_user_response(response)
 
@@ -220,9 +205,18 @@ async def clarifier_agent(config: ClarifierConfig, builder: Builder):
         # request-scoped agent (same shape as the data-source rebuild below).
         # The planner LLM belongs to the same `clarifier` agent group.
         model_overrides = get_model_overrides_from_context()
-        active_provider = provider.with_model_overrides(model_overrides)
+        # BYOK (ADR-0022): the org's own provider credential applies to every
+        # LLM in the request, on top of any per-group model override.
+        org_credential = get_org_llm_credential_from_context()
+        active_provider = (
+            provider.with_model_overrides(model_overrides)
+            .with_credential(org_credential)
+            .with_zdr(get_zdr_only_from_context())
+        )
         active_agent = agent
-        if active_provider is not provider or (data_sources is not None and selected_tools != tools):
+        # No `data_sources is not None` guard: org-disabled sources (ADR-0022)
+        # narrow selected_tools even when the request selects "all tools".
+        if active_provider is not provider or selected_tools != tools:
             active_agent = ClarifierAgent(
                 llm_provider=active_provider,
                 tools=selected_tools,
@@ -230,7 +224,9 @@ async def clarifier_agent(config: ClarifierConfig, builder: Builder):
                 max_turns=config.max_turns,
                 enable_plan_approval=config.enable_plan_approval,
                 max_plan_iterations=config.max_plan_iterations,
-                planner_llm=apply_model_override(planner_llm, AgentGroup.CLARIFIER, model_overrides)
+                planner_llm=apply_org_credential(
+                    apply_model_override(planner_llm, AgentGroup.CLARIFIER, model_overrides), org_credential
+                )
                 if planner_llm is not None
                 else None,
                 log_response_max_chars=config.log_response_max_chars,

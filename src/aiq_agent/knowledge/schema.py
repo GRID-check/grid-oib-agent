@@ -1,17 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """
 Universal Schema for Knowledge Layer.
 
@@ -20,7 +6,7 @@ adapters must output. This ensures agents always see a consistent format
 regardless of the underlying backend (LlamaIndex, Foundational RAG, and so on).
 
 Schema Rules (enforced by all adapters):
-1. Four Pillars: content_type MUST be exactly "text", "table", "chart", or "image"
+1. Five Pillars: content_type MUST be exactly "text", "table", "chart", "image", or "drawing"
 2. Display Citation: display_citation MUST be populated with human-readable string
 3. Visual Safety: content MUST NEVER be None (use empty string for visuals)
 4. Data vs View: Raw data in structured_data, renderable image in image_url
@@ -38,9 +24,9 @@ from pydantic import model_validator
 
 class ContentType(StrEnum):
     """
-    The Four Pillars - strict content categorization.
+    The Five Pillars - strict content categorization.
 
-    All adapters MUST map their internal types to one of these four categories.
+    All adapters MUST map their internal types to one of these five categories.
     The frontend relies on this for component switching.
     """
 
@@ -48,6 +34,7 @@ class ContentType(StrEnum):
     TABLE = "table"
     CHART = "chart"
     IMAGE = "image"
+    DRAWING = "drawing"
 
 
 class Chunk(BaseModel):
@@ -97,14 +84,35 @@ class Chunk(BaseModel):
     # --- 5. Visual Assets (Optional) ---
     image_storage_uri: str | None = Field(
         None,
-        description="Internal S3/MinIO URI for system access.",
+        description="Internal S3/SeaweedFS URI for system access.",
     )
     image_url: str | None = Field(
         None,
         description="Presigned HTTP URL for frontend display.",
     )
 
-    # --- 6. Extra Metadata ---
+    # --- 6. Retrieval Provenance (Optional) ---
+    # Rank fusion is scale-free, which is why these exist: session/project collections
+    # sit in a worse cosine band than the professionally chunked base corpus, so a user's
+    # own upload can never win on raw score. Its RANK inside its own collection is
+    # comparable across collections even when its score is not.
+    retrieval_rank: int | None = Field(
+        None,
+        ge=0,
+        description=(
+            "0-based rank of this chunk within the collection that produced it, after "
+            "intra-collection fusion. None when the producing backend did not stamp one."
+        ),
+    )
+    fusion_score: float | None = Field(
+        None,
+        description=(
+            "Diagnostic reciprocal-rank-fusion score from the cross-collection merge. "
+            "Never displayed to the user or the LLM; `score` remains the true similarity."
+        ),
+    )
+
+    # --- 7. Extra Metadata ---
     metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="Passthrough for extra backend-specific metadata.",
@@ -186,6 +194,18 @@ class FileInfo(BaseModel):
     ingested_at: datetime | None = Field(None, description="When ingestion completed.")
     expiration_date: datetime | None = Field(None, description="When the file will be auto-deleted.")
     error_message: str | None = Field(None, description="Error message if processing failed.")
+    summary: str | None = Field(None, description="One-sentence summary of the document content, if generated.")
+    tags: list[str] | None = Field(
+        None,
+        description="Controlled ingestion-generated tags (document type + OIB discipline), if classified.",
+    )
+    folder_path: str | None = Field(
+        None,
+        description=(
+            "Materialised folder path the document is filed under "
+            "(e.g. 'Brandschutz/Fluchtwege'). None means the project root."
+        ),
+    )
     metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="File-specific metadata (e.g., page count, content types).",
@@ -251,15 +271,40 @@ class IngestionJobStatus(BaseModel):
 
 
 class AvailableDocument(BaseModel):
-    """Represents a user-uploaded document with optional summary.
+    """One searchable document the agent may list in this turn.
 
-    This model provides context about available documents to research agents
-    so they can prioritize internal document searches.
+    Identity is ``(collection, file_name)`` (ADR-0047): the same filename can
+    sit on the Büroarchiv and in a project as two different documents. ``shelf``
+    is where it sits (``archiv`` / ``project`` / ``session`` / ``base``) and is
+    stamped at aggregation from the signed scope — never guessed back from the
+    filename. Missing shelf is unknown, not ``base``.
 
     Attributes:
         file_name: The name of the uploaded file.
         summary: Optional one-sentence summary of the document content.
+        tags: Optional controlled ingestion-generated tags (document type + OIB
+            discipline).
+        doc_class: Optional explicit per-document classification ("Dokumentart"),
+            preferred over the filename guess for lane/kind placement.
+        display_title: Optional user-facing document name shown on citation chips
+            and in the base-corpus admin UI. When unset, callers fall back to the
+            derived default (``guess_display_title``); the filename is never shown.
+        folder_path: Optional materialised folder path the document is filed
+            under, denormalised from the BFF's ``project_folders.path``
+            (ADR-0049) — e.g. ``Brandschutz/Fluchtwege``. ``None`` means the
+            project root (or a shelf that has no folders at all). It is a PATH,
+            not an id: it reads as itself, and a prefix match gives the folder's
+            whole subtree.
+        collection: The RAG collection this row was loaded from.
+        shelf: Wire shelf (ADR-0047). Rendering-only labels live on
+            ``SHELF_QUALIFIERS``; do not infer this from ``collection``.
     """
 
     file_name: str
     summary: str | None = None
+    tags: list[str] | None = None
+    doc_class: str | None = None
+    display_title: str | None = None
+    folder_path: str | None = None
+    collection: str | None = None
+    shelf: str | None = None

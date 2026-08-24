@@ -1,0 +1,46 @@
+# Path -> label rules for actions/labeler@v5 (see .github/workflows/pr.yml).
+# Labels must exist in the repo (create them once under Issues -> Labels).
+
+backend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/**"
+          - "frontends/aiq_api/**"
+          - "sources/**"
+          - "pyproject.toml"
+          - "uv.lock"
+
+frontend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "frontends/ui/**"
+          - "frontends/web/**"
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docs/**"
+          - "**/*.md"
+
+deploy:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "deploy/**"
+
+database:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/drizzle/**"
+          - "**/db/schema/**"
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/test_*.py"
+          - "**/*.spec.ts"
+          - "**/*.spec.tsx"

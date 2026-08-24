@@ -13,21 +13,27 @@ import type {
   RightPanelType,
   ResearchPanelTab,
   DataSourcesPanelTab,
+  SourcePresetId,
   ThemeMode,
 } from './types'
 import { createDataSourcesClient, type DataSourceFromAPI } from '@/adapters/api'
 
 const initialState: LayoutState = {
   isSessionsPanelOpen: false,
-  rightPanel: 'data-sources',
+  isMobileNavOpen: false,
+  rightPanel: null,
   researchPanelTab: 'tasks',
   dataSourcesPanelTab: 'connections',
   enabledDataSourceIds: [], // Start empty, populated when data sources are fetched
   theme: 'system',
+  showTechnicalReasoning: false,
   availableDataSources: null,
   knowledgeLayerAvailable: false, // Default to false until API confirms availability
+  vlmAvailable: false, // Default to false until API confirms the VLM capability
   dataSourcesLoading: false,
   dataSourcesError: null,
+  deepResearchIntent: false,
+  activeSourcePreset: null,
   // Deprecated aliases for backwards compatibility
   detailsPanelTab: 'report',
   dataSourcePanelTab: 'connections',
@@ -49,6 +55,9 @@ export const useLayoutStore = create<LayoutStore>()(
       setSessionsPanelOpen: (open: boolean) =>
         set({ isSessionsPanelOpen: open }, false, 'setSessionsPanelOpen'),
 
+      setMobileNavOpen: (open: boolean) =>
+        set({ isMobileNavOpen: open }, false, 'setMobileNavOpen'),
+
       openRightPanel: (panel: RightPanelType) =>
         set({ rightPanel: panel }, false, 'openRightPanel'),
 
@@ -68,6 +77,8 @@ export const useLayoutStore = create<LayoutStore>()(
               enabledDataSourceIds: isEnabled
                 ? state.enabledDataSourceIds.filter((sourceId) => sourceId !== id)
                 : [...state.enabledDataSourceIds, id],
+              // Manual toggling takes the user off any shortcut preset.
+              activeSourcePreset: null,
             }
           },
           false,
@@ -75,9 +86,24 @@ export const useLayoutStore = create<LayoutStore>()(
         ),
 
       setEnabledDataSources: (ids: string[]) =>
-        set({ enabledDataSourceIds: ids }, false, 'setEnabledDataSources'),
+        // Bulk manual selection also leaves any shortcut preset behind;
+        // applySourcePreset is the one action that sets both together.
+        set({ enabledDataSourceIds: ids, activeSourcePreset: null }, false, 'setEnabledDataSources'),
 
       setTheme: (theme: ThemeMode) => set({ theme }, false, 'setTheme'),
+
+      setDeepResearchIntent: (on: boolean) =>
+        set({ deepResearchIntent: on }, false, 'setDeepResearchIntent'),
+
+      setShowTechnicalReasoning: (on: boolean) =>
+        set({ showTechnicalReasoning: on }, false, 'setShowTechnicalReasoning'),
+
+      applySourcePreset: (preset: SourcePresetId | null, enabledIds: string[]) =>
+        set(
+          { activeSourcePreset: preset, enabledDataSourceIds: enabledIds },
+          false,
+          'applySourcePreset'
+        ),
 
       fetchDataSources: async (authToken?: string) => {
         set({ dataSourcesLoading: true, dataSourcesError: null }, false, 'fetchDataSources/start')
@@ -94,7 +120,11 @@ export const useLayoutStore = create<LayoutStore>()(
             {
               availableDataSources: response.data_sources,
               knowledgeLayerAvailable: response.knowledge_layer,
+              vlmAvailable: response.vlm_available,
               enabledDataSourceIds: enabledIds,
+              // Fresh fetch enables everything — that's manual-equivalent
+              // state, so no shortcut preset can be considered active.
+              activeSourcePreset: null,
               dataSourcesLoading: false,
               dataSourcesError: null,
             },
@@ -132,6 +162,9 @@ export const useLayoutStore = create<LayoutStore>()(
       setKnowledgeLayerAvailable: (available: boolean) =>
         set({ knowledgeLayerAvailable: available }, false, 'setKnowledgeLayerAvailable'),
 
+      setVlmAvailable: (available: boolean) =>
+        set({ vlmAvailable: available }, false, 'setVlmAvailable'),
+
       // Deprecated actions - delegate to new ones
       setDetailsPanelTab: (tab: ResearchPanelTab) =>
         set(
@@ -149,9 +182,14 @@ export const useLayoutStore = create<LayoutStore>()(
     }),
       {
         name: 'grid-layout',
-        // Only the user's explicit theme choice should survive reloads —
-        // panel/tab/data-source state stays ephemeral per session.
-        partialize: (state) => ({ theme: state.theme }),
+        // Only explicit user preferences survive reloads (theme + the
+        // Deep-Research intent hint) — panel/tab/data-source state stays
+        // ephemeral per session.
+        partialize: (state) => ({
+          theme: state.theme,
+          deepResearchIntent: state.deepResearchIntent,
+          showTechnicalReasoning: state.showTechnicalReasoning,
+        }),
       }
     ),
     { name: 'LayoutStore' }

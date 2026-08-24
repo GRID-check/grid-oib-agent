@@ -33,6 +33,28 @@ vi.mock('@workos-inc/authkit-nextjs/components', () => ({
 // can be rendered directly in unit tests. With no cookie/header present the i18n
 // layer falls back to the default locale (English), which is what string
 // assertions in these tests expect.
+// FilePreviewPane (and Ask-colleague) call useRouter. Specs that care about
+// the router still mock this module themselves; this is the default so a
+// mount does not throw "invariant expected app router to be mounted".
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams(),
+  redirect: (url: string) => {
+    throw new Error(`NEXT_REDIRECT:${url}`)
+  },
+  notFound: () => {
+    throw new Error('NEXT_NOT_FOUND')
+  },
+}))
+
 vi.mock('next/headers', () => ({
   cookies: async () => ({
     get: () => undefined,
@@ -43,6 +65,48 @@ vi.mock('next/headers', () => ({
   }),
   headers: async () => new Headers(),
 }))
+
+// @xyflow/react renders on a measured canvas that happy-dom can't lay out (nodes
+// stay visibility:hidden until a real ResizeObserver measures them). For unit
+// tests we render each node through its `nodeTypes` component in plain DOM, so
+// node CONTENT and logic are assertable; the real graph rendering is covered by
+// the visual screenshot harness (visual/registry.mjs → `herleitung`).
+vi.mock('@xyflow/react', async () => {
+  const { createElement, Fragment } = await import('react')
+  return {
+    Position: { Top: 'top', Right: 'right', Bottom: 'bottom', Left: 'left' },
+    Handle: () => null,
+    ReactFlowProvider: ({ children }: { children: unknown }) => children,
+    ReactFlow: ({
+      nodes = [],
+      nodeTypes = {},
+    }: {
+      nodes?: Array<{ id: string; type: string; data: unknown }>
+      nodeTypes?: Record<string, React.ComponentType<{ id: string; type: string; data: unknown }>>
+    }) =>
+      createElement(
+        Fragment,
+        null,
+        ...nodes.map((n) => {
+          const Comp = nodeTypes[n.type]
+          return Comp ? createElement(Comp, { key: n.id, id: n.id, type: n.type, data: n.data }) : null
+        }),
+      ),
+    useNodesInitialized: () => true,
+    // Re-measures a node's handle bounds in a real canvas; nothing to measure
+    // here, and the graph only calls it when a handle set changed under it.
+    useUpdateNodeInternals: () => () => {},
+    // The measured layout pass reads node bounds and centres the viewport; with
+    // no real canvas both are inert stubs (an undefined `getNodesBounds` would
+    // throw inside the layout effect and fail every test that renders the graph).
+    useReactFlow: () => ({
+      getNodes: () => [],
+      getNodesBounds: () => ({ x: 0, y: 0, width: 0, height: 0 }),
+      setViewport: () => {},
+    }),
+    applyNodeChanges: (_changes: unknown, nodes: unknown) => nodes,
+  }
+})
 
 // Prevent external-svg-loader timer from firing after test environment teardown.
 // The library schedules a setTimeout that accesses `document`, which no longer

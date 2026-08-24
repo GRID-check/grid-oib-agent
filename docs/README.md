@@ -10,6 +10,7 @@ Documentation for the AI-powered OIB building regulation research assistant. See
 | [Projects](user-guides/projects.md) | Organizing documents and chats into projects with access control |
 | [Documents](user-guides/documents.md) | Uploading, tracking, and downloading documents through the UI |
 | [Knowledge Search](user-guides/knowledge-search.md) | How the AI searches OIB knowledge base and uploaded documents |
+| [Keyboard Shortcuts](user-guides/keyboard-shortcuts.md) | The command palette, `g …` section jumps, composer keys, and the two gates that enable them |
 
 ## Technical Reference
 
@@ -20,7 +21,7 @@ Documentation for the AI-powered OIB building regulation research assistant. See
 | [Chat Flow](technical-reference/chat-flow.md) | SSE and WebSocket chat implementations, chat store, message streaming |
 | [Collection Scoping](technical-reference/collection-scoping.md) | How X-Grid-Collection-Scope is computed by the BFF and consumed by Python |
 | [Conversation Persistence](technical-reference/conversation-persistence.md) | Drizzle schema, BFF CRUD routes, store hydration, per-message persistence |
-| [Document Ingestion](technical-reference/document-ingestion.md) | MinIO upload, Python /v1/ingest, LlamaIndex chunking/embedding, ChromaDB |
+| [Document Ingestion](technical-reference/document-ingestion.md) | SeaweedFS upload, Python /v1/ingest, LlamaIndex chunking/embedding, ChromaDB |
 | [OIB Sync](technical-reference/oib-sync.md) | Incremental OIB PDF ingestion with SHA-256 hash registry |
 | [WebSocket Gateway](technical-reference/websocket-gateway.md) | Node.js gateway WebSocket proxy, scope resolution, auth forwarding |
 | [BFF Proxy Pattern](technical-reference/bff-proxy-pattern.md) | BFF route pattern for auth, scope injection, error handling, SSE passthrough |
@@ -33,8 +34,8 @@ Documentation for the AI-powered OIB building regulation research assistant. See
 |------|-------------|
 | [Docker Compose](deployment/docker-compose.md) | Service reference for all 5 containers: images, ports, volumes, healthchecks, networks |
 | [Environment Variables](deployment/environment-variables.md) | Complete env var reference organized by category, with defaults and source locations |
-| [Startup Flow](deployment/startup-flow.md) | Detailed boot sequence: PostgreSQL init, MinIO, Dask cluster, uvicorn, Next.js gateway |
-| [Security Config](deployment/security-config.md) | Auth configuration, MinIO credentials, API key management, secrets recommendations |
+| [Startup Flow](deployment/startup-flow.md) | Detailed boot sequence: PostgreSQL init, SeaweedFS, Dask cluster, uvicorn, Next.js gateway |
+| [Security Config](deployment/security-config.md) | Auth configuration, SeaweedFS credentials, API key management, secrets recommendations |
 
 ## API Reference
 

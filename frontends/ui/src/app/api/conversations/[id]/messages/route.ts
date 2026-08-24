@@ -1,112 +1,86 @@
-import { NextResponse } from 'next/server'
-import { asc, eq } from 'drizzle-orm'
+/**
+ * Conversation messages API — list a conversation's history and append
+ * messages (single object or batch array; both return an array). Thin
+ * handlers; all logic lives in `@/lib/conversations/service`.
+ *
+ * The POST response carries the server's addressee ruling on each persisted
+ * message (`addressees`, `createdRequests`) alongside the row, so the client can
+ * decide whether to open an agent turn (ADR-0034). Extra fields only — the array
+ * shape existing callers expect is unchanged.
+ */
+
 import { z } from 'zod'
-import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { getDb } from '@/lib/db'
-import { conversations, messages } from '@/lib/db/schema'
+import { apiRoute, parseJsonBody } from '@/lib/api/handler'
+import { createConversationMessages, listConversationMessages } from '@/lib/conversations/service'
+import {
+  DEFAULT_MUTATION_LIMIT,
+  enforceLimit,
+  MAX_MENTIONS_PER_MESSAGE,
+  MAX_MESSAGES_PER_REQUEST,
+  memberSubject,
+} from '@/lib/limits'
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
-): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const { id } = await params
-    const db = getDb()
+type Params = { id: string }
 
-    const [conv] = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.id, id))
-      .limit(1)
-
-    if (!conv || conv.organizationId !== session.organizationId) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    }
-
-    const rows = await db
-      .select()
-      .from(messages)
-      .where(eq(messages.conversationId, id))
-      .orderBy(asc(messages.createdAt))
-
-    return NextResponse.json(rows)
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
-
-const createMessageSchema = z.object({
-  id: z.string().min(1),
-  role: z.string().min(1),
-  content: z.string(),
-  messageType: z.string().optional(),
-  metadata: z.any().optional(),
-  createdAt: z.string().optional(),
+const mentionSchema = z.object({
+  // A WorkOS user id or the agent's sentinel id; length-capped like every other
+  // client-supplied identifier. Legitimacy is decided server-side, not here.
+  targetId: z.string().min(1).max(128),
 })
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> },
-): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const { id } = await params
-    const db = getDb()
+const createMessageSchema = z.object({
+  // Client-generated id; length-capped so user-controlled strings never
+  // reach the database unbounded.
+  id: z.string().min(1).max(128),
+  role: z.enum(['user', 'assistant', 'system', 'tool']),
+  content: z.string(),
+  // UI display type (user, agent_response, …); stored in metadata so past
+  // chats rehydrate with the right renderer. Length-capped like `id`.
+  messageType: z.string().min(1).max(64).optional(),
+  metadata: z.record(z.unknown()).optional(),
+  // Kept as a plain string: the chat store sends both ISO strings and
+  // `String(Date)` output, which `.datetime()` would reject.
+  createdAt: z.string().optional(),
+  // Structured mentions (spec MN-3) — never a text match on a name. The
+  // addressee set is resolved from these server-side (spec MN-2).
+  //
+  // Bounded by the SAME constant the service enforces (`@/lib/sharing/rate-limit`
+  // owns the product bound MN-13 asks for) so the two cannot drift: this schema
+  // used to cap the array at 20 while the service refused anything over 10, which
+  // meant an 11-mention message passed validation and then hit a 403. The two are
+  // still both needed — this bounds the PAYLOAD, the service bounds the
+  // DEDUPLICATED target count, which is the number the abuse bound is about.
+  mentions: z.array(mentionSchema).max(MAX_MENTIONS_PER_MESSAGE).optional(),
+  // The asker's question, carried into the recipient's inbox item (spec MN-12).
+  mentionNote: z.string().max(500).nullable().optional(),
+})
 
-    const [conv] = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.id, id))
-      .limit(1)
+// Bounded for the reason the constant explains: the route factory charges one
+// unit of budget per REQUEST, so an unbounded array would buy unbounded insert
+// work for a single unit. The POST below pays the other half by charging per
+// message.
+const createMessagesSchema = z.union([
+  createMessageSchema,
+  z.array(createMessageSchema).min(1).max(MAX_MESSAGES_PER_REQUEST),
+])
 
-    if (!conv || conv.organizationId !== session.organizationId) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+export const GET = apiRoute<Params>(
+  async ({ session, params }) => listConversationMessages(session, params.id),
+  { authz: { enforcedBy: 'listConversationMessages (requireResourceAccess)' } }
+)
+
+export const POST = apiRoute<Params>(
+  async ({ session, params, request }) => {
+    const body = await parseJsonBody(request, createMessagesSchema)
+    const inputs = Array.isArray(body) ? body : [body]
+    // `apiRoute` already charged one unit before this handler ran. A batch does
+    // N times the work of a single post, so charge the remainder: the budget
+    // then meters messages written rather than requests sent, and a batch cannot
+    // buy work that the same number of single posts would have been refused.
+    if (inputs.length > 1) {
+      await enforceLimit(DEFAULT_MUTATION_LIMIT, memberSubject(session), inputs.length - 1)
     }
-
-    const body = await request.json().catch(() => null)
-    if (!body) {
-      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
-    }
-
-    const messagesArray = Array.isArray(body) ? body : [body]
-    const parsed: z.infer<typeof createMessageSchema>[] = []
-
-    for (const msg of messagesArray) {
-      const result = createMessageSchema.safeParse(msg)
-      if (!result.success) {
-        return NextResponse.json(
-          { error: 'Invalid message', issues: result.error.issues },
-          { status: 400 },
-        )
-      }
-      parsed.push(result.data)
-    }
-
-    if (parsed.length === 0) {
-      return NextResponse.json({ error: 'No valid messages' }, { status: 400 })
-    }
-
-    const rows = await db
-      .insert(messages)
-      .values(
-        parsed.map((m) => ({
-          id: m.id,
-          conversationId: id,
-          role: m.role,
-          content: m.content,
-          metadata: m.metadata ?? {},
-          createdAt: m.createdAt ? new Date(m.createdAt) : new Date(),
-        }))
-      )
-      .returning()
-
-    return NextResponse.json(rows, { status: 201 })
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
+    return createConversationMessages(session, params.id, inputs)
+  },
+  { status: 201, authz: { enforcedBy: 'createConversationMessages (requireResourceAccess)' } }
+)

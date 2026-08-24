@@ -8,6 +8,13 @@
  * but are not used for UI display in the current ChatThinking component.
  */
 
+import {
+  isSkillSelectionStepName,
+  isSkillStepName,
+  skillNameFromStepName,
+} from '@/features/skills/lib/skill-activity'
+import type { Translator } from '@/i18n'
+import { isStatusStepName } from './turn-events'
 import type { IntermediateStepCategory } from '../types'
 
 /**
@@ -24,6 +31,11 @@ const CATEGORY_MAP: Record<string, IntermediateStepCategory> = {
   chat_deepresearcher_agent: 'agents',
   web_search_tool: 'tools',
   tavily_search: 'tools',
+  // The agent's skill machinery: `use_skill` is a real LangChain tool, and the
+  // narration steps around it describe the same capability, so they file under
+  // the same category rather than inventing a fourth one.
+  use_skill: 'tools',
+  skill_selection: 'tools',
 }
 
 /**
@@ -80,6 +92,11 @@ export const parseFunctionName = (name: string): ParsedFunctionName => {
  * @returns The category for data organization
  */
 export const mapFunctionToCategory = (functionName: string): IntermediateStepCategory => {
+  // Names that carry a variable suffix (`skill:<skillname>`,
+  // `status:retrieval:<n>`) cannot be map keys.
+  if (isSkillStepName(functionName)) return 'tools'
+  // A status one-liner is about the TURN, not about an agent or a tool.
+  if (isStatusStepName(functionName)) return 'tasks'
   return CATEGORY_MAP[functionName] ?? DEFAULT_CATEGORY
 }
 
@@ -113,8 +130,12 @@ export const isFunctionStepName = (rawName: string): boolean => {
 }
 
 /**
- * Display name for the root workflow step (chat_deepresearcher_agent).
- * Shown as "Workflow: Chat Researcher" instead of a raw function name.
+ * Legacy ingest label for the root workflow step (chat_deepresearcher_agent).
+ *
+ * Kept because the ingest paths still stamp it onto the step they persist; it
+ * is no longer what the reader sees — `getStepLabel` names that node from the
+ * dictionary, so the label is localised and identical for a live turn and a
+ * turn restored from the server.
  */
 export const getWorkflowDisplayName = (functionName: string): string => {
   if (functionName === 'chat_deepresearcher_agent') {
@@ -124,40 +145,156 @@ export const getWorkflowDisplayName = (functionName: string): string => {
 }
 
 /**
- * Convert a snake_case or special function name to a human-readable display name.
- * Also handles LLM model names and tool prefixes.
+ * Reader-facing label for a known node, as an i18n key under `chat.thinking.*`.
  *
- * @param functionName - The raw function name (e.g., "web_search_tool", "<workflow>", "nvidia/nvidia/Nemotron-3-Nano-30B-A3B")
- * @returns Human-readable name (e.g., "Web Search Tool", "Workflow", "Nemotron 3 Nano 30B")
+ * A map, not a formatter: what the backend puts on the wire is an internal id
+ * (`knowledge_search`, `intent_classifier`), and NAT additionally forwards
+ * LangChain span names — CamelCase class names that no amount of snake_case
+ * splitting turns into prose. Deriving a label from the id therefore either
+ * fabricates an English noun phrase in a German UI ("Use Skill") or hands the
+ * reader a class name verbatim. Both were happening; this decides the wording
+ * once, and the dictionary owns the words in the reader's own locale.
+ *
+ * Entries a chip already names reuse the `stepName.*` keys of the "Ausgeführt:"
+ * row, so a node cannot be worded one way there and another way here.
  */
-export const getDisplayName = (functionName: string): string => {
-  if (functionName === 'chat_deepresearcher_agent') {
-    return 'Chat Researcher'
-  }
-  // Handle special case for workflow
-  if (functionName === '<workflow>') {
-    return 'Workflow'
-  }
+const NODE_LABEL_KEYS: Record<string, string> = {
+  '<workflow>': 'nodeName.workflow',
+  chat_deepresearcher_agent: 'nodeName.workflow',
+  intent_classifier: 'stepName.understanding',
+  depth_router: 'stepName.routing',
+  clarifier_agent: 'nodeName.clarification',
+  ask_user: 'nodeName.askUser',
+  // The shallow node doubles as the conversational assistant (greetings,
+  // capability questions, memory) AND the quick-lookup path — so "Shallow
+  // Research Agent" mislabels a simple greeting as a research run. It reads
+  // neutrally, as the assistant, for every turn it handles.
+  shallow_research_agent: 'stepName.assistant',
+  shallow_research: 'stepName.assistant',
+  meta_chatter: 'stepName.assistant',
+  deep_research_agent: 'nodeName.deepResearch',
+  deep_research: 'nodeName.deepResearch',
+  data_sources: 'nodeName.dataSources',
+  web_search_tool: 'stepName.webSearch',
+  advanced_web_search_tool: 'stepName.webSearch',
+  tavily_search: 'stepName.webSearch',
+  knowledge_search: 'stepName.corpus',
+  knowledge_retrieval: 'stepName.corpus',
+  ris_search_tool: 'stepName.ris',
+  ris_fetch_tool: 'stepName.ris',
+  ris_catalog_lookup_tool: 'stepName.ris',
+  remember: 'nodeName.note',
+  emit_card: 'nodeName.card',
+  describe_card: 'nodeName.card',
+  surface_documents: 'nodeName.documents',
+  ifc_query: 'nodeName.model',
+  ifc_measure: 'nodeName.measure',
+  compliance_check: 'nodeName.compliance',
+  // `use_skill` is the MECHANISM, not the skill — labelled honestly and
+  // unnamed, exactly as the chip row labels it.
+  use_skill: 'stepName.skillUnnamed',
+}
 
-  // Handle LLM model names (e.g., "nvidia/nvidia/Nemotron-3-Nano-30B-A3B")
-  if (isLLMModel(functionName)) {
-    const parts = functionName.split('/')
-    const modelName = parts[parts.length - 1] // Take last segment
-    // Clean up: convert hyphens to spaces, capitalize
-    return modelName
-      .split('-')
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ')
-  }
+/** The label for a node this build has no entry for. */
+const UNKNOWN_NODE_KEY = 'nodeName.internal'
 
-  // Handle "Tool:" prefix (strip it off)
-  const cleaned = functionName.replace(/^Tool:\s*/i, '')
+/** Lookup form of a step name: `Tool: use_skill` and `use_skill` are one node. */
+const nodeKeyOf = (functionName: string): string | undefined =>
+  NODE_LABEL_KEYS[functionName.trim().replace(/^Tool:\s*/i, '').toLowerCase()]
 
-  // Convert snake_case to Title Case
-  return cleaned
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+/** A model id humanised by its last path segment: `google/gemini-3.6-flash`. */
+const modelLabel = (name: string): string =>
+  name
+    .split('/')
+    .slice(-1)[0]
+    .split('-')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ')
+
+/**
+ * The names that ARE the label — identifiers the reader is meant to see
+ * verbatim, so no dictionary is involved and no locale applies.
+ *
+ * Returns `null` for everything else, which is the signal that the wording has
+ * to come from the dictionary.
+ */
+const verbatimIdentifier = (functionName: string): string | null => {
+  const name = functionName.trim()
+  // A skill name is an IDENTIFIER, not prose. `skill:oib-brandschutz` must read
+  // "oib-brandschutz" and never "Oib Brandschutz" — the same class of mistake
+  // that made `use_skill` render as the English "Use Skill" in a German UI. The
+  // user-facing labels come from `features/skills/lib/skill-activity`; this is
+  // only the technical panel, and even there the raw name is right.
+  if (isSkillStepName(name)) return skillNameFromStepName(name) ?? name
+  // Status slots are identifiers too (`status:retrieval:0`) — and a CLOSED,
+  // learnable vocabulary, which is why they stay raw here while an unrecognised
+  // node name does not. The reader-facing wording is the payload's own
+  // sentence, rendered on the live line; here — the opt-in technical panel —
+  // the raw slot is what a power user came for.
+  if (isStatusStepName(name)) return name
+  return null
+}
+
+/**
+ * The model a step ran, when the step IS a model call — `null` otherwise.
+ *
+ * A model id is a name, not an internal node: "Gemini 3.6 Flash" is what the
+ * vendor calls it, so it is spelled out rather than translated. The
+ * deep-research stream prefixes the same thing with `llm:`.
+ */
+const modelName = (functionName: string): string | null => {
+  const name = functionName.trim()
+  const llmStep = name.match(/^llm:\s*(.+)$/i)
+  if (llmStep) return modelLabel(llmStep[1])
+  return isLLMModel(name) ? modelLabel(name) : null
+}
+
+/**
+ * Locale-free name for a step, or `''` when only the dictionary can name it.
+ *
+ * This is what the ingest paths persist on the step. It deliberately no longer
+ * title-cases an unknown identifier into a plausible English phrase: the empty
+ * string means "nobody has named this", which `getStepLabel` answers from the
+ * dictionary in the reader's locale — including for turns restored from the
+ * server, whose stored labels were written by an older build.
+ *
+ * @param functionName - The raw function name (e.g., "web_search_tool", "<workflow>")
+ * @returns The identifier the reader should see verbatim, or `''`
+ */
+export const getDisplayName = (functionName: string): string =>
+  verbatimIdentifier(functionName) ?? modelName(functionName) ?? ''
+
+/** The subset of a step `getStepLabel` reads. */
+export interface StepLabelInput {
+  functionName: string
+  displayName?: string
+}
+
+/**
+ * The label the technical panel renders for one step.
+ *
+ * Order of authority: an identifier that is its own label, then this build's
+ * dictionary, then a name some other path deliberately supplied (the
+ * deep-research stream writes "Planner > Kimi K2", which says more than either
+ * half alone), then the model behind an unnamed model call, and only then the
+ * neutral fallback. An internal identifier reaches the reader through none of
+ * them — the ingest paths stopped persisting one (`getDisplayName`), so the
+ * `displayName` rung carries only names somebody chose.
+ *
+ * @param step - The step's function name, plus any name already attached to it
+ * @param t    - A `chat`-namespace translator
+ */
+export const getStepLabel = (step: StepLabelInput, t: Translator): string => {
+  const verbatim = verbatimIdentifier(step.functionName)
+  if (verbatim) return verbatim
+  if (isSkillSelectionStepName(step.functionName)) return t('thinking.nodeName.skillSelection')
+  const key = nodeKeyOf(step.functionName)
+  if (key) return t(`thinking.${key}`)
+  return (
+    step.displayName?.trim() ||
+    modelName(step.functionName) ||
+    t(`thinking.${UNKNOWN_NODE_KEY}`)
+  )
 }
 
 /**
@@ -180,12 +317,21 @@ export const formatPayload = (payload: string): string => {
   cleaned = cleaned.replace(/```(?:python|json)?\n?/gi, '')
   cleaned = cleaned.replace(/```/g, '')
 
-  // Decode HTML entities
-  cleaned = cleaned.replace(/&lt;/g, '<')
-  cleaned = cleaned.replace(/&gt;/g, '>')
-  cleaned = cleaned.replace(/&amp;/g, '&')
-  cleaned = cleaned.replace(/&quot;/g, '"')
-  cleaned = cleaned.replace(/&#39;/g, "'")
+  // Decode HTML entities in ONE regex pass. Sequential replaces decode
+  // `&amp;` before `&quot;`/`&#39;`, so an attacker-controlled `&amp;quot;`
+  // re-unescapes to `"` — the double-unescape the CodeQL rule forbids. A
+  // single pass replaces each entity exactly once; an entity that is itself
+  // encoded stays literal (`&amp;amp;` → `&amp;`).
+  cleaned = cleaned.replace(/&(?:amp|lt|gt|quot|#39);/g, (entity) => {
+    const decodes: Record<string, string> = {
+      '&amp;': '&',
+      '&lt;': '<',
+      '&gt;': '>',
+      '&quot;': '"',
+      '&#39;': "'",
+    }
+    return decodes[entity]
+  })
 
   // Clean up Python repr formatting (e.g., "type=<ChatContentType.TEXT: 'text'>")
   cleaned = cleaned.replace(/<\w+\.\w+:\s*'[^']*'>/g, (match) => {

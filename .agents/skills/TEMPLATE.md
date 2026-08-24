@@ -1,19 +1,3 @@
-<!--
-SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-SPDX-License-Identifier: Apache-2.0
-
-This is the canonical template for AI-Q maintainer skills. To create a skill:
-
-  1. Copy the YAML frontmatter and body below into
-     .agents/skills/<aiq-skill-name>/SKILL.md
-  2. Replace every <PLACEHOLDER> and the example content.
-  3. Keep SKILL.md concise; move long procedures into references/*.md.
-  4. Validate: uv run python scripts/validate_skills.py .agents/skills
-
-This file lives at the directory root (not inside a skill folder), so the
-validator does not treat it as a skill. Do not add a SKILL.md beside it.
--->
-
 # Skill authoring template
 
 Copy everything between the rulers below into your new `SKILL.md`.

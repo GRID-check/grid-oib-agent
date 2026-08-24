@@ -1,21 +1,6 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 [build-system]
 build-backend = "setuptools.build_meta"
-requires = ["setuptools >= 64", "setuptools-scm>=8"]
+requires = ["setuptools>=83.0.0", "setuptools-scm>=10.2.1"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -35,32 +20,34 @@ dependencies = [
     "nvidia-nat[langchain,async_endpoints,phoenix,mcp]==1.7.0",
     "nvidia-nat-eval==1.7.0",
     "nvidia-nat-profiler==1.7.0",
-    "deepagents>=0.6.5",
+    "deepagents>=0.6.12",
     "langgraph-checkpoint-postgres>=3.0.0",
     "langgraph-checkpoint-sqlite>=2.0.0",
     "langchain-modal==0.0.5",
-    "psycopg[binary]>=3.0.0",
+    "psycopg[binary]>=3.3.4",
     "asyncpg>=0.29.0",
+    "redis>=5.0.0,<7",
     "aiosqlite>=0.19.0",
     "aiofiles>=23.0.0",
     "python-multipart>=0.0.27,<0.1",
     "knowledge-layer[all]",
     # CVE version floors for transitive dependencies
-    "cryptography>=46.0.6,<47",
+    "cryptography>=50.0.0,<51",
     "pillow>=12.2.0,<13",
     "pygments>=2.20.0,<3",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.4.0",
+    "pytest>=9.1.1",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
     "pytest-env>=1.1.0",
     "pre-commit>=3.5.0",
-    "ruff~=0.15.1",
+    "ruff~=0.15.21",
     "yapf>=0.40.0",
-    "mypy>=1.5.0",
+    "mypy>=2.3.0",
+    "fakeredis>=2.20.0",
 ]
 docs = [
     "sphinx>=7.0",
@@ -71,10 +58,10 @@ docs = [
     "sphinx-autobuild>=2025.8.25",
     "nvidia-sphinx-theme>=0.0.9.post1",
     "sphinx-design>=0.7.0",
-    "sphinxcontrib-mermaid>=2.0.1",
+    "sphinxcontrib-mermaid>=2.0.3",
 ]
 viz = [
-    "pygraphviz>=1.11",
+    "pygraphviz>=2.0",
 ]
 
 # -----------------------------------------------------------------------------
@@ -94,10 +81,23 @@ aiq_clarifier = "aiq_agent.agents.clarifier.register"
 aiq_data_source_registry = "aiq_agent.common.data_source_registry"
 aiq_project_memory = "aiq_agent.agents.project_memory.register"
 aiq_cards = "aiq_agent.cards.register"
+aiq_compliance_checker = "aiq_agent.agents.compliance_checker.register"
+aiq_bim = "aiq_agent.agents.bim.register"
+# The spatial half of the BIM surface (`ifc_measure`). A second entry point
+# rather than an import from `register`: NAT discovers plugins by loading the
+# module a plugin names, so the fast metadata tool and the geometry tool stay
+# independently loadable — and `ifc_query` keeps working on a deployment where
+# the spatial engine (ifcopenshell, shapely) is not installed at all.
+aiq_bim_measure = "aiq_agent.agents.bim.measure_register"
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "sources/**/tests"]
 addopts = "--import-mode=importlib"
+# Makes `from tests.conftest import ...` (the shared provider-contract double)
+# resolve the same way under every invocation — `python -m pytest`, the bare
+# `pytest` console script the pre-push hook uses, and an IDE runner — instead of
+# depending on which of those happens to put the repo root on sys.path.
+pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 
@@ -182,14 +182,15 @@ indent_dictionary_value = true
 # -----------------------------------------------------------------------------
 [dependency-groups]
 dev = [
-    "pytest>=7.4.0",
+    "pytest>=9.1.1",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
     "pytest-env>=1.1.0",
     "pre-commit>=3.5.0",
-    "ruff~=0.15.1",
+    "ruff~=0.15.21",
     "yapf>=0.40.0",
-    "mypy>=1.5.0",
+    "mypy>=2.3.0",
+    "fakeredis>=2.20.0",
     "dask[distributed]>=2024.1.0",
     # Workspace packages for testing
     "google-scholar-paper-search",
@@ -197,6 +198,7 @@ dev = [
     "exa-web-search",
     "duckduckgo-news-search",
     "polymarket-prediction-market",
+    "ris-adapter",
     "knowledge-layer[all]",
     "aiq-api",
     "aiq-research-cli",
@@ -207,7 +209,7 @@ dev = [
 prerelease = "if-necessary-or-explicit"
 override-dependencies = [
     "authlib>=1.6.11,<2",
-    "cryptography>=46.0.6,<47",
+    "cryptography>=50.0.0,<51",
     "pillow>=12.2.0,<13",
     "pygments>=2.20.0,<3",
     "pyopenssl>=26.0.0,<27",
@@ -240,6 +242,7 @@ tavily-web-search = { workspace = true }
 exa-web-search = { workspace = true }
 duckduckgo-news-search = { workspace = true }
 polymarket-prediction-market = { workspace = true }
+ris-adapter = { workspace = true }
 knowledge-layer = { workspace = true }
 aiq-api = { workspace = true }
 aiq-research-cli = { workspace = true }

@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, test, expect } from 'vitest'
 import {
   pruneMessageForStorage,
@@ -56,7 +59,10 @@ describe('prune-message-for-storage', () => {
 
       // Heavy fields removed
       expect(pruned.reportContent).toBeUndefined()
-      expect(pruned.citations).toBeUndefined()
+      // Citations survive (compact) so the "Belegt durch" chips persist across
+      // reload — a shallow answer's sources cannot be refetched.
+      expect(pruned.citations).toHaveLength(1)
+      expect(pruned.citations![0].id).toBe('c1')
       expect(pruned.deepResearchTodos).toEqual([
         { id: 't1', content: 'Todo item', status: 'pending' },
       ])
@@ -160,6 +166,52 @@ describe('prune-message-for-storage', () => {
       expect(pruned.thinkingSteps![0].displayName).toBe('Web Search')
       expect(pruned.thinkingSteps![0].functionName).toBe('web_search_tool')
       expect(pruned.thinkingSteps![0].isTopLevel).toBeUndefined()
+    })
+
+    test('derives and keeps traceLanes when stripping tool payload', () => {
+      const message: ChatMessage = {
+        id: 'msg_3b',
+        role: 'user',
+        content: 'Question',
+        timestamp: new Date(),
+        messageType: 'user',
+        thinkingSteps: [
+          {
+            id: 'ts_kb',
+            userMessageId: 'msg_3b',
+            category: 'tools',
+            functionName: 'knowledge_retrieval',
+            displayName: 'Knowledge',
+            content: `Found 1 document(s):
+
+--- Result 1 ---
+Source: OIB-RL_2_Brandschutz.pdf
+Collection: oib_knowledge
+Citation: OIB-RL_2_Brandschutz.pdf, p.12
+
+## Trace-Lanes
+{"lanes":[{"key":"baurecht_oib","label":"OIB-Richtlinie","hitCount":1,"sources":[{"name":"OIB-RL_2_Brandschutz.pdf","detail":"p.12"}]}]}
+`,
+            timestamp: new Date(),
+            isComplete: true,
+          },
+        ],
+      }
+
+      const pruned = pruneMessageForStorage(message)
+      expect(pruned.thinkingSteps![0].content).toBe('')
+      expect(pruned.thinkingSteps![0].traceLanes).toEqual([
+        {
+          key: 'baurecht_oib',
+          label: 'OIB-Richtlinie',
+          hitCount: 1,
+          sources: [{ name: 'OIB-RL_2_Brandschutz.pdf', detail: 'p.12' }],
+          // The coarse kind is persisted alongside the signal so a reloaded
+          // message renders through the same taxonomy as a live one.
+          kind: 'baurecht',
+          signal: 'law',
+        },
+      ])
     })
 
     test('caps plan message text during pruning', () => {

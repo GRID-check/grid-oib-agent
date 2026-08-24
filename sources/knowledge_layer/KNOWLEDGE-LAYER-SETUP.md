@@ -67,6 +67,25 @@ uv pip install -e "sources/knowledge_layer[foundational_rag]"  # Requires deploy
 python -c "from aiq_agent.knowledge import get_retriever; print('OK')"
 ```
 
+### When retrieval fails on dependencies
+
+Both the ingestor and the retriever preflight the whole stack before reporting
+themselves initialized, and the error names what is actually wrong **per
+distribution**. Two different faults, two different fixes:
+
+| Report | What it means | Fix |
+|---|---|---|
+| `<dist>: not installed` | The distribution is genuinely absent. | Install the extra. |
+| `<dist>: installed but broken (...)` | It is present but cannot be loaded — commonly a **partial install**, or one of its own dependencies missing. | `uv sync --extra llamaindex` |
+
+The second case is the one worth recognising. `llama_index` is a PEP-420
+namespace package, so the parent import succeeds whenever *any* `llama-index-*`
+distribution is present. A tree missing `llama-index-core` therefore fails deep
+inside a submodule with `cannot import name 'core' from 'llama_index' (unknown
+location)` rather than at the obvious place — and reads as "not installed" if
+you only look at the top line. Adding the package that is already there will not
+help; **reinstall the whole extra**.
+
 ---
 
 ## Usage
@@ -334,7 +353,7 @@ Other file types are ingested normally but do not receive summaries.
 
 1. **Ingestion**: Backend extracts text from the document and generates a one-sentence summary using an LLM call
 2. **Registry**: Summary is stored in a centralized, backend-agnostic registry (`aiq_agent.knowledge.factory`)
-3. **Agent prompts**: Summaries appear in the agent's system prompt under "Uploaded Documents"
+3. **Agent prompts**: Summaries appear in the agent's system prompt under the shelf-grouped knowledge-base inventory (Büroarchiv / Projektwissen / Private Sitzung / Basiswissen)
 4. **Tool calling**: Agents can make informed decisions about when to call `knowledge_search`
 
 ### Agent Prompt Example

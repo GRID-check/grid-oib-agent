@@ -28,7 +28,6 @@ from pydantic import Field
 
 from nat.builder.builder import EvalBuilder
 from nat.builder.evaluator import EvaluatorInfo
-from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.cli.register_workflow import register_evaluator
 from nat.data_models.component_ref import LLMRef
 from nat.data_models.evaluator import EvalInput
@@ -396,23 +395,19 @@ def extract_ratings(response):
             if evaluation not in ["correct", "incorrect"]:
                 return False, None
 
-        if len(lines) == 1:
-            if lines[0].split(" ")[-1] in ["correct", "incorrect"]:
-                evaluation = lines[0].split(" ")[-1]
+    if evaluation is None and len(lines) == 1:
+        candidate = lines[0].split(" ")[-1]
+        if candidate in ["correct", "incorrect"]:
+            evaluation = candidate
 
-        if evaluation == "incorrect":
-            evaluation = "FALSE"
-        else:
-            evaluation = "TRUE"
+    if evaluation is None:
+        if "Thus, the response is credited." in response:
+            return True, "TRUE"
+        if "Thus, the response is not credited." in response:
+            return True, "FALSE"
+        return False, None
 
-        if evaluation is None:
-            if "Thus, the response is credited." in response:
-                evaluation = "TRUE"
-            elif "Thus, the response is not credited." in response:
-                evaluation = "FALSE"
-            else:
-                return False, None
-    return True, evaluation
+    return True, "FALSE" if evaluation == "incorrect" else "TRUE"
 
 
 def load_dataset_metadata(dataset_file: str | None) -> dict[str, dict]:
@@ -814,7 +809,13 @@ async def register_freshqa_evaluator(config: FreshQAConfig, builder: EvalBuilder
         )
         config.dataset_file = config.dataset_file.replace(".csv", ".json")
 
-    llm = await builder.get_llm(config.llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    # Through the fleet factory, not builder.get_llm directly: the judge model
+    # is routed to the same OpenRouter pool as production, so it needs the same
+    # request contract (a grading prompt that ends on an assistant turn 400s on
+    # Google exactly as a chat turn does) and the same structured-output defaults.
+    from aiq_agent.common import get_langchain_llm
+
+    llm = await get_langchain_llm(builder, config.llm_name)
     evaluator = FreshQAEvaluator(
         llm=llm,
         max_concurrency=builder.get_max_concurrency(),

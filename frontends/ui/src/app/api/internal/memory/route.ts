@@ -1,48 +1,23 @@
-import { timingSafeEqual } from 'node:crypto'
-import { NextResponse } from 'next/server'
-import { z } from 'zod'
-import {
-  createProjectMemoryItem,
-  createProjectMemoryItemForProject,
-  organizationExists,
-} from '@/lib/projects/memory-service'
-import {
-  PROJECT_MEMORY_CONFIDENCES,
-  PROJECT_MEMORY_KINDS,
-} from '@/lib/db/schema'
-
 /**
  * INTERNAL service endpoint — the write path for the backend agent's
  * `remember` tool. Keeps grid_app single-writer: the Python backend never
  * touches the database; it calls this route over the compose network,
  * authenticated by a shared service token (GRID_INTERNAL_API_TOKEN on both
  * services). Not user-facing; requests without the token are rejected, and
- * the route fails closed when the token is unconfigured.
+ * the route fails closed when the token is unconfigured (both enforced by
+ * `internalApiRoute` via `@/lib/internal-auth`).
  */
 
-const INTERNAL_TOKEN_HEADER = 'x-grid-internal-token'
-
-// Well-known default shipped in docker-compose for local development. It must
-// never authenticate anything outside a dev environment.
-const DEV_DEFAULT_TOKEN = 'grid-internal-dev-token'
-const DEV_APP_ENVS = new Set(['development', 'dev', 'local'])
-
-/** Constant-time token comparison; length mismatch short-circuits safely. */
-function tokensMatch(provided: string | null, expected: string): boolean {
-  if (!provided) return false
-  const a = Buffer.from(provided)
-  const b = Buffer.from(expected)
-  if (a.length !== b.length) return false
-  return timingSafeEqual(a, b)
-}
-
-function isDevEnvironment(): boolean {
-  // The frontend container does not receive APP_ENV; fall back to NODE_ENV
-  // (Next.js sets it to 'production' in the built image, 'development' for
-  // `next dev`). Unset means production — fail closed.
-  const env = (process.env.APP_ENV ?? process.env.NODE_ENV ?? 'production').toLowerCase()
-  return DEV_APP_ENVS.has(env)
-}
+import { z } from 'zod'
+import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
+import { withOptionalTenant } from '@/lib/db/tenant-context'
+import { NotFoundError, OrgMemoryDisabledError } from '@/lib/api/errors'
+import {
+  createProjectMemoryItem,
+  createProjectMemoryItemForProject,
+  organizationExists,
+} from '@/lib/projects/memory-service'
+import { PROJECT_MEMORY_CONFIDENCES, PROJECT_MEMORY_KINDS } from '@/lib/db/schema'
 
 // Agent-authored org-wide memory is DENIED by default: an org item lands in
 // every project's digest across the tenant, and this service-token endpoint
@@ -66,80 +41,107 @@ const internalMemorySchema = z
     // authenticated panel routes. 'distillation' = the async reflection stage.
     provenanceType: z.enum(['agent', 'distillation']).default('agent'),
     sourceConversationId: z.string().max(255).optional(),
+    // Verbatim content of the entry this finding makes obsolete, quoted back
+    // from the digest the agent was shown. Lets the agent CORRECT memory, not
+    // just append to it — the resolved entry is marked 'superseded' and linked
+    // via supersedes_id. Unresolvable quotes are ignored, and human-curated
+    // entries (pinned / user-confirmed / user-authored) are never retired this
+    // way (design §3.2).
+    supersedesContent: z.string().trim().min(1).max(2000).optional(),
   })
   .refine((v) => (v.scope === 'project' ? !!v.projectId : !!v.organizationId), {
     message: 'project scope requires projectId; organization scope requires organizationId',
   })
 
-export async function POST(request: Request): Promise<Response> {
-  const expectedToken = process.env.GRID_INTERNAL_API_TOKEN
-  if (!expectedToken) {
-    console.error('[Internal Memory API] GRID_INTERNAL_API_TOKEN is not configured — rejecting')
-    return NextResponse.json({ error: 'Internal API disabled' }, { status: 503 })
-  }
-  if (expectedToken === DEV_DEFAULT_TOKEN && !isDevEnvironment()) {
-    console.error(
-      `[Internal Memory API] GRID_INTERNAL_API_TOKEN is the well-known dev default ('${DEV_DEFAULT_TOKEN}') in a non-dev environment — refusing to serve. Set a real token in the deployment environment.`,
+export const POST = internalApiRoute(
+  'Internal Memory',
+  async ({ request }) => {
+    const {
+      scope,
+      projectId,
+      organizationId,
+      kind,
+      content,
+      confidence,
+      provenanceType,
+      sourceConversationId,
+      supersedesContent,
+    } = await parseJsonBody(request, internalMemorySchema)
+
+    // An organization-scoped write always names its tenant. A project-scoped
+    // one may not: the project row is what names it, and
+    // `createProjectMemoryItemForProject` resolves the branch from it.
+    return withOptionalTenant(
+      organizationId,
+      'project-scoped agent memory addressed by project id; the project row names the tenant',
+      async () => {
+        if (scope === 'organization') {
+          // Default-deny agent-authored org-wide writes (audit finding S1).
+          if (!agentOrgMemoryAllowed()) {
+            console.warn(
+              '[Internal Memory API] Rejected agent org-scoped write (GRID_ALLOW_AGENT_ORG_MEMORY not set)'
+            )
+            // Distinct ORG_MEMORY_DISABLED code (not a bare FORBIDDEN) so the backend
+            // reports the accurate cause instead of mislabeling it a token mismatch.
+            throw new OrgMemoryDisabledError('Agent organization-scoped memory is disabled')
+          }
+          // Validate the org id against known tenants. There is no organizations
+          // table, so "known" means: at least one project belongs to it. This
+          // blocks arbitrary-org writes from a compromised backend, though an
+          // org with zero projects is also rejected (acceptable limitation).
+          const known = await organizationExists(organizationId as string)
+          if (!known) {
+            throw new NotFoundError('Unknown organization')
+          }
+        }
+
+        // Reported by the service, never derived from the returned row: a duplicate
+        // or paraphrase refresh returns an EXISTING item whose `supersedesId` may
+        // record a retirement performed by an earlier request.
+        const outcome: { supersededId: string | null } = { supersededId: null }
+        const writeOptions = {
+          supersedesContent,
+          onSuperseded: (id: string) => {
+            outcome.supersededId = id
+          },
+        }
+
+        const item =
+          scope === 'project'
+            ? await createProjectMemoryItemForProject(
+                projectId as string,
+                {
+                  kind,
+                  content,
+                  confidence,
+                  sourceConversationId: sourceConversationId ?? null,
+                  provenanceType,
+                },
+                writeOptions
+              )
+            : await createProjectMemoryItem(
+                {
+                  scope: 'organization',
+                  projectId: null,
+                  organizationId: organizationId as string,
+                  kind,
+                  content,
+                  confidence,
+                  sourceConversationId: sourceConversationId ?? null,
+                  provenanceType,
+                },
+                writeOptions
+              )
+
+        if (!item) {
+          throw new NotFoundError('Unknown project')
+        }
+
+        // `supersededId` is null when the quote resolved to nothing, or to an entry
+        // the agent may not retire — the caller can then be honest about what it did.
+        return { item, supersededId: outcome.supersededId }
+      }
     )
-    return NextResponse.json({ error: 'Internal API disabled' }, { status: 503 })
-  }
-  if (!tokensMatch(request.headers.get(INTERNAL_TOKEN_HEADER), expectedToken)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
-
-  try {
-    const body = await request.json().catch(() => null)
-    const parsed = internalMemorySchema.safeParse(body)
-    if (!parsed.success) {
-      return NextResponse.json({ error: 'Invalid memory payload.' }, { status: 400 })
-    }
-
-    const { scope, projectId, organizationId, kind, content, confidence, provenanceType, sourceConversationId } =
-      parsed.data
-
-    if (scope === 'organization') {
-      // Default-deny agent-authored org-wide writes (audit finding S1).
-      if (!agentOrgMemoryAllowed()) {
-        console.warn('[Internal Memory API] Rejected agent org-scoped write (GRID_ALLOW_AGENT_ORG_MEMORY not set)')
-        return NextResponse.json({ error: 'Agent organization-scoped memory is disabled' }, { status: 403 })
-      }
-      // Validate the org id against known tenants. There is no organizations
-      // table, so "known" means: at least one project belongs to it. This
-      // blocks arbitrary-org writes from a compromised backend, though an
-      // org with zero projects is also rejected (acceptable limitation).
-      const known = await organizationExists(organizationId as string)
-      if (!known) {
-        return NextResponse.json({ error: 'Unknown organization' }, { status: 404 })
-      }
-    }
-
-    const item =
-      scope === 'project'
-        ? await createProjectMemoryItemForProject(projectId as string, {
-            kind,
-            content,
-            confidence,
-            sourceConversationId: sourceConversationId ?? null,
-            provenanceType,
-          })
-        : await createProjectMemoryItem({
-            scope: 'organization',
-            projectId: null,
-            organizationId: organizationId as string,
-            kind,
-            content,
-            confidence,
-            sourceConversationId: sourceConversationId ?? null,
-            provenanceType,
-          })
-
-    if (!item) {
-      return NextResponse.json({ error: 'Unknown project' }, { status: 404 })
-    }
-
-    return NextResponse.json({ item }, { status: 201 })
-  } catch (error) {
-    console.error('[Internal Memory API] Error:', error)
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
-  }
-}
+  },
+  { status: 201, tenancy: { fromPayload: 'body.organizationId, else the project row' } }
+)

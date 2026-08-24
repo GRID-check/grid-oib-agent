@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   buildCollectionScopeFromRequest,
@@ -13,17 +16,31 @@ vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn(),
 }))
 
-vi.mock('@/lib/collection-scope', () => ({
-  computeCollectionScope: vi.fn((_session, ctx) => {
-    const scope: string[] = ['oib_knowledge']
-    if (ctx.projectId) scope.push(`proj_${ctx.projectId}`)
-    if (ctx.conversationId) {
-      scope.push(ctx.conversationId.startsWith('s_') ? ctx.conversationId : `s_${ctx.conversationId}`)
-    }
-    return scope
-  }),
-  buildCollectionScopeHeader: vi.fn((scope) => Buffer.from(JSON.stringify(scope)).toString('base64url')),
-}))
+// Partial mock, not a replacement. This used to hand-reimplement
+// `computeCollectionScope` — including its own copy of the `s_` prefix rule —
+// which made it a fourth copy of the rule that has since been centralised as
+// `sessionCollectionName`, and left the module's other exports undefined the
+// moment one was added. Spying the real implementations keeps the call
+// assertions while making the double impossible to drift from the module.
+vi.mock('@/lib/collection-scope', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/collection-scope')>()
+  return {
+    ...actual,
+    // NOTE: this fake omits the org-wide Archiv collection that the real
+    // `computeCollectionScope` injects, so the expectations below describe a
+    // scope narrower than production's. Left as-is deliberately — widening it
+    // rewrites what six tests assert, which is its own change — but it means
+    // these cases do not cover Archiv injection. `collection-scope.spec.ts`
+    // does.
+    computeCollectionScope: vi.fn((_session, ctx) => {
+      const scope: string[] = ['oib_knowledge']
+      if (ctx.projectId) scope.push(`proj_${ctx.projectId}`)
+      if (ctx.conversationId) scope.push(actual.sessionCollectionName(ctx.conversationId))
+      return scope
+    }),
+    buildCollectionScopeHeader: vi.fn(actual.buildCollectionScopeHeader),
+  }
+})
 
 import { getDb } from '@/lib/db'
 import { requireProjectAccess } from '@/lib/authz/projects'
@@ -40,6 +57,7 @@ const baseSession: AuthorizedSession = {
   organizationMembershipId: 'om_1',
   role: 'member',
   permissions: [],
+  featureFlags: null,
 }
 
 function mockDbSelect(rows: Array<{ prefs: Record<string, unknown> }>) {
@@ -83,7 +101,7 @@ describe('buildCollectionScopeFromRequest', () => {
 
   it('builds base-only scope for anonymous mode', async () => {
     process.env.REQUIRE_AUTH = 'false'
-    const { scope, headerValue } = await buildCollectionScopeFromRequest(null, {})
+    const { scope } = await buildCollectionScopeFromRequest(null, {})
     expect(scope).toEqual(['oib_knowledge'])
     expect(mockRequireProjectAccess).not.toHaveBeenCalled()
     delete process.env.REQUIRE_AUTH

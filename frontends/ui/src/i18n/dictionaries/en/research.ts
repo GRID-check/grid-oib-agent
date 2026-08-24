@@ -2,9 +2,21 @@
 export const research = {
   dismissError: 'Dismiss error',
 
+  // Shared empty-state helper shown across the deep-research detail tabs
+  // (Thinking, Thought Traces, Tool Calls, Agents, Files).
+  detailsHelp:
+    'These details appear during active research and may not be available for completed reports.',
+
   runsPage: {
     title: 'Research runs',
-    subtitle: 'Deep research reports Grid has produced for this project, newest first.',
+    subtitle: 'Deep research reports Piloti has produced for this project, newest first.',
+  },
+
+  // Labels for the per-project research-runs list rows (research-runs-list.tsx).
+  runsList: {
+    untitledRun: 'Deep research run',
+    sessionLabel: 'Session {id}',
+    viewThinking: 'View thinking',
   },
 
   dockedPanel: {
@@ -13,21 +25,22 @@ export const research = {
 
   chatArea: {
     ariaMessages: 'Chat messages',
-    secureWorkspace: 'secure workspace',
-    loggedOutTitle: 'Grid opens after your organization is verified.',
+    loading: 'Loading conversation',
+    typing: 'Piloti is responding …',
+    scrollToLatest: 'Scroll to latest',
+    status: {
+      thinking: 'Thinking …',
+      searching: 'Searching …',
+      planning: 'Planning …',
+      researching: 'Researching …',
+      writing: 'Writing …',
+    },
+    loggedOutTitle: 'Piloti opens after your organization is verified.',
     loggedOutBody:
-      'Sign in to unlock project-scoped OIB research, document ingestion, and member access controls.',
+      'Sign in to unlock project-scoped OIB research, document reading, and member access controls.',
     signInSso: 'Sign in with SSO',
-    featureWorkos: 'WorkOS authentication',
-    featureRetrieval: 'Project-scoped retrieval',
-    featureRbac: 'Role-based access',
-    cockpit: 'OIB research cockpit',
-    title: 'Start with a project, then ask for cited building-code reasoning.',
-    body: 'Grid keeps retrieval scoped to the selected workspace and turns long guideline documents into traceable decisions.',
-    openProjects: 'Open projects',
-    openProjectsDesc: 'Create workspaces, manage documents, and invite roles.',
-    selectContext: 'Select context',
-    selectContextDesc: 'Use the workspace selector before running analysis.',
+    welcomeTitle: 'How can Piloti help with your project?',
+    usePrompt: 'Use suggestion: {prompt}',
     prompt1: 'Compare OIB 2 fire resistance duties across building classes.',
     prompt2: 'Summarize accessibility requirements for a public retrofit.',
     prompt3: 'Find contradictions between uploaded plans and OIB guidance.',
@@ -38,13 +51,17 @@ export const research = {
     signInToCreate: 'Sign in to create sessions',
     cannotCreateActive: 'Cannot create a new session while the current session is active',
     newChat: 'New chat',
-    toggleSessions: 'Toggle sessions sidebar',
-    signInToView: 'Sign in to view sessions',
+    toggleSessions: 'Chat history',
+    signInToView: 'Sign in to view your chat history',
     sessions: 'Sessions',
     addSources: 'Add data sources',
     signInToManage: 'Sign in to manage data sources',
     sources: 'Sources',
     research: 'Research',
+    /** Trigger for the thread menu that holds every non-primary header action. */
+    moreActions: 'More actions',
+    renameSession: 'Rename chat',
+    researchReport: 'Research report',
   },
 
   dataSources: {
@@ -52,42 +69,60 @@ export const research = {
     loadingEllipsis: 'Loading data sources...',
     unableToLoad: 'Unable to load data sources',
     retryAria: 'Retry loading data sources',
-    none: 'No data sources available',
-    changesDisabledBusy: 'Data source changes disabled during active operations',
   },
 
-  dataConnectionCard: {
-    enabled: 'enabled',
-    disabled: 'disabled',
-    disabledParenthetical: '(disabled)',
-    noPermission: "You don't have permission to access this data source",
-    enableName: 'Enable {name}',
-    disableName: 'Disable {name}',
-    nameDisabled: '{name} (disabled)',
-  },
-
-  dataConnectionsTab: {
-    availableSources: 'Available Sources ({count})',
-  },
-
-  dataSourcesPanel: {
-    title: 'Data Sources',
-    footerConnections:
-      '{enabled} of {available} available connections enabled. Enabled connections will be available to the AI assistant.',
-    footerFiles: 'Attached files will be always available to agents until deleted.',
-    tabConnections: 'Connections',
-    tabFiles: 'Files',
-    enableAuthBanner: 'Enable authentication to access additional data sources.',
-    signInBanner: 'Sign in to access additional data sources.',
-    allConnections: 'All Connections',
-    allAvailableDisabledOps: 'All available connections (disabled during operations)',
-    allAvailableState: 'All available connections: {state}',
-    disableEnableAll: 'Disable / Enable All',
-    toggleAllDisabled: 'Toggle all connections (disabled)',
-    disableAll: 'Disable all connections',
-    enableAll: 'Enable all connections',
-    individualConnections: 'Individual Connections ({count})',
-    signInRequiredSource: 'Sign in required to access this data source',
+  /**
+   * Datenbasis — the composer control for WHERE Piloti may look.
+   *
+   * One name for one thing: this object retires the four competing labels the
+   * same surface used to carry. Tense is meaning here — the control speaks only
+   * in the present/permissive ("may search"); what was actually used is the
+   * Herleitung's job to report, never this control's.
+   */
+  sourceBasis: {
+    label: 'Data basis',
+    triggerAria: 'Data basis: {summary}. Opens the picker.',
+    description: 'Where Piloti may search. What it actually used is in the derivation.',
+    allSources: 'All sources',
+    internalOnly: 'Project knowledge only',
+    overflowAria: '{count, plural, one {# more source type} other {# more source types}}',
+    alwaysOn: 'Always included',
+    alwaysOnChip: 'Always on',
+    external: 'External sources',
+    signInRequired: 'Sign-in required',
+    signInReason: 'Sign in to use this source.',
+    lockedBusy: 'The data basis cannot be changed while research is running.',
+    noExternalWarning: 'Piloti will then search only your project documents.',
+    presetsLabel: 'Presets',
+    emptyTitle: 'No external sources',
+    emptyBody:
+      'No external sources are enabled for this project right now. Piloti searches your project documents.',
+    toggleAria: 'Allow {name}',
+    /** Stratum wordmarks — always shown together with their icon and colour. */
+    strata: {
+      law: 'Building law',
+      office: 'Office archive',
+      project: 'Project knowledge',
+      auto: 'Web',
+    },
+    /** Presets in the picker footer — "All" makes the normal case nameable. */
+    presets: {
+      all: 'All sources',
+      law: 'Building law & guidelines',
+      project: 'Project documents',
+      office: 'Office archive',
+    },
+    /**
+     * The knowledge layer is not a toggleable source — it rides along on every
+     * turn. It is listed here instead of being filtered away and skewing the
+     * count.
+     */
+    knowledge: {
+      projectName: 'Project knowledge',
+      projectDescription: 'Your project documents in this project.',
+      officeName: 'Office archive',
+      officeDescription: 'Shared documents from your office.',
+    },
   },
 
   deleteModals: {
@@ -95,21 +130,23 @@ export const research = {
     aboutToDelete: 'You are about to delete',
     lossSuffix: '. You will lose all progress and any files you have attached will be removed.',
     all: {
-      title: 'Deleting All Sessions',
-      countSessions: 'all {count} sessions',
-      allSessions: 'ALL sessions',
-      confirm: 'Delete ALL Sessions',
+      title: 'Delete all chats in this project?',
+      countSessions:
+        '{count, plural, one {the one chat in this project} other {all # chats in this project}}',
+      allSessions: 'EVERY chat in this project',
+      scopeNote: 'Only chats in this project are deleted. Your chats in other projects are not affected.',
+      confirm: 'Delete all chats',
     },
     file: {
       title: 'Delete File',
       thisFile: 'this file',
-      suffix: '. This will completely remove it from your session.',
+      suffix: '. This will completely remove it from your chat.',
       confirm: 'Delete File',
     },
     session: {
-      title: 'Deleting Session',
-      thisSession: 'this session',
-      confirm: 'Delete Session',
+      title: 'Delete this chat?',
+      thisSession: 'this chat',
+      confirm: 'Delete chat',
     },
   },
 
@@ -140,18 +177,24 @@ export const research = {
     title: 'Agents',
     runningCount: '{count} running',
     queriesProgress: '{completed}/{total} queries',
-    description: 'Active planner, researcher, and writer agents executing tasks.',
+    description: 'Piloti plans, researches, and writes — this is what is running right now.',
     empty: 'No agent activity available.',
   },
 
+  filesTab: {
+    title: 'Files',
+    description: 'Drafts, reports and other files this research produced.',
+    empty: 'No files produced yet.',
+  },
+
   fileCard: {
-    lines: '{count} lines',
+    lines: '{count, plural, one {# line} other {# lines}}',
     content: 'Content',
   },
 
   fileSourceCard: {
     statusUploading: 'Uploading...',
-    statusIngesting: 'Ingesting...',
+    statusIngesting: 'Processing...',
     statusAvailable: 'Available',
     statusError: 'Error',
     statusDeleting: 'Deleting...',
@@ -162,20 +205,21 @@ export const research = {
     waitUpload: 'Wait for upload to complete',
     cannotDeleteBusy: 'Cannot delete files during active operations',
     deleteFile: 'Delete file',
+    open: 'Open preview: {title}',
   },
 
   fileSourcesTab: {
     uploadTo: 'Upload To',
-    targetProject: 'Project corpus',
+    targetProject: 'Project knowledge',
     targetSession: 'Private session',
-    targetProjectLower: 'project corpus',
+    targetProjectLower: 'project knowledge',
     targetSessionLower: 'private session',
     availableInProject: 'Available in this project.',
-    preparingCorpus: 'Preparing project corpus...',
+    preparingCorpus: 'Preparing project knowledge...',
     onlyThisSession: 'Only available in this chat session.',
     loadingFiles: 'Loading files',
     checkingFiles: 'Checking for files...',
-    setupBackend: 'Setup backend to enable files.',
+    setupBackend: 'Files become available once the connection to Piloti is up.',
     noAttachedFiles: 'No Attached Files',
     filesGoTo: 'Files uploaded here go to {target} unless removed.',
     filesCount: '{target} Files ({count})',
@@ -186,18 +230,27 @@ export const research = {
   },
 
   inputArea: {
+    /**
+     * Clearing the composer's file subject ends two things at once — the
+     * retrieval focus and the open viewer — so it is the one control in the
+     * file flow that cannot be walked back by pressing it again. The toast
+     * carries the way back.
+     */
+    subjectCleared: 'No longer asking about that file.',
+    subjectClearedUndo: 'Undo',
+    aiDisclosure:
+      'Piloti is an AI — answers can be wrong; verify them against the cited Richtlinie.',
     placeholderDefault: 'Check data sources and ask a research question...',
     signInToStart: 'Sign in to start researching',
     researchCompletedNewSession: 'Research completed. Create a new session for further questions.',
-    typeResponse: 'Type your response to the agent...',
+    researchFailedFollowUp: 'Research didn’t finish. Ask a follow-up or try again.',
+    typeResponse: 'Type your response to Piloti...',
     pleaseWait: 'Please wait...',
     messageNotSent: 'Message not sent',
     messageNotSentDesc: 'Something went wrong sending your message. Please try again.',
     unsupportedFileType: 'Unsupported file type',
     dropToUpload: 'Drop files to upload',
     accepts: 'Accepts: {types}',
-    toggleDataSources: 'Toggle data sources connections',
-    selectedConnections: 'Selected data connections',
     openFiles: 'Open uploaded files',
     availableFiles: 'Available files',
     uploadNotAvailable: 'File upload not available',
@@ -208,6 +261,7 @@ export const research = {
     researchCompleted: 'Research completed',
     researchCompletedPopover:
       'Research completed. For further questions or reports, please create a new session.',
+    startNewSession: 'Start new session',
     researchInProgressAria: 'Research in progress - please wait',
     researchInProgress: 'Research in progress',
     researchInProgressPopover:
@@ -217,18 +271,49 @@ export const research = {
     sendQuery: 'Send query',
     responseInput: 'Response input',
     chatMessageInput: 'Chat message input',
+    stopStreaming: 'Stop response',
+    sendWhilePending: 'Files are still processing — send anyway?',
+    removeFile: 'Remove file: {name}',
+    retryUpload: 'Retry upload',
+    manageFiles: 'Manage files',
+    manageFilesCount: 'Manage attached files ({count})',
+    manageFilesMobile: 'Manage {count, plural, one {# file} other {# files}}',
+    openFile: 'Open file: {name}',
+    fileUploadingStatus: 'Uploading',
+    fileFailedStatus: 'Upload failed',
+    fileReadyStatus: 'Ready',
   },
 
   reportCard: {
     reportWhenComplete: 'The report will appear here once research is complete.',
     exportAsMdPdf: 'You can export it as Markdown or PDF.',
     draft: 'Draft',
-    words: '{count} words',
+    words: '{count, plural, one {# word} other {# words}}',
   },
 
   reportTab: {
     contentWhenAvailable: 'Report content will appear here when available.',
-    notesBanner: 'Research notes from agents — final report is still being generated.',
+    notesBanner: 'Working notes from the research — the final report is still being written.',
+    // Heading for the sources list appended from run citations when the
+    // report markdown itself has no sources section.
+    sourcesTitle: 'Sources',
+    // Per-source origin badges: whether a cited source came from the trusted
+    // knowledge base, the official Austrian legal system (RIS), or the web.
+    sourceBadge: {
+      kb: 'Knowledge base',
+      web: 'Web',
+      ris: 'RIS',
+    },
+  },
+
+  // The outline above a finished report: its headings as a jump list, with the
+  // section the reader is in marked.
+  reportOutline: {
+    label: 'Report outline',
+    title: 'Outline',
+    sectionCount: '{count, plural, one {# section} other {# sections}}',
+    show: 'Show outline',
+    hide: 'Hide outline',
   },
 
   researchPanel: {
@@ -241,6 +326,11 @@ export const research = {
     tabReport: 'Report',
     stopResearchingButton: 'Stop Researching',
     stopResearching: 'Stop researching',
+    // Confirmation dialog shown before cancelling a running deep-research job.
+    stopConfirmTitle: 'Stop research?',
+    stopConfirmBody:
+      'The running research will be cancelled and cannot be resumed. Partial progress so far stays visible in the research panel.',
+    stopConfirmConfirm: 'Stop research',
     noActiveResearch: 'No active research',
     loadingData: 'Loading research data',
     loadingDataEllipsis: 'Loading research data...',
@@ -250,37 +340,63 @@ export const research = {
   },
 
   sessionsPanel: {
-    title: 'Sessions',
-    storageQuota: 'Using {percent}% of browser storage quota',
+    title: 'Chat history',
+    /** Shown beside the title so the panel states its own size. */
+    countLabel: '{count, plural, one {# chat} other {# chats}}',
+    countLabelOne: '1 chat',
+    // Storage is surfaced only once it is close enough to matter, and then it
+    // says what to do about it rather than reporting a number.
+    storageQuota: 'Browser storage is {percent}% full — delete old chats to free space.',
     storageNote:
-      'Note: Chat sessions are saved in this browser. Research reports may expire on the server.',
-    deleteAllDisabled: 'Delete all sessions (disabled)',
-    deleteAll: 'Delete all sessions',
+      'Chats are saved in this browser. Research reports may expire on the server.',
+    deleteAllDisabled: 'Delete all chats in this project (disabled)',
+    deleteAll: 'Delete all chats in this project',
     cannotDeleteBusy: 'Cannot delete while operations are in progress',
-    deleteAllButton: 'Delete All',
-    newSessionDisabled: 'Start new session (disabled during active operations)',
-    startNewSession: 'Start new session',
-    cannotCreateActive: 'Cannot create new session while current session is active',
-    newSessionButton: 'New Session',
-    searchPlaceholder: 'Search sessions...',
-    searchAria: 'Search sessions',
-    noMatching: 'No matching sessions',
-    noSessions: 'No sessions yet',
-    startNewSessionButton: 'Start a new session',
+    deleteAllButton: 'Delete all chats',
+    newSessionDisabled: 'Start a new chat (disabled during active operations)',
+    startNewSession: 'Start a new chat',
+    cannotCreateActive: 'Cannot start a new chat while this one is still answering',
+    newSessionButton: 'New chat',
+    searchPlaceholder: 'Search chats',
+    searchAria: 'Search chats',
+    clearSearch: 'Clear search',
+    /** Live result count under the search field while a query is active. */
+    searchResults: '{count} of {total} chats',
+    noMatching: 'No matching chats',
+    noMatchingDescription: 'Nothing in this project matches “{query}”.',
+    noSessions: 'No chats yet',
+    noSessionsDescription: 'Your chats with Piloti in this project will be listed here.',
+    /** Explains why every row is dimmed and unclickable mid-answer. */
+    navigationBlocked:
+      'Piloti is still answering. Starting or switching chats is paused until it finishes.',
     today: 'Today',
     yesterday: 'Yesterday',
-    editTitle: 'Edit session title',
-    renameDisabled: 'Rename session (disabled)',
-    rename: 'Rename session',
+    editTitle: 'Edit chat title',
+    untitledSession: 'Untitled chat',
+    renameDisabled: 'Rename chat (disabled)',
+    rename: 'Rename chat',
     cannotRenameBusy: 'Cannot rename while operations are in progress',
-    deleteDisabled: 'Delete session (disabled)',
-    deleteSession: 'Delete session',
-    sessionActive: 'Session active',
+    deleteDisabled: 'Delete chat (disabled)',
+    deleteSession: 'Delete chat',
+    sessionActive: 'Working on this chat',
     reportExpired: 'Report expired',
-    reportCompleted: 'Report completed',
-    chatSession: 'Chat session',
-    sessionLabelBusy: 'Session: {title} (processing in progress)',
-    sessionLabel: 'Session: {title}',
+    reportCompleted: 'Report ready',
+    chatSession: 'Chat',
+    sessionLabelBusy: 'Chat: {title} (processing in progress)',
+    sessionLabel: 'Chat: {title}',
+    /** Same row, plus the state its leading icon depicts. */
+    sessionLabelWithStatus: 'Chat: {title} — {status}',
+    // FB-10: Deep Research section folded into the sessions panel.
+    deepResearchHeading: 'Deep Research ({count})',
+    deepResearchChip: 'Deep Research',
+    deepResearchRunLabel: 'Open deep research run: {label} — {status}',
+    /** A run's state, in words — the icon alone made "failed" and "ready" look alike. */
+    runStatus: {
+      running: 'Running',
+      completed: 'Report ready',
+      failed: 'Failed',
+      cancelled: 'Cancelled',
+    },
   },
 
   taskCard: {
@@ -298,7 +414,21 @@ export const research = {
     empty: 'Research tasks will appear here.',
     emptyHelp: 'Shows the plan breakdown and progress during deep research.',
     progressAria: 'Task completion progress',
+    // Coarse elapsed-time indicator for a live run (updates every 30s).
+    elapsed: 'Running for {minutes} min',
     writingReport: 'Writing final report... This may take a few minutes.',
+    stalledTitle: 'Nothing reported for a while',
+    stalledBody:
+      'The research has not reported back in a while. It may still be running — reconnect to resume the live view.',
+    connectionLostTitle: 'Connection to the running research lost',
+    connectionLostBody:
+      'We lost the live connection, but the research may still be running on the server. Reconnect to resume, or stop it from the toolbar above.',
+    reconnect: 'Reconnect',
+    // Outcome of a run followed here without a chat thread of its own (a
+    // workflow run) — it has no thread banner to report the ending.
+    attachedRunFinished: 'This run has finished. The report is in the Report tab.',
+    attachedRunFailed: 'This run failed before it finished.',
+    attachedRunStopped: 'This run was stopped before it finished.',
   },
 
   thinkingTab: {
@@ -317,25 +447,42 @@ export const research = {
     noRead: 'No read sources available.',
   },
 
+  /**
+   * The part of a research run a thought or tool-call card came from.
+   *
+   * The cards used to print the backend's raw role id ("via researcher-agent").
+   * These name the work instead, in the same words the rest of the research
+   * surface uses. An origin this build cannot name reads `internal` — never the
+   * identifier. See `features/layout/lib/workflow-names`.
+   */
+  workflowName: {
+    planning: 'Planning',
+    research: 'Research',
+    sourceSelection: 'Source selection',
+    writing: 'Report writing',
+    internal: 'internal',
+    // The same thing as a heading, where no sentence supplies the noun.
+    internalStep: 'Internal step',
+  },
+
   thoughtCard: {
     detailsWhenComplete: 'Details available when generation completes',
     generating: 'Generating',
-    via: 'via {workflow}',
-    tokens: 'Tokens: {prompt} in / {completion} out',
+    step: 'Step: {name}',
     output: 'Output',
   },
 
   thoughtTracesTab: {
-    title: 'Thought Traces',
+    title: 'Train of thought',
     runningCount: '{count} running',
-    description: 'LLM chain-of-thought reasoning and inference activity.',
-    empty: 'No thought traces available.',
+    description: 'How Piloti reasoned while researching.',
+    empty: 'No train of thought available.',
   },
 
   toolCallCard: {
     detailsWhenComplete: 'Details available when the tool call completes',
     isRunning: '{name} is running',
-    via: 'via {workflow}',
+    step: 'Step: {name}',
     arguments: 'Arguments',
     result: 'Result',
     error: 'Error',
@@ -344,7 +491,7 @@ export const research = {
   toolCallsTab: {
     title: 'Tool Calls',
     runningCount: '{count} running',
-    description: 'Web searches, file operations, and other tool invocations.',
+    description: 'Web searches, file lookups, and other tool calls.',
     empty: 'No tool calls available.',
   },
 

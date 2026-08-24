@@ -1,0 +1,25 @@
+// The tests, under the same compiler settings as `src`.
+//
+// They need their own file because `tsconfig.json` sets `rootDir: "src"` for
+// the build, and adding `test/**` to it makes `npm run build` fail on the
+// rootDir constraint before it emits anything. So the build config stays
+// src-only and this one type-checks without emitting.
+//
+// It exists because nothing checked the tests at all, and that is not a
+// hypothetical gap: `test/boundaries.spec.ts` built a `GeometryIndex` literal
+// that was missing `ElementGeometry.complete` and `GeometryIndex.frameOffset`,
+// both required, and `npx tsc --noEmit` stayed green through every run because
+// the file was outside `include`. Vitest does not type-check either — it strips
+// types — so the suite passed as well. A required field can be added to a
+// geometry interface and silently not reach the fixtures that stand in for it,
+// which is precisely how a test starts asserting against a shape the code no
+// longer produces.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

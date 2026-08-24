@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """HTML template and render helper for comparison-mode tokenomics reports. No project imports."""
 
 from __future__ import annotations
@@ -282,7 +267,7 @@ function renderOverview() {
     const dc   = !hasBoth ? '#8b949e' : (q.cost_delta <= 0 ? '#3fb950' : '#f85149');
     const dTxt = !hasBoth ? '\u2014'
                : (q.cost_delta<0?'\u2212':q.cost_delta>0?'+':'')+'$'+Math.abs(q.cost_delta).toFixed(4);
-    const pStr = !hasBoth ? '\u2014' : (q.cost_pct<=0?'':'+') + q.cost_pct.toFixed(1) + '%';
+    const pStr = (!hasBoth || q.cost_pct == null) ? '\u2014' : (q.cost_pct<=0?'':'+') + q.cost_pct.toFixed(1) + '%';
     return `<tr${!hasBoth?' style="opacity:.65"':''}>
       <td><strong>${q.id}</strong></td>
       <td style="color:#d29922">${fmt$N(q.cost_a)}</td>
@@ -509,6 +494,9 @@ function renderEfficiency() {
 
 // ── PER-QUERY DETAIL ──────────────────────────────────────────────────────────
 function renderDetail() {
+  // HTML-escape user-derived strings: question text (and ids) flow into
+  // innerHTML, so raw markup in a trace would execute in the report.
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const pq = cmp.per_query || [];
   const tbody = document.querySelector('#detailCmpTable tbody');
   tbody.innerHTML = pq.map(q => {
@@ -516,10 +504,10 @@ function renderDetail() {
     const dc   = !hasBoth ? '#8b949e' : (q.cost_delta <= 0 ? '#3fb950' : '#f85149');
     const dTxt = !hasBoth ? '\u2014'
                : (q.cost_delta<0?'\u2212':q.cost_delta>0?'+':'')+'$'+Math.abs(q.cost_delta).toFixed(4);
-    const pStr = !hasBoth ? '\u2014' : (q.cost_pct<=0?'':'+') + q.cost_pct.toFixed(1) + '%';
-    const qtxt = (q.question||'').substring(0,80) + (q.question&&q.question.length>80?'\u2026':'');
+    const pStr = (!hasBoth || q.cost_pct == null) ? '\u2014' : (q.cost_pct<=0?'':'+') + q.cost_pct.toFixed(1) + '%';
+    const qtxt = esc((q.question||'').substring(0,80)) + (q.question&&q.question.length>80?'\u2026':'');
     return `<tr${!hasBoth?' style="opacity:.65"':''}>
-      <td><strong>${q.id}</strong></td>
+      <td><strong>${esc(q.id)}</strong></td>
       <td style="color:#8b949e;max-width:200px;word-break:break-word;font-size:12px">${qtxt||'\u2014'}</td>
       <td style="color:#d29922">${fmt$N(q.cost_a)}</td>
       <td style="color:#d29922">${fmt$N(q.cost_b)}</td>
@@ -549,4 +537,7 @@ _HTML = build_html(
 
 
 def render_html(report_data: dict) -> str:
-    return _HTML.replace("__REPORT_DATA_JSON__", json.dumps(report_data, ensure_ascii=False))
+    # Escape "<" so user-supplied strings (e.g. a query containing
+    # "</script>") cannot terminate the inline <script> block.
+    data_json = json.dumps(report_data, ensure_ascii=False).replace("<", "\\u003c")
+    return _HTML.replace("__REPORT_DATA_JSON__", data_json)

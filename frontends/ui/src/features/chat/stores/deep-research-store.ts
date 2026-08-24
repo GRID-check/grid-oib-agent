@@ -13,13 +13,16 @@ import type {
   DeepResearchBannerType,
   PendingInteraction,
   PlanMessage,
+  WireCitationSource,
 } from '../types'
+import { citationFromWire, mergeCitation, sameCitation } from '../lib/wire-citation'
 import { normalizeDeepResearchTodos } from '../lib/deep-research-todos'
 import {
   saveDeepResearchToSession,
   clearDeepResearchSession,
 } from '../lib/deep-research-session-storage'
 import { isUnavailableDeepResearchJobError } from '../lib/deep-research-errors'
+import { getLatestDeepResearchMessage } from '../lib/session-activity'
 import { patchConversationMessageById } from './sessions-store'
 import { validateGridCards, type GridCard } from '@/shared/cards/schemas'
 
@@ -27,6 +30,12 @@ export type DeepResearchSlice = {
   deepResearchJobId: string | null
   deepResearchLastEventId: string | null
   isDeepResearchStreaming: boolean
+  /**
+   * Epoch ms when the current live run was submitted from this tab. Powers the
+   * coarse elapsed-time indicator; intentionally not persisted, so a reload
+   * (where the true start time is unknown) simply hides the indicator.
+   */
+  deepResearchStartedAt: number | null
   deepResearchStatus: DeepResearchJobStatus | null
   deepResearchOwnerConversationId: string | null
   activeDeepResearchMessageId: string | null
@@ -38,14 +47,36 @@ export type DeepResearchSlice = {
   deepResearchFiles: DeepResearchFile[]
   deepResearchCards: GridCard[]
   deepResearchStreamLoaded: boolean
+  /** No live SSE events for a while though the stream is still open (UX-11a). */
+  isDeepResearchStalled: boolean
+  /** SSE retries exhausted: the stream is gone but the job may still run server-side (UX-11b). */
+  deepResearchConnectionLost: boolean
+  /** Reconnect handler registered by useDeepResearch so panel components can recover. */
+  reconnectDeepResearchFn: (() => void) | null
   planMessages: PlanMessage[]
   pendingInteraction: PendingInteraction | null
   respondToInteractionFn: ((response: string) => void) | null
 
   startDeepResearch: (jobId: string, messageId?: string) => void
+  /**
+   * Observe a run this session did not start (a workflow run, or one opened
+   * from the run history / another device): binds the job so the SSE stream
+   * connects and the research panel follows it live, without an owning
+   * conversation or tracking message.
+   */
+  attachToDeepResearchJob: (jobId: string) => void
   updateDeepResearchStatus: (status: DeepResearchJobStatus) => void
   completeDeepResearch: () => void
-  addDeepResearchCitation: (url: string, content: string, isCited?: boolean) => void
+  setDeepResearchStalled: (stalled: boolean) => void
+  setDeepResearchConnectionLost: (lost: boolean) => void
+  setReconnectDeepResearchFn: (fn: (() => void) | null) => void
+  /**
+   * Record a citation source from the deep-research stream. Takes the backend
+   * wire payload whole and normalizes it with `citationFromWire`, so this path
+   * carries the same fields (`kind`, `lane`, `bindingNote`, `number`) as the
+   * shallow-chat path instead of a hand-picked subset.
+   */
+  addDeepResearchCitation: (wire: WireCitationSource, isCited?: boolean) => void
   setDeepResearchTodos: (todos: Array<{ content: string; status: string }>) => void
   stopDeepResearchTodos: () => void
   stopAllDeepResearchSpinners: (isSuccessfulCompletion?: boolean) => void
@@ -119,16 +150,6 @@ const updateConversationInList = (
   updatedConversation: (ChatStore['conversations'])[number]
 ): ChatStore['conversations'] => {
   return conversations.map((c) => (c.id === updatedConversation.id ? updatedConversation : c))
-}
-
-const getLatestDeepResearchMessage = (conversation: ChatStore['conversations'][number]): ChatMessage | null => {
-  for (let i = conversation.messages.length - 1; i >= 0; i--) {
-    const message = conversation.messages[i]
-    if (message.messageType === 'agent_response' && message.deepResearchJobId) {
-      return message
-    }
-  }
-  return null
 }
 
 const isCompletedDeepResearchReportMessage = (message: ChatMessage): boolean =>
@@ -207,6 +228,7 @@ export const initialDeepResearchState = {
   deepResearchJobId: null as string | null,
   deepResearchLastEventId: null as string | null,
   isDeepResearchStreaming: false,
+  deepResearchStartedAt: null as number | null,
   deepResearchStatus: null as DeepResearchJobStatus | null,
   deepResearchOwnerConversationId: null as string | null,
   activeDeepResearchMessageId: null as string | null,
@@ -218,10 +240,33 @@ export const initialDeepResearchState = {
   deepResearchFiles: [] as DeepResearchFile[],
   deepResearchCards: [] as GridCard[],
   deepResearchStreamLoaded: false,
+  isDeepResearchStalled: false,
+  deepResearchConnectionLost: false,
+  reconnectDeepResearchFn: null as (() => void) | null,
   planMessages: [] as PlanMessage[],
   pendingInteraction: null as PendingInteraction | null,
   respondToInteractionFn: null as ((response: string) => void) | null,
 }
+
+/**
+ * Per-run artifact reset shared by every entry point that (re)binds a run.
+ * A factory, so each bind gets its own arrays.
+ */
+const clearedRunArtifacts = (): Partial<ChatStore> => ({
+  deepResearchLastEventId: null,
+  reportContent: '',
+  reportContentCategory: null,
+  deepResearchCitations: [],
+  deepResearchTodos: [],
+  deepResearchLLMSteps: [],
+  deepResearchAgents: [],
+  deepResearchToolCalls: [],
+  deepResearchFiles: [],
+  deepResearchCards: [],
+  deepResearchStreamLoaded: false,
+  isDeepResearchStalled: false,
+  deepResearchConnectionLost: false,
+})
 
 export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], DeepResearchSlice> = (set, get) => ({
   ...initialDeepResearchState,
@@ -230,25 +275,39 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
     const { currentConversation } = get()
     set(
       {
+        ...clearedRunArtifacts(),
         deepResearchJobId: jobId,
-        deepResearchLastEventId: null,
         isDeepResearchStreaming: true,
+        deepResearchStartedAt: Date.now(),
         deepResearchStatus: 'submitted',
         deepResearchOwnerConversationId: currentConversation?.id || null,
         activeDeepResearchMessageId: messageId || null,
-        reportContent: '',
-        reportContentCategory: null,
-        deepResearchCitations: [],
-        deepResearchTodos: [],
-        deepResearchLLMSteps: [],
-        deepResearchAgents: [],
-        deepResearchToolCalls: [],
-        deepResearchFiles: [],
-        deepResearchCards: [],
-        deepResearchStreamLoaded: false,
       },
       false,
       'startDeepResearch'
+    )
+  },
+
+  attachToDeepResearchJob: (jobId: string) => {
+    set(
+      {
+        ...clearedRunArtifacts(),
+        deepResearchJobId: jobId,
+        isDeepResearchStreaming: true,
+        // The run started elsewhere (a workflow run, another tab/device), so
+        // its true start time is unknown — the elapsed pill stays hidden.
+        deepResearchStartedAt: null,
+        // 'running' (not 'submitted') puts the SSE connect into reconnect
+        // mode: replayed history is buffered and flushed once, then events
+        // stream live — instead of a per-event render storm over the backlog.
+        deepResearchStatus: 'running',
+        // No owning conversation: an attached run belongs to the research
+        // panel alone, so it must never write into whatever thread is open.
+        deepResearchOwnerConversationId: null,
+        activeDeepResearchMessageId: null,
+      },
+      false,
+      'attachToDeepResearchJob'
     )
   },
 
@@ -264,51 +323,56 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
     set(
       {
         isDeepResearchStreaming: false,
+        // A terminal outcome supersedes any transient recovery state.
+        isDeepResearchStalled: false,
+        deepResearchConnectionLost: false,
       },
       false,
       'completeDeepResearch'
     )
   },
 
-  addDeepResearchCitation: (url: string, content: string, isCited?: boolean) => {
-    const { deepResearchCitations } = get()
+  setDeepResearchStalled: (stalled: boolean) => {
+    if (get().isDeepResearchStalled === stalled) return
+    set({ isDeepResearchStalled: stalled }, false, 'setDeepResearchStalled')
+  },
 
-    const existingIndex = deepResearchCitations.findIndex((c) => c.url === url)
+  setDeepResearchConnectionLost: (lost: boolean) => {
+    if (get().deepResearchConnectionLost === lost) return
+    set({ deepResearchConnectionLost: lost }, false, 'setDeepResearchConnectionLost')
+  },
+
+  setReconnectDeepResearchFn: (fn: (() => void) | null) => {
+    set({ reconnectDeepResearchFn: fn }, false, 'setReconnectDeepResearchFn')
+  },
+
+  addDeepResearchCitation: (wire: WireCitationSource, isCited?: boolean) => {
+    const { deepResearchCitations } = get()
+    // ONE normalizer for every transport — the shallow WS path and this SSE
+    // path now produce identical CitationSource objects, so `kind`, `lane`,
+    // `bindingNote` and `number` survive here too.
+    const incoming = citationFromWire(wire, { isCited })
+
+    const existingIndex = deepResearchCitations.findIndex((c) =>
+      sameCitation(c, incoming)
+    )
 
     if (existingIndex >= 0) {
-      const updatedCitations = deepResearchCitations.map((c, i) => {
-        if (i === existingIndex) {
-          return {
-            ...c,
-            content: content || c.content,
-            isCited: isCited || c.isCited,
-          }
-        }
-        return c
-      })
-
-      set(
-        { deepResearchCitations: updatedCitations },
-        false,
-        'addDeepResearchCitation:update'
+      // A `citation_use` arriving after the `citation_source` for the same
+      // document is the CITED flag being set — merge, never replace, so the
+      // richer discovery payload is not overwritten by a sparser one.
+      const updatedCitations = deepResearchCitations.map((c, i) =>
+        i === existingIndex ? mergeCitation(c, incoming) : c
       )
-    } else {
-      const newCitation: CitationSource = {
-        id: uuidv4(),
-        url,
-        content,
-        timestamp: new Date(),
-        isCited,
-      }
-
-      set(
-        {
-          deepResearchCitations: [...deepResearchCitations, newCitation],
-        },
-        false,
-        'addDeepResearchCitation'
-      )
+      set({ deepResearchCitations: updatedCitations }, false, 'addDeepResearchCitation:update')
+      return
     }
+
+    set(
+      { deepResearchCitations: [...deepResearchCitations, { ...incoming, id: incoming.id || uuidv4() }] },
+      false,
+      'addDeepResearchCitation'
+    )
   },
 
   setDeepResearchTodos: (todos: Array<{ content: string; status: string }>) => {
@@ -534,6 +598,7 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
         deepResearchJobId: null,
         deepResearchLastEventId: null,
         isDeepResearchStreaming: false,
+        deepResearchStartedAt: null,
         deepResearchStatus: null,
         deepResearchOwnerConversationId: null,
         activeDeepResearchMessageId: null,
@@ -545,6 +610,8 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
         deepResearchFiles: [],
         deepResearchCards: [],
         deepResearchStreamLoaded: false,
+        isDeepResearchStalled: false,
+        deepResearchConnectionLost: false,
       },
       false,
       'clearDeepResearch'
@@ -636,8 +703,13 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
       if (get().isDeepResearchStreaming) return
 
       if (currentStatus === 'running' || currentStatus === 'submitted') {
+        // Seed the elapsed-time indicator from the backend's job creation
+        // timestamp so it survives page reloads; fall back to "now" so a
+        // missing timestamp never shows a bogus duration.
+        const startedAtMs = statusResponse.created_at ? Date.parse(statusResponse.created_at) : NaN
         set(
           {
+            deepResearchStartedAt: Number.isFinite(startedAtMs) ? startedAtMs : Date.now(),
             deepResearchJobId: jobId,
             deepResearchLastEventId: null,
             isDeepResearchStreaming: true,
@@ -681,11 +753,10 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
           showViewReport: Boolean(activeJobMessage.reportContent?.trim()),
         })
         get().addDeepResearchBanner('failure', jobId, conversationId)
-      } else {
-        get().patchConversationMessage(conversationId, activeJobMessage.id, {
-          isDeepResearchActive: false,
-        })
       }
+      // Transient errors (network blip, 5xx) keep isDeepResearchActive intact
+      // so a later reconnectToActiveJob attempt can still restore the running
+      // job — only a confirmed-unavailable job clears the flag.
     }
   },
 
@@ -818,7 +889,7 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
       .filter((conversation) => conversation.userId === currentUserId)
       .map((conversation) => ({
         conversation,
-        message: getLatestDeepResearchMessage(conversation),
+        message: getLatestDeepResearchMessage(conversation.messages),
       }))
       .filter(
         (candidate): candidate is { conversation: ChatStore['conversations'][number]; message: ChatMessage } =>
@@ -874,7 +945,7 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
     const updatedConversations = latestState.conversations.map((conversation) => {
       if (conversation.userId !== currentUserId) return conversation
 
-      const message = getLatestDeepResearchMessage(conversation)
+      const message = getLatestDeepResearchMessage(conversation.messages)
       const jobId = message?.deepResearchJobId
       if (!message || !jobId) return conversation
 

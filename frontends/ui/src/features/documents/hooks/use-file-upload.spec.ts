@@ -1,5 +1,6 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
+import { en } from '@/i18n/dictionaries/en'
 
 // Use vi.hoisted for mocks that need to be available before vi.mock
 const { mockClient, mockDocumentsStoreState, mockOrchestratorFns } = vi.hoisted(() => {
@@ -15,6 +16,8 @@ const { mockClient, mockDocumentsStoreState, mockOrchestratorFns } = vi.hoisted(
     removeTrackedFile: vi.fn(),
     unmarkRecentlyDeleted: vi.fn(),
     removeRecentlyDeletedIds: vi.fn(),
+    setUploadProgress: vi.fn(),
+    dismissTrackedFiles: vi.fn(),
     setUploading: vi.fn(),
     setError: vi.fn(),
     clearError: vi.fn(),
@@ -29,6 +32,11 @@ const { mockClient, mockDocumentsStoreState, mockOrchestratorFns } = vi.hoisted(
   state.updateTrackedFile.mockImplementation((id: unknown, updates: unknown) => {
     state.trackedFiles = state.trackedFiles.map((f) =>
       (f as { id?: unknown }).id === id ? { ...(f as object), ...(updates as object) } : f
+    )
+  })
+  state.setUploadProgress.mockImplementation((id: unknown, bytesUploaded: number) => {
+    state.trackedFiles = state.trackedFiles.map((f) =>
+      (f as { id?: unknown }).id === id ? { ...(f as object), bytesUploaded } : f
     )
   })
 
@@ -113,15 +121,27 @@ vi.mock('../validation', () => ({
   })),
 }))
 
+// Unique per call, like the real thing — the tracked-file id is the key the
+// per-file abort handles are stored under, so a mock that returns one constant
+// would make every file in a batch share a cancel handle and hide the bug that
+// would be. The first id keeps the historical value so single-file assertions
+// still read `mock-uuid`.
+const uuidState = vi.hoisted(() => ({ count: 0 }))
 vi.mock('uuid', () => ({
-  v4: () => 'mock-uuid',
+  v4: () => {
+    const index = uuidState.count++
+    return index === 0 ? 'mock-uuid' : `mock-uuid-${index}`
+  },
 }))
 
 import { useFileUpload } from './use-file-upload'
+import { installFakeXhr, type FakeXhrHandle } from '@/test-utils/xhr-mock'
+import { UPLOAD_CONCURRENCY } from '../lib/upload-queue'
 
 describe('useFileUpload', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    uuidState.count = 0
     mockDocumentsStoreState.trackedFiles = []
     mockDocumentsStoreState.isUploading = false
     mockDocumentsStoreState.isPolling = false
@@ -218,7 +238,22 @@ describe('useFileUpload', () => {
         existingTotalSize: 3000,
         existingFileCount: 2,
         existingFileNames: new Set(['file1.pdf', 'file2.pdf']),
+        // Chat attachments are session-scoped — the leftover file-count cap
+        // still applies. Project / Archiv uploads flip this (see below).
+        durableCorpus: false,
       })
+    })
+
+    test('marks a project or Archiv upload as a durable corpus', () => {
+      const project = renderHook(() =>
+        useFileUpload({ collectionName: 'proj-1', projectId: 'proj-1' })
+      )
+      expect(project.result.current.validationContext.durableCorpus).toBe(true)
+
+      const archiv = renderHook(() =>
+        useFileUpload({ collectionName: 'archiv_org-1', archiv: true })
+      )
+      expect(archiv.result.current.validationContext.durableCorpus).toBe(true)
     })
   })
 
@@ -247,6 +282,36 @@ describe('useFileUpload', () => {
         'Collection name required for upload'
       )
       expect(onError).toHaveBeenCalled()
+    })
+
+    test('surfaces the localized VLM reason when an image is rejected for a missing VLM', async () => {
+      const { validateFileUpload } = await import('../validation')
+      const pngFile = new File(['x'], 'photo.png', { type: 'image/png' })
+      // Simulate the validator flagging the image as blocked by a missing VLM.
+      vi.mocked(validateFileUpload).mockReturnValueOnce({
+        valid: false,
+        canUpload: false,
+        validFiles: [],
+        batchErrors: [],
+        fileErrors: [
+          {
+            file: pngFile,
+            code: 'INVALID_TYPE',
+            message: 'blocked',
+            reason: 'image-vlm-unavailable',
+            params: { name: 'photo.png', accepted: '.pdf' },
+          },
+        ],
+        summary: 'blocked',
+      })
+
+      const { result } = renderHook(() => useFileUpload({ collectionName: 'session-1' }))
+
+      await act(async () => {
+        await result.current.uploadFiles([pngFile])
+      })
+
+      expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(en.files.errors.imageVlmUnavailable)
     })
 
     test('uploads files successfully', async () => {
@@ -455,8 +520,10 @@ describe('useFileUpload', () => {
         await result.current.retryFile('file-1')
       })
 
+      // Localized copy resolved via the files dictionary (English fallback
+      // when no i18n provider is mounted in the test).
       expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(
-        'Cannot retry server-loaded files. Please upload the file again.'
+        en.files.errors.cannotRetryServerFile
       )
     })
 
@@ -498,5 +565,212 @@ describe('useFileUpload', () => {
 
       expect(mockDocumentsStoreState.clearError).toHaveBeenCalled()
     })
+  })
+})
+
+/**
+ * The durable-document path (project corpus and org Archiv).
+ *
+ * This is where the upload actually happens for a working architect, and it is
+ * the code that changed most: a serial `fetch` loop with no progress and no way
+ * out became a bounded-concurrency XHR fan-out with per-file bytes, per-file
+ * cancellation and per-file failure.
+ */
+describe('useFileUpload — durable document uploads', () => {
+  /** Comfortably past the 64 KB progress-coalescing floor. */
+  const FILE_BYTES = 400_000
+
+  let xhr: FakeXhrHandle
+
+  const uploadOk = (documentId: string, jobId: string | null = 'job-1') =>
+    JSON.stringify({ documentId, jobId, status: 'pending' })
+
+  const makeFiles = (count: number) =>
+    Array.from({ length: count }, (_, i) => new File(['x'.repeat(FILE_BYTES)], `plan-${i}.pdf`, { type: 'application/pdf' }))
+
+  const trackedById = (id: string) =>
+    mockDocumentsStoreState.trackedFiles.find((f) => (f as { id?: string }).id === id) as
+      | Record<string, unknown>
+      | undefined
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    uuidState.count = 0
+    mockDocumentsStoreState.trackedFiles = []
+    mockClient.getCollection.mockResolvedValue({ name: 'proj-collection' })
+    xhr = installFakeXhr()
+  })
+
+  afterEach(() => {
+    xhr.restore()
+    vi.clearAllMocks()
+  })
+
+  const renderUpload = (options: Record<string, unknown> = {}) =>
+    renderHook(() => useFileUpload({ collectionName: 'proj-collection', projectId: 'proj-1', ...options }))
+
+  test('posts each file to the documents endpoint, carrying the target folder', async () => {
+    const { result } = renderUpload({ folderId: 'folder-9' })
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles(makeFiles(2))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.requests.forEach((request, i) => request.respond(200, uploadOk(`doc-${i}`)))
+      await pending
+    })
+
+    expect(xhr.requests).toHaveLength(2)
+    expect(xhr.requests[0].url).toBe('/api/documents/upload')
+    const body = xhr.requests[0].body as FormData
+    expect(body.get('projectId')).toBe('proj-1')
+    expect(body.get('folderId')).toBe('folder-9')
+  })
+
+  test('sends several at once instead of one after another', async () => {
+    const { result } = renderUpload()
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles(makeFiles(6))
+      await Promise.resolve()
+    })
+
+    // The whole point of the change: file six is not waiting on file five.
+    expect(xhr.requests.length).toBe(UPLOAD_CONCURRENCY)
+
+    await act(async () => {
+      // Draining takes as many rounds as the queue has batches.
+      for (let round = 0; round < 3; round += 1) {
+        xhr.requests.filter((r) => r.status === 0).forEach((r, i) => r.respond(200, uploadOk(`doc-${round}-${i}`)))
+        await Promise.resolve()
+        await Promise.resolve()
+      }
+      await pending
+    })
+
+    expect(xhr.requests).toHaveLength(6)
+  })
+
+  test('records the bytes the browser reports, not a stand-in value', async () => {
+    const { result } = renderUpload()
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles(makeFiles(1))
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      xhr.last().emitProgress(600, 1200)
+      xhr.last().respond(200, uploadOk('doc-0'))
+      await pending
+    })
+
+    // Half the body sent → half the file's 1000 bytes, and the completed
+    // upload settles on the file's real size.
+    expect(mockDocumentsStoreState.setUploadProgress).toHaveBeenCalledWith('mock-uuid', FILE_BYTES / 2)
+    expect(trackedById('mock-uuid')).toMatchObject({ bytesUploaded: FILE_BYTES, status: 'ingesting' })
+  })
+
+  test('marks a file as uploading only once it has a slot', async () => {
+    const { result } = renderUpload()
+
+    await act(async () => {
+      void result.current.uploadFiles(makeFiles(1))
+      await Promise.resolve()
+    })
+
+    expect(trackedById('mock-uuid')).toMatchObject({ uploadStartedAt: expect.any(Number) })
+    await act(async () => {
+      xhr.last().respond(200, uploadOk('doc-0'))
+    })
+  })
+
+  test('one refused file does not take the batch down with it', async () => {
+    const { result } = renderUpload()
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles(makeFiles(3))
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      xhr.requests[0].respond(413, JSON.stringify({ error: 'File too large' }))
+      xhr.requests[1].respond(200, uploadOk('doc-1'))
+      xhr.requests[2].respond(200, uploadOk('doc-2'))
+      await pending
+    })
+
+    // Every file was attempted, and the reason lands on the row that owns it.
+    expect(xhr.requests).toHaveLength(3)
+    expect(mockDocumentsStoreState.updateTrackedFile).toHaveBeenCalledWith(
+      'mock-uuid',
+      expect.objectContaining({ status: 'failed', errorMessage: 'File too large' })
+    )
+    // …and the accepted files are still handed to the poller.
+    expect(mockOrchestratorFns.enqueueJobs).toHaveBeenCalled()
+  })
+
+  test('cancelling aborts the transfer instead of letting it finish invisibly', async () => {
+    const { result } = renderUpload()
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles(makeFiles(1))
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      result.current.cancelFile('mock-uuid')
+      await pending
+    })
+
+    expect(xhr.last().aborted).toBe(true)
+    // A decision, not a failure — the row must not colour red.
+    expect(mockDocumentsStoreState.updateTrackedFile).toHaveBeenCalledWith('mock-uuid', { status: 'canceled' })
+    expect(mockDocumentsStoreState.updateTrackedFile).not.toHaveBeenCalledWith(
+      'mock-uuid',
+      expect.objectContaining({ status: 'failed' })
+    )
+  })
+
+  test('cancelling everything aborts every request in flight', async () => {
+    const { result } = renderUpload()
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles(makeFiles(3))
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      result.current.cancelUpload()
+      await pending
+    })
+
+    expect(xhr.requests.every((request) => request.aborted)).toBe(true)
+  })
+
+  test('the Archiv posts to its own endpoint and never names a project', async () => {
+    const { result } = renderHook(() =>
+      useFileUpload({ collectionName: 'archiv_org-1', archiv: true })
+    )
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles(makeFiles(1))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.last().respond(200, uploadOk('doc-0'))
+      await pending
+    })
+
+    expect(xhr.last().url).toBe('/api/archiv/documents/upload')
+    expect((xhr.last().body as FormData).get('projectId')).toBeNull()
   })
 })

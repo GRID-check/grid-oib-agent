@@ -1,0 +1,65 @@
+# Weekly EXTERNAL link sweep across the tracked Markdown.
+#
+# Nothing else checks external URLs. The markdown-link-check pre-commit hook that
+# runs in repo-lint on every PR is pointed at ci/markdown-link-check-config.json,
+# which ignores '^https?://' — so the merge gate validates relative links inside
+# the repo and nothing beyond it. That split is the right one and stays:
+#
+#   on the gate   relative links — deterministic, caused by the author moving or
+#                 renaming a doc, fixable in the same PR (~3s for all 221 files)
+#   here, weekly  external links — network-bound and flaky, and what breaks is
+#                 someone else's site, which no PR author can fix
+#
+# So this closes a real gap rather than duplicating the gate. Monday 07:00 UTC,
+# an hour after security.yml's sweep so the two do not contend for runners, plus
+# workflow_dispatch for checking a docs change on demand.
+#
+# Deliberately NOT a required check anywhere: a red run here means the web moved,
+# and should be triaged, not merged around.
+#
+# Invoked directly rather than through pre-commit, because a hook's `args` are
+# fixed in .pre-commit-config.yaml and cannot be overridden per invocation — the
+# whole point here is the other config file. Version pinned to match the hook's
+# `rev` so the two cannot drift apart silently.
+
+name: Docs links
+
+on:
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-links
+  cancel-in-progress: true
+
+env:
+  # Keep in step with the markdown-link-check `rev` in .pre-commit-config.yaml.
+  MARKDOWN_LINK_CHECK_VERSION: 3.11.2
+
+jobs:
+  link-check:
+    name: External link sweep (weekly)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Check external links in tracked Markdown
+        env:
+          # Same exclusion the pre-commit hook applies: skill cards are generated
+          # blobs, not prose anyone maintains links in.
+          EXCLUDE: '^skills/[^/]+/skill-card\.md$'
+        run: |
+          set -uo pipefail
+          mapfile -t FILES < <(git ls-files '*.md' | grep -Ev "$EXCLUDE")
+          echo "Checking ${#FILES[@]} files"
+          npx --yes "markdown-link-check@${MARKDOWN_LINK_CHECK_VERSION}" \
+            --config ci/markdown-link-check-external-config.json \
+            "${FILES[@]}"

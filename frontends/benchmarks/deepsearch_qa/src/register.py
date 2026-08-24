@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 #!/usr/bin/env python3
 """DeepSearchQA Evaluator for NAT.
 
@@ -40,7 +25,6 @@ from pydantic import Field
 
 from nat.builder.builder import EvalBuilder
 from nat.builder.evaluator import EvaluatorInfo
-from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.cli.register_workflow import register_evaluator
 from nat.data_models.component_ref import LLMRef
 from nat.data_models.evaluator import EvalInput
@@ -720,7 +704,13 @@ class DeepSearchQAEvaluator(BaseEvaluator):
 @register_evaluator(config_type=DeepSearchQAEvaluatorConfig)
 async def register_deepsearchqa_evaluator(config: DeepSearchQAEvaluatorConfig, builder: EvalBuilder):
     """Register DeepSearchQA evaluator with official DeepMind methodology."""
-    llm = await builder.get_llm(config.llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    # Through the fleet factory, not builder.get_llm directly: the judge model
+    # is routed to the same OpenRouter pool as production, so it needs the same
+    # request contract (a grading prompt that ends on an assistant turn 400s on
+    # Google exactly as a chat turn does) and the same structured-output defaults.
+    from aiq_agent.common import get_langchain_llm
+
+    llm = await get_langchain_llm(builder, config.llm_name)
 
     evaluator = DeepSearchQAEvaluator(
         llm=llm, max_concurrency=builder.get_max_concurrency(), max_retries=config.max_retries

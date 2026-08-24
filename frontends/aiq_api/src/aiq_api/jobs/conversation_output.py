@@ -1,0 +1,267 @@
+"""Materialising a finished job run into the conversation it was given.
+
+A job whose ``output`` is ``chat`` is a scheduled prompt whose result should be
+a REAL thread — one a colleague opens from the job's run history, reads, and
+keeps typing into. The BFF creates that conversation when the job fires and
+sends its id along with the run; this module is the other half, writing the
+question and the answer into it once the run finishes.
+
+Two rules shape everything here.
+
+**Python never touches the database.** ``grid_app`` is single-writer and the
+BFF owns Postgres, so this writes over the internal HTTP API with the service
+token, exactly as the memory-reflection step already does from inside a worker.
+
+**Nothing here may fail a run.** Every call is best-effort. A conversation
+write that times out or 500s must never turn a successful research run into a
+failed one — the report is already stored on the job, and the thread is a
+convenience layered on top of it.
+"""
+
+from __future__ import annotations
+
+import logging
+import uuid
+from datetime import UTC
+from datetime import datetime
+from datetime import timedelta
+from typing import Any
+
+from ..websocket_reconnect import post_internal_conversation_message
+
+logger = logging.getLogger(__name__)
+
+#: Namespace for the deterministic message ids below.
+_JOB_MESSAGE_NAMESPACE = uuid.NAMESPACE_URL
+
+#: What a reader is told when the run did not produce an answer.
+#:
+#: German, because the product is German and this text lands in a thread a
+#: person opens. Factual and short: the run's real status and error live on the
+#: job, and inventing an error taxonomy here would mean maintaining a second
+#: one that drifts.
+FAILURE_NOTICE = (
+    "Dieser Job wurde ausgeführt, hat aber kein Ergebnis geliefert. "
+    "Den Status und die Fehlermeldung finden Sie im Ausführungsverlauf des Jobs."
+)
+INTERRUPTED_NOTICE = (
+    "Dieser Job wurde abgebrochen, bevor ein Ergebnis vorlag. Den Status finden Sie im Ausführungsverlauf des Jobs."
+)
+
+
+#: The marks a run may have left on its own answer, in the spelling they travel
+#: in everywhere else on the wire (the agent state, the terminal websocket frame,
+#: the job's persisted output, ``websocket_reconnect``'s metadata).
+#:
+#: Spelling is the whole point. The BFF normalises a backend-written message with
+#: ``normalizeAgentAnswerMetadata``, which recognises the snake_case originals and
+#: nothing else; a "tidier" camelCase key here would be stored under a name that
+#: reader never looks at, and the message would come back tomorrow looking like a
+#: clean, complete answer — the exact failure this whole path exists to prevent,
+#: reintroduced one layer lower and silently.
+#:
+#: An allowlist rather than "copy the dict": this metadata is a public contract
+#: read by surfaces that never see this file, and a caller that one day hands us
+#: a richer dict must not be able to seed new keys in it by accident.
+_TRANSPARENCY_METADATA_KEYS = (
+    "research_truncated",
+    "truncation_reason",
+    "degraded_reasons",
+    "citations_removed",
+    "answer_confidence",
+    "answer_confidence_reason",
+    "answer_confidence_capped_reason",
+)
+
+
+def _transparency_metadata(transparency: dict[str, Any] | None) -> dict[str, Any]:
+    """The transparency keys worth writing, or an empty dict.
+
+    Absent, never false. ``research_truncated`` is written as ``true`` or not at
+    all, and an empty ``degraded_reasons`` stays out entirely — an empty value is
+    not a claim of "degraded in zero ways", it is the ordinary case, and storing
+    it would let a later reader mistake "nothing was recorded" for "we checked
+    and there was nothing". Same contract the job output keeps
+    (``runner._build_job_output``), enforced again here because this is a second
+    door into the same fact and the two must not drift.
+    """
+    if not transparency:
+        return {}
+
+    metadata: dict[str, Any] = {}
+    for key in _TRANSPARENCY_METADATA_KEYS:
+        value = transparency.get(key)
+        if isinstance(value, bool):
+            # Literal ``True`` only, and nothing at all for ``False``.
+            if value:
+                metadata[key] = True
+            continue
+        if not value:
+            continue
+        metadata[key] = value
+    return metadata
+
+
+def _message_id(conversation_id: str, job_id: str, role: str) -> str:
+    """A stable id per (conversation, job, role).
+
+    The internal route upserts with ``onConflictDoNothing`` on the message id,
+    so a retried or duplicated write is a no-op rather than a second copy of
+    the answer.
+    """
+    return str(uuid.uuid5(_JOB_MESSAGE_NAMESPACE, f"grid:job:{conversation_id}:{job_id}:{role}"))
+
+
+def _organization_id(usage_context: dict | None) -> str | None:
+    return ((usage_context or {}).get("identity") or {}).get("organization_id")
+
+
+async def write_job_turn(
+    *,
+    conversation_id: str | None,
+    job_id: str,
+    usage_context: dict | None,
+    prompt: str,
+    answer: str,
+    cards: list[Any] | None = None,
+    skills_activated: list[str] | None = None,
+    sources: list[Any] | None = None,
+    transparency: dict[str, Any] | None = None,
+) -> None:
+    """Write the job's question and its answer into the conversation.
+
+    No conversation id (a deep-research job, or one whose conversation could
+    not be created) means there is nothing to do and no HTTP call is made.
+
+    ``skills_activated`` is the same transparency field the socket path already
+    persists (``websocket_reconnect.persist_assistant_message``). Without it a
+    job that ran under a skill produced a thread message indistinguishable from
+    one that ran without: the reader of the thread could not tell that their
+    office's own working method had shaped the answer, while the reader of an
+    interactive turn could. Same metadata key, so the UI renders both from one
+    code path.
+
+    ``sources`` is that same argument for the answer's provenance, and it only
+    matters on RELOAD: the live panel has the job output, but a thread reopened
+    tomorrow has nothing but this row. Written under the backend's own wire
+    spelling because the BFF's ``normalizeAgentAnswerMetadata`` is what turns it
+    into the stored ``citations`` envelope — spelling it any other way here
+    would store a key that reader never looks at, which is a message whose
+    citations are silently gone rather than one that fails loudly.
+
+    ``transparency`` is what the run said about its OWN answer: that its
+    research was cut off and the report salvaged from partial work, that it
+    shipped in a known-weaker form, that citations were stripped before anyone
+    saw them, and how confident it is. The job store and the live ``job.degraded``
+    event already carried all of it; the thread carried none, so a deep run that
+    was cut off at the wall clock reopened tomorrow as a clean-looking answer
+    with no hint that anything had been salvaged. Deep is the only path that can
+    say "I was cut off and this is what I could save", and until this it said it
+    to nobody who came back later. Keys are the backend's wire spelling, for the
+    same reason ``sources`` is (see ``_TRANSPARENCY_METADATA_KEYS``).
+    """
+    if not conversation_id:
+        return
+
+    organization_id = _organization_id(usage_context)
+    if not organization_id:
+        logger.warning(
+            "Job %s has a conversation but no organization id; skipping the conversation write",
+            job_id,
+        )
+        return
+
+    # ORDER IS BY TIMESTAMP, NOT BY INSERTION. The reader sorts by createdAt
+    # and breaks ties on a random uuid, so two rows written in the same
+    # millisecond would show in a coin-flip order. Stamping the question one
+    # second earlier is what guarantees the thread reads as a question and its
+    # answer rather than the reverse.
+    now = datetime.now(UTC)
+    asked_at = (now - timedelta(seconds=1)).isoformat()
+
+    metadata: dict[str, Any] = {"job_id": job_id}
+    if cards:
+        metadata["cards"] = cards
+    # The persisted assistant row carries the backend job id, so the existing
+    # "view report" affordance lights up on it for free — the UI keys that off
+    # `deep_research_job_id` on the message, not off anything job-specific.
+    metadata["deep_research_job_id"] = job_id
+    if skills_activated:
+        metadata["skills_activated"] = list(skills_activated)
+    if sources:
+        metadata["sources"] = list(sources)
+    # Guarded on its own, like the write below: transparency is bookkeeping
+    # ABOUT a finished answer and must never cost the reader the answer itself.
+    # A malformed payload costs them the caveat — bad, and logged — where an
+    # unguarded merge would cost them the whole thread message (non-fatal).
+    try:
+        metadata.update(_transparency_metadata(transparency))
+    except Exception:  # noqa: BLE001 — best-effort by contract; see module docstring
+        logger.warning(
+            "Could not attach answer transparency to the thread message for job %s (non-fatal)",
+            job_id,
+            exc_info=True,
+        )
+
+    try:
+        await post_internal_conversation_message(
+            conversation_id=conversation_id,
+            organization_id=organization_id,
+            message_id=_message_id(conversation_id, job_id, "user"),
+            role="user",
+            text=prompt,
+            message_type="user_message",
+            created_at=asked_at,
+        )
+        await post_internal_conversation_message(
+            conversation_id=conversation_id,
+            organization_id=organization_id,
+            message_id=_message_id(conversation_id, job_id, "assistant"),
+            role="assistant",
+            text=answer,
+            message_type="agent_response",
+            metadata=metadata,
+            created_at=now.isoformat(),
+        )
+    except Exception:  # noqa: BLE001 — best-effort by contract; see module docstring
+        logger.warning(
+            "Failed to write the conversation turn for job %s",
+            job_id,
+            exc_info=True,
+        )
+
+
+async def write_job_notice(
+    *,
+    conversation_id: str | None,
+    job_id: str,
+    usage_context: dict | None,
+    notice: str,
+) -> None:
+    """Say in the thread that the run produced nothing.
+
+    The conversation is created when the job FIRES, before the outcome is
+    known. Without this, a failed run leaves a thread someone opens to find
+    completely empty — which reads as a broken product rather than a failed
+    run. The interactive path never needs this: there is always a human on a
+    socket watching it happen.
+    """
+    if not conversation_id:
+        return
+
+    organization_id = _organization_id(usage_context)
+    if not organization_id:
+        return
+
+    try:
+        await post_internal_conversation_message(
+            conversation_id=conversation_id,
+            organization_id=organization_id,
+            message_id=_message_id(conversation_id, job_id, "notice"),
+            role="assistant",
+            text=notice,
+            message_type="agent_response",
+            metadata={"job_id": job_id},
+        )
+    except Exception:  # noqa: BLE001 — best-effort by contract
+        logger.warning("Failed to write the failure notice for job %s", job_id, exc_info=True)

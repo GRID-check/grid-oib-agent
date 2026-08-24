@@ -2,7 +2,7 @@ import type { en } from '../en'
 
 /** Shared strings used across many surfaces. */
 export const common: typeof en.common = {
-  appName: 'Grid',
+  appName: 'Piloti',
   tagline: 'KI-gestützter Recherche-Assistent',
   actions: {
     save: 'Speichern',
@@ -26,6 +26,7 @@ export const common: typeof en.common = {
     saved: 'Gespeichert',
     error: 'Etwas ist schiefgelaufen',
     empty: 'Noch nichts vorhanden',
+    copyFailed: 'Kopieren nicht möglich',
   },
   theme: {
     label: 'Design',

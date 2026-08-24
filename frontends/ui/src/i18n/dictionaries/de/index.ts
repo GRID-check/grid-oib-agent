@@ -11,28 +11,48 @@ import { nav } from './nav'
 import { profile } from './profile'
 import { settings } from './settings'
 import { errors } from './errors'
-import { landing } from './landing'
 import { projects } from './projects'
 import { chat } from './chat'
+import { collaboration } from './collaboration'
 import { files } from './files'
+import { archiv } from './archiv'
+import { bim } from './bim'
+import { knowledge } from './knowledge'
 import { research } from './research'
+import { skills } from './skills'
+import { jobs } from './jobs'
 import { members } from './members'
 import { onboarding } from './onboarding'
 import { organization } from './organization'
+import { platform } from './platform'
+import { presence } from './presence'
+import { shortcuts } from './shortcuts'
+import { legal } from './legal'
+import { answerExport } from './answer-export'
 import type { Dictionary } from '../index'
 
 export const de: Dictionary = {
   common,
   nav,
+  presence,
   profile,
+  shortcuts,
   settings,
   errors,
-  landing,
   projects,
   chat,
+  collaboration,
   files,
+  archiv,
+  bim,
+  knowledge,
   research,
+  skills,
+  jobs,
   members,
   onboarding,
   organization,
+  platform,
+  legal,
+  answerExport,
 }

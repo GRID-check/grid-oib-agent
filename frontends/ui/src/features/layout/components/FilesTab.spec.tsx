@@ -28,7 +28,7 @@ describe('FilesTab', () => {
     test('shows empty state when no files', () => {
       render(<FilesTab />)
 
-      expect(screen.getByText('No generated files available.')).toBeInTheDocument()
+      expect(screen.getByText('No files produced yet.')).toBeInTheDocument()
       expect(
         screen.getByText(
           'These details appear during active research and may not be available for completed reports.'

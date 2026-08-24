@@ -1,0 +1,6 @@
+---
+export const prerender = false
+
+const rest = Astro.url.pathname.replace(/^\/de(?=\/|$)/, '')
+return Astro.redirect(`${rest === '' ? '/' : rest}${Astro.url.search}`, 301)
+---

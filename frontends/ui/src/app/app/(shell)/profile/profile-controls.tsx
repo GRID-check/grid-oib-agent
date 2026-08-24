@@ -1,0 +1,202 @@
+'use client'
+
+/**
+ * Interactive profile controls: appearance (theme), interface language, and
+ * session/security actions. The surrounding account card is server-rendered;
+ * these controls need client state (the layout store, the i18n context, and
+ * the auth adapter), so they live in their own client island.
+ */
+
+import { type FC, useCallback } from 'react'
+import { Monitor, Moon, Sun, Globe, Palette, ShieldCheck, LogOut, ListTree } from 'lucide-react'
+
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { useAuth } from '@/adapters/auth/use-auth'
+import { useLayoutStore } from '@/features/layout/store'
+import type { ThemeMode } from '@/features/layout/types'
+import { useTranslations, useLocale, locales, type Locale } from '@/i18n'
+import { AccountWidgets } from './account-widgets'
+import { ShortcutSettings } from './shortcut-settings'
+
+const THEME_MODES: ThemeMode[] = ['system', 'light', 'dark']
+const THEME_ICONS: Record<ThemeMode, FC<{ className?: string }>> = {
+  system: Monitor,
+  light: Sun,
+  dark: Moon,
+}
+
+interface ProfileControlsProps {
+  authRequired: boolean
+  email?: string | null
+  /**
+   * Whether the keyboard-shortcuts feature is available to this org (the
+   * `keyboard-shortcuts` WorkOS flag, resolved server-side). Without it the
+   * per-user toggle is not shown at all.
+   */
+  shortcutsAvailable?: boolean
+}
+
+export const ProfileControls: FC<ProfileControlsProps> = ({
+  authRequired,
+  email,
+  shortcutsAvailable = false,
+}) => {
+  const t = useTranslations('profile')
+  const tc = useTranslations('common')
+  const theme = useLayoutStore((s) => s.theme)
+  const setTheme = useLayoutStore((s) => s.setTheme)
+  const showTechnicalReasoning = useLayoutStore((s) => s.showTechnicalReasoning)
+  const setShowTechnicalReasoning = useLayoutStore((s) => s.setShowTechnicalReasoning)
+  const { locale, setLocale, localeNames } = useLocale()
+  const { signOut } = useAuth()
+
+  const handleTheme = useCallback((value: string) => setTheme(value as ThemeMode), [setTheme])
+  const handleLocale = useCallback((value: string) => setLocale(value as Locale), [setLocale])
+
+  return (
+    <>
+      {/* Appearance */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Palette className="size-4 text-muted-foreground" aria-hidden />
+            {t('appearance.title')}
+          </CardTitle>
+          <CardDescription>{t('appearance.description')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Field>
+          <FieldLabel>{t('appearance.theme')}</FieldLabel>
+          <Select value={theme} onValueChange={handleTheme}>
+            <SelectTrigger className="w-full sm:w-72" aria-label={t('appearance.theme')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {THEME_MODES.map((mode) => {
+                const Icon = THEME_ICONS[mode]
+                return (
+                  <SelectItem key={mode} value={mode}>
+                    <span className="flex items-center gap-2">
+                      <Icon className="size-4 text-muted-foreground" aria-hidden />
+                      {tc(`theme.${mode}`)}
+                    </span>
+                  </SelectItem>
+                )
+              })}
+            </SelectContent>
+          </Select>
+          </Field>
+        </CardContent>
+      </Card>
+
+      {/* Language */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Globe className="size-4 text-muted-foreground" aria-hidden />
+            {t('language.title')}
+          </CardTitle>
+          <CardDescription>{t('language.description')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Field>
+          <FieldLabel>{t('language.label')}</FieldLabel>
+          <Select value={locale} onValueChange={handleLocale}>
+            <SelectTrigger className="w-full sm:w-72" aria-label={t('language.label')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {locales.map((code) => (
+                <SelectItem key={code} value={code}>
+                  {localeNames[code]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          </Field>
+        </CardContent>
+      </Card>
+
+      {/* Reasoning trace (Herleitung) — technical steps are a per-user opt-in */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ListTree className="size-4 text-muted-foreground" aria-hidden />
+            {t('reasoning.title')}
+          </CardTitle>
+          <CardDescription>{t('reasoning.description')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <Label htmlFor="technical-reasoning-toggle" className="text-sm font-medium">
+                {t('reasoning.label')}
+              </Label>
+              <p className="mt-1 text-xs text-muted-foreground">{t('reasoning.hint')}</p>
+            </div>
+            <Switch
+              id="technical-reasoning-toggle"
+              checked={showTechnicalReasoning}
+              onCheckedChange={setShowTechnicalReasoning}
+              aria-label={t('reasoning.label')}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Keyboard shortcuts (org flag is the outer gate; toggle is per-user) */}
+      {shortcutsAvailable && <ShortcutSettings />}
+
+      {/* Security & sessions */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ShieldCheck className="size-4 text-muted-foreground" aria-hidden />
+            {t('security.title')}
+          </CardTitle>
+          <CardDescription>{t('security.description')}</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {authRequired ? (
+            <>
+              <div className="flex items-center justify-between rounded-lg border border-border bg-surface-sunken px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{t('security.currentSession')}</p>
+                  <p className="truncate text-sm text-muted-foreground">
+                    {email ? t('security.signedInAs', { email }) : t('security.thisDevice')}
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-full bg-success-subtle px-2 py-0.5 text-xs font-medium text-success">
+                  {t('security.thisDevice')}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">{t('security.managedByWorkos')}</p>
+              <div>
+                <Button variant="outline" onClick={() => signOut()} className="gap-2">
+                  <LogOut className="size-4" aria-hidden />
+                  {t('security.signOutEverywhere')}
+                </Button>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">{t('security.unavailable')}</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Live WorkOS session + security widgets */}
+      {authRequired && <AccountWidgets />}
+    </>
+  )
+}

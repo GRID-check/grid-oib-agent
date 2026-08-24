@@ -1,13 +1,21 @@
 import type { ReactNode } from 'react'
 import { render, screen, waitFor } from '@/test-utils'
+import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ResearchRunsList } from './research-runs-list'
-import type { ResearchRun } from '@/adapters/api/research-runs-client'
+import type { ListResearchRunsResponse, ResearchRun } from '@/adapters/api/research-runs-client'
 
 const listResearchRuns = vi.fn()
+const listConversations = vi.fn()
 
 vi.mock('@/adapters/api/research-runs-client', () => ({
   listResearchRuns: (...args: unknown[]) => listResearchRuns(...args),
+}))
+
+vi.mock('@/adapters/api/conversations-client', () => ({
+  conversationsClient: {
+    list: (...args: unknown[]) => listConversations(...args),
+  },
 }))
 
 vi.mock('next/link', () => ({
@@ -28,6 +36,8 @@ const makeRun = (overrides: Partial<ResearchRun>): ResearchRun => ({
 describe('ResearchRunsList', () => {
   beforeEach(() => {
     listResearchRuns.mockReset()
+    listConversations.mockReset()
+    listConversations.mockResolvedValue([])
   })
 
   test('renders a crafted empty state pointing to Chat', async () => {
@@ -49,12 +59,78 @@ describe('ResearchRunsList', () => {
     expect(screen.getByText('job-1234')).toBeDefined()
   })
 
-  test('does not offer a report link for non-completed runs', async () => {
-    listResearchRuns.mockResolvedValue({ jobs: [makeRun({ status: 'running' })], total: 1 })
+  test('offers a progress link (not a report one) for a run still in flight', async () => {
+    listResearchRuns.mockResolvedValue({
+      jobs: [makeRun({ job_id: 'job-live-1', status: 'running' })],
+      total: 1,
+    })
     render(<ResearchRunsList projectId="p1" projectCollection="proj_1" />)
 
-    expect(await screen.findByText(/Report pending/i)).toBeDefined()
+    // A run started outside chat (a workflow run) has no thread to follow, so
+    // this is the only way into it while it works.
+    const link = await screen.findByRole('link', { name: /View progress/i })
+    expect(link.getAttribute('href')).toBe('/app/projects/p1/chat?job=job-live-1&tab=tasks')
     expect(screen.queryByRole('link', { name: /View report/i })).toBeNull()
+  })
+
+  test('offers a progress link for a queued run as well', async () => {
+    listResearchRuns.mockResolvedValue({
+      jobs: [makeRun({ job_id: 'job-queued', status: 'submitted' })],
+      total: 1,
+    })
+    render(<ResearchRunsList projectId="p1" projectCollection="proj_1" />)
+
+    const link = await screen.findByRole('link', { name: /View progress/i })
+    expect(link.getAttribute('href')).toBe('/app/projects/p1/chat?job=job-queued&tab=tasks')
+  })
+
+  test('offers no link for a cancelled run (nothing to open)', async () => {
+    listResearchRuns.mockResolvedValue({
+      jobs: [makeRun({ status: 'cancelled' })],
+      total: 1,
+    })
+    render(<ResearchRunsList projectId="p1" projectCollection="proj_1" />)
+
+    expect(await screen.findByText(/No report/i)).toBeDefined()
+    expect(screen.queryByRole('link', { name: /View/i })).toBeNull()
+  })
+
+  test('labels a run with its originating session title when resolvable', async () => {
+    listResearchRuns.mockResolvedValue({
+      jobs: [makeRun({ job_id: 'job-abcdef99', conversation_id: 'conv-1' })],
+      total: 1,
+    })
+    listConversations.mockResolvedValue([
+      { id: 'conv-1', title: 'Fire safety for staircases', createdAt: '', updatedAt: '' },
+    ])
+    render(<ResearchRunsList projectId="p1" projectCollection="proj_1" />)
+
+    expect(await screen.findByText('Fire safety for staircases')).toBeDefined()
+    // job-id hash is demoted to metadata, still visible
+    expect(screen.getByText('job-abcd')).toBeDefined()
+  })
+
+  test('falls back to a session label when the run has no resolvable title', async () => {
+    listResearchRuns.mockResolvedValue({
+      jobs: [makeRun({ job_id: 'job-abcdef99', conversation_id: 'conv-xyz12345' })],
+      total: 1,
+    })
+    listConversations.mockResolvedValue([])
+    render(<ResearchRunsList projectId="p1" projectCollection="proj_1" />)
+
+    // sessionLabel interpolates the short conversation id
+    expect(await screen.findByText(/Session conv-xyz/i)).toBeDefined()
+  })
+
+  test('deep-links failed runs to the chat thinking view', async () => {
+    listResearchRuns.mockResolvedValue({
+      jobs: [makeRun({ job_id: 'job-failed-1', status: 'failed' })],
+      total: 1,
+    })
+    render(<ResearchRunsList projectId="p1" projectCollection="proj_1" />)
+
+    const link = await screen.findByRole('link', { name: /View thinking/i })
+    expect(link.getAttribute('href')).toBe('/app/projects/p1/chat?job=job-failed-1&tab=thinking')
   })
 
   test('surfaces load failures with a retry affordance', async () => {
@@ -63,5 +139,38 @@ describe('ResearchRunsList', () => {
 
     expect(await screen.findByText(/Couldn't load research runs/i)).toBeDefined()
     await waitFor(() => expect(screen.getByRole('button', { name: /Try again/i })).toBeDefined())
+  })
+
+  test('a stale retry response cannot overwrite a newer project load', async () => {
+    // 1. Initial load for proj_1 fails → retry button shows.
+    listResearchRuns.mockRejectedValueOnce(new Error('boom'))
+
+    const { rerender } = render(<ResearchRunsList projectId="p1" projectCollection="proj_1" />)
+    const retryButton = await screen.findByRole('button', { name: /Try again/i })
+
+    // 2. Retry kicks off a SLOW fetch that we resolve later (stale response).
+    let resolveStaleRetry: (value: ListResearchRunsResponse) => void = () => undefined
+    listResearchRuns.mockImplementationOnce(
+      () => new Promise<ListResearchRunsResponse>((resolve) => { resolveStaleRetry = resolve })
+    )
+    await userEvent.click(retryButton)
+
+    // 3. The project changes before the retry resolves → a fresh load runs.
+    listResearchRuns.mockResolvedValueOnce({
+      jobs: [makeRun({ job_id: 'job-new-project', project_collection: 'proj_2' })],
+      total: 1,
+    })
+    rerender(<ResearchRunsList projectId="p1" projectCollection="proj_2" />)
+
+    expect(await screen.findByText('job-new-')).toBeDefined()
+
+    // 4. The stale retry response for proj_1 finally lands — it must be
+    //    ignored, not overwrite proj_2's list.
+    resolveStaleRetry({
+      jobs: [makeRun({ job_id: 'job-old-project', project_collection: 'proj_1' })],
+      total: 1,
+    })
+    await waitFor(() => expect(screen.queryByText('job-old-')).toBeNull())
+    expect(screen.getByText('job-new-')).toBeDefined()
   })
 })

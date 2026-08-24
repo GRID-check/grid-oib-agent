@@ -1,17 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """
 Base adapter interfaces for the Knowledge Layer.
 
@@ -99,8 +85,25 @@ class TTLCleanupMixin:
             except Exception as e:
                 logger.error(f"TTL cleanup loop error for {self.backend_name}: {e}")
 
+    # Distinct advisory lock id for the collection TTL cleanup ("AIQTTLCL").
+    _TTL_CLEANUP_LOCK_ID = 0x41495154_544C434C
+
     def _cleanup_expired_collections(self) -> None:
-        """Check all collections and delete those that have expired."""
+        """Check all collections and delete those that have expired.
+
+        Elects a single runner via a Postgres advisory lock so that, with the
+        vector store now shared across replicas, N replicas don't race the same
+        session-collection deletions each cycle. Fail-open on single-node.
+        """
+        from .leader_lock import leader_lock
+
+        with leader_lock(self._TTL_CLEANUP_LOCK_ID) as is_leader:
+            if not is_leader:
+                logger.debug("TTL cleanup (%s): another replica holds the lock; skipping", self.backend_name)
+                return
+            self._run_cleanup_expired_collections()
+
+    def _run_cleanup_expired_collections(self) -> None:
         try:
             collections = self.list_collections()
             logger.info(f"TTL cleanup ({self.backend_name}): checking {len(collections)} collections for expiration")

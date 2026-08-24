@@ -1,0 +1,39 @@
+Grid OIB Agent
+==============
+
+This project includes code derived from the NVIDIA NeMo Agent Toolkit
+(also known as the AI-Q / AIQ blueprint).
+
+    Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+    All rights reserved.
+
+    Portions Copyright (c) 2026, Grid Agent Contributors.
+    All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may
+not use these files except in compliance with the License. You may obtain
+a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+License for the specific language governing permissions and limitations
+under the License.
+
+The per-file SPDX/Apache copyright headers that previously appeared at the
+top of individual source files have been consolidated into this NOTICE to
+preserve upstream attribution at the repository level.
+
+Third-party content
+-------------------
+
+src/aiq_agent/skills/review/skill-check/SKILL.md is a verbatim copy of
+SkillCheck (Free) v3.28.0 by olgasafonova, distributed under the MIT
+licence and vendored here as the rulebook behind the skill-review endpoint.
+
+    https://github.com/olgasafonova/SkillCheck-Free
+
+The file keeps its own frontmatter, which carries that attribution and the
+licence declaration; see src/aiq_agent/skills/review/README.md.

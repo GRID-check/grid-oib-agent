@@ -1,26 +1,14 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import logging
 from typing import Any
 
 from pydantic import BaseModel
 from pydantic import Field
 
+from aiq_agent.observability.langfuse_trace_attributes import LangfuseTraceAttributeProcessor
+from aiq_agent.observability.langfuse_trace_attributes import identity_attributes_enabled
 from nat.builder.builder import Builder
 from nat.cli.register_workflow import register_telemetry_exporter
+from nat.observability.exporter.base_exporter import BaseExporter
 
 logger = logging.getLogger(__name__)
 
@@ -78,12 +66,47 @@ class OtelCollectorRedactionTelemetryExporter(
     name="otelcollector_redaction",
 ):
     resource_attributes: dict[str, str] = Field(default_factory=dict, description="Resource attributes to attach.")
+    # The parent mixin declares `endpoint: str`, but the config interpolates
+    # `${OTEL_EXPORTER_OTLP_ENDPOINT:-}` to None (not "") when the
+    # observability tier is not deployed, which crashed NAT startup with a
+    # pydantic str-validation error before the no-op path below could run.
+    endpoint: str | None = Field(default=None, description="The endpoint of the telemetry collector service.")
+
+
+class _DisabledSpanExporter(BaseExporter):
+    """
+    No-op exporter yielded when no OTLP endpoint is configured.
+
+    NAT has no way to conditionally declare a `general.telemetry.tracing`
+    entry, so the exporter is always constructed. Availability is therefore
+    derived here from the dependency (ADR-0029 "availability = flag AND
+    capability"): no endpoint means nothing to export to, so spans are dropped
+    at the source instead of being queued and retried forever against an
+    address that does not exist. Mirrors `frontends/ui/src/instrumentation.ts`,
+    which no-ops on the same missing env var.
+    """
+
+    async def export(self, event: Any) -> None:
+        return None
 
 
 @register_telemetry_exporter(config_type=OtelCollectorRedactionTelemetryExporter)
 async def otelcollector_redaction_telemetry_exporter(
     config: OtelCollectorRedactionTelemetryExporter, _builder: Builder
 ):
+    # Blank endpoint == the observability tier is not deployed. Pulumi injects
+    # OTEL_EXPORTER_OTLP_ENDPOINT only when it is (and the config interpolates
+    # `${OTEL_EXPORTER_OTLP_ENDPOINT:-}` to "" otherwise), so this is the
+    # capability check, not a user-facing toggle. Compose and local dev land
+    # here and pay nothing.
+    if not config.endpoint or not config.endpoint.strip():
+        logger.info(
+            "otelcollector_redaction: no OTLP endpoint configured "
+            "(OTEL_EXPORTER_OTLP_ENDPOINT unset) - span export disabled.",
+        )
+        yield _DisabledSpanExporter()
+        return
+
     from nat.plugins.opentelemetry.otel_span_exporter import get_opentelemetry_sdk_version
     from nat.plugins.opentelemetry.otlp_span_redaction_adapter_exporter import OTLPSpanHeaderRedactionAdapterExporter
 
@@ -95,7 +118,7 @@ async def otelcollector_redaction_telemetry_exporter(
     }
     merged_resource_attributes = {**default_resource_attributes, **config.resource_attributes}
 
-    yield OTLPSpanHeaderRedactionAdapterExporter(
+    exporter = OTLPSpanHeaderRedactionAdapterExporter(
         endpoint=config.endpoint,
         resource_attributes=merged_resource_attributes,
         batch_size=config.batch_size,
@@ -112,3 +135,31 @@ async def otelcollector_redaction_telemetry_exporter(
         redaction_value=getattr(config, "redaction_value", "[REDACTED]"),
         tags=config.tags,
     )
+
+    # Langfuse session/user attribution (ADR-0044). Same availability rule as
+    # the exporter itself: the deployment sets GRID_TRACE_IDENTITY_ATTRIBUTES
+    # only where the Langfuse tier exists, so an Aspire-only stack builds the
+    # identical pipeline it did before.
+    #
+    # `position=0` puts it AHEAD of NAT's redaction processor — see the
+    # processor's docstring; attributes added after redaction could never be
+    # redacted, which would quietly make `redaction_attributes` a lie for
+    # exactly the fields that identify a person.
+    if identity_attributes_enabled() and LangfuseTraceAttributeProcessor is not None:
+        try:
+            exporter.add_processor(
+                LangfuseTraceAttributeProcessor(),
+                name="langfuse_trace_attributes",
+                position=0,
+            )
+            logger.info("otelcollector_redaction: Langfuse trace identity attributes enabled.")
+        except Exception:
+            # A telemetry enrichment must not be able to stop the agent from
+            # booting; without it the traces are anonymous, not absent.
+            logger.warning(
+                "otelcollector_redaction: could not install the Langfuse trace attribute "
+                "processor - traces will export without session/user attribution.",
+                exc_info=True,
+            )
+
+    yield exporter

@@ -1,0 +1,261 @@
+# Stack configuration for the `dev` (staging) stack.
+#
+# Deployed automatically from the `develop` branch by .github/workflows/deploy.yml
+# once CI + Security are green (the apply runs on the GHA runner; the update is
+# recorded in the Pulumi Cloud console under the stack's Activity tab).
+#
+# Non-secret config lives here, committed. ALL secrets live in the Pulumi ESC
+# environment `grid-oib/dev` (imported via the `environment:` block below).
+# Stack-file values win over env values on conflict, so the env holds ONLY the
+# secret keys — this file is the single source of truth for plaintext config.
+# To re-create a stack from scratch:
+#
+#   cd deploy/pulumi
+#   pulumi stack init matthiasbigl/dev          # Pulumi Cloud backend
+#   esc env init matthiasbigl/grid-oib/dev
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:kubeconfig            "$(cat /path/to/kubeconfig)" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:pgAppPassword         "$(openssl rand -base64 24)" --secret
+#   # Password for the least-privilege `grid_app_rw` runtime role (ADR-0041).
+#   # Required, no fallback — a stack without it fails at `pulumi preview`:
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:pgRuntimePassword     "$(openssl rand -base64 32)" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:seaweedfsSecretKey    "$(openssl rand -base64 24)" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:gridInternalApiToken  "$(openssl rand -hex 32)" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:gridAdminToken        "$(openssl rand -hex 32)" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:openrouterApiKey      "sk-or-..." --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:tavilyApiKey          "tvly-..." --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:workosApiKey          "sk_test_..." --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:workosCookiePassword  "$(openssl rand -hex 32)" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:jobPayloadKek         "$(openssl rand -base64 32)" --secret
+#   # Dragonfly `requirepass`, cache + edge counter store. REQUIRED (fail-closed;
+#   # grid-oib:allowUnauthenticatedRedis=true opts out) and enforced DISTINCT.
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:dragonflyPassword      "$(openssl rand -base64 32)" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:rateLimitStorePassword "$(openssl rand -base64 32)" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:registryPassword      "<token w/ read:packages>" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:otelPrimaryApiKey     "$(openssl rand -hex 32)" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:otelOidcClientSecret  "<WorkOS Connect secret>" --secret
+#   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:err2issueGithubToken  "ghp_..." --secret
+#
+# Staging is intentionally lighter than prod (single replicas, smaller volumes).
+environment:
+  - grid-oib/dev
+config:
+  grid-oib:namespace: grid
+  # ── Images (GHCR) ──
+  grid-oib:imageRegistry: ghcr.io/grid-check
+  grid-oib:imageTag: latest
+  # ── Storage (provider CSI, NVMe/TCP) ──
+  # Classes: premium (default, 3 replicas) / standard (2) / single-replica (1).
+  # `lightbits` is the VolumeSnapshotClass, not a StorageClass. All reclaim
+  # `Delete` (PVC delete = data gone). Staging can use the cheaper single-replica.
+  grid-oib:storageClass: single-replica
+  # ── Ingress / TLS ── One key moves every public host: app./s3./otel. derive
+  # from baseDomain (per-host appDomain/s3Domain/otelDomain keys remain as overrides).
+  grid-oib:baseDomain: dev.piloti.at
+  grid-oib:letsEncryptEmail: matthias@bigls.net
+  grid-oib:useStagingIssuer: "false" # staging CA verified; prod LE certs now issue
+  # Provider ships an unremovable metrics stack — don't install a second one.
+  grid-oib:installMetricsServer: "false"
+  # ── Postgres ──
+  grid-oib:pgInstances: "1"
+  grid-oib:pgStorageSize: 10Gi
+  # Password for `grid_app_rw`, the least-privilege RLS role (ADR-0041).
+  # Distinct from pgAppPassword — see src/config.ts. Set per config.ts:191.
+  grid-oib:pgRuntimePassword:
+    secure: AAABAP+0FzCMfjSbTI4yV5tfwQm7hUmPVKhdCgc0z5GaOc37WV51A2FHivbTrBWNpLHmMg4AsX4=
+  # ── SeaweedFS ──
+  # STILL PINNED to the pre-ADR-0043 layout, because this stack already holds
+  # objects. The split topology uses different PVCs, so flipping this on its own
+  # brings up an EMPTY object store while the data sits on a claim nothing
+  # mounts — no error, no alert, just an app that reports every tenant has no
+  # files. New stacks default to "split".
+  #
+  # This stack is going to split, deliberately: the flip is a STEP INSIDE
+  # `docs/deployment/kubernetes.md` § "Migrating SeaweedFS to the split
+  # topology", not a config change to be made ahead of it. It is left at
+  # `single` here so that a routine `pulumi up` cannot perform the migration by
+  # accident — the value changes in the same window as the data copy, and
+  # `seaweedfsFilerStore` / `seaweedfsFilerStorageSize` below are already set so
+  # that flipping one line is all the window needs.
+  grid-oib:seaweedfsTopology: single
+  grid-oib:seaweedfsStorageSize: 10Gi
+  grid-oib:seaweedfsBucket: grid-documents
+  grid-oib:seaweedfsAccessKey: grid
+  # Read-only identity for the aiq-agent tier (view_knowledge_image, ADR-0039).
+  grid-oib:seaweedfsBackendReadSecretKey:
+    secure: AAABAMgLCSPRIGVbS+2Qqu/PaTFNt6j3hrxVVJ5q4noYPVAHqbOErFG7vBMa8KN/e+wmVSy5uybmUvk0FgSeE0TNvRELoEnJLMf+Az7WREs=
+  # Set NOW rather than during the migration window. Both are inert while the
+  # topology is `single` (the guard that requires `seaweedfsFilerDbPassword`
+  # only fires under `split`), and the disk size in particular has to be right
+  # BEFORE the first split deployment: changing a StatefulSet's claim size
+  # afterwards is a replace, which is the one thing a migration window cannot
+  # absorb. 10Gi rather than the master's 1Gi because under `leveldb` this disk
+  # holds the metadata entry and the per-chunk AES key for every object in the
+  # deployment; under `postgres` it holds only the filer's working files, and
+  # 10Gi is cheap insurance against the store being switched back.
+  grid-oib:seaweedfsFilerStore: postgres
+  grid-oib:seaweedfsFilerStorageSize: 10Gi
+  # Per-organization buckets (ADR-0043). Safe to turn on independently of the
+  # topology, and reversible: every document row records the bucket it was
+  # written to, so existing objects stay readable where they are and only new
+  # writes move. Buckets are created lazily on an organization's first upload.
+  #
+  # Requires `seaweedfsTenantAdminSecretKey` (ESC) — `pulumi preview` refuses
+  # while the flag is on and the secret is missing, rather than falling back to
+  # the ordinary credential, which carries no Admin grant and would fail on the
+  # first tenant upload instead.
+  grid-oib:seaweedfsPerOrgBuckets: "true"
+  # Chunk encryption. Already the default; stated explicitly because it is a
+  # deliberate posture for this stack rather than something to inherit silently.
+  #
+  # Read this with `seaweedfsBackupEnabled` deliberately UNSET below: the
+  # per-chunk keys live only in the filer metadata store, with no master key and
+  # no escrow, so until an offsite mirror exists this buys crypto-erasure and
+  # NOT protection against losing that store. `pulumi preview` warns about
+  # exactly this combination on every run, and the warning is correct.
+  grid-oib:seaweedfsEncryptVolumeData: "true"
+  # ── Shared Chroma ──
+  grid-oib:chromaEnabled: "true"
+  grid-oib:chromaStorageSize: 10Gi
+  # ── Agent (smaller on staging) ──
+  grid-oib:backendRequestsCpu: "500m"
+  grid-oib:backendRequestsMemory: 1Gi
+  grid-oib:backendLimitsCpu: "2"
+  grid-oib:backendLimitsMemory: 4Gi
+  grid-oib:backendDaskWorkers: "1"
+  grid-oib:backendDaskThreads: "2"
+  grid-oib:backendMaxActiveJobs: "4"
+  grid-oib:backendMaxActiveJobsPerOrg: "2"
+  grid-oib:backendIngestMaxWorkers: "2"
+  grid-oib:backendDataStorageSize: 10Gi
+  # ── Research execution ──
+  grid-oib:jobExecution: db
+  grid-oib:agentWorkerMinReplicas: "1"
+  grid-oib:agentWorkerMaxReplicas: "3"
+  grid-oib:agentWorkerConcurrency: "1"
+  # Drain budget for in-flight research jobs on shutdown (see Pulumi.prod.yaml).
+  # Shorter on staging: faster deploys matter more than saving a staging job.
+  grid-oib:agentWorkerDrainSeconds: "180"
+  # Staging is meant to be re-creatable, so the data resources are NOT protected
+  # here — `pulumi destroy` must work without a manual unprotect. Prod keeps the
+  # default (true).
+  grid-oib:protectDataResources: "false"
+  grid-oib:backendReplicas: "1"
+  # ── Frontend ──
+  grid-oib:frontendMinReplicas: "1"
+  grid-oib:frontendMaxReplicas: "3"
+  # ── Auth / platform ──
+  grid-oib:requireAuth: "true"
+  grid-oib:workosClientId: client_01KEF0YGNPX7S4SF952ZX46V1K # pragma: allowlist secret (public OAuth client id)
+  grid-oib:enforceFeatureFlags: "false"
+  # Agent Skills + Jobs (ADR-0046). On in staging so the feature can actually be
+  # exercised. With enforceFeatureFlags off, this env gate is the only thing
+  # that turns the Skills and Jobs tabs on and the job scheduler up.
+  grid-oib:skillsEnabled: "true"
+  # Collaboration (ADR-0032…0035): shared chats, @-mentions, the inbox. On in
+  # staging so the feature can actually be exercised; prod stays dark until it
+  # ships. With enforceFeatureFlags off, this env gate is the only thing that
+  # turns the surfaces on.
+  grid-oib:collaborationEnabled: "true"
+  grid-oib:registryUsername: matthiasbigl
+  # ── Observability / OTel Collector + Aspire dashboard (ADR-0029) ──
+  # Deployed only when the flag is on AND every dependency is set; otherwise
+  # `pulumi preview` logs a warning naming what is missing and the tier
+  # (dashboard, collector, `https-otel` listener, producer OTLP env) is skipped.
+  # Secrets (otelPrimaryApiKey, otelOidcClientSecret) live in the ESC env —
+  # rotate with:
+  #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:otelPrimaryApiKey "$(openssl rand -hex 32)" --secret
+  # dashboardImage/collectorImage default to digest-pinned versions in src/config.ts —
+  # only override here when deliberately upgrading.
+  # Dashboard auth runs on the Gateway, against a dedicated WorkOS **Connect**
+  # application (ADR-0029 Amendment 2 — the app's own AuthKit client cannot
+  # serve this flow). Created by
+  # `WORKOS_API_KEY=sk_… npm run provision:workos-env -- --apply` (frontends/ui)
+  # with WORKOS_CONNECT_APP_NAME / WORKOS_CONNECT_REDIRECT_URIS set — it
+  # matches by name, creates a CONFIDENTIAL OAuth client whose sign-in callback
+  # is https://<otelDomain>/oauth2/callback, and prints the client id + secret
+  # exactly once at creation. Still dashboard-manual: assigning the
+  # platform:organizations:view permission under Scopes.
+  # Then:
+  #   pulumi config set grid-oib:otelOidcIssuer   https://<tenant>.authkit.app
+  #   pulumi config set grid-oib:otelOidcClientId client_...
+  #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:otelOidcClientSecret <secret> --secret
+  grid-oib:otelOidcIssuer: https://grateful-view-25-staging.authkit.app
+  grid-oib:otelOidcClientId: client_01KYM02G6F117E239KNRP5FJSV # pragma: allowlist secret (public OAuth client id)
+  grid-oib:loadBalancerIp: 45.144.209.191
+  # ── Public DNS (Cloudflare) ──
+  # Replaces the manual "read the LoadBalancer IP, retype it per host" step that
+  # used to end every deploy. The records for dev./app.dev./s3.dev./otel.dev.
+  # are derived from the SAME config the Gateway listeners are, so they cannot
+  # drift from each other; `loadBalancerIp` above is now the one place the
+  # address is written.
+  #
+  # Cloudflare OPERATES the zone; piloti.at stays registered at GoDaddy with its
+  # NS records delegated. This is not a preference — GoDaddy's own DNS API is
+  # gated behind 10+ domains or a Discount Domain Club membership, so a small
+  # account cannot drive it from code at all.
+  #
+  # This program writes the zone BEFORE the delegation moves, not after —
+  # Cloudflare answers on a zone's assigned nameservers as soon as it holds
+  # records, so the new zone can be dug directly while GoDaddy is still
+  # authoritative. See docs/deployment/kubernetes.md § 3b "Cutover order".
+  #   1. `dig` every record type off the live zone (GoDaddy's UI truncates).
+  #   2. Add piloti.at to Cloudflare and DELETE every record its auto-scan
+  #      imported — Cloudflare round-robins duplicate A records rather than
+  #      rejecting them, so an imported record plus a created one is an
+  #      intermittently wrong answer, not an error.
+  #   3. Copy the zone id from the zone's Overview page into dnsZoneId below,
+  #      and set the token FIRST — `loadConfig` throws without it once
+  #      dnsEnabled is set, which on this CI-deployed stack turns a merge into
+  #      a failed deploy:
+  #      esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:cloudflareApiToken "<token>" --secret
+  #      (scoped to THIS zone: Zone:DNS:Edit, plus Zone:Dynamic URL Redirects:Edit
+  #      while dnsApexRedirectTo is set)
+  #   4. dnsEnabled: "true" here, then `pulumi up`. Nothing goes live yet.
+  #   5. Verify against Cloudflare directly: dig @<assigned-cf-ns> <host>.
+  #   6. Only then change the nameservers at GoDaddy.
+  #
+  # DEV STACK IS LIVE: the delegation already moved to Cloudflare before this
+  # feature merged, so dnsEnabled is "true" here with the real zone id and token.
+  grid-oib:dnsEnabled: "true"
+  grid-oib:dnsZoneName: piloti.at
+  grid-oib:dnsZoneId: 66de14f8d07a729634f5d230418bb907 # pragma: allowlist secret (public zone id, Cloudflare zone Overview page)
+  grid-oib:cloudflareApiToken:
+    secure: AAABAD5L+SCK2AhyqX/QqKlpHgDWIgYWvBO8TlwzYzUsaLb8//GZe0dAcvp348Xg0Ikbje8EUWvTiouh2jp4H/sI2l4d3XueTw8WlLm+qV2dPbPDhA==
+  #
+  # This stack owns the zone-level records (www, _dmarc, the apex) because it is
+  # the only stack there is. When the PROD stack ships with baseDomain=piloti.at
+  # it serves the apex for real: drop BOTH keys below from this file and set
+  # dnsZoneBaseline there instead. `loadConfig` refuses to let two stacks claim
+  # the apex, because Cloudflare would not — the second `pulumi up` would just
+  # overwrite the first one's record and report success.
+  grid-oib:dnsZoneBaseline: "true"
+  # Carried over verbatim from GoDaddy. The domain has no MX records, so nothing
+  # receives mail on it; if that stays true, `v=DMARC1; p=reject;` plus a
+  # `v=spf1 -all` TXT on the apex is the stronger posture — but that is a
+  # decision about the domain's mail policy, not about this deployment, so the
+  # existing value moves across unchanged.
+  grid-oib:dnsDmarc: "v=DMARC1; p=quarantine; adkim=r; aspf=r; rua=mailto:dmarc_rua@onsecureserver.net;"
+  # Scaffolding with an explicit end date: piloti.at currently serves a GoDaddy
+  # WebsiteBuilder placeholder that cannot survive the nameserver move, and the
+  # prod stack that will serve the apex for real does not exist yet. Until it
+  # does, the apex and www bounce here. Unset this the moment prod ships.
+  grid-oib:dnsApexRedirectTo: https://dev.piloti.at
+  # ── err2issue: ERROR telemetry -> GitHub issues (ADR-0031) ──
+  # A second consumer on the collector's logs signal. Requires the
+  # observability tier above (it has no receiver of its own).
+  # `err2issueGithubToken` lives in the ESC env; it stays fail-closed by
+  # construction: unset the token and the gate skips the sink (and
+  # `pulumi preview` says so) rather than erroring. To rotate the PAT:
+  #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:err2issueGithubToken ghp_... --secret
+  # The PAT needs Issues read/write on the destination repo (a fine-grained
+  # token scoped to that one repo is enough — it never reads code).
+  # Optional, off by default:
+  #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:err2issueAnthropicApiKey sk-ant-... --secret
+  # buys AI-written issue titles instead of rule-based ones. This is a console
+  # API key and bills per token; a Claude subscription does not cover it, and
+  # the sink works fine without it.
+  # Caps are deliberately conservative for a first deployment (20 new issues
+  # per day, 600s coalescing window — see src/config.ts). Raise
+  # err2issueMaxNewFingerprintsPerDay once steady-state volume is known.
+  grid-oib:err2issueEnabled: "true"
+  grid-oib:err2issueGithubRepo: GRID-check/grid-oib-agent

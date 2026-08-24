@@ -2,6 +2,10 @@ import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { MainLayout } from './MainLayout'
+import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
+import type { LayoutStore } from '../types'
+import type { ChatStoreWithHydration } from '@/features/chat/store'
+import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 
 const mockUpdateSessionUrl = vi.fn()
 const mockClearSessionUrl = vi.fn()
@@ -20,10 +24,15 @@ vi.mock('@/hooks/use-session-url', () => ({
   })),
 }))
 
+// Per-test overrides merged into the chat-store state. Read lazily inside the
+// mock factory (so it is StrictMode-double-render safe — every useChatStore
+// call in every render pass sees the same state), and reset in beforeEach.
+let chatStoreOverrides: Record<string, unknown> = {}
+
 // Mock the chat store
 vi.mock('@/features/chat', () => ({
-  useChatStore: vi.fn((selector?: (s: any) => any) => {
-    const state = {
+  useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
+    const state: DeepPartial<ChatStoreWithHydration> = {
       currentConversation: { id: 'session-1', title: 'Test Session' },
       getUserConversations: vi.fn(() => []),
       selectConversation: mockSelectConversation,
@@ -35,8 +44,9 @@ vi.mock('@/features/chat', () => ({
       pendingInteraction: null,
       isDeepResearchStreaming: false,
       deepResearchOwnerConversationId: null,
+      ...chatStoreOverrides,
     }
-    return selector ? selector(state) : state
+    return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
   }),
   useDeepResearch: vi.fn(() => ({
     isResearching: false,
@@ -49,15 +59,15 @@ vi.mock('@/features/chat', () => ({
 
 // Mock the layout store
 vi.mock('../store', () => ({
-  useLayoutStore: vi.fn((selector?: (s: any) => any) => {
-    const state = {
+  useLayoutStore: vi.fn((selector?: StoreSelector<LayoutStore>) => {
+    const state: DeepPartial<LayoutStore> = {
       rightPanel: null,
       isSessionsPanelOpen: false,
       setSessionsPanelOpen: vi.fn(),
       enabledDataSourceIds: ['source-1', 'source-2'],
       openRightPanel: mockOpenRightPanel,
     }
-    return selector ? selector(state) : state
+    return selector ? selector(asStoreState<LayoutStore>(state)) : state
   }),
 }))
 
@@ -82,7 +92,13 @@ vi.mock('./ChatToolbar', () => ({
 }))
 
 vi.mock('./SessionsPanel', () => ({
-  SessionsPanel: () => <div data-testid="sessions-panel">Sessions Panel</div>,
+  SessionsPanel: ({ sessions }: { sessions?: Array<{ id: string }> }) => (
+    <div data-testid="sessions-panel">
+      {(sessions ?? []).map((s) => (
+        <div key={s.id} data-testid={`session-item-${s.id}`} />
+      ))}
+    </div>
+  ),
 }))
 
 vi.mock('./ChatArea', () => ({
@@ -97,16 +113,17 @@ vi.mock('./ResearchPanel', () => ({
   ResearchPanel: () => <div data-testid="research-panel">Research Panel</div>,
 }))
 
-vi.mock('./DataSourcesPanel', () => ({
-  DataSourcesPanel: () => <div data-testid="data-sources-panel">Data Sources Panel</div>,
-}))
-
 import { useChatStore } from '@/features/chat'
 import { useLayoutStore } from '../store'
 
 describe('MainLayout', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    chatStoreOverrides = {}
+    // The file-preview store is the real zustand module here, not a mock, so
+    // it is module state shared across this file's tests. Reset it or the peek
+    // test below leaks a file into every test declared after it.
+    useFilePreviewStore.setState({ file: null, mode: 'modal', hidden: false })
   })
 
   test('renders authenticated main sections', () => {
@@ -117,10 +134,9 @@ describe('MainLayout', () => {
     expect(screen.getByTestId('chat-area')).toBeInTheDocument()
     expect(screen.getByTestId('input-area')).toBeInTheDocument()
     expect(screen.getByTestId('research-panel')).toBeInTheDocument()
-    expect(screen.getByTestId('data-sources-panel')).toBeInTheDocument()
   })
 
-  test('hides the data sources panel when unauthenticated', () => {
+  test('renders core sections when unauthenticated', () => {
     render(<MainLayout />)
 
     expect(screen.getByTestId('app-bar')).toBeInTheDocument()
@@ -128,7 +144,6 @@ describe('MainLayout', () => {
     expect(screen.getByTestId('chat-area')).toBeInTheDocument()
     expect(screen.getByTestId('input-area')).toBeInTheDocument()
     expect(screen.getByTestId('research-panel')).toBeInTheDocument()
-    expect(screen.queryByTestId('data-sources-panel')).not.toBeInTheDocument()
   })
 
   test('passes session title to AppBar', () => {
@@ -138,22 +153,7 @@ describe('MainLayout', () => {
   })
 
   test('shows no session title when no current conversation', () => {
-    vi.mocked(useChatStore).mockImplementationOnce((selector?: (s: any) => any) => {
-      const state = {
-        currentConversation: null,
-        getUserConversations: vi.fn(() => []),
-        selectConversation: vi.fn(),
-        startNewSessionDraft: vi.fn(),
-        deleteConversation: vi.fn(),
-        deleteAllConversations: vi.fn(),
-        updateConversationTitle: vi.fn(),
-        isStreaming: false,
-        pendingInteraction: null,
-        isDeepResearchStreaming: false,
-        deepResearchOwnerConversationId: null,
-      }
-      return selector ? selector(state) : state
-    })
+    chatStoreOverrides = { currentConversation: null }
 
     render(<MainLayout />)
 
@@ -178,7 +178,8 @@ describe('MainLayout', () => {
 
     expect(mockStartNewSessionDraft).toHaveBeenCalledOnce()
     expect(mockClearSessionUrl).toHaveBeenCalledOnce()
-    expect(mockOpenRightPanel).toHaveBeenCalledWith('data-sources')
+    // New sessions no longer force-open a right panel (removed default-open).
+    expect(mockOpenRightPanel).not.toHaveBeenCalledWith('data-sources')
   })
 
   test('does not open data sources from new session while unauthenticated', async () => {
@@ -194,8 +195,8 @@ describe('MainLayout', () => {
   })
 
   test('disables new session action while shallow streaming is active', () => {
-    vi.mocked(useChatStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: DeepPartial<ChatStoreWithHydration> = {
         currentConversation: { id: 'session-1', title: 'Test Session' },
         getUserConversations: vi.fn(() => []),
         selectConversation: vi.fn(),
@@ -208,7 +209,7 @@ describe('MainLayout', () => {
         isDeepResearchStreaming: false,
         deepResearchOwnerConversationId: null,
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     })
 
     render(<MainLayout />)
@@ -217,14 +218,14 @@ describe('MainLayout', () => {
   })
 
   test('adjusts chat width when details panel is open', () => {
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         rightPanel: 'research',
         isSessionsPanelOpen: false,
         setSessionsPanelOpen: vi.fn(),
         enabledDataSourceIds: ['source-1', 'source-2'],
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
 
     const { container } = render(<MainLayout />)
@@ -234,15 +235,89 @@ describe('MainLayout', () => {
     expect(chatContainer).toHaveStyle({ width: '50%' })
   })
 
-  test('shows full width when details panel is closed', () => {
-    vi.mocked(useLayoutStore).mockImplementation((selector?: (s: any) => any) => {
-      const state = {
+  test('sessions panel only lists the active project\'s sessions (legacy unscoped fail open)', () => {
+    const makeConv = (id: string, projectId?: string | null) => ({
+      id,
+      userId: 'user-1',
+      projectId,
+      title: id,
+      messages: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: DeepPartial<ChatStoreWithHydration> = {
+        currentConversation: null,
+        currentUserId: 'user-1',
+        projectId: 'proj-a',
+        conversations: [
+          makeConv('in-project', 'proj-a'),
+          makeConv('other-project', 'proj-b'),
+          makeConv('legacy', null),
+          { ...makeConv('other-user', 'proj-a'), userId: 'user-2' },
+        ],
+        getUserConversations: vi.fn(() => []),
+        selectConversation: vi.fn(),
+        startNewSessionDraft: vi.fn(),
+        deleteConversation: vi.fn(),
+        deleteAllConversations: vi.fn(),
+        updateConversationTitle: vi.fn(),
+        isStreaming: false,
+        pendingInteraction: null,
+        isDeepResearchStreaming: false,
+        deepResearchOwnerConversationId: null,
+      }
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
+    })
+
+    render(<MainLayout isAuthenticated={true} />)
+
+    // Cross-project bleed guard (UX-8): project B's session must NOT appear
+    // in project A's panel; unscoped legacy sessions stay visible.
+    expect(screen.getByTestId('session-item-in-project')).toBeInTheDocument()
+    expect(screen.getByTestId('session-item-legacy')).toBeInTheDocument()
+    expect(screen.queryByTestId('session-item-other-project')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('session-item-other-user')).not.toBeInTheDocument()
+  })
+
+  // The regression the file-ask split shipped with: `FilePreviewSplit` puts the
+  // peeked file in its own resizable panel BESIDE this whole subtree, so the
+  // room is already made one level up. This column used to subtract the peek
+  // width again — out of a panel that had already shrunk — which at 1440px left
+  // the chat 539px inside an 883px panel and a 344px dead band between the
+  // conversation and the file it is about. Visual proof: `/dev/file-ask-split`.
+  test('keeps full width while a file is peeked — the split already made the room', () => {
+    useFilePreviewStore.setState({
+      file: { id: 'doc-1', filename: 'Brandschutzplan_EG.pdf' } as never,
+      mode: 'peek',
+      hidden: false,
+    })
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
         rightPanel: null,
         isSessionsPanelOpen: false,
         setSessionsPanelOpen: vi.fn(),
         enabledDataSourceIds: ['source-1', 'source-2'],
       }
-      return selector ? selector(state) : state
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
+    })
+
+    const { container } = render(<MainLayout />)
+
+    const chatContainer = container.querySelector('[style*="width"]')
+    expect(chatContainer).toHaveStyle({ width: '100%' })
+  })
+
+  test('shows full width when details panel is closed', () => {
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
+        rightPanel: null,
+        isSessionsPanelOpen: false,
+        setSessionsPanelOpen: vi.fn(),
+        enabledDataSourceIds: ['source-1', 'source-2'],
+      }
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
     })
 
     const { container } = render(<MainLayout />)

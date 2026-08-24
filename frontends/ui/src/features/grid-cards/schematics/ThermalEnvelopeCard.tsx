@@ -22,6 +22,7 @@ import {
   worstStatus,
 } from './kit'
 import { sketchLine, sketchPath, sketchRect } from './rough'
+import { useTranslations } from '@/i18n'
 import type { DimStatus, EnvelopeComponentData, NormReferenceData } from './types'
 
 interface ThermalEnvelopeCardProps {
@@ -39,6 +40,7 @@ export const ThermalEnvelopeCard: FC<ThermalEnvelopeCardProps> = ({
   reference,
   note,
 }) => {
+  const t = useTranslations('chat')
   // Status per envelope kind, so each drawn element can pick up its verdict.
   const statusByKind = new Map<Kind, DimStatus>()
   const labelByKind = new Map<Kind, string>()
@@ -113,13 +115,12 @@ export const ThermalEnvelopeCard: FC<ThermalEnvelopeCardProps> = ({
   return (
     <SchematicCard
       icon={Thermometer}
-      eyebrow="Schematic"
       title={title}
       verdict={worstStatus(components.map((c) => c.u_value.status))}
       note={note}
       reference={reference}
     >
-      <SchematicCanvas viewW={viewW} viewH={viewH} minWidth={320} label={title}>
+      <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         {/* ground line + hatch ticks */}
         <line
           x1={xL - 34}
@@ -258,19 +259,51 @@ export const ThermalEnvelopeCard: FC<ThermalEnvelopeCardProps> = ({
         })}
 
         {/* status callouts with leader lines */}
-        {callout('roof', 'Dach', ridgeX + 46, ridgeY + 6, 'start', ridgeX + 18, ridgeY + 11)}
-        {callout('wall', 'Außenwand', xL - 20, eaveY + 14, 'end', xL, eaveY + 16)}
+        {callout(
+          'roof',
+          t('cards.schematics.thermal.roof'),
+          ridgeX + 46,
+          ridgeY + 6,
+          'start',
+          ridgeX + 18,
+          ridgeY + 11
+        )}
+        {callout(
+          'wall',
+          t('cards.schematics.thermal.wall'),
+          xL - 20,
+          eaveY + 14,
+          'end',
+          xL,
+          eaveY + 16
+        )}
         {callout(
           'window',
-          'Fenster',
+          t('cards.schematics.thermal.window'),
           xL - 20,
           (winTop + winBottom) / 2,
           'end',
           xL - 3,
           (winTop + winBottom) / 2
         )}
-        {callout('door', 'Tür', xR + 20, doorTop + 20, 'start', xR + 1, doorTop + 22)}
-        {callout('floor', 'Boden', xR + 20, floorTopY + floorT / 2, 'start', xR + 7, floorTopY + floorT / 2)}
+        {callout(
+          'door',
+          t('cards.schematics.thermal.door'),
+          xR + 20,
+          doorTop + 20,
+          'start',
+          xR + 1,
+          doorTop + 22
+        )}
+        {callout(
+          'floor',
+          t('cards.schematics.thermal.floor'),
+          xR + 20,
+          floorTopY + floorT / 2,
+          'start',
+          xR + 7,
+          floorTopY + floorT / 2
+        )}
       </SchematicCanvas>
 
       <div className="flex flex-col gap-2.5">

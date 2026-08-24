@@ -1,9 +1,12 @@
 /**
- * GRID product logo — inline SVG mark plus optional wordmark.
+ * Piloti product logo — inline SVG mark plus optional wordmark.
+ * The mark is the abstract four-square glyph (kept from the GRID era — it does
+ * not render any letterforms); only the wordmark text carries the brand name.
  * Token-driven (text-primary / brand accent), so it adapts to light/dark.
  */
 
 import { type FC } from 'react'
+import { PRODUCT_NAME } from '@/lib/brand'
 import { cn } from '@/lib/utils'
 
 interface LogoProps {
@@ -27,7 +30,7 @@ const wordmarkSize: Record<NonNullable<LogoProps['size']>, string> = {
 
 export const Logo: FC<LogoProps> = ({ kind = 'horizontal', size = 'medium', className }) => {
   return (
-    <span className={cn('inline-flex items-center gap-2', className)} role="img" aria-label="Grid">
+    <span className={cn('inline-flex items-center gap-2', className)} role="img" aria-label={PRODUCT_NAME}>
       <svg
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
@@ -38,7 +41,7 @@ export const Logo: FC<LogoProps> = ({ kind = 'horizontal', size = 'medium', clas
         <path d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 0h8v8h-8v-8z" />
       </svg>
       {kind === 'horizontal' && (
-        <span className={cn('font-semibold tracking-tight text-foreground', wordmarkSize[size])}>Grid</span>
+        <span className={cn('font-semibold tracking-tight text-foreground', wordmarkSize[size])}>{PRODUCT_NAME}</span>
       )}
     </span>
   )

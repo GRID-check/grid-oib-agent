@@ -1,6 +1,6 @@
 /** Shared strings used across many surfaces. */
 export const common = {
-  appName: 'Grid',
+  appName: 'Piloti',
   tagline: 'AI-powered research assistant',
   actions: {
     save: 'Save',
@@ -24,6 +24,7 @@ export const common = {
     saved: 'Saved',
     error: 'Something went wrong',
     empty: 'Nothing here yet',
+    copyFailed: 'Could not copy',
   },
   theme: {
     label: 'Theme',

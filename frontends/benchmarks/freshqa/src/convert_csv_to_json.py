@@ -36,7 +36,9 @@ def convert_csv_to_json(input_csv: str, output_json: str, split_filter: str | No
 
         # Build record
         record = {
-            "id": row["id"] if pd.notna(row.get("id")) else len(records),
+            # str(): a numeric CSV id arrives as numpy.int64, which json.dump
+            # cannot serialize; the evaluator reads ids back via str() anyway.
+            "id": str(row["id"]) if pd.notna(row.get("id")) else str(len(records)),
             "question": str(row["question"]) if pd.notna(row.get("question")) else "",
             "expected_output": {f"answer_{i}": answers[i] if i < len(answers) else None for i in range(len(answers))},
         }

@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """
 Knowledge Layer - Universal RAG interfaces and schemas.
 
@@ -38,19 +23,36 @@ Usage:
 from .base import BaseIngestor
 from .base import BaseRetriever
 from .factory import clear_active_ingestor
+from .factory import clear_active_retriever
 from .factory import clear_all_summaries
 from .factory import clear_collection_summaries
 from .factory import configure_summary_db
 from .factory import get_active_ingestor
+from .factory import get_active_retriever
 from .factory import get_available_documents
 from .factory import get_available_documents_async
+from .factory import get_document_display_title
+from .factory import get_document_display_titles
+from .factory import get_document_doc_class
+from .factory import get_document_folder_paths
 from .factory import get_ingestor
 from .factory import get_retriever
+from .factory import list_summary_collections
 from .factory import register_ingestor
 from .factory import register_retriever
 from .factory import register_summary
+from .factory import rewrite_document_folder_paths
 from .factory import set_active_ingestor
+from .factory import set_active_retriever
+from .factory import set_document_display_title
+from .factory import set_document_doc_class
+from .factory import set_document_folder_path
 from .factory import unregister_summary
+from .factory import update_document_tags
+from .inventory import allocate_inventory
+from .inventory import listing_intent_override
+from .inventory import render_inventory_block
+from .inventory import shelf_hint_from_query
 from .schema import AvailableDocument
 from .schema import Chunk
 from .schema import ContentType
@@ -80,12 +82,30 @@ __all__ = [
     "get_active_ingestor",
     "set_active_ingestor",
     "clear_active_ingestor",
+    # Active retriever (for Knowledge API — document search)
+    "get_active_retriever",
+    "set_active_retriever",
+    "clear_active_retriever",
     # Summary Registry (SQLAlchemy-backed, backend-agnostic)
     "configure_summary_db",
     "register_summary",
     "unregister_summary",
+    "update_document_tags",
+    "set_document_doc_class",
+    "get_document_doc_class",
+    "set_document_display_title",
+    "get_document_display_title",
+    "get_document_display_titles",
+    "set_document_folder_path",
+    "get_document_folder_paths",
+    "rewrite_document_folder_paths",
+    "list_summary_collections",
     "get_available_documents",
     "get_available_documents_async",
+    "allocate_inventory",
+    "listing_intent_override",
+    "render_inventory_block",
+    "shelf_hint_from_query",
     "clear_collection_summaries",
     "clear_all_summaries",
 ]

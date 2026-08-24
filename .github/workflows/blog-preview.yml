@@ -1,0 +1,272 @@
+# Blog preview screenshots — when a PR touches blog content, build the site with
+# drafts rendered, screenshot the posts the PR changed, and link the PNGs from a
+# sticky comment.
+#
+# This exists because the blog is CMS-authored: whoever writes a post publishes
+# from Keystatic in a browser and never runs a build, so today the first feedback
+# they get is a red CI badge. It also makes a *draft* viewable — drafts already
+# cost a full rebuild + deploy cycle, but are invisible on the deployed site, so
+# without this there is no way to look at one short of running Astro locally.
+#
+# Informational only: a harness failure must never block the PR.
+#
+# Job split mirrors screenshot-preview.yml: the job that executes PR-controlled
+# code (npm install, the site's own build and server) runs with a read-only token
+# and no persisted credential; the commenting job checks out nothing, runs no PR
+# code, and is the only one holding write scope.
+
+name: Blog preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - frontends/web/src/content/**
+      - .github/workflows/blog-preview.yml
+
+concurrency:
+  group: blog-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Single source of truth for the CI-only Playwright pin (see the install step).
+  PLAYWRIGHT_VERSION: 1.62.1
+
+jobs:
+  detect:
+    name: Detect changed posts
+    runs-on: ubuntu-latest
+    # Fork PRs get a read-only token and cannot receive comments — skip them.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+    outputs:
+      has_posts: ${{ steps.diff.outputs.has_posts }}
+      paths: ${{ steps.diff.outputs.paths }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Map changed MDX entries to site paths
+        id: diff
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          # `fetch-depth: 0` already fetched every branch, and with
+          # persist-credentials:false a further fetch would have no credential.
+          CHANGED=$(git diff --name-only --diff-filter=d \
+            "origin/$BASE_REF...HEAD" -- 'frontends/web/src/content/blog/')
+
+          # Two kinds of change reach a rendered post: the entry itself, and an
+          # image under _images/<slug>/ that some entry references. Swapping a
+          # cover without touching the MDX is a real edit and must still preview,
+          # so map image paths back to whichever locale entries exist for that slug.
+          ENTRIES=""
+          for file in $CHANGED; do
+            rel="${file#frontends/web/src/content/blog/}"
+            case "$rel" in
+              _images/*)
+                slug="$(printf '%s' "${rel#_images/}" | cut -d/ -f1)"
+                for locale in de en; do
+                  [ -f "frontends/web/src/content/blog/$locale/$slug.mdx" ] \
+                    && ENTRIES="$ENTRIES $locale/$slug.mdx"
+                done
+                ;;
+              */*.mdx) ENTRIES="$ENTRIES $rel" ;;
+            esac
+          done
+          # An image referenced by two locales yields the same entry twice.
+          ENTRIES="$(printf '%s\n' $ENTRIES | sort -u)"
+
+          PATHS=""
+          for entry in $ENTRIES; do
+            locale="${entry%%/*}"
+            slug="$(basename "${entry#*/}" .mdx)"
+            # The slug reaches a shell argument and a filename, so accept only
+            # the shape Keystatic's slug field can actually produce.
+            case "$slug" in
+              *[!a-zA-Z0-9._-]*|'') continue ;;
+            esac
+            case "$locale" in
+              de) PATHS="$PATHS /blog/$slug/" ;;
+              en) PATHS="$PATHS /en/blog/$slug/" ;;
+              *)  continue ;;
+            esac
+          done
+
+          PATHS="$(echo "$PATHS" | xargs || true)"
+          echo "paths=$PATHS" >> "$GITHUB_OUTPUT"
+          if [ -n "$PATHS" ]; then
+            echo "has_posts=true" >> "$GITHUB_OUTPUT"
+            echo "Changed posts: $PATHS"
+          else
+            echo "has_posts=false" >> "$GITHUB_OUTPUT"
+            echo "No blog entries changed in this PR."
+          fi
+
+  # Untrusted half: runs PR code, holds no write scope and no credential.
+  capture:
+    name: Capture post previews
+    needs: detect
+    if: needs.detect.outputs.has_posts == 'true'
+    runs-on: ubuntu-latest
+    # Informational: a flaky browser or a preview-only build failure must never
+    # block a content PR. `task web:verify` in ci.yml is the check that gates it.
+    continue-on-error: true
+    permissions:
+      contents: read
+    outputs:
+      count: ${{ steps.stage.outputs.count }}
+      artifact_url: ${{ steps.upload.outputs.artifact-url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          # The steps below run PR-controlled dependency scripts and app code —
+          # they must never find a repository credential in the workspace.
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontends/web/package-lock.json
+
+      - uses: actions/cache@v6
+        with:
+          path: frontends/web/.astro-cache
+          key: astro-cache-${{ runner.os }}-${{ hashFiles('frontends/web/src/content/blog/_images/**', 'frontends/web/src/assets/**') }}
+          restore-keys: |
+            astro-cache-${{ runner.os }}-
+
+      - uses: ./.github/actions/setup-task
+
+      - name: Install + build with drafts rendered
+        # Defined in the root Taskfile so `task web:preview` locally runs exactly
+        # what CI runs here.
+        run: task web:preview
+
+      - name: Cache the Playwright Chromium download
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          # Keyed on the pin below: a browser cached for one playwright-core
+          # build is not usable by another, and an unkeyed entry would be
+          # restored anyway and then fail the launch.
+          key: playwright-chromium-${{ runner.os }}-${{ env.PLAYWRIGHT_VERSION }}
+
+      - name: Install playwright-core + Chromium
+        working-directory: frontends/web
+        # CI-only dependency: kept out of package.json so it never reaches the
+        # web image's dependency layer. Pinned because there is no lockfile entry
+        # to hold it — unpinned, every run would resolve whatever `latest` is and
+        # silently invalidate the browser cache.
+        run: |
+          npm i --no-save "playwright-core@${PLAYWRIGHT_VERSION}"
+          npx playwright-core install chromium
+
+      - name: Start the built server
+        working-directory: frontends/web
+        run: |
+          node dist/server/entry.mjs &
+          echo $! > /tmp/web.pid
+          for _ in $(seq 1 30); do
+            curl -sf http://localhost:4321/ >/dev/null && exit 0
+            sleep 1
+          done
+          echo "server did not come up" >&2
+          exit 1
+
+      - name: Capture the changed posts
+        working-directory: frontends/web
+        env:
+          PATHS: ${{ needs.detect.outputs.paths }}
+        # Unquoted on purpose: the paths are a validated, space-separated list.
+        run: node scripts/preview-shots.mjs "$GITHUB_WORKSPACE/blog-preview-out" http://localhost:4321 $PATHS
+
+      - name: Stop the server
+        if: always()
+        run: kill "$(cat /tmp/web.pid)" 2>/dev/null || true
+
+      - name: Count staged PNGs
+        id: stage
+        run: |
+          set -euo pipefail
+          OUT="$GITHUB_WORKSPACE/blog-preview-out"
+          mkdir -p "$OUT"
+          echo "count=$(find "$OUT" -maxdepth 1 -name '*.png' | wc -l)" >> "$GITHUB_OUTPUT"
+          ls -la "$OUT"
+
+      - uses: actions/upload-artifact@v4
+        id: upload
+        with:
+          name: blog-previews
+          path: blog-preview-out
+          if-no-files-found: ignore
+
+  # Privileged half: no checkout of PR code, no dependency install, no app code.
+  comment:
+    name: Comment with the previews
+    needs: [detect, capture]
+    # Runs even when capture failed, so a broken harness is reported rather than
+    # silently dropped.
+    if: ${{ !cancelled() && needs.detect.outputs.has_posts == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write # upsert the sticky comment
+    steps:
+      - name: Upsert the sticky PR comment
+        uses: actions/github-script@v9
+        env:
+          PATHS: ${{ needs.detect.outputs.paths }}
+          COUNT: ${{ needs.capture.outputs.count }}
+          ARTIFACT_URL: ${{ needs.capture.outputs.artifact_url }}
+        with:
+          script: |
+            const pr = context.payload.pull_request.number
+            const paths = (process.env.PATHS || '').split(' ').filter(Boolean)
+            const count = Number(process.env.COUNT || 0)
+            const artifactUrl = process.env.ARTIFACT_URL || ''
+            const marker = '<!-- blog-preview -->'
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            const list = paths.map((p) => `\`${p}\``).join(', ')
+
+            const ok = count > 0 && artifactUrl
+            const body = (ok
+              ? [
+                  marker,
+                  '## Blog preview',
+                  `Captured ${count} screenshot(s) for ${list} — desktop + mobile, drafts rendered.`,
+                  '',
+                  `[Download the previews](${artifactUrl})`,
+                ]
+              : [
+                  marker,
+                  '## Blog preview',
+                  `No screenshots were produced for ${list}.`,
+                  '',
+                  `[Harness log](${runUrl})`,
+                ]
+            ).join('\n')
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              ...context.repo,
+              issue_number: pr,
+              per_page: 100,
+            })
+            // Marker alone is not enough: it appears verbatim in any comment
+            // quoting this one, so a participant's reply could be overwritten.
+            const existing = comments.find(
+              (c) => c.user?.login === 'github-actions[bot]' && c.body?.includes(marker)
+            )
+            if (existing) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body })
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body })
+            }

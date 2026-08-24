@@ -44,48 +44,50 @@ The `WORKOS_COOKIE_PASSWORD` is used to encrypt the AuthKit session cookie. Requ
 - Must be stable across deployments — changing it invalidates all sessions
 - Store it securely (not in version control)
 
-## MinIO
+## SeaweedFS
 
 ### Default Credentials
 
-The Docker Compose file hardcodes MinIO credentials:
+The Docker Compose file hardcodes SeaweedFS credentials:
 
 ```
-MINIO_ROOT_USER: minioadmin
-MINIO_ROOT_PASSWORD: minioadmin
+SEAWEED_ACCESS_KEY: seaweedadmin
+SEAWEED_SECRET_KEY: seaweedadmin
 ```
 
 **These must be changed in production.** The credentials are currently hardcoded in `docker-compose.yaml` and copied into the `frontend` service's environment block.
 
-### Changing MinIO Credentials
+### Changing SeaweedFS Credentials
 
 1. Set new values in your `.env` file:
    ```bash
-   MINIO_ACCESS_KEY=your-new-access-key
-   MINIO_SECRET_KEY=your-new-secret-key
+   SEAWEED_ACCESS_KEY=your-new-access-key
+   SEAWEED_SECRET_KEY=your-new-secret-key
    ```
 2. Update the `docker-compose.yaml` to reference these variables instead of hardcoded values:
    ```yaml
-   MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
-   MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+   SEAWEED_ACCESS_KEY: ${SEAWEED_ACCESS_KEY:-seaweedadmin}
+   SEAWEED_SECRET_KEY: ${SEAWEED_SECRET_KEY:-seaweedadmin}
    ```
-3. The `minio-init` bucket creation script also uses hardcoded credentials:
+3. The `seaweedfs-init` bucket creation runs against the filer via the master,
+   so it needs no S3 credentials of its own:
    ```yaml
    command: >
-     mc alias set local http://minio:9000 minioadmin minioadmin &&
-     mc mb local/grid-documents --ignore-existing
+     echo 's3.bucket.create -name grid-documents' | weed shell -master=seaweedfs:9333 || true
    ```
-   This must be updated to use environment variables.
+   The S3 access/secret keys are consumed only by the `seaweedfs` service (which
+   writes them into `s3.json` at boot) and by the app services that sign
+   requests — keep those in environment variables, not hardcoded.
 
 ### Network Exposure
 
-MinIO exposes two ports:
-- `9000`: S3 API (needed by aiq-agent and frontend)
-- `9001`: Web console (for debugging — should not be exposed publicly)
+SeaweedFS exposes two ports:
+- `8333`: S3 API (needed by aiq-agent and frontend)
+- `8888`: Filer UI (for debugging — should not be exposed publicly)
 
 In production, consider:
-- Removing the `9001` port mapping
-- Restricting the `9000` port to internal Docker networking only (remove the port mapping if only internal services need it)
+- Removing the `8888` port mapping
+- Restricting the `8333` port to internal Docker networking only (remove the port mapping if only internal services need it)
 - Adding TLS via a reverse proxy
 
 ## API Keys
@@ -180,21 +182,21 @@ Port `5432` is mapped to the host by default. In production:
 | Secret | Location | Protection |
 |--------|----------|------------|
 | API keys | `deploy/.env` (git-ignored) | File permissions |
-| MinIO credentials | Hardcoded in `docker-compose.yaml` | None (in git) |
+| SeaweedFS credentials | Hardcoded in `docker-compose.yaml` | None (in git) |
 | WorkOS secrets | `.env` variables | File permissions |
 | Database password | Hardcoded in `docker-compose.yaml` and `init-db.sql` | None (in git) |
 | Cookie password | `.env` variable | File permissions |
 
 ### Recommendations for Production
 
-1. **Externalize all credentials from Compose files**: Move MinIO credentials and database passwords from `docker-compose.yaml` into environment variables referenced as `${VAR}`.
+1. **Externalize all credentials from Compose files**: Move SeaweedFS credentials and database passwords from `docker-compose.yaml` into environment variables referenced as `${VAR}`.
 2. **Use a secrets manager**: For production deployments, use Docker secrets, HashiCorp Vault, or a cloud-native secrets manager.
 3. **Rotate credentials regularly**: API keys and passwords should have rotation policies.
 4. **Audit `.env` permissions**: Ensure `deploy/.env` is readable only by the user running Docker (`chmod 600`).
 5. **Use separate API keys per environment**: Production and development should use different keys.
 6. **Enable WorkOS Auth in production**: Set `REQUIRE_AUTH=true` and configure WorkOS properly.
 7. **Remove default admin tokens**: Change `GRID_ADMIN_TOKEN` from `change-me-in-production`.
-8. **Review the MinIO init script**: The `minio-init` service uses hardcoded credentials. For production, pass credentials via environment variables or use IAM roles if deploying on cloud infrastructure.
+8. **Review the SeaweedFS init script**: The `seaweedfs-init` service uses hardcoded credentials. For production, pass credentials via environment variables or use IAM roles if deploying on cloud infrastructure.
 
 ### TLS / HTTPS
 
@@ -203,4 +205,4 @@ The current Docker Compose setup does not include TLS termination. In production
 - Add a reverse proxy (nginx, Traefik, Caddy) in front of the `frontend` service
 - Configure the proxy to handle TLS termination
 - Update `WORKOS_REDIRECT_URI` to use the `https://` scheme
-- MinIO also supports TLS when configured with proper certificates
+- SeaweedFS also supports TLS when configured with proper certificates

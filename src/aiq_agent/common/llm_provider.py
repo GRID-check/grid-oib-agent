@@ -1,20 +1,6 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """LLM Provider for role-based LLM access and A/B testing."""
 
+import logging
 from collections.abc import Mapping
 from enum import StrEnum
 
@@ -22,6 +8,8 @@ from langchain_core.language_models import BaseChatModel
 
 from aiq_agent.common.model_overrides import AgentGroup
 from aiq_agent.common.model_overrides import override_model
+
+logger = logging.getLogger(__name__)
 
 
 class LLMRole(StrEnum):
@@ -132,8 +120,17 @@ class LLMProvider:
         """
         override_groups = {g for g in AgentGroup if g.value in overrides}
         tagged_groups = {g for g in (self._default_group, *self._groups.values()) if g is not None}
-        if not (override_groups & tagged_groups):
+        applied_groups = override_groups & tagged_groups
+        if not applied_groups:
             return self
+
+        # Observability: this per-group override path (used by the async deep
+        # research worker) was previously silent, unlike apply_model_override.
+        # Log which groups actually take an override so a run can be diagnosed.
+        logger.info(
+            "Applying model overrides: %s",
+            {g.value: overrides[g.value] for g in sorted(applied_groups, key=lambda g: g.value)},
+        )
 
         derived = LLMProvider()
         derived._groups = dict(self._groups)
@@ -147,6 +144,68 @@ class LLMProvider:
             derived._default = _resolve(self._default, self._default_group)
         for role, llm in self._llms.items():
             derived._llms[role] = _resolve(llm, self._groups.get(role))
+        return derived
+
+    def with_zdr(self, zdr_only: bool) -> "LLMProvider":
+        """Return a provider whose every OpenRouter LLM is pinned to ZDR endpoints.
+
+        Like ``with_credential``, a ZDR policy applies to ALL groups — it is a
+        tenant-wide privacy control, not a per-group choice. Returns ``self``
+        when ``zdr_only`` is false. Non-OpenRouter LLMs are returned unchanged
+        by ``apply_zdr_routing``. Shared instances are rebuilt once (identity-
+        deduped) so the derived provider preserves the original sharing topology.
+        """
+        if not zdr_only:
+            return self
+
+        from aiq_agent.common.model_overrides import apply_zdr_routing
+
+        rebuilt: dict[int, BaseChatModel] = {}
+
+        def _resolve(llm: BaseChatModel) -> BaseChatModel:
+            key = id(llm)
+            if key not in rebuilt:
+                rebuilt[key] = apply_zdr_routing(llm)
+            return rebuilt[key]
+
+        derived = LLMProvider()
+        derived._groups = dict(self._groups)
+        derived._default_group = self._default_group
+        if self._default is not None:
+            derived._default = _resolve(self._default)
+        for role, llm in self._llms.items():
+            derived._llms[role] = _resolve(llm)
+        return derived
+
+    def with_credential(self, credential) -> "LLMProvider":
+        """Return a provider whose every LLM uses the org's BYOK credential.
+
+        Unlike model overrides, a credential applies to ALL groups — BYOK
+        re-points the whole tenant's traffic (ADR-0022). Returns ``self``
+        when there is no credential. LLM instances shared between roles are
+        rebuilt once (identity-deduped) so the derived provider preserves
+        the original sharing topology.
+        """
+        if credential is None:
+            return self
+
+        from aiq_agent.common.llm_credentials import apply_org_credential
+
+        rebuilt: dict[int, BaseChatModel] = {}
+
+        def _resolve(llm: BaseChatModel) -> BaseChatModel:
+            key = id(llm)
+            if key not in rebuilt:
+                rebuilt[key] = apply_org_credential(llm, credential)
+            return rebuilt[key]
+
+        derived = LLMProvider()
+        derived._groups = dict(self._groups)
+        derived._default_group = self._default_group
+        if self._default is not None:
+            derived._default = _resolve(self._default)
+        for role, llm in self._llms.items():
+            derived._llms[role] = _resolve(llm)
         return derived
 
     def has_role(self, role: LLMRole) -> bool:

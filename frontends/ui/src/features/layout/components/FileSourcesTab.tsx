@@ -9,19 +9,23 @@
 'use client'
 
 import { type FC, useCallback, useEffect, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { UploadCloud, X } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Spinner } from '@/components/ui/spinner'
+import { EmptyState } from '@/components/ui/empty-state'
 import { AnimatePresence } from '@/components/motion'
-import { FileSourceCard } from './FileSourceCard'
+import { FileSourceCard, FileSourceCardSkeleton } from './FileSourceCard'
 import { DeleteFileConfirmationModal } from './DeleteFileConfirmationModal'
+import { useUploadDestination } from './UploadDestination'
+import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
 import {
   useFileUpload,
   useDocumentsStore,
   FileUploadZone,
   mapToDisplayStatus,
 } from '@/features/documents'
+import { trackedFileToFileItem } from '@/features/documents/types'
+import type { TrackedFile } from '@/features/documents'
 import { sessionHasKnownCollection } from '@/features/documents/persistence'
 import { useChatStore } from '@/features/chat/store'
 import { useLayoutStore } from '../store'
@@ -48,9 +52,9 @@ const UploadErrorAlert: FC<{ message: string; onClose: () => void; className?: s
         type="button"
         onClick={onClose}
         aria-label={t('dismissError')}
-        className="shrink-0 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+        className="shrink-0 rounded-xs opacity-70 transition-opacity duration-quick ease-out hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
       >
-        <X className="h-4 w-4" aria-hidden="true" />
+        <X className="size-4" aria-hidden="true" />
       </button>
     </AlertDescription>
   </Alert>
@@ -147,17 +151,24 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   const isAwaitingFiles =
     isLoadingFiles || (isThisSessionProcessing && targetFiles.length === 0) || sessionExpectsFiles
 
-  const uploadTargetLabel = isProjectTarget
-    ? t('fileSourcesTab.targetProject')
-    : t('fileSourcesTab.targetSession')
-  const uploadTargetLabelLower = isProjectTarget
-    ? t('fileSourcesTab.targetProjectLower')
-    : t('fileSourcesTab.targetSessionLower')
+  // The destination, in the shared vocabulary the composer now states too.
+  const destination = useUploadDestination(isProjectTarget ? 'project' : 'session')
+  const uploadTargetLabel = destination.label
   const uploadDisabled = isUploading || (isProjectTarget && !projectCollectionName)
 
   // Delete confirmation modal state
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [fileIdToDelete, setFileIdToDelete] = useState<string | null>(null)
+
+  // Read-only preview opened by tapping an available file row.
+  const [previewFile, setPreviewFile] = useState<TrackedFile | null>(null)
+  const handleOpenPreview = useCallback(
+    (fileId: string) => {
+      const file = targetFiles.find((f) => f.id === fileId)
+      if (file) setPreviewFile(file)
+    },
+    [targetFiles]
+  )
 
   /**
    * Handle file upload with session auto-creation.
@@ -169,12 +180,18 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
         console.error('Project collection is not ready for upload')
         return
       }
-      if (!isProjectTarget && !ensureSession()) {
-        console.error('Failed to create session for upload')
-        return
+      let sessionId: string | undefined
+      if (!isProjectTarget) {
+        sessionId = ensureSession()
+        if (!sessionId) {
+          console.error('Failed to create session for upload')
+          return
+        }
       }
-      // uploadFiles validates internally and sets error if invalid
-      await uploadFiles(files)
+      // Pass the (possibly just-created) session explicitly: the hook's
+      // memoized collectionName still reflects the previous render, so the
+      // first upload in a fresh session would otherwise abort.
+      await uploadFiles(files, sessionId)
     },
     [ensureSession, isProjectTarget, projectCollectionName, uploadFiles]
   )
@@ -224,7 +241,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   }, [])
 
   const uploadTargetControls = projectId ? (
-    <div className="flex flex-col gap-2 rounded-xl border bg-muted/40 p-3">
+    <div className="flex flex-col gap-2 rounded-xl bg-muted p-3">
       <span className="text-xs font-semibold uppercase text-muted-foreground">{t('fileSourcesTab.uploadTo')}</span>
       <div className="flex gap-2">
         <Button
@@ -257,10 +274,15 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
     // When files are expected (loading, uploading, or session known to have files),
     // always show the spinner — never flash "No Files" during transitions.
     if (isAwaitingFiles) {
+      // Skeleton rows that mirror the real FileSourceCard shape — matching the
+      // grid file surfaces' skeleton vocabulary instead of a lone centered
+      // spinner. The status text stays for screen readers / assertions.
       return (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 py-8">
-          <Spinner label={t('fileSourcesTab.loadingFiles')} />
-          <span className="text-sm text-muted-foreground">{t('fileSourcesTab.checkingFiles')}</span>
+        <div className="flex flex-1 flex-col gap-2" aria-busy="true">
+          <span className="sr-only">{t('fileSourcesTab.checkingFiles')}</span>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <FileSourceCardSkeleton key={i} />
+          ))}
         </div>
       )
     }
@@ -276,16 +298,16 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
           </Alert>
         )}
 
-        {/* Show empty state message when file upload is available */}
+        {/* Crafted empty state when upload is available — the chat file surface
+            is often the first place a user attaches a document, so it deserves
+            the same designed empty state as the rest of the app, not bare text. */}
         {knowledgeLayerAvailable && (
-          <div className="flex flex-col gap-1">
-            <span className="text-xs font-semibold uppercase text-muted-foreground">
-              {t('fileSourcesTab.noAttachedFiles')}
-            </span>
-            <span className="text-sm text-muted-foreground">
-              {t('fileSourcesTab.filesGoTo', { target: uploadTargetLabelLower })}
-            </span>
-          </div>
+          <EmptyState
+            variant="bare"
+            icon={UploadCloud}
+            title={t('fileSourcesTab.noAttachedFiles')}
+            description={destination.sentence}
+          />
         )}
 
         {/* Upload Error Display */}
@@ -306,7 +328,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-2 overflow-y-auto">
+    <div className="flex min-w-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto">
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -358,6 +380,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
             errorMessage={file.errorMessage ?? undefined}
             expirationIntervalHours={fileUploadConfig.fileExpirationCheckIntervalHours}
             onDelete={handleDeleteClick}
+            onOpen={handleOpenPreview}
           />
         ))}
       </AnimatePresence>
@@ -368,6 +391,13 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
         onOpenChange={handleModalOpenChange}
         onConfirm={handleConfirmDelete}
         fileName={targetFiles.find((f) => f.id === fileIdToDelete)?.fileName}
+      />
+
+      {/* Read-only preview opened by tapping an available file row. */}
+      <FilePreviewDialog
+        file={previewFile ? trackedFileToFileItem(previewFile) : null}
+        canManage={false}
+        onClose={() => setPreviewFile(null)}
       />
     </div>
   )

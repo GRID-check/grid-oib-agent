@@ -1,4 +1,7 @@
 /**
+ * @vitest-environment node
+ */
+/**
  * Opt-in integration test: real model-config version lifecycle against a real
  * Postgres with migration 0012 applied. Skipped unless GRID_TEST_DATABASE_URL
  * is set (CI has no database).

@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """
 Agent-agnostic job runner.
 
@@ -30,16 +15,157 @@ import base64
 import importlib
 import json
 import logging
+import os
 import uuid
 from typing import Any
 
 from starlette.datastructures import Headers
 
 from .callbacks import AgentEventCallback
+from .conversation_output import FAILURE_NOTICE
+from .conversation_output import INTERRUPTED_NOTICE
+from .conversation_output import write_job_notice
+from .conversation_output import write_job_turn
 from .event_store import BatchingEventStore
 from .event_store import EventStore
+from .phase_events import PHASE_DONE
+from .phase_events import PhaseProgressCallback
+from .phase_events import emit_phase_event
 
 logger = logging.getLogger(__name__)
+
+# Root modules of LLM/provider client stacks — exceptions raised from these are
+# classified as provider errors in sanitize_job_error().
+_LLM_PROVIDER_ERROR_MODULES = frozenset(
+    {
+        "openai",
+        "anthropic",
+        "litellm",
+        "langchain",
+        "langchain_core",
+        "langchain_openai",
+        "langchain_anthropic",
+        "langchain_nvidia_ai_endpoints",
+    }
+)
+
+# Root modules of HTTP/transport stacks — classified as connection errors.
+_NETWORK_ERROR_MODULES = frozenset({"httpx", "httpcore", "aiohttp", "requests", "urllib3"})
+
+# langgraph is a transitive (not declared) dependency of this package — guard
+# the import so error classification keeps working if it is ever absent.
+try:
+    from langgraph.errors import GraphRecursionError as _GraphRecursionError
+except ImportError:
+    _GraphRecursionError = None
+
+# User-safe error messages for sanitize_job_error — named constants so they
+# are testable and searchable.  Each category gets one curated string that
+# leaks no exception-internal data (hosts, DSNs, paths, credentials).
+_WALL_CLOCK_TIMEOUT_MSG = "Die Recherche hat ihr Zeitlimit erreicht und wurde ohne vollständiges Ergebnis abgebrochen."
+_GENERIC_TIMEOUT_MSG = "The job timed out while waiting on an external service."
+_GRAPH_RECURSION_ERROR_MSG = "Die Recherche hat ihr Schritt-Limit erreicht, ohne ein vollständiges Ergebnis zu liefern."
+_LLM_PROVIDER_ERROR_MSG = "The LLM provider returned an error while running the job."
+_CONNECTION_ERROR_MSG = "A connection error occurred while running the job."
+_INTERNAL_ERROR_MSG = "The job failed due to an internal error."
+
+# A run that SUCCEEDED but owes the reader a caveat gets its own job_events row
+# rather than a status change: the answer is real and persisted, it is just
+# marked. Same ``job.*`` lifecycle shape as job.heartbeat/job.error/job.phase,
+# so the existing SSE surface streams it to clients unchanged.
+JOB_DEGRADED_EVENT_TYPE = "job.degraded"
+
+# What travels in that event: stable tokens only, never prose. The reader is
+# told about a cutoff by the report's own banner, in the product's voice; this
+# channel exists so a live listener and an operator counting cutoffs can see it.
+_DEGRADED_EVENT_FIELDS = ("research_truncated", "truncation_reason", "degraded_reasons")
+
+# The answer's self-assessment, lifted alongside the cutoff/degradation marks and
+# spelled exactly as the socket path spells it (``persist_assistant_message``), so
+# the BFF's existing decoder maps all three into the stored provenance with no
+# frontend change. Deliberately NOT in _DEGRADED_EVENT_FIELDS above: a merely
+# low-confidence answer is not a degraded run, and announcing one as the other
+# would train operators to ignore the signal that means a run was cut off.
+_ANSWER_CONFIDENCE_FIELDS = (
+    "answer_confidence",
+    "answer_confidence_reason",
+    "answer_confidence_capped_reason",
+)
+
+
+def sanitize_job_error(exc: BaseException) -> str:
+    """Map an internal exception to a user-safe error message.
+
+    Raw exception text can leak hosts, DSNs, file paths, or credentials into
+    the persisted ``job.error`` field and emitted ``job.error`` events, both of
+    which are returned to API clients. Callers must log the full exception
+    server-side (``logger.exception``) and persist/emit only this message.
+
+    Kept informative by category (time budget / step limit / timeout /
+    provider / connection / internal) without ever including the exception's
+    own text.
+
+    NOTE: cancellation paths intentionally bypass this — the UI string-matches
+    the exact error "cancelled by user".
+    """
+    from aiq_agent.common import RunBudgetExceededError
+
+    if isinstance(exc, RunBudgetExceededError):
+        # Already a curated, user-safe message ("run exceeded the configured
+        # completion-token budget of N") -- persist verbatim instead of
+        # falling through to the generic internal-error classification below.
+        return str(exc)
+
+    root_module = (type(exc).__module__ or "").split(".")[0]
+    if isinstance(exc, TimeoutError):
+        # The deep-research wall-clock budget (max_run_seconds) is re-raised as
+        # a TimeoutError carrying a "wall-clock" marker; a bare TimeoutError is
+        # an external-service wait.
+        if "wall-clock" in str(exc).lower():
+            return _WALL_CLOCK_TIMEOUT_MSG
+        return _GENERIC_TIMEOUT_MSG
+    if _GraphRecursionError is not None and isinstance(exc, _GraphRecursionError):
+        # A runaway graph hit recursion_limit — not an internal defect, and not
+        # an LLM provider error (langgraph is deliberately not in the provider
+        # module set above).
+        return _GRAPH_RECURSION_ERROR_MSG
+    if root_module in _LLM_PROVIDER_ERROR_MODULES:
+        return _LLM_PROVIDER_ERROR_MSG
+    if root_module in _NETWORK_ERROR_MODULES or isinstance(exc, (ConnectionError, OSError)):
+        return _CONNECTION_ERROR_MSG
+    return _INTERNAL_ERROR_MSG
+
+
+async def _update_status_if_not_terminal(job_store: Any, job_id: str, status: Any, **kwargs: Any) -> bool:
+    """Write a job status only if the job is not already in a terminal state.
+
+    Terminal statuses (SUCCESS/FAILURE/INTERRUPTED) are sticky: the ghost-job
+    reaper or the cancel route may have already finalized this job while the
+    worker was still running, and the runner's own success/failure write must
+    not overwrite that verdict (e.g. flipping a reaped FAILURE back to SUCCESS).
+
+    Returns True if the status was written, False if it was left untouched.
+    """
+    from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+
+    terminal_statuses = {JobStatus.SUCCESS.value, JobStatus.FAILURE.value, JobStatus.INTERRUPTED.value}
+    try:
+        job = await job_store.get_job(job_id)
+    except Exception:
+        logger.warning("Could not read current status for job %s before writing %s", job_id, status, exc_info=True)
+        job = None
+
+    if job is not None and job.status in terminal_statuses:
+        logger.info(
+            "Job %s already in terminal status %s; not overwriting with %s",
+            job_id,
+            job.status,
+            status,
+        )
+        return False
+
+    await job_store.update_status(job_id, status, **kwargs)
+    return True
 
 
 def _normalize_trace_id(trace_id: int | str | None) -> int | None:
@@ -66,7 +192,8 @@ class CancellationMonitor:
     Monitors job status for cancellation requests.
 
     Polls the job store at regular intervals and sets an asyncio.Event
-    when the job status changes to INTERRUPTED.
+    when the job status changes to INTERRUPTED or FAILURE (the latter is
+    written by the ghost-job reaper, which must also stop the worker).
     """
 
     def __init__(
@@ -94,11 +221,16 @@ class CancellationMonitor:
 
         job_store = JobStore(scheduler_address=self.scheduler_address, db_url=self.db_url)
 
+        # FAILURE included: the ghost-job reaper writes FAILURE externally and
+        # the worker must stop instead of running to completion against a job
+        # that has already been finalized.
+        stop_statuses = (JobStatus.INTERRUPTED.value, JobStatus.FAILURE.value)
+
         while not self._cancelled.is_set():
             try:
                 job = await job_store.get_job(self.job_id)
-                if job and job.status == JobStatus.INTERRUPTED.value:
-                    logger.info("Cancellation detected for job %s", self.job_id)
+                if job and job.status in stop_statuses:
+                    logger.info("Cancellation detected for job %s (status: %s)", self.job_id, job.status)
                     self._cancelled.set()
                     break
             except Exception as e:
@@ -175,6 +307,93 @@ async def run_with_cancellation(
         monitor.stop()
 
 
+def _resolve_worker_tool_refs(fn_config: Any) -> list[str]:
+    """Resolve the tool refs a worker agent should build with.
+
+    Uses the config's explicit ``tools`` list, or auto-inherits the entire
+    data_source_registry when none are configured.
+
+    The empty check is falsy (not ``is None``): agent configs declare ``tools``
+    with ``default_factory=list``, so an omitted list arrives as ``[]``, never
+    ``None``. A prior ``is None`` guard therefore never inherited and silently
+    built a tool-less agent — the researcher workers received no source tools
+    while validation elsewhere reported the inherited tools as available. This
+    matches the two other resolution sites (the sync agent build in
+    deep_researcher/register.py and the chat-route validator in
+    chat_researcher/register.py), which both treat an empty list as "inherit".
+    """
+    tool_refs = getattr(fn_config, "tools", None)
+    if not tool_refs:
+        from aiq_agent.common import get_all_tool_refs
+
+        return get_all_tool_refs()
+    return list(tool_refs)
+
+
+async def _resolve_deep_research_checkpointer(fn_config: Any) -> Any | None:
+    """Build the durable checkpointer for a deep-research async job, if configured.
+
+    Async deep-research jobs have no restart safety by default (T3-8): each
+    Dask job builds a fresh in-memory-only DeepAgents graph via a new
+    DeepResearcherAgent, so a worker crash mid-run loses all execution state
+    -- only the SQL JobStore row survives, and the ghost-job reaper eventually
+    marks it FAILURE with nothing to resume.
+
+    When ``deep_research_agent.checkpoint_db`` is configured, this builds (and
+    caches, via ``aiq_agent.common.get_checkpointer``) a durable checkpointer
+    keyed by that database path/DSN. ``DeepResearcherAgent.run()`` then uses
+    the job_id as the graph's thread_id, so a re-invocation of the same
+    job_id resumes from the last persisted checkpoint instead of starting
+    over -- see ``DeepResearcherAgent.run`` for the exact resume contract and
+    its current manual-resubmit-only limitation.
+
+    Returns None (current default behavior, no durability) for any agent
+    type other than ``deep_research_agent``, or when ``checkpoint_db`` is
+    unset -- both keep the prior in-memory-only, non-durable behavior.
+    """
+    if getattr(fn_config, "type", None) != "deep_research_agent":
+        return None
+    checkpoint_db = getattr(fn_config, "checkpoint_db", None)
+    if not checkpoint_db:
+        return None
+
+    from aiq_agent.common import get_checkpointer
+
+    return await get_checkpointer(checkpoint_db)
+
+
+def _purge_deep_checkpoint(job_id: str) -> None:
+    """Best-effort deletion of a finished deep run's durable checkpoint rows.
+
+    The deep-research checkpointer keys ``thread_id == job_id`` in
+    ``AIQ_DEEP_CHECKPOINT_DB`` and writes the full growing state every step, but
+    nothing prunes ``checkpoints``/``checkpoint_blobs``/``checkpoint_writes`` — so
+    they grow (superlinearly per run) forever. Once a run is terminal the
+    checkpoint is dead weight (resume is manual-resubmit, never auto-read), so
+    drop it. Never raises.
+    """
+    dsn = os.environ.get("AIQ_DEEP_CHECKPOINT_DB")
+    if not dsn:
+        return
+    try:
+        from sqlalchemy import text
+
+        from .event_store import EventStore
+
+        engine = EventStore._get_or_create_sync_engine(dsn)
+        with engine.connect() as conn:
+            for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
+                # Fixed table names (LangGraph schema); the thread id is bound.
+                conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                    text(f"DELETE FROM {table} WHERE thread_id = :tid"),  # noqa: S608
+                    {"tid": job_id},
+                )
+            conn.commit()
+    except Exception:
+        logger.debug("Deep checkpoint purge skipped for job %s", job_id, exc_info=True)
+
+
 def _load_agent_class(agent_class_path: str) -> type:
     """
     Dynamically load an agent class from its module path.
@@ -198,7 +417,7 @@ async def _create_llm_provider(builder: Any, fn_config: Any) -> tuple[Any, Any]:
     from aiq_agent.common import AgentGroup
     from aiq_agent.common import LLMProvider
     from aiq_agent.common import LLMRole
-    from nat.builder.framework_enum import LLMFrameworkEnum
+    from aiq_agent.common import get_langchain_llm
 
     # Agent-group tags mirror the sync registrations (deep_researcher/register.py)
     # so per-org runtime model overrides apply identically to async jobs.
@@ -216,7 +435,7 @@ async def _create_llm_provider(builder: Any, fn_config: Any) -> tuple[Any, Any]:
         llm_ref = getattr(fn_config, config_attr, None)
         if llm_ref:
             if llm_ref not in llm_cache:
-                llm_cache[llm_ref] = await builder.get_llm(llm_ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+                llm_cache[llm_ref] = await get_langchain_llm(builder, llm_ref)
             role_llms[role] = llm_cache[llm_ref]
             role_groups[role] = group
 
@@ -226,7 +445,7 @@ async def _create_llm_provider(builder: Any, fn_config: Any) -> tuple[Any, Any]:
         llm_ref = getattr(fn_config, "llm", None)
         if llm_ref:
             if llm_ref not in llm_cache:
-                llm_cache[llm_ref] = await builder.get_llm(llm_ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+                llm_cache[llm_ref] = await get_langchain_llm(builder, llm_ref)
             default_llm = llm_cache[llm_ref]
             if getattr(fn_config, "type", None) == "shallow_research_agent":
                 default_group = AgentGroup.SHALLOW_RESEARCH
@@ -263,6 +482,11 @@ async def run_agent_job(
     project_context: str | None = None,
     model_overrides: dict[str, str] | None = None,
     usage_context: dict | None = None,
+    user_info: dict | None = None,
+    clarifier_result: str | None = None,
+    memory_reflection_enabled: bool = False,
+    memory_reflection_llm: str | None = None,
+    force_skills: list[str] | None = None,
 ):
     """
     Dask task to run any registered agent with cancellation support and telemetry.
@@ -308,6 +532,25 @@ async def run_agent_job(
         usage_context: Optional identity + budget snapshot captured at submit
             time (``capture_usage_context()``), used to activate unified LLM
             cost tracking for the whole job.
+        user_info: Optional user identity dict (name/email) forwarded onto the
+            agent state so prompts render the authenticated-user context.
+        clarifier_result: Optional clarifier dialog log forwarded onto the
+            agent state so prompts render the Clarification Context section.
+        memory_reflection_enabled: Whether the post-answer memory-reflection
+            stage should run over this job's report. Captured from the
+            submitting request's feature flag (the worker has no live request to
+            read it from). Only honored for jobs that also supply
+            ``memory_reflection_llm``.
+        memory_reflection_llm: Optional ``llms:`` ref (e.g. ``card_llm``) for the
+            reflection pass. When set (and enabled), the worker reflects over the
+            finished report to record durable project findings — the chat path
+            skips reflection for deep jobs because the report only exists once
+            the async job completes.
+        force_skills: Optional list of skill names the agent run must
+            force-activate. Injected onto the agent state as ``force_skills``
+            where the state model declares the field — the same guarded path
+            ``data_sources``/``project_context`` take (Agent Skills feature;
+            the state-field consumer is added by ``src/aiq_agent``).
     """
 
     # Propagate auth token into the current async task's context so tools
@@ -342,6 +585,13 @@ async def run_agent_job(
 
             std_logging.basicConfig(level=log_level)
 
+    # Quiet NAT's per-parallel-step span-stack warnings in the worker too —
+    # deep research's concurrent researcher/tool fan-out triggers them on
+    # essentially every parallel call (see logging_utils for details).
+    from aiq_agent.common.logging_utils import suppress_noisy_dependency_logs
+
+    suppress_noisy_dependency_logs()
+
     job_store: JobStore | None = None
     cancellation_monitor: CancellationMonitor | None = None
     event_store: EventStore | BatchingEventStore | None = None
@@ -354,7 +604,14 @@ async def run_agent_job(
 
     try:
         job_store = JobStore(scheduler_address=scheduler_address, db_url=db_url)
-        await job_store.update_status(job_id, JobStatus.RUNNING)
+        # Guard the RUNNING write: a cancel (INTERRUPTED) or the ghost reaper
+        # (FAILURE) may have already finalized this job in the race window
+        # between claim and here. An unconditional write would resurrect a
+        # reaped job or silently lose a cancel (esp. in db-execution mode, where
+        # cancel deletes the queue row and this status flip is the only signal).
+        if not await _update_status_if_not_terminal(job_store, job_id, JobStatus.RUNNING):
+            logger.info("Job %s already terminal before start; aborting run", job_id)
+            return
 
         cancellation_monitor = CancellationMonitor(
             scheduler_address=scheduler_address,
@@ -395,12 +652,36 @@ async def run_agent_job(
                     if llm is not None:
                         llm = provider.get(LLMRole.ORCHESTRATOR)
 
-            # Resolve tools: use explicit list or auto-inherit from data_source_registry
-            tool_refs = fn_config.tools
-            if not tool_refs:
-                from aiq_agent.common import get_all_tool_refs
+            # The tenant this job belongs to, captured at submit time inside
+            # usage_context because a Dask worker has no request headers to read
+            # it from. Two things need it: BYOK below, and the agent state
+            # handed to _run_agent (deep research resolves the organization's
+            # skills from it).
+            #
+            # BYOK (ADR-0022): resolve the org's own LLM credential just in
+            # time from the BFF (never carried in job_args — plaintext keys
+            # must not enter the persisted job store); resolution fails open to
+            # the platform credential.
+            _job_org_id = ((usage_context or {}).get("identity") or {}).get("organization_id")
+            # Captured for the post-job reflection pass, which builds its own LLM
+            # outside the provider and must re-apply the same tenant credential.
+            resolved_org_credential = None
+            if _job_org_id:
+                from aiq_agent.common import LLMRole
+                from aiq_agent.common import resolve_org_llm_credential
 
-                tool_refs = get_all_tool_refs()
+                org_credential = resolve_org_llm_credential(_job_org_id)
+                resolved_org_credential = org_credential
+                if org_credential is not None:
+                    credentialed = provider.with_credential(org_credential)
+                    if credentialed is not provider:
+                        provider = credentialed
+                        if llm is not None:
+                            llm = provider.get(LLMRole.ORCHESTRATOR)
+
+            # Resolve tools: use the explicit list or auto-inherit the whole
+            # data_source_registry when none are configured.
+            tool_refs = _resolve_worker_tool_refs(fn_config)
 
             tools = await builder.get_tools(tool_names=tool_refs, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
 
@@ -415,6 +696,7 @@ async def run_agent_job(
                 tools = filter_tools_by_sources(tools, data_sources)
 
             # Set up telemetry/observability for Phoenix and OpenTelemetry
+            from aiq_agent.common.nat_step_repair import SpanClosingProfilerHandler
             from nat.builder.context import Context
             from nat.builder.context import ContextState
             from nat.data_models.intermediate_step import IntermediateStepPayload
@@ -423,7 +705,6 @@ async def run_agent_job(
             from nat.data_models.intermediate_step import TraceMetadata
             from nat.data_models.invocation_node import InvocationNode
             from nat.observability.exporter_manager import ExporterManager
-            from nat.plugins.langchain.callback_handler import LangchainProfilerHandler
             from nat.utils.reactive.subject import Subject
 
             telemetry_exporters = {
@@ -471,6 +752,24 @@ async def run_agent_job(
                     headers={**existing_headers, "x-grid-collection-scope": encoded}
                 )
                 context_state.metadata.set(request_attrs)
+            elif getattr(fn_config, "type", None) == "deep_research_agent":
+                # Audit-confirmed silent fallback: with no collection scope,
+                # get_collection_scope_from_context() returns None and knowledge-retrieval
+                # tools fall back to searching only the base/OIB collection plus the
+                # s_<conversation> session collection for the rest of this job — any
+                # project-specific collection is invisible, with no other user-facing
+                # signal that it happened. Logged once per job (this branch runs once per
+                # run_agent_job call, not per retrieval) so the degradation is diagnosable.
+                _identity = (usage_context or {}).get("identity") or {}
+                logger.warning(
+                    "Job %s: async deep-research job has no collection scope; knowledge "
+                    "retrieval will search only the base/OIB and s_<conversation> session "
+                    "collections for this job — project collections will be invisible "
+                    "(authenticated=%s, project_scoped=%s)",
+                    job_id,
+                    bool(_identity.get("organization_id") or _identity.get("user_id")),
+                    bool(_identity.get("project_id") or project_context),
+                )
 
             if project_context is not None:
                 from aiq_agent.project_context import normalize_project_context
@@ -541,8 +840,12 @@ async def run_agent_job(
                         )
                     )
 
-                    # Create profiler callback AFTER workflow starts (ensures correct parent)
-                    nat_profiler_callback = LangchainProfilerHandler()
+                    # Create profiler callback AFTER workflow starts (ensures correct parent).
+                    # SpanClosingProfilerHandler closes errored LLM/tool spans (missing
+                    # on_llm_error/on_tool_error upstream orphan a frame on retry, corrupting
+                    # IntermediateStepManager's span stack) and supports for_new_run() so it
+                    # gets a fresh instance per researcher worker like VerboseTraceCallback.
+                    nat_profiler_callback = SpanClosingProfilerHandler()
 
                     verbose = is_verbose(getattr(fn_config, "verbose", False))
                     callbacks = [VerboseTraceCallback()] if verbose else []
@@ -552,6 +855,30 @@ async def run_agent_job(
                     agent_event_callback = AgentEventCallback(event_store)
                     callbacks.append(agent_event_callback)
                     callbacks.append(nat_profiler_callback)
+
+                    # Phase-progress events (T4-4) and the completion-token budget
+                    # cap are deep-research-specific: only that agent has the
+                    # planner/researcher/writer subagent structure the phase
+                    # detector understands, and long-running fan-out research is
+                    # the run-away-cost shape the budget cap exists for.
+                    is_deep_research_job = getattr(fn_config, "type", None) == "deep_research_agent"
+                    if is_deep_research_job:
+                        callbacks.append(
+                            PhaseProgressCallback(
+                                event_store,
+                                max_research_concurrency=getattr(fn_config, "max_research_concurrency", None),
+                            )
+                        )
+
+                        from aiq_agent.common import create_budget_guard_callback
+
+                        budget_guard_callback = create_budget_guard_callback()
+                        if budget_guard_callback is not None:
+                            callbacks.append(budget_guard_callback)
+
+                    # Durable checkpointing (T3-8): None unless deep_research_agent.checkpoint_db is
+                    # configured, in which case DeepResearcherAgent resumes via job_id as thread_id.
+                    checkpointer = await _resolve_deep_research_checkpointer(fn_config)
 
                     # Instantiate agent with callbacks
                     agent = _create_agent_instance(
@@ -563,6 +890,7 @@ async def run_agent_job(
                         verbose=verbose,
                         callbacks=callbacks,
                         job_id=job_id,
+                        checkpointer=checkpointer,
                     )
 
                     # Run agent - LLM/tool events will be nested under workflow span.
@@ -571,12 +899,20 @@ async def run_agent_job(
                     # headers exist inside a Dask worker).
                     from aiq_agent.common.cost_tracking import BudgetSnapshot
                     from aiq_agent.common.cost_tracking import track_llm_costs
+                    from aiq_agent.common.profiler import track_agent_profile
 
                     _usage = usage_context or {}
-                    with track_llm_costs(
-                        job_id=job_id,
-                        identity=_usage.get("identity") or {},
-                        budget=BudgetSnapshot.from_header(_usage.get("budget_header")) or BudgetSnapshot(),
+                    with (
+                        track_agent_profile(
+                            agent_name="deep_research_job",
+                            job_id=job_id,
+                            identity=_usage.get("identity") or {},
+                        ),
+                        track_llm_costs(
+                            job_id=job_id,
+                            identity=_usage.get("identity") or {},
+                            budget=BudgetSnapshot.from_header(_usage.get("budget_header")) or BudgetSnapshot(),
+                        ),
                     ):
                         result = await _run_agent(
                             agent=agent,
@@ -585,6 +921,11 @@ async def run_agent_job(
                             available_documents=available_documents,
                             data_sources=data_sources,
                             event_store=event_store,
+                            user_info=user_info,
+                            clarifier_result=clarifier_result,
+                            project_context=project_context,
+                            force_skills=force_skills,
+                            organization_id=_job_org_id,
                         )
 
                     # Emit WORKFLOW_END event for Phoenix
@@ -620,16 +961,108 @@ async def run_agent_job(
                     # Best-effort and additive: card failures never fail the job.
                     cards = await _generate_grid_cards(llm, input_text, report)
                     if cards:
-                        agent_event_callback.emit_final_report(report, cards=cards)
+                        # Card delivery is additive and must never flip an
+                        # already-complete job to FAILURE — the report is done
+                        # and persisted below regardless of this emit.
+                        try:
+                            agent_event_callback.emit_final_report(report, cards=cards)
+                        except Exception:
+                            logger.warning("Job %s: failed to emit final report with cards (non-fatal)", job_id)
+
+                    # Capture durable project findings from the finished report.
+                    # The chat path runs this post-answer for shallow/meta turns
+                    # but skips deep jobs (the report exists only now). Awaited,
+                    # guarded, and fail-open — the user already has the report, so
+                    # this never affects the job outcome, only its bookkeeping.
+                    await _run_deep_research_reflection(
+                        builder=builder,
+                        job_id=job_id,
+                        reflection_llm_ref=memory_reflection_llm,
+                        reflection_enabled=memory_reflection_enabled,
+                        query=input_text,
+                        report=report,
+                        usage_context=usage_context,
+                        project_context=project_context,
+                        org_credential=resolved_org_credential,
+                        model_overrides=model_overrides,
+                    )
+
+                    # The marks the run left on its own answer (cut off, degraded,
+                    # citations stripped). Lifted here, one step before the job is
+                    # finalized, so both surfaces get them from the same read:
+                    # the persisted output below and the live event just under it.
+                    # Guarded exactly like the card emit above — this is
+                    # bookkeeping ABOUT a finished answer and must never unmake it.
+                    transparency: dict[str, Any] = {}
+                    try:
+                        transparency = _extract_answer_transparency(result)
+                        if event_store is not None and (
+                            transparency.get("research_truncated") or transparency.get("degraded_reasons")
+                        ):
+                            # Its own event, deliberately NOT a status change: the
+                            # run SUCCEEDED, it just succeeded with a marked
+                            # answer. A live SSE listener would otherwise learn
+                            # nothing until it went back and re-read the finished
+                            # job's output — so the reader who watched the stream
+                            # all the way to the end is precisely the one who
+                            # would never be told the answer was salvaged.
+                            # Payload is stable tokens only (no prose): the
+                            # reader's caveat rides the report's own banner, in
+                            # the product's voice.
+                            event_store.store(
+                                {
+                                    "type": JOB_DEGRADED_EVENT_TYPE,
+                                    "data": {
+                                        key: transparency[key] for key in _DEGRADED_EVENT_FIELDS if key in transparency
+                                    },
+                                }
+                            )
+                    except Exception:
+                        logger.warning(
+                            "Job %s: failed to record answer transparency (non-fatal)", job_id, exc_info=True
+                        )
+
+                    if is_deep_research_job:
+                        emit_phase_event(event_store, PHASE_DONE)
 
                     # Flush any buffered events before updating status
                     if hasattr(event_store, "flush"):
                         event_store.flush()
 
-                    output: dict[str, Any] = {"report": report}
-                    if cards:
-                        output["cards"] = cards
-                    await job_store.update_status(job_id, JobStatus.SUCCESS, output=output)
+                    # The answer's structured provenance, read once and handed to
+                    # BOTH surfaces below: the job output feeds the live Report
+                    # panel, the message metadata feeds the thread on reload. A
+                    # source list — or a cutoff mark — that reached only one of
+                    # them is the bug this closes, one layer up.
+                    verified_sources = _extract_verified_sources(result)
+                    output = _build_job_output(report, cards=cards, transparency=transparency, sources=verified_sources)
+                    # Sticky terminal statuses: never flip a job the reaper or
+                    # cancel route already finalized (FAILURE/INTERRUPTED) back
+                    # to SUCCESS.
+                    await _update_status_if_not_terminal(job_store, job_id, JobStatus.SUCCESS, output=output)
+                    # A job with `output: 'chat'` was given a conversation when
+                    # it fired; this is what puts the run INTO it, so somebody
+                    # can open the thread and keep typing. Best-effort by
+                    # contract: the report is already stored on the job above,
+                    # and a conversation write must never unmake a good run.
+                    await write_job_turn(
+                        conversation_id=parent_conversation_id,
+                        job_id=job_id,
+                        usage_context=usage_context,
+                        prompt=input_text,
+                        answer=report,
+                        cards=cards,
+                        skills_activated=_extract_skills_activated(result),
+                        sources=verified_sources,
+                        # The same transparency dict the job output above got.
+                        # The Report panel reads that output; the thread reads
+                        # only this row, so a run cut off at the wall clock and
+                        # salvaged would otherwise reopen tomorrow as a clean
+                        # answer — the caveat surviving exactly as long as the
+                        # live panel stayed open, which is not what "persisted"
+                        # is supposed to mean.
+                        transparency=transparency,
+                    )
                     logger.info(
                         "Job %s completed (report: %d chars, cards: %d)",
                         job_id,
@@ -641,11 +1074,22 @@ async def run_agent_job(
         logger.info("Job %s cancelled", job_id)
         if job_store:
             try:
-                job = await job_store.get_job(job_id)
-                if job and job.status != JobStatus.INTERRUPTED.value:
-                    await job_store.update_status(job_id, JobStatus.INTERRUPTED, error="cancelled by user")
+                # Sticky terminal statuses: don't overwrite a FAILURE (reaper)
+                # or SUCCESS either — only mark still-active jobs INTERRUPTED.
+                # The "cancelled by user" error string is exact: the UI
+                # string-matches on it.
+                await _update_status_if_not_terminal(
+                    job_store, job_id, JobStatus.INTERRUPTED, error="cancelled by user"
+                )
             except (ConnectionError, TimeoutError, RuntimeError):
                 pass
+
+        await write_job_notice(
+            conversation_id=parent_conversation_id,
+            job_id=job_id,
+            usage_context=usage_context,
+            notice=INTERRUPTED_NOTICE,
+        )
 
         if event_store is None:
             event_store = BatchingEventStore(EventStore(db_url, job_id))
@@ -660,9 +1104,24 @@ async def run_agent_job(
             event_store.flush()
 
     except Exception as e:
+        # Full exception (with traceback) is logged server-side; only the
+        # sanitized, user-safe message is persisted and streamed to clients.
         logger.exception("Job %s failed: %s", job_id, type(e).__name__)
+        safe_error = sanitize_job_error(e)
         if job_store:
-            await job_store.update_status(job_id, JobStatus.FAILURE, error=str(e))
+            # Sticky terminal statuses: don't clobber an INTERRUPTED/FAILURE
+            # verdict written by the cancel route or the ghost-job reaper.
+            await _update_status_if_not_terminal(job_store, job_id, JobStatus.FAILURE, error=safe_error)
+        # The conversation was created when the job FIRED, before the outcome
+        # was known. Left alone, a failed run leaves a thread somebody opens to
+        # find completely empty, which reads as a broken product rather than a
+        # failed run.
+        await write_job_notice(
+            conversation_id=parent_conversation_id,
+            job_id=job_id,
+            usage_context=usage_context,
+            notice=FAILURE_NOTICE,
+        )
 
         if event_store is None:
             event_store = BatchingEventStore(EventStore(db_url, job_id))
@@ -671,7 +1130,7 @@ async def run_agent_job(
             {
                 "type": "job.error",
                 "data": {
-                    "error": str(e),
+                    "error": safe_error,
                     "error_type": type(e).__name__,
                 },
             }
@@ -690,6 +1149,14 @@ async def run_agent_job(
             from ._auth_context import job_auth_token
 
             job_auth_token.reset(_auth_token_reset)
+        # Drop the job's URL dedup caches: they are class-level dicts keyed by
+        # job_id and otherwise accumulate for the life of the worker process.
+        AgentEventCallback.cleanup_job_urls(job_id)
+        # Drop the run's durable deep-checkpoint rows (AIQ_DEEP_CHECKPOINT_DB,
+        # thread_id == job_id) once the run is terminal, so they don't grow
+        # forever.  Both the Dask (this file) and DB-queue (worker.py) paths
+        # run this; the worker-path call is idempotent with this one.
+        _purge_deep_checkpoint(job_id)
 
 
 def _create_agent_instance(
@@ -701,6 +1168,7 @@ def _create_agent_instance(
     verbose: bool,
     callbacks: list,
     job_id: str | None = None,
+    checkpointer: Any | None = None,
 ):
     """
     Create an agent instance, supporting different constructor patterns.
@@ -726,6 +1194,8 @@ def _create_agent_instance(
             max_research_concurrency=fn_config.max_research_concurrency,
             max_concurrent_source_tool_calls=fn_config.max_concurrent_source_tool_calls,
             max_source_tool_batch_size=fn_config.max_source_tool_batch_size,
+            max_run_seconds=fn_config.max_run_seconds,
+            checkpointer=checkpointer,
         )
 
     # Try original deep_researcher pattern (llm_provider + tools + verbose)
@@ -771,6 +1241,11 @@ async def _run_agent(
     available_documents: list[dict] | None = None,
     data_sources: list[str] | None = None,
     event_store: EventStore | None = None,
+    user_info: dict | None = None,
+    clarifier_result: str | None = None,
+    project_context: str | None = None,
+    force_skills: list[str] | None = None,
+    organization_id: str | None = None,
 ) -> Any:
     """
     Run the agent, supporting different run() signatures.
@@ -804,6 +1279,24 @@ async def _run_agent(
             state_kwargs = {"messages": [HumanMessage(content=input_text)]}
             if data_sources is not None:
                 state_kwargs["data_sources"] = data_sources
+            # Mirror the synchronous chat path: prompts read these off the
+            # agent state, so async jobs must carry them too. Guarded by
+            # field support so non-research agents keep working unchanged.
+            state_fields = getattr(state_cls, "model_fields", {})
+            for field_name, field_value in (
+                ("user_info", user_info),
+                ("clarifier_result", clarifier_result),
+                ("project_context", project_context),
+                ("force_skills", force_skills),
+                # No request headers exist in a Dask worker, so an agent that
+                # resolves per-tenant data (deep research resolves the org's
+                # skills) cannot read the organization off the context the way
+                # the synchronous chat path does. It was captured at submit
+                # time; hand it over the same way as the fields above.
+                ("organization_id", organization_id),
+            ):
+                if field_value is not None and field_name in state_fields:
+                    state_kwargs[field_name] = field_value
             if available_documents:
                 # Convert dicts to AvailableDocument if the state class expects them
                 try:
@@ -825,6 +1318,14 @@ async def _run_agent(
                 state["data_sources"] = data_sources
             if available_documents:
                 state["available_documents"] = available_documents
+            if user_info is not None:
+                state["user_info"] = user_info
+            if clarifier_result is not None:
+                state["clarifier_result"] = clarifier_result
+            if project_context is not None:
+                state["project_context"] = project_context
+            if force_skills is not None:
+                state["force_skills"] = force_skills
 
         return await run_with_cancellation(
             agent.run(state),
@@ -895,6 +1396,234 @@ async def _generate_grid_cards(llm: Any, query: str, report: str) -> list[dict] 
     except Exception as e:
         logger.warning("Grid card generation failed (non-fatal): %s", e)
         return None
+
+
+async def _run_deep_research_reflection(
+    *,
+    builder: Any,
+    job_id: str,
+    reflection_llm_ref: str | None,
+    reflection_enabled: bool,
+    query: str,
+    report: str,
+    usage_context: dict | None,
+    project_context: str | None,
+    org_credential: Any,
+    model_overrides: dict[str, str] | None,
+) -> None:
+    """Best-effort project-memory reflection over a finished deep-research report.
+
+    The synchronous chat path runs a post-answer reflection stage for
+    shallow/meta turns but deliberately skips deep-research jobs (see
+    chat_researcher/register.py, ``not deep_research_job_id``) because the report
+    does not exist until the async job completes. This closes that gap on the
+    worker, where the report and the submitting identity are both in hand.
+
+    Unlike the chat path this is AWAITED, not fire-and-forget: the report has
+    already been delivered to the user, and awaiting keeps the builder-owned LLM
+    client alive until reflection finishes (the ``async with WorkflowBuilder``
+    context is still open at the call site). It only ever delays the job's
+    SUCCESS bookkeeping, never the answer, and never raises — reflection is a
+    safety net, not part of the job contract.
+    """
+    if not reflection_enabled or not reflection_llm_ref or not report:
+        return
+    identity = (usage_context or {}).get("identity") or {}
+    project_id = identity.get("project_id")
+    if not project_id:
+        # The autonomous reflection stage only writes project-scoped memory
+        # (audit finding S1); an org-only job has nothing it may safely record.
+        return
+    try:
+        from aiq_agent.agents.project_memory.reflection import run_memory_reflection
+        from aiq_agent.common import AgentGroup
+        from aiq_agent.common import apply_model_override
+        from aiq_agent.common import apply_org_credential
+        from aiq_agent.common import get_langchain_llm
+        from aiq_agent.common import sanitize_model_overrides
+        from aiq_agent.common.cost_tracking import BudgetSnapshot
+        from aiq_agent.common.cost_tracking import track_llm_costs
+        from aiq_agent.common.profiler import track_agent_profile
+
+        reflection_llm = await get_langchain_llm(builder, reflection_llm_ref)
+        overrides = sanitize_model_overrides(model_overrides) if model_overrides else None
+        reflection_llm = apply_model_override(reflection_llm, AgentGroup.MEMORY_REFLECTION, overrides)
+        # Explicit credential (not context): a Dask worker has no live request,
+        # so the org key resolved at build time is passed directly.
+        reflection_llm = apply_org_credential(reflection_llm, org_credential)
+
+        with (
+            track_agent_profile(agent_name="project_memory_reflection", job_id=job_id, identity=identity),
+            track_llm_costs(job_id=job_id, identity=identity, budget=BudgetSnapshot()),
+        ):
+            await run_memory_reflection(
+                llm=reflection_llm,
+                query=query,
+                answer=report,
+                project_id=project_id,
+                organization_id=identity.get("organization_id"),
+                conversation_id=identity.get("conversation_id"),
+                memory_digest=project_context,
+            )
+    except Exception:
+        logger.warning("Job %s: deep-research memory reflection failed (non-fatal)", job_id, exc_info=True)
+
+
+def _extract_skills_activated(result: Any) -> list[str] | None:
+    """The skill names a job run activated, or ``None``.
+
+    The socket path lifts this off the agent state onto the terminal frame and
+    persists it as message metadata; a job run had the same field on the same
+    state and dropped it on the floor, so a thread written by a job showed no
+    transparency where an interactive turn showed some. Read defensively (state
+    object OR dict, list-of-str or nothing) because the runner is agent-agnostic
+    by design — an agent whose state has no such field simply has none.
+    """
+    value = getattr(result, "skills_activated", None)
+    if value is None and isinstance(result, dict):
+        value = result.get("skills_activated")
+    if not isinstance(value, list):
+        return None
+    names = [name for name in value if isinstance(name, str) and name]
+    return names or None
+
+
+def _extract_verified_sources(result: Any) -> list[dict[str, Any]] | None:
+    """The structured provenance of a finished run's answer, or ``None``.
+
+    Each entry is one source the report CITED, as the agent's citation
+    verification resolved it: the ``[N]`` label it wears in the prose, the
+    document/file/page locator the reader opens a PDF with, the coarse ``kind``
+    and the norm registry's binding note. The socket path lifts exactly this
+    field off the state and posts it as ``sources``; the job path reduced the
+    whole state to a report string, so a deep answer delivered as a job arrived
+    with nothing but numbers scraped back out of its own Markdown — no
+    open-at-page, no hover snippet, no authority badge — while the same answer
+    streamed live arrived fully attributed.
+
+    Read defensively (state object OR dict, entries type-checked one by one)
+    because the runner is agent-agnostic by design: an agent whose state carries
+    no such field contributes nothing here, and one that carries a malformed
+    version contributes nothing rather than an unopenable chip.
+    """
+    value = getattr(result, "verified_sources", None)
+    if value is None and isinstance(result, dict):
+        value = result.get("verified_sources")
+    if not isinstance(value, list):
+        return None
+    sources = [source for source in value if isinstance(source, dict) and source]
+    return sources or None
+
+
+def _build_job_output(
+    report: str,
+    *,
+    cards: list[Any] | None,
+    transparency: dict[str, Any],
+    sources: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """The dict a finished job persists as its ``output``.
+
+    A named function rather than three inline lines because this dict IS the
+    contract a client reads a finished job by, and inline it could not be
+    checked without standing up a worker, a job store and a Dask scheduler.
+
+    ``report`` is always there. Everything else is present or absent, never
+    present-and-empty: no ``cards: []`` on a run that produced none, and no
+    ``research_truncated: false`` on a run that completed — the same contract
+    that field keeps on the chat path, so a client can key off existence.
+
+    ``sources`` is spelled the way the backend spells it everywhere else on the
+    wire (``websocket_reconnect``'s terminal frame, the message metadata), so
+    the live Report panel and a rehydrated thread read one contract rather than
+    two dialects of the same list.
+    """
+    output: dict[str, Any] = {"report": report}
+    if cards:
+        output["cards"] = cards
+    if sources:
+        output["sources"] = sources
+    output.update(transparency)
+    return output
+
+
+def _extract_answer_transparency(result: Any) -> dict[str, Any]:
+    """The marks a finished run left on its own answer, as the fields it set.
+
+    A deep run can SUCCEED and still owe the reader a caveat. It can be cut off
+    by the wall clock or by the graph's step limit and have its answer salvaged
+    from partial work (``research_truncated`` / ``truncation_reason``); it can
+    ship in a known-weaker form — no report file was ever written, or citation
+    verification found nothing provably grounded (``degraded_reasons``); and
+    citations it did make can have been stripped before anyone saw them
+    (``citations_removed``). It can also rate its own answer, in the level and
+    the two reasons that make the level actionable (``answer_confidence``).
+    The socket path lifts all of that off the agent state onto the terminal
+    frame. The job path reduced the entire state to a report string, so every
+    one of these markers died inside the Dask worker and the same answer looked
+    *cleaner* delivered as a job than streamed live.
+
+    Read defensively — state object OR dict, every field type-checked on its own
+    — because the runner is agent-agnostic by design: an agent whose state
+    carries none of this simply contributes nothing here, and one that carries a
+    malformed version of it contributes nothing rather than a wrong claim.
+
+    Returns only the fields actually present. Absence is the default and the
+    caller copies this dict straight into the job's persisted output, so the
+    presence of a key is itself the fact — ``research_truncated`` is written as
+    ``true`` or not written at all, never as ``false``, which is the contract it
+    already keeps on the chat path.
+    """
+
+    def field(name: str) -> Any:
+        value = getattr(result, name, None)
+        if value is None and isinstance(result, dict):
+            value = result.get(name)
+        return value
+
+    transparency: dict[str, Any] = {}
+
+    # Literal ``True`` only. A truthy stand-in (``1``, ``"yes"``) means the state
+    # was written by something that does not share this contract, and telling a
+    # reader their research was cut off when nothing recorded a cutoff is a worse
+    # failure than telling them nothing.
+    if field("research_truncated") is True:
+        transparency["research_truncated"] = True
+
+    reason = field("truncation_reason")
+    if isinstance(reason, str) and reason.strip():
+        # Read independently of the flag rather than nested under it: a state
+        # that recorded WHY it stopped but lost the boolean still knows something
+        # true, and the caller keys its event off either one being present.
+        transparency["truncation_reason"] = reason
+
+    degraded_reasons = field("degraded_reasons")
+    if isinstance(degraded_reasons, list):
+        tokens = [token for token in degraded_reasons if isinstance(token, str) and token]
+        # An empty list is not a claim of "degraded in zero ways" — it is the
+        # ordinary case, and it stays out of the output entirely.
+        if tokens:
+            transparency["degraded_reasons"] = tokens
+
+    citations_removed = field("citations_removed")
+    if isinstance(citations_removed, dict) and citations_removed:
+        transparency["citations_removed"] = citations_removed
+
+    # The answer's own self-assessment, read here so it rides the SAME dict to
+    # the same two surfaces instead of growing a second lift with its own bugs.
+    # The three travel together on purpose: the shallow path has always sent the
+    # level with its reason, because "niedrig" alone tells a reader their answer
+    # might be wrong and nothing about what to check, and a level whose reason
+    # was dropped in transport is the exact complaint that pairing exists to
+    # prevent. Deep may not record any of them yet — absent is the ordinary case
+    # and writes nothing, so this lands before the field exists and stays correct
+    # after it does.
+    for confidence_field in _ANSWER_CONFIDENCE_FIELDS:
+        value = field(confidence_field)
+        if isinstance(value, str) and value.strip():
+            transparency[confidence_field] = value
+
+    return transparency
 
 
 def _extract_result(result: Any) -> str:

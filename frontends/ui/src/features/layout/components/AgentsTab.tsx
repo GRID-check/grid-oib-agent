@@ -15,7 +15,6 @@ import { Wand2 } from 'lucide-react'
 import { useChatStore } from '@/features/chat'
 import { useTranslations } from '@/i18n'
 import { AgentCard, type AgentInfo } from './AgentCard'
-import { EMPTY_RESEARCH_DETAILS_HELP_TEXT } from './research-empty-state-copy'
 
 /**
  * Agents sub-tab content showing active workflows with their tool calls.
@@ -75,14 +74,14 @@ export const AgentsTab: FC = () => {
       {/* Content */}
       {isEmpty ? (
         <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-          <Wand2 className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
+          <Wand2 className="mb-3 size-8 text-muted-foreground" aria-hidden="true" />
           <p className="text-sm text-muted-foreground">{t('agentsTab.empty')}</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            {EMPTY_RESEARCH_DETAILS_HELP_TEXT}
+            {t('detailsHelp')}
           </p>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain">
           {agentsWithToolCalls.map((agent) => (
             <div key={agent.id} className="shrink-0">
               <AgentCard agent={agent} defaultExpanded />

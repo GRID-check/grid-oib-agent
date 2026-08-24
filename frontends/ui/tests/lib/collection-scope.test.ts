@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, it, expect } from 'vitest'
 import { buildCollectionScopeHeader, computeCollectionScope } from '@/lib/collection-scope'
 
@@ -10,6 +13,7 @@ const baseSession = {
   organizationMembershipId: 'om_1',
   role: 'member',
   permissions: [],
+  featureFlags: null,
 }
 
 describe('computeCollectionScope', () => {

@@ -30,20 +30,28 @@ vi.mock('../hooks/use-load-job-data', () => ({
 }))
 
 describe('DeepResearchBanner', () => {
-  test('shows only the View Report banner action', () => {
+  test('renders the View Report action on a successful run', () => {
     render(<DeepResearchBanner bannerType="success" jobId="job-1" />)
 
     expect(screen.getByRole('button', { name: 'View Report' })).toBeInTheDocument()
   })
 
   test.each([
-    ['starting', 'View Progress'],
     ['failure', 'View Thinking'],
     ['cancelled', 'View Progress'],
-  ] as const)('hides the %s banner action', (bannerType, actionLabel) => {
-    render(<DeepResearchBanner bannerType={bannerType} jobId="job-1" />)
+  ] as const)(
+    'renders the %s banner diagnosis action so the outcome can be inspected',
+    (bannerType, actionLabel) => {
+      render(<DeepResearchBanner bannerType={bannerType} jobId="job-1" />)
 
-    expect(screen.queryByRole('button', { name: actionLabel })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: actionLabel })).toBeInTheDocument()
+    }
+  )
+
+  test('keeps the live starting banner action-free', () => {
+    render(<DeepResearchBanner bannerType="starting" jobId="job-1" />)
+
+    expect(screen.queryByRole('button', { name: 'View Progress' })).not.toBeInTheDocument()
   })
 
   test('renders an expired report warning without an action', () => {

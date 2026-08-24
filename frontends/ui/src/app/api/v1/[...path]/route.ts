@@ -13,133 +13,120 @@
  * - In anonymous mode, no Authorization header is sent.
  *
  * Collection scoping:
- * - Attaches X-Grid-Collection-Scope to every upstream request.
- * - Validates collection_name for collection-scoped routes (e.g. uploads).
+ * - Attaches X-Grid-Collection-Scope to every upstream request. Its payload is
+ *   `base64url(JSON.stringify([{collection, shelf?}, ...]))` — each collection
+ *   states its shelf (`archiv | project | session | base`) explicitly, so no
+ *   consumer re-derives it from a name prefix (ADR-0047). The value is built
+ *   whole by `buildCollectionScopeFromRequest`, which is where the shelves are
+ *   known; this route only forwards it.
+ * - Validates collection_name for collection-scoped routes (e.g. uploads)
+ *   via `@/lib/proxy/collection-authz`.
+ *
+ * This route stays a transport pass-through (see the BFF architecture doc):
+ * no repository/service layer, but authz and scope resolution go through the
+ * shared guards.
  */
 
 import { NextResponse } from 'next/server'
-import { and, eq } from 'drizzle-orm'
+import { tenantSlotRoute } from '@/lib/db/tenant-context'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
-import { requireProjectAccess } from '@/lib/authz/projects'
-import { getDb } from '@/lib/db'
-import { projects } from '@/lib/db/schema'
-import type { GridSession, AuthorizedSession } from '@/lib/auth/types'
 import { isAuthzError } from '@/lib/auth-utils'
 import {
-  getBackendUrl,
   resolveOptionalSession,
-  errorEnvelope,
   backendErrorEnvelope,
   handleAuthzError,
   proxyErrorEnvelope,
+  errorEnvelope,
 } from '@/lib/backend-proxy'
+import {
+  parseQueryContext,
+  resolveRequestContext,
+  validateCollectionName,
+} from '@/lib/proxy/collection-authz'
+import { buildProxyUrl } from '@/lib/proxy/proxy-request'
+import { isWebSearchEnabledForOrg } from '@/lib/organizations/service'
 
-const buildBackendUrl = (path: string[], searchParams?: URLSearchParams): string => {
-  const backendBase = getBackendUrl()
-  const pathString = path.join('/')
-  const url = new URL(`${backendBase}/v1/${pathString}`)
-  searchParams?.forEach((value, key) => {
-    url.searchParams.set(key, value)
-  })
-  return url.toString()
+/**
+ * Sources hidden from the org (ADR-0022). Applied to the `/v1/data_sources`
+ * listing so a disabled tool disappears from the picker; the hard gate is
+ * the `x-grid-disabled-sources` WS header + submit-time subtraction, so this
+ * filter is UX, not the security boundary. Fail-open: a settings lookup
+ * error must not break the listing.
+ */
+async function filterDataSourcesResponse(
+  path: string[],
+  organizationId: string | null | undefined,
+  data: unknown
+): Promise<unknown> {
+  if (path.length !== 1 || path[0] !== 'data_sources' || !organizationId) return data
+  try {
+    if (await isWebSearchEnabledForOrg(organizationId)) return data
+  } catch {
+    return data
+  }
+  const dropWebSearch = (sources: unknown[]): unknown[] =>
+    sources.filter(
+      (source) =>
+        !(source && typeof source === 'object' && (source as { id?: unknown }).id === 'web_search')
+    )
+  // The backend returns `{ data_sources, vlm_available }`; older/other shapes
+  // may return a bare array. Filter web_search in either while preserving the
+  // capability fields (e.g. vlm_available) untouched.
+  if (Array.isArray(data)) return dropWebSearch(data)
+  if (
+    data &&
+    typeof data === 'object' &&
+    Array.isArray((data as { data_sources?: unknown }).data_sources)
+  ) {
+    return {
+      ...data,
+      data_sources: dropWebSearch((data as { data_sources: unknown[] }).data_sources),
+    }
+  }
+  return data
 }
 
 const isRedirectError = (error: unknown): boolean => {
   return error instanceof Error && error.message === 'NEXT_REDIRECT'
 }
 
-const errorResponse = errorEnvelope
-const resolveSession = resolveOptionalSession
+/**
+ * Backend control-plane path prefixes that must NEVER be reachable through the
+ * public BFF proxy.
+ *
+ * The proxy forwards to `aiq-agent:8000` over the internal network, so the
+ * backend's `AuthMiddleware` classifies these requests as *internal* and skips
+ * its `EXTERNAL_ALLOWED_PATHS` filter. Without this guard an anonymous visitor
+ * on the public frontend could reach:
+ *   - `/v1/admin/*`       — GRID_ADMIN_TOKEN-gated OIB re-ingestion (fail-OPEN
+ *                           when the token is unset), and
+ *   - `/v1/maintenance/*` — internal-token-gated project purge.
+ * Neither prefix appears in the backend's `EXTERNAL_ALLOWED_PATHS`, so the
+ * proxy's forwardable set is kept no wider than what an external caller may
+ * reach. Legitimate v1 paths (collections, documents, data_sources, jobs,
+ * config) are unaffected. Rejected before any upstream fetch.
+ */
+const BLOCKED_PROXY_PREFIXES = new Set(['admin', 'maintenance'])
 
-function parseQueryContext(searchParams: URLSearchParams): { projectId?: string; conversationId?: string } {
-  return {
-    projectId: searchParams.get('projectId') || undefined,
-    conversationId: searchParams.get('conversationId') || undefined,
+const rejectBlockedPath = (path: string[]): NextResponse | null => {
+  if (path.length > 0 && BLOCKED_PROXY_PREFIXES.has(path[0])) {
+    return errorEnvelope(404, 'NOT_FOUND', 'Not found')
   }
+  return null
 }
 
-function resolveRequestContext(
-  searchParams: URLSearchParams,
-  parsedBody?: Record<string, unknown>
-): { projectId?: string; conversationId?: string } {
-  const queryContext = parseQueryContext(searchParams)
-
-  if (!parsedBody) {
-    return queryContext
-  }
-
-  return {
-    projectId: typeof parsedBody.projectId === 'string' ? parsedBody.projectId : queryContext.projectId,
-    conversationId:
-      typeof parsedBody.conversationId === 'string'
-        ? parsedBody.conversationId
-        : typeof parsedBody.session_id === 'string'
-          ? parsedBody.session_id
-          : queryContext.conversationId,
-  }
-}
-
-function normalizeSessionCollectionName(value: string): string {
-  return value.startsWith('s_') ? value : `s_${value}`
-}
-
-async function validateCollectionName(
-  path: string[],
-  session: GridSession | null,
-  context: { projectId?: string; conversationId?: string }
-): Promise<Response | null> {
-  if (path.length < 2 || path[0] !== 'collections') {
-    return null
-  }
-
-  const collectionName = path[1]
-  const baseName = process.env.BASE_COLLECTION_NAME || 'oib_knowledge'
-
-  if (collectionName === baseName) {
-    return errorResponse(400, 'INVALID_COLLECTION', 'Uploads to the base corpus are not allowed')
-  }
-
-  if (collectionName.startsWith('proj_')) {
-    if (!session?.organizationId) {
-      return handleAuthzError(new Error('Forbidden'))
-    }
-    try {
-      const db = getDb()
-      const [project] = await db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(and(eq(projects.collectionName, collectionName), eq(projects.organizationId, session.organizationId)))
-        .limit(1)
-
-      if (!project) {
-        return handleAuthzError(new Error('Not found'))
-      }
-
-      await requireProjectAccess(session as AuthorizedSession, project.id, 'project:edit')
-    } catch (error) {
-      return handleAuthzError(error)
-    }
-    return null
-  }
-
-  if (collectionName.startsWith('s_')) {
-    if (!context.conversationId || normalizeSessionCollectionName(context.conversationId) !== collectionName) {
-      return errorResponse(400, 'INVALID_COLLECTION', 'Collection does not match active conversation')
-    }
-    return null
-  }
-
-  return errorResponse(400, 'INVALID_COLLECTION', 'Invalid collection name')
-}
-
-export async function GET(
+export const GET = tenantSlotRoute(async function GET(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
   try {
     const { path } = await params
+    const blocked = rejectBlockedPath(path)
+    if (blocked) {
+      return blocked
+    }
     const { searchParams } = new URL(req.url)
-    const session = await resolveSession()
+    const session = await resolveOptionalSession()
     const context = parseQueryContext(searchParams)
 
     const validationError = await validateCollectionName(path, session, context)
@@ -148,9 +135,11 @@ export async function GET(
     }
 
     const { headerValue } = await buildCollectionScopeFromRequest(session, context)
-    const authHeaders: Record<string, string> = session ? { Authorization: `Bearer ${session.accessToken}` } : {}
+    const authHeaders: Record<string, string> = session
+      ? { Authorization: `Bearer ${session.accessToken}` }
+      : {}
 
-    const response = await fetch(buildBackendUrl(path, searchParams), {
+    const response = await fetch(buildProxyUrl('/v1', path, searchParams), {
       method: 'GET',
       headers: {
         ...authHeaders,
@@ -165,7 +154,7 @@ export async function GET(
     }
 
     const data = await response.json()
-    return NextResponse.json(data)
+    return NextResponse.json(await filterDataSourcesResponse(path, session?.organizationId, data))
   } catch (error) {
     if (isRedirectError(error)) {
       throw error
@@ -176,16 +165,20 @@ export async function GET(
 
     return proxyErrorEnvelope(error)
   }
-}
+})
 
-export async function POST(
+export const POST = tenantSlotRoute(async function POST(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
   try {
     const { path } = await params
+    const blocked = rejectBlockedPath(path)
+    if (blocked) {
+      return blocked
+    }
     const { searchParams } = new URL(req.url)
-    const session = await resolveSession()
+    const session = await resolveOptionalSession()
     const contentType = req.headers.get('Content-Type') || 'application/json'
 
     let parsedBody: Record<string, unknown> | undefined
@@ -215,9 +208,11 @@ export async function POST(
     }
 
     const { headerValue } = await buildCollectionScopeFromRequest(session, context)
-    const authHeaders: Record<string, string> = session ? { Authorization: `Bearer ${session.accessToken}` } : {}
+    const authHeaders: Record<string, string> = session
+      ? { Authorization: `Bearer ${session.accessToken}` }
+      : {}
 
-    const response = await fetch(buildBackendUrl(path, searchParams), {
+    const response = await fetch(buildProxyUrl('/v1', path, searchParams), {
       method: 'POST',
       headers: {
         ...authHeaders,
@@ -244,16 +239,20 @@ export async function POST(
 
     return proxyErrorEnvelope(error)
   }
-}
+})
 
-export async function DELETE(
+export const DELETE = tenantSlotRoute(async function DELETE(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
   try {
     const { path } = await params
+    const blocked = rejectBlockedPath(path)
+    if (blocked) {
+      return blocked
+    }
     const { searchParams } = new URL(req.url)
-    const session = await resolveSession()
+    const session = await resolveOptionalSession()
     const context = parseQueryContext(searchParams)
 
     const validationError = await validateCollectionName(path, session, context)
@@ -262,7 +261,9 @@ export async function DELETE(
     }
 
     const { headerValue } = await buildCollectionScopeFromRequest(session, context)
-    const authHeaders: Record<string, string> = session ? { Authorization: `Bearer ${session.accessToken}` } : {}
+    const authHeaders: Record<string, string> = session
+      ? { Authorization: `Bearer ${session.accessToken}` }
+      : {}
 
     let body: string | undefined
     try {
@@ -272,7 +273,7 @@ export async function DELETE(
       body = undefined
     }
 
-    const response = await fetch(buildBackendUrl(path, searchParams), {
+    const response = await fetch(buildProxyUrl('/v1', path, searchParams), {
       method: 'DELETE',
       headers: {
         ...authHeaders,
@@ -303,4 +304,4 @@ export async function DELETE(
 
     return proxyErrorEnvelope(error)
   }
-}
+})

@@ -5,38 +5,58 @@
  * group's capability requirements ("appropriate models for the task").
  */
 
-import { NextResponse } from 'next/server'
-import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { isOrgAdmin } from '@/lib/authz/organizations'
+import { z } from 'zod'
+import { apiRoute, parseQuery } from '@/lib/api/handler'
+import { BadRequestError, ServiceUnavailableError } from '@/lib/api/errors'
+import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
+import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { getAgentGroup } from '@/lib/model-config/agent-groups'
-import { fetchModelCatalog, searchModelsForGroup } from '@/lib/model-config/openrouter'
+import { searchModelsForGroup } from '@/lib/model-config/openrouter'
+import { getCatalogForOrg } from '@/lib/model-config/org-catalog'
+import { isZdrOnlyForOrg } from '@/lib/organizations/service'
 
-export async function GET(request: Request): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    if (!isOrgAdmin(session)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-    const { searchParams } = new URL(request.url)
-    const groupId = searchParams.get('group') ?? ''
-    const query = searchParams.get('q') ?? ''
+const querySchema = z.object({
+  group: z.string().default(''),
+  q: z.string().default(''),
+})
+
+export const GET = apiRoute(
+  async ({ session, request }) => {
+    const gated = requireFeature(session, FEATURE_FLAGS.modelConfiguration)
+    if (gated) return gated
+    const { group: groupId, q: query } = parseQuery(request, querySchema)
     const group = getAgentGroup(groupId)
     if (!group) {
-      return NextResponse.json({ error: 'Unknown agent group' }, { status: 400 })
+      throw new BadRequestError('Unknown agent group')
     }
 
+    // With a BYOK credential the catalog is the org's own provider listing
+    // (relaxed capability checks) — otherwise the OpenRouter catalog (ADR-0022).
+    // The org's ZDR policy narrows an OpenRouter catalog to ZDR models.
+    const zdrOnly = await isZdrOnlyForOrg(session.organizationId)
     let catalog
     try {
-      catalog = await fetchModelCatalog()
+      catalog = await getCatalogForOrg(session.organizationId, { zdrOnly })
     } catch (error) {
-      console.error('[Model Search API] OpenRouter catalog unavailable:', error)
-      return NextResponse.json({ error: 'OpenRouter model catalog is unavailable' }, { status: 503 })
+      console.error('[Model Search API] Model catalog unavailable:', error)
+      throw new ServiceUnavailableError('The model catalog is unavailable')
     }
-    const models = searchModelsForGroup(catalog, groupId, query)
-    return NextResponse.json({ group: group.id, models })
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
+    return {
+      group: group.id,
+      catalogSource: {
+        source: catalog.source,
+        provider: catalog.provider,
+        validation: catalog.validation,
+        zdrOnly: catalog.zdrOnly,
+      },
+      models: searchModelsForGroup(
+        catalog.models,
+        groupId,
+        query,
+        30,
+        catalog.validation === 'full'
+      ),
+    }
+  },
+  { authz: { permission: ORG_PERMISSIONS.modelsManage } }
+)

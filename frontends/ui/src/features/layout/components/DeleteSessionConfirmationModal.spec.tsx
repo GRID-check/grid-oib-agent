@@ -9,8 +9,8 @@ describe('DeleteSessionConfirmationModal', () => {
       <DeleteSessionConfirmationModal open={true} onOpenChange={vi.fn()} onConfirm={vi.fn()} />
     )
 
-    expect(screen.getByText('Deleting Session')).toBeInTheDocument()
-    expect(screen.getByText(/you are about to delete this session/i)).toBeInTheDocument()
+    expect(screen.getByText('Delete this chat?')).toBeInTheDocument()
+    expect(screen.getByText(/you are about to delete this chat/i)).toBeInTheDocument()
     expect(screen.getByText(/this action cannot be reversed/i)).toBeInTheDocument()
   })
 
@@ -19,7 +19,7 @@ describe('DeleteSessionConfirmationModal', () => {
       <DeleteSessionConfirmationModal open={false} onOpenChange={vi.fn()} onConfirm={vi.fn()} />
     )
 
-    expect(screen.queryByText('Deleting Session')).not.toBeInTheDocument()
+    expect(screen.queryByText('Delete this chat?')).not.toBeInTheDocument()
   })
 
   test('calls onConfirm and closes when delete is clicked', async () => {
@@ -35,7 +35,7 @@ describe('DeleteSessionConfirmationModal', () => {
       />
     )
 
-    await user.click(screen.getByRole('button', { name: /delete session/i }))
+    await user.click(screen.getByRole('button', { name: /delete chat/i }))
 
     expect(onConfirm).toHaveBeenCalledOnce()
     expect(onOpenChange).toHaveBeenCalledWith(false)

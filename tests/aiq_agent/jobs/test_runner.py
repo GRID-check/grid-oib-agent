@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """
 Tests for async job components.
 
@@ -315,8 +300,12 @@ class TestDeepResearchEventCallback:
 
         callback.on_tool_end("search results", run_id="test-run-id", name="web_search")
 
-        mock_store.store.assert_called_once()
-        call_args = mock_store.store.call_args[0][0]
+        # on_tool_end emits the tool.end event first; a source-bearing output
+        # additionally emits a citation_source artifact (restored by the PB-1
+        # fix — previously this second emit crashed with a TypeError), so there
+        # may be more than one store call. Assert the first is the tool.end event.
+        assert mock_store.store.call_count >= 1
+        call_args = mock_store.store.call_args_list[0][0][0]
         assert call_args["type"] == "tool.end"
         assert call_args["name"] == "web_search"
 
@@ -435,9 +424,44 @@ class TestSubmitDeepResearchJob:
         assert result == "test-job-id"
         mock_job_store.submit_job.assert_called_once()
         job_args = mock_job_store.submit_job.call_args.kwargs["job_args"]
-        # data_sources is sixth-to-last (auth_token, collection_scope,
-        # project_context, model_overrides, usage_context follow)
-        assert job_args[-6] == ["web_search"]
+        # data_sources is eleventh-to-last (auth_token, collection_scope,
+        # project_context, model_overrides, usage_context, user_info,
+        # clarifier_result, memory_reflection_enabled, memory_reflection_llm,
+        # force_skills follow)
+        assert job_args[-11] == ["web_search"]
+
+    @pytest.mark.asyncio
+    async def test_submit_agent_job_passes_user_info_and_clarifier_result(self):
+        """user_info and clarifier_result ride along as structured worker args."""
+        from aiq_api.jobs.submit import submit_agent_job
+
+        mock_job_store = MagicMock()
+        mock_job_store.ensure_job_id.return_value = "test-job-id"
+        mock_job_store.submit_job = AsyncMock(return_value=None)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "NAT_DASK_SCHEDULER_ADDRESS": "tcp://localhost:8786",
+                "NAT_JOB_STORE_DB_URL": "sqlite:///./test.db",
+            },
+        ):
+            with patch("nat.front_ends.fastapi.async_jobs.job_store.JobStore", return_value=mock_job_store):
+                with patch("aiq_api.jobs.submit.get_current_principal", return_value=self.principal):
+                    with patch("aiq_api.jobs.submit.create_job_access"):
+                        await submit_agent_job(
+                            agent_type="deep_researcher",
+                            input_text="test query",
+                            owner="test@example.com",
+                            user_info={"name": "Ada", "email": "ada@example.com"},
+                            clarifier_result="User confirmed scope: OIB 4 only.",
+                        )
+
+        job_args = mock_job_store.submit_job.call_args.kwargs["job_args"]
+        # Tail order: ..., user_info, clarifier_result,
+        # memory_reflection_enabled, memory_reflection_llm, force_skills.
+        assert job_args[-5] == {"name": "Ada", "email": "ada@example.com"}
+        assert job_args[-4] == "User confirmed scope: OIB 4 only."
 
     @pytest.mark.asyncio
     async def test_submit_with_custom_job_id(self):
@@ -558,6 +582,161 @@ class TestSubmitDeepResearchJob:
 
         mock_job_store.submit_job.assert_called_once()
         rollback_job_submission.assert_called_once_with("test-job-id", "sqlite:///./test.db")
+
+
+class TestRunAgentStateFields:
+    """_run_agent forwards structured context onto state-based agents."""
+
+    @pytest.mark.asyncio
+    async def test_run_agent_sets_deep_research_state_fields(self):
+        """user_info, clarifier_result, and project_context land on the deep state."""
+        from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
+        from aiq_api.jobs.runner import _run_agent
+
+        captured: dict = {}
+
+        class FakeDeepAgent:
+            async def run(self, state):
+                captured["state"] = state
+                return state
+
+        FakeDeepAgent.__module__ = "aiq_agent.agents.deep_researcher.agent"
+        FakeDeepAgent.__name__ = "DeepResearcherAgent"
+
+        monitor = MagicMock()
+        monitor.is_cancelled = False
+        monitor.start = MagicMock()
+        monitor.stop = AsyncMock()
+
+        await _run_agent(
+            agent=FakeDeepAgent(),
+            input_text="What does OIB 4 require for stair widths?",
+            monitor=monitor,
+            user_info={"name": "Ada", "email": "ada@example.com"},
+            clarifier_result="Scope: residential buildings only.",
+            project_context="facts:\n  building_class: GK3",
+        )
+
+        state = captured["state"]
+        assert isinstance(state, DeepResearchAgentState)
+        assert state.user_info == {"name": "Ada", "email": "ada@example.com"}
+        assert state.clarifier_result == "Scope: residential buildings only."
+        assert state.project_context == "facts:\n  building_class: GK3"
+
+    @pytest.mark.asyncio
+    async def test_run_agent_carries_the_organization_onto_the_deep_state(self):
+        """The tenant a deep job resolves its skills for arrives on the state.
+
+        There are no request headers inside a Dask worker, so the organization
+        cannot be read from the context the way the synchronous chat path reads
+        it — it is captured at submit time and handed over here. Without it the
+        run resolves no organization skills at all, which is how the platform's
+        own standard skills came to be silently absent from every report.
+        """
+        from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
+        from aiq_api.jobs.runner import _run_agent
+
+        captured: dict = {}
+
+        class FakeDeepAgent:
+            async def run(self, state):
+                captured["state"] = state
+                return state
+
+        FakeDeepAgent.__module__ = "aiq_agent.agents.deep_researcher.agent"
+        FakeDeepAgent.__name__ = "DeepResearcherAgent"
+
+        monitor = MagicMock()
+        monitor.is_cancelled = False
+        monitor.start = MagicMock()
+        monitor.stop = AsyncMock()
+
+        await _run_agent(
+            agent=FakeDeepAgent(),
+            input_text="Wie hoch muss das Geländer sein?",
+            monitor=monitor,
+            organization_id="org_01H",
+        )
+
+        state = captured["state"]
+        assert isinstance(state, DeepResearchAgentState)
+        assert state.organization_id == "org_01H"
+
+    @pytest.mark.asyncio
+    async def test_run_agent_skips_unsupported_state_fields(self):
+        """Fields absent from a state model are not passed (no validation errors)."""
+        from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
+        from aiq_api.jobs.runner import _run_agent
+
+        captured: dict = {}
+
+        class FakeShallowAgent:
+            async def run(self, state):
+                captured["state"] = state
+                return state
+
+        FakeShallowAgent.__module__ = "aiq_agent.agents.shallow_researcher.agent"
+        FakeShallowAgent.__name__ = "ShallowResearcherAgent"
+
+        monitor = MagicMock()
+        monitor.is_cancelled = False
+        monitor.start = MagicMock()
+        monitor.stop = AsyncMock()
+
+        await _run_agent(
+            agent=FakeShallowAgent(),
+            input_text="quick lookup",
+            monitor=monitor,
+            user_info={"name": "Ada"},
+            clarifier_result="not a shallow field",
+            project_context="facts: {}",
+        )
+
+        state = captured["state"]
+        assert isinstance(state, ShallowResearchAgentState)
+        assert state.user_info == {"name": "Ada"}
+        assert state.project_context == "facts: {}"
+        assert not hasattr(state, "clarifier_result")
+
+
+class TestResolveWorkerToolRefs:
+    """Tests for worker tool-ref resolution (registry inheritance)."""
+
+    def test_empty_tools_inherits_registry(self):
+        """An omitted/empty tools list (the config default) inherits the whole registry.
+
+        Regression: DeepResearchAgentConfig.tools uses default_factory=list, so an
+        omitted list is [] (never None). A prior `is None` guard skipped
+        inheritance and built a tool-less worker whose researcher sub-agents got
+        no source tools.
+        """
+        from aiq_api.jobs.runner import _resolve_worker_tool_refs
+
+        class FakeConfig:
+            tools = []
+
+        with patch("aiq_agent.common.get_all_tool_refs", return_value=["ris_search_tool", "knowledge_search"]):
+            assert _resolve_worker_tool_refs(FakeConfig()) == ["ris_search_tool", "knowledge_search"]
+
+    def test_none_tools_inherits_registry(self):
+        """A missing tools attribute also inherits the registry."""
+        from aiq_api.jobs.runner import _resolve_worker_tool_refs
+
+        class FakeConfig:
+            pass
+
+        with patch("aiq_agent.common.get_all_tool_refs", return_value=["web_search_tool"]):
+            assert _resolve_worker_tool_refs(FakeConfig()) == ["web_search_tool"]
+
+    def test_explicit_tools_are_used_verbatim_without_inheriting(self):
+        """A non-empty explicit list is used as-is; the registry is never consulted."""
+        from aiq_api.jobs.runner import _resolve_worker_tool_refs
+
+        class FakeConfig:
+            tools = ["web_search_tool"]
+
+        with patch("aiq_agent.common.get_all_tool_refs", side_effect=AssertionError("must not inherit")):
+            assert _resolve_worker_tool_refs(FakeConfig()) == ["web_search_tool"]
 
 
 class TestEventStore:
@@ -831,8 +1010,7 @@ class TestDeepResearchEventCallbackAdvanced:
         text = "Check out https://example.com and http://test.org/page for more info."
         urls = callback._extract_urls(text)
 
-        assert "https://example.com" in urls
-        assert "http://test.org/page" in urls
+        assert urls == ["https://example.com", "http://test.org/page"]
 
     def test_extract_urls_cleans_trailing_punctuation(self):
         """Test URL extraction removes trailing punctuation."""
@@ -1398,6 +1576,8 @@ class TestAsyncJobRunnerAgentFactory:
                 max_research_concurrency=None,
                 max_concurrent_source_tool_calls=None,
                 max_source_tool_batch_size=None,
+                max_run_seconds=None,
+                checkpointer=None,
             ):
                 self.llm_provider = llm_provider
                 self.tools = tools
@@ -1412,6 +1592,8 @@ class TestAsyncJobRunnerAgentFactory:
                 self.max_research_concurrency = max_research_concurrency
                 self.max_concurrent_source_tool_calls = max_concurrent_source_tool_calls
                 self.max_source_tool_batch_size = max_source_tool_batch_size
+                self.max_run_seconds = max_run_seconds
+                self.checkpointer = checkpointer
 
         fn_config = DeepResearchAgentConfig(
             orchestrator_llm="llm",
@@ -1448,6 +1630,8 @@ class TestAsyncJobRunnerAgentFactory:
         assert agent.max_research_concurrency == 2
         assert agent.max_concurrent_source_tool_calls == 3
         assert agent.max_source_tool_batch_size == 4
+        # F5: max_run_seconds wired through from fn_config (DeepResearchAgentConfig default 2400)
+        assert agent.max_run_seconds == 2400
 
     def test_async_deep_researcher_constructor_applies_config_tuning(self):
         """Async construction preserves catalog and concurrency settings."""
@@ -1558,7 +1742,7 @@ class TestAsyncJobRunnerAgentFactory:
                     )
                 ]
             )
-            agent._build_orchestrator_agent(state)
+            agent._prepare_run(state)
 
         kwargs = create.call_args.kwargs
         assert "skills" not in kwargs
@@ -1617,7 +1801,7 @@ class TestAsyncJobRunnerAgentFactory:
                 job_id="async-job-123",
             )
             state = DeepResearchAgentState(messages=[HumanMessage(content="Research without tools")])
-            agent._build_orchestrator_agent(state)
+            agent._prepare_run(state)
 
         tool_names = [tool.name for tool in create.call_args.kwargs["tools"]]
         assert tool_names == ["think", "get_verified_sources", "run_research_batch"]
@@ -1653,6 +1837,8 @@ class TestAsyncJobRunnerAgentFactory:
                 max_research_concurrency=None,
                 max_concurrent_source_tool_calls=None,
                 max_source_tool_batch_size=None,
+                max_run_seconds=None,
+                checkpointer=None,
             ):
                 raise TypeError("internal constructor failure")
 
@@ -1673,3 +1859,616 @@ class TestAsyncJobRunnerAgentFactory:
                 callbacks=["callback"],
                 job_id="job-123",
             )
+
+
+class TestDeepResearchReflection:
+    """Worker-side memory reflection over a finished deep-research report."""
+
+    @staticmethod
+    def _identity(project_id="proj-1"):
+        return {
+            "identity": {
+                "project_id": project_id,
+                "organization_id": "org-1",
+                "conversation_id": "conv-1",
+            }
+        }
+
+    @pytest.mark.asyncio
+    async def test_reflects_on_successful_report(self):
+        """Enabled + ref + project in scope → reflection runs over the report."""
+        from contextlib import nullcontext
+
+        from aiq_api.jobs.runner import _run_deep_research_reflection
+
+        builder = MagicMock()
+        builder.get_llm = AsyncMock(return_value=MagicMock())
+        report = "R" * 80
+
+        with (
+            patch(
+                "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+                new=AsyncMock(return_value=["mem-1"]),
+            ) as mock_reflect,
+            patch(
+                "aiq_agent.common.cost_tracking.track_llm_costs",
+                side_effect=lambda **_: nullcontext(),
+            ),
+        ):
+            await _run_deep_research_reflection(
+                builder=builder,
+                job_id="job-1",
+                reflection_llm_ref="card_llm",
+                reflection_enabled=True,
+                query="what beam depth did we settle on?",
+                report=report,
+                usage_context=self._identity(),
+                project_context="existing project memory",
+                org_credential=None,
+                model_overrides=None,
+            )
+
+        builder.get_llm.assert_awaited_once()
+        mock_reflect.assert_awaited_once()
+        kwargs = mock_reflect.await_args.kwargs
+        assert kwargs["answer"] == report
+        assert kwargs["query"] == "what beam depth did we settle on?"
+        assert kwargs["project_id"] == "proj-1"
+        assert kwargs["organization_id"] == "org-1"
+        assert kwargs["conversation_id"] == "conv-1"
+        assert kwargs["memory_digest"] == "existing project memory"
+
+    @pytest.mark.asyncio
+    async def test_skips_when_disabled(self):
+        """Feature flag off → no LLM built, no reflection."""
+        from aiq_api.jobs.runner import _run_deep_research_reflection
+
+        builder = MagicMock()
+        builder.get_llm = AsyncMock()
+
+        with patch(
+            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            new=AsyncMock(),
+        ) as mock_reflect:
+            await _run_deep_research_reflection(
+                builder=builder,
+                job_id="job-1",
+                reflection_llm_ref="card_llm",
+                reflection_enabled=False,
+                query="q",
+                report="R" * 80,
+                usage_context=self._identity(),
+                project_context="mem",
+                org_credential=None,
+                model_overrides=None,
+            )
+
+        builder.get_llm.assert_not_awaited()
+        mock_reflect.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_skips_without_llm_ref(self):
+        """No reflection LLM configured → no-op."""
+        from aiq_api.jobs.runner import _run_deep_research_reflection
+
+        builder = MagicMock()
+        builder.get_llm = AsyncMock()
+
+        with patch(
+            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            new=AsyncMock(),
+        ) as mock_reflect:
+            await _run_deep_research_reflection(
+                builder=builder,
+                job_id="job-1",
+                reflection_llm_ref=None,
+                reflection_enabled=True,
+                query="q",
+                report="R" * 80,
+                usage_context=self._identity(),
+                project_context="mem",
+                org_credential=None,
+                model_overrides=None,
+            )
+
+        builder.get_llm.assert_not_awaited()
+        mock_reflect.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_skips_without_project_scope(self):
+        """Org-only job (no project) → reflection has nothing it may write."""
+        from aiq_api.jobs.runner import _run_deep_research_reflection
+
+        builder = MagicMock()
+        builder.get_llm = AsyncMock()
+
+        with patch(
+            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            new=AsyncMock(),
+        ) as mock_reflect:
+            await _run_deep_research_reflection(
+                builder=builder,
+                job_id="job-1",
+                reflection_llm_ref="card_llm",
+                reflection_enabled=True,
+                query="q",
+                report="R" * 80,
+                usage_context=self._identity(project_id=None),
+                project_context="mem",
+                org_credential=None,
+                model_overrides=None,
+            )
+
+        builder.get_llm.assert_not_awaited()
+        mock_reflect.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_never_raises_on_reflection_failure(self):
+        """A reflection failure is swallowed — job outcome is unaffected."""
+        from contextlib import nullcontext
+
+        from aiq_api.jobs.runner import _run_deep_research_reflection
+
+        builder = MagicMock()
+        builder.get_llm = AsyncMock(return_value=MagicMock())
+
+        with (
+            patch(
+                "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+                new=AsyncMock(side_effect=RuntimeError("boom")),
+            ),
+            patch(
+                "aiq_agent.common.cost_tracking.track_llm_costs",
+                side_effect=lambda **_: nullcontext(),
+            ),
+        ):
+            # Must not raise.
+            await _run_deep_research_reflection(
+                builder=builder,
+                job_id="job-1",
+                reflection_llm_ref="card_llm",
+                reflection_enabled=True,
+                query="q",
+                report="R" * 80,
+                usage_context=self._identity(),
+                project_context="mem",
+                org_credential=None,
+                model_overrides=None,
+            )
+
+
+class TestCitedSourceEmission:
+    """A knowledge-base document must be markable as CITED, not just discovered.
+
+    ``citation_use`` was URL-only, so a KB source could never earn the flag. The
+    frontend's provenance row filters on it and only falls back to "show every
+    discovered source" when NOTHING is flagged — so a run that cited four OIB
+    Richtlinien plus one web page marked only the web page, and the row rendered
+    that web page alone.
+    """
+
+    def _registry(self):
+        from aiq_agent.common.citation_verification import SourceEntry
+        from aiq_agent.common.citation_verification import SourceRegistry
+
+        registry = SourceRegistry()
+        registry.add(
+            SourceEntry(
+                citation_key="oib-rl_2_ausgabe_mai_2023.pdf, p.12",
+                title="OIB-Richtlinie 2",
+                source_type="knowledge_layer",
+                collection="oib_knowledge",
+                tool_name="knowledge_search",
+            )
+        )
+        registry.add(SourceEntry(url="https://example.com/a", source_type="generic", tool_name="web_search_tool"))
+        return registry
+
+    def _cited_artifacts(self, report: str) -> list[dict]:
+        from aiq_agent.common.citation_verification import reset_session_registry
+        from aiq_agent.common.citation_verification import set_session_registry
+
+        callback = DeepResearchEventCallback()
+        emitted: list[dict] = []
+        token = set_session_registry(self._registry())
+        try:
+            with patch.object(
+                callback,
+                "_emit_artifact",
+                side_effect=lambda artifact_type, content, **kw: emitted.append(
+                    {"type": artifact_type, "content": content, **kw}
+                ),
+            ):
+                callback._emit_cited_sources(report)
+        finally:
+            reset_session_registry(token)
+        return [item for item in emitted if item["type"] == ArtifactType.CITATION_USE]
+
+    REPORT = (
+        "Brandabschnitte sind zu begrenzen [1]. Weiteres [2].\n\n"
+        "## Sources\n"
+        "- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12\n"
+        "- [2] [Web] Beispiel: https://example.com/a\n"
+    )
+
+    def test_a_cited_document_is_flagged(self):
+        cited = self._cited_artifacts(self.REPORT)
+        keys = [item.get("citation_key") for item in cited]
+        assert "oib-rl_2_ausgabe_mai_2023.pdf, p.12" in keys
+
+    def test_the_web_source_is_still_flagged(self):
+        cited = self._cited_artifacts(self.REPORT)
+        assert any(item.get("url") == "https://example.com/a" for item in cited)
+
+    def test_a_cited_document_carries_its_structured_wire(self):
+        cited = self._cited_artifacts(self.REPORT)
+        document = next(item for item in cited if item.get("citation_key"))
+        assert document["file_name"] == "oib-rl_2_ausgabe_mai_2023.pdf"
+        assert document["page"] == 12
+        assert document["kind"] == "baurecht"
+
+    def test_a_document_the_report_never_names_is_not_flagged(self):
+        cited = self._cited_artifacts("Ein Bericht ohne Quellenangaben.")
+        assert [item.get("citation_key") for item in cited] == []
+
+    def test_a_document_only_MENTIONED_in_prose_is_not_flagged(self):
+        """Naming a document is not citing it — it may be the opposite.
+
+        This runs on intermediate agent output too, where documents are
+        discussed far more often than cited. The URL path gets away with a
+        looser rule only because URLs rarely appear in prose; filenames
+        routinely do.
+        """
+        prose = (
+            "Ich konnte oib-rl_2_ausgabe_mai_2023.pdf nicht vollständig abrufen "
+            "und habe daher keine belastbare Aussage."
+        )
+        assert [item.get("citation_key") for item in self._cited_artifacts(prose)] == []
+
+    def test_only_the_document_in_the_source_section_is_flagged(self):
+        report = (
+            "Zu einem zweiten Dokument, oib-rl_2_ausgabe_mai_2023.pdf, liegen mir "
+            "keine Angaben vor. Belegt ist hingegen [1].\n\n"
+            "## Quellen\n"
+            "- [1] [Web] Beispiel: https://example.com/a\n"
+        )
+        cited = self._cited_artifacts(report)
+        assert [item.get("citation_key") for item in cited if item.get("citation_key")] == []
+        assert any(item.get("url") == "https://example.com/a" for item in cited)
+
+    def test_emission_is_idempotent_across_repeated_outputs(self):
+        from aiq_agent.common.citation_verification import reset_session_registry
+        from aiq_agent.common.citation_verification import set_session_registry
+
+        callback = DeepResearchEventCallback()
+        emitted: list[dict] = []
+        token = set_session_registry(self._registry())
+        try:
+            with patch.object(
+                callback,
+                "_emit_artifact",
+                side_effect=lambda artifact_type, content, **kw: emitted.append({"type": artifact_type, **kw}),
+            ):
+                callback._emit_cited_sources(self.REPORT)
+                callback._emit_cited_sources(self.REPORT)
+        finally:
+            reset_session_registry(token)
+        cited = [item for item in emitted if item["type"] == ArtifactType.CITATION_USE]
+        assert len(cited) == 2  # one document + one URL, each emitted once
+
+    def test_without_a_registry_documents_are_not_guessed(self):
+        callback = DeepResearchEventCallback()
+        emitted: list[dict] = []
+        with patch.object(
+            callback,
+            "_emit_artifact",
+            side_effect=lambda artifact_type, content, **kw: emitted.append({"type": artifact_type, **kw}),
+        ):
+            callback._emit_cited_documents(self.REPORT)
+        assert emitted == []
+
+
+class _StubMessage:
+    """Minimal LLM message shape ``_extract_llm_response`` understands.
+
+    A MagicMock cannot stand in here: every ``hasattr`` on it is true, so the
+    handler would read a Mock as a tool call and skip the output path entirely.
+    """
+
+    def __init__(self, content: str) -> None:
+        self.content = content
+        self.tool_calls: list = []
+        self.additional_kwargs: dict = {}
+        self.response_metadata: dict = {}
+
+
+class _StubGeneration:
+    def __init__(self, content: str) -> None:
+        self.message = _StubMessage(content)
+
+
+class _StubLLMResult:
+    def __init__(self, content: str) -> None:
+        self.generations = [[_StubGeneration(content)]]
+
+
+def _kb_registry():
+    """A registry holding one OIB document and one web page, as a run would."""
+    from aiq_agent.common.citation_verification import SourceEntry
+    from aiq_agent.common.citation_verification import SourceRegistry
+
+    registry = SourceRegistry()
+    registry.add(
+        SourceEntry(
+            citation_key="oib-rl_2_ausgabe_mai_2023.pdf, p.12",
+            title="OIB-Richtlinie 2",
+            source_type="knowledge_layer",
+            collection="oib_knowledge",
+            tool_name="knowledge_search",
+        )
+    )
+    registry.add(SourceEntry(url="https://example.com/a", source_type="generic", tool_name="web_search_tool"))
+    return registry
+
+
+def _capture_artifacts(callback):
+    """Patch ``_emit_artifact`` and collect every emitted artifact as a dict."""
+    emitted: list[dict] = []
+    patcher = patch.object(
+        callback,
+        "_emit_artifact",
+        side_effect=lambda artifact_type, content, **kw: emitted.append(
+            {"type": artifact_type, "content": content, **kw}
+        ),
+    )
+    return emitted, patcher
+
+
+def _cited(emitted: list[dict]) -> list[dict]:
+    return [item for item in emitted if item["type"] == ArtifactType.CITATION_USE]
+
+
+REPORT_CITING_BOTH = (
+    "Brandabschnitte sind zu begrenzen [1]. Ergänzend gilt [2].\n\n"
+    "## Quellen\n"
+    "- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12\n"
+    "- [2] [Web] Beispiel: https://example.com/a\n"
+)
+
+
+class TestCitedSourceRegistryResolution:
+    """A knowledge-base citation must be markable as cited INSIDE A JOB.
+
+    ``_get_source_registry`` used to read the session-scoped contextvar only,
+    and nothing binds that inside a Dask worker — only the synchronous chat
+    paths call ``set_session_registry``. So in a deep-research job the lookup
+    always returned None, ``_emit_cited_documents`` early-returned, and no OIB
+    document could ever be marked cited: the live panel showed a run's four
+    Richtlinien as merely "discovered" next to the one web page it cited.
+    """
+
+    def test_an_attached_registry_marks_a_document_cited(self):
+        callback = DeepResearchEventCallback(source_registry=_kb_registry())
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.emit_final_report(REPORT_CITING_BOTH)
+
+        keys = [item.get("citation_key") for item in _cited(emitted)]
+        assert "oib-rl_2_ausgabe_mai_2023.pdf, p.12" in keys
+
+    def test_an_attached_registry_still_marks_the_web_source_cited(self):
+        callback = DeepResearchEventCallback(source_registry=_kb_registry())
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.emit_final_report(REPORT_CITING_BOTH)
+
+        assert any(item.get("url") == "https://example.com/a" for item in _cited(emitted))
+
+    def test_a_provider_callable_is_resolved_at_emit_time(self):
+        """The wiring hands over an accessor, not a snapshot.
+
+        ``SourceRegistryMiddleware.active_registry`` prefers a session registry
+        when one exists, so calling it late is what keeps the callback pointed
+        at the registry ``verify_citations`` will actually use.
+        """
+        registry = _kb_registry()
+        calls: list[int] = []
+
+        def provider():
+            calls.append(1)
+            return registry
+
+        callback = DeepResearchEventCallback()
+        callback.set_source_registry(provider)
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.emit_final_report(REPORT_CITING_BOTH)
+
+        assert calls, "the provider was never called"
+        assert any(item.get("citation_key") for item in _cited(emitted))
+
+    def test_a_broken_provider_falls_back_to_the_session_registry(self):
+        """Transparency artifacts never fail a job — not even on bad wiring."""
+        from aiq_agent.common.citation_verification import reset_session_registry
+        from aiq_agent.common.citation_verification import set_session_registry
+
+        def provider():
+            raise RuntimeError("registry handle went away")
+
+        callback = DeepResearchEventCallback(source_registry=provider)
+        emitted, patcher = _capture_artifacts(callback)
+        token = set_session_registry(_kb_registry())
+        try:
+            with patcher:
+                callback.emit_final_report(REPORT_CITING_BOTH)
+        finally:
+            reset_session_registry(token)
+
+        assert any(item.get("citation_key") for item in _cited(emitted))
+
+    def test_tool_results_alone_are_enough_to_mark_a_document_cited(self):
+        """No wiring at all: the mirror built from the run's own tool results.
+
+        This is the tier that makes a job truthful with no change outside the
+        callback — the same parser the SourceRegistryMiddleware uses, over the
+        same tool output, so the mirror cannot drift in shape from the real
+        registry.
+        """
+        callback = DeepResearchEventCallback()
+        tool_output = (
+            "Found 1 relevant document(s):\n\n"
+            "--- Result 1 ---\n"
+            "Source: oib-rl_2_ausgabe_mai_2023.pdf\n"
+            "Page: 12\n"
+            "Citation: oib-rl_2_ausgabe_mai_2023.pdf, p.12\n"
+            "Collection: oib_knowledge\n\n"
+            "Brandabschnitte sind zu begrenzen."
+        )
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.on_tool_end(tool_output, run_id="run-kb", name="knowledge_search")
+            callback.emit_final_report(REPORT_CITING_BOTH)
+
+        keys = [item.get("citation_key") for item in _cited(emitted)]
+        assert "oib-rl_2_ausgabe_mai_2023.pdf, p.12" in keys
+
+    def test_a_document_no_tool_ever_returned_is_not_guessed(self):
+        """An empty mirror is "no registry", not "a registry that knows nothing".
+
+        Treating it as a registry would make every document citation
+        unverifiable-but-unchecked instead of simply undecided.
+        """
+        callback = DeepResearchEventCallback()
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.emit_final_report(REPORT_CITING_BOTH)
+
+        assert [item.get("citation_key") for item in _cited(emitted) if item.get("citation_key")] == []
+
+
+class TestVerifiedCitedSourceStream:
+    """ "Cited" is claimed only for citations the FINAL, verified report carries.
+
+    ``_emit_cited_sources`` used to run on raw ``on_llm_end`` content, which is
+    produced before ``verify_citations`` (in ``DeepResearcherAgent._finalize``)
+    strips fabricated or unverifiable citations — and before the writer decides
+    which of an intermediate agent's sources reach the answer at all. The
+    frontend's merge is monotonic (``isCited`` is sticky once true), so a
+    premature claim could never be taken back.
+    """
+
+    def test_raw_streaming_output_claims_nothing_as_cited(self):
+        callback = DeepResearchEventCallback(source_registry=_kb_registry())
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.on_llm_end(_StubLLMResult(REPORT_CITING_BOTH + "x" * 200), run_id="run-1")
+
+        assert _cited(emitted) == []
+        # The output artifact itself still streams — only the "cited" claim waits.
+        assert any(item["type"] == ArtifactType.OUTPUT for item in emitted)
+
+    def test_the_verified_report_is_what_announces_cited_sources(self):
+        callback = DeepResearchEventCallback(source_registry=_kb_registry())
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.on_llm_end(_StubLLMResult(REPORT_CITING_BOTH + "x" * 200), run_id="run-1")
+            callback.emit_final_report(REPORT_CITING_BOTH)
+
+        cited = _cited(emitted)
+        assert any(item.get("citation_key") for item in cited)
+        assert any(item.get("url") == "https://example.com/a" for item in cited)
+
+    def test_a_citation_verification_stripped_is_never_announced(self):
+        """The real verifier decides; the stream only reports its verdict.
+
+        The stripped citation here is a DOCUMENT the run genuinely retrieved,
+        not an invented URL, and that distinction is the whole test. A
+        fabricated URL is refused by the callback's own registry check on its
+        own, so a draft-driven stream would decline to announce it anyway and
+        the assertion would hold whether or not the emit site was ever fixed —
+        false comfort, in the shape of a passing test.
+
+        So the never-retrieved URL is hung off the line naming the real OIB
+        Richtlinie. Verification reads the URL, finds it unbacked, and drops
+        the whole line, so the verified report no longer claims that document —
+        while the DRAFT still names it and the callback's document matcher
+        would happily accept it, because the run really did retrieve it. That
+        is a stripped citation the old code announced.
+        """
+        from aiq_agent.common.citation_verification import verify_citations
+
+        registry = _kb_registry()
+        draft = (
+            "Brandabschnitte sind zu begrenzen [1]. Weiters [2].\n\n"
+            "## Quellen\n"
+            "- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12: "
+            "https://fabricated.example.org/nie-abgerufen\n"
+            "- [2] [Web] Beispiel: https://example.com/a\n"
+        )
+        verification = verify_citations(draft, registry)
+        assert verification.removed_citations, "fixture no longer exercises a stripped citation"
+        assert "oib-rl_2_ausgabe_mai_2023.pdf" not in verification.verified_report, (
+            "fixture no longer strips the RETRIEVED document, so it cannot discriminate"
+        )
+
+        callback = DeepResearchEventCallback(source_registry=registry)
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.on_llm_end(_StubLLMResult(draft + "x" * 200), run_id="run-1")
+            callback.emit_final_report(verification.verified_report)
+
+        cited = _cited(emitted)
+        cited_urls = [item.get("url") for item in cited]
+        cited_keys = [item.get("citation_key") for item in cited]
+        # The retrieved-but-stripped document: announcing it is the real bug.
+        assert "oib-rl_2_ausgabe_mai_2023.pdf, p.12" not in cited_keys
+        assert "https://fabricated.example.org/nie-abgerufen" not in cited_urls
+        assert "https://example.com/a" in cited_urls
+
+    def test_a_source_only_an_intermediate_agent_cited_is_not_announced(self):
+        """The writer drops sources; the panel must drop them too.
+
+        A researcher's notes cite everything that worker retrieved. Announcing
+        those as cited marked sources the finished answer never carries — and
+        with `isCited` sticky in the frontend, permanently.
+        """
+        from aiq_agent.common.citation_verification import SourceEntry
+
+        registry = _kb_registry()
+        registry.add(SourceEntry(url="https://example.com/b", source_type="generic", tool_name="web_search_tool"))
+        notes = (
+            "Recherchenotizen: Beides ist einschlägig [1][2].\n\n"
+            "## Quellen\n"
+            "- [1] [Web] Beispiel A: https://example.com/a\n"
+            "- [2] [Web] Beispiel B: https://example.com/b\n"
+        ) + "x" * 200
+        final_report = (
+            "Brandabschnitte sind zu begrenzen [1].\n\n## Quellen\n- [1] [Web] Beispiel A: https://example.com/a\n"
+        )
+
+        callback = DeepResearchEventCallback(source_registry=registry)
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.on_llm_end(_StubLLMResult(notes), run_id="run-researcher")
+            callback.emit_final_report(final_report)
+
+        cited_urls = [item.get("url") for item in _cited(emitted)]
+        assert cited_urls == ["https://example.com/a"]
+
+    def test_the_runners_second_emit_does_not_duplicate_citations(self):
+        """The runner re-emits the same report with Grid cards attached."""
+        callback = DeepResearchEventCallback(source_registry=_kb_registry())
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher:
+            callback.emit_final_report(REPORT_CITING_BOTH)
+            callback.emit_final_report(REPORT_CITING_BOTH, cards=[{"type": "legal_basis"}])
+
+        assert len(_cited(emitted)) == 2  # one document + one URL, each once
+
+    def test_a_citation_failure_never_costs_the_user_the_report(self):
+        callback = DeepResearchEventCallback(source_registry=_kb_registry())
+        emitted, patcher = _capture_artifacts(callback)
+        with patcher, patch.object(callback, "_emit_cited_sources", side_effect=RuntimeError("boom")):
+            callback.emit_final_report(REPORT_CITING_BOTH)
+
+        assert [item["type"] for item in emitted] == [ArtifactType.OUTPUT]

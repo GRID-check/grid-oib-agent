@@ -1,83 +1,19 @@
-import { NextResponse } from 'next/server'
-import { and, eq } from 'drizzle-orm'
-import { requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { requireProjectAccess } from '@/lib/authz/projects'
-import { isAuthzError } from '@/lib/auth-utils'
-import { getDb } from '@/lib/db'
-import { projects } from '@/lib/db/schema'
-import { invalidateProjectPromptViewCache } from '@/lib/project-profile/prompt-view'
-import { loadProjectPromptView } from '@/lib/project-profile/prompt-view'
-import type { ProjectProfileDisplay } from '@/lib/project-profile/types'
+/**
+ * Project summary generation API — generate and persist an AI profile summary.
+ * Thin handler; the backend call and persistence live in
+ * `@/lib/project-profile/profile-service`.
+ */
 
-const BACKEND_URL = (process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000').replace(/\/$/, '')
+import { apiRoute } from '@/lib/api/handler'
+import { generateProjectSummary } from '@/lib/project-profile/profile-service'
 
-export async function POST(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
-): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const { id } = await params
-
-    await requireProjectAccess(session, id, 'project:edit')
-
-    const profileText = await loadProjectPromptView(id)
-    if (!profileText) {
-      return NextResponse.json({ summary: '' })
-    }
-
-    const backendUrl = `${BACKEND_URL}/v1/generate-summary`
-    const backendRes = await fetch(backendUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profile_text: profileText }),
-    })
-
-    if (!backendRes.ok) {
-      const errorText = await backendRes.text()
-      console.error('[GenerateSummary] Backend error:', backendRes.status, errorText)
-      return NextResponse.json({ error: 'Summary generation failed' }, { status: 502 })
-    }
-
-    const { summary, error } = await backendRes.json() as { summary: string; error?: string | null }
-
-    // Best-effort contract: generation failures are non-fatal (HTTP 200), but
-    // surface the backend's diagnostic code so the wizard/logs can report it.
-    if (error) {
-      console.error('[GenerateSummary] Generation failed:', error)
-      return NextResponse.json({ summary: '', error })
-    }
-
-    // Only persist a real summary — never let an empty result clobber an
-    // existing good one.
-    if (summary) {
-      const db = getDb()
-      const [current] = await db
-        .select({ profileDisplay: projects.profileDisplay })
-        .from(projects)
-        .where(eq(projects.id, id))
-        .limit(1)
-
-      if (current?.profileDisplay) {
-        const updatedDisplay: ProjectProfileDisplay = {
-          ...current.profileDisplay,
-          summary,
-        }
-        await db
-          .update(projects)
-          .set({ profileDisplay: updatedDisplay })
-          .where(and(eq(projects.id, id)))
-      }
-    }
-
-    invalidateProjectPromptViewCache(id)
-
-    return NextResponse.json({ summary })
-  } catch (error) {
-    if (isAuthzError(error)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-    console.error('[GenerateSummary] Error:', error)
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
-  }
-}
+export const POST = apiRoute<{ id: string }>(
+  async ({ session, params, request }) => {
+    // Optional body: { locale } — the UI language the summary should be written
+    // in. Tolerate an absent/invalid body (legacy callers sent none).
+    const body = (await request.json().catch(() => null)) as { locale?: unknown } | null
+    const locale = typeof body?.locale === 'string' ? body.locale : undefined
+    return generateProjectSummary(session, params.id, { locale })
+  },
+  { authz: { enforcedBy: 'generateProjectSummary (requireProjectAccess project:edit)' } }
+)

@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('@/lib/auth/require-auth', () => ({
@@ -24,6 +27,7 @@ const baseSession = {
   organizationMembershipId: 'om_1',
   role: 'member',
   permissions: [] as string[],
+  featureFlags: null,
 }
 
 function createStream(): ReadableStream<Uint8Array> {
@@ -56,6 +60,7 @@ describe('/api/jobs/async/[...path]', () => {
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 'proj_proj-1', 's_conv-1'],
+        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 'proj_proj-1', shelf: 'project' }, { collection: 's_conv-1', shelf: 'session' }],
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: 'conv-1',
@@ -89,6 +94,7 @@ describe('/api/jobs/async/[...path]', () => {
       process.env.REQUIRE_AUTH = 'false'
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 's_conv-1'],
+        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 's_conv-1', shelf: 'session' }],
         headerValue: 'anon-scope',
         projectId: undefined,
         conversationId: 'conv-1',
@@ -135,6 +141,7 @@ describe('/api/jobs/async/[...path]', () => {
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 'proj_proj-1', 's_conv-1'],
+        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 'proj_proj-1', shelf: 'project' }, { collection: 's_conv-1', shelf: 'session' }],
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: 'conv-1',
@@ -189,6 +196,7 @@ describe('/api/jobs/async/[...path]', () => {
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 'proj_proj-1'],
+        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 'proj_proj-1', shelf: 'project' }],
         headerValue: 'delete-scope',
         projectId: 'proj-1',
         conversationId: undefined,

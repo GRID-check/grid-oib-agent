@@ -1,16 +1,20 @@
-import { NextResponse } from 'next/server'
+/**
+ * Project memory API — list and manually add memory items.
+ * Thin handlers; authz and logic live in `@/lib/projects/service`.
+ */
+
 import { z } from 'zod'
-import { requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { requireProjectAccess } from '@/lib/authz/projects'
-import { isAuthzError } from '@/lib/auth-utils'
-import {
-  createProjectMemoryItem,
-  listProjectMemory,
-} from '@/lib/projects/memory-service'
-import {
-  PROJECT_MEMORY_CONFIDENCES,
-  PROJECT_MEMORY_KINDS,
-} from '@/lib/db/schema'
+import { apiRoute, parseJsonBody, parseQuery } from '@/lib/api/handler'
+import { addProjectMemoryItem, getProjectMemory } from '@/lib/projects/service'
+import { PROJECT_MEMORY_CONFIDENCES, PROJECT_MEMORY_KINDS } from '@/lib/db/schema'
+
+type Params = { id: string }
+
+const listMemoryQuerySchema = z.object({
+  includeArchived: z.string().optional(),
+  // Optional: scope to a single conversation (the chat "Piloti noted N" chip).
+  conversationId: z.string().optional(),
+})
 
 const createMemorySchema = z.object({
   kind: z.enum(PROJECT_MEMORY_KINDS),
@@ -19,72 +23,25 @@ const createMemorySchema = z.object({
   pinned: z.boolean().optional(),
 })
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> },
-): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const { id } = await params
-
-    await requireProjectAccess(session, id, 'project:view')
-
-    const { searchParams } = new URL(request.url)
-    const includeArchived = searchParams.get('includeArchived') === 'true'
-    // Optional: scope to a single conversation (the chat "Grid noted N" chip).
-    const sourceConversationId = searchParams.get('conversationId') || undefined
-    // Includes the org-wide items that apply to every project in the org.
-    const items = await listProjectMemory(id, {
-      includeArchived,
-      organizationId: session.organizationId,
-      sourceConversationId,
+export const GET = apiRoute<Params>(
+  async ({ session, params, request }) => {
+    const query = parseQuery(request, listMemoryQuerySchema)
+    const items = await getProjectMemory(session, params.id, {
+      includeArchived: query.includeArchived === 'true',
+      sourceConversationId: query.conversationId || undefined,
     })
-    return NextResponse.json({ items })
-  } catch (error) {
-    if (isAuthzError(error)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-    console.error('[Project Memory API] GET error:', error)
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
+    return { items }
+  },
+  { authz: { enforcedBy: 'getProjectMemory (requireProjectAccess project:view)' } }
+)
+
+export const POST = apiRoute<Params>(
+  async ({ session, params, request }) => {
+    const input = await parseJsonBody(request, createMemorySchema)
+    return { item: await addProjectMemoryItem(session, params.id, input) }
+  },
+  {
+    status: 201,
+    authz: { enforcedBy: 'addProjectMemoryItem (requireProjectAccess project:memory:write)' },
   }
-}
-
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> },
-): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const { id } = await params
-
-    await requireProjectAccess(session, id, 'project:edit')
-
-    const body = await request.json().catch(() => null)
-    const parsed = createMemorySchema.safeParse(body)
-    if (!parsed.success) {
-      return NextResponse.json({ error: 'Invalid memory item.' }, { status: 400 })
-    }
-
-    const item = await createProjectMemoryItem({
-      scope: 'project',
-      projectId: id,
-      organizationId: session.organizationId,
-      kind: parsed.data.kind,
-      content: parsed.data.content,
-      confidence: parsed.data.confidence ?? 'medium',
-      pinned: parsed.data.pinned ?? false,
-      // Manually-added items are user-authored and user-confirmed by definition.
-      provenanceType: 'user',
-      verification: 'user_confirmed',
-      createdBy: session.userId,
-    })
-
-    return NextResponse.json({ item }, { status: 201 })
-  } catch (error) {
-    if (isAuthzError(error)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-    console.error('[Project Memory API] POST error:', error)
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
-  }
-}
+)

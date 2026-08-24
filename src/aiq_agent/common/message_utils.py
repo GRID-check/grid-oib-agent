@@ -1,5 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
 """Message utilities for extracting content from conversation history."""
 
 from __future__ import annotations
@@ -10,6 +8,28 @@ from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 
 logger = logging.getLogger(__name__)
+
+
+def content_to_text(content: object) -> str:
+    """Normalize LLM message content to plain text.
+
+    Chat models may return ``content`` as a string or as a list of content
+    blocks (e.g. ``[{"type": "text", "text": "..."}]``); the parsing helpers
+    below all expect a string.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and isinstance(block.get("text"), str):
+                parts.append(block["text"])
+            elif isinstance(getattr(block, "text", None), str):
+                parts.append(block.text)
+        return "\n".join(parts)
+    return str(content) if content is not None else ""
 
 
 def get_latest_user_query(messages: list[BaseMessage]) -> str:
@@ -26,12 +46,12 @@ def get_latest_user_query(messages: list[BaseMessage]) -> str:
     """
     for message in reversed(messages):
         if isinstance(message, HumanMessage):
-            return message.content
+            return content_to_text(message.content)
 
     if messages:
         last_message = messages[-1]
         if hasattr(last_message, "content"):
-            return last_message.content
+            return content_to_text(last_message.content)
 
     logger.warning("No user message found in conversation history, returning empty string")
     return ""

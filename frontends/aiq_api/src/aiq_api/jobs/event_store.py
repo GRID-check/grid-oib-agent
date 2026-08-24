@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Event store for real-time SSE streaming.
 
 Uses async SQLAlchemy with psycopg (psycopg3) for PostgreSQL - the same driver
@@ -26,6 +11,9 @@ import logging
 import threading
 import time
 from typing import Any
+
+from aiq_agent.common.db_utils import normalize_db_url as _normalize_db_url
+from aiq_agent.common.db_utils import redact_db_url
 
 logger = logging.getLogger(__name__)
 
@@ -58,28 +46,6 @@ ENGINE_CACHE_TTL_SECONDS = 3600
 ENGINE_CACHE_MAX_SIZE = 10
 
 
-def _normalize_db_url(db_url: str, async_mode: bool = True) -> str:
-    """
-    Normalize database URL to use consistent drivers.
-
-    For PostgreSQL: Uses psycopg (psycopg3) for both sync and async
-    For SQLite: Uses aiosqlite for async, standard sqlite for sync
-    """
-    if db_url.startswith("postgresql") or db_url.startswith("postgres"):
-        base_url = db_url.replace("+asyncpg", "").replace("+psycopg2", "").replace("+psycopg", "")
-        if not base_url.startswith("postgresql://"):
-            base_url = base_url.replace("postgres://", "postgresql://")
-        return (
-            f"{base_url.replace('postgresql://', 'postgresql+psycopg://')}"
-            if async_mode
-            else base_url.replace("postgresql://", "postgresql+psycopg://")
-        )
-    elif db_url.startswith("sqlite"):
-        base_url = db_url.replace("+aiosqlite", "")
-        return base_url.replace("sqlite:///", "sqlite+aiosqlite:///") if async_mode else base_url
-    return db_url
-
-
 class EventStore:
     """
     Event store for real-time SSE streaming using SQLAlchemy.
@@ -104,7 +70,7 @@ class EventStore:
     def __init__(self, db_url: str = "sqlite+aiosqlite:///./jobs.db", job_id: str | None = None):
         self.db_url = db_url
         self.job_id = job_id
-        self._is_postgres = db_url.startswith("postgresql")
+        self._is_postgres = db_url.startswith("postgres")
         self._sync_engine = self._get_or_create_sync_engine(db_url)
         self._ensure_table_sync()
 
@@ -143,7 +109,7 @@ class EventStore:
                 connect_args=connect_args,
             )
             cls._sync_engine_cache[db_url] = (engine, time.monotonic())
-            logger.debug("Created sync engine for %s", db_url[:50])
+            logger.debug("Created sync engine for %s", redact_db_url(db_url))
             return engine
 
     @classmethod
@@ -169,7 +135,7 @@ class EventStore:
                 pool_recycle=1800,
             )
             cls._async_engine_cache[db_url] = (engine, time.monotonic())
-            logger.debug("Created async engine for %s", db_url[:50])
+            logger.debug("Created async engine for %s", redact_db_url(db_url))
             return engine
 
     @classmethod
@@ -201,7 +167,7 @@ class EventStore:
             return
 
         if log_debug_key:
-            logger.debug("Disposed stale engine for %s", log_debug_key[:50])
+            logger.debug("Disposed stale engine for %s", redact_db_url(log_debug_key))
 
         if asyncio.iscoroutine(dispose_result):
             try:
@@ -285,12 +251,13 @@ class EventStore:
             Column("event_data", Text, nullable=True),
             Column("created_at", DateTime, server_default=func.now()),
             Index("idx_job_events_job_id_id", "job_id", "id"),
+            Index("idx_job_events_created_at", "created_at"),
         )
 
         inspector = inspect(self._sync_engine)
         if not inspector.has_table("job_events"):
             metadata.create_all(self._sync_engine)
-            logger.info("Created job_events table in %s", self.db_url[:50])
+            logger.info("Created job_events table in %s", redact_db_url(self.db_url))
 
         EventStore._tables_initialized.add(self.db_url)
 
@@ -322,13 +289,14 @@ class EventStore:
             Column("event_data", Text, nullable=True),
             Column("created_at", DateTime, server_default=func.now()),
             Index("idx_job_events_job_id_id", "job_id", "id"),
+            Index("idx_job_events_created_at", "created_at"),
         )
 
         async with engine.begin() as conn:
             await conn.run_sync(lambda sync_conn: metadata.create_all(sync_conn))
 
         cls._tables_initialized.add(db_url)
-        logger.info("Created job_events table (async) in %s", db_url[:50])
+        logger.info("Created job_events table (async) in %s", redact_db_url(db_url))
 
     def store(self, event: dict):
         """
@@ -469,9 +437,10 @@ class EventStore:
                 Column("event_data", Text, nullable=True),
                 Column("created_at", DateTime, server_default=func.now()),
                 Index("idx_job_events_job_id_id", "job_id", "id"),
+                Index("idx_job_events_created_at", "created_at"),
             )
             metadata.create_all(engine)
-            logger.info("Created job_events table in %s", db_url[:50])
+            logger.info("Created job_events table in %s", redact_db_url(db_url))
 
         cls._tables_initialized.add(db_url)
 
@@ -609,7 +578,7 @@ class EventStore:
     @classmethod
     def is_postgres(cls, db_url: str) -> bool:
         """Check if the database URL is for PostgreSQL."""
-        return db_url.startswith("postgresql")
+        return db_url.startswith("postgres")
 
     # -------------------------------------------------------------------------
     # Event Cleanup Methods
@@ -677,7 +646,7 @@ class EventStore:
 
         try:
             engine = cls._get_or_create_sync_engine(db_url)
-            is_postgres = db_url.startswith("postgresql")
+            is_postgres = db_url.startswith("postgres")
 
             with engine.connect() as conn:
                 if is_postgres:

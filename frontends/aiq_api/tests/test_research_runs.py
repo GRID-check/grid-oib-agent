@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Tests for the research-runs listing endpoint (GET /v1/jobs/async/jobs)."""
 
 from __future__ import annotations
@@ -173,6 +158,21 @@ class TestFindResearchRuns:
 
         assert total == 2
         assert [row["job_id"] for row in rows] == ["job-new"]
+
+    def test_pagination_stable_for_identical_created_at(self, db_url):
+        """job_id tiebreaker: identical created_at must not duplicate/drop rows across pages."""
+        principal = Principal(type="jwt", sub="user-1")
+        ts = datetime.now(UTC)
+        for job_id in ("job-a", "job-b", "job-c"):
+            _seed_job(db_url, job_id, principal, created_at=ts)
+
+        pages = [
+            _find_research_runs(db_url, False, None, None, None, None, None, 1, offset)[0][0]["job_id"]
+            for offset in (0, 1, 2)
+        ]
+
+        # Deterministic order (created_at DESC, job_id DESC) and full coverage.
+        assert pages == ["job-c", "job-b", "job-a"]
 
 
 @pytest.fixture

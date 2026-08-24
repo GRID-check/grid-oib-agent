@@ -2,8 +2,11 @@
 # Build once (deps cached), then `docker run` to get the full tsc error list.
 # Uses a public node image so it needs no registry auth.
 FROM node:22-slim
+# Bun installs; Node still runs tsc. See deploy/Dockerfile for why the base is
+# not an `oven/bun` image.
+COPY --from=oven/bun:1.3.11-slim /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --ignore-scripts
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile --ignore-scripts
 COPY . .
-CMD ["npx", "tsc", "--noEmit"]
+CMD ["./node_modules/.bin/tsc", "--noEmit"]

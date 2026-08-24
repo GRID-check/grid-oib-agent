@@ -14,7 +14,8 @@ import { type FC, useState } from 'react'
 import { ChevronDown, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
+import { formatTime } from '@/shared/utils/format-time'
 
 /** File artifact information from SSE events */
 export interface FileInfo {
@@ -31,14 +32,6 @@ export interface FileInfo {
 interface FileCardProps {
   /** File artifact information */
   file: FileInfo
-}
-
-/**
- * Format timestamp for display
- */
-const formatTime = (date: Date | string): string => {
-  const dateObj = typeof date === 'string' ? new Date(date) : date
-  return dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 /**
@@ -63,6 +56,7 @@ const isMarkdownFile = (filename: string): boolean => {
 export const FileCard: FC<FileCardProps> = ({ file }) => {
   const [isExpanded, setIsExpanded] = useState(false)
   const t = useTranslations('research')
+  const { locale } = useLocale()
 
   // Content preview (first 100 chars)
   const contentPreview = file.content
@@ -72,7 +66,7 @@ export const FileCard: FC<FileCardProps> = ({ file }) => {
   const shouldRenderMarkdown = isMarkdownFile(file.filename)
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border bg-muted/40">
+    <div className="flex flex-col overflow-hidden rounded-lg border bg-muted">
       {/* Header - always visible */}
       <button
         type="button"
@@ -84,7 +78,7 @@ export const FileCard: FC<FileCardProps> = ({ file }) => {
         <div className="flex w-full items-center gap-2 px-3 py-2">
           {/* File Icon */}
           <span className="shrink-0 text-muted-foreground" aria-hidden="true">
-            <FileText className="h-4 w-4" />
+            <FileText className="size-4" />
           </span>
 
           {/* File Info */}
@@ -102,19 +96,19 @@ export const FileCard: FC<FileCardProps> = ({ file }) => {
           {/* Timestamp */}
           {file.timestamp && (
             <span className="shrink-0 text-xs text-muted-foreground">
-              {formatTime(file.timestamp)}
+              {formatTime(file.timestamp, locale)}
             </span>
           )}
 
           {/* Expand/collapse icon */}
           <span
             className={cn(
-              'text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+              'text-muted-foreground transition-transform duration-quick motion-reduce:transition-none',
               isExpanded && 'rotate-180'
             )}
             aria-hidden="true"
           >
-            <ChevronDown className="h-4 w-4" />
+            <ChevronDown className="size-4" />
           </span>
         </div>
       </button>

@@ -18,6 +18,22 @@ export interface AgentGroupRequirements {
   requiredParameters: string[]
   /** Model's `context_length` must be at least this. */
   minContextLength: number
+  /**
+   * True when this group runs with reasoning DISABLED at the backend
+   * (`reasoning_effort: none`). Reasoning-mandatory models must not be
+   * selectable here — OpenRouter returns HTTP 400 "Reasoning is mandatory
+   * for this endpoint and cannot be disabled" and breaks every call.
+   * Enforced via `isReasoningSafeForOff` in openrouter.ts.
+   */
+  reasoningOff?: boolean
+  /**
+   * True when this group sends IMAGES to the model (a vision task). The model's
+   * `architecture.input_modalities` must include `image`, else it cannot see
+   * the page/drawing and ingestion produces empty captions. Enforced in
+   * `validateModelForGroup`; self-skips when a (BYOK) catalog carries no
+   * modality metadata, matching the text-input check.
+   */
+  requiresImageInput?: boolean
 }
 
 export interface AgentGroupDefinition {
@@ -40,7 +56,15 @@ export const AGENT_GROUPS: AgentGroupDefinition[] = [
     description:
       'Classifies each message (meta vs research, shallow vs deep) and writes short meta answers. High-frequency, latency-sensitive.',
     configLlmRefs: ['intent_llm'],
-    requirements: { requiredParameters: [], minContextLength: 16384 },
+    // The intent LLM runs with reasoning disabled: config_oib_openrouter.yml
+    // `intent_llm` sets `reasoning_effort: none`. Pointing this group at a
+    // reasoning-mandatory model (incident: org override `intent ->
+    // x-ai/grok-4.5`) makes OpenRouter reject every intent call with HTTP 400
+    // "Reasoning is mandatory for this endpoint and cannot be disabled".
+    // `reasoningOff` filters those out via a denylist of known reasoning-only
+    // families (isReasoningSafeForOff); hybrid models that accept reasoning-off
+    // — nearly the whole modern catalog — stay selectable.
+    requirements: { requiredParameters: [], minContextLength: 16384, reasoningOff: true },
   },
   {
     id: 'clarifier',
@@ -80,6 +104,42 @@ export const AGENT_GROUPS: AgentGroupDefinition[] = [
     configLlmRefs: ['card_llm'],
     requirements: { requiredParameters: [], minContextLength: 32768 },
   },
+  {
+    id: 'follow_ups',
+    label: 'Follow-up questions',
+    description:
+      'Post-answer background pass that reads the finished answer and proposes the two to four questions it just made askable. Short structured output; runs on substantive answers when enabled.',
+    configLlmRefs: ['follow_ups_llm'],
+    // Reasoning is deliberately OFF for this group (config_oib_openrouter.yml
+    // `follow_ups_llm` sets `reasoning_effort: none`): the stage declares a hard
+    // output-token ceiling, and on a reasoning-mandatory model the reasoning
+    // tokens are spent against that same ceiling, so the JSON body is truncated
+    // and a working stage silently becomes one that returns nothing.
+    requirements: { requiredParameters: [], minContextLength: 32768, reasoningOff: true },
+  },
+  {
+    id: 'ingest_vlm',
+    label: 'Document vision (ingestion)',
+    description:
+      'Captions images and describes vector/scanned drawings (plans, sections, elevations, perspectives) during document ingestion. Must be a vision model that accepts image input.',
+    // The ingestion VLM is env-configured (AIQ_VLM_MODEL), not a `llms:` entry;
+    // the backend reports its default under the synthetic `vlm` key from
+    // /v1/config/llm-defaults (see config_info.py) so this group still shows a
+    // "workflow default".
+    configLlmRefs: ['vlm'],
+    // Vision is the only hard requirement — a caption call needs no tools and
+    // little context; the image dominates the payload. minContextLength 0
+    // avoids excluding otherwise-valid vision models.
+    requirements: { requiredParameters: [], minContextLength: 0, requiresImageInput: true },
+  },
+  {
+    id: 'compliance_check',
+    label: 'OIB compliance check',
+    description:
+      'Staged Soll-Ist against the six OIB Richtlinien for this project. Bounded call count, not an open research loop.',
+    configLlmRefs: ['compliance_llm'],
+    requirements: { requiredParameters: [], minContextLength: 32768 },
+  },
 ]
 
 export const AGENT_GROUP_IDS = AGENT_GROUPS.map((group) => group.id)
@@ -90,3 +150,12 @@ export function getAgentGroup(id: string): AgentGroupDefinition | undefined {
 
 /** OpenRouter model ids are `author/slug` with an optional `:variant` suffix. */
 export const OPENROUTER_MODEL_ID_PATTERN = /^[A-Za-z0-9_.-]{1,64}\/[A-Za-z0-9_.:-]{1,128}$/
+
+/**
+ * BYOK-aware model id shape (ADR-0022): OpenRouter's `author/slug` OR a
+ * plain provider-native id (`gpt-4o`, `ft:gpt-4o:acme::abc`, Azure
+ * deployment names). The catalog-membership check in `validateOverrides`
+ * remains the real gate — this pattern only rejects obvious garbage.
+ * Mirrors `_MODEL_ID_RE` in `src/aiq_agent/common/model_overrides.py`.
+ */
+export const MODEL_ID_PATTERN = /^[A-Za-z0-9_.:-]{1,64}(\/[A-Za-z0-9_.:-]{1,128})?$/

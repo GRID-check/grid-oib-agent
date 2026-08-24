@@ -3,6 +3,7 @@
 import { useId, useState, type FC, type ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   Dialog,
@@ -22,6 +23,13 @@ export interface TypeToConfirmDialogProps {
   confirmName: string
   /** Label of the destructive button. */
   confirmLabel: string
+  /**
+   * The "type X to confirm" instruction. `{name}` is replaced with the
+   * emphasized confirmName. Defaults to English for back-compat.
+   */
+  typeToConfirmLabel?: string
+  /** Label of the cancel button. Defaults to English for back-compat. */
+  cancelLabel?: string
   onConfirm: () => void | Promise<void>
   /** Disables all controls while the deletion request is in flight. */
   pending?: boolean
@@ -34,12 +42,17 @@ export const TypeToConfirmDialog: FC<TypeToConfirmDialogProps> = ({
   description,
   confirmName,
   confirmLabel,
+  typeToConfirmLabel = 'Type {name} to confirm:',
+  cancelLabel = 'Cancel',
   onConfirm,
   pending = false,
 }) => {
   const [value, setValue] = useState('')
   const inputId = useId()
   const matches = value === confirmName
+  // Split the instruction around the {name} placeholder so the confirm name
+  // can be rendered emphasized in the middle, in any language's word order.
+  const [labelBefore, labelAfter] = typeToConfirmLabel.split('{name}')
 
   const handleOpenChange = (next: boolean) => {
     if (pending) return
@@ -58,28 +71,36 @@ export const TypeToConfirmDialog: FC<TypeToConfirmDialogProps> = ({
         </DialogHeader>
         <div className="flex flex-col gap-3">
           <div className="text-sm">{description}</div>
-          <label htmlFor={inputId} className="text-sm">
-            Type <span className="font-semibold">{confirmName}</span> to confirm:
-          </label>
-          <Input
-            id={inputId}
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-            placeholder={confirmName}
-            autoComplete="off"
-            spellCheck={false}
-            disabled={pending}
-          />
+          <Field>
+            <FieldLabel htmlFor={inputId} className="font-normal">
+              {labelBefore}
+              <span className="font-semibold">{confirmName}</span>
+              {labelAfter}
+            </FieldLabel>
+            <Input
+              id={inputId}
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              placeholder={confirmName}
+              autoComplete="off"
+              spellCheck={false}
+              disabled={pending}
+            />
+          </Field>
         </div>
         <DialogFooter>
           <DialogClose asChild>
             <Button variant="ghost" disabled={pending}>
-              Cancel
+              {cancelLabel}
             </Button>
           </DialogClose>
           <Button
             variant="destructive"
-            disabled={!matches || pending}
+            // `disabled` is already true until the name matches, so `pending`
+            // alone produced no visible change at all — the reader clicked and
+            // the dialog just sat there. `loading` is what says "it went".
+            disabled={!matches}
+            loading={pending}
             onClick={() => void onConfirm()}
           >
             {confirmLabel}

@@ -8,8 +8,9 @@
 'use client'
 
 import { type FC, useState } from 'react'
-import { ChevronDown, ChevronUp, AlertTriangle, XCircle, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, AlertTriangle, XCircle, X, RotateCw } from 'lucide-react'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
 import type { ErrorCode } from '../types'
@@ -28,10 +29,25 @@ export interface ErrorBannerProps {
   timestamp?: Date | string
   /** Optional callback when banner is dismissed */
   onDismiss?: () => void
+  /**
+   * Optional retry action. When provided, the banner renders a "Erneut
+   * versuchen" button (the design language mandates "helpful message + retry").
+   * Left optional so callers/specs that don't wire a retry are unaffected.
+   */
+  onRetry?: () => void
 }
 
 /**
- * Error banner for displaying connection, file, auth, and system errors
+ * Error banner for displaying connection, file, auth, and system errors.
+ *
+ * Motion: the banner arrives in the transcript with the same entrance every
+ * other chat turn uses — a 200ms fade-and-rise (`animate-in fade-in-0
+ * slide-in-from-bottom-1 duration-quick ease-out`) on mount only, never on
+ * re-render, so a banner that appears mid-conversation reads as the same class
+ * of object as the answer beside it. Dropped entirely under
+ * `prefers-reduced-motion` via `motion-reduce:animate-none` (design language
+ * §Motion vocabulary): the banner is fully legible without it, so no
+ * information depends on the animation.
  */
 export const ErrorBanner: FC<ErrorBannerProps> = ({
   code,
@@ -39,22 +55,30 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
   details,
   timestamp,
   onDismiss,
+  onRetry,
 }) => {
   const t = useTranslations('chat')
   const tc = useTranslations('common')
   const [isExpanded, setIsExpanded] = useState(false)
   const errorMeta = getErrorMeta(code)
 
-  // Use custom message if provided, otherwise use default from registry
-  const displayMessage = message || errorMeta.defaultMessage
+  // Prefer the caller-supplied (already-localized / interpolated) message.
+  // Otherwise localize the registry default via `messageKey`, falling back to
+  // the static English `defaultMessage` when the entry opts out or no provider
+  // is present.
+  const displayMessage =
+    message || (errorMeta.messageKey ? t(errorMeta.messageKey) : errorMeta.defaultMessage)
+  // Localize the title when the registry entry opts in via `titleKey`;
+  // otherwise fall back to the static (English) registry title.
+  const displayTitle = errorMeta.titleKey ? t(errorMeta.titleKey) : errorMeta.title
   const variant = errorMeta.status === 'error' ? 'destructive' : errorMeta.status
   const StatusIcon = errorMeta.status === 'error' ? XCircle : AlertTriangle
 
   return (
-    <div className="flex w-full flex-col gap-1">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full flex-col gap-1 duration-base ease-entrance motion-reduce:animate-none">
       <Alert variant={variant} className="relative">
         <StatusIcon />
-        <AlertTitle>{errorMeta.title}</AlertTitle>
+        <AlertTitle>{displayTitle}</AlertTitle>
         <AlertDescription>
           <span>
             {displayMessage}
@@ -70,9 +94,9 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
                 >
                   {isExpanded ? t('error.hideDetails') : t('error.showDetails')}
                   {isExpanded ? (
-                    <ChevronUp className="h-3 w-3" aria-hidden="true" />
+                    <ChevronUp className="size-3" aria-hidden="true" />
                   ) : (
-                    <ChevronDown className="h-3 w-3" aria-hidden="true" />
+                    <ChevronDown className="size-3" aria-hidden="true" />
                   )}
                 </button>
               </>
@@ -86,6 +110,19 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
               {details}
             </pre>
           )}
+          {onRetry && (
+            <div className="mt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onRetry}
+                aria-label={t('error.retry')}
+              >
+                <RotateCw className="size-3.5" aria-hidden="true" />
+                {t('error.retry')}
+              </Button>
+            </div>
+          )}
         </AlertDescription>
         {onDismiss && (
           <button
@@ -94,7 +131,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
             aria-label={tc('actions.close')}
             className="text-muted-foreground hover:text-foreground absolute right-3 top-3 rounded-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
           >
-            <X className="h-4 w-4" aria-hidden="true" />
+            <X className="size-4" aria-hidden="true" />
           </button>
         )}
       </Alert>

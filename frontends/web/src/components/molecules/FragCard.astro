@@ -1,0 +1,25 @@
+---
+interface Props {
+  tag: string
+  dx: number
+  dy: number
+  fx: number
+  fy: number
+  pos: Partial<Record<'left' | 'right' | 'top' | 'bottom', number>>
+}
+const { tag, dx, dy, fx, fy, pos } = Astro.props
+
+const posStyle = Object.entries(pos)
+  .map(([k, v]) => `${k}:${(v * 100).toFixed(1)}%`)
+  .join(';')
+---
+
+<div
+  class="absolute rounded-xl bg-ink px-3.5 py-2.5 shadow-frag"
+  style={posStyle}
+  data-frag={`${dx},${dy}`}
+  data-target={`${fx},${fy}`}
+>
+  <p class="font-display text-2xs uppercase tracking-label text-white/60">{tag}</p>
+  <p class="mt-1.5 font-mono text-2xs leading-normal text-white/90"><slot /></p>
+</div>

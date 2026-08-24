@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Structured response contracts for deep researcher planning, research, and synthesis."""
 
 from typing import ClassVar
@@ -21,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import field_validator
 
 
 class _StrictContract(BaseModel):
@@ -101,26 +87,39 @@ class ResearchQuery(_StrictContract):
 
     query: str = Field(description="Specific, self-contained search or document query.")
     subqueries: list[str] = Field(
-        default_factory=list,
         description=(
-            "Optional ordered concrete search angles for distinct facets unlikely to be covered by the main query. "
-            "Prefer leaving this empty for focused queries and creating separate ResearchQuery items for independent "
+            "Ordered concrete search angles for distinct facets unlikely to be covered by the main query. "
+            "Emit an empty list for focused queries; prefer creating separate ResearchQuery items for independent "
             "evidence needs."
         ),
     )
     preferred_tools: list[str] = Field(
-        min_length=1,
         description=(
             "Ordered exact available source tool names to prioritize for this query. "
             "The first item is the primary tool the researcher should use first."
         ),
     )
     fallback_tools: list[str] = Field(
-        default_factory=list,
-        description="Ordered exact available source tool names to use for corroboration or gaps.",
+        description="Ordered exact available source tool names to use for corroboration or gaps; empty list if none.",
     )
     target_components: list[str] = Field(description="Answer components this query is intended to support.")
     rationale: str = Field(description="Why this query is needed.")
+
+    @field_validator("preferred_tools", mode="after")
+    @classmethod
+    def _require_preferred_tools(cls, value: list[str]) -> list[str]:
+        """Enforce non-empty preferred_tools without a JSON-Schema minLength.
+
+        Field(min_length=1) compiles to a JSON-Schema minLength constraint,
+        which strict json_schema structured-output mode does not support (see
+        EvidenceJudgment.relevance_score below for the ge/le equivalent).
+        Unlike relevance_score, an empty preferred_tools list cannot be
+        clamped to a valid value -- there is no tool name to invent -- so this
+        raises, matching the previous Field(min_length=1) failure semantics.
+        """
+        if not value:
+            raise ValueError("preferred_tools must include at least one tool name")
+        return value
 
 
 class ResearchPlan(_StrictContract):
@@ -170,12 +169,25 @@ class EvidenceJudgment(_StrictContract):
     """Post-research judgment attached to a research note."""
 
     relevance_score: int = Field(
-        ge=0,
-        le=100,
         description="How useful this note is for the final answer, from 0 to 100.",
     )
     confidence: Literal["low", "medium", "high"] = Field(description="Confidence in this judgment.")
     rationale: str = Field(description="Concise explanation of the relevance score and confidence.")
+
+    @field_validator("relevance_score", mode="after")
+    @classmethod
+    def _clamp_relevance_score(cls, value: int) -> int:
+        """Clamp out-of-range scores instead of raising.
+
+        Field(ge=0, le=100) compiles to JSON-Schema minimum/maximum, which
+        strict json_schema structured-output mode does not support --
+        langchain's ProviderStrategy ships the schema verbatim (no
+        sanitization), causing provider 400s or inconsistent handling for
+        researcher-worker structured responses. A model returning 105 should
+        degrade gracefully to 100 rather than raising and killing the whole
+        research worker over a minor numeric overshoot.
+        """
+        return max(0, min(100, value))
 
 
 class ResearchNotes(_StrictContract):
@@ -190,6 +202,5 @@ class ResearchNotes(_StrictContract):
     narrative_notes: str = Field(description="Detailed synthesis preserving nuance for final answer writing.")
     language: str = Field(description="Language used in these research notes.")
     evidence_judgment: EvidenceJudgment | None = Field(
-        default=None,
-        description="Researcher self-assessment of this note's usefulness for final synthesis.",
+        description="Researcher self-assessment of this note's usefulness for final synthesis; null if not assessed.",
     )

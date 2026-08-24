@@ -11,6 +11,7 @@
 import { type FC } from 'react'
 import { Columns3, ThumbsUp } from 'lucide-react'
 import { SchematicCard, statusColor } from '../schematics/kit'
+import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { ComparisonRowData, NormReferenceData } from '../schematics/types'
 
@@ -31,27 +32,28 @@ export const ComparisonTableCard: FC<ComparisonTableCardProps> = ({
   reference,
   note,
 }) => {
+  const t = useTranslations('chat')
   const success = statusColor('pass')
 
   return (
     <SchematicCard
       icon={Columns3}
-      eyebrow="Vergleich"
+      eyebrow={t('cards.comparison.eyebrow')}
       title={title}
       note={note}
       reference={reference}
     >
       <div className="w-full overflow-x-auto">
-        <table className="w-full min-w-[320px] border-collapse text-xs">
+        <table className="w-full min-w-max border-collapse text-xs">
           <thead>
             <tr className="border-b">
               <th className="py-1.5 pr-3 text-left font-normal text-muted-foreground" scope="col">
-                Kriterium
+                {t('cards.comparison.criterion')}
               </th>
               {options.map((option, i) => (
                 <th
                   key={`opt-${i}`}
-                  className="px-3 py-1.5 text-left font-semibold text-foreground"
+                  className="min-w-24 whitespace-nowrap px-3 py-1.5 text-left font-semibold text-foreground"
                   scope="col"
                 >
                   {option}
@@ -73,7 +75,10 @@ export const ComparisonTableCard: FC<ComparisonTableCardProps> = ({
                   return (
                     <td
                       key={`cell-${ri}-${ci}`}
-                      className={cn('px-3 py-2 align-top text-foreground', highlighted && 'font-medium')}
+                      className={cn(
+                        'min-w-24 whitespace-nowrap px-3 py-2 align-top text-foreground',
+                        highlighted && 'font-medium',
+                      )}
                       style={
                         highlighted
                           ? { backgroundColor: `color-mix(in oklch, ${success} 10%, transparent)` }

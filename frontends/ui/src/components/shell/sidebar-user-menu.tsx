@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Building2, Check, Globe, LogOut, Monitor, Moon, Sun, UserRound } from 'lucide-react'
+import { Archive, Building2, Check, Globe, LayoutDashboard, LogOut, Monitor, Moon, Sun, UserRound } from 'lucide-react'
 
 import { useAuth } from '@/adapters/auth/use-auth'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -14,7 +14,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { motion, springSnappy } from '@/components/motion'
 import { useLayoutStore } from '@/features/layout/store'
 import type { ThemeMode } from '@/features/layout/types'
 import { useTranslations, useLocale, locales } from '@/i18n'
@@ -37,6 +36,29 @@ export interface SidebarUserMenuProps {
   compact?: boolean
   /** Show the org-management entry (org admins only). */
   canManageOrganization?: boolean
+  /**
+   * Show the organization entry to any org member. The org page serves
+   * capability subsets and a member self-usage view, so it is discoverable
+   * beyond full admins (UX-16). Falls back to {@link canManageOrganization}
+   * for callers that predate this flag.
+   */
+  canViewOrganization?: boolean
+  /** Show the platform dashboard entry (platform owner only, ADR-0016). */
+  canManagePlatform?: boolean
+  /** Show the org-wide Archiv entry (any org member, when enabled — ADR-0024). */
+  canAccessArchiv?: boolean
+  /**
+   * Tailwind size class for the trigger avatar. Defaults to the sidebar
+   * footer's 30px; the org top bar passes a 36px avatar to match the dummy.
+   */
+  avatarSizeClass?: string
+  /**
+   * The organization the reader is acting in, shown as an eyebrow above their
+   * name. Everything this product does — projects, the Archiv, the Inbox — is
+   * scoped to one organization, and until now nothing in the rail said which.
+   * Omitted when unresolvable, so a label lookup can never blank the footer.
+   */
+  organizationName?: string | null
 }
 
 const THEME_ICONS: Record<ThemeMode, React.ComponentType<{ className?: string }>> = {
@@ -53,8 +75,13 @@ export function SidebarUserMenu({
   menuAlign = 'start',
   compact = false,
   canManageOrganization = false,
+  canViewOrganization = false,
+  canManagePlatform = false,
+  canAccessArchiv = false,
+  avatarSizeClass = 'size-[30px]',
+  organizationName = null,
 }: SidebarUserMenuProps) {
-  const { signOut } = useAuth()
+  const { user: authUser, signOut } = useAuth()
   const theme = useLayoutStore((s) => s.theme)
   const setTheme = useLayoutStore((s) => s.setTheme)
   const t = useTranslations('nav')
@@ -62,30 +89,69 @@ export function SidebarUserMenu({
   const { locale, setLocale, localeNames } = useLocale()
 
   const displayName = user?.name || user?.email || t('userMenu.defaultUser')
-  const initial = String(displayName).charAt(0).toUpperCase()
+  // Two-letter monogram from the first two words (e.g. "Anna Kaufmann" → "AK"),
+  // falling back to a single initial for one-word names / email addresses.
+  const initial =
+    String(displayName)
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((word) => word.charAt(0))
+      .join('')
+      .toUpperCase() || '?'
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         className={cn(
           'flex items-center gap-2.5 text-left text-sm',
-          'transition-colors duration-200 ease-out hover:bg-accent',
+          'transition-[color,background-color,transform] duration-200 ease-out hover:bg-accent',
+          'active:scale-[0.98] motion-reduce:transition-none',
           'focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none',
-          compact ? 'w-auto rounded-full p-1' : 'h-9 w-full rounded-lg px-2',
+          compact ? 'w-auto rounded-full p-0' : 'w-full rounded-lg py-1 pl-0 pr-2',
         )}
         aria-label={t('userMenu.label', { name: displayName })}
       >
-        <motion.span className="flex shrink-0" whileTap={{ scale: 0.95 }} transition={springSnappy}>
-          <Avatar className="size-6">
-            {user?.image && <AvatarImage src={user.image} alt="" />}
+        <span className="flex shrink-0">
+          {/* The hairline is not decoration. `AvatarFallback` fills with
+              `bg-muted` (L 0.961), and the rail it sits on is
+              `--background-color-surface-sunken` (L 0.958) — a 0.3% lightness
+              step, so on this one surface the disc is invisible and the
+              monogram reads as loose text on the rail. An alpha-ink ring
+              composites on whatever surface the avatar lands on, which is
+              exactly what the border ramp is for, and it matches how
+              `AvatarStack` already separates overlapping discs. */}
+          <Avatar className={cn('ring-border ring-1', avatarSizeClass)}>
+            {(authUser?.image ?? user?.image) && <AvatarImage src={authUser?.image ?? user?.image ?? undefined} alt="" />}
             <AvatarFallback className="text-xs font-medium">{initial}</AvatarFallback>
           </Avatar>
-        </motion.span>
+        </span>
         {!compact && (
-          <span className="min-w-0 flex-1 truncate text-muted-foreground">{displayName}</span>
+          <span className="flex min-w-0 flex-1 flex-col">
+            {/* Org eyebrow. It sits ABOVE the name because it is the scope the
+                name acts in — read top-down it says "in Musterarchitektur, you
+                are Anna Berger".
+
+                Deliberately below the design language's 10.5px eyebrow: that
+                convention is for a label sitting OVER a section, and this one
+                sits UNDER a name. An org name is long user data, so at 10.5px
+                with `tracking-wider` it spread the full 236px and truncated
+                immediately, reading as a heading competing with the person.
+                Tiny, tight and quiet is the whole job.
+
+                `truncate` on both lines: neither may push the other. */}
+            {organizationName && (
+              <span className="text-muted-foreground/70 truncate text-[9.5px] font-medium tracking-wide uppercase">
+                {organizationName}
+              </span>
+            )}
+            <span className="text-muted-foreground truncate text-[12.5px] font-medium">
+              {displayName}
+            </span>
+          </span>
         )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align={menuAlign} side={menuSide} className="w-56">
+      <DropdownMenuContent align={menuAlign} side={menuSide} className="w-56 motion-reduce:animate-none">
         <DropdownMenuLabel>
           <div className="flex flex-col gap-0.5">
             <span className="text-sm font-medium">{displayName}</span>
@@ -104,11 +170,27 @@ export function SidebarUserMenu({
             {t('userMenu.profile')}
           </Link>
         </DropdownMenuItem>
-        {canManageOrganization && (
+        {canAccessArchiv && (
+          <DropdownMenuItem asChild className="gap-2">
+            <Link href="/app/archiv">
+              <Archive className="size-4 text-muted-foreground" aria-hidden />
+              {t('userMenu.archiv')}
+            </Link>
+          </DropdownMenuItem>
+        )}
+        {(canViewOrganization || canManageOrganization) && (
           <DropdownMenuItem asChild className="gap-2">
             <Link href="/app/organization">
               <Building2 className="size-4 text-muted-foreground" aria-hidden />
               {t('userMenu.organization')}
+            </Link>
+          </DropdownMenuItem>
+        )}
+        {canManagePlatform && (
+          <DropdownMenuItem asChild className="gap-2">
+            <Link href="/app/platform">
+              <LayoutDashboard className="size-4 text-muted-foreground" aria-hidden />
+              {t('userMenu.platform')}
             </Link>
           </DropdownMenuItem>
         )}

@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, test, expect, beforeEach, vi } from 'vitest'
 import { useLayoutStore } from './store'
 
@@ -15,7 +18,7 @@ describe('useLayoutStore', () => {
     // Reset store to initial state before each test (matches store.ts initialState)
     useLayoutStore.setState({
       isSessionsPanelOpen: false,
-      rightPanel: 'data-sources',
+      rightPanel: null,
       researchPanelTab: 'tasks',
       dataSourcesPanelTab: 'connections',
       enabledDataSourceIds: [],
@@ -24,6 +27,8 @@ describe('useLayoutStore', () => {
       knowledgeLayerAvailable: false,
       dataSourcesLoading: false,
       dataSourcesError: null,
+      deepResearchIntent: false,
+      activeSourcePreset: null,
     })
   })
 
@@ -32,7 +37,7 @@ describe('useLayoutStore', () => {
       const state = useLayoutStore.getState()
 
       expect(state.isSessionsPanelOpen).toBe(false)
-      expect(state.rightPanel).toBe('data-sources')
+      expect(state.rightPanel).toBeNull()
       expect(state.researchPanelTab).toBe('tasks')
       expect(state.dataSourcesPanelTab).toBe('connections')
     })
@@ -90,24 +95,12 @@ describe('useLayoutStore', () => {
       expect(useLayoutStore.getState().rightPanel).toBe('research')
     })
 
-    test('opens data-sources panel', () => {
-      useLayoutStore.getState().openRightPanel('data-sources')
-
-      expect(useLayoutStore.getState().rightPanel).toBe('data-sources')
-    })
-
-    test('opens settings panel', () => {
-      useLayoutStore.getState().openRightPanel('settings')
-
-      expect(useLayoutStore.getState().rightPanel).toBe('settings')
-    })
-
-    test('replaces existing panel', () => {
+    test('closing clears the panel', () => {
       useLayoutStore.setState({ rightPanel: 'research' })
 
-      useLayoutStore.getState().openRightPanel('settings')
+      useLayoutStore.getState().closeRightPanel()
 
-      expect(useLayoutStore.getState().rightPanel).toBe('settings')
+      expect(useLayoutStore.getState().rightPanel).toBeNull()
     })
   })
 
@@ -183,6 +176,52 @@ describe('useLayoutStore', () => {
     })
   })
 
+  describe('setDeepResearchIntent', () => {
+    test('records the intent hint on and off', () => {
+      useLayoutStore.getState().setDeepResearchIntent(true)
+      expect(useLayoutStore.getState().deepResearchIntent).toBe(true)
+
+      useLayoutStore.getState().setDeepResearchIntent(false)
+      expect(useLayoutStore.getState().deepResearchIntent).toBe(false)
+    })
+  })
+
+  describe('applySourcePreset', () => {
+    test('sets the preset and its enabled ids together', () => {
+      useLayoutStore.getState().applySourcePreset('law', ['ris'])
+
+      expect(useLayoutStore.getState().activeSourcePreset).toBe('law')
+      expect(useLayoutStore.getState().enabledDataSourceIds).toEqual(['ris'])
+    })
+
+    test('clears the preset while restoring the given ids', () => {
+      useLayoutStore.getState().applySourcePreset('law', ['ris'])
+
+      useLayoutStore.getState().applySourcePreset(null, ['web_search', 'ris'])
+
+      expect(useLayoutStore.getState().activeSourcePreset).toBeNull()
+      expect(useLayoutStore.getState().enabledDataSourceIds).toEqual(['web_search', 'ris'])
+    })
+
+    test('a manual per-source toggle leaves the preset behind', () => {
+      useLayoutStore.getState().applySourcePreset('law', ['ris'])
+
+      useLayoutStore.getState().toggleDataSource('web_search')
+
+      expect(useLayoutStore.getState().activeSourcePreset).toBeNull()
+      expect(useLayoutStore.getState().enabledDataSourceIds).toEqual(['ris', 'web_search'])
+    })
+
+    test('a manual bulk selection leaves the preset behind', () => {
+      useLayoutStore.getState().applySourcePreset('law', ['ris'])
+
+      useLayoutStore.getState().setEnabledDataSources([])
+
+      expect(useLayoutStore.getState().activeSourcePreset).toBeNull()
+      expect(useLayoutStore.getState().enabledDataSourceIds).toEqual([])
+    })
+  })
+
   describe('fetchDataSources', () => {
     test('enables all returned sources by default', async () => {
       mockGetDataSources.mockResolvedValueOnce({
@@ -191,6 +230,7 @@ describe('useLayoutStore', () => {
           { id: 'knowledge_base', name: 'Knowledge Base', requires_auth: true },
         ],
         knowledge_layer: true,
+        vlm_available: false,
       })
 
       await useLayoutStore.getState().fetchDataSources('token-1')
@@ -200,6 +240,35 @@ describe('useLayoutStore', () => {
         'knowledge_base',
       ])
       expect(useLayoutStore.getState().knowledgeLayerAvailable).toBe(true)
+    })
+
+    test('maps vlm_available from the response into the store', async () => {
+      mockGetDataSources.mockResolvedValueOnce({
+        data_sources: [{ id: 'web_search', name: 'Web Search', requires_auth: false }],
+        knowledge_layer: true,
+        vlm_available: true,
+      })
+
+      expect(useLayoutStore.getState().vlmAvailable).toBe(false)
+      await useLayoutStore.getState().fetchDataSources('token-1')
+      expect(useLayoutStore.getState().vlmAvailable).toBe(true)
+    })
+
+    test('a fresh fetch clears any active source preset (all sources re-enabled)', async () => {
+      useLayoutStore.getState().applySourcePreset('law', ['ris'])
+      mockGetDataSources.mockResolvedValueOnce({
+        data_sources: [
+          { id: 'web_search', name: 'Web Search', requires_auth: false },
+          { id: 'ris', name: 'RIS', requires_auth: false },
+        ],
+        knowledge_layer: true,
+        vlm_available: false,
+      })
+
+      await useLayoutStore.getState().fetchDataSources('token-1')
+
+      expect(useLayoutStore.getState().activeSourcePreset).toBeNull()
+      expect(useLayoutStore.getState().enabledDataSourceIds).toEqual(['web_search', 'ris'])
     })
   })
 })

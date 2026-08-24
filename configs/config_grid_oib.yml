@@ -1,4 +1,9 @@
 # Grid OIB workflow config — Kimi LLMs, persistent OIB knowledge base plus web search.
+#
+# NOTE (norm-registry Phase 0 hygiene): this config is NOT Baurecht-grade. It has
+# no RIS tools, no curated norm index, and no compliance pipeline — do not use it
+# for building-law research. The working reference config for Baurecht is
+# configs/config_oib_openrouter.yml.
 
 general:
   use_uvloop: true
@@ -131,6 +136,18 @@ functions:
       - advanced_web_search_tool
     verbose: true
     max_llm_turns: 10
+    # Stays at 5, and NOT for the reason it stays at 7 on config_oib_openrouter.
+    # This surface binds no `ifc_query`/`ifc_measure` at all — web search plus
+    # the knowledge base — so the long measurement chains that justified the
+    # raise there cannot occur here. A search-and-answer shape reaches its answer
+    # in two or three calls; the budget has never been what bounds it.
+    #
+    # What still applies is the accounting, because it is in the agent and not in
+    # the config: `new_iterations += len(response.tool_calls)` charges when the
+    # model EMITS, so PARALLEL calls each cost one and an empty result costs what
+    # a hit costs. A model emitting three searches in one turn has two round
+    # trips here, not five. If that ever becomes the binding constraint on this
+    # surface it will show as answers cut off mid-retrieval, not as a token bill.
     max_tool_iterations: 5
 
   deep_research_agent:

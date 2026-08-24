@@ -5,6 +5,7 @@
 import { redirect } from 'next/navigation'
 import { NextResponse } from 'next/server'
 import { isAuthzError } from '@/lib/auth-utils'
+import { runWithTenantSlot } from '@/lib/db/tenant-context'
 import { requireGridSession } from './session'
 import type { AuthorizedSession } from './types'
 
@@ -60,6 +61,40 @@ export async function requireAuthorizedPageSession(): Promise<AuthorizedSession>
     }
     throw error
   }
+}
+
+/**
+ * Run a server component or server action with a session AND a tenant scope.
+ *
+ * This is the page-tier equivalent of what the route factories in
+ * `lib/api/handler.ts` do for all 125 route handlers, and it exists because
+ * nothing was doing it for pages. `getGridSession()` publishes the tenant into
+ * a slot opened by the caller; with no slot it falls back to
+ * `storage.enterWith`, which has no scope end and does not survive the way this
+ * Next version renders a component. Every query on the page's call path then
+ * ran with no context and failed closed under row-level security -- issues
+ * #342 and #344, the same bug twice.
+ *
+ * `runWithTenantSlot` opens the slot FIRST and resolves the session inside it,
+ * so the publish lands in an object bound to this callback's async execution
+ * rather than in an ambient binding that React can drop. That ordering is the
+ * whole fix, which is why the two are welded together here instead of being
+ * left as two calls a page could get the wrong way round.
+ *
+ * ```tsx
+ * export default async function Page(): Promise<JSX.Element> {
+ *   return withPageSession(async (session) => {
+ *     const data = await getSomeService(session)
+ *     return <View data={data} />
+ *   })
+ * }
+ * ```
+ *
+ * `redirect()` and `notFound()` throw, and the scope unwinds with them exactly
+ * as it does in a route handler.
+ */
+export function withPageSession<T>(fn: (session: AuthorizedSession) => Promise<T> | T): Promise<T> {
+  return runWithTenantSlot(async () => fn(await requireAuthorizedPageSession()))
 }
 
 /**

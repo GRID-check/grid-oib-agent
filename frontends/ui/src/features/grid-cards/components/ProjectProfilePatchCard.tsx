@@ -1,38 +1,81 @@
 'use client'
 
-import { useState } from 'react'
-import { Card } from '@/components/ui/card'
+import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { motion, springGentle } from '@/components/motion'
-
-interface PreviewItem {
-  label: string
-  before: string
-  after: string
-}
+import { useTranslations } from '@/i18n'
+import { useCardDecision } from '../hooks/use-card-decision'
+import { ProposalShell } from './ProposalShell'
+import { buildPatchPreviewRows } from '@/lib/project-profile/patch-preview'
+import type { ProjectProfile, ProjectProfilePatchOperation } from '@/lib/project-profile/types'
 
 interface ProjectProfilePatchCardProps {
   title: string
   rationale: string
-  preview: PreviewItem[]
-  patch: Array<{ op: string; path: string; value?: unknown }>
+  patch: ProjectProfilePatchOperation[]
   projectId?: string | null
+  /** Message this card belongs to — keys its persisted decision. */
+  messageId?: string
+  /** Stable identity of this card within that message (`cardKey`). */
+  cardKey: string
+  /**
+   * Whether this surface requires the answer to be persisted. With no owning
+   * message the card then shows WHAT is proposed and offers nothing — see
+   * `GridCards.decisionsMustPersist`.
+   */
+  decisionsMustPersist?: boolean
 }
 
+/**
+ * Agent-proposed update to the project brief. The change is applied only when
+ * the user accepts — the agent can never silently rewrite a project fact
+ * (docs/architecture/project-memory-design.md §11.7: propose, never auto-apply).
+ *
+ * Accept/Reject is recorded on the owning message (`useCardDecision`) rather
+ * than in local state, so an applied patch stays applied across reloads instead
+ * of re-offering a button that would write it to the brief a second time.
+ */
 export function ProjectProfilePatchCard({
   title,
   rationale,
-  preview,
   patch,
   projectId,
+  messageId,
+  cardKey,
+  decisionsMustPersist,
 }: ProjectProfilePatchCardProps) {
-  const [status, setStatus] = useState<'pending' | 'accepted' | 'rejected'>('pending')
+  const t = useTranslations('chat')
+  const { decision, decide, canDecide } = useCardDecision(messageId, cardKey, {
+    mustPersist: decisionsMustPersist,
+  })
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // The before/after rows are DERIVED from the patch + current profile — never
+  // from a model-supplied preview — so what the user consents to is exactly what
+  // gets written. The current profile is fetched once; on failure it stays null
+  // and the "Before" column is hidden rather than guessed.
+  const [profile, setProfile] = useState<ProjectProfile | null>(null)
+
+  useEffect(() => {
+    if (!projectId) return
+    let cancelled = false
+    fetch(`/api/projects/${projectId}/profile`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.profile) setProfile(data.profile as ProjectProfile)
+      })
+      .catch(() => {
+        /* leave profile null — the Before column stays hidden */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
+
+  const rows = useMemo(() => buildPatchPreviewRows(patch, profile), [patch, profile])
 
   const handleAccept = async () => {
     if (!projectId) {
-      setError('Project ID required to apply changes.')
+      setError(t('profilePatchCard.noProject'))
       return
     }
     setError(null)
@@ -44,62 +87,65 @@ export function ProjectProfilePatchCard({
         body: JSON.stringify({ patch }),
       })
       if (!res.ok) {
+        // A 409 is NOT success. The server answers 200 with `alreadyApplied` for the
+        // one conflict that is (a colleague in this shared thread accepting the same
+        // card, so the brief already holds the change); every other version conflict
+        // means this patch was dropped, and settling as accepted here would hide a
+        // change that never landed behind a card that can no longer be retried.
         const body = await res.json().catch(() => ({}))
-        throw new Error(body.error || `Failed (${res.status})`)
+        throw new Error(body.error || `${t('profilePatchCard.applyFailed')} (${res.status})`)
       }
       setIsSubmitting(false)
-      setStatus('accepted')
+      decide('accepted')
     } catch (e) {
       setIsSubmitting(false)
-      setError(e instanceof Error ? e.message : 'Failed to apply patch')
+      setError(e instanceof Error ? e.message : t('profilePatchCard.applyFailed'))
     }
   }
 
   const handleReject = () => {
-    setStatus('rejected')
+    decide('rejected')
     setError(null)
   }
 
-  if (status === 'accepted') {
+  if (decision === 'accepted') {
     return (
-      <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={springGentle}>
-        <Card className="gap-2 border-l-2 border-l-success p-5 shadow-xs">
-          <p className="text-sm text-foreground">Project context updated.</p>
-        </Card>
-      </motion.div>
+      <ProposalShell tone="accepted">
+        <p className="text-sm text-foreground">{t('profilePatchCard.accepted')}</p>
+      </ProposalShell>
     )
   }
 
-  if (status === 'rejected') {
+  if (decision === 'rejected') {
     return (
-      <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={springGentle}>
-        <Card className="gap-2 border-l-2 border-l-subtle p-5 shadow-xs">
-          <p className="text-sm text-muted-foreground">Changes discarded.</p>
-        </Card>
-      </motion.div>
+      <ProposalShell tone="dismissed">
+        <p className="text-sm text-muted-foreground">{t('profilePatchCard.rejected')}</p>
+      </ProposalShell>
     )
   }
 
   return (
-    <Card className="gap-3 border-l-2 border-l-warning p-5 shadow-xs">
+    <ProposalShell tone="pending">
       <p className="text-sm font-semibold text-foreground">{title}</p>
       <p className="text-sm leading-relaxed text-muted-foreground">{rationale}</p>
 
-      {preview.length > 0 && (
+      {rows.length > 0 && (
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-border text-muted-foreground">
-              <th scope="col" className="py-1 pr-2 text-left font-medium">Field</th>
-              <th scope="col" className="p-1 text-left font-medium">Before</th>
-              <th scope="col" className="pl-2 text-left font-medium">After</th>
+              <th scope="col" className="py-1 pr-2 text-left font-medium">{t('profilePatchCard.field')}</th>
+              {profile !== null && (
+                <th scope="col" className="p-1 text-left font-medium">{t('profilePatchCard.before')}</th>
+              )}
+              <th scope="col" className="pl-2 text-left font-medium">{t('profilePatchCard.after')}</th>
             </tr>
           </thead>
           <tbody>
-            {preview.map((item, i) => (
+            {rows.map((row, i) => (
               <tr key={i} className="border-b border-border">
-                <td className="py-1 pr-2 font-medium text-foreground">{item.label}</td>
-                <td className="p-1 text-muted-foreground">{item.before}</td>
-                <td className="pl-2 text-foreground">{item.after}</td>
+                <td className="py-1 pr-2 font-medium text-foreground">{row.label}</td>
+                {profile !== null && <td className="p-1 text-muted-foreground">{row.before}</td>}
+                <td className="pl-2 text-foreground">{row.after}</td>
               </tr>
             ))}
           </tbody>
@@ -108,22 +154,29 @@ export function ProjectProfilePatchCard({
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <div className="flex items-center gap-2">
-        {!projectId && (
-          <p className="text-xs text-muted-foreground">Project ID required to apply changes.</p>
-        )}
-        <Button
-          type="button"
-          size="sm"
-          onClick={handleAccept}
-          disabled={!projectId || isSubmitting}
-        >
-          {isSubmitting ? 'Applying...' : 'Accept'}
-        </Button>
-        <Button type="button" variant="outline" size="sm" onClick={handleReject}>
-          Reject
-        </Button>
-      </div>
-    </Card>
+      {/* NOTHING TO PRESS when the answer could not be kept (`canDecide`): the
+          proposed before/after still reads, because that is the substance of the
+          card, but Accept would write the brief and then forget it had — and the
+          next reader of this proposal would be offered the same write again. The
+          question is put where the answer has a home, which is the thread. */}
+      {canDecide && (
+        <div className="flex items-center gap-2">
+          {!projectId && (
+            <p className="text-xs text-muted-foreground">{t('profilePatchCard.noProject')}</p>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleAccept}
+            disabled={!projectId || isSubmitting}
+          >
+            {isSubmitting ? t('profilePatchCard.applying') : t('profilePatchCard.accept')}
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={handleReject}>
+            {t('profilePatchCard.reject')}
+          </Button>
+        </div>
+      )}
+    </ProposalShell>
   )
 }

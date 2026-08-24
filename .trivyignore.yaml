@@ -1,0 +1,425 @@
+# Trivy ignore file for the `image-scan` job in `.github/workflows/security.yml`
+# (ADR-0029), which scans the digest-pinned observability images and blocks on
+# fixable HIGH/CRITICAL findings.
+#
+# An entry here is a DELIBERATE, TIME-BOXED exception, not noise tuning. Each one
+# must say why the finding is not exploitable in OUR deployment and carry an
+# `expired_at`, so the gate turns red again instead of silently ignoring a CVE
+# forever if upstream never ships the fix.
+#
+# The Langfuse block below (ADR-0044) is deliberately boxed SHORTER than the
+# first aspire-dashboard entry. That one waits on Microsoft shipping a
+# transitive dependency bump; these wait on Langfuse running `npm update` on a
+# project that publishes several releases a week. If they are still here in
+# October, the assumption behind them was wrong and they deserve re-arguing
+# rather than extending.
+#
+# The SECOND aspire-dashboard entry (CVE-2026-62901) is boxed shorter than all
+# of them, for the opposite reason: it waits on Microsoft rebuilding an image
+# on a runtime that already exists, which is a matter of days.
+#
+# The OpenTelemetry Collector block is boxed SHORT because contrib ships every
+# ~two weeks. 0.157.0 (the pin) and even 0.158.0 (2026-08-04) were built on
+# Go 1.26.5; 1.26.6 landed 2026-08-13. The next collector tag is the real fix.
+vulnerabilities:
+  - id: CVE-2026-49451
+    expired_at: 2026-10-31
+    statement: |
+      Microsoft.OpenApi 3.5.3 is a transitive dependency INSIDE Microsoft's
+      aspire-dashboard image (app/Aspire.Dashboard.deps.json), not a package
+      this repo references. The fix is 3.5.4/2.7.5, which no published
+      aspire-dashboard tag ships yet (13.4.2 is the newest), so no digest bump
+      can currently clear it.
+
+      Not exploitable in this deployment: the CVE is a denial of service while
+      PARSING an OpenAPI document with circular schema references, and the
+      dashboard only PRODUCES its own OpenAPI description; it never parses
+      caller-supplied OpenAPI documents. Its only reachable surfaces are the
+      OIDC claim-gated UI on :18888 and the API-key-gated OTLP + telemetry
+      endpoints, which stay cluster-internal.
+
+      Drop this entry as soon as an aspire-dashboard image ships
+      Microsoft.OpenApi >= 3.5.4, and re-check it on every dashboard bump.
+
+  - id: CVE-2026-62901
+    expired_at: 2026-09-12
+    statement: |
+      System.Net.WebSockets in the .NET 8.0.29 runtime bundled INSIDE Microsoft's
+      aspire-dashboard image — an unchecked loop condition (CWE-606) that lets a
+      network peer exhaust CPU. Fixed in 8.0.30, published 2026-08-11, the same
+      day as the advisory; no aspire-dashboard tag ships it yet, so no digest
+      bump can currently clear it.
+
+      This one is boxed SHORT and its reachability is weaker than the entry
+      above, so read the limit rather than the conclusion. The dashboard UI is
+      Blazor Server, which means it really does terminate WebSockets — this is
+      not an unreachable code path, and it would be dishonest to file it beside
+      the OpenAPI entry as if it were.
+
+      What makes it acceptable for a month is the network position, not the
+      code. CVSS scores it AV:N/PR:N because the runtime defect needs no
+      credentials; reaching the socket in THIS deployment does. The dashboard
+      is cluster-internal, its :18888 UI sits behind the Envoy Gateway's OIDC
+      flow gated on `platform:organizations:view`, and its OTLP receiver takes
+      only otel-collector under a NetworkPolicy. So the attacker has to be an
+      authenticated platform operator or already inside the cluster — and the
+      prize is a denial of service against the observability dashboard, which
+      degrades our ability to WATCH the product rather than the product itself.
+      Availability-only: C:N/I:N.
+
+      Drop this entry the moment an aspire-dashboard image ships a .NET 8.0.30
+      runtime — that is the real fix and it is expected within days, which is
+      why the box is one month and not the usual two. If it is still here in
+      September, the assumption that Microsoft rebuilds promptly was wrong and
+      this deserves re-arguing, not extending.
+
+  # ── OpenTelemetry Collector contrib (ADR-0029) ────────────────────────────
+  #
+  # All eight are the Go 1.26.5 STANDARD LIBRARY compiled into
+  # `otelcol-contrib` inside
+  # otel/opentelemetry-collector-contrib@sha256:f2f0… (0.157.0). They are not
+  # packages this repo references. Every one is marked `fixed` upstream
+  # (Go 1.26.6 / 1.25.13, released 2026-08-13), so `--ignore-unfixed` does
+  # not skip them, and no digest bump can currently clear them: 0.158.0
+  # (newest tag, built 2026-08-04) is still 1.26.5. Verified against the
+  # registry, not assumed.
+  #
+  # Shared reachability: the collector is the cluster's single OTLP
+  # ingestion point. It is not on the public internet. Producers are our
+  # own pods; the only other peer is the Aspire dashboard, itself
+  # cluster-internal and OIDC-gated. A NetworkPolicy admits that path.
+  # So an attacker has to already be inside the cluster or be an
+  # authenticated platform operator. The prize is a denial of service
+  # (or, for the idna/template entries, a defect whose attack surface
+  # this binary does not expose — stated per entry).
+  #
+  # Drop the whole block the moment a collector-contrib image ships a
+  # binary built with Go >= 1.26.6. That is expected on the next minor
+  # (~0.159), which is why the box is one month.
+
+  - id: CVE-2026-33818
+    expired_at: 2026-09-17
+    statement: |
+      encoding/asn1 — denial of service via excessive recursion in Unmarshal.
+      Compiled into otelcol-contrib (Go 1.26.5). ASN.1 shows up on the TLS
+      certificate path, not as a caller-supplied document parser.
+
+      Not exploitable here: the collector's TLS peers are the Aspire
+      dashboard and our own pods, all operator-configured. There is no
+      path from an unauthenticated internet client to Unmarshal of
+      attacker-chosen ASN.1.
+
+      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+
+  - id: CVE-2026-39821
+    expired_at: 2026-09-17
+    statement: |
+      golang.org/x/net/idna / net/http — privilege escalation via incorrect
+      Punycode label processing. Compiled into otelcol-contrib (Go 1.26.5).
+
+      Not exploitable here: the collector does not make security decisions
+      (allowlists, origin checks) from a caller-supplied hostname. It
+      forwards OTLP to destinations named in its own config. A Punycode
+      confusion cannot change where this binary sends telemetry.
+
+      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+
+  - id: CVE-2026-46600
+    expired_at: 2026-09-17
+    statement: |
+      golang.org/x/net/dns/dnsmessage — denial of service via invalid DNS
+      record parsing. Compiled into otelcol-contrib (Go 1.26.5).
+
+      Not exploitable here: DNS answers come from the cluster's resolver
+      for destinations we named (the Aspire dashboard). An attacker who
+      can poison that resolver is already past a more serious boundary
+      than this DoS.
+
+      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+
+  - id: CVE-2026-56853
+    expired_at: 2026-09-17
+    statement: |
+      net/http — unencrypted HTTP/2 connections vulnerable to denial of
+      service. Compiled into otelcol-contrib (Go 1.26.5).
+
+      Not exploitable here: OTLP peers are cluster-internal pods under a
+      NetworkPolicy. An unencrypted HTTP/2 DoS from the public internet
+      has no route to this process.
+
+      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+
+  - id: CVE-2026-56858
+    expired_at: 2026-09-17
+    statement: |
+      html/template — cross-site scripting via pathological input.
+      Compiled into otelcol-contrib (Go 1.26.5).
+
+      Not exploitable here, and this one is structural: the collector is
+      not an HTML server. It does not render templates for a browser.
+      There is no document to inject into.
+
+      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+
+  - id: CVE-2026-56859
+    expired_at: 2026-09-17
+    statement: |
+      encoding/xml — denial of service via XML decoding recursion depth.
+      Compiled into otelcol-contrib (Go 1.26.5).
+
+      Not exploitable here: the collector's request path is OTLP
+      (protobuf / JSON), not XML. Nothing on the ingestion path decodes
+      caller-supplied XML.
+
+      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+
+  - id: CVE-2026-56860
+    expired_at: 2026-09-17
+    statement: |
+      net/url — denial of service from quadratic complexity in path
+      parsing. Compiled into otelcol-contrib (Go 1.26.5).
+
+      Not exploitable here: URLs the collector parses are exporter
+      endpoints from its own config, not caller-supplied request paths
+      from the public internet.
+
+      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+
+  - id: CVE-2026-56862
+    expired_at: 2026-09-17
+    statement: |
+      crypto/tls — denial of service via indefinite KeyUpdate messages.
+      Compiled into otelcol-contrib (Go 1.26.5).
+
+      Not exploitable here: TLS peers are the Aspire dashboard and our
+      own pods. An attacker who can hold open a TLS session to the
+      collector is already inside the cluster. The prize is a DoS of
+      the telemetry pipeline, not the product.
+
+      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+
+  # ── golang.org/x/mod inside otelcol-contrib (ADR-0029) ────────────────────
+  #
+  # These two are NOT part of the Go stdlib block above and do NOT clear the
+  # same way. Read them separately: the block above waits on a Go toolchain
+  # rebuild, which 0.159.0 (2026-08-18) already ships — it is built with
+  # Go 1.26.6. These two survive that bump. Verified by reading the build info
+  # compiled into `otelcol-contrib` in
+  # otel/opentelemetry-collector-contrib:0.159.0 (linux/amd64):
+  # `dep golang.org/x/mod v0.38.0`. So bumping the digest to 0.159.0 does not
+  # clear them, and no currently published tag does.
+  #
+  # Shared reasoning, STRUCTURAL rather than circumstantial, and the reason
+  # these are boxed at all: trivy reports x/mod from the module graph recorded
+  # in the binary's build info, not from what was actually linked. The only
+  # x/mod package compiled into `otelcol-contrib` is
+  # `golang.org/x/mod/semver` — pure semantic-version string comparison. Both
+  # defects below live in the module download and checksum-verification path
+  # (`golang.org/x/mod/sumdb` and friends), and none of those packages appear
+  # in the binary's symbol table. Confirmed by enumerating every
+  # `golang.org/x/mod/*` symbol in the shipped binary, not inferred from the
+  # module version.
+  #
+  # On top of that, both defects require the process to be FETCHING Go modules
+  # — acting as the `go` command against a hostile GOPROXY/GOSUMDB. A running
+  # collector never fetches Go modules; it is a compiled binary serving OTLP.
+  #
+  # Boxed to the same date as the block above so the whole collector section is
+  # re-argued in one pass. The real fix is upstream contrib bumping its own
+  # x/mod dependency to >= 0.40.0 (released 2026-08-13).
+
+  - id: CVE-2026-56864
+    expired_at: 2026-09-17
+    statement: |
+      golang.org/x/mod 0.38.0 — a malicious GOSUMDB was capable of serving
+      arbitrary module content without detection. Fixed in 0.40.0.
+
+      Not exploitable here, structurally: the vulnerable code
+      (`golang.org/x/mod/sumdb`, the checksum-database client) is NOT
+      compiled into `otelcol-contrib`. The only x/mod package linked into
+      the binary is `golang.org/x/mod/semver`. trivy flags this from the
+      module graph in the build info, not from a linked call path.
+
+      Independently, the defect requires the process to fetch Go modules
+      through an attacker-controlled GOSUMDB. The collector is a built
+      binary serving OTLP; it never runs a module download.
+
+      Drop as soon as a collector-contrib image ships x/mod >= 0.40.0.
+      Re-verify with `go version -m otelcol-contrib` on the new image
+      rather than assuming a tag bump carries it — 0.159.0 did not.
+
+  - id: CVE-2026-56865
+    expired_at: 2026-09-17
+    statement: |
+      golang.org/x/mod 0.38.0 — a malicious GOPROXY was previously capable
+      of forging up to two sumdb tree entries. Fixed in 0.40.0. Same
+      module-verification surface as CVE-2026-56864.
+
+      Not exploitable here, for the same structural reason: the sumdb client
+      is absent from the binary, only `golang.org/x/mod/semver` is linked,
+      and the collector never fetches Go modules at runtime.
+
+      Drop as soon as a collector-contrib image ships x/mod >= 0.40.0.
+
+  # ── Langfuse web/worker images (ADR-0044) ─────────────────────────────────
+  #
+  # All seven are npm dependencies bundled INSIDE ghcr.io/langfuse/langfuse, not
+  # packages this repo references — nothing here appears in any lockfile we own.
+  # Every one is marked `fixed` upstream, so `--ignore-unfixed` does not skip
+  # them, and no digest bump can currently clear them. The `3` tag HAS moved
+  # since these were written — it now resolves to 3.225.2 (built 2026-08-11) —
+  # but 3.225.2 ships byte-identical versions of all seven packages
+  # (fast-uri 3.1.4, js-yaml 3.15.0/4.3.0, nanoid 3.3.12, sharp 0.34.5,
+  # undici 7.28.0, deepmerge-ts 7.1.5), so moving the pin buys nothing.
+  # Verified against the registry and against langfuse's own `pnpm-lock.yaml`
+  # at the revision each image is labelled with, not assumed.
+  #
+  # Shared context for every entry below, so it is not repeated seven times:
+  # the Langfuse UI is reachable only through the Envoy Gateway behind an OIDC
+  # flow gated on `platform:organizations:view`, and its OTLP receiver is
+  # cluster-internal with a NetworkPolicy admitting only otel-collector. There
+  # is no unauthenticated surface. The `langfuseEnabled` flag now defaults to
+  # true, but the capability half of the gate still needs the tier's
+  # credentials, so a stack that has not adopted it runs none of this code.
+
+  - id: CVE-2026-40345
+    expired_at: 2026-10-09
+    statement: |
+      deepmerge-ts 7.1.5 — stack exhaustion when merging recursive object
+      graphs. A denial of service that requires the attacker to control the
+      objects being merged.
+
+      Reached by exactly ONE dependent in langfuse's lockfile: `@prisma/config`
+      6.19.3, which merges `prisma.config.ts` with the CLI's defaults when the
+      Prisma CLI and migration engine start. Confirmed by reading the lockfile
+      at the revision each image is labelled with, not inferred from the
+      package name — deepmerge-ts appears nowhere else in the tree.
+
+      Not exploitable here, and this one is structural: the object graph fed to
+      `@prisma/config` is the config file baked into the Langfuse image,
+      resolved against the environment `deploy/pulumi/src/platform/langfuse.ts`
+      sets. It is assembled at container start, before any request is served.
+      Nothing on the trace-ingestion or UI path calls deepmerge-ts at all, so no
+      caller — authenticated or not — can supply the recursive graph the defect
+      needs.
+
+      This entry is boxed to the same date as the rest of the block even though
+      it waits on a longer chain than they do: the fix is deepmerge-ts 8.0.0
+      (2026-08-16), a MAJOR bump, so Prisma has to take it into
+      `@prisma/config` before Langfuse can pick it up. 7.1.6 (2026-08-11) is
+      not the fix. As of 2026-08-18 langfuse `main` — and the `latest` 4.12.0
+      image built that morning — still resolve deepmerge-ts 7.1.5, so this is
+      not a case of the pin lagging behind an available fix.
+
+      Drop as soon as a Langfuse image ships deepmerge-ts >= 8.0.0.
+
+  - id: CVE-2026-18446
+    expired_at: 2026-10-09
+    statement: |
+      fast-uri 3.1.4 — host confusion via a backslash in the URI authority.
+      Bundled inside ghcr.io/langfuse/langfuse as ajv's URI parser (JSON Schema
+      `$ref` and `format: uri` handling).
+
+      Not exploitable here, with the honest limit stated: the defect matters
+      when a parsed URI's authority is then used for a security decision — an
+      allowlist check, an outbound fetch target. Langfuse uses ajv for request
+      and schema validation, not for routing or origin decisions, so there is
+      no path in this deployment from a caller-supplied URI through fast-uri to
+      such a decision. This is "no reachable path found", not "the library is
+      unreachable" — it is on the request path, behind the edge permission gate.
+
+      Drop as soon as a Langfuse image ships fast-uri >= 3.1.5.
+
+  - id: GHSA-5p4m-2wfm-xmqj
+    expired_at: 2026-10-09
+    statement: |
+      js-yaml 3.15.0 / 4.3.0 — quadratic CPU consumption resolving `!!omap`
+      (CVE-2026-59870). A denial of service that requires the attacker to
+      supply the YAML being parsed.
+
+      Not exploitable here: nothing on the trace-ingestion path parses YAML.
+      The collector delivers OTLP/protobuf, the public API takes JSON, and the
+      UI submits JSON. js-yaml arrives transitively (config/OpenAPI tooling) and
+      is not fed caller-controlled documents in this deployment.
+
+      Drop as soon as a Langfuse image ships js-yaml >= 4.3.1 / >= 3.15.1.
+
+  - id: CVE-2026-67213
+    expired_at: 2026-10-09
+    statement: |
+      nanoid 3.3.12 — infinite loop in `customAlphabet`.
+
+      Not exploitable here, and this one is structural rather than
+      circumstantial: the loop requires attacker control of the ALPHABET
+      argument, which is a compile-time constant at every call site. A caller
+      cannot reach it by any input, authenticated or not.
+
+      Drop as soon as a Langfuse image ships nanoid >= 3.3.17.
+
+  - id: CVE-2026-67214
+    expired_at: 2026-10-09
+    statement: |
+      nanoid 3.3.12 — second infinite loop in the same `customAlphabet` surface
+      as CVE-2026-67213. Same reasoning: the alphabet is a constant at every
+      call site, so no input reaches the defect.
+
+      Drop as soon as a Langfuse image ships nanoid >= 3.3.16 / >= 5.1.16.
+
+  - id: GHSA-f88m-g3jw-g9cj
+    expired_at: 2026-10-09
+    statement: |
+      sharp 0.34.5 — inherited libvips CVEs (CVE-2026-33327, CVE-2026-33328,
+      CVE-2026-35590, CVE-2026-35591), reached by decoding a malicious image.
+
+      Not exploitable here, and this is the strongest of the six because it
+      rests on our own configuration rather than on upstream's internals:
+      `deploy/pulumi/src/platform/langfuse.ts` deliberately does NOT set
+      `LANGFUSE_S3_MEDIA_UPLOAD_*`, and Langfuse enables media capture only by
+      the presence of that bucket. Nothing in this deployment feeds an image to
+      sharp, because nothing can upload one.
+
+      THIS ENTRY MUST BE RE-ARGUED IF MEDIA UPLOAD IS EVER CONFIGURED. That
+      change would turn an unreachable decoder into a caller-reachable one.
+
+      Drop as soon as a Langfuse image ships sharp >= 0.35.0.
+
+  - id: CVE-2026-13697
+    expired_at: 2026-10-09
+    statement: |
+      undici 7.28.0 — information disclosure and denial of service via
+      malformed `Cache-Control` directives in a RESPONSE.
+
+      Not exploitable here: the defect needs a response from an origin the
+      attacker controls. Langfuse's outbound HTTP in this deployment goes to
+      infrastructure named in its own config (Postgres, ClickHouse, the
+      SeaweedFS S3 endpoint, the WorkOS issuer) — all operator-configured. The
+      one surface that could reach an arbitrary origin is a BYOK model endpoint
+      entered in the playground, which is itself a platform-operator action
+      behind the permission gate.
+
+      Drop as soon as a Langfuse image ships undici >= 7.29.0.
+
+secrets:
+  - id: gcp-service-account
+    paths:
+      - "**/web/.next/**"
+    expired_at: 2026-11-30
+    statement: |
+      Eight CRITICAL "Google (GCP) Service-account" hits across the Next.js
+      build output inside ghcr.io/langfuse/langfuse. Every one is Langfuse's own
+      UI PLACEHOLDER for pasting a Vertex AI credential — the matched text is
+      the empty template, `"project_id": "<project_id>"`,
+      `"client_x509_cert_url": "<client_x509_cert_url>"`, sitting next to
+      `displaySecretKey` in a form component. There is no key material.
+      Confirmed by reading the matched lines in the scan output, not inferred
+      from the rule name.
+
+      Scoped to `**/web/.next/**` rather than suppressing the rule outright, so
+      a genuinely leaked service-account key anywhere else in any scanned image
+      still fails the gate. Only the Langfuse web image has that path among the
+      five pinned images.
+
+      The `expired_at` here is a RE-VERIFICATION date, not a wait-for-a-fix
+      date: upstream will never "fix" placeholder text in a form. It is boxed so
+      that someone confirms, after a Langfuse bump, that these matches are still
+      the template and not something that has become real.

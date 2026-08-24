@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """HTML template and render helper for single-run tokenomics reports. No project imports."""
 
 from __future__ import annotations
@@ -744,13 +729,16 @@ function renderEfficiency() {
 
 // ── PER-QUERY DETAIL ──────────────────────────────────────────────────────────
 function renderDetail() {
+  // HTML-escape user-derived strings: question text (and ids) flow into
+  // innerHTML, so raw markup in a trace would execute in the report.
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const tbody = document.querySelector('#detailTable tbody');
   tbody.innerHTML = DATA.per_query.map(q => {
     const isl = q.input_tokens||0, osl = q.output_tokens||0;
     const ratio = osl > 0 ? (isl/osl).toFixed(1)+':1' : '\u2014';
-    const qtxt = q.question ? q.question.substring(0,120)+(q.question.length>120?'\u2026':'') : '\u2014';
+    const qtxt = q.question ? esc(q.question.substring(0,120))+(q.question.length>120?'\u2026':'') : '\u2014';
     return `<tr>
-      <td><strong>${q.id}</strong></td>
+      <td><strong>${esc(q.id)}</strong></td>
       <td style="color:#d29922">${fmt$(q.cost_usd)}</td>
       <td>${isl.toLocaleString()}</td>
       <td>${osl.toLocaleString()}</td>
@@ -775,4 +763,7 @@ _HTML = build_html(
 
 
 def render_html(report_data: dict) -> str:
-    return _HTML.replace("__REPORT_DATA_JSON__", json.dumps(report_data, ensure_ascii=False))
+    # Escape "<" so user-supplied strings (e.g. a query containing
+    # "</script>") cannot terminate the inline <script> block.
+    data_json = json.dumps(report_data, ensure_ascii=False).replace("<", "\\u003c")
+    return _HTML.replace("__REPORT_DATA_JSON__", data_json)

@@ -6,9 +6,25 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render as rtlRender, screen } from '@testing-library/react'
+import type { ReactElement } from 'react'
+import { I18nProvider } from '@/i18n'
 import { RequirementChecklistCard } from './RequirementChecklistCard'
 import { ComparisonTableCard } from './ComparisonTableCard'
+
+/**
+ * The cards render in German because the reader is Austrian, and the copy now
+ * comes from the dictionary rather than from literals in the components. A
+ * test that renders without a provider sees the default locale (`en`), so the
+ * locale is pinned here; `fixedLocale` also skips the provider's preference
+ * reconciliation, which would be a fetch.
+ */
+const render = (ui: ReactElement) =>
+  rtlRender(
+    <I18nProvider initialLocale="de" fixedLocale>
+      {ui}
+    </I18nProvider>
+  )
 
 describe('RequirementChecklistCard', () => {
   it('renders items with verdicts and surfaces the worst as the card pill', () => {
@@ -32,13 +48,13 @@ describe('RequirementChecklistCard', () => {
     expect(screen.getByText('Anforderungen GK 4 – Brandschutz')).toBeInTheDocument()
     expect(screen.getByText('Tragende Bauteile REI 60')).toBeInTheDocument()
     expect(screen.getByText('Stahlbetondecken erfüllen REI 90.')).toBeInTheDocument()
-    // Item reference differs from the footer reference → inline citation.
+    // Item reference (differs from the footer reference) → inline citation chip.
     expect(screen.getByText('OIB-Richtlinie 2 · Tabelle 1b')).toBeInTheDocument()
-    // Worst item status (fail) drives the card verdict; the fail row and the
-    // pill both read "nicht erfüllt".
-    expect(screen.getAllByText('nicht erfüllt').length).toBeGreaterThanOrEqual(2)
+    // Non-pass rows show their German verdict inline; pass rows convey the
+    // verdict through the check-circle icon's aria-label (colour never alone).
+    expect(screen.getByText('nicht erfüllt')).toBeInTheDocument()
     expect(screen.getByText('Angabe fehlt')).toBeInTheDocument()
-    expect(screen.getByText('erfüllt')).toBeInTheDocument()
+    expect(screen.getByLabelText('erfüllt')).toBeInTheDocument()
   })
 })
 

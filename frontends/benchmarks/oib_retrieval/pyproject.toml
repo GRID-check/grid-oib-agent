@@ -1,0 +1,31 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=83.0.0", "setuptools-scm>=8"]
+
+[tool.setuptools]
+packages = ["oib_retrieval_eval"]
+package-dir = {"oib_retrieval_eval" = "src/oib_retrieval_eval"}
+
+[project]
+name = "oib-retrieval-eval"
+version = "1.0.0"
+description = "Retrieval evaluation harness for the OIB corpus - structural retrievability, lexical recall, and a gated dense arm"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = {text = "Apache-2.0"}
+dependencies = [
+    "nvidia-nat-eval==1.7.0",
+    "pydantic>=2.0.0",
+    "numpy>=1.26",
+]
+
+# The real dense arm. Deliberately an EXTRA, not a dependency: the CI path uses the
+# deterministic hashed embedder and must never download a model, so torch stays out of
+# the default install.
+[project.optional-dependencies]
+dense = [
+    "sentence-transformers>=5.0.0",
+]
+
+[project.entry-points."nat.plugins"]
+oib_retrieval_eval = "oib_retrieval_eval.register"

@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Tests for deep researcher structured response contracts."""
 
 import pytest
@@ -23,6 +8,7 @@ from aiq_agent.agents.deep_researcher.models import Constraint
 from aiq_agent.agents.deep_researcher.models import EvidenceJudgment
 from aiq_agent.agents.deep_researcher.models import ResearchNotes
 from aiq_agent.agents.deep_researcher.models import ResearchPlan
+from aiq_agent.agents.deep_researcher.models import ResearchQuery
 from aiq_agent.agents.deep_researcher.models import SourceRoutingPlan
 
 
@@ -162,6 +148,7 @@ def test_research_notes_contract_validates_expected_shape():
             ],
             "narrative_notes": "OpenCL offers broader portability, while CUDA typically has deeper vendor tooling.",
             "language": "English",
+            "evidence_judgment": None,
         }
     )
 
@@ -196,15 +183,98 @@ def test_research_notes_contract_accepts_evidence_judgment():
     assert notes.evidence_judgment.confidence == "high"
 
 
-def test_evidence_judgment_contract_rejects_invalid_score():
+def test_evidence_judgment_contract_clamps_out_of_range_score():
+    """Out-of-range scores degrade to the nearest bound instead of failing the worker.
+
+    relevance_score dropped its Field(ge=0, le=100) constraint because strict
+    json_schema structured-output mode does not support JSON-Schema
+    minimum/maximum, so the range is now enforced by a field_validator that
+    clamps instead of raising.
+    """
+    high = EvidenceJudgment.model_validate(
+        {
+            "relevance_score": 150,
+            "confidence": "high",
+            "rationale": "Score must stay within the configured range.",
+        }
+    )
+    assert high.relevance_score == 100
+
+    low = EvidenceJudgment.model_validate(
+        {
+            "relevance_score": -5,
+            "confidence": "high",
+            "rationale": "Score must stay within the configured range.",
+        }
+    )
+    assert low.relevance_score == 0
+
+    in_range = EvidenceJudgment.model_validate(
+        {
+            "relevance_score": 42,
+            "confidence": "high",
+            "rationale": "Score must stay within the configured range.",
+        }
+    )
+    assert in_range.relevance_score == 42
+
+
+def test_research_query_contract_rejects_empty_preferred_tools():
+    """preferred_tools lost its Field(min_length=1) for the same strict-mode reason.
+
+    Unlike relevance_score, an empty tool list cannot be clamped to something
+    valid, so the field_validator still raises -- matching the previous
+    Field(min_length=1) failure semantics.
+    """
     with pytest.raises(ValidationError):
-        EvidenceJudgment.model_validate(
+        ResearchQuery.model_validate(
             {
-                "relevance_score": 101,
-                "confidence": "high",
-                "rationale": "Score must stay within the configured range.",
+                "query": "Example query",
+                "subqueries": [],
+                "preferred_tools": [],
+                "fallback_tools": [],
+                "target_components": ["overview"],
+                "rationale": "coverage",
             }
         )
+
+
+def _walk_strict_mode_unsupported_keys(node: object, path: str = "$") -> list[str]:
+    """Recursively collect JSON-Schema keys that strict json_schema mode rejects."""
+    unsupported = {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength", "pattern"}
+    hits: list[str] = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key in unsupported:
+                hits.append(f"{path}.{key}")
+            hits.extend(_walk_strict_mode_unsupported_keys(value, f"{path}.{key}"))
+    elif isinstance(node, list):
+        for index, item in enumerate(node):
+            hits.extend(_walk_strict_mode_unsupported_keys(item, f"{path}[{index}]"))
+    return hits
+
+
+def test_research_notes_schema_has_no_strict_mode_unsupported_constraints():
+    """ResearchNotes.model_json_schema() must not emit minimum/maximum/etc anywhere in its tree.
+
+    Field(ge=..., le=...) and friends compile to JSON-Schema keywords that
+    strict json_schema structured-output mode does not support; langchain's
+    ProviderStrategy ships the schema verbatim without sanitizing them, which
+    can 400 or otherwise misbehave for researcher-worker structured
+    responses (ResearchNotes nests EvidenceJudgment). field_validator-based
+    enforcement (see EvidenceJudgment.relevance_score) does not appear in
+    model_json_schema(), so this should find nothing.
+    """
+    schema = ResearchNotes.model_json_schema()
+    hits = _walk_strict_mode_unsupported_keys(schema)
+    assert hits == [], f"strict-mode-unsupported schema constraints found: {hits}"
+
+
+def test_research_plan_schema_has_no_strict_mode_unsupported_constraints():
+    """Re-verify ResearchPlan is clean now that ResearchQuery.preferred_tools lost its min_length."""
+    schema = ResearchPlan.model_json_schema()
+    hits = _walk_strict_mode_unsupported_keys(schema)
+    assert hits == [], f"strict-mode-unsupported schema constraints found: {hits}"
 
 
 def test_source_routing_plan_contract_validates_expected_shape():

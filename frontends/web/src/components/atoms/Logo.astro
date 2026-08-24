@@ -1,0 +1,27 @@
+---
+interface Props {
+  href?: string
+  label?: string
+  size?: 'md' | 'sm'
+  class?: string
+}
+const {
+  href = '/',
+  label = 'Piloti — Startseite',
+  size = 'md',
+  class: className = '',
+} = Astro.props
+
+const sizes = {
+  md: 'text-lg sm:text-2xl',
+  sm: 'text-base',
+}
+---
+
+<a
+  href={href}
+  class={`font-logo font-medium uppercase tracking-logo text-ink transition-colors hover:text-accent-600 ${sizes[size]} ${className}`}
+  aria-label={label}
+>
+  Piloti
+</a>

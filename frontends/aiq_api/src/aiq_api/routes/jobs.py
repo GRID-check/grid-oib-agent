@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """
 Agent-agnostic async job API routes.
 
@@ -48,6 +33,8 @@ from pydantic import Field
 from aiq_agent.common.data_source_registry import get_all_sources
 from aiq_agent.common.data_source_registry import get_all_tool_refs
 from aiq_agent.common.data_source_registry import get_source_id_for_tool
+from aiq_agent.common.db_utils import redact_db_url
+from aiq_agent.common.job_admission import JobAdmissionError
 from nat.builder.framework_enum import LLMFrameworkEnum
 
 from ..jobs.access import require_verified_principal
@@ -65,7 +52,7 @@ class JobSubmitRequest(BaseModel):
     """Request to submit an async job."""
 
     agent_type: str = Field(..., description="Agent type (e.g., 'deep_researcher')")
-    input: str = Field(..., min_length=1, description="Input query for the agent")
+    input: str = Field(..., min_length=1, max_length=32000, description="Input query for the agent")
     job_id: str | None = Field(
         None,
         pattern=r"^[a-zA-Z0-9_-]+$",
@@ -316,6 +303,23 @@ class DataSource(BaseModel):
     requires_auth: bool = Field(default=False, description="Whether user authentication is required")
 
 
+class DataSourcesResponse(BaseModel):
+    """Data sources listing plus derived deployment capabilities.
+
+    ``data_sources`` is the registry listing (unchanged). ``vlm_available`` is a
+    DERIVED capability, not a flag: it reflects whether a vision model API key
+    resolves on this deployment, so the frontend can offer image upload only
+    when ingestion would actually succeed (availability = ``image-upload`` flag
+    AND this capability). See ``resolve_vlm_api_key`` for the resolution chain.
+    """
+
+    data_sources: list[DataSource] = Field(..., description="Registered data sources")
+    vlm_available: bool = Field(
+        default=False,
+        description="Whether a vision model (VLM) is configured (derived from VLM API key presence)",
+    )
+
+
 async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: FastApiFrontEndPluginWorker) -> None:
     """
     Register agent-agnostic async job routes.
@@ -326,12 +330,22 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
     import logging as std_logging
     import os
 
+    from .builder_state import set_active_builder
+
+    # Publish the builder so the internal skills submit route (registered
+    # without one) can reuse _validate_data_sources_for_agent.
+    set_active_builder(builder)
+
     from aiq_agent.common.data_source_registry import get_all_sources
     from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 
     from ..jobs.access import authorize_job_access
     from ..jobs.access import ensure_job_access_table
     from ..jobs.event_store import EventStore
+    from ..jobs.submit import DuplicateJobIdError
+    from ..jobs.submit import MissingPrincipalError
+    from ..jobs.submit import SchedulerNotConfiguredError
+    from ..jobs.submit import job_execution_mode
     from ..jobs.submit import submit_agent_job as submit_authorized_job
 
     if not get_all_sources():
@@ -358,28 +372,50 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
     @app.get(
         "/v1/data_sources",
-        response_model=list[DataSource],
+        response_model=DataSourcesResponse,
         tags=["data sources"],
-        summary="List data sources",
+        summary="List data sources and deployment capabilities",
     )
-    async def list_data_sources() -> list[DataSource]:
-        """List available data sources dynamically from the registry."""
-        return [
-            DataSource(
-                id=source.id,
-                name=source.name,
-                description=source.description,
-                requires_auth=source.requires_auth,
-            )
-            for source in get_all_sources()
-        ]
+    async def list_data_sources() -> DataSourcesResponse:
+        """List data sources from the registry plus derived capabilities.
+
+        ``vlm_available`` is derived from the knowledge layer's single VLM-key
+        resolver (``vlm_configured``) — the same seam the ingestion path uses —
+        so the advertised image-upload capability can never drift from what
+        ingestion will actually attempt. Resolves defensively: any import/lookup
+        failure reports ``vlm_available=False`` (fail-closed, no false offer).
+        """
+        try:
+            from knowledge_layer.llamaindex.adapter import vlm_configured
+
+            vlm_available = vlm_configured()
+        except Exception:  # noqa: BLE001 — capability probe must never break the listing
+            logger.warning("VLM capability probe failed; reporting vlm_available=False", exc_info=True)
+            vlm_available = False
+
+        return DataSourcesResponse(
+            data_sources=[
+                DataSource(
+                    id=source.id,
+                    name=source.name,
+                    description=source.description,
+                    requires_auth=source.requires_auth,
+                )
+                for source in get_all_sources()
+            ],
+            vlm_available=vlm_available,
+        )
 
     logger.info("Registered /v1/data_sources and /v1/jobs/async/agents routes")
 
+    db_execution = job_execution_mode() == "db"
     dask_available = getattr(worker, "_dask_available", False)
     job_store = getattr(worker, "_job_store", None)
 
-    if not dask_available or not job_store:
+    # In db-execution mode (ADR-0021) the web tier runs no Dask cluster, so the
+    # routes must still register with a DB-only job store. Otherwise the routes
+    # require Dask + a job store as before.
+    if not db_execution and (not dask_available or not job_store):
         logger.warning(
             "Dask not available - async job submission routes require NAT_DASK_SCHEDULER_ADDRESS"
             " and NAT_JOB_STORE_DB_URL"
@@ -388,6 +424,21 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
     scheduler_address = getattr(worker, "_scheduler_address", None) or os.environ.get("NAT_DASK_SCHEDULER_ADDRESS")
     db_url = getattr(worker, "_db_url", None) or os.environ.get("NAT_JOB_STORE_DB_URL", "sqlite:///./data/jobs.db")
+
+    if job_store is None:
+        # DB-only store: JobStore only *stores* the scheduler address (no Dask
+        # client is built at construction), so status/persistence work without a
+        # cluster. Submission enqueues a claimable row; workers execute it.
+        from nat.front_ends.fastapi.async_jobs.job_store import JobStore
+
+        job_store = JobStore(scheduler_address=scheduler_address or "", db_url=db_url)
+    # submit_agent_job resolves these from the environment only; publish the
+    # worker-provided values so a NAT-config-only deployment (no env vars)
+    # doesn't register routes whose every submission then fails.
+    if scheduler_address:
+        os.environ.setdefault("NAT_DASK_SCHEDULER_ADDRESS", scheduler_address)
+    if db_url:
+        os.environ.setdefault("NAT_JOB_STORE_DB_URL", db_url)
     config_path = getattr(worker, "_config_file_path", None) or os.environ.get("NAT_CONFIG_FILE", "")
     log_level = getattr(worker, "_log_level", std_logging.INFO)
     use_threads = getattr(worker, "_use_dask_threads", False)
@@ -402,7 +453,7 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
     logger.info(
         "Registering async job routes: scheduler=%s, db=%s, expiry=%ds",
         scheduler_address,
-        db_url[:50],
+        redact_db_url(db_url),
         default_expiry_seconds,
     )
     await asyncio.get_running_loop().run_in_executor(None, ensure_job_access_table, db_url)
@@ -445,6 +496,7 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         ),
         responses={
             400: {"description": "Unknown agent type or invalid request"},
+            409: {"description": "A job with the supplied job_id already exists"},
             422: {"description": "One or more unknown or agent-unavailable data source IDs"},
             503: {"description": "Dask scheduler not available"},
         },
@@ -491,8 +543,23 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
                 data_sources=req.data_sources,
                 auth_token=auth_token,
             )
-        except RuntimeError as e:
+        except JobAdmissionError as e:
+            raise HTTPException(429, str(e), headers={"Retry-After": str(e.retry_after_seconds)})
+        except DuplicateJobIdError as e:
+            # Caller-supplied job_id collides with an existing job; letting the
+            # submission proceed would rewrite the original job's ownership.
+            raise HTTPException(409, str(e))
+        except SchedulerNotConfiguredError as e:
+            # Server misconfiguration, not an authorization failure.
+            raise HTTPException(503, str(e))
+        except MissingPrincipalError as e:
+            # Static, user-safe message defined in jobs/submit.py.
             raise HTTPException(403, str(e))
+        except RuntimeError:
+            # Arbitrary internal error text (hosts, DSNs, stack details) must
+            # never be echoed to clients. Log the full exception server-side.
+            logger.exception("Runtime error submitting async %s job", req.agent_type)
+            raise HTTPException(500, "Failed to submit async job")
         except Exception as e:
             logger.warning("Failed to submit authorized job: %s", e)
             raise HTTPException(500, "Failed to persist async job authorization metadata")
@@ -573,32 +640,50 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
     @app.post(
         "/v1/jobs/async/job/{job_id}/cancel",
         tags=["async jobs"],
-        summary="Cancel a running job",
-        description="Request cancellation of a running job. The job status will be set to INTERRUPTED.",
+        summary="Cancel a submitted or running job",
+        description="Request cancellation of a submitted or running job. The job status will be set to INTERRUPTED.",
         responses={
-            400: {"description": "Job is not in RUNNING state"},
+            400: {"description": "Job is not in a cancellable (SUBMITTED or RUNNING) state"},
             404: {"description": "Job not found"},
         },
     )
     async def cancel_job(job_id: str) -> dict:
-        """Cancel a running job."""
+        """Cancel a submitted or running job."""
         principal = require_verified_principal()
         job = await authorize_job_access(job_store, db_url, job_id, principal)
 
-        if job.status != JobStatus.RUNNING.value:
-            raise HTTPException(400, f"Job not running: {job_id} (status: {job.status})")
+        # SUBMITTED is cancellable too: a job stuck before its first status
+        # transition would otherwise be un-cancellable while still consuming
+        # admission-control quota (count_active_jobs counts non-terminal jobs).
+        if job.status not in (JobStatus.RUNNING.value, JobStatus.SUBMITTED.value):
+            raise HTTPException(400, f"Job not cancellable: {job_id} (status: {job.status})")
 
         await job_store.update_status(job_id, JobStatus.INTERRUPTED, error="cancelled by user")
 
-        event_store = EventStore(db_url, job_id)
-        event_store.store(
-            {
-                "type": "job.cancellation_requested",
-                "data": {"reason": "cancelled by user"},
-            }
-        )
+        def _record_cancellation_event() -> None:
+            # EventStore construction and store() are blocking DB I/O — keep
+            # them off the event loop like the rest of this module.
+            event_store = EventStore(db_url, job_id)
+            event_store.store(
+                {
+                    "type": "job.cancellation_requested",
+                    "data": {"reason": "cancelled by user"},
+                }
+            )
 
-        task_cancelled = await _cancel_dask_task(scheduler_address, job_id)
+        await asyncio.get_running_loop().run_in_executor(None, _record_cancellation_event)
+
+        if job_execution_mode() == "db":
+            # DB-claimed execution (ADR-0021): removing the queue row drops an
+            # unclaimed job so no worker ever runs it; a running worker sees the
+            # INTERRUPTED status via its CancellationMonitor and stops on its own.
+            # No scheduler is involved, so the Dask cancel is skipped.
+            from ..jobs import queue
+
+            await asyncio.get_running_loop().run_in_executor(None, queue.mark_done, db_url, job_id)
+            task_cancelled = False
+        else:
+            task_cancelled = await _cancel_dask_task(scheduler_address, job_id)
 
         logger.info("Cancel requested for job %s: status updated, task_cancelled=%s", job_id, task_cancelled)
 
@@ -709,22 +794,29 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
     EventStore._ensure_table_exists(db_url)
 
     # Start the ghost job reaper background task
-    asyncio.create_task(_reap_ghost_jobs(job_store, db_url))
+    asyncio.create_task(_reap_ghost_jobs(job_store, db_url, scheduler_address))
 
     # Start periodic cleanup of expired jobs (NAT's job_info table) and old events (job_events table).
     # NAT provides periodic_cleanup as a Dask task for job_info, but it must be explicitly submitted.
     # We also run a local asyncio task for job_events cleanup since NAT doesn't manage that table.
     _start_periodic_cleanup(job_store, scheduler_address, db_url, default_expiry_seconds, log_level, use_threads)
 
+    # Age-based retention for the interactive chat checkpoint store. Chat threads
+    # have no terminal event, so they accumulate forever without this (P0 #1,
+    # chat side — see checkpoint_retention.py). Runs regardless of execution mode.
+    _start_checkpoint_reaper()
+
 
 GHOST_JOB_TIMEOUT_SECONDS = 300  # 5 minutes without events = ghost job
 GHOST_REAPER_INTERVAL_SECONDS = 60  # check every 60 seconds
 
 
-def _find_stale_jobs(db_url: str, running_status: str) -> list[str]:
+def _find_stale_jobs(db_url: str, active_statuses: tuple[str, ...]) -> list[str]:
     """
-    Sync helper to query for ghost jobs. Runs in a thread via run_in_executor
-    to avoid blocking the async event loop with DB I/O.
+    Sync helper to query for ghost jobs in any of the given non-terminal statuses.
+
+    Runs in a thread via run_in_executor to avoid blocking the async event loop
+    with DB I/O.
     """
     from sqlalchemy import inspect
     from sqlalchemy import text
@@ -737,31 +829,65 @@ def _find_stale_jobs(db_url: str, running_status: str) -> list[str]:
     if not inspector.has_table("job_events"):
         return []
 
+    status_placeholders = ", ".join(f":s{i}" for i in range(len(active_statuses)))
+    status_params: dict[str, Any] = {f"s{i}": status for i, status in enumerate(active_statuses)}
+
     with engine.connect() as conn:
-        if db_url.startswith("postgresql"):
+        if db_url.startswith("postgres"):
             stale_query = text(
                 "SELECT DISTINCT je.job_id FROM job_events je "
                 "INNER JOIN job_info ji ON je.job_id = ji.job_id "
-                "WHERE ji.status = :running_status "
+                f"WHERE ji.status IN ({status_placeholders}) "
                 "GROUP BY je.job_id "
                 "HAVING MAX(je.created_at) < NOW() - :timeout * INTERVAL '1 second'"
             )
-            params = {"running_status": running_status, "timeout": GHOST_JOB_TIMEOUT_SECONDS}
+            params: dict[str, Any] = {**status_params, "timeout": GHOST_JOB_TIMEOUT_SECONDS}
         else:
             stale_query = text(
                 "SELECT DISTINCT je.job_id FROM job_events je "
                 "INNER JOIN job_info ji ON je.job_id = ji.job_id "
-                "WHERE ji.status = :running_status "
+                f"WHERE ji.status IN ({status_placeholders}) "
                 "GROUP BY je.job_id "
                 "HAVING MAX(je.created_at) < datetime('now', :timeout_interval)"
             )
             params = {
-                "running_status": running_status,
+                **status_params,
                 "timeout_interval": f"-{GHOST_JOB_TIMEOUT_SECONDS} seconds",
             }
 
         result = conn.execute(stale_query, params)
-        return [row[0] for row in result]
+        stale_ids = [row[0] for row in result]
+
+        # Second predicate: active jobs that never produced a single event.
+        # The INNER JOIN above can't match them, but they are exactly the
+        # crash classes the reaper exists for: a worker that died during agent
+        # setup (RUNNING, before the first heartbeat/callback event), or a job
+        # stuck in SUBMITTED whose Dask task was never picked up. Timestamps
+        # come from job_info since these jobs have no events at all. Without
+        # this they hold admission-control slots forever.
+        if db_url.startswith("postgres"):
+            eventless_query = text(
+                "SELECT ji.job_id FROM job_info ji "
+                "LEFT JOIN job_events je ON je.job_id = ji.job_id "
+                f"WHERE ji.status IN ({status_placeholders}) AND je.job_id IS NULL "
+                "AND COALESCE(ji.updated_at, ji.created_at) < NOW() - :timeout * INTERVAL '1 second'"
+            )
+            eventless_params: dict[str, Any] = {**status_params, "timeout": GHOST_JOB_TIMEOUT_SECONDS}
+        else:
+            eventless_query = text(
+                "SELECT ji.job_id FROM job_info ji "
+                "LEFT JOIN job_events je ON je.job_id = ji.job_id "
+                f"WHERE ji.status IN ({status_placeholders}) AND je.job_id IS NULL "
+                "AND datetime(COALESCE(ji.updated_at, ji.created_at)) < datetime('now', :timeout_interval)"
+            )
+            eventless_params = {
+                **status_params,
+                "timeout_interval": f"-{GHOST_JOB_TIMEOUT_SECONDS} seconds",
+            }
+
+        result = conn.execute(eventless_query, eventless_params)
+        stale_ids.extend(row[0] for row in result)
+        return stale_ids
 
 
 def _format_created_at(value: Any) -> str | None:
@@ -798,12 +924,20 @@ def _find_research_runs(
     enforced, consistent with how ``authorize_job_access`` treats no-auth
     deployments.
     """
+    from sqlalchemy import inspect
     from sqlalchemy import text
 
     from ..jobs.event_store import EventStore
 
     EventStore._ensure_table_exists(db_url)
     engine = EventStore._get_or_create_sync_engine(db_url)
+
+    # job_info is created by NAT's JobStore; on a fresh database where no job
+    # has ever been submitted it may not exist yet, and the JOIN below would
+    # 500 the listing instead of returning an empty page (same guard as
+    # _find_stale_jobs uses for job_events).
+    if not inspect(engine).has_table("job_info"):
+        return [], 0
 
     conditions: list[str] = []
     params: dict[str, Any] = {}
@@ -833,7 +967,10 @@ def _find_research_runs(
                 text(
                     "SELECT ja.job_id, ji.status, ji.created_at, ja.conversation_id, ja.project_collection "
                     f"{join_sql} {where_clause} "
-                    "ORDER BY ji.created_at DESC "
+                    # job_id tiebreaker: created_at alone is not unique, and an
+                    # unstable order across pages would duplicate/drop rows
+                    # during offset pagination.
+                    "ORDER BY ji.created_at DESC, ja.job_id DESC "
                     "LIMIT :limit OFFSET :offset"
                 ),
                 {**params, "limit": limit, "offset": offset},
@@ -845,53 +982,95 @@ def _find_research_runs(
     return [dict(row) for row in rows], total
 
 
-async def _reap_ghost_jobs(job_store, db_url: str) -> None:
-    """
-    Background task that periodically marks stale RUNNING jobs as FAILURE.
+async def _reap_stale_jobs_once(job_store, db_url: str, scheduler_address: str | None = None) -> list[str]:
+    """Run a single reap cycle: mark stale jobs FAILURE and cancel their Dask tasks.
 
-    A job is considered "ghost" if it has been RUNNING for over
-    GHOST_JOB_TIMEOUT_SECONDS with no new events in the job_events table.
-    This catches Dask worker crashes and OOM kills that bypass Python exception handling.
+    Returns the list of reaped job IDs. Factored out of _reap_ghost_jobs for
+    testability.
     """
+    loop = asyncio.get_running_loop()
+
+    # Only one replica runs the cycle (advisory lock), so N web replicas don't
+    # redundantly re-detect and re-mark the same ghosts.
+    lock = await loop.run_in_executor(None, _acquire_reaper_lock, db_url)
+    if lock is _REAPER_LOCK_SKIP:
+        return []
+    try:
+        return await _do_reap_cycle(job_store, db_url, scheduler_address, loop)
+    finally:
+        await loop.run_in_executor(None, _release_reaper_lock, lock)
+
+
+async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, loop) -> list[str]:
     from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 
     from ..jobs.event_store import EventStore
+    from ..jobs.submit import job_execution_mode
 
+    if job_execution_mode() == "db":
+        # In db-execution mode a SUBMITTED job is a HEALTHY queued row waiting
+        # for a free worker (it legitimately has zero events until claimed), so
+        # it must NOT be reaped — the whole point of the queue is to absorb
+        # bursts. Crashed CLAIMED jobs are recovered by the queue's own
+        # heartbeat reclaim / reap_exhausted, not here. Only genuinely abandoned
+        # RUNNING jobs (no events for the ghost window) are reaped.
+        stale_statuses = (JobStatus.RUNNING.value,)
+    else:
+        # Dask mode: SUBMITTED jobs are reaped too — they may have ZERO events
+        # (never picked up by a worker) yet still consume admission quota.
+        stale_statuses = (JobStatus.RUNNING.value, JobStatus.SUBMITTED.value)
+    stale_job_ids = await loop.run_in_executor(None, _find_stale_jobs, db_url, stale_statuses)
+
+    for stale_job_id in stale_job_ids:
+        logger.warning("Reaping ghost job %s (no events for %ds)", stale_job_id, GHOST_JOB_TIMEOUT_SECONDS)
+        try:
+            await job_store.update_status(
+                stale_job_id,
+                JobStatus.FAILURE,
+                error="Job timed out (no heartbeat received from worker)",
+            )
+            event_store = EventStore(db_url, stale_job_id)
+            event_store.store(
+                {
+                    "type": "job.error",
+                    "data": {
+                        "error": "Job timed out (no heartbeat received from worker)",
+                        "error_type": "GhostJobTimeout",
+                    },
+                }
+            )
+            # Stop the worker like the cancel route does: writing FAILURE alone
+            # leaves the Dask task running, wasting resources (terminal-status
+            # stickiness in the runner prevents it from flipping the status,
+            # and its CancellationMonitor stops it once it polls the FAILURE).
+            if scheduler_address:
+                await _cancel_dask_task(scheduler_address, stale_job_id)
+        except Exception as e:
+            logger.warning("Failed to reap ghost job %s: %s", stale_job_id, e)
+
+    return stale_job_ids
+
+
+async def _reap_ghost_jobs(job_store, db_url: str, scheduler_address: str | None = None) -> None:
+    """
+    Background task that periodically marks stale RUNNING/SUBMITTED jobs as FAILURE.
+
+    A job is considered "ghost" if it has been non-terminal for over
+    GHOST_JOB_TIMEOUT_SECONDS with no new events in the job_events table
+    (falling back to job_info timestamps for jobs that never produced events).
+    This catches Dask worker crashes and OOM kills that bypass Python exception
+    handling, as well as SUBMITTED jobs that were never picked up.
+    """
     logger.info(
         "Ghost job reaper started (timeout=%ds, interval=%ds)",
         GHOST_JOB_TIMEOUT_SECONDS,
         GHOST_REAPER_INTERVAL_SECONDS,
     )
 
-    loop = asyncio.get_running_loop()
-
     while True:
         try:
             await asyncio.sleep(GHOST_REAPER_INTERVAL_SECONDS)
-
-            stale_job_ids = await loop.run_in_executor(None, _find_stale_jobs, db_url, JobStatus.RUNNING.value)
-
-            for stale_job_id in stale_job_ids:
-                logger.warning("Reaping ghost job %s (no events for %ds)", stale_job_id, GHOST_JOB_TIMEOUT_SECONDS)
-                try:
-                    await job_store.update_status(
-                        stale_job_id,
-                        JobStatus.FAILURE,
-                        error="Job timed out (no heartbeat received from worker)",
-                    )
-                    event_store = EventStore(db_url, stale_job_id)
-                    event_store.store(
-                        {
-                            "type": "job.error",
-                            "data": {
-                                "error": "Job timed out (no heartbeat received from worker)",
-                                "error_type": "GhostJobTimeout",
-                            },
-                        }
-                    )
-                except Exception as e:
-                    logger.warning("Failed to reap ghost job %s: %s", stale_job_id, e)
-
+            await _reap_stale_jobs_once(job_store, db_url, scheduler_address)
         except asyncio.CancelledError:
             logger.info("Ghost job reaper stopped")
             break
@@ -899,12 +1078,75 @@ async def _reap_ghost_jobs(job_store, db_url: str) -> None:
             logger.warning("Ghost job reaper error: %s", e)
 
 
+def _int_env(name: str, default: int) -> int:
+    """Positive-int env override, falling back to ``default`` on unset/invalid/≤0."""
+    import os
+
+    try:
+        val = int(os.environ.get(name, ""))
+        return val if val > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
 _cleanup_task: asyncio.Task | None = None
 """Module-level reference for graceful shutdown cancellation."""
+
+_checkpoint_reaper_task: asyncio.Task | None = None
+"""Module-level reference for the chat checkpoint reaper (shutdown cancellation)."""
 
 # Advisory lock ID for PostgreSQL — ensures only one pod runs cleanup at a time.
 # Arbitrary constant; change if it collides with another lock in your deployment.
 _PG_ADVISORY_LOCK_ID = 0x41495143_4C45414E  # "AIQCLEAN" in hex
+# Distinct lock for the ghost-job reaper so N web replicas don't double-reap.
+_PG_REAPER_LOCK_ID = _PG_ADVISORY_LOCK_ID + 1
+
+# Sentinel: postgres, but another replica holds the reaper lock this cycle.
+_REAPER_LOCK_SKIP = object()
+
+
+def _acquire_reaper_lock(db_url: str):
+    """Session-level advisory lock so only one replica runs a reap cycle.
+
+    Returns None on SQLite (single process — no lock needed), an open connection
+    holding the lock on success, or ``_REAPER_LOCK_SKIP`` when another replica
+    holds it. The lock auto-releases if this connection drops (crash-safe).
+    """
+    if not db_url.startswith("postgres"):
+        return None
+    from sqlalchemy import text
+
+    from ..jobs.event_store import EventStore
+
+    conn = EventStore._get_or_create_sync_engine(db_url).connect()
+    try:
+        got = conn.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": _PG_REAPER_LOCK_ID}).scalar()
+    except Exception:
+        # Don't leak the connection if the lock query itself failed.
+        conn.close()
+        raise
+    if not got:
+        conn.close()
+        return _REAPER_LOCK_SKIP
+    return conn
+
+
+def _release_reaper_lock(conn) -> None:
+    if conn is None or conn is _REAPER_LOCK_SKIP:
+        return
+    from sqlalchemy import text
+
+    try:
+        conn.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": _PG_REAPER_LOCK_ID})
+        conn.close()
+    except Exception:
+        # If unlock failed, the SESSION-level advisory lock is still held. A
+        # plain close() returns the connection to the pool WITH the lock held,
+        # which would wedge the reaper cluster-wide. invalidate() drops the
+        # underlying DBAPI connection so Postgres ends the session and releases
+        # the lock.
+        logger.warning("Reaper advisory unlock failed; invalidating connection to release the lock", exc_info=True)
+        conn.invalidate()
 
 
 def _start_periodic_cleanup(
@@ -923,74 +1165,165 @@ def _start_periodic_cleanup(
     """
     global _cleanup_task
 
+    from ..jobs.submit import job_execution_mode
+
+    # Detect db-execution mode DIRECTLY (ADR-0021) rather than probing
+    # job_store.dask_client. In db mode the store is constructed with an EMPTY
+    # scheduler address, so its lazily-built `dask_client` property raises
+    # ValueError("missing port number in address '' ") on first access — and
+    # getattr(..., None) only suppresses AttributeError, so probing it crashes
+    # startup. The reaper path (_do_reap_cycle) already gates on this same signal.
+    db_execution = job_execution_mode() == "db"
+
     # Cleanup interval: half the expiry time, clamped to [60s, 3600s]
     cleanup_interval = max(60, min(expiry_seconds // 2, 3600))
 
-    # Submit NAT's periodic_cleanup as a long-running Dask task for job_info table
-    try:
-        from dask.distributed import fire_and_forget
+    # Submit NAT's periodic_cleanup as a long-running Dask task for job_info table.
+    # In db-execution mode (ADR-0021) there is no Dask client; job_info expiry is
+    # instead handled by the shared-Postgres event/expiry paths, so skip cleanly.
+    if db_execution:
+        logger.info("No Dask client (db execution) - skipping NAT periodic_cleanup Dask submit")
+    else:
+        try:
+            from dask.distributed import fire_and_forget
 
-        from nat.front_ends.fastapi.async_jobs import periodic_cleanup
+            from nat.front_ends.fastapi.async_jobs import periodic_cleanup
 
-        cleanup_future = job_store.dask_client.submit(
-            periodic_cleanup,
-            scheduler_address=scheduler_address,
-            db_url=db_url,
-            sleep_time_sec=cleanup_interval,
-            configure_logging=not use_threads,
-            log_level=log_level,
-        )
-        fire_and_forget(cleanup_future)
-        logger.info(
-            "Submitted periodic job cleanup task to Dask (interval=%ds, expiry=%ds)",
-            cleanup_interval,
-            expiry_seconds,
-        )
-    except Exception as e:
-        logger.warning("Failed to submit periodic cleanup to Dask: %s", e)
+            cleanup_future = job_store.dask_client.submit(
+                periodic_cleanup,
+                scheduler_address=scheduler_address,
+                db_url=db_url,
+                sleep_time_sec=cleanup_interval,
+                configure_logging=not use_threads,
+                log_level=log_level,
+            )
+            fire_and_forget(cleanup_future)
+            logger.info(
+                "Submitted periodic job cleanup task to Dask (interval=%ds, expiry=%ds)",
+                cleanup_interval,
+                expiry_seconds,
+            )
+        except Exception as e:
+            logger.warning("Failed to submit periodic cleanup to Dask: %s", e)
 
     # Start local asyncio task for job_events table cleanup (NAT doesn't manage this table).
     # Uses pg_try_advisory_xact_lock on PostgreSQL so only one pod runs cleanup per cycle.
+    # In db-execution mode (no Dask client) NAT's job_info expiry never runs, so this loop
+    # also ages out job_info/job_access under the same lock (ADR-0021; expire_terminal_jobs).
     # Cancel any previously-started task before overwriting the reference.
+    expire_job_info = db_execution
+    delete_grace_seconds = _int_env("GRID_JOB_INFO_DELETE_GRACE_SECONDS", 604800)  # 7d
     if _cleanup_task and not _cleanup_task.done():
         _cleanup_task.cancel()
-    _cleanup_task = asyncio.create_task(_cleanup_old_events_loop(db_url, expiry_seconds, cleanup_interval))
+    _cleanup_task = asyncio.create_task(
+        _cleanup_old_events_loop(db_url, expiry_seconds, cleanup_interval, expire_job_info, delete_grace_seconds)
+    )
+
+
+async def _cancel_task(task: asyncio.Task | None, label: str) -> None:
+    if task and not task.done():
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        logger.info("%s cancelled", label)
 
 
 async def stop_periodic_cleanup() -> None:
-    """Cancel the event cleanup background task. Call from shutdown handler."""
-    global _cleanup_task
-    if _cleanup_task and not _cleanup_task.done():
-        _cleanup_task.cancel()
+    """Cancel the cleanup + checkpoint-reaper background tasks. Call from shutdown."""
+    global _cleanup_task, _checkpoint_reaper_task
+    await _cancel_task(_cleanup_task, "Event cleanup task")
+    await _cancel_task(_checkpoint_reaper_task, "Chat checkpoint reaper")
+    _cleanup_task = None
+    _checkpoint_reaper_task = None
+
+
+# Chat checkpoint reaper cadence. Idle threads accumulate slowly (one thread per
+# conversation), so an hourly sweep is ample.
+CHECKPOINT_REAPER_INTERVAL_SECONDS = 3600
+
+
+def _start_checkpoint_reaper() -> None:
+    """Start the chat checkpoint age reaper if a checkpoint DSN is configured."""
+    import os
+
+    global _checkpoint_reaper_task
+    dsn = os.environ.get("AIQ_CHECKPOINT_DB")
+    retention_seconds = _int_env("GRID_CHAT_CHECKPOINT_RETENTION_SECONDS", 1209600)  # 14d
+    if not dsn:
+        logger.info("No AIQ_CHECKPOINT_DB configured - chat checkpoint reaper not started")
+        return
+    if _checkpoint_reaper_task and not _checkpoint_reaper_task.done():
+        _checkpoint_reaper_task.cancel()
+    _checkpoint_reaper_task = asyncio.create_task(
+        _reap_idle_checkpoints_loop(dsn, retention_seconds, CHECKPOINT_REAPER_INTERVAL_SECONDS)
+    )
+
+
+async def _reap_idle_checkpoints_loop(dsn: str, retention_seconds: int, interval_seconds: int) -> None:
+    """Periodically drop chat checkpoint threads idle beyond the retention window.
+
+    One replica does the work per cycle (Postgres advisory lock inside
+    ``reap_idle_threads``); the rest no-op. Best-effort — a failed sweep is logged
+    and retried next cycle, never propagated.
+    """
+    from ..jobs.checkpoint_retention import reap_idle_threads
+
+    logger.info(
+        "Chat checkpoint reaper started (retention=%ds, interval=%ds)",
+        retention_seconds,
+        interval_seconds,
+    )
+    loop = asyncio.get_running_loop()
+    # Immediate sweep on startup catches threads that aged out during downtime.
+    try:
+        await loop.run_in_executor(None, reap_idle_threads, dsn, retention_seconds)
+    except Exception as e:
+        logger.warning("Chat checkpoint reaper startup run failed: %s", e)
+    while True:
         try:
-            await _cleanup_task
+            await asyncio.sleep(interval_seconds)
+            await loop.run_in_executor(None, reap_idle_threads, dsn, retention_seconds)
         except asyncio.CancelledError:
-            pass
-        _cleanup_task = None
-        logger.info("Event cleanup task cancelled")
+            logger.info("Chat checkpoint reaper stopped")
+            break
+        except Exception as e:
+            logger.warning("Chat checkpoint reaper error: %s", e)
 
 
-async def _cleanup_old_events_loop(db_url: str, retention_seconds: int, interval_seconds: int) -> None:
+async def _cleanup_old_events_loop(
+    db_url: str,
+    retention_seconds: int,
+    interval_seconds: int,
+    expire_job_info: bool = False,
+    delete_grace_seconds: int = 604800,
+) -> None:
     """
     Background task that periodically deletes old events from the job_events table
     and removes events for jobs already marked as expired in job_info.
 
     On PostgreSQL, uses pg_try_advisory_xact_lock so only one pod runs cleanup per cycle
     when multiple pods share the same database.
+
+    When ``expire_job_info`` is set (db-execution mode, where NAT's Dask expiry never
+    runs) each cycle also ages out terminal ``job_info``/``job_access`` rows under the
+    same lock (ADR-0021).
     """
 
     is_postgres = db_url.startswith("postgres")
 
     logger.info(
-        "Event cleanup task started (retention=%ds, interval=%ds, advisory_lock=%s)",
+        "Event cleanup task started (retention=%ds, interval=%ds, advisory_lock=%s, expire_job_info=%s)",
         retention_seconds,
         interval_seconds,
         is_postgres,
+        expire_job_info,
     )
 
     # Run once immediately on startup to catch anything that aged out during downtime.
     try:
-        await _run_event_cleanup(db_url, retention_seconds, is_postgres)
+        await _run_event_cleanup(db_url, retention_seconds, is_postgres, expire_job_info, delete_grace_seconds)
     except asyncio.CancelledError:
         raise
     except Exception as e:
@@ -999,7 +1332,7 @@ async def _cleanup_old_events_loop(db_url: str, retention_seconds: int, interval
     while True:
         try:
             await asyncio.sleep(interval_seconds)
-            await _run_event_cleanup(db_url, retention_seconds, is_postgres)
+            await _run_event_cleanup(db_url, retention_seconds, is_postgres, expire_job_info, delete_grace_seconds)
         except asyncio.CancelledError:
             logger.info("Event cleanup task stopped")
             break
@@ -1007,7 +1340,13 @@ async def _cleanup_old_events_loop(db_url: str, retention_seconds: int, interval
             logger.warning("Event cleanup error: %s", e)
 
 
-async def _run_event_cleanup(db_url: str, retention_seconds: int, is_postgres: bool) -> None:
+async def _run_event_cleanup(
+    db_url: str,
+    retention_seconds: int,
+    is_postgres: bool,
+    expire_job_info: bool = False,
+    delete_grace_seconds: int = 604800,
+) -> None:
     """
     Execute one cleanup cycle: time-based event pruning + removal of events for expired jobs.
 
@@ -1016,11 +1355,12 @@ async def _run_event_cleanup(db_url: str, retention_seconds: int, is_postgres: b
     automatically released on commit/rollback, avoiding leak risks.
     """
     from ..jobs.access import cleanup_job_access
+    from ..jobs.access import expire_terminal_jobs
     from ..jobs.event_store import EventStore
 
     loop = asyncio.get_running_loop()
 
-    def _do_cleanup() -> tuple[int, int, int]:
+    def _do_cleanup() -> tuple[int, int, int, int, int]:
         from sqlalchemy import text
 
         engine = EventStore._get_or_create_sync_engine(db_url)
@@ -1035,7 +1375,14 @@ async def _run_event_cleanup(db_url: str, retention_seconds: int, is_postgres: b
                     {"lock_id": _PG_ADVISORY_LOCK_ID},
                 ).scalar()
                 if not locked:
-                    return (0, 0, 0)
+                    return (0, 0, 0, 0, 0)
+
+            # 0. db-execution mode only: mark terminal job_info rows expired (past
+            # their per-row expiry) and hard-delete rows past the delete grace. Runs
+            # FIRST so the newly-marked rows are reclaimed by steps 2/3 this cycle.
+            job_marked, job_deleted = (
+                expire_terminal_jobs(db_url, delete_grace_seconds, conn=conn) if expire_job_info else (0, 0)
+            )
 
             # 1. Time-based: delete events older than retention period
             if is_postgres:
@@ -1060,16 +1407,21 @@ async def _run_event_cleanup(db_url: str, retention_seconds: int, is_postgres: b
             access_deleted = cleanup_job_access(db_url, conn=conn)
 
             conn.commit()
-            return (time_deleted, expired_deleted, access_deleted)
+            return (time_deleted, expired_deleted, access_deleted, job_marked, job_deleted)
 
-    time_deleted, expired_deleted, access_deleted = await loop.run_in_executor(None, _do_cleanup)
+    time_deleted, expired_deleted, access_deleted, job_marked, job_deleted = await loop.run_in_executor(
+        None, _do_cleanup
+    )
 
-    if time_deleted > 0 or expired_deleted > 0 or access_deleted > 0:
+    if time_deleted > 0 or expired_deleted > 0 or access_deleted > 0 or job_marked > 0 or job_deleted > 0:
         logger.info(
-            "Event cleanup: %d old events removed, %d events for expired jobs removed, %d access rows removed",
+            "Event cleanup: %d old events removed, %d events for expired jobs removed, %d access rows removed, "
+            "%d job_info marked expired, %d job_info rows deleted",
             time_deleted,
             expired_deleted,
             access_deleted,
+            job_marked,
+            job_deleted,
         )
 
 
@@ -1084,6 +1436,10 @@ async def _cancel_dask_task(scheduler_address: str, job_id: str) -> bool:
     Returns:
         True if a Dask cancellation request was sent, False otherwise.
     """
+    if not scheduler_address:
+        # db-execution mode (ADR-0021): no Dask scheduler. Cancellation is the
+        # job_info status flip the caller already made; nothing to cancel here.
+        return False
     try:
         from distributed import Client
         from distributed import Future
@@ -1114,13 +1470,17 @@ def _extract_event_metadata(event: dict) -> tuple[dict, dict]:
 
 
 def _process_tool_start(event: dict, data: dict, metadata: dict, tool_call_map: dict[str, dict]) -> None:
-    """Process a tool.start event and add to tool_call_map."""
-    tool_id = data.get("id", "")
-    inner_data = data.get("data", {}) if isinstance(data.get("data"), dict) else {}
+    """Process a tool.start event and add to tool_call_map.
+
+    Stored events (IntermediateStepEvent.to_sse_dict) carry ``id``/``name`` at
+    the top level and the tool input directly under ``data`` — not nested one
+    level deeper.
+    """
+    tool_id = event.get("id", "")
     tool_call_map[tool_id] = {
         "id": tool_id,
-        "name": data.get("name", ""),
-        "input": inner_data.get("input"),
+        "name": event.get("name", ""),
+        "input": data.get("input"),
         "output": None,
         "status": "running",
         "workflow": metadata.get("workflow"),
@@ -1129,18 +1489,27 @@ def _process_tool_start(event: dict, data: dict, metadata: dict, tool_call_map: 
 
 
 def _process_tool_end(event: dict, data: dict, metadata: dict, tool_call_map: dict[str, dict]) -> None:
-    """Process a tool.end event and update tool_call_map."""
-    tool_id = data.get("id", "")
-    inner_data = data.get("data", {}) if isinstance(data.get("data"), dict) else {}
-    tool_output = inner_data.get("output")
+    """Process a tool.end event and update tool_call_map.
 
-    if tool_id in tool_call_map:
-        tool_call_map[tool_id]["output"] = tool_output
-        tool_call_map[tool_id]["status"] = "completed"
+    tool.start and tool.end are separate events with distinct ``id``s, so the
+    running entry is matched by tool name (the emitter resolves the name from
+    the run_id on both sides).
+    """
+    tool_output = data.get("output")
+    tool_name = event.get("name", "")
+
+    running = next(
+        (entry for entry in tool_call_map.values() if entry["name"] == tool_name and entry["status"] == "running"),
+        None,
+    )
+    if running is not None:
+        running["output"] = tool_output
+        running["status"] = "completed"
     else:
+        tool_id = event.get("id", "")
         tool_call_map[tool_id] = {
             "id": tool_id,
-            "name": data.get("name", ""),
+            "name": tool_name,
             "input": None,
             "output": tool_output,
             "status": "completed",
@@ -1279,24 +1648,34 @@ async def _sse_generator(job_store, job_id: str, db_url: str, start_event_id: in
     from ..jobs.event_store import EventStore
 
     if EventStore.is_postgres(db_url):
+        # Shared cursor: the pub-sub generator records the id of the last real
+        # event it yielded so a mid-stream failure resumes the polling fallback
+        # from there instead of replaying the whole stream from start_event_id.
+        progress = {"last_event_id": start_event_id}
         try:
-            async for event in _sse_generator_postgres(job_store, job_id, db_url, start_event_id):
+            async for event in _sse_generator_postgres(job_store, job_id, db_url, start_event_id, progress):
                 yield event
         except Exception as e:
             logger.warning("Pub-sub failed, falling back to polling: %s", e)
-            async for event in _sse_generator_polling(job_store, job_id, db_url, start_event_id):
+            async for event in _sse_generator_polling(job_store, job_id, db_url, progress["last_event_id"]):
                 yield event
     else:
         async for event in _sse_generator_polling(job_store, job_id, db_url, start_event_id):
             yield event
 
 
-async def _sse_generator_postgres(job_store, job_id: str, db_url: str, start_event_id: int = 0):
+async def _sse_generator_postgres(
+    job_store, job_id: str, db_url: str, start_event_id: int = 0, progress: dict[str, int] | None = None
+):
     """
     PostgreSQL pub-sub based SSE generator - near-instant event delivery.
 
     Uses asyncpg LISTEN/NOTIFY for real-time push-based events.
     Achieves sub-10ms latency compared to 500ms polling interval.
+
+    When ``progress`` is provided, its ``last_event_id`` entry is kept in sync
+    with the cursor of the last real event yielded, so the caller can resume a
+    polling fallback from there after a mid-stream failure.
     """
     import asyncio
 
@@ -1314,12 +1693,20 @@ async def _sse_generator_postgres(job_store, job_id: str, db_url: str, start_eve
     terminal_statuses = {JobStatus.SUCCESS.value, JobStatus.FAILURE.value, JobStatus.INTERRUPTED.value}
     is_reconnect = start_event_id > 0
 
+    def advance_cursor(event_id: int) -> None:
+        nonlocal last_event_id
+        last_event_id = event_id
+        if progress is not None:
+            progress["last_event_id"] = event_id
+
     def format_sse(event_type: str, data: dict, event_id: int | None = None) -> str:
+        # Synthetic events (job.status, stream.mode, ...) reuse the last real
+        # event id instead of advancing past it: id+1 is exactly the id the
+        # next stored job_events row will get, so a client that disconnects
+        # after a synthetic event would reconnect past a real event and lose it.
         nonlocal sequence_id
         if event_id is not None:
             sequence_id = event_id
-        else:
-            sequence_id += 1
         return f"id: {sequence_id}\nevent: {event_type}\ndata: {json.dumps(data)}\n\n"
 
     # LISTEN/NOTIFY needs a persistent session — incompatible with PgBouncer
@@ -1327,7 +1714,16 @@ async def _sse_generator_postgres(job_store, job_id: str, db_url: str, start_eve
     import os
 
     listen_db_url = os.environ.get("AIQ_LISTEN_DB_URL", db_url)
-    asyncpg_url = listen_db_url.replace("+psycopg2", "").replace("+asyncpg", "").replace("postgresql://", "postgres://")
+    # Strip +psycopg2 before +psycopg (it's a prefix of the former) — this
+    # codebase standardizes on postgresql+psycopg:// URLs, which asyncpg
+    # rejects; a leftover driver suffix silently degrades every SSE stream
+    # to polling ("Pub-sub failed, falling back to polling").
+    asyncpg_url = (
+        listen_db_url.replace("+psycopg2", "")
+        .replace("+psycopg", "")
+        .replace("+asyncpg", "")
+        .replace("postgresql://", "postgres://")
+    )
     channel = f"job_events_{job_id.replace('-', '_')}"
 
     logger.info(f"SSE pub-sub stream starting for job_id={job_id}, channel={channel}")
@@ -1363,7 +1759,7 @@ async def _sse_generator_postgres(job_store, job_id: str, db_url: str, start_eve
             for event in events:
                 db_event_id = event.pop("_id", None)
                 if db_event_id:
-                    last_event_id = db_event_id
+                    advance_cursor(db_event_id)
                 event_type = event.pop("type", "event")
                 yield format_sse(event_type, event, db_event_id)
 
@@ -1378,7 +1774,7 @@ async def _sse_generator_postgres(job_store, job_id: str, db_url: str, start_eve
                 for event in reconcile_events:
                     db_event_id = event.pop("_id", None)
                     if db_event_id:
-                        last_event_id = db_event_id
+                        advance_cursor(db_event_id)
                     event_type = event.pop("type", "event")
                     yield format_sse(event_type, event, db_event_id)
 
@@ -1406,10 +1802,16 @@ async def _sse_generator_postgres(job_store, job_id: str, db_url: str, start_eve
                         event_id = notification_data.get("id")
 
                         if event_id and event_id > last_event_id:
-                            event = await EventStore.get_event_by_id_async(db_url, event_id)
-                            if event:
-                                last_event_id = event_id
+                            # Range-fetch from the cursor instead of fetching the
+                            # notified id alone: NOTIFYs can be lost or arrive out
+                            # of order, and jumping last_event_id straight to the
+                            # notified id would drop the unseen rows in between
+                            # forever.
+                            new_events = await EventStore.get_events_async(db_url, job_id, last_event_id, 1000)
+                            for event in new_events:
                                 db_event_id = event.pop("_id", None)
+                                if db_event_id:
+                                    advance_cursor(db_event_id)
                                 event_type = event.pop("type", "event")
                                 yield format_sse(event_type, event, db_event_id)
                     except TimeoutError:
@@ -1418,7 +1820,7 @@ async def _sse_generator_postgres(job_store, job_id: str, db_url: str, start_eve
                         for event in fallback_events:
                             db_event_id = event.pop("_id", None)
                             if db_event_id:
-                                last_event_id = db_event_id
+                                advance_cursor(db_event_id)
                             event_type = event.pop("type", "event")
                             yield format_sse(event_type, event, db_event_id)
 
@@ -1441,20 +1843,17 @@ async def _sse_generator_postgres(job_store, job_id: str, db_url: str, start_eve
 
                     if job.status in terminal_statuses:
                         await asyncio.sleep(0.5)
-                        while not notification_queue.empty():
-                            try:
-                                payload = notification_queue.get_nowait()
-                                notification_data = json.loads(payload)
-                                event_id = notification_data.get("id")
-                                if event_id and event_id > last_event_id:
-                                    event = await EventStore.get_event_by_id_async(db_url, event_id)
-                                    if event:
-                                        last_event_id = event_id
-                                        db_event_id = event.pop("_id", None)
-                                        event_type = event.pop("type", "event")
-                                        yield format_sse(event_type, event, db_event_id)
-                            except asyncio.QueueEmpty:
-                                break
+                        # Terminal drain via one final range fetch after the
+                        # cursor (rather than draining queued notifications
+                        # id-by-id): the job's last events — including the final
+                        # report artifact — must not be lost to a dropped NOTIFY.
+                        final_events = await EventStore.get_events_async(db_url, job_id, last_event_id, 10000)
+                        for event in final_events:
+                            db_event_id = event.pop("_id", None)
+                            if db_event_id:
+                                advance_cursor(db_event_id)
+                            event_type = event.pop("type", "event")
+                            yield format_sse(event_type, event, db_event_id)
                         break
 
                 except asyncio.CancelledError:
@@ -1501,15 +1900,20 @@ async def _sse_generator_polling(job_store, job_id: str, db_url: str, start_even
     replay_mode_announced = False
 
     def format_sse(event_type: str, data: dict, event_id: int | None = None) -> str:
+        # Synthetic events (job.status, stream.mode, ...) reuse the last real
+        # event id instead of advancing past it: id+1 is exactly the id the
+        # next stored job_events row will get, so a client that disconnects
+        # after a synthetic event would reconnect past a real event and lose it.
         nonlocal sequence_id
         if event_id is not None:
             sequence_id = event_id
-        else:
-            sequence_id += 1
         return f"id: {sequence_id}\nevent: {event_type}\ndata: {json.dumps(data)}\n\n"
 
     logger.info(
-        f"SSE polling stream starting for job_id={job_id}, start_event_id={start_event_id}, db_url={db_url[:50]}"
+        "SSE polling stream starting for job_id=%s, start_event_id=%s, db_url=%s",
+        job_id,
+        start_event_id,
+        redact_db_url(db_url),
     )
 
     async with connection_manager.track_connection():

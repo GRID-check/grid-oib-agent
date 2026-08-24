@@ -1,18 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Tests for unified LLM cost capture + budget enforcement.
 
 DRY-RUN NOTE: OpenRouter is not reachable from CI. These tests replay the
@@ -194,6 +179,24 @@ class TestGridCostTracker:
         with patch("aiq_agent.common.cost_tracking._post_usage_events") as post:
             tracker.flush(wait=True)
         assert post.call_count == 0
+
+    def test_concurrent_runs_attribute_model_by_run_id(self):
+        """Interleaved LLM calls must each record their own requested model.
+
+        Deep research fires concurrent calls; keying the requested model by
+        run_id (not a single shared slot) keeps model attribution correct when
+        call B starts before call A ends.
+        """
+        tracker = self._tracker()
+        tracker.on_chat_model_start({}, [], run_id="A", invocation_params={"model": "vendor/model-a"})
+        # A second call on a different model starts before A finishes.
+        tracker.on_chat_model_start({}, [], run_id="B", invocation_params={"model": "vendor/model-b"})
+        tracker.on_llm_end(_openrouter_result(), run_id="A")
+        tracker.on_llm_end(_openrouter_result(), run_id="B")
+        with patch("aiq_agent.common.cost_tracking._post_usage_events") as post:
+            tracker.flush(wait=True)
+        events = post.call_args.args[0]["events"]
+        assert [e["requestedModel"] for e in events] == ["vendor/model-a", "vendor/model-b"]
 
 
 class TestTrackLlmCosts:

@@ -1,70 +1,46 @@
-import { NextResponse } from 'next/server'
-import { desc, eq } from 'drizzle-orm'
+/**
+ * Conversations API — list and create conversations for the current
+ * organization. Thin handlers; all logic lives in
+ * `@/lib/conversations/service`.
+ *
+ * The list is **visibility-aware** (spec SH-4): it returns what the caller may
+ * actually see, not every conversation in the organization. A new conversation is
+ * created `private` and shared deliberately (spec MG-2).
+ */
+
 import { z } from 'zod'
-import { authzErrorResponse, requireAuthorizedSession } from '@/lib/auth/require-auth'
-import { getDb } from '@/lib/db'
-import { conversations } from '@/lib/db/schema'
+import { apiRoute, parseJsonBody, parseQuery } from '@/lib/api/handler'
+import { createConversation, listConversations } from '@/lib/conversations/service'
 
 const createConversationSchema = z.object({
-  id: z.string().min(1),
+  // Client-generated id; length-capped so user-controlled strings never
+  // reach the database unbounded.
+  id: z.string().min(1).max(128),
   title: z.string().nullable().optional(),
   projectId: z.string().uuid().nullable().optional(),
+  subjectResourceType: z.literal('document').nullable().optional(),
+  subjectResourceId: z.string().min(1).max(128).nullable().optional(),
 })
 
-export async function GET(_request: Request): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-    const db = getDb()
+const listConversationsQuerySchema = z.object({
+  // Optional project scope; the service enforces project access + tenancy.
+  projectId: z.string().uuid().optional(),
+})
 
-    const rows = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.organizationId, session.organizationId))
-      .orderBy(desc(conversations.updatedAt))
-
-    return NextResponse.json(rows)
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
+export const GET = apiRoute(
+  async ({ session, request }) =>
+    listConversations(session, parseQuery(request, listConversationsQuerySchema)),
+  {
+    authz: {
+      enforcedBy: 'listConversations (requireProjectAccess project:view + resource access)',
+    },
   }
-}
+)
 
-export async function POST(request: Request): Promise<Response> {
-  try {
-    const session = await requireAuthorizedSession()
-
-    const body = await request.json().catch(() => null)
-    if (!body) {
-      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
-    }
-
-    const parsed = createConversationSchema.safeParse(body)
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: 'id is required', issues: parsed.error.issues },
-        { status: 400 },
-      )
-    }
-
-    const { id, title, projectId } = parsed.data
-    const db = getDb()
-
-    const [row] = await db
-      .insert(conversations)
-      .values({
-        id,
-        organizationId: session.organizationId,
-        createdBy: session.userId,
-        title: title ?? null,
-        projectId: projectId ?? null,
-      })
-      .returning()
-
-    return NextResponse.json(row, { status: 201 })
-  } catch (error) {
-    const denied = authzErrorResponse(error)
-    if (denied) return denied
-    throw error
-  }
-}
+export const POST = apiRoute(
+  async ({ session, request }) => {
+    const input = await parseJsonBody(request, createConversationSchema)
+    return createConversation(session, input)
+  },
+  { status: 201, authz: { enforcedBy: 'createConversation (requireProjectAccess project:view)' } }
+)

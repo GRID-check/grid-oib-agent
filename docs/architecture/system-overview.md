@@ -34,7 +34,7 @@ tier horizontally scalable and replaceable, and concentrates security and data
 ownership in one place.
 
 The system is **LLM-agnostic**: any OpenAI-compatible endpoint is a valid
-provider (the reference config uses DeepSeek via OpenRouter).
+provider (the reference config uses OpenAI GPT-5.6 Luna via OpenRouter).
 
 ---
 
@@ -92,7 +92,7 @@ flowchart TB
 
     subgraph Data["Stateful infrastructure"]
         PG[("PostgreSQL<br/>grid_app · aiq_jobs · aiq_checkpoints")]
-        MINIO[("MinIO — grid-documents bucket")]
+        SEAWEED[("SeaweedFS — grid-documents bucket")]
         CHROMA[("ChromaDB — vector store")]
     end
 
@@ -101,7 +101,7 @@ flowchart TB
     Browser <-->|"WebSocket (chat) + HTTPS"| GW
     GW --> BFF
     BFF <-->|Drizzle| PG
-    BFF -->|presign / put| MINIO
+    BFF -->|presign / put| SEAWEED
     GW -->|"proxy WS upgrade + REST"| API
     API --> NAT --> DASK
     NAT <--> CHROMA
@@ -109,7 +109,7 @@ flowchart TB
     BFF -.->|"internal memory write API (token)"| BFF
     NAT -.->|"remember tool → internal API"| BFF
     PURGER --> PG
-    PURGER --> MINIO
+    PURGER --> SEAWEED
     PURGER -->|"purge-project-resources"| API
 ```
 
@@ -118,10 +118,11 @@ flowchart TB
 | **frontend** | Next.js 16, React 18, TypeScript | The UI, the BFF (all `/api/*`), and the `server.js` gateway. System of record for `grid_app`. |
 | **aiq-agent** | Python 3.13, FastAPI, NAT, LangGraph, Dask | Stateless AI orchestration; owns the vector store and the job/checkpoint DBs. |
 | **postgres** | PostgreSQL 16 | Three logical DBs: `grid_app` (app state), `aiq_jobs` (jobs/events/summaries), `aiq_checkpoints` (LangGraph state). |
-| **minio** | MinIO (S3-compatible) | Object storage for OIB PDFs and uploaded documents (`grid-documents` bucket). |
+| **seaweedfs** | SeaweedFS (S3-compatible) | Object storage for OIB PDFs and uploaded documents (`grid-documents` bucket). |
 | **ChromaDB** | in-process in aiq-agent | Vector store (collections persisted to a volume). Not a separate container. |
 | **purger** | same image as frontend, `node purger/index.js` | Scheduled worker that hard-deletes soft-deleted projects after the grace period. |
-| *(one-shot)* | alpine / mc | `aiq-data-permissions` (volume chown) and `minio-init` (bucket create). |
+| **dragonfly** | Dragonfly (Redis protocol) | Shared cache (ADR-0020): read-through caches, WS-upgrade rate limiting, citation-registry snapshots. Cache-only; both tiers fail open to in-process fallbacks. |
+| *(one-shot)* | alpine / mc | `aiq-data-permissions` (volume chown) and `seaweedfs-init` (bucket create). |
 
 The **gateway (`server.js`)** is the seam that makes the two-tier model work:
 on each WebSocket upgrade (and REST proxy) it calls an internal BFF endpoint to
@@ -137,7 +138,7 @@ This is the decision everything else hangs off (ADR 0003).
 
 - **The BFF owns tenancy and durability.** Auth (WorkOS AuthKit), authorization
   (WorkOS FGA), the application database (`grid_app` via Drizzle), file storage
-  (MinIO presigning), and all write paths live here. There is exactly **one
+  (SeaweedFS presigning), and all write paths live here. There is exactly **one
   writer** of `grid_app`.
 - **The agent backend is stateless per request.** It receives *what it may see*
   (collection scope) and *what it knows* (project context + memory) as headers,
@@ -201,16 +202,16 @@ report populate a research panel. The turn that dispatches a job returns a
 structured `deep_research_job_id` so the UI opens the panel reliably.
 
 ### 5.6 Documents & ingestion
-Uploads go to MinIO (server-side) under a tenant-scoped key
+Uploads go to SeaweedFS (server-side) under a tenant-scoped key
 (`org/<org>/project/<project>/…`), then are ingested into the project's vector
 collection via the backend `/v1/ingest`. Browser preview/download use presigned
-URLs signed with a **browser-reachable** MinIO endpoint (distinct from the
+URLs signed with a **browser-reachable** SeaweedFS endpoint (distinct from the
 internal one). → `docs/technical-reference/document-ingestion.md`.
 
 ### 5.7 Deletion pipeline (soft-delete → restore → hard-purge)
 Deleting a project is reversible within a grace window: it's soft-deleted and
 queued (`deletion_queue`); the **purger** worker hard-purges after
-`PROJECT_PURGE_GRACE_DAYS`, cascading DB rows, MinIO objects, the Chroma
+`PROJECT_PURGE_GRACE_DAYS`, cascading DB rows, SeaweedFS objects, the Chroma
 collection, job rows, checkpoints, and the WorkOS FGA resource. **Legal holds**
 (`legal_holds`) block purge and are re-checked before each destructive step.
 The project row is deleted last so a failed purge stays recoverable. (ADR 0011.)
@@ -246,7 +247,7 @@ LangGraph workflow classifies intent, retrieves in scope, verifies citations,
 generates the answer + any cards → streams back → the UI renders text, sources,
 and cards.
 
-**Upload → ingest.** Browser uploads → BFF stores the object in MinIO
+**Upload → ingest.** Browser uploads → BFF stores the object in SeaweedFS
 server-side and records a `documents` row → BFF calls backend `/v1/ingest` with a
 presigned URL → the backend chunks/embeds into `proj_<id>` → the document is now
 in scope for that project's chats.
@@ -259,7 +260,7 @@ as the memory header.
 **Project deletion.** User deletes a project → BFF soft-deletes it and enqueues
 `deletion_queue` with `purge_after = now + grace` → after the grace period the
 purger claims the row (backoff + legal-hold check), destroys external stores
-(backend resources, MinIO prefix, WorkOS resource) then `grid_app` rows, and
+(backend resources, SeaweedFS prefix, WorkOS resource) then `grid_app` rows, and
 marks it purged. Restore is possible only while the row is un-claimed.
 
 ---
@@ -271,7 +272,7 @@ marks it purged. Restore is possible only while the row is un-claimed.
 | **`grid_app`** (Postgres) | BFF (single writer) | projects, conversations, messages, documents, folders, **project_memory**, **deletion_queue**, **legal_holds**, user_preferences |
 | **`aiq_jobs`** (Postgres) | backend | job info/access/events (deep research), document summaries |
 | **`aiq_checkpoints`** (Postgres) | backend | LangGraph conversation checkpoints (thread state) |
-| **MinIO** (`grid-documents`) | BFF writes, backend/purger read | OIB PDFs + uploaded documents, keyed by org/project |
+| **SeaweedFS** (`grid-documents`) | BFF writes, backend/purger read | OIB PDFs + uploaded documents, keyed by org/project |
 | **ChromaDB** | backend | vector collections: `oib_knowledge` (global), `proj_<id>` (per project), `s_<conversation>` (session). Memory is **not** vectorized — it lives in `grid_app`. |
 
 Schema evolves via Drizzle migrations (`frontends/ui/drizzle/`, applied on
@@ -302,11 +303,12 @@ frontend start). → `docs/database/`.
 | Frontend | Next.js 16, React 18, TypeScript, shadcn/ui + Tailwind v4 |
 | BFF / gateway | Next.js app-router API routes + a Node `server.js` WS/HTTP proxy |
 | AI orchestration | NeMo Agent Toolkit (NAT) + LangGraph; Dask for async jobs |
-| LLM + embeddings | any OpenAI-compatible endpoint (reference: DeepSeek via OpenRouter) |
+| LLM | any OpenAI-compatible endpoint (reference boot floor: OpenAI GPT-5.6 Luna via OpenRouter; the served model is an admin decision at runtime) |
+| Embeddings | any OpenAI-compatible endpoint (reference: OpenAI text-embedding-3-large via OpenRouter) |
 | RAG / vector store | ChromaDB (+ LlamaIndex ingestion) |
 | Web search | Tavily |
 | Relational DB | PostgreSQL 16 (Drizzle ORM on the BFF side) |
-| Object storage | MinIO (S3-compatible) |
+| Object storage | SeaweedFS (S3-compatible) |
 | Identity / authz | WorkOS AuthKit (SSO) + WorkOS FGA |
 | Packaging / deploy | Docker Compose (backend Python 3.13; frontend Node 22) |
 
@@ -314,10 +316,10 @@ frontend start). → `docs/database/`.
 
 ## 10. Deployment topology
 
-Seven Compose services on one bridge network: `postgres`, `minio` (+ `minio-init`),
+Seven Compose services on one bridge network: `postgres`, `seaweedfs` (+ `seaweedfs-init`),
 `aiq-agent` (+ one-shot `aiq-data-permissions`), `frontend`, and `purger`.
 Frontend on `:3000` (the only public port for the app), backend on `:8000`,
-Postgres `:5432`, MinIO `:9000/:9001`. Migrations run on frontend start; OIB
+Postgres `:5432`, SeaweedFS `:8333/:8888`. Migrations run on frontend start; OIB
 ingestion is a one-time `scripts/ingest_oib.py` after first boot. → `docs/deployment/`.
 
 ---
@@ -328,8 +330,10 @@ ingestion is a one-time `scripts/ingest_oib.py` after first boot. → `docs/depl
   remain before it's production-perfect: a crashed final purge attempt can strand
   a row in `purging` invisibly, and the purger SQL lacks unit tests. Only the
   `project` entity type has a registered purger; others are stubbed.
-- **Deep-research cards** — cards render on synchronous answers; delivering them
-  on the async deep-research path is not yet wired end-to-end.
+- **Deep-research cards** — async deep-research jobs generate cards post-hoc
+  from the final report in the job runner and deliver them via the job SSE
+  stream and job output; the synchronous inline deep-research path (no Dask)
+  still returns no cards.
 - **Memory** — Phase 1 (capture + digest + curation). Consolidation/dedup and
   RAG-recall of memory are designed but not built; org-wide memory writes are not
   yet permission-gated to admins.

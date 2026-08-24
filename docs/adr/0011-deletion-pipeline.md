@@ -7,7 +7,7 @@
 
 ## Context
 
-A project's data spans several stores — `grid_app` rows, MinIO objects, a Chroma
+A project's data spans several stores — `grid_app` rows, SeaweedFS objects, a Chroma
 collection, job rows, checkpoints, and a WorkOS FGA resource. Deleting it must be
 (a) reversible for a grace window (mistakes happen), (b) complete across every
 store (GDPR erasure), and (c) blockable by a legal hold. A single synchronous
@@ -22,7 +22,7 @@ We will make project deletion a **two-phase pipeline**:
    **restorable** while the row is un-claimed.
 2. **Hard-purge.** A dedicated `purger` worker claims due rows (with backoff and
    `FOR UPDATE SKIP LOCKED`), re-checks **`legal_holds`** before each destructive
-   step, and destroys external stores first (backend resources, MinIO prefix,
+   step, and destroys external stores first (backend resources, SeaweedFS prefix,
    WorkOS resource), deleting the `grid_app` project row **last** so a failed
    purge stays recoverable and retryable.
 
@@ -37,14 +37,14 @@ We will make project deletion a **two-phase pipeline**:
 
 ### Risks
 - Partial failures across non-transactional external stores — mitigated by
-  surfacing MinIO/backend partial-failure signals (throw + retry), per-step hold
+  surfacing SeaweedFS/backend partial-failure signals (throw + retry), per-step hold
   re-checks, and restoring only un-claimed rows.
 - A crashed final attempt can strand a row in `purging` (known follow-up).
 
 ## Alternatives Considered
 - **Synchronous cascade delete on the request** — rejected; not reversible, and a
   mid-cascade failure orphans data with no retry.
-- **Rely on DB cascade only** — rejected; cannot reach MinIO / Chroma / WorkOS.
+- **Rely on DB cascade only** — rejected; cannot reach SeaweedFS / Chroma / WorkOS.
 
 ## Open Questions / Follow-ups
 - Reclaim/surface stranded `purging` rows; add purger SQL tests; purgers for

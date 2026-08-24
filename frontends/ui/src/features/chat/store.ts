@@ -10,6 +10,17 @@
 import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
 import type { ChatStore } from './types'
+
+/**
+ * The persisted chat store plus a client-only hydration flag (C5). `hasHydrated`
+ * is NOT part of the persisted `ChatStore` union (owned in types.ts) — it is a
+ * transient boolean layered on here so ChatArea can show a message-list skeleton
+ * until the persisted store has finished rehydrating from storage.
+ */
+export type ChatStoreWithHydration = ChatStore & {
+  /** True once persist rehydration has settled (or found nothing to restore). */
+  hasHydrated: boolean
+}
 import {
   createMessagesSlice,
   createSessionsSlice,
@@ -21,13 +32,15 @@ import {
   logExternalStorageEvent,
 } from './lib/storage-logger'
 
-export const useChatStore = create<ChatStore>()(
+export const useChatStore = create<ChatStoreWithHydration>()(
   devtools(
     persist(
       (set, get, store) => ({
         ...createMessagesSlice(set, get, store),
         ...createSessionsSlice(set, get, store),
         ...createDeepResearchSlice(set, get, store),
+        // Client-only hydration flag (C5); flipped true in onRehydrateStorage.
+        hasHydrated: false,
       }),
       {
         name: 'aiq-chat-store',
@@ -37,11 +50,21 @@ export const useChatStore = create<ChatStore>()(
           conversations: state.conversations,
           currentConversation: state.currentConversation,
           pendingInteraction: state.pendingInteraction,
+          composerDrafts: state.composerDrafts,
         }),
         onRehydrateStorage: () => (state) => {
+          // Mark hydration settled regardless of whether persisted data existed
+          // (or the rehydrate errored) so ChatArea's skeleton always resolves to
+          // the real thread / WelcomeState instead of hanging on the skeleton.
+          useChatStore.setState({ hasHydrated: true })
           if (!state || typeof window === 'undefined') return
           queueMicrotask(() => {
-            void useChatStore.getState().refreshDeepResearchSessionStatuses()
+            const store = useChatStore.getState()
+            // Rehydration is async and can land AFTER a project page has set
+            // projectId; re-apply it so setProjectId's guard clears a
+            // persisted currentConversation from another project (UX-8).
+            if (store.projectId) store.setProjectId(store.projectId)
+            void store.refreshDeepResearchSessionStatuses()
           })
         },
       }

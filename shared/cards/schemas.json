@@ -126,7 +126,7 @@
       "type": "object"
     },
     "BuildingSectionCard": {
-      "description": "A to-scale building cross-section (schematic) drawn from storey heights.\n\nEmit for height/Geb\u00e4udeklasse/Fluchtniveau questions where seeing the\nbuilding against threshold lines helps (e.g. 'liege ich unter der GK4-Grenze?\nFluchtniveau bei 9,8 m'). Draws stacked storeys, the ground line, and dashed\nmarker lines (Fluchtniveau, GK/Hochhaus limits) with labels.",
+      "description": "A to-scale building cross-section (schematic) drawn from storey heights.\n\nEmit for height/Geb\u00e4udeklasse/Fluchtniveau questions where seeing the\nbuilding against threshold lines helps (e.g. 'am I below the GK4 limit with\na Fluchtniveau of 9.8 m?'). Draws stacked storeys, the ground line, and\ndashed marker lines (Fluchtniveau, GK/Hochhaus limits) with labels.",
       "properties": {
         "markers": {
           "anyOf": [
@@ -188,6 +188,515 @@
         "reference"
       ],
       "title": "BuildingSectionCard",
+      "type": "object"
+    },
+    "CalculationCard": {
+      "description": "Emit for the arithmetic behind a number \u2014 the Rechenweg a Ziviltechniker re-checks.\n\nWhenever the answer computes something (the Schrittma\u00dfregel, a GFZ, a\nBrandlast, a required parking count, a U-value from its resistances), this\ncard is the derivation laid out line by line instead of a sentence the\nreader has to re-derive to trust.\n\nYOU SUPPLY THE INPUTS, NEVER THE ANSWER. Give each operand its label, value\nand unit, name the operation, and give the limit if there is one. The card\nevaluates every step itself, carries the tolerance bands through, formats\nthe numbers in Austrian convention and decides pass/fail. There is no field\nfor a result, and that absence is the feature: a stated result that\ndisagreed with its own operands would be the worst artefact this product can\nproduce, because this is the part that gets screenshotted into a submission.\n\nSeveral steps chain by reference: a later operand can name an earlier step\n(`step: 1`) instead of carrying a value, so a two-stage derivation stays\nauditable rather than collapsing into one pre-computed figure.",
+      "properties": {
+        "limit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CalculationLimit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The Bestimmung the LAST step's result is checked against. Omit when the answer only derives a figure"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line caveat, e.g. what the figure does not cover",
+          "title": "Note"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where the RULE behind the derivation is written (the limit may carry its own)"
+        },
+        "steps": {
+          "description": "The derivation in order, most cards one step. A later step may reference an earlier one's result",
+          "items": {
+            "$ref": "#/$defs/CalculationStep"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "title": "Steps",
+          "type": "array"
+        },
+        "title": {
+          "description": "What is being computed, e.g. 'Schrittma\u00dfregel \u2013 Treppenlauf Haus A'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "calculation",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "steps"
+      ],
+      "title": "CalculationCard",
+      "type": "object"
+    },
+    "CalculationLimit": {
+      "description": "The Bestimmung the derived result is held against.\n\nThe comparator and the bound are the model's to supply \u2014 they are read out\nof the Richtlinie. The VERDICT is not: the renderer compares its own\ncomputed result against this and colours the card accordingly, so a card\ncannot show a green tick above arithmetic that fails.",
+      "properties": {
+        "comparator": {
+          "description": "How the result must relate to the bound: at most, at least, or inside a range",
+          "enum": [
+            "<=",
+            ">=",
+            "between"
+          ],
+          "title": "Comparator",
+          "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional name of the limit, e.g. 'Schrittma\u00dfregel'; omit when the reference says it",
+          "title": "Label"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where the bound is written. Never invent one"
+        },
+        "upper": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With 'between': the upper bound, e.g. 65 for the Schrittma\u00dfregel's 59\u201365 cm. Otherwise omit",
+          "title": "Upper"
+        },
+        "value": {
+          "description": "The bound. With 'between', this is the LOWER bound",
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "comparator",
+        "value"
+      ],
+      "title": "CalculationLimit",
+      "type": "object"
+    },
+    "CalculationOperand": {
+      "description": "One number entering a step of the derivation, with where it came from.\n\nEither a literal ``value`` or a reference to an earlier ``step`` \u2014 never\nboth, because a stated value beside a reference is two answers to the same\nquestion and the renderer would have to pick one.\n\nCarries the same provenance vocabulary as :class:`DimensionCheck`, for the\nsame reason: a derived number is only as honest as its inputs, and a\nSchrittma\u00df computed from a measurement of ours is our claim, not the\narchitect's. The renderer propagates every band it is given into the result,\nso a tolerance dropped here is a tolerance dropped from the answer.",
+      "properties": {
+        "factor": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only on a 'sum': the RULE's own multiplier for this term, e.g. 2 in the Schrittma\u00dfregel '2 \u00d7 Steigung + Auftritt'. Negative subtracts the term. Omit for a plain +1 \u2014 never use it to smuggle a second measured quantity in, which is what a 'product' step is for",
+          "title": "Factor"
+        },
+        "label": {
+          "description": "What this number IS, e.g. 'Steigung', 'Bruttogeschossfl\u00e4che', 'Grundfl\u00e4che'. Empty ONLY for a bare constant that names itself, such as the 1 in a U-value's 1 \u00f7 R \u2014 everything a reader has to look up needs its name under it",
+          "title": "Label",
+          "type": "string"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "enum": [
+                "declared",
+                "computed",
+                "inferred"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where `value` came from, copied from the ifc_measure answer's own provenance: 'declared' (the IFC file states it), 'computed' (we measured it off the geometry), 'inferred' (a heuristic). Leave null for a figure the user typed or a limit read out of the Bestimmung. NEVER guess it",
+          "title": "Provenance"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional half-line naming WHERE the figure is written down, e.g. 'Einreichplan, Schnitt A-A' or 'Bebauungsplan PD 8123'. Revealed when the reader expands the derivation's sources",
+          "title": "Source"
+        },
+        "step": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Instead of a value: the 1-based index of an EARLIER step whose result this operand is. Must point strictly backwards. With this set, leave value, unit, provenance and tolerance null \u2014 the renderer takes them from the step it names",
+          "title": "Step"
+        },
+        "tolerance": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The \u00b1 band on `value`, in the SAME unit \u2014 copied from the ifc_measure answer, and only meaningful with provenance 'computed'. The renderer propagates it through every following step, so this is what decides whether the derived result is genuinely on one side of a limit",
+          "title": "Tolerance"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unit of this operand, e.g. 'cm', 'm\u00b2', 'MJ'; omit for a bare count or a ratio",
+          "title": "Unit"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The number itself. Leave null when it is not known \u2014 the renderer then shows the step as undecidable instead of a result, which is the honest outcome. Must be null when `step` is set",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "title": "CalculationOperand",
+      "type": "object"
+    },
+    "CalculationStep": {
+      "description": "One line of the Rechenweg: an operation over its operands.\n\nThe step states no result. The renderer evaluates ``operation`` over\n``operands`` and prints what it computed \u2014 which is the whole point of the\ncard, so there is no field here for the model to disagree with it in.",
+      "properties": {
+        "label": {
+          "description": "What this step computes, e.g. 'Schrittma\u00df', 'Geschossfl\u00e4chenzahl'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "operands": {
+          "description": "The numbers going in, in the order they are read. 'quotient', 'percent_of' and 'percent_ratio' take EXACTLY two",
+          "items": {
+            "$ref": "#/$defs/CalculationOperand"
+          },
+          "maxItems": 6,
+          "minItems": 2,
+          "title": "Operands",
+          "type": "array"
+        },
+        "operation": {
+          "description": "Which of the five shapes this step is: 'sum' (\u03a3 factor \u00d7 value), 'product' (\u03a0 value), 'quotient' (first \u00f7 second), 'percent_of' (second, as a percentage, OF first), 'percent_ratio' (first \u00f7 second \u00d7 100, a percentage)",
+          "enum": [
+            "sum",
+            "product",
+            "quotient",
+            "percent_of",
+            "percent_ratio"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unit of THIS step's result, e.g. 'cm', 'm\u00b2', 'W/(m\u00b2K)'; omit for a dimensionless ratio like a GFZ. Ignored on 'percent_ratio', whose result is always a percentage",
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "label",
+        "operation",
+        "operands"
+      ],
+      "title": "CalculationStep",
+      "type": "object"
+    },
+    "CalloutCard": {
+      "description": "Emit for the single caveat, deadline or tip that must not drown in a paragraph.\n\nOne framed remark, deliberately small and domain-free. `kind` sets the tone\nAND is printed as a word ('Hinweis', 'Achtung', 'Frist', 'Tipp'), so the\nsignal survives for a reader who cannot separate the colours. Use at most\none per answer: inside a paragraph the sentence that changes what the reader\nDOES reads at the same weight as the sentence beside it, and a second\ncallout puts both back at that weight.",
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional background revealed when the reader expands the callout \u2014 the exception, the source or the consequence. Omit rather than padding the remark out",
+          "title": "Detail"
+        },
+        "kind": {
+          "description": "What kind of remark this is: 'hinweis' (something easily missed), 'achtung' (a risk or a requirement that is easy to get wrong), 'frist' (a deadline or a period that runs), 'tipp' (a recommendation that is not required)",
+          "enum": [
+            "hinweis",
+            "achtung",
+            "frist",
+            "tipp"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "description": "The remark itself, one or two sentences \u2014 the part that changes what the reader does",
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional short headline, e.g. 'Gilt nur in Wien'; omit when `text` says it already",
+          "title": "Title"
+        },
+        "type": {
+          "const": "callout",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "kind",
+        "text"
+      ],
+      "title": "CalloutCard",
+      "type": "object"
+    },
+    "ChangeConsequence": {
+      "description": "One requirement that moves when the trigger fact moves, with its Fundstelle.\n\n`reference` is required here and optional almost everywhere else. This card\nexists to be planned against \u2014 a Ziviltechniker reads it and decides whether\nto keep the Fluchtniveau under 11 m \u2014 so a consequence nobody can look up is\na consequence nobody can act on. One without a Fundstelle is left off the\ncard, not listed bare.",
+      "properties": {
+        "after": {
+          "description": "What applies AFTER the change, e.g. 'REI 90 und A2'",
+          "minLength": 1,
+          "title": "After",
+          "type": "string"
+        },
+        "aspect": {
+          "description": "WHAT is affected, e.g. 'Feuerwiderstand tragender Bauteile', 'Zweiter Fluchtweg'",
+          "minLength": 1,
+          "title": "Aspect",
+          "type": "string"
+        },
+        "before": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What applies BEFORE the change, e.g. 'REI 30'. Omit when the conversation has not established the current case \u2014 an invented 'before' invents the size of the change",
+          "title": "Before"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional sentence or two, revealed on click: what the new requirement means in practice",
+          "title": "Detail"
+        },
+        "direction": {
+          "description": "'tightens' when the change costs the reader more (a higher class, an added requirement), 'relaxes' when it costs less, 'unchanged' when this requirement is one a planner would expect to move and it does not",
+          "enum": [
+            "tightens",
+            "relaxes",
+            "unchanged"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "reference": {
+          "$ref": "#/$defs/NormReference",
+          "description": "Where THIS consequence is written. Required \u2014 a consequence you cannot cite is omitted"
+        }
+      },
+      "required": [
+        "aspect",
+        "after",
+        "direction",
+        "reference"
+      ],
+      "title": "ChangeConsequence",
+      "type": "object"
+    },
+    "ChangeImpactCard": {
+      "description": "Emit for \u201ewas passiert, wenn X sich \u00e4ndert\" \u2014 one changed fact, and what it costs.\n\nThe card a planner needs while the design is still moving: \u201ewas passiert,\nwenn das Fluchtniveau \u00fcber 11 m geht?\" \u2014 the Geb\u00e4udeklasse changes, and with\nit the required fire resistance, the second escape route and the lift. As\nprose that is a paragraph whose consequences the reader has to separate from\neach other and pair back to their sources.\n\nNot a `condition_tree`. The tree shows which case the project is IN; this\nshows what a MOVE would cost, so it names one trigger fact, its two values,\nand the consequences that follow \u2014 each with its own Fundstelle and each\nmarked as tightening or relaxing. The card counts the directions itself, so\nthere is no summary field to disagree with the rows.\n\n`from_value` is optional because the current state is a claim about this\nproject: state it only where the conversation established it. `to_value` is\nthe hypothesis the question itself supplies, so it is always known.",
+      "properties": {
+        "consequences": {
+          "description": "What follows, most important first. Each carries its own Fundstelle",
+          "items": {
+            "$ref": "#/$defs/ChangeConsequence"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Consequences",
+          "type": "array"
+        },
+        "factor": {
+          "description": "The ONE fact that moves, e.g. 'Fluchtniveau', 'Anzahl der Wohnungen'",
+          "minLength": 1,
+          "title": "Factor",
+          "type": "string"
+        },
+        "from_value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Its value now, e.g. '7\u201311 m'. Omit when the conversation has not established where the project stands \u2014 never guess it, exactly as a process_map's position is never guessed",
+          "title": "From Value"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line caveat, e.g. what the list does not cover",
+          "title": "Note"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The Bestimmung that makes the FACTOR decisive, e.g. the Geb\u00e4udeklassen table"
+        },
+        "title": {
+          "description": "The change, as a heading, e.g. 'Fluchtniveau \u00fcber 11 m \u2013 was sich \u00e4ndert'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "to_value": {
+          "description": "Its value after the change, e.g. '\u00fcber 11 m'",
+          "minLength": 1,
+          "title": "To Value",
+          "type": "string"
+        },
+        "type": {
+          "const": "change_impact",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "factor",
+        "to_value",
+        "consequences"
+      ],
+      "title": "ChangeImpactCard",
       "type": "object"
     },
     "ChecklistItem": {
@@ -363,6 +872,105 @@
       "title": "ComparisonTableCard",
       "type": "object"
     },
+    "ConditionBranch": {
+      "description": "One branch of a condition tree: a case and the answer that holds under it.",
+      "properties": {
+        "active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "True for the branch that matches the CURRENT project; omit when it is not known which applies",
+          "title": "Active"
+        },
+        "condition": {
+          "description": "The case this branch covers, e.g. 'GK 1\u20133'",
+          "minLength": 1,
+          "title": "Condition",
+          "type": "string"
+        },
+        "outcome": {
+          "description": "The answer that applies when the condition holds",
+          "minLength": 1,
+          "title": "Outcome",
+          "type": "string"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The norm grounding this branch's outcome, when branches cite different sources"
+        }
+      },
+      "required": [
+        "condition",
+        "outcome"
+      ],
+      "title": "ConditionBranch",
+      "type": "object"
+    },
+    "ConditionTreeCard": {
+      "description": "A decision tree (Bedingungsbaum) for an answer that turns on one factor.\n\nEmit for the domain's most common answer shape \u2014 'it depends on the\nGeb\u00e4udeklasse'. `question` names the deciding factor; each branch pairs a\ncase with its outcome, and the branch matching the current project is\nmarked `active`. Exactly the structure that otherwise becomes nested prose\nthe reader has to re-collapse into a table in their head.\n\nTHE CASES MUST BE MUTUALLY EXCLUSIVE. A fork means the project sits in\nexactly one of them, which is why at most one branch may be `active` and why\nthe renderer writes the active outcome as 'f\u00fcr dieses Projekt gilt'. Rows\nthat are all true at once \u2014 the fire resistance of the topmost storey AND of\nthe other storeys AND of the basement, which are three parts of the same\nbuilding rather than three cases of one project \u2014 are a `typed_table`, not a\ntree.",
+      "properties": {
+        "branches": {
+          "description": "The cases and their outcomes, in reading order",
+          "items": {
+            "$ref": "#/$defs/ConditionBranch"
+          },
+          "minItems": 1,
+          "title": "Branches",
+          "type": "array"
+        },
+        "question": {
+          "description": "The factor the answer depends on, e.g. 'Geb\u00e4udeklasse'",
+          "minLength": 1,
+          "title": "Question",
+          "type": "string"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Overall source when the branches share one"
+        },
+        "title": {
+          "description": "Title, e.g. 'Erforderliche Feuerwiderstandsklasse'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "condition_tree",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "question",
+        "branches"
+      ],
+      "title": "ConditionTreeCard",
+      "type": "object"
+    },
     "DaylightIncidenceCard": {
       "description": "A daylight (Belichtung) schematic: the 45\u00b0 free-light line vs obstructions.\n\nEmit for daylight/Belichtung questions (OIB 3). Draws a window section, the\n45\u00b0 free-light-incidence line from the window's lower edge, any obstruction,\nand a glass-area-vs-floor-area check. The renderer does the 45\u00b0 geometry \u2014\nthe model supplies distances/heights only.",
       "properties": {
@@ -459,6 +1067,132 @@
       "title": "DaylightIncidenceCard",
       "type": "object"
     },
+    "Deadline": {
+      "description": "One Frist of a Bauverfahren: how long it runs, and what starts the clock.\n\n`starts_from` is required, and that is the design. A period without its\ntrigger (\u201ebinnen sechs Wochen\" \u2014 from what?) is not usable: the reader\ncannot place it, and a reader who assumes the wrong trigger misses the Frist\nby exactly the gap between the two events. Where the answer does not know\nwhat starts a clock, the Frist is left off the card rather than shown as a\nnumber with no anchor.",
+      "properties": {
+        "actor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Who has to act inside it, e.g. 'Bauwerber', 'Nachbar', 'Baubeh\u00f6rde'",
+          "title": "Actor"
+        },
+        "consequence": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What happens when it lapses, e.g. 'Der Bescheid wird rechtskr\u00e4ftig.' \u2014 one clause. Omit when the answer does not say; this is the half a reader is most tempted to assume",
+          "title": "Consequence"
+        },
+        "label": {
+          "description": "The Frist's name, e.g. 'Einspruchsfrist', 'Baubeginnsanzeige'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "period": {
+          "description": "How long it runs, AS THE BESTIMMUNG WORDS IT \u2014 'binnen sechs Wochen', 'vier Jahre', 'unverz\u00fcglich'. NEVER a calendar date and never a date you computed: the product does not know this project's Zustelldatum, and a wrong date on a card is worse than no card. Dates are rejected by the validator",
+          "minLength": 1,
+          "title": "Period",
+          "type": "string"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The Bestimmung the Frist stands in. Never invent one"
+        },
+        "starts_from": {
+          "description": "WHAT STARTS THE CLOCK, and the field that makes the Frist usable \u2014 'ab Zustellung des Bescheids', 'ab Rechtskraft der Baubewilligung', 'ab Fertigstellung'. Required: a Frist whose trigger you do not know is omitted, not shown anchored to nothing",
+          "minLength": 1,
+          "title": "Starts From",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "period",
+        "starts_from"
+      ],
+      "title": "Deadline",
+      "type": "object"
+    },
+    "DeadlineTimelineCard": {
+      "description": "Emit for the FRISTEN of a Verfahren \u2014 several clocks, in the order they run.\n\n`callout` carries one Frist. A Bauverfahren has several in sequence \u2014\nEinspruchsfrist, Baubeginnsanzeige, Fertigstellungsfrist, Geltungsdauer der\nBewilligung \u2014 and their ORDER, together with what starts each one, IS the\ninformation. As prose they arrive as four sentences the reader has to sort\nthemselves, and the sorting is where the mistake happens.\n\nEvery Frist is carried in the Bauordnung's own words and none is turned into\na date. The card draws them as a sequence, not to scale: the periods are\nmeasured in different units and run from different events, so a bar whose\nlength meant anything would be claiming a shared timeline that does not\nexist.",
+      "properties": {
+        "deadlines": {
+          "description": "The Fristen in the order they run. Two is the minimum, because ONE Frist is a callout \u2014 the sequence is what this card is for",
+          "items": {
+            "$ref": "#/$defs/Deadline"
+          },
+          "maxItems": 8,
+          "minItems": 2,
+          "title": "Deadlines",
+          "type": "array"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line caveat, e.g. that a Land counts a Frist differently",
+          "title": "Note"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The law the Fristen stand in, when they share one"
+        },
+        "title": {
+          "description": "What the Fristen belong to, e.g. 'Fristen im Bauverfahren \u2013 Wien'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "deadline_timeline",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "deadlines"
+      ],
+      "title": "DeadlineTimelineCard",
+      "type": "object"
+    },
     "DensityCheckCard": {
       "description": "A site-density schematic: parcel + footprint + coverage/density bars.\n\nEmit for Bebauungsdichte/Bebauungsgrad/GFZ questions. Draws the parcel with\nthe footprint shaded and two limit bars (built area / parcel and BGF /\nparcel) vs the Bebauungsplan limits. The renderer computes the ratios \u2014 the\nmodel supplies areas + the limits (from the user's Bebauungsplan) only.",
       "properties": {
@@ -543,7 +1277,7 @@
       "type": "object"
     },
     "DimensionCheck": {
-      "description": "One measured dimension drawn on a schematic and checked against a limit.\n\n`value` is the project's actual measurement (drawn to scale); `required` is\nthe OIB limit. If `value` is unknown, leave it null and set status\n'needs_input'.",
+      "description": "One measured dimension drawn on a schematic and checked against a limit.\n\n`value` is the project's actual measurement (drawn to scale); `required` is\nthe OIB limit. If `value` is unknown, leave it null and set status\n'needs_input'.\n\n## Why a number here carries where it came from\n\nThis block used to be `label / value / required / unit / comparator /\nstatus` and nothing else, and that made the card the least honest surface in\nthe product. `ifc_measure` answers \u201egemessen: 2.47 m (\u00b15 mm) \u2014 aus der\nGeometrie berechnet, nicht deklariert\", the assistant repeats that in the\nprose, and the card beside it drew **2.47 m \u2713** \u2014 indistinguishable from a\nfigure the architect had stated in their own file. The card is the part a\nreviewer screenshots into a submission, so the surface that dropped the\nqualifier was the surface most likely to be forwarded without it.\n\nThree fields close that, and all three are OPTIONAL: a card built from the\nBestimmung alone (a limit with no model behind it) has nothing to put in\nthem, and a null here means \"not stated\", never \"declared\".",
       "properties": {
         "comparator": {
           "anyOf": [
@@ -568,6 +1302,37 @@
           "title": "Label",
           "type": "string"
         },
+        "missing": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With status 'needs_input': what the export does not provide and WHAT TO CHANGE IN THE CAD to make it answerable \u2014 copied verbatim from the ifc_measure answer's missing.remedy. This is the sentence the architect acts on, and a card that shows an empty slot instead of it turns a finding about the export into a blank the reader reads as a fact about the building.",
+          "title": "Missing"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "enum": [
+                "declared",
+                "computed",
+                "inferred"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where `value` came from, copied from the ifc_measure answer's own provenance: 'declared' (the IFC file states it), 'computed' (we measured it off the geometry), 'inferred' (a heuristic, offered for confirmation). Leave null when the number did not come from the model at all \u2014 a figure the user typed, or one taken from the Bestimmung. NEVER guess it: labelling our own measurement 'declared' turns our tolerance into the architect's claim.",
+          "title": "Provenance"
+        },
         "required": {
           "anyOf": [
             {
@@ -591,6 +1356,20 @@
           ],
           "title": "Status",
           "type": "string"
+        },
+        "tolerance": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The \u00b1 band on `value`, in the SAME unit \u2014 copied from the ifc_measure answer. Only meaningful with provenance 'computed': a declared figure is the file's statement and has no band of ours. A measured dimension without its band reads as exact, and the band is what decides whether 2.49 m clears a 2.50 m minimum.",
+          "title": "Tolerance"
         },
         "unit": {
           "default": "cm",
@@ -682,8 +1461,111 @@
       "title": "DimensionDiagramCard",
       "type": "object"
     },
+    "DocumentChecklistCard": {
+      "description": "Emit for \u201ewelche Unterlagen brauche ich\" \u2014 the Einreichliste as a worked list.\n\nThe answer to that question is not a list of names, it is a list of STATES:\nwhich documents are always required, which depend on the Vorhabensart and on\nwhat, who issues each, and \u2014 where the conversation said so \u2014 which the\nreader already has. A markdown list carries none of that, so the reader\nre-derives it from the surrounding prose every time.\n\nThe card lets them work down it: each row shows whether it is required or\nconditional and what is known about it, and a click opens the condition, the\nissuer, the Fundstelle and the form. Everything arrived with the card, so\nnothing is fetched.\n\nSet `status` on a document ONLY where the conversation established it. The\ncard derives its own tally (how many are in hand, how many are still open)\nfrom the rows, so a status guessed to make the list look complete makes the\ntally wrong too.",
+      "properties": {
+        "items": {
+          "description": "The documents, in the order the reader should work down them. One document is a sentence",
+          "items": {
+            "$ref": "#/$defs/RequiredDocument"
+          },
+          "maxItems": 16,
+          "minItems": 2,
+          "title": "Items",
+          "type": "array"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line caveat, e.g. that the Gemeinde may ask for more",
+          "title": "Note"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The Bestimmung listing the Einreichunterlagen, e.g. the Land's Bauordnung"
+        },
+        "title": {
+          "description": "What the list is FOR, e.g. 'Einreichunterlagen \u2013 Neubau Wien'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "document_checklist",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "items"
+      ],
+      "title": "DocumentChecklistCard",
+      "type": "object"
+    },
+    "DocumentGridCard": {
+      "description": "Project/B\u00fcroarchiv files the user asked to see.\n\nSystem-emitted by ``surface_documents``. One file or a short browse\nchoice \u2014 same card, the list length is the difference. Never a\ncatalogue. Citations of exactly one project/B\u00fcro file peek without\nthis card (``useCitationPeek``).",
+      "properties": {
+        "documents": {
+          "description": "The surfaced files, best match first",
+          "items": {
+            "$ref": "#/$defs/SurfacedDocument"
+          },
+          "minItems": 1,
+          "title": "Documents",
+          "type": "array"
+        },
+        "query": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The search phrase these documents matched",
+          "title": "Query"
+        },
+        "title": {
+          "description": "Short heading, e.g. 'Relevante Dokumente \u2013 Fluchtwege'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "document_grid",
+          "default": "document_grid",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "documents"
+      ],
+      "title": "DocumentGridCard",
+      "type": "object"
+    },
     "EgressDiagramCard": {
-      "description": "A schematic escape-route (Fluchtweg) path with the total length checked.\n\nEmit for escape-route-length questions ('ist der Fluchtweg mit 12 m + 26 m\nzul\u00e4ssig?'). Draws the path segment-by-segment from the worst-case point to\nthe exit and checks the total against the OIB 2 limit (typically 40 m).",
+      "description": "A schematic escape-route (Fluchtweg) path with the total length checked.\n\nEmit for escape-route-length questions ('is a Fluchtweg of 12 m + 26 m\npermitted?'). Draws the path segment-by-segment from the worst-case point to\nthe exit and checks the total against the OIB 2 limit (typically 40 m).",
       "properties": {
         "exit_label": {
           "anyOf": [
@@ -1226,6 +2108,74 @@
       "title": "FireCompartmentCard",
       "type": "object"
     },
+    "FollowUp": {
+      "description": "One next question, written out in full so it can be sent as it stands.",
+      "properties": {
+        "hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional half-line saying what asking this would get the reader, e.g. 'Messpunkt und Bezugsebene'. Shown only as a tooltip \u2014 never the question itself, and omit it rather than restating the question in other words",
+          "title": "Hint"
+        },
+        "question": {
+          "description": "The next question as a COMPLETE, sendable sentence in the answer's language \u2014 this exact text lands in the composer, so 'Wie wird das Fluchtniveau gemessen?' works and a topic label like 'Fluchtniveau' does not. Name something this answer introduced: a term it defined, a value it gave, a caveat it raised",
+          "minLength": 1,
+          "title": "Question",
+          "type": "string"
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "title": "FollowUp",
+      "type": "object"
+    },
+    "FollowUpsCard": {
+      "description": "Emit at the END of an answer: the two to four questions this answer just made askable.\n\nThe reader who now knows what a Fluchtniveau is has a next question and no\nphrasing for it; each item renders as a chip that PREFILLS the composer, so\nthe way forward costs a click instead of a paragraph of typing. Nothing is\nsent on click \u2014 the reader still edits and presses send \u2014 so the card\nsuggests, it never asks on their behalf.\n\nWhat makes the set work is anchoring and spread: every question must name\nsomething THIS answer introduced (a term it defined, a number it gave, an\nexception it raised), and the set must cover different KINDS of next step \u2014\nnarrowing to this project, going a level deeper on a rule just named,\ncomparing the alternative, moving toward the next action. Four rephrasings\nof one question is one question. A generic 'Erz\u00e4hl mir mehr' is worse than\nno card at all: it teaches the reader the chips are decoration, and then\nthey stop reading them.",
+      "properties": {
+        "items": {
+          "description": "The next questions, most useful first. Two to four \u2014 one chip is not a set of options, five is a menu the reader has to read instead of an offer they can take",
+          "items": {
+            "$ref": "#/$defs/FollowUp"
+          },
+          "maxItems": 4,
+          "minItems": 2,
+          "title": "Items",
+          "type": "array"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional headline, e.g. 'Weiterf\u00fchrende Fragen'; omit to let the questions stand alone",
+          "title": "Title"
+        },
+        "type": {
+          "const": "follow_ups",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "items"
+      ],
+      "title": "FollowUpsCard",
+      "type": "object"
+    },
     "GuardrailCheckCard": {
       "description": "An Absturzsicherung (guardrail) elevation with the interacting limits.\n\nEmit for guardrail/railing questions (OIB 4). Draws the railing to scale and\nchecks height (>=100 cm, >=110 cm where Absturzh\u00f6he > 12 m), max opening\n(<=12 cm cube), bottom gap, and shades the no-climb zone.",
       "properties": {
@@ -1319,8 +2269,642 @@
       "title": "GuardrailCheckCard",
       "type": "object"
     },
+    "IfcComplianceCard": {
+      "description": "The Pr\u00fcfbuch: OIB requirements with their verdict against this model.\n\nCarries only WHICH requirements to show; the frontend runs the catalogue and\nrenders the counts, the thresholds and the failing elements itself. The\nmodel therefore cannot state that a building complies, because it never\nsupplies a verdict \u2014 the same reason the schedule card carries no areas.\n\nUse when the user asks whether the model meets a requirement, what is still\nopen, or what they have to add to the model. Prefer it over prose whenever\nthe answer is a list of requirements: the card stays correct after the model\nchanges, and a sentence does not.\n\nNEVER present this as a Nachweis. The catalogue reads only published\nproperty values, it reads no geometry, and Fluchtwegl\u00e4ngen, Gel\u00e4nderh\u00f6hen\nand Brandabschnittsgr\u00f6\u00dfen are not in it at all.",
+      "properties": {
+        "model_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "File name of the model as ifc_query reported it. Empty when the project has one model.",
+          "title": "Model File"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line clarification",
+          "title": "Note"
+        },
+        "rule_ids": {
+          "description": "Rule ids from ifc_query operation='compliance' (e.g. 'oib2-feuerwiderstand-tragend') to narrow the card to the requirements this answer is about. Empty shows all. Use ONLY ids the tool reported; the card says so when one does not resolve.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Rule Ids",
+          "type": "array"
+        },
+        "title": {
+          "description": "Short heading, e.g. 'Anforderungen Brandschutz'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "ifc_compliance",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title"
+      ],
+      "title": "IfcComplianceCard",
+      "type": "object"
+    },
+    "IfcDiffCard": {
+      "description": "What changed between two revisions of the model.\n\nNames the two files; the frontend computes the comparison by IFC GlobalId.\nUse for \"what changed since the last submission\" \u2014 the question a pair of\nplan PDFs cannot answer.",
+      "properties": {
+        "base_model_file": {
+          "description": "The OLDER revision's file name",
+          "minLength": 1,
+          "title": "Base Model File",
+          "type": "string"
+        },
+        "model_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The NEWER revision's file name. Empty uses the project's current model.",
+          "title": "Model File"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line clarification",
+          "title": "Note"
+        },
+        "title": {
+          "description": "Short heading, e.g. '\u00c4nderungen seit Einreichung'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "ifc_diff",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "base_model_file"
+      ],
+      "title": "IfcDiffCard",
+      "type": "object"
+    },
+    "IfcElementCard": {
+      "description": "One element of the model, in full, with a link into the 3D view.\n\nUse when the answer is ABOUT a specific element the user will want to look\nat \u2014 the wall that fails a requirement, the door being discussed. The card\ncarries only the GlobalId; every property shown is read live from the model.",
+      "properties": {
+        "global_id": {
+          "description": "IFC GlobalId returned by ifc_query. NEVER invent one \u2014 an id you did not see resolves to nothing.",
+          "minLength": 1,
+          "title": "Global Id",
+          "type": "string"
+        },
+        "model_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Model file name; empty when there is one model.",
+          "title": "Model File"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why this element matters to the answer",
+          "title": "Note"
+        },
+        "title": {
+          "description": "Short heading, e.g. 'Aussenwand Nord'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "ifc_element",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "global_id"
+      ],
+      "title": "IfcElementCard",
+      "type": "object"
+    },
+    "IfcElementMatch": {
+      "description": "The SET of elements to highlight, as a filter rather than a list of ids.\n\nExactly the ``filters`` object passed to ``ifc_query`` \u2014 the browser re-runs\nit against the model, so the highlight covers every matching element and\nnothing has to survive the model's context window.\n\n``ifc_query`` spells its filter keys in camelCase (``ifcTypes``,\n``nameContains``) and this card is authored in snake_case like every other\ncard field. The agent is told to reuse the filter it already wrote, so BOTH\nspellings are accepted and normalise to the snake_case field: without the\naliases a copied filter validated cleanly with every key silently dropped,\nleaving an empty match, and a highlight group that selects nothing.",
+      "properties": {
+        "classification": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Case-insensitive substring of a classification code or label",
+          "title": "Classification"
+        },
+        "ifc_types": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Canonical IFC types, e.g. ['IfcWall']",
+          "title": "Ifc Types"
+        },
+        "material": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Case-insensitive substring of a material name",
+          "title": "Material"
+        },
+        "name_contains": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Case-insensitive substring of the element name",
+          "title": "Name Contains"
+        },
+        "properties": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/IfcPropertyMatch"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Property predicates, all required",
+          "title": "Properties"
+        },
+        "storeys": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Storey names, e.g. ['Erdgeschoss']",
+          "title": "Storeys"
+        }
+      },
+      "title": "IfcElementMatch",
+      "type": "object"
+    },
+    "IfcHighlight": {
+      "description": "One set of model elements to call out, with a verdict.\n\nEXACTLY ONE of ``match`` or ``global_ids`` \u2014 never both, never neither.\n(Stated here because the rendered card catalogue lists a model's fields\nfrom ``model_fields`` and never sees a ``model_validator``: both selectors\ntherefore appear as plain optionals, and the worked example \u2014 one group of\neach kind \u2014 reads as permission to supply both. A highlight that does is\ndropped, taking its whole card with it.)\n\nPrefer ``match`` whenever the\nanswer is about a set rather than about elements you named. An id list has\nto travel through the model's context, so \"the 420 external walls\" arrived\nas whatever fitted and the card highlighted a fraction of the answer while\nthe legend claimed all of it. A filter is re-run in the browser: the whole\nset lights up, and it costs the model a filter it has already written.",
+      "properties": {
+        "global_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "IFC GlobalIds returned by ifc_query OR by ifc_measure. NEVER invent these \u2014 an id you did not see is a wrong answer. Use for a handful of elements the answer names; use 'match' for a set. When the answer came from a MEASUREMENT, the ids to highlight are the ones the measurement itself names: every ifc_measure answer ends with a 'Bezug:' line listing exactly the elements the number was derived from, and highlighting those shows the user the thing that was measured rather than a description of it.",
+          "title": "Global Ids"
+        },
+        "label": {
+          "description": "What is being shown, e.g. 'Fluchtweg > 40 m'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "match": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IfcElementMatch"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The ifc_query filter that selects this set. Preferred over global_ids for anything larger than a few elements \u2014 reuse the exact filters you queried with."
+        },
+        "status": {
+          "default": "info",
+          "description": "Verdict colour: pass=green, fail=red, warning=amber, info=neutral",
+          "enum": [
+            "pass",
+            "fail",
+            "warning",
+            "info"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "title": "IfcHighlight",
+      "type": "object"
+    },
+    "IfcModelPickerCard": {
+      "description": "A clickable list of the project's IFC models \u2014 pick one to open in the viewer.\n\nEmit for \"zeig mir das Modell\" / \"welches Modell\" when the user wants to SEE\nor OPEN the building and the project may hold several models. The old answer\nto that was a prose bullet list of file names the user had to read and retype;\nthis card renders each model as a tile that opens the BIM viewer on click,\nclient-side, with no second turn.\n\nIt carries only WHICH view to offer \u2014 never a list of file names. The renderer\nreads the project's actual models from the live model list (the same source\nthe viewer resolves against), so the model here cannot name a file that does\nnot exist: there is nothing to invent. An empty project renders nothing and\nthe written answer stands on its own, which is the fail-open the prose gave.",
+      "properties": {
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line clarification under the tiles",
+          "title": "Note"
+        },
+        "title": {
+          "description": "Short heading, e.g. 'Welches Modell m\u00f6chten Sie \u00f6ffnen?'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "ifc_model_picker",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title"
+      ],
+      "title": "IfcModelPickerCard",
+      "type": "object"
+    },
+    "IfcPropertyMatch": {
+      "description": "One property predicate, in ifc_query's own filter grammar.",
+      "properties": {
+        "name": {
+          "description": "Property name, e.g. 'IsExternal' or 'FireRating'",
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "operator": {
+          "default": "eq",
+          "description": "Comparison. 'exists'/'missing' take no value.",
+          "enum": [
+            "eq",
+            "neq",
+            "contains",
+            "gt",
+            "gte",
+            "lt",
+            "lte",
+            "exists",
+            "missing"
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "set": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Property-set name, e.g. 'Pset_WallCommon'. Omit to search every set.",
+          "title": "Set"
+        },
+        "source": {
+          "default": "property",
+          "description": "Which store to search: 'property' (default) or 'quantity'",
+          "enum": [
+            "property",
+            "quantity"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Value to compare against",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "IfcPropertyMatch",
+      "type": "object"
+    },
+    "IfcScheduleCard": {
+      "description": "The project's Raumbuch (room schedule) straight from the model.\n\nThe card names WHICH table to show; the frontend fetches the numbers from\nthe model itself. The model therefore cannot get an area wrong, because it\nnever supplies one \u2014 the same reason the viewer card carries GlobalIds and\nnot geometry.\n\nUse when the user asks for room areas, a Fl\u00e4chenaufstellung, or \"what rooms\nare on the second floor\".",
+      "properties": {
+        "model_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "File name of the model as ifc_query reported it. Empty when the project has one model.",
+          "title": "Model File"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line clarification",
+          "title": "Note"
+        },
+        "storey": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Limit the table to one storey, e.g. 'Erdgeschoss'. Empty shows all.",
+          "title": "Storey"
+        },
+        "title": {
+          "description": "Short heading, e.g. 'Fl\u00e4chenaufstellung'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "ifc_schedule",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title"
+      ],
+      "title": "IfcScheduleCard",
+      "type": "object"
+    },
+    "IfcViewerCard": {
+      "description": "The project's IFC model, rendered in 3D, with findings highlighted on it.\n\nUse when the answer is ABOUT specific parts of the building and seeing them\nbeats reading their names \u2014 a compliance finding on particular walls, the\nrooms that fall below a required area, the escape route being discussed.\nDo NOT use it as a decorative \"here is your building\": an unhighlighted\nviewer says nothing a sentence does not.",
+      "properties": {
+        "highlights": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/IfcHighlight"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Element groups to colour in the viewer, each with a verdict",
+          "title": "Highlights"
+        },
+        "model_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "File name of the model, exactly as ifc_query reported it (e.g. 'haus-a.ifc'). Leave empty when the project has only one model.",
+          "title": "Model File"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line clarification under the viewer",
+          "title": "Note"
+        },
+        "storey": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Storey name to isolate on open, e.g. 'Erdgeschoss'",
+          "title": "Storey"
+        },
+        "title": {
+          "description": "Short heading, e.g. 'Brandabschnitte \u2013 EG'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "ifc_viewer",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title"
+      ],
+      "title": "IfcViewerCard",
+      "type": "object"
+    },
+    "KeyTakeaway": {
+      "description": "One takeaway: the line the reader leaves with, plus the detail behind it.",
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "One or two sentences revealed when the reader expands this takeaway \u2014 the derivation, the caveat or the exception behind it. Never a restatement of `text`; omit if there is nothing to add",
+          "title": "Detail"
+        },
+        "text": {
+          "description": "The takeaway as ONE scannable line, e.g. 'Fluchtniveau 9,80 m \u2192 Geb\u00e4udeklasse 4'",
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "KeyTakeaway",
+      "type": "object"
+    },
+    "KeyTakeawaysCard": {
+      "description": "Emit for the two to five points the reader must take away from any answer.\n\nThe generic upgrade over a markdown bullet list, and the one card that fits\nan answer with no diagram and no fork in it. Each takeaway is its own\nnumbered line, so a reader who skims the card leaves with the same answer as\none who reads the prose. A `detail` rides folded behind its takeaway and\nopens on click \u2014 the qualification survives without costing the block its\nscannability.",
+      "properties": {
+        "items": {
+          "description": "The takeaways, most important first. Two to five \u2014 one is a sentence, six is the answer again",
+          "items": {
+            "$ref": "#/$defs/KeyTakeaway"
+          },
+          "maxItems": 5,
+          "minItems": 2,
+          "title": "Items",
+          "type": "array"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional headline, e.g. 'Geb\u00e4udeklasse 4 \u2013 das Wichtigste'; omit to let the takeaways stand alone",
+          "title": "Title"
+        },
+        "type": {
+          "const": "key_takeaways",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "items"
+      ],
+      "title": "KeyTakeawaysCard",
+      "type": "object"
+    },
     "LegalBasisCard": {
-      "description": "A legal norm, regulation, or OIB Richtlinie that grounds the answer.",
+      "description": "A legal norm, regulation, or OIB Richtlinie that grounds the answer.\n\n## Why `lane` is a lane key and not `'oib' | 'law'`\n\nThe card paints the OIB accent (``--source-oib``) rather than the generic\nlaw blue for an OIB-Richtlinie, because OIB and RIS are the two tiers\narchitects compare most often. The frontend decides that in exactly one\nplace, ``accentForLane`` (``features/chat/lib/source-kinds.ts``), and that\nhelper takes a FINE LANE KEY \u2014 the same vocabulary ``norm_registry\n.lane_for_hit`` stamps on every retrieved chunk and every citation chip.\n\nSo this field carries lane keys verbatim. A parallel ``'oib' | 'law'``\nvocabulary would read as the accent it resolves TO, and would need a second\nmapping on the frontend to be usable \u2014 which is the drift ``accentForLane``\nexists to prevent, and would let this card and the \"Belegt durch\" chips\ndisagree about the same document.\n\nOnly the two tiers the card actually renders are offered; every other lane\n``lane_for_hit`` can produce normalises onto them or onto None (see\n:meth:`_normalise_lane`).",
       "properties": {
         "article": {
           "anyOf": [
@@ -1334,6 +2918,36 @@
           "default": null,
           "description": "Relevant article or paragraph number",
           "title": "Article"
+        },
+        "edition": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Ausgabe of the cited document, copied verbatim, e.g. 'Ausgabe Mai 2023'. \u201eOIB-Richtlinie 2\u201c without its Ausgabe is not verifiable, so supply it whenever the source states one. Omit it when the source states none (most Gesetze carry a Fassung, not an Ausgabe) or when you did not see it: an invented Ausgabe makes an unverifiable citation look verified.",
+          "title": "Edition"
+        },
+        "lane": {
+          "anyOf": [
+            {
+              "enum": [
+                "baurecht_oib",
+                "baurecht_ris"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which tier of Baurecht this citation is. \"baurecht_oib\" for an OIB-Richtlinie, -Leitfaden or -Erl\u00e4uterung; \"baurecht_ris\" for a Gesetz or Verordnung published in RIS (Bauordnung, Bautechnikverordnung, Bundes-/Landesgesetz). The name you just wrote in `law` almost always decides it, so fill it in whenever you can name the source at all \u2014 leaving it out costs the card its accent. Omit it ONLY when the citation is genuinely neither: an \u00d6NORM, a Bescheid, an Erlass, or a document you cannot place. Never guess a tier \u2014 the card claims an authority off this field, and this is the citation an architect verifies.",
+          "title": "Lane"
         },
         "law": {
           "description": "Name of the law, regulation, or OIB Richtlinie",
@@ -1391,6 +3005,132 @@
         "law"
       ],
       "title": "LegalBasisCard",
+      "type": "object"
+    },
+    "MemoryProposalCard": {
+      "description": "A proposal to save a finding to long-term memory, confirmed by the user.\n\nSystem-emitted by the `remember` tool when an org-scoped write needs human\nauthorization; the user chooses org-wide or project scope and the write goes\nthrough their authenticated session.",
+      "properties": {
+        "confidence": {
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "content": {
+          "description": "The finding to remember (shown to the user verbatim)",
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "decision",
+            "constraint",
+            "open_question",
+            "derived_fact",
+            "preference"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "title": {
+          "description": "Short title for the memory proposal",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "memory_proposal",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "content",
+        "kind"
+      ],
+      "title": "MemoryProposalCard",
+      "type": "object"
+    },
+    "NormChainCard": {
+      "description": "The norm hierarchy (Normenkette) for this answer, binding vs interpretive.\n\nEmit when the answer rests on a CHAIN of norms rather than a single one \u2014 a\nLandesgesetz that declares an OIB-Richtlinie that points at an \u00d6NORM. Drawn\ntop-to-bottom with a visible weight difference between what binds\n(Bundes-/Landesgesetz, Verordnung, a declared OIB-Richtlinie) and what\ninterprets (\u00d6NORM, Leitfaden) \u2014 a trust artifact prose cannot show at a\nglance.",
+      "properties": {
+        "links": {
+          "description": "The chain top-to-bottom, most binding first",
+          "items": {
+            "$ref": "#/$defs/NormChainLink"
+          },
+          "minItems": 1,
+          "title": "Links",
+          "type": "array"
+        },
+        "title": {
+          "description": "Title, e.g. 'Normenkette \u2013 Absturzsicherung'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "norm_chain",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "links"
+      ],
+      "title": "NormChainCard",
+      "type": "object"
+    },
+    "NormChainLink": {
+      "description": "One link in a norm hierarchy, with the rank that sets its visual weight.",
+      "properties": {
+        "label": {
+          "description": "The norm's name, e.g. 'OIB-Richtlinie 2', '\u00d6NORM B 1600'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What this link contributes to the chain, e.g. 'verweist auf die \u00d6NORM B 1600'",
+          "title": "Note"
+        },
+        "rank": {
+          "description": "The link's classification for display: 'bundesgesetz', 'landesgesetz' and 'verordnung' bind; 'oib_richtlinie' binds where a Land has declared it; 'oenorm' and 'leitfaden' interpret. Drives the binding-vs-interpretive weight in the render \u2014 the agent's own classification, not a lookup",
+          "enum": [
+            "bundesgesetz",
+            "landesgesetz",
+            "verordnung",
+            "oib_richtlinie",
+            "oenorm",
+            "leitfaden"
+          ],
+          "title": "Rank",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "rank"
+      ],
+      "title": "NormChainLink",
       "type": "object"
     },
     "NormReference": {
@@ -1547,8 +3287,162 @@
       "title": "ParkingRequirementCard",
       "type": "object"
     },
+    "ProcessMapCard": {
+      "description": "Emit for \u201ewie l\u00e4uft das ab\" \u2014 the ordered Verfahren, with where this project stands.\n\nEinreichung \u2192 Bauverhandlung \u2192 Baubewilligung \u2192 Baubeginnsanzeige \u2192\nFertigstellungsanzeige currently comes back as a numbered list, which says\nthe order and nothing else: not what each step needs, not what it yields,\nand not where the reader is. The card draws the procedure as a rail and\nopens a step on click to show its requirements, its result and its\nGrundlage \u2014 everything already on the client, so no further question is\nneeded to see it.\n\nMark `current_step` ONLY when the conversation actually says where the\nproject stands. The renderer derives the rest from it (earlier steps are\ndone, later ones ahead), so guessing it tells the reader they have a\nBaubewilligung they may not have.",
+      "properties": {
+        "current_step": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "1-based index of the step this project is AT. Everything before it renders as done and everything after as ahead, so set it only when the conversation says so \u2014 omit it rather than guessing, and the map renders with nothing marked",
+          "title": "Current Step"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one-line caveat, e.g. that a Land deviates",
+          "title": "Note"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The law the procedure as a whole rests on, e.g. the Land's Bauordnung"
+        },
+        "steps": {
+          "description": "The stations in order, first to last. Under three is not a procedure; over eight is a flowchart",
+          "items": {
+            "$ref": "#/$defs/ProcessStep"
+          },
+          "maxItems": 8,
+          "minItems": 3,
+          "title": "Steps",
+          "type": "array"
+        },
+        "title": {
+          "description": "The procedure's name, e.g. 'Baubewilligungsverfahren \u2013 Wien'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "process_map",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "steps"
+      ],
+      "title": "ProcessMapCard",
+      "type": "object"
+    },
+    "ProcessStep": {
+      "description": "One station of a Verfahren, with what it needs and what it produces.",
+      "properties": {
+        "actor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Who acts at this step, e.g. 'Bauwerber', 'Baubeh\u00f6rde', 'Ziviltechniker'",
+          "title": "Actor"
+        },
+        "duration": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How long the step runs or the Frist attached to it, AS WRITTEN \u2014 'binnen sechs Wochen', '8 Wochen ab Einreichung'. Never a date: nothing here is calculated, and a computed deadline would be a legal statement about this project that the card cannot make",
+          "title": "Duration"
+        },
+        "label": {
+          "description": "The step's name, e.g. 'Einreichung', 'Bauverhandlung'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "produces": {
+          "description": "What comes out of it, e.g. 'Baubewilligungsbescheid', 'Verhandlungsschrift'",
+          "items": {
+            "type": "string"
+          },
+          "title": "Produces",
+          "type": "array"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The Bestimmung governing this step, e.g. the Bauordnung paragraph. Never invent one"
+        },
+        "requires": {
+          "description": "What must be in hand for this step, e.g. 'Einreichplan', 'Baubeschreibung', 'Energieausweis'",
+          "items": {
+            "type": "string"
+          },
+          "title": "Requires",
+          "type": "array"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "One short line saying what happens here \u2014 shown in the row, so keep it to a clause",
+          "title": "Summary"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "title": "ProcessStep",
+      "type": "object"
+    },
     "ProjectProfilePatchCard": {
-      "description": "A reviewable patch (add/replace/remove) against a project profile.",
+      "description": "Propose an update to the project brief (hard project facts) \u2014 applied only if the user accepts.",
       "properties": {
         "patch": {
           "items": {
@@ -1558,6 +3452,7 @@
           "type": "array"
         },
         "preview": {
+          "description": "Optional and not rendered. The card builds its before/after rows from the PATCH and the live profile (`buildPatchPreviewRows`), never from a model-supplied preview \u2014 what the user consents to has to be what is written. Kept as an optional field rather than removed so an older stored card still validates.",
           "items": {
             "$ref": "#/$defs/ProjectProfilePatchPreviewItem"
           },
@@ -1565,10 +3460,12 @@
           "type": "array"
         },
         "rationale": {
+          "description": "One or two sentences: what was learned in this conversation and why it changes the brief",
           "title": "Rationale",
           "type": "string"
         },
         "title": {
+          "description": "Short action title, e.g. \"Projektkontext aktualisieren: Fluchtniveau\"",
           "title": "Title",
           "type": "string"
         },
@@ -1582,8 +3479,7 @@
       "required": [
         "title",
         "rationale",
-        "patch",
-        "preview"
+        "patch"
       ],
       "title": "ProjectProfilePatchCard",
       "type": "object"
@@ -1601,11 +3497,13 @@
           "type": "string"
         },
         "path": {
+          "description": "For a confirmed hard fact use \"/facts/<key>\" with op \"add\" (works for both new and changed values). For an uncertain inference use \"/assumptions/<key>\". Known fact keys and values: hauptnutzung: wohnen|buero|beherbergung|versammlung|gesundheit|landwirtschaft|produzierend|lager|sonstiges; gebaeudeklasse: GK1|GK2|GK3|GK4|GK5; fluchtniveau: <=7m|7-11m|11-22m|>22m; bestand_neubau: bestand|neubau|zu_und_umbau; widmung: bauland|verkehrsflaeche|freiland|kerngebiet|gemischt; bauweise: offen|gekuppelt|geschlossen; sicherheitskategorie: low|medium|high; bestandsalter: <10|10-30|30-50|>50; geschosse_oberirdisch / geschosse_unterirdisch / anzahl_betten / anzahl_einheiten: number; grundgrenze / fluchtlinie / schutzzone / abweichender_bebauungsplan: boolean; hohe_gebaeude_details: free text",
           "title": "Path",
           "type": "string"
         },
         "value": {
           "default": null,
+          "description": "The PLAIN value only (e.g. \"GK4\", 3, true) \u2014 never wrap it in an object; the app adds provenance metadata when the user accepts.",
           "title": "Value"
         }
       },
@@ -1640,8 +3538,102 @@
       "title": "ProjectProfilePatchPreviewItem",
       "type": "object"
     },
+    "RequiredDocument": {
+      "description": "One document on the Einreichliste, with the state a bare list drops.\n\n\u201eWas brauche ich f\u00fcr die Einreichung?\" is one of the most common questions\nthere is, and as a markdown list the answer carries the NAMES and nothing\nelse: not whether a document is always required or only for this kind of\nVorhaben, not who has to produce it, and not which ones the reader already\nholds. Those three are the whole of the reader's next hour of work.",
+      "properties": {
+        "condition": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "REQUIRED with 'conditional' and forbidden otherwise: the case that makes this document necessary, e.g. 'nur bei Geb\u00e4uden mit mehr als 2 Wohnungen' or 'nur im Schutzzonenbereich'. One clause, as the Bestimmung words it",
+          "title": "Condition"
+        },
+        "issuer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Who produces it \u2014 'Ziviltechniker:in', 'Ingenieurkonsulent:in f\u00fcr Vermessungswesen', 'Bauwerber', 'Baubeh\u00f6rde'. Omit rather than guess; a wrong issuer sends the reader to the wrong office",
+          "title": "Issuer"
+        },
+        "label": {
+          "description": "The document's name, e.g. 'Einreichplan', 'Energieausweis'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional one clause on FORM rather than substance, e.g. 'dreifach, in Papierform'",
+          "title": "Note"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The Bestimmung requiring this document. Never invent one"
+        },
+        "requirement": {
+          "description": "'required' when every Einreichung of this kind needs it, 'conditional' when it depends on the Vorhaben. A conditional document MUST say on what in `condition` \u2014 one whose condition you do not know is left off the list, never listed as required",
+          "enum": [
+            "required",
+            "conditional"
+          ],
+          "title": "Requirement",
+          "type": "string"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "enum": [
+                "present",
+                "missing"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ONLY from what this conversation established: 'present' when the user said they already have it, 'missing' when they said they do not. Leave it unset otherwise \u2014 the card then renders the document as unknown, which is the truth, and never as a default. Guessing it tells the reader their dossier is further along (or further behind) than it is",
+          "title": "Status"
+        }
+      },
+      "required": [
+        "label",
+        "requirement"
+      ],
+      "title": "RequiredDocument",
+      "type": "object"
+    },
     "RequirementChecklistCard": {
-      "description": "A requirement checklist: several pass/fail criteria for one question.\n\nEmit when an answer boils down to a list of criteria read against the\nproject ('Was muss ich f\u00fcr GK 4 erf\u00fcllen?', 'Ist das Bauansuchen\nvollst\u00e4ndig?'). Each item carries its own verdict and, where possible, its\nown norm reference; unknown items use status 'needs_input' \u2014 never a guess.",
+      "description": "A requirement checklist: several pass/fail criteria for one question.\n\nEmit when an answer boils down to a list of criteria read against the\nproject ('what do I have to meet for GK 4?', 'is the Bauansuchen\ncomplete?'). Each item carries its own verdict and, where possible, its own\nnorm reference; unknown items use status 'needs_input' \u2014 never a guess.",
       "properties": {
         "items": {
           "description": "The requirements, in reading order",
@@ -1760,7 +3752,7 @@
       "type": "object"
     },
     "SetbackPlanCard": {
-      "description": "A top-down site plan (schematic): parcel, footprint, and setback envelopes.\n\nEmit for Abstandsfl\u00e4chen/Bauwich questions ('h\u00e4lt das Geb\u00e4ude die Abst\u00e4nde\nein?'). Draws the parcel, the required-setback envelope, and the building\nfootprint, with a distance arrow per side coloured by status.",
+      "description": "A top-down site plan (schematic): parcel, footprint, and setback envelopes.\n\nEmit for Abstandsfl\u00e4chen/Bauwich questions ('does the building keep the\nrequired Abst\u00e4nde?'). Draws the parcel, the required-setback envelope, and\nthe building footprint, with a distance arrow per side coloured by status.",
       "properties": {
         "building_depth_m": {
           "description": "Building footprint depth in metres",
@@ -1876,7 +3868,7 @@
       "type": "object"
     },
     "StairDiagramCard": {
-      "description": "A staircase drawn to scale (schematic section) with step-geometry checks.\n\nEmit for stair questions (e.g. 'passt eine Treppe mit 17 Stufen, 18 cm\nSteigung, 27 cm Auftritt, 100 cm breit?'). Draws the step profile to scale\nand checks riser/going/width and the comfort rule (2\u00d7Steigung + Auftritt \u2248\n59\u201365 cm) against OIB 4.",
+      "description": "A staircase drawn to scale (schematic section) with step-geometry checks.\n\nEmit for stair questions (e.g. 'does a flight of 17 steps with 18 cm\nSteigung, 27 cm Auftritt and 100 cm width fit?'). Draws the step profile to\nscale and checks riser/going/width and the comfort rule (2\u00d7Steigung +\nAuftritt \u2248 59\u201365 cm) against OIB 4.",
       "properties": {
         "comfort_note": {
           "anyOf": [
@@ -1988,6 +3980,91 @@
       "title": "SummaryCard",
       "type": "object"
     },
+    "SurfacedDocument": {
+      "description": "One real document surfaced by a corpus search, with its match evidence.",
+      "properties": {
+        "file_name": {
+          "description": "Exact indexed file name (resolves to the live document row)",
+          "minLength": 1,
+          "title": "File Name",
+          "type": "string"
+        },
+        "page": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "1-based page the snippet came from, if known",
+          "title": "Page"
+        },
+        "score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "0..1 relevance score of the best chunk",
+          "title": "Score"
+        },
+        "snippet": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Best-matching passage \u2014 WHY this file surfaced",
+          "title": "Snippet"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "enum": [
+                "projekt",
+                "buero"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which corpus it came from: 'projekt' (project) or 'buero' (B\u00fcroarchiv)",
+          "title": "Source"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "One-line description of what the document is",
+          "title": "Summary"
+        }
+      },
+      "required": [
+        "file_name"
+      ],
+      "title": "SurfacedDocument",
+      "type": "object"
+    },
     "ThermalEnvelopeCard": {
       "description": "A thermal-envelope (W\u00e4rmeschutz) schematic: U-values per building part.\n\nEmit for U-Wert / W\u00e4rmeschutz questions (OIB 6). Draws a simple building\ncross-section with each envelope component highlighted by status, and one\nlimit bar per component reading its U-value against the maximum permitted\n(lower is better). Fills the OIB 6 energy-efficiency domain.",
       "properties": {
@@ -2036,30 +4113,220 @@
       ],
       "title": "ThermalEnvelopeCard",
       "type": "object"
+    },
+    "TypedColumn": {
+      "description": "One column of a typed table, declaring how its cells are rendered.",
+      "properties": {
+        "label": {
+          "description": "Column header, e.g. 'Bauteil', 'Mindestma\u00df'",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "type": {
+          "description": "How the frontend renders this column's cells: 'mass' (a dimension \u2014 right-aligned, tabular-nums), 'date' (right-aligned, tabular-nums), 'verdict' (a pass/fail-style status \u2014 a chip), 'norm' (a norm reference \u2014 emphasised), or 'text' (plain left-aligned prose)",
+          "enum": [
+            "mass",
+            "norm",
+            "verdict",
+            "date",
+            "text"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "type"
+      ],
+      "title": "TypedColumn",
+      "type": "object"
+    },
+    "TypedTableCard": {
+      "description": "Emit for rows that are all true at once, and for any table no card covers.\n\nRows that hold SIMULTANEOUSLY \u2014 the topmost storey AND the other storeys AND\nthe basement, three parts of one building rather than three cases of one\nproject \u2014 belong here and not in a `condition_tree`, whose branches are\nmutually exclusive. This is also the long tail: a tabular answer no\npurpose-built card covers gets this one card instead of a bespoke type per\ntable. Each column names its `type` so the frontend right-aligns measurements\nand dates, renders a verdict as a status chip and a norm as emphasised,\nrather than every cell as flat text.",
+      "properties": {
+        "columns": {
+          "description": "Column definitions, left-to-right",
+          "items": {
+            "$ref": "#/$defs/TypedColumn"
+          },
+          "minItems": 1,
+          "title": "Columns",
+          "type": "array"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional clarification",
+          "title": "Note"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Source grounding the table's values"
+        },
+        "rows": {
+          "description": "Each row is one cell value per column, as strings, in the same order as `columns`",
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "title": {
+          "description": "Title, e.g. 'Mindestma\u00dfe barrierefreie Erschlie\u00dfung'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "typed_table",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "columns",
+        "rows"
+      ],
+      "title": "TypedTableCard",
+      "type": "object"
+    },
+    "VerdictHeaderCard": {
+      "description": "The answer's verdict (TL;DR) rendered as a structural header on top.\n\nEmit at the very TOP of an answer whose core is a single headline result \u2014\na number, a rating or a ruling ('1,10 m', 'REI 90', 'Nicht geregelt'). It\nis the lede rendered rather than written, so it cannot drift from the answer\nthe way a hand-typed TL;DR can. Use at most one, and only when the answer\nresolves to one headline; a nuanced answer belongs in prose or a\ncondition_tree.",
+      "properties": {
+        "confidence": {
+          "anyOf": [
+            {
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How firm the verdict is; omit for a plain, uncontested fact",
+          "title": "Confidence"
+        },
+        "confidence_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why confidence is not high, e.g. a Land-specific deviation or a missing input \u2014 omit when confidence is high or absent",
+          "title": "Confidence Reason"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The norm the verdict rests on, when a single one grounds it"
+        },
+        "subject": {
+          "description": "What the verdict answers, e.g. 'Erforderliche Gel\u00e4nderh\u00f6he'",
+          "minLength": 1,
+          "title": "Subject",
+          "type": "string"
+        },
+        "type": {
+          "const": "verdict_header",
+          "title": "Type",
+          "type": "string"
+        },
+        "verdict": {
+          "description": "The headline result itself \u2014 the number or ruling, e.g. '1,10 m', 'REI 90', 'Nicht geregelt'",
+          "minLength": 1,
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "verdict",
+        "subject"
+      ],
+      "title": "VerdictHeaderCard",
+      "type": "object"
     }
   },
   "discriminator": {
     "mapping": {
       "acoustic_check": "#/$defs/AcousticCheckCard",
       "building_section": "#/$defs/BuildingSectionCard",
+      "calculation": "#/$defs/CalculationCard",
+      "callout": "#/$defs/CalloutCard",
+      "change_impact": "#/$defs/ChangeImpactCard",
       "comparison_table": "#/$defs/ComparisonTableCard",
+      "condition_tree": "#/$defs/ConditionTreeCard",
       "daylight_incidence": "#/$defs/DaylightIncidenceCard",
+      "deadline_timeline": "#/$defs/DeadlineTimelineCard",
       "density_check": "#/$defs/DensityCheckCard",
       "dimension_diagram": "#/$defs/DimensionDiagramCard",
+      "document_checklist": "#/$defs/DocumentChecklistCard",
+      "document_grid": "#/$defs/DocumentGridCard",
       "egress_diagram": "#/$defs/EgressDiagramCard",
       "elevator_requirement": "#/$defs/ElevatorRequirementCard",
       "energy_performance": "#/$defs/EnergyPerformanceCard",
       "fire_access_plan": "#/$defs/FireAccessPlanCard",
       "fire_compartment": "#/$defs/FireCompartmentCard",
+      "follow_ups": "#/$defs/FollowUpsCard",
       "guardrail_check": "#/$defs/GuardrailCheckCard",
+      "ifc_compliance": "#/$defs/IfcComplianceCard",
+      "ifc_diff": "#/$defs/IfcDiffCard",
+      "ifc_element": "#/$defs/IfcElementCard",
+      "ifc_model_picker": "#/$defs/IfcModelPickerCard",
+      "ifc_schedule": "#/$defs/IfcScheduleCard",
+      "ifc_viewer": "#/$defs/IfcViewerCard",
+      "key_takeaways": "#/$defs/KeyTakeawaysCard",
       "legal_basis": "#/$defs/LegalBasisCard",
+      "memory_proposal": "#/$defs/MemoryProposalCard",
+      "norm_chain": "#/$defs/NormChainCard",
       "parking_requirement": "#/$defs/ParkingRequirementCard",
+      "process_map": "#/$defs/ProcessMapCard",
       "project_profile_patch": "#/$defs/ProjectProfilePatchCard",
       "requirement_checklist": "#/$defs/RequirementChecklistCard",
       "setback_plan": "#/$defs/SetbackPlanCard",
       "stair_diagram": "#/$defs/StairDiagramCard",
       "summary": "#/$defs/SummaryCard",
-      "thermal_envelope": "#/$defs/ThermalEnvelopeCard"
+      "thermal_envelope": "#/$defs/ThermalEnvelopeCard",
+      "typed_table": "#/$defs/TypedTableCard",
+      "verdict_header": "#/$defs/VerdictHeaderCard"
     },
     "propertyName": "type"
   },
@@ -2078,6 +4345,42 @@
     },
     {
       "$ref": "#/$defs/ComparisonTableCard"
+    },
+    {
+      "$ref": "#/$defs/VerdictHeaderCard"
+    },
+    {
+      "$ref": "#/$defs/ConditionTreeCard"
+    },
+    {
+      "$ref": "#/$defs/TypedTableCard"
+    },
+    {
+      "$ref": "#/$defs/NormChainCard"
+    },
+    {
+      "$ref": "#/$defs/KeyTakeawaysCard"
+    },
+    {
+      "$ref": "#/$defs/CalloutCard"
+    },
+    {
+      "$ref": "#/$defs/CalculationCard"
+    },
+    {
+      "$ref": "#/$defs/ProcessMapCard"
+    },
+    {
+      "$ref": "#/$defs/DocumentChecklistCard"
+    },
+    {
+      "$ref": "#/$defs/DeadlineTimelineCard"
+    },
+    {
+      "$ref": "#/$defs/ChangeImpactCard"
+    },
+    {
+      "$ref": "#/$defs/FollowUpsCard"
     },
     {
       "$ref": "#/$defs/BuildingSectionCard"
@@ -2123,6 +4426,30 @@
     },
     {
       "$ref": "#/$defs/ParkingRequirementCard"
+    },
+    {
+      "$ref": "#/$defs/MemoryProposalCard"
+    },
+    {
+      "$ref": "#/$defs/DocumentGridCard"
+    },
+    {
+      "$ref": "#/$defs/IfcViewerCard"
+    },
+    {
+      "$ref": "#/$defs/IfcComplianceCard"
+    },
+    {
+      "$ref": "#/$defs/IfcScheduleCard"
+    },
+    {
+      "$ref": "#/$defs/IfcElementCard"
+    },
+    {
+      "$ref": "#/$defs/IfcDiffCard"
+    },
+    {
+      "$ref": "#/$defs/IfcModelPickerCard"
     }
   ]
 }
