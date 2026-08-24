@@ -186,6 +186,39 @@ The Docker Compose profile is unchanged and stays opt-in
 records, so starting ClickHouse and three more containers by default on a laptop
 would buy an empty UI.
 
+## Amendment 2 (2026-08-24): the picking becomes a first-class observation
+
+The first production weeks exposed an asymmetry in what the traces could
+answer. Cost per model, per session, per user — all there. But ask *which
+knowledge documents the agent picked, and what it skipped* — the question every
+operator asks of a weak answer — and the only place to look was the formatted
+prose inside a tool span's `output.value`. A search that returned nothing was
+indistinguishable from a turn that never searched at all.
+
+**Change:** the knowledge layer now emits one balanced NAT step pair per
+search, named `retrieve.<tool>` (`retrieve.knowledge_search`), via
+`aiq_agent.observability.retrieval_trace`. It flows through the same exporter
+pipeline, so it gets session/user attribution and Langfuse mapping for free and
+nests under the calling tool's FUNCTION span.
+
+**Content discipline — metadata only.** The input side carries query,
+augmented retrieval query, collections with shelves, candidate/top-k budgets,
+rerank flag and how many chunks a relevance floor dropped; the output side
+carries one entry per picked chunk: id, file name, page, score (4 dp),
+collection, shelf, doc class. **No chunk text.** That keeps the span inside
+ADR-0029's accepted posture (it adds no content category that wasn't already
+flowing) and means an operator who enables redaction loses the picking record
+together with everything else — never left behind as a half-redacted orphan.
+
+Two gaps this amendment deliberately does NOT close:
+
+- **Which LLM call was which phase** (planner / researcher / writer). NAT names
+  GENERATION rows by model id only, and the subagent-phase attribution problem
+  is documented in `src/aiq_agent/tokenomics/README.md` — solving it properly
+  is timing-window attribution ported into the export pipeline, not a rename.
+- **The source router's pick.** Its selection rides in its own LLM output text;
+  structuring it needs a contract for parsing that output, which does not exist.
+
 ## Consequences
 
 ### Positive

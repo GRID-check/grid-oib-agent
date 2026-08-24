@@ -396,6 +396,40 @@ individuals. That is gated behind the same edge permission and behind its own
 env flag (`GRID_TRACE_IDENTITY_ATTRIBUTES`, off unless the Langfuse tier is
 deployed), but it is a real change in what the telemetry store holds.
 
+## Amendment 5 (2026-08-24): grid-ui exports no request spans
+
+Once Langfuse (ADR-0044) made every span durable and queryable, a fact about
+the frontend tier stopped being ignorable: **one trace per HTTP request**.
+Registering an OTel provider via `instrumentation.ts` turns on Next's server
+instrumentation plus `@vercel/otel`'s fetch instrumentation, so health probes,
+RSC navigations, static assets and every BFF POST each became its own trace —
+in Langfuse under the `default` environment (the Node tier sets no
+`deployment.environment`), drowning the agent tiers' traces, which are the
+rows that answer the three questions this stack exists for. In the OSS build
+nothing ever expires, so the flood also grew ClickHouse forever.
+
+The BFF's spans were not merely voluminous, they were *duplicative*: routes are
+thin transport adapters (ADR-0017), so the operation a request forwards to
+already appears as a richer span in the aiq-agent or worker tier's own trace,
+and frontend errors still reach both stores through the OTel **log** bridge
+(`observability/otel-logs.js`) — ERROR records open GitHub issues via err2issue
+(ADR-0031). The WS proxy (`server.js`) was never instrumented, so no WS spans
+were lost either.
+
+**Change:** `registerOTel` now receives a `traceSampler`
+(`frontends/ui/observability/span-sampler.js`, `RootSpanDropSampler`) that does
+one thing: root spans are NOT recorded, children follow their parent like
+`ParentBased`. One decision removes each request subtree at creation time —
+before batching, serialization or export pay for it. This is deliberately a
+sampler rather than a collector-side filter: the collector cannot decide
+per-consumer on the shared traces pipeline, and filtering downstream would
+still let producers pay to build and ship junk.
+
+The logs signal is untouched: `otel-logs.js` owns its own LoggerProvider and
+never consulted the trace SDK. If frontend traces are ever wanted again, delete
+the `traceSampler` line in `src/instrumentation.ts`; there is no opt-out flag,
+per the capability doctrine.
+
 ## Alternatives considered
 
 **Option 1 — Full OTel Collector + Grafana stack.** Durable storage, alerting,
