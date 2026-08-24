@@ -1,14 +1,15 @@
 export const SITE_NAME = 'Piloti'
 export const SITE_TAGLINE = 'Die KI-Plattform für Architektur- und Planungsbüros'
 export const CONTACT_EMAIL = 'hallo@piloti.eu'
-export const APP_URL = import.meta.env.PUBLIC_APP_URL ?? 'https://app.piloti.at'
 
 /**
  * Where the "Anmelden"/"Sign in" link points.
  *
- * The `?sign-in` marker is required. The app's root redirects logged-out
- * visitors back to this landing site, so linking at the bare APP_URL bounces
- * the visitor straight back here and sign-in is unreachable. The marker tells
- * the app the visit is deliberate, and it redirects to WorkOS instead.
+ * Relative ON PURPOSE. The app host is deployment configuration, resolved at
+ * request time by the `/sign-in` endpoint from `PUBLIC_APP_URL` (injected per
+ * stack by the Kubernetes deployment). Baking an absolute host into this
+ * prerendered HTML is how the production site once linked at the dev app -
+ * one image must serve every host, so nothing environment-specific may be
+ * decided at build time here.
  */
-export const SIGN_IN_URL = `${APP_URL.replace(/\/$/, '')}/?sign-in`
+export const SIGN_IN_HREF = '/sign-in'

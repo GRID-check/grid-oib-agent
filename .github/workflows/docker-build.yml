@@ -95,8 +95,5 @@ jobs:
           file: frontends/web/Dockerfile
           push: false
           cache-from: type=gha,scope=web
-          # Dev defaults cover the build; prod URLs are passed by
-          # publish-images.yml on release tags.
-          build-args: |
-            PUBLIC_APP_URL=https://app.dev.piloti.at
-            PUBLIC_SITE_URL=https://dev.piloti.at
+          # No build-args: the image is host-agnostic (the sign-in link
+          # resolves PUBLIC_APP_URL at runtime; SEO metadata defaults to prod).
