@@ -1791,9 +1791,18 @@ kubectl -n grid exec clickhouse-0 -- clickhouse-client --user langfuse \
 ```
 
 Agent turns appear as `CHAIN` rows (the `<workflow>` root, per-agent steps) and
-`GENERATION` rows named by model id; frontend traffic arrives as `SPAN` under
-the `default` environment while the tiers export `deployment.environment:
-production`. Token usage rides on each `GENERATION` in `usage_details`.
+`GENERATION` rows named by model id; token usage rides on each `GENERATION` in
+`usage_details`. Each knowledge search adds a `retrieve.knowledge_search`
+observation carrying the query, the collections searched, the budgets and the
+picked chunk ids/files/scores — metadata only, no chunk text (ADR-0044,
+Amendment 2).
+
+The frontend tier exports **no request spans** (ADR-0029, Amendment 5): one
+trace per HTTP request — health probes, RSC navigations, BFF POSTs — flooded
+the project under the `default` environment, and every fact those spans held
+arrives better elsewhere (backend-tier spans, the OTel log bridge). If you see
+`grid-ui` SPAN rows under `default`, they predate that amendment; filter them
+out or let retention... there is none on the OSS build, so prune by hand.
 
 **Model costs stay $0.00 until the model ids are priced.** Token counts land
 regardless, but the self-hosted OSS build ships no price catalog entry for the

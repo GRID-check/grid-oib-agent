@@ -32,6 +32,24 @@
   },
   "releases": [
     {
+      "id": "2026-08-24",
+      "kind": "date",
+      "version": null,
+      "date": "2026-08-24",
+      "summary": null,
+      "sections": [
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Choosing Anmelden on the Piloti website now leads to the sign-in page of this environment again. Visitors on piloti.at were previously sent to the separate development environment to log in, where their accounts are not at home; signing in directly in the app was never affected.",
+              "de": "Choosing Anmelden on the Piloti website now leads to the sign-in page of this environment again. Visitors on piloti.at were previously sent to the separate development environment to log in, where their accounts are not at home; signing in directly in the app was never affected."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-08-23",
       "kind": "date",
       "version": null,
@@ -80,8 +98,21 @@
           "key": "fixes",
           "notes": [
             {
+              "en": "Document uploads work again in setups where the file storage runs inside the private network. A recent tightening rejected uploads whose storage address resolves to an internal one, leaving new documents stuck in processing; those uploads now go through as before.",
+              "de": "Document uploads work again in setups where the file storage runs inside the private network. A recent tightening rejected uploads whose storage address resolves to an internal one, leaving new documents stuck in processing; those uploads now go through as before."
+            },
+            {
               "en": "Signing in from the Piloti website works again. Visitors who chose Anmelden on piloti.at were shown an error screen instead of the login page and could not reach the app; they now land on the normal sign-in flow as intended.",
               "de": "Signing in from the Piloti website works again. Visitors who chose Anmelden on piloti.at were shown an error screen instead of the login page and could not reach the app; they now land on the normal sign-in flow as intended."
+            }
+          ]
+        },
+        {
+          "key": "security",
+          "notes": [
+            {
+              "en": "Upload targets are validated more strictly before the system contacts them: both where a document is read from and where its preview image is written must point at the configured file storage. Requests naming any other destination are refused outright.",
+              "de": "Upload targets are validated more strictly before the system contacts them: both where a document is read from and where its preview image is written must point at the configured file storage. Requests naming any other destination are refused outright."
             }
           ]
         }

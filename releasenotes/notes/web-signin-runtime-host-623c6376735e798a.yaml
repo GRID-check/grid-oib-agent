@@ -1,0 +1,18 @@
+---
+# One entry per user-visible change. This text is PUBLISHED, in English and in
+# German machine translation, to https://piloti.at/changelog — write it for the
+# architect using Piloti, not for the reviewer of your diff.
+#
+#   - Plain sentences. No RST directives, no code blocks, no issue numbers, no
+#     file paths, no internal component names.
+#   - Say what the reader can now do, or what stopped going wrong for them.
+#   - Two sentences is usually the right length. `task release:lint` enforces
+#     the mechanical half of this.
+#
+# Delete every section you do not need — an empty one fails the lint.
+fixes:
+  - >
+    Choosing Anmelden on the Piloti website now leads to the sign-in page of
+    this environment again. Visitors on piloti.at were previously sent to the
+    separate development environment to log in, where their accounts are not
+    at home; signing in directly in the app was never affected.
