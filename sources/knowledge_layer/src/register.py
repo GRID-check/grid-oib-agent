@@ -1545,8 +1545,10 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # reads the question against the text (the reranker's 0-10 rubric), not a
             # threshold on a distance.
             floor_pct = get_retrieval_setting("knowledge.relevance_floor_pct", 0)
+            dropped_by_floor = 0
             if floor_pct > 0:
                 floor = floor_pct / 100.0
+                before_floor = len(merged.chunks)
                 kept = [chunk for chunk in merged.chunks if chunk.score >= floor]
                 if len(kept) != len(merged.chunks):
                     best = max((chunk.score for chunk in merged.chunks), default=0.0)
@@ -1557,7 +1559,35 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                         len(merged.chunks),
                         best,
                     )
+                    dropped_by_floor = before_floor - len(kept)
                 merged = merged.model_copy(update={"chunks": kept})
+
+            # The picking, as a first-class observation (ADR-0044): one
+            # `retrieve.knowledge_search` span carrying query, collections,
+            # budgets and the picked chunk ids/files/scores — metadata only,
+            # never chunk text. Emitted BEFORE the empty-result return so a
+            # search that found nothing is visible as its own fact rather
+            # than indistinguishable from a turn that never searched.
+            from aiq_agent.observability.retrieval_trace import build_retrieval_input
+            from aiq_agent.observability.retrieval_trace import build_retrieval_output
+            from aiq_agent.observability.retrieval_trace import emit_retrieval_span
+
+            try:
+                emit_retrieval_span(
+                    tool_name="knowledge_search",
+                    search_input=build_retrieval_input(
+                        query=query,
+                        retrieval_query=retrieval_query,
+                        collections=target_collections,
+                        candidate_k=candidate_k,
+                        top_k=effective_top_k,
+                        reranked=rerank_llm_obj is not None or cross_encoder is not None,
+                        dropped_by_floor=dropped_by_floor,
+                    ),
+                    picks=build_retrieval_output(chunks=merged.chunks),
+                )
+            except Exception:  # noqa: BLE001 - tracing must never break the search path
+                logger.debug("Retrieval pick span failed", exc_info=True)
 
             # After the floor, not before: the floor is the only thing that can empty a
             # non-empty result set, and this message is the vocabulary for saying so.
