@@ -104,7 +104,7 @@ config:
   # from baseDomain (per-host appDomain/s3Domain/otelDomain keys remain as overrides).
   grid-oib:baseDomain: piloti.at
   grid-oib:letsEncryptEmail: matthias@bigls.net
-  grid-oib:useStagingIssuer: "true" # flip to false once DNS + TLS verified
+  grid-oib:useStagingIssuer: "false" # flip to false once DNS + TLS verified
   # The provider ships an unremovable metrics stack, so DON'T install a second.
 
   grid-oib:installMetricsServer: "false"
@@ -115,9 +115,7 @@ config:
   # pointing at the same address across any Gateway re-creation (the provider
 
   # reserves a released IP for 14 days and reclaims it via this annotation):
-
   grid-oib:loadBalancerIp: "45.144.209.196"
-
   # ── Public DNS (Cloudflare) ──
 
   # Off by default: a stack whose records are maintained by hand deploys exactly
@@ -438,3 +436,10 @@ config:
     secure: AAABAN66h8TMqAcOoOqLutbjPu4fhTo59DuPl9v2s61MyPp3xFn2qNysRnw0ZcFDaa+fVZaw3PE5cCCzAvxxJGbAL56B2ugUYAmFBEIyuJg9zt3wChZOzSobG/aVpUoveGg0d0RXyVW0OUpG6rY=
   grid-oib:seaweedfsBackendReadSecretKey:
     secure: AAABAIcKw1BgPkNI3A1D3OskdyYMEX67j/qCJqeHUmWe0Y+3nBtfxvpB3tVvzx2RAcn+vkO3INH55OLN//Umf91DaMTyG2ZuY4EgQidnIcg6WGQKfkVPZ5r+hHLEtQDb
+<<<<<<< HEAD
+  grid-oib:otelOidcIssuer: https://prestigious-energy-03.authkit.app
+  grid-oib:otelOidcClientId: client_01M0SKKRX0XAQ99AFZ31WNJ6XT
+  grid-oib:otelOidcClientSecret:
+    secure: AAABAGIs2rkqlPY/YkUOQG2rppnu9Ee+4YpqBQo+2hjlfQDUtcIsQ2AIVyNWuMprZHTAvKIs0SBedUp8HuBP+EK1yi48Kudh8S2t5qwGtADAny5V5eaLZ+/NbaRifGhb
+=======
+>>>>>>> origin/develop
