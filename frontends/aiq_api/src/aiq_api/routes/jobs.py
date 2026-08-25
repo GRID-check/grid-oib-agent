@@ -434,8 +434,8 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
     from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 
     from ..jobs.access import authorize_job_access
-    from ..jobs.access import get_job_project_collection
     from ..jobs.access import ensure_job_access_table
+    from ..jobs.access import get_job_project_collection
     from ..jobs.event_store import EventStore
     from ..jobs.submit import DuplicateJobIdError
     from ..jobs.submit import MissingPrincipalError
@@ -835,9 +835,7 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
         # Only when there is something to file. A poll that finds no report yet
         # is the common case on this route and must not pay for a second read.
-        project_collection = (
-            await get_job_project_collection(job_id, db_url) if report else None
-        )
+        project_collection = await get_job_project_collection(job_id, db_url) if report else None
 
         return JobReportResponse(
             job_id=job_id,

@@ -203,7 +203,7 @@ async def test_report_carries_the_project_the_run_was_commissioned_in(report_app
     # `register_job_routes` to keep heavy imports off module load, so the name
     # is bound when the routes are registered — which `_fetch_report` does after
     # this line.
-    import aiq_api.jobs.access as access
+    from aiq_api.jobs import access
 
     async def _commissioned_in(job_id, db_url):
         assert job_id == "job-1"
@@ -223,7 +223,7 @@ async def test_a_run_with_no_project_reports_none_rather_than_a_guess(report_app
     That is the case the old fallback filled in from the reader's preferences,
     silently, with no filing disclosure ever having been shown.
     """
-    import aiq_api.jobs.access as access
+    from aiq_api.jobs import access
 
     async def _no_project(job_id, db_url):
         return None
@@ -241,7 +241,7 @@ async def test_a_poll_with_no_report_yet_pays_for_no_access_read(report_app, mon
     There is nothing to file, so there is no destination to look up, and this
     route is polled for the whole length of a run that costs minutes.
     """
-    import aiq_api.jobs.access as access
+    from aiq_api.jobs import access
 
     calls = []
 
