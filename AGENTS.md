@@ -6,40 +6,38 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the branch/commit/PR-title convention
 
 ## Working style: value driven
 
-Before you touch anything, answer one question in writing: **what does the user
-actually expect to be true when this is done?** Not what the ticket says, not
-what the spec file contains — what changes for the person who asked.
+Before you touch anything, answer one question in writing. What does the user
+actually expect to be true when this is done? Not what the ticket says, not what
+the spec file contains. What changes for the person who asked.
 
 The request is evidence about the expectation, not the expectation itself. A
-spec, a handover package, a simulation HTML — those are someone's *guess* at how
-to reach the outcome. Implementing the guess faithfully while the outcome stays
-out of reach is the most expensive way to fail here, because it looks like
-delivery.
+spec, a handover package, a simulation HTML: those are someone's guess at how to
+reach the outcome. Implementing the guess faithfully while the outcome stays out
+of reach is the most expensive way to fail here, because it looks like delivery.
 
-So the order is: expectation → does the requested change produce it → then code.
-When step two comes back "no", say so before writing the code, and say what
-would.
+So the order is expectation, then "does the requested change produce it", then
+code. When the middle step comes back no, say so before writing the code, and
+say what would.
 
-The test that produced this rule: a wizard handover package (`wizard_spec.json`
-v1.2 + concept + clickable simulation) specified `B2_upl` — "Bebauungsplan
-ablegen" — as a question of `type: 'upload'`. Implementing that literally means
+The test that produced this rule. A wizard handover package (`wizard_spec.json`
+v1.2 plus concept plus clickable simulation) specified `B2_upl`, "Bebauungsplan
+ablegen", as a question of `type: 'upload'`. Implementing that literally means
 rendering an upload control in the wizard. Doing so would have satisfied the
-spec completely and delivered nothing, because the expectation behind it is *the
-assistant knows which file is the Bebauungsplan for this project* — and this
+spec completely and delivered nothing, because the expectation behind it is that
+the assistant knows which file is the Bebauungsplan for this project, and this
 repo has no per-project notion of a document's ROLE at all. Tags
-(`document_classification.ALLOWED_TAGS`) are LLM-guessed content labels;
-`doc_class` is the base-corpus norm hierarchy; folders are user-arranged
+(`document_classification.ALLOWED_TAGS`) are LLM-guessed content labels.
+`doc_class` is the base-corpus norm hierarchy. Folders are user-arranged
 furniture. None of them can answer "which file is THE Bebauungsplan here", which
-is what every downstream feature in that package (extraction, the B3 Kernset
-review, Modul I's completeness checklist, the agent's project context) is built
-on top of. The upload control was the visible tip; the missing declaration was
-the work.
+is what every downstream feature in that package is built on: extraction, the B3
+Kernset review, Modul I's completeness checklist, the agent's project context.
+The upload control was the visible tip. The missing declaration was the work.
 
-Corollary — scope honestly in both directions. Value-driven is not licence to
-widen a task because you spotted something adjacent, and it is not licence to
-narrow it to the part that is comfortable. It obliges you to name the gap
-between what was asked and what was expected, and let the user decide which one
-they are paying for.
+Corollary, and it cuts both ways. Value driven is not licence to widen a task
+because you spotted something adjacent, and it is not licence to narrow it to
+the part that is comfortable. It obliges you to name the gap between what was
+asked and what was expected, then let the user decide which one they are paying
+for.
 
 ## Working style: prefer visuals
 
