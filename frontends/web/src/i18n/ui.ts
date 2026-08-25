@@ -139,6 +139,7 @@ const de = {
       ratio: '{value}×',
       never: '—',
       office: 'Diese Rechnung gilt für {seats} Plätze und ein medianes Jahresgehalt von {salary}.',
+      officeOne: 'Diese Rechnung gilt für einen Platz und ein medianes Jahresgehalt von {salary}.',
     },
   },
   rechenweg: {
@@ -491,6 +492,7 @@ const en: typeof de = {
       ratio: '{value}×',
       never: '—',
       office: 'This working is for {seats} seats at a median salary of {salary}.',
+      officeOne: 'This working is for one seat at a median salary of {salary}.',
     },
   },
   rechenweg: {

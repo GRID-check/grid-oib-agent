@@ -31,6 +31,8 @@ export interface RoiUnits {
   never: string
   /** `'… für {seats} Plätze … {salary}'` — which office a working belongs to. */
   office: string
+  /** The same sentence for a single seat, where the plural would read wrong. */
+  officeOne: string
 }
 
 /** The readouts the section paints, keyed by their `data-roi-out` value. */
@@ -108,7 +110,7 @@ export function formatRoi(
     licencePerSeat: fillTemplate(units.minus, formatEuro(locale, result.licencePerSeat)),
     netPerSeat: formatEuro(locale, result.netPerSeat),
     seatsTimes: fillTemplate(units.times, decimal(locale, inputs.seats)),
-    office: units.office
+    office: (inputs.seats === 1 ? units.officeOne : units.office)
       .replace('{seats}', decimal(locale, inputs.seats))
       .replace('{salary}', formatEuro(locale, inputs.salary)),
     net: formatEuro(locale, result.netValue),

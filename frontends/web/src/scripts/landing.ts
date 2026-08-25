@@ -20,20 +20,23 @@ const LOOP = 13600
  * through the middle of a card. Naming the subject and measuring it means the
  * camera always frames whole elements, in any locale, at any size.
  */
-const SHOTS: { t: number; on: string[] }[] = [
-  { t: 0, on: ['q'] },
-  { t: 1500, on: ['q'] },
+const SHOTS: { t: number; on: string[]; tight?: string }[] = [
+  { t: 0, on: ['q', 's1'], tight: 'q' },
+  { t: 1500, on: ['q', 's1'], tight: 'q' },
   { t: 2200, on: ['q', 's1'] },
   { t: 2900, on: ['q', 's1', 's2'] },
   { t: 3500, on: ['s1', 's2', 's3'] },
   { t: 4300, on: ['s1', 's2', 's3'] },
-  { t: 4900, on: ['s1', 's2', 's3', 'dec'] },
+  // `tight` is the subject a phone frames instead of the group. It matters where
+  // the group looks ahead to something that has not arrived yet: framing the
+  // empty place the decision card is about to occupy shows a phone nothing.
+  { t: 4900, on: ['s1', 's2', 's3', 'dec'], tight: 's3' },
   { t: 5600, on: ['dec'] },
   { t: 6600, on: ['dec'] },
-  { t: 7300, on: ['dec', 'impl'] },
+  { t: 7300, on: ['dec', 'impl'], tight: 'dec' },
   { t: 8200, on: ['impl'] },
-  { t: 9400, on: ['all'] },
-  { t: 11000, on: ['all'] },
+  { t: 9400, on: ['all'], tight: 'impl' },
+  { t: 11000, on: ['all'], tight: 'impl' },
 ]
 
 const BEATS = [
@@ -771,6 +774,7 @@ function initChain() {
    * because the status line sits over the frame.
    */
   const INSET = { top: 22, right: 24, bottom: 48, left: 24 }
+  const TIGHT_INSET = { top: 14, right: 12, bottom: 40, left: 12 }
   const MARGIN = 14
 
   const boxOf = (els: HTMLElement[]): Box | null => {
@@ -802,27 +806,31 @@ function initChain() {
     // follows the newest one instead of pulling back to a composition shot.
     const narrow = vw < 560
 
+    const inset = narrow ? TIGHT_INSET : INSET
+    const margin = narrow ? 8 : MARGIN
+
     return SHOTS.map((shot) => {
-      const names = narrow ? [shot.on[shot.on.length - 1]] : shot.on
-      const box = boxOf(names.flatMap(shotEls)) ?? world
-      const bw = box.w + MARGIN * 2
-      const bh = box.h + MARGIN * 2
-      const z = Math.min(1, (vw - INSET.left - INSET.right) / bw, (vh - INSET.top - INSET.bottom) / bh)
+      const names = narrow ? [shot.tight ?? shot.on[shot.on.length - 1]] : shot.on
+      let els = names.flatMap(shotEls)
+      // On a phone even one subject can be too wide to read: a source row is a
+      // chip plus its card. Frame the card — the part that carries the words —
+      // and let the chip sit outside the shot.
+      if (narrow && els.length > 1) {
+        els = [els.reduce((a, b) => (a.offsetWidth * a.offsetHeight >= b.offsetWidth * b.offsetHeight ? a : b))]
+      }
+      const box = boxOf(els) ?? world
+      const bw = box.w + margin * 2
+      const bh = box.h + margin * 2
+      const z = Math.min(1, (vw - inset.left - inset.right) / bw, (vh - inset.top - inset.bottom) / bh)
 
       // Centre the subject in the *inset* frame, not the raw rectangle.
-      let x = box.x + box.w / 2 - (INSET.left - INSET.right) / 2 / z
-      let y = box.y + box.h / 2 - (INSET.top - INSET.bottom) / 2 / z
+      let x = box.x + box.w / 2 - (inset.left - inset.right) / 2 / z
+      let y = box.y + box.h / 2 - (inset.top - inset.bottom) / 2 / z
 
-      // Never look past the edge of the diagram: pan is bounded by the world.
-      const halfW = vw / (2 * z)
-      const halfH = vh / (2 * z)
-      const wx0 = world.x - MARGIN
-      const wy0 = world.y - MARGIN
-      const wx1 = world.x + world.w + MARGIN
-      const wy1 = world.y + world.h + MARGIN
-      x = wx1 - wx0 <= halfW * 2 ? (wx0 + wx1) / 2 : Math.min(Math.max(x, wx0 + halfW), wx1 - halfW)
-      y = wy1 - wy0 <= halfH * 2 ? (wy0 + wy1) / 2 : Math.min(Math.max(y, wy0 + halfH), wy1 - halfH)
-
+      // The subject is centred rather than clamped to the diagram's bounds. A
+      // clamp pinned the opening shot's bubble into the corner of the frame,
+      // which reads as a mistake; empty space around a close-up does not, and
+      // the frame's edges fade anyway.
       return { t: shot.t, x, y, z }
     })
   }

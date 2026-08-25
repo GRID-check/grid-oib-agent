@@ -13,8 +13,19 @@ const t = ui[locale]
 <section
   id="kontakt"
   data-screen-label={t.sheets.kontakt}
-  class="mx-auto box-border flex min-h-[72vh] max-w-[80rem] flex-col justify-center px-6 pb-16 pt-24 text-center sm:px-12"
+  class="relative isolate mx-auto box-border flex min-h-[72vh] max-w-[80rem] flex-col justify-center px-6 pb-16 pt-24 text-center sm:px-12"
 >
+  <!-- The page ends on open ground rather than another panel, so the close gets
+       one soft light and a closing mark instead of a frame. -->
+  <div
+    class="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[34rem] w-[58rem] max-w-[120%] -translate-x-1/2 -translate-y-[58%] rounded-full opacity-70 blur-3xl"
+    style="background: radial-gradient(ellipse at center, rgb(164 208 106 / 0.20), rgb(164 208 106 / 0.06) 45%, transparent 72%)"
+    aria-hidden="true"
+  >
+  </div>
+  <span
+    class="mx-auto mb-10 block h-10 w-px bg-gradient-to-b from-transparent to-ink/25"
+    aria-hidden="true"></span>
   <h2
     data-reveal
     class="mx-auto mb-8 max-w-5xl font-display text-h1"
