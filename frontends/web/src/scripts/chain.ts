@@ -244,17 +244,32 @@ export function initChain() {
   mm.add('(prefers-reduced-motion: no-preference)', () => {
     const w = draw()
     const cards = sources.flatMap((n) => node(n)).concat(node('dec'), node('impl'))
-    const allWires = () => Array.from(wires.children) as SVGElement[]
+    // Strokes and dots are set up differently: a dot is a filled circle with no
+    // stroke, so `drawSVG` has nothing to shorten and would leave all six
+    // junctions standing there from the first frame, ahead of the rows they
+    // belong to. They are hidden outright and brought in with their row instead.
+    const strokes = () => Array.from(wires.querySelectorAll<SVGPathElement>('path'))
+    const dots = () => Array.from(wires.querySelectorAll<SVGCircleElement>('[data-wire="dot"]'))
 
     const tl = gsap.timeline({ repeat: -1, repeatDelay: 1.6, paused: true, defaults: { ease: 'power2.out' } })
 
-    tl.set(cards, { autoAlpha: 0, y: 8 })
-      .set(scan, { autoAlpha: 0 })
-      .set(allWires(), { autoAlpha: 1, drawSVG: 0 })
-      .set(qText, { text: '' })
-      .set(caretT, { display: 'inline-block' })
-      .set(cam, frame(['q', 's1']))
-      .call(() => { status.textContent = L.typing })
+    // The opening state is applied now, not when the timeline first plays.
+    // A paused timeline renders nothing, so what stood on the page until the
+    // chain scrolled into view was the finished diagram — every card, every
+    // wire, the question already typed — which then snapped back to the start
+    // to derive an answer the reader had been looking at the whole time.
+    const reset = () => {
+      gsap.set(cards, { autoAlpha: 0, y: 8 })
+      gsap.set(scan, { autoAlpha: 0 })
+      gsap.set(strokes(), { autoAlpha: 1, drawSVG: 0 })
+      gsap.set(dots(), { autoAlpha: 0 })
+      gsap.set(qText, { text: '' })
+      gsap.set(caretT, { display: 'inline-block' })
+      gsap.set(cam, frame(['q', 's1']))
+      status.textContent = L.typing
+    }
+    reset()
+    tl.call(reset)
 
     tl.to(qText, { duration: 1.5, ease: 'none', text: { value: L.question, delimiter: '' } })
       .set(caretT, { display: 'none' })

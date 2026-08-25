@@ -603,7 +603,12 @@ function initPins() {
   }
   let navHidden = false
 
-  const sizePins = () => {
+  /**
+   * @param runway Whether the wrapper carries the scroll distance the scrubbed
+   * timeline plays across. Without motion there is no scrubbing, so the section
+   * is one screen: nobody should have to scroll four of them past a still image.
+   */
+  const sizePins = (runway = true) => {
     sticky.style.position = 'sticky'
     sticky.style.top = '0'
     sticky.style.boxSizing = 'border-box'
@@ -616,13 +621,13 @@ function initPins() {
     measureStory()
     // The scroll runway is the beat list's length: the ring adds the fan-out
     // and the connecting lines, the grid does not, so it needs less scrolling.
-    wrap.style.height = mode === 'ring' ? '440vh' : '300vh'
+    wrap.style.height = runway ? (mode === 'ring' ? '440vh' : '300vh') : ''
   }
 
   const mm = gsap.matchMedia()
 
   mm.add('(prefers-reduced-motion: reduce)', () => {
-    sizePins()
+    sizePins(false)
     fragEls.forEach((f) => gsap.set(f.el, { opacity: 1, x: f.tx, y: f.ty, rotation: 0, scale: 0.84 }))
     if (lineEls) gsap.set(lineEls, { opacity: 0.45, drawSVG: '100%' })
     gsap.set([hProblem].filter(Boolean), { opacity: 0 })
