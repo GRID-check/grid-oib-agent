@@ -82,6 +82,27 @@ const de = {
     tag: 'Daten & Transparenz',
     title:
       'Keine Blackbox. Piloti macht KI und Daten nachvollziehbar — die Verantwortung bleibt bei Ihnen.',
+    // The section's claim is that everything here can be checked. So the right
+    // column is a sheet you could check it against: what accompanies every
+    // answer, and what happens to the office's data — with the page that has to
+    // hold us to it linked at the foot.
+    proof: {
+      tag: 'Prüfblatt',
+      answerHeading: 'Zu jeder Antwort',
+      answer: [
+        { label: 'Begründung', value: 'warum die Antwort so lautet' },
+        { label: 'Annahmen', value: 'worauf sie beruht' },
+        { label: 'Regeln', value: 'welche Vorschrift greift' },
+        { label: 'Quellenverweis', value: 'Paragraf, Punkt, Seite' },
+      ],
+      dataHeading: 'Zu Ihren Daten',
+      data: [
+        { label: 'Verarbeitung', value: 'EU · nach DSGVO' },
+        { label: 'KI-Training', value: 'nicht mit Ihren Daten' },
+        { label: 'Pläne und Projekte', value: 'Eigentum Ihres Büros' },
+      ],
+      link: 'In der Datenschutzerklärung nachlesen',
+    },
     cards: [
       {
         title: 'Spezialisiert auf Architektur',
@@ -209,55 +230,6 @@ const de = {
     waitlist: 'Auf die Warteliste',
     subjectDemo: 'Demo-Anfrage',
     subjectWaitlist: 'Warteliste',
-  },
-  // The mock in section 03 is the product, not a diagram of it: the same turn
-  // anatomy the app renders — a lede that answers first, prose whose [n] markers
-  // anchor to one chip per document, the provenance class on every chip, and the
-  // confidence the answer was given with. Copy asserts nothing the site does not
-  // already assert elsewhere, and the panel says it is fictional.
-  app: {
-    fictional: 'Fiktives Beispiel',
-    project: 'Wohnbau Ottakring',
-    projectMeta: 'Einreichung · Wien 1160',
-    you: 'Sie',
-    piloti: 'Piloti',
-    askLabel: 'Beispielfragen',
-    placeholder: 'Frage zu diesem Projekt …',
-    sourcesLabel: 'Belegt durch',
-    confidence: 'Hohe Konfidenz',
-    turns: [
-      {
-        short: 'Brandschutz an der Loggia-Fassade',
-        q: 'Ich will das Stiegenhaus ins Freie führen und über eine gedämmte Loggia-Fassade erschließen. Was heißt das brandschutztechnisch?',
-        lede: 'Zulässig — mit Brandschutzschott je Geschoß, weil Ihr WDVS über 10\u00a0cm liegt.',
-        body: 'Die Loggia zählt als Außenwand, damit greift die Regel zur Brandausbreitung [1]. Der zweite Rettungsweg über das Stiegenhaus bleibt davon unberührt [2]. Ihr Einreichplan zeigt EPS 14\u00a0cm über zwei Geschoße [3] — unter 10\u00a0cm wäre das Schott entbehrlich.',
-        sources: [
-          { kind: 'law', tier: 'OIB', title: 'OIB-RL 2', meta: 'Pkt. 3.5 — Fassaden', marks: '1' },
-          { kind: 'law', tier: 'RIS', title: 'BO Wien', meta: '§ 106 — Fluchtwege', marks: '2' },
-          { kind: 'project', title: 'Einreichplan_EG.pdf', meta: 'Fassadenschnitt, S. 4', marks: '3' },
-        ],
-      },
-      {
-        short: 'U-Wert der Außenwand',
-        q: 'Welchen U-Wert muss die Außenwand im Neubau erreichen?',
-        lede: 'U ≤ 0,20\u00a0W/m²K für die Außenwand gegen Außenluft.',
-        body: 'Der Wert steht in der Energieeffizienz-Richtlinie [1]. Ihr Aufbau mit λ 0,035\u00a0W/mK bei 14\u00a0cm liegt darunter [2]; im Anschluss an die Loggia ist die Wärmebrücke getrennt nachzuweisen.',
-        sources: [
-          { kind: 'law', tier: 'OIB', title: 'OIB-RL 6', meta: 'Energieeinsparung, Wärmeschutz', marks: '1' },
-          { kind: 'project', title: 'Bauteilkatalog', meta: 'Außenwand AW-02', marks: '2' },
-        ],
-      },
-      {
-        short: 'Zweiter Rettungsweg',
-        q: 'Braucht das Stiegenhaus einen zweiten Rettungsweg?',
-        lede: 'Ja — bei GK 4 ist ein zweiter Rettungsweg nachzuweisen.',
-        body: 'Die Bauordnung verlangt ihn ab dieser Gebäudeklasse [1]. In der Volksschule Aspern haben wir ihn 2019 über die Außenstiege geführt [2] — dieselbe Lösung ist hier möglich, weil die Loggia durchgehend ins Freie führt.',
-        sources: [
-          { kind: 'law', tier: 'RIS', title: 'BO Wien', meta: '§ 106 — Fluchtwege', marks: '1' },
-          { kind: 'office', title: 'VS Aspern 2019', meta: 'Anschlussdetail, Außenstiege', marks: '2' },
-        ],
-      },
-    ],
   },
   chat: {
     header: 'Piloti · Decision Chain',
@@ -492,6 +464,23 @@ const en: typeof de = {
   ki: {
     tag: 'Data & transparency',
     title: 'No black box. Piloti makes AI and data traceable — responsibility stays with you.',
+    proof: {
+      tag: 'Check sheet',
+      answerHeading: 'With every answer',
+      answer: [
+        { label: 'Reasoning', value: 'why the answer is what it is' },
+        { label: 'Assumptions', value: 'what it rests on' },
+        { label: 'Rules', value: 'which regulation applies' },
+        { label: 'Source reference', value: 'clause, section, page' },
+      ],
+      dataHeading: 'With your data',
+      data: [
+        { label: 'Processing', value: 'EU · under the GDPR' },
+        { label: 'AI training', value: 'never on your data' },
+        { label: 'Plans and projects', value: 'owned by your office' },
+      ],
+      link: 'Read it in the privacy policy',
+    },
     cards: [
       {
         title: 'Specialised in architecture',
@@ -619,50 +608,6 @@ const en: typeof de = {
     waitlist: 'Join the waitlist',
     subjectDemo: 'Demo request',
     subjectWaitlist: 'Waitlist',
-  },
-  app: {
-    fictional: 'Fictional example',
-    project: 'Wohnbau Ottakring',
-    projectMeta: 'Submission · Vienna 1160',
-    you: 'You',
-    piloti: 'Piloti',
-    askLabel: 'Example questions',
-    placeholder: 'Ask about this project …',
-    sourcesLabel: 'Evidenced by',
-    confidence: 'High confidence',
-    turns: [
-      {
-        short: 'Fire safety at the loggia façade',
-        q: 'I want to lead the stairwell to the outside and provide access via an insulated loggia façade. What does that mean for fire protection?',
-        lede: 'Permitted — with a fire stop on each storey, because your ETICS is over 10\u00a0cm.',
-        body: 'The loggia counts as an exterior wall, so the rule on fire spread applies [1]. The second escape route via the stairwell is unaffected [2]. Your submission drawing shows EPS 14\u00a0cm across two storeys [3] — under 10\u00a0cm the fire stop would not be needed.',
-        sources: [
-          { kind: 'law', tier: 'OIB', title: 'OIB-RL 2', meta: 'Sec. 3.5 — Façades', marks: '1' },
-          { kind: 'law', tier: 'RIS', title: 'BO Wien', meta: '§ 106 — Escape routes', marks: '2' },
-          { kind: 'project', title: 'Einreichplan_EG.pdf', meta: 'Façade section, p. 4', marks: '3' },
-        ],
-      },
-      {
-        short: 'U-value of the exterior wall',
-        q: 'What U-value does the exterior wall have to reach in new build?',
-        lede: 'U ≤ 0.20\u00a0W/m²K for an exterior wall against outside air.',
-        body: 'The value is set in the energy-efficiency guideline [1]. Your build-up at λ 0.035\u00a0W/mK over 14\u00a0cm comes in below it [2]; the thermal bridge where it meets the loggia needs its own verification.',
-        sources: [
-          { kind: 'law', tier: 'OIB', title: 'OIB-RL 6', meta: 'Energy saving, thermal protection', marks: '1' },
-          { kind: 'project', title: 'Component catalogue', meta: 'Exterior wall AW-02', marks: '2' },
-        ],
-      },
-      {
-        short: 'Second escape route',
-        q: 'Does the stairwell need a second escape route?',
-        lede: 'Yes — at building class 4 a second escape route has to be shown.',
-        body: 'The building code requires one from this class upwards [1]. At Volksschule Aspern we took it over the external stair in 2019 [2] — the same solution works here, because the loggia leads through to the outside.',
-        sources: [
-          { kind: 'law', tier: 'RIS', title: 'BO Wien', meta: '§ 106 — Escape routes', marks: '1' },
-          { kind: 'office', title: 'VS Aspern 2019', meta: 'Connection detail, external stair', marks: '2' },
-        ],
-      },
-    ],
   },
   chat: {
     header: 'Piloti · Decision Chain',
