@@ -152,10 +152,11 @@ function initAura() {
     ctx.fill()
 
     ctx.lineWidth = 1
+    // Two rings, not three, and drawn faint: the aura is instrumentation over a
+    // photograph, and instrumentation that shouts stops looking like precision.
     const rings: [number, number, number][] = [
-      [104, 0.06, 0.22],
-      [162, -0.04, 0.17],
-      [224, 0.028, 0.12],
+      [116, 0.05, 0.13],
+      [206, -0.03, 0.085],
     ]
     rings.forEach(([r, spd, al], i) => {
       ctx.save()
@@ -171,20 +172,24 @@ function initAura() {
     ctx.setLineDash([])
 
     ctx.font = `${(9.5 * Math.max(1, sc * 0.75)).toFixed(1)}px 'IBM Plex Mono', monospace`
+    ctx.letterSpacing = '0.08em'
     NODES.forEach((n, i) => {
       const ang = n.a + ts * n.v
       const nx = hx + Math.cos(ang) * n.r * sc
       const ny = hy + Math.sin(ang) * n.r * sc * 0.86
       const glow = 0.5 + 0.5 * Math.sin(ts * 1.1 + i)
-      ctx.strokeStyle = `rgba(94,110,70,${(0.09 + 0.09 * glow).toFixed(3)})`
+      // A leader line is drawn to the nodes that say something, and only
+      // suggested for the rest, so the eye follows the labels.
+      const named = Boolean(n.label)
+      ctx.strokeStyle = `rgba(94,110,70,${((named ? 0.07 : 0.035) + (named ? 0.07 : 0.03) * glow).toFixed(3)})`
       ctx.lineWidth = 1
       ctx.beginPath()
       ctx.moveTo(hx, hy)
       ctx.lineTo(nx, ny)
       ctx.stroke()
-      ctx.fillStyle = `rgba(88,104,64,${(0.45 + 0.45 * glow).toFixed(3)})`
+      ctx.fillStyle = `rgba(88,104,64,${((named ? 0.4 : 0.22) + 0.35 * glow).toFixed(3)})`
       ctx.beginPath()
-      ctx.arc(nx, ny, (1.6 + 0.9 * glow) * Math.max(1, sc * 0.8), 0, Math.PI * 2)
+      ctx.arc(nx, ny, (named ? 1.7 : 1.1 + 0.6 * glow) * Math.max(1, sc * 0.8), 0, Math.PI * 2)
       ctx.fill()
       // A label belongs to its node, so it takes whichever side of the node has
       // room for it. Written blindly to the right, the ones on a phone ran off
@@ -199,7 +204,7 @@ function initAura() {
         ctx.textAlign = flip ? 'right' : 'left'
         const lx = flip ? nx - 7 * sc : Math.min(right, Math.max(EDGE, w - EDGE - textW))
         lines.forEach((ln, li) => {
-          ctx.fillStyle = `rgba(88,104,64,${((li === 0 ? 0.35 : 0.24) + 0.35 * glow).toFixed(3)})`
+          ctx.fillStyle = `rgba(78,92,56,${((li === 0 ? 0.44 : 0.3) + 0.3 * glow).toFixed(3)})`
           ctx.fillText(ln, lx, ny - 5 * sc + li * lh)
         })
         ctx.textAlign = 'left'

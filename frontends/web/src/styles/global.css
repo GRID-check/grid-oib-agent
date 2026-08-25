@@ -273,6 +273,29 @@
 /* Content arrives rather than snapping in: a longer curve, a shorter distance
    and a breath of defocus. Fast reveals read as a page assembling itself;
    slow ones read as a page that was already there. */
+
+/* Paper has tooth. A flat fill is the one thing that always gives away a screen,
+   so a fine grain is laid over the whole page — far below the threshold of
+   noticing it, far above the threshold of feeling it. Multiply keeps it out of
+   the way on the dark sheets, where it should barely register at all. */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.038;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+}
+
+@media print {
+  body::after {
+    display: none;
+  }
+}
+
 [data-reveal] {
   transition:
     opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1),
