@@ -688,12 +688,15 @@ describe('v1.0 → v1.2 legacy bridges (answersFromProfile)', () => {
     expect(restored.answers['C10@bw1']).toEqual(['mauerwerk_massivbau'])
   })
 
-  it('drops a legacy hybrid Bauweise rather than guessing its members', () => {
+  it('does not silently drop a legacy hybrid Bauweise', () => {
+    // This case previously asserted the deletion. That was pinning a data-loss
+    // bug: `bauweise` is intake-owned, so dropping the answer made
+    // `mergeIntakeProfile` remove the stored fact as well.
     const restored = answersFromProfile(
       { ...empty, facts: { 'bauweise@bw1': fact('hybrid') } },
       definition
     )
-    expect(restored.answers['C10@bw1']).toBeUndefined()
+    expect(restored.answers['C10@bw1']).toEqual(['offen'])
   })
 
   it('carries a legacy Zertifizierung into the fused F4', () => {
@@ -797,5 +800,70 @@ describe('v1.2 catalog shape', () => {
     ]) {
       expect(ids.has(gone)).toBe(false)
     }
+  })
+})
+
+describe('v1.0 → v1.2 bridges — the second review pass', () => {
+  const fact = (value: ProjectPrimitiveValue) => ({
+    value,
+    confidence: 'confirmed' as const,
+    source: 'user_confirmed' as const,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  })
+  const empty: ProjectProfile = { facts: {}, goals: {}, unknowns: [], assumptions: {} }
+
+  it('keeps a legacy hybrid Bauweise instead of dropping the fact', () => {
+    const restored = answersFromProfile(
+      { ...empty, facts: { 'bauweise@bw1': fact('hybrid') } },
+      definition
+    )
+
+    // Deleting the answer lost a construction type the user had stated:
+    // `bauweise` is intake-owned, so the merge removed the stored fact too.
+    expect(restored.answers['C10@bw1']).toEqual(['offen'])
+    expect(String(restored.answers['C10_text@bw1'])).toContain('Hybrid')
+  })
+
+  it('does not overwrite a description the user already wrote', () => {
+    const restored = answersFromProfile(
+      {
+        ...empty,
+        facts: {
+          'bauweise@bw1': fact('hybrid'),
+          'bauweise_beschreibung@bw1': fact('EG Stahlbeton, ab 1. OG Holzbau'),
+        },
+      },
+      definition
+    )
+    expect(restored.answers['C10_text@bw1']).toBe('EG Stahlbeton, ab 1. OG Holzbau')
+  })
+
+  it('appends a legacy G-text once, however often the profile is reopened', () => {
+    // `kontext_grundstueck` is owned by no current question, so the merge keeps
+    // it — and the merged text is already in G1. Appending unconditionally grew
+    // the field on every save.
+    const first = answersFromProfile(
+      {
+        ...empty,
+        facts: {
+          kontext_beschreibung: fact('Ein Wohnhaus.'),
+          kontext_grundstueck: fact('Hanglage.'),
+        },
+      },
+      definition
+    )
+    expect(first.answers['G1']).toBe('Ein Wohnhaus.\n\nHanglage.')
+
+    const reopened = answersFromProfile(
+      {
+        ...empty,
+        facts: {
+          kontext_beschreibung: fact('Ein Wohnhaus.\n\nHanglage.'),
+          kontext_grundstueck: fact('Hanglage.'),
+        },
+      },
+      definition
+    )
+    expect(reopened.answers['G1']).toBe('Ein Wohnhaus.\n\nHanglage.')
   })
 })

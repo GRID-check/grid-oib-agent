@@ -187,3 +187,30 @@ describe('buildDocumentRolesSection — a recommendation is per scope instance',
     expect(section).not.toContain('documents_missing:')
   })
 })
+
+describe('buildDocumentRolesSection — the cap covers the missing list too', () => {
+  /** Many buildings, nothing bound: the shape that grows fastest. */
+  const manyRecommended = Array.from({ length: 90 }, (_, i) => ({
+    role: 'bestandsplan' as const,
+    scopeInstanceId: `bw${i}`,
+  }))
+
+  it('bounds documents_missing and says how many it withheld', () => {
+    const section = buildDocumentRolesSection([], manyRecommended)
+
+    // Bounding only the filled slots left this list free to grow, and it is the
+    // one that grows fastest — every recommended role, per building, unsatisfied
+    // until a document arrives.
+    const lines = section.split('\n').filter((line) => line.startsWith('- '))
+    expect(lines.length).toBeLessThanOrEqual(61)
+    expect(section).toContain('weitere fehlende Unterlagen nicht aufgeführt')
+  })
+
+  it('says nothing about withholding when everything fits', () => {
+    const section = buildDocumentRolesSection(
+      [],
+      [{ role: 'bebauungsplan', scopeInstanceId: null }]
+    )
+    expect(section).not.toContain('nicht aufgeführt')
+  })
+})

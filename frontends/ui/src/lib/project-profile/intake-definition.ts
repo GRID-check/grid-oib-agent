@@ -2031,11 +2031,26 @@ function applyLegacyAnswerBridges(
         holzbau: ['holzbau'],
         stahl: ['stahlbau'],
         offen: ['offen'],
-        // 'hybrid' named no members; the user re-picks and describes the mix.
       }
       const replacement = mapped[c10]
-      if (replacement) answers[c10Key] = replacement
-      else delete answers[c10Key]
+      if (replacement) {
+        answers[c10Key] = replacement
+      } else if (c10 === 'hybrid') {
+        // v1.0's `hybrid` named a combination without naming its members, and
+        // v1.2 expresses a combination as the multi-select PLUS `C10_text`.
+        // Deleting the answer dropped a construction type the user had actually
+        // stated: `bauweise` is intake-owned, so `mergeIntakeProfile` removed
+        // the stored fact too. It moves into the field built to hold exactly
+        // this, and the user refines it when they next open the module.
+        answers[c10Key] = ['offen']
+        const c10TextKey = answerKeyFor('C10_text', bw.id)
+        if (!isIntakeAnswerProvided(answers[c10TextKey])) {
+          answers[c10TextKey] =
+            'Hybridbauweise (aus früherer Angabe — Kombination bitte präzisieren)'
+        }
+      } else {
+        delete answers[c10Key]
+      }
     }
 
     // --- E2 fusion: four legacy booleans into `technik_weitere`.
@@ -2123,8 +2138,16 @@ function applyLegacyAnswerBridges(
     const legacy = profile.facts[key]?.value
     if (typeof legacy !== 'string' || !legacy.trim()) return
     const current = answers[answerKey]
-    answers[answerKey] =
-      typeof current === 'string' && current.trim() ? `${current}\n\n${legacy}` : legacy
+    if (typeof current !== 'string' || !current.trim()) {
+      answers[answerKey] = legacy
+      return
+    }
+    // Idempotent. The legacy key is owned by no current question, so
+    // `mergeIntakeProfile` preserves it — and the merged text is already in the
+    // answer. Appending unconditionally added another copy on every reopen and
+    // save, growing the field without bound.
+    if (current.includes(legacy.trim())) return
+    answers[answerKey] = `${current}\n\n${legacy}`
   }
   appendText('G1', 'kontext_grundstueck')
   appendText('G4', 'kontext_sonstiges')

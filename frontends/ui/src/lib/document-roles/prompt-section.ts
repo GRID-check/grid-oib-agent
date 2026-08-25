@@ -146,8 +146,18 @@ export function buildDocumentRolesSection(
   // tell that the Hoftrakt has no plan, which is precisely what this section
   // exists to say.
   const bound = new Set(slots.map((slot) => slotKey(slot.role, slot.scopeInstanceId)))
-  const missing = recommended
-    .filter((entry) => !bound.has(slotKey(entry.role, entry.scopeInstanceId)))
+  // The cap covers BOTH lists. Bounding only the filled slots left `missing`
+  // free to grow — and it is the list that grows fastest, since every
+  // recommended role is repeated per building and none of them is satisfied
+  // until a document arrives. A project with many buildings and no documents
+  // yet produced the longest block of all, which is the opposite of the
+  // intent.
+  const allMissing = recommended.filter(
+    (entry) => !bound.has(slotKey(entry.role, entry.scopeInstanceId))
+  )
+  const missingBudget = Math.max(0, MAX_SLOT_LINES - shown.length)
+  const missing = allMissing
+    .slice(0, missingBudget)
     .map(
       (entry) =>
         `- ${documentRoleDefinition(entry.role).label}${scopeSuffix(entry.scopeInstanceId, bauwerkNames)}`
@@ -165,6 +175,11 @@ export function buildDocumentRolesSection(
     // Named explicitly rather than left to be inferred from the absence of a
     // line. An agent cannot notice something that is not there.
     lines.push('documents_missing:', ...missing)
+    const droppedMissing = allMissing.length - missing.length
+    // Same rule as the filled slots: a shortened list says it is shortened.
+    if (droppedMissing > 0) {
+      lines.push(`- (${droppedMissing} weitere fehlende Unterlagen nicht aufgeführt)`)
+    }
   }
   return lines.join('\n')
 }
