@@ -140,15 +140,11 @@ describe('composerCapabilities', () => {
 
   describe('typing presence', () => {
     test('is broadcast only in a shared thread by someone who may contribute', () => {
-      expect(
-        withInput({ sharing: 'shared', myRole: 'collaborator' }).canBroadcastTyping,
-      ).toBe(true)
+      expect(withInput({ sharing: 'shared', myRole: 'collaborator' }).canBroadcastTyping).toBe(true)
     })
 
     test('a viewer never announces a draft that cannot become a message', () => {
-      expect(withInput({ sharing: 'shared', myRole: 'viewer' }).canBroadcastTyping).toBe(
-        false,
-      )
+      expect(withInput({ sharing: 'shared', myRole: 'viewer' }).canBroadcastTyping).toBe(false)
     })
 
     test('a private thread issues no presence request at all (NF-8)', () => {
@@ -158,8 +154,61 @@ describe('composerCapabilities', () => {
     test('collaboration off issues no presence request at all (NF-8)', () => {
       expect(
         withInput({ canCollaborate: false, sharing: 'shared', myRole: 'collaborator' })
-          .canBroadcastTyping,
+          .canBroadcastTyping
       ).toBe(false)
     })
+  })
+})
+
+describe('project chat permission', () => {
+  // The composer's affordance for the project tier's `project:chat` gate. Before
+  // it, a Viewer could type a question into a project they may read but not
+  // chat in, and only learn on send — the enforcement was right and the surface
+  // lied about it.
+  const base = {
+    isAuthenticated: true,
+    canCollaborate: false,
+    sharing: 'private' as const,
+    myRole: null,
+    isBusy: false,
+    isResponseMode: false,
+    researchLocked: false,
+    otherPersonsTurn: false,
+  }
+
+  test('denies, and names the rule', () => {
+    const capabilities = composerCapabilities({ ...base, mayChatInProject: false })
+    expect(capabilities.canContribute).toBe(false)
+    expect(capabilities.canCompose).toBe(false)
+    expect(capabilities.deniedBy).toBe('no-project-chat-permission')
+  })
+
+  test('permits when omitted — general chat has no project to check', () => {
+    expect(composerCapabilities(base).deniedBy).toBeNull()
+    expect(composerCapabilities({ ...base, mayChatInProject: true }).deniedBy).toBeNull()
+  })
+
+  test('outranks the thread role: it denies a thread OWNER too', () => {
+    // Deliberately the broader fact. Owning a conversation inside a project you
+    // may not chat in does not let you chat in it, and reporting the denial as
+    // `read-only-role` would send the reader to the wrong remedy.
+    const capabilities = composerCapabilities({
+      ...base,
+      canCollaborate: true,
+      sharing: 'shared',
+      myRole: 'owner',
+      mayChatInProject: false,
+    })
+    expect(capabilities.deniedBy).toBe('no-project-chat-permission')
+    expect(capabilities.canBroadcastTyping).toBe(false)
+  })
+
+  test('still reports an unauthenticated session as unauthenticated', () => {
+    const capabilities = composerCapabilities({
+      ...base,
+      isAuthenticated: false,
+      mayChatInProject: false,
+    })
+    expect(capabilities.deniedBy).toBe('unauthenticated')
   })
 })

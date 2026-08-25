@@ -80,6 +80,13 @@ export type ComposerDenial =
   | 'unauthenticated'
   /** Role is known and ranks below `collaborator`. */
   | 'read-only-role'
+  /**
+   * The PROJECT does not permit chatting — the reader holds `project:view` but
+   * not `project:chat`. Distinct from `read-only-role`, which is about one
+   * shared conversation: this one denies the whole surface, and it denies a
+   * reader who owns the thread just the same.
+   */
+  | 'no-project-chat-permission'
 
 export interface ComposerCapabilityInput {
   readonly isAuthenticated: boolean
@@ -89,6 +96,17 @@ export interface ComposerCapabilityInput {
   readonly sharing: ThreadSharing
   /** The reader's role, or null while it has not been published. */
   readonly myRole: ResourceRole | null
+  /**
+   * Whether the reader may chat in the project this composer sits in
+   * (`project:chat`). Resolved on the server and prop-drilled, like
+   * `canCollaborate`, because the permission modules are `server-only`.
+   *
+   * Defaults to permitting when omitted, which is what keeps the composer
+   * working outside a project — general chat has no project to check. Passing
+   * `false` is a positive statement that this project denies it, not an absence
+   * of information, so unlike `myRole` it fails CLOSED.
+   */
+  readonly mayChatInProject?: boolean
   /** A turn is running. */
   readonly isBusy: boolean
   /** The composer is collecting a response to a question the agent asked. */
@@ -133,19 +151,23 @@ export interface ComposerCapabilities {
  * implication without stating it — write controls guarded on `cannotContribute`
  * while submit guarded on `disabled` — and the spec asserts it directly.
  */
-export function composerCapabilities(
-  input: ComposerCapabilityInput,
-): ComposerCapabilities {
+export function composerCapabilities(input: ComposerCapabilityInput): ComposerCapabilities {
   const roleUnknown = input.sharing === 'shared' && input.myRole === null
 
   const deniedBy: ComposerDenial | null = !input.isAuthenticated
     ? 'unauthenticated'
-    : // A role we have is ranked. A role we do NOT have is deliberately not a
-      // denial today — preserving the previous `myThreadRole === 'viewer'`
-      // behaviour, where null was not 'viewer' and so never locked anything.
-      input.myRole !== null && !roleMayContribute(input.myRole)
-      ? 'read-only-role'
-      : null
+    : // Checked before the conversation role, because it is the broader fact:
+      // a reader who cannot chat in the project cannot chat in any thread in it,
+      // whatever role they hold on that thread. Explicit `false` only — see the
+      // field's note on why absence permits and `false` denies.
+      input.mayChatInProject === false
+      ? 'no-project-chat-permission'
+      : // A role we have is ranked. A role we do NOT have is deliberately not a
+        // denial today — preserving the previous `myThreadRole === 'viewer'`
+        // behaviour, where null was not 'viewer' and so never locked anything.
+        input.myRole !== null && !roleMayContribute(input.myRole)
+        ? 'read-only-role'
+        : null
 
   const canContribute = deniedBy === null
 
@@ -155,8 +177,7 @@ export function composerCapabilities(
     !input.researchLocked &&
     !input.otherPersonsTurn
 
-  const canBroadcastTyping =
-    input.canCollaborate && input.sharing === 'shared' && canContribute
+  const canBroadcastTyping = input.canCollaborate && input.sharing === 'shared' && canContribute
 
   return { canContribute, canCompose, canBroadcastTyping, deniedBy, roleUnknown }
 }

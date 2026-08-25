@@ -2,6 +2,9 @@ import { type ReactNode } from 'react'
 import { getGridSession } from '@/lib/auth/session'
 import { runWithTenantSlot } from '@/lib/db/tenant-context'
 import { FEATURE_FLAGS, isCollaborationEnabled, isFeatureEnabled } from '@/lib/authz/feature-flags'
+import { CHAT_PERMISSIONS } from '@/lib/authz/chat'
+import { requireProjectAccess } from '@/lib/authz/projects'
+import type { AuthorizedSession } from '@/lib/auth/types'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { ProjectChatClient } from './project-chat-client'
 
@@ -38,6 +41,18 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
     // failure must leave it off (spec NF-7).
     let canCollaborate = false
     let organizationId: string | null = null
+    // Whether this reader may actually USE the agent here (`project:chat`).
+    //
+    // The layout admits anyone with `project:view`, which is right — a Viewer
+    // reads the project's threads. But the send path enforces `project:chat`, so
+    // without this a Viewer would type a question and watch it fail. Resolved
+    // here because the authz modules are `server-only`, and prop-drilled the way
+    // `canCollaborate` already is.
+    //
+    // Defaults to TRUE and is only ever set false by a definite denial: a
+    // lookup failure must not lock the composer for somebody who can chat. The
+    // server is the enforcement; this is the affordance.
+    let canChatInProject = true
     try {
       const session = await getGridSession()
       if (session) {
@@ -47,6 +62,13 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
         showResearchInHistory = isFeatureEnabled(session, FEATURE_FLAGS.researchInChatHistory)
         showAnswerFeedback = isFeatureEnabled(session, FEATURE_FLAGS.answerFeedback)
         canCollaborate = isCollaborationEnabled(session)
+        if (session.organizationId && session.organizationMembershipId) {
+          try {
+            await requireProjectAccess(session as AuthorizedSession, id, CHAT_PERMISSIONS)
+          } catch {
+            canChatInProject = false
+          }
+        }
       }
     } catch {
       // Fail open: a session-lookup problem must not hide chat affordances.
@@ -82,6 +104,7 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
         projectCollection={projectCollection}
         projectName={projectName}
         canCollaborate={canCollaborate}
+        canChatInProject={canChatInProject}
       />
     )
   })

@@ -100,7 +100,11 @@ Every path that starts or continues a conversation gates on `project:view`:
 - `lib/conversations/service.ts:270` — create a project-scoped conversation
 - `lib/conversations/service.ts:189` — list a project's conversations
 - `lib/collection-scope-request.ts:171,179` — the collection scope handed to the
-  chat/WebSocket transport
+  chat/WebSocket transport. Note this is the AGENT-INVOCATION path specifically:
+  a `projectId` only reaches it when a caller passes one explicitly, and the
+  callers that do are the WebSocket scope endpoint, the async-job proxy and the
+  `/v1` agent proxy. The document and data-source clients pass none, so a
+  reader's document access is untouched by gating this on `project:chat`.
 
 Consequences, all live:
 
@@ -136,6 +140,18 @@ carry it. `ProjectRole` — the *derived* ladder — deliberately does not: it m
 onto the viewer rung either way, and deriving it would cost a third concurrent
 FGA check on every project access to tell two identical answers apart. That
 split is now documented on both types.
+
+And the surface was made to match the enforcement. The project layout admits
+anyone with `project:view` — correctly, a Viewer reads the project's threads —
+so without more, a Viewer would open the chat, type a question and watch the send
+fail. The chat page's server boundary now resolves `project:chat` and
+prop-drills it the way `canCollaborate` already travels;
+`composerCapabilities` gained a named `no-project-chat-permission` denial that
+outranks the thread role (owning a conversation inside a project you may not chat
+in does not let you chat in it), and the composer explains itself instead of
+dying. It defaults to permitting and is only set false by a definite denial: the
+server is the enforcement, this is the affordance, and a lookup failure must not
+lock out somebody who can chat.
 
 Note the deployment order: the permission must exist in WorkOS for
 `project-contributor` to be assignable there. See §6, W1.

@@ -6,7 +6,8 @@ fixes:
     enforced: a Viewer reads a project's documents and conversations and can
     no longer start research runs against it. The member roster reports the
     role each person really holds instead of rounding narrow roles down to
-    "Viewer".
+    "Viewer". A Viewer opening a project's chat now sees the composer locked
+    with the reason, instead of typing a question and watching it fail on send.
   - >
     Read-only platform staff are now read-only. The Platform Support role
     passed every platform gate, including the ones behind changing model
