@@ -113,7 +113,7 @@
   /* Type scale. The display sizes are fluid and carry their own leading,
      tracking and weight, so a heading is one utility (`text-h2`) instead of a
      size/leading/tracking triplet repeated in every section.
-     
+
      The display weights are 600, not 700, and the tracking is tighter than the
      face's default. Bold-and-loose is how a landing page announces itself;
      large type set a shade lighter and drawn closer together is how a printed
