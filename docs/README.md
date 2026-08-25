@@ -43,6 +43,7 @@ Start with [`system-overview.md`](architecture/system-overview.md), then
 |---|---|
 | Whole system | [`system-overview.md`](architecture/system-overview.md), [`overview.md`](architecture/overview.md), [`backend-deep-dive.md`](architecture/backend-deep-dive.md) |
 | BFF and data | [`bff-service-architecture.md`](architecture/bff-service-architecture.md), [`grid-app-database.md`](architecture/grid-app-database.md), [`multitenancy-and-auth-spec.md`](architecture/multitenancy-and-auth-spec.md) |
+| Documents and projects | [`document-roles.md`](architecture/document-roles.md) |
 | Knowledge and retrieval | [`rag-system-audit-2026-08.md`](architecture/rag-system-audit-2026-08.md), [`citation-system-audit-2026-07.md`](architecture/citation-system-audit-2026-07.md), [`quote-verification-calibration-2026-07.md`](architecture/quote-verification-calibration-2026-07.md), [`meta-vs-research-contract.md`](architecture/meta-vs-research-contract.md) |
 | Memory | [`project-memory-design.md`](architecture/project-memory-design.md), [`memory-system-audit-2026-07.md`](architecture/memory-system-audit-2026-07.md), [`memory-reflection-audit.md`](architecture/memory-reflection-audit.md), [`post-answer-stages.md`](architecture/post-answer-stages.md) |
 | Agent surface | [`cards.md`](architecture/cards.md), [`agent-skills.md`](architecture/agent-skills.md), [`llm-providers.md`](architecture/llm-providers.md), [`org-model-configuration.md`](architecture/org-model-configuration.md) |
