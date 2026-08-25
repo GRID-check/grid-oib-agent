@@ -1,9 +1,11 @@
 ---
 interface Props {
   tone?: 'light' | 'dark'
+  /** The sheet this section is, as it appears in the margin index. */
+  no?: string
   class?: string
 }
-const { tone = 'light', class: className = '' } = Astro.props
+const { tone = 'light', no, class: className = '' } = Astro.props
 const tones = {
   light: 'text-accent-600',
   dark: 'text-on-dark-label',
@@ -15,11 +17,17 @@ const rules = {
   light: 'bg-accent-600/45',
   dark: 'bg-on-dark-label/45',
 }
+// The number is set quieter than the name: it is a reference, not a title.
+const numbers = {
+  light: 'text-accent-600/55',
+  dark: 'text-on-dark-label/55',
+}
 ---
 
 <p
   class={`flex items-center gap-3 font-mono text-2xs font-medium uppercase tracking-label ${tones[tone]} ${className}`}
 >
+  {no && <span class={`tabular-nums ${numbers[tone]}`}>{no}</span>}
   <span class={`h-px w-6 shrink-0 ${rules[tone]}`} aria-hidden="true"></span>
   <slot />
 </p>

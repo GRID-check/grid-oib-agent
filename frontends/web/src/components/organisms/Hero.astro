@@ -9,6 +9,11 @@ interface Props {
 }
 const { locale = 'de' } = Astro.props
 const t = ui[locale]
+
+// The sheet is issued in the year it is read.
+const block = t.hero.block.map((cell) =>
+  cell.value === '' ? { ...cell, value: String(new Date().getFullYear()) } : cell
+)
 ---
 
 <div data-hero-wrap class="relative h-screen">
@@ -16,7 +21,7 @@ const t = ui[locale]
     id="top"
     data-screen-label={t.sheets.hero}
     data-hero
-    class="sticky top-0 box-border flex h-screen flex-col items-center justify-center overflow-hidden bg-hero-bg px-6 py-24 sm:px-12"
+    class="sticky top-0 box-border flex h-screen flex-col items-center justify-end overflow-hidden bg-hero-bg px-6 pb-[8.5rem] pt-24 sm:px-12"
   >
     <Image
       src={hero}
@@ -64,18 +69,28 @@ const t = ui[locale]
     >
     </div>
 
-    <h1
-      class="relative mt-[min(52vh,calc(100vh-330px))] max-w-5xl text-center font-display text-display text-ink"
-      style="text-wrap: balance"
-    >
-      {t.hero.title}
-    </h1>
+    <div class="pointer-events-none absolute inset-6 sm:inset-8" aria-hidden="true">
+      {
+        [
+          'left-0 top-0 border-l border-t',
+          'right-0 top-0 border-r border-t',
+          'left-0 bottom-0 border-b border-l',
+          'right-0 bottom-0 border-b border-r',
+        ].map((corner) => (
+          <span class={`absolute size-5 border-ink/20 ${corner}`} />
+        ))
+      }
+    </div>
 
-    <div class="absolute inset-x-6 bottom-20 flex flex-col items-center gap-3.5">
-      <div
-        data-hero-cta
-        class="flex flex-col items-center gap-6 transition duration-500"
+    <div class="relative flex flex-col items-center gap-7">
+      <h1
+        class="m-0 max-w-5xl text-center font-display text-display text-ink"
+        style="text-wrap: balance"
       >
+        {t.hero.title}
+      </h1>
+
+      <div data-hero-cta class="flex flex-col items-center gap-6 transition duration-500">
         <p
           class="m-0 max-w-md text-center text-base leading-relaxed text-ink-mid"
           style="text-wrap: pretty"
@@ -89,10 +104,36 @@ const t = ui[locale]
       </div>
     </div>
     <div
-      class="absolute bottom-5 left-1/2 h-8 w-px -translate-x-1/2 bg-panel/30"
+      class="absolute bottom-[4.75rem] left-1/2 h-7 w-px -translate-x-1/2 bg-panel/25"
       style="animation: scrollhint 2s ease-in-out infinite"
       aria-hidden="true"
     >
+    </div>
+
+    <!-- The title block. A drawing carries its own particulars in the corner of
+         the sheet — what it is, which sheet, at what scale, as of when — and
+         that is exactly the register this audience reads a document in. It also
+         gives the foot of the hero something to be, which is what the empty
+         band under the headline was missing. -->
+    <div class="absolute inset-x-0 bottom-0">
+      <div class="mx-auto box-border max-w-[85rem] px-6 sm:px-10">
+        <dl
+          class="m-0 grid grid-cols-[1.4fr_1fr_1fr_1fr] gap-x-6 border-t border-ink/15 py-4 max-sm:grid-cols-2 max-sm:gap-y-3"
+        >
+          {
+            block.map((cell) => (
+              <div class="flex items-baseline gap-2.5 whitespace-nowrap">
+                <dt class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-ghost">
+                  {cell.label}
+                </dt>
+                <dd class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-mute">
+                  {cell.value}
+                </dd>
+              </div>
+            ))
+          }
+        </dl>
+      </div>
     </div>
   </header>
 </div>

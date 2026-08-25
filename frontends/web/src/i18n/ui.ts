@@ -37,6 +37,16 @@ const de = {
     sub: 'Das gesamte Wissen für Ihre Planung. An einem Ort.',
     ctaDemo: 'Demo anfragen',
     ctaMore: 'Mehr erfahren',
+    // The title block, in the corner of the sheet where a drawing carries its
+    // own particulars. Read as a wink by everyone else, read as correct by the
+    // people this is for.
+    block: [
+      { label: 'Projekt', value: 'Piloti' },
+      { label: 'Blatt', value: '01 Start' },
+      { label: 'Maßstab', value: '1:1' },
+      { label: 'Stand', value: '' },
+    ],
+    figure: 'Abb. 01 — Entwurfsphase, Grundriss',
   },
   story: {
     problemA: 'Architekt:innen gestalten unsere Zukunft,',
@@ -391,6 +401,13 @@ const en: typeof de = {
     sub: 'All the knowledge for your planning. In one place.',
     ctaDemo: 'Request a demo',
     ctaMore: 'Learn more',
+    block: [
+      { label: 'Project', value: 'Piloti' },
+      { label: 'Sheet', value: '01 Start' },
+      { label: 'Scale', value: '1:1' },
+      { label: 'Issue', value: '' },
+    ],
+    figure: 'Fig. 01 — Design stage, floor plan',
   },
   story: {
     problemA: 'Architects shape our future,',
