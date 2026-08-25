@@ -44,7 +44,13 @@ repos:
         # LINE NUMBER, and this file grows by a case every time a shelf is added —
         # the same trap the Pulumi note below describes. JSON cannot carry the
         # inline `pragma: allowlist secret` comment that would be the other way out.
-        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$)
+        #
+        # apm.lock.yaml is the same case as pnpm-lock.yaml: a lockfile whose
+        # `resolved_commit` and `content_hash` values are hex by construction and
+        # secret by none. Excluded rather than baselined for the reason the note
+        # below gives — a baseline entry pins a hash to a LINE NUMBER, and this
+        # file grows by a block every time a skill is added.
+        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$)
         # REGENERATING THE BASELINE — keep the --exclude-lines flag, or CI starts
         # failing again a few commits later:
         #
