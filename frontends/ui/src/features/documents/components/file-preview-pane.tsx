@@ -38,9 +38,9 @@ import { DocumentActionsMenu, useDocumentActions, type DocumentScope } from './d
 import {
   DocumentStatusBadge,
   fileTypeIcon,
-  isCitableStatus,
+  isCitable,
+  isNeverIndexed,
   isFailedStatus,
-  isNeverIndexedStatus,
 } from './document-status'
 import { AssignmentFaces } from './assignment-faces'
 import { AuthorshipLine } from './authorship-line'
@@ -156,14 +156,14 @@ export function FilePreviewPane({
    * facts that come from the file itself (type, size, project) and drops the
    * section that describes an ingestion that never ran.
    */
-  const showIndexedSection = showMetadataPanel && !isNeverIndexedStatus(file.status)
+  const showIndexedSection = showMetadataPanel && !isNeverIndexed(file)
   /**
    * Why „Piloti dazu fragen" is off. „Sobald die Datei zitierbar ist" promises
    * a wait; a report Piloti wrote was deliberately never dispatched to
    * `/v1/ingest`, so there is no wait to promise and the sentence says that
    * instead.
    */
-  const askDisabledReason = isNeverIndexedStatus(file.status)
+  const askDisabledReason = isNeverIndexed(file)
     ? t('authorship.notInKnowledge')
     : t('assignment.askDisabled')
   const askReasonId = `ask-disabled-${file.id}`
@@ -381,7 +381,7 @@ export function FilePreviewPane({
             </div>
           )}
         </div>
-        {projectId && isCitableStatus(file.status) && !inChat && (
+        {projectId && isCitable(file) && !inChat && (
           <Button
             type="button"
             size="sm"
@@ -397,7 +397,7 @@ export function FilePreviewPane({
             {t('assignment.ask')}
           </Button>
         )}
-        {projectId && canCollaborate && isCitableStatus(file.status) && (
+        {projectId && canCollaborate && isCitable(file) && (
           <AskColleagueButton
             projectId={projectId}
             file={file}
@@ -411,7 +411,7 @@ export function FilePreviewPane({
             wait for, and the hint says why instead. No `Piloti dazu fragen`
             affordance appears in any other form here: that is the design, not
             a gap. */}
-        {projectId && !isCitableStatus(file.status) && !isFailedStatus(file.status) && (
+        {projectId && !isCitable(file) && !isFailedStatus(file.status) && (
           // The reason sits on a WRAPPER, not on the button. A disabled
           // `<button>` dispatches no pointer events in Chrome or Safari, so a
           // `title` on it is a tooltip that can never open — the one sentence

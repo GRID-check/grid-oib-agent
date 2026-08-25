@@ -80,6 +80,43 @@ export function isFailedStatus(status: string | null | undefined): boolean {
  * An UNDECLARED status is not this: it also renders neutral, but what it means
  * is unknown, and "we never indexed it" is a claim only a declared value earns.
  */
+/**
+ * This document is not, and will never become, Projektwissen.
+ *
+ * Asks BOTH questions, and that is the whole point. Every not-citable
+ * affordance used to derive from `status` alone, which was correct only while
+ * `stored` implied "written by a machine" — a coincidence, not a rule. The
+ * design's own lesson from this feature is that *provenance is the durable
+ * fact*: `status` describes where a document is in a pipeline and can move,
+ * while `authored_by` is what it IS and cannot.
+ *
+ * So a machine-authored row is never-indexed whatever its status says, and a
+ * human row still answers on status alone, which is what keeps a genuinely
+ * pending upload from being labelled as something it is not.
+ */
+export function isNeverIndexed(file: {
+  status?: string | null
+  authoredBy?: string | null
+}): boolean {
+  if (file.authoredBy && file.authoredBy !== 'user') return true
+  return isNeverIndexedStatus(file.status)
+}
+
+/**
+ * Ask may open this document — the same claim the green badge makes.
+ *
+ * Machine-authored rows are excluded on authorship rather than on status, for
+ * the reason above: nothing this product wrote is citable, and a status that
+ * moved must not be able to say otherwise.
+ */
+export function isCitable(file: {
+  status?: string | null
+  authoredBy?: string | null
+}): boolean {
+  if (file.authoredBy && file.authoredBy !== 'user') return false
+  return isCitableStatus(file.status)
+}
+
 export function isNeverIndexedStatus(status: string | null | undefined): boolean {
   const facts = documentStatusFacts(status)
   return facts !== null && facts.variant === 'secondary' && facts.phase === 'terminal'

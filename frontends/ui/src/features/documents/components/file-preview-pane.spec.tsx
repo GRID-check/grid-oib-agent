@@ -650,6 +650,30 @@ describe('FilePreviewPane — a report Piloti wrote', () => {
     expect(ask).toHaveAccessibleDescription('Created by Piloti — not in the knowledge base')
   })
 
+  it('withholds Ask on a machine-authored row whose status says citable', () => {
+    // The design's own lesson from this feature, which had been written down
+    // and not applied: "Every not-citable affordance derived from `status`.
+    // That was fine while `stored` implied agent-authored, and wrong the
+    // instant anything moved the row out of `stored`. Provenance is the durable
+    // fact." The gates read `status` alone until now.
+    //
+    // Nothing can move an agent row out of `stored` today — `dispatchDocument`
+    // refuses it, and `stored` is terminal so the poller never revisits it —
+    // which is precisely why this is cheap to fix now and expensive to discover
+    // later. `status` says where a document is in a pipeline and can move;
+    // `authored_by` says what it is and cannot.
+    render(
+      <FilePreviewPane file={{ ...generated, status: 'completed' }} projectId="proj-1" />
+    )
+
+    const ask = screen.getByRole('button', { name: 'Ask Piloti' })
+    expect(ask).toBeDisabled()
+    expect(ask.closest('[title]')).toHaveAttribute(
+      'title',
+      'Created by Piloti — not in the knowledge base',
+    )
+  })
+
   it('still promises the wait for a document that really is being read', () => {
     render(<FilePreviewPane file={{ ...generated, status: 'processing', authoredBy: 'user' }} projectId="proj-1" />)
 
