@@ -10,20 +10,20 @@ const t = ui[locale]
 
 <div
   data-chat-anchor
-  class="overflow-hidden rounded-2xl border border-ink/15 bg-white shadow-mock"
+  class="overflow-hidden rounded-[1.75rem] bg-white shadow-mock ring-1 ring-ink/10"
   data-reveal
 >
   <div
-    class="flex items-center justify-between border-b border-ink/10 bg-paper-dim px-6 py-3"
+    class="flex items-center justify-between border-b border-ink/8 bg-paper-dim px-6 py-3.5"
   >
     <div class="flex items-center gap-2.5">
-      <span class="size-2 rounded-full bg-ok" aria-hidden="true"></span>
+      <span class="size-1.5 rounded-full bg-ok" aria-hidden="true"></span>
       <span
-        class="font-display text-xs font-semibold uppercase tracking-wider text-ink-mute"
+        class="font-mono text-2xs font-medium uppercase tracking-label text-ink-mute"
         >{t.chat.header}</span
       >
     </div>
-    <span class="text-2xs text-ink-ghost">{t.chat.fictional}</span>
+    <span class="font-mono text-2xs uppercase tracking-widest text-ink-ghost">{t.chat.fictional}</span>
   </div>
   <div data-stage class="relative h-[360px] overflow-hidden bg-paper sm:h-[460px]">
     <!-- The mask belongs to the frame, not to the camera inside it (which is

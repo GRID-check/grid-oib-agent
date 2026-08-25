@@ -71,15 +71,18 @@ const t = ui[locale]
       {t.hero.title}
     </h1>
 
-    <div class="absolute inset-x-6 bottom-16 flex flex-col items-center gap-3.5">
+    <div class="absolute inset-x-6 bottom-20 flex flex-col items-center gap-3.5">
       <div
         data-hero-cta
-        class="flex flex-wrap items-center justify-center gap-4 transition duration-500"
+        class="flex flex-col items-center gap-6 transition duration-500"
       >
-        <p class="m-0 text-center text-sm leading-normal text-ink-mid" style="text-wrap: pretty">
+        <p
+          class="m-0 max-w-md text-center text-base leading-relaxed text-ink-mid"
+          style="text-wrap: pretty"
+        >
           {t.hero.sub}
         </p>
-        <div class="flex gap-2.5">
+        <div class="flex gap-3">
           <Pill href="#kontakt" variant="solid" size="md">{t.hero.ctaDemo}</Pill>
           <Pill href="#problem" variant="outline" size="md">{t.hero.ctaMore}</Pill>
         </div>

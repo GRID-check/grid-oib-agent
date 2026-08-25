@@ -17,9 +17,15 @@ export function initNav() {
     const next = heroWrap ? window.scrollY < heroHeight - 70 : false
     if (next === overHero) return
     overHero = next
-    barEl.classList.toggle('bg-canvas/95', !next)
-    barEl.classList.toggle('shadow-[0_1px_0_rgb(31_32_35/0.08)]', !next)
-    barEl.classList.toggle('backdrop-blur-sm', !next)
+    // Over the hero the bar is invisible chrome; past it, it condenses into a
+    // glass rail — narrower, ringed with a hairline, lifted a hair off the page.
+    barEl.classList.toggle('bg-canvas/70', !next)
+    barEl.classList.toggle('backdrop-blur-xl', !next)
+    barEl.classList.toggle('ring-1', !next)
+    barEl.classList.toggle('ring-ink/8', !next)
+    barEl.classList.toggle('shadow-card', !next)
+    barEl.classList.toggle('max-w-[68rem]', !next)
+    barEl.classList.toggle('rounded-full', !next)
   }
   apply()
   window.addEventListener('scroll', apply, { passive: true })

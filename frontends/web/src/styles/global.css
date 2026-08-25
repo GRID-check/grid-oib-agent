@@ -54,12 +54,12 @@
 @theme {
   --color-canvas: #f7f7f3;
   --color-hero-bg: #e8e5dd;
-  --color-ink: #1f2023;
-  --color-ink-soft: #55565a;
-  --color-ink-mid: #3d3e3a;
-  --color-ink-mute: #6f706c;
-  --color-ink-faint: #8a8a86;
-  --color-ink-ghost: #a8a8a4;
+  --color-ink: #1b1c19;
+  --color-ink-soft: #53534c;
+  --color-ink-mid: #3b3c36;
+  --color-ink-mute: #726f66;
+  --color-ink-faint: #8d8a80;
+  --color-ink-ghost: #aaa79d;
   --color-panel: #22271a;
   --color-accent-900: #2a301f;
   --color-accent-800: #2c3620;
@@ -91,44 +91,50 @@
 
   /* Type scale. The display sizes are fluid and carry their own leading,
      tracking and weight, so a heading is one utility (`text-h2`) instead of a
-     size/leading/tracking triplet repeated in every section. */
+     size/leading/tracking triplet repeated in every section.
+     
+     The display weights are 600, not 700, and the tracking is tighter than the
+     face's default. Bold-and-loose is how a landing page announces itself;
+     large type set a shade lighter and drawn closer together is how a printed
+     one carries authority without raising its voice. The scale is also a step
+     larger, because the confidence is in the size, not the weight. */
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1.45;
 
-  --text-display: clamp(2.25rem, 4.8vw, 4.375rem);
-  --text-display--line-height: 1;
-  --text-display--letter-spacing: -0.032em;
-  --text-display--font-weight: 700;
+  --text-display: clamp(2.5rem, 5.2vw, 5rem);
+  --text-display--line-height: 1.02;
+  --text-display--letter-spacing: -0.038em;
+  --text-display--font-weight: 600;
 
-  --text-h1: clamp(2.25rem, 5.5vw, 4.5rem);
+  --text-h1: clamp(2.375rem, 5.6vw, 4.75rem);
   --text-h1--line-height: 1.04;
-  --text-h1--letter-spacing: -0.025em;
-  --text-h1--font-weight: 700;
+  --text-h1--letter-spacing: -0.034em;
+  --text-h1--font-weight: 600;
 
-  --text-h2: clamp(1.75rem, 4vw, 3.125rem);
-  --text-h2--line-height: 1.08;
-  --text-h2--letter-spacing: -0.02em;
-  --text-h2--font-weight: 700;
+  --text-h2: clamp(1.875rem, 4.2vw, 3.375rem);
+  --text-h2--line-height: 1.07;
+  --text-h2--letter-spacing: -0.03em;
+  --text-h2--font-weight: 600;
 
-  --text-h3: clamp(1.625rem, 3.5vw, 2.75rem);
-  --text-h3--line-height: 1.12;
-  --text-h3--letter-spacing: -0.018em;
-  --text-h3--font-weight: 700;
+  --text-h3: clamp(1.75rem, 3.6vw, 3rem);
+  --text-h3--line-height: 1.1;
+  --text-h3--letter-spacing: -0.026em;
+  --text-h3--font-weight: 600;
 
-  --text-h4: clamp(1.375rem, 2.6vw, 2.375rem);
-  --text-h4--line-height: 1.15;
-  --text-h4--letter-spacing: -0.018em;
-  --text-h4--font-weight: 700;
+  --text-h4: clamp(1.4375rem, 2.7vw, 2.5rem);
+  --text-h4--line-height: 1.14;
+  --text-h4--letter-spacing: -0.024em;
+  --text-h4--font-weight: 600;
 
-  --tracking-label: 0.14em;
+  --tracking-label: 0.17em;
   --tracking-logo: 0.2em;
 
   --radius-card: 1.25rem;
-  --radius-panel: 1.75rem;
+  --radius-panel: 2rem;
 
-  --shadow-card: 0 1px 3px rgb(30 40 30 / 0.1);
-  --shadow-lift: 0 14px 36px rgb(24 28 16 / 0.12);
-  --shadow-mock: 0 32px 70px -36px rgb(42 48 31 / 0.35);
+  --shadow-card: 0 1px 2px rgb(32 38 24 / 0.06), 0 4px 14px -6px rgb(32 38 24 / 0.1);
+  --shadow-lift: 0 2px 4px rgb(24 28 16 / 0.05), 0 18px 44px -14px rgb(24 28 16 / 0.16);
+  --shadow-mock: 0 1px 2px rgb(42 48 31 / 0.06), 0 30px 68px -34px rgb(42 48 31 / 0.34);
   --shadow-frag: 0 8px 24px rgb(0 0 0 / 0.35);
   --shadow-float: 0 18px 40px -22px rgb(0 0 0 / 0.6);
   --shadow-hero: 0 24px 60px -24px rgb(0 0 0 / 0.7);
@@ -139,16 +145,16 @@
    rather than as a card pasted over it. */
 @utility sheet-dark {
   background-image:
-    linear-gradient(to right, rgb(238 242 228 / 0.045) 0 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(238 242 228 / 0.045) 0 1px, transparent 1px);
+    linear-gradient(to right, rgb(238 242 228 / 0.035) 0 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(238 242 228 / 0.035) 0 1px, transparent 1px);
   background-size: 28px 28px;
   background-position: center top;
 }
 
 @utility sheet-light {
   background-image:
-    linear-gradient(to right, rgb(42 48 31 / 0.05) 0 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(42 48 31 / 0.05) 0 1px, transparent 1px);
+    linear-gradient(to right, rgb(42 48 31 / 0.035) 0 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(42 48 31 / 0.035) 0 1px, transparent 1px);
   background-size: 28px 28px;
   background-position: center top;
 }
@@ -186,10 +192,10 @@
   body {
     background-color: var(--color-canvas);
     background-image:
-      linear-gradient(to right, rgb(42 48 31 / 0.1) 0 1px, transparent 1px),
-      linear-gradient(to bottom, rgb(42 48 31 / 0.1) 0 1px, transparent 1px),
-      linear-gradient(to right, rgb(42 48 31 / 0.05) 0 1px, transparent 1px),
-      linear-gradient(to bottom, rgb(42 48 31 / 0.05) 0 1px, transparent 1px);
+      linear-gradient(to right, rgb(42 48 31 / 0.075) 0 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(42 48 31 / 0.075) 0 1px, transparent 1px),
+      linear-gradient(to right, rgb(42 48 31 / 0.032) 0 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(42 48 31 / 0.032) 0 1px, transparent 1px);
     background-size:
       168px 168px,
       168px 168px,
@@ -264,10 +270,14 @@
   }
 }
 
+/* Content arrives rather than snapping in: a longer curve, a shorter distance
+   and a breath of defocus. Fast reveals read as a page assembling itself;
+   slow ones read as a page that was already there. */
 [data-reveal] {
   transition:
-    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+    opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+    filter 0.9s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* Tailwind v4 compiles `-translate-x-1/2` / `scale-*` to the standalone

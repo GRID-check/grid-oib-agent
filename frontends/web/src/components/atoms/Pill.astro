@@ -8,8 +8,10 @@ interface Props {
 }
 const { href, variant = 'solid', size = 'md', external = false, class: className = '' } = Astro.props
 
+// A longer, softer curve and a hair of lift: the difference between a control
+// that reacts and one that responds.
 const base =
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium transition duration-200 active:translate-y-px'
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium transition-[transform,background-color,border-color,box-shadow,color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-px active:translate-y-0'
 const sizes = {
   sm: 'px-4 py-1.5 text-sm',
   md: 'px-5 py-2.5 text-sm',

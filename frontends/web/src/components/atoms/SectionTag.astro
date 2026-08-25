@@ -8,8 +8,18 @@ const tones = {
   light: 'text-accent-600',
   dark: 'text-on-dark-label',
 }
+// The rule is the tag's own margin mark: it ties the label to the edge of the
+// sheet the way a drawing number is tied to its border, and it gives every
+// section the same opening gesture.
+const rules = {
+  light: 'bg-accent-600/45',
+  dark: 'bg-on-dark-label/45',
+}
 ---
 
-<p class={`font-display text-xs font-medium uppercase tracking-label ${tones[tone]} ${className}`}>
+<p
+  class={`flex items-center gap-3 font-mono text-2xs font-medium uppercase tracking-label ${tones[tone]} ${className}`}
+>
+  <span class={`h-px w-6 shrink-0 ${rules[tone]}`} aria-hidden="true"></span>
   <slot />
 </p>
