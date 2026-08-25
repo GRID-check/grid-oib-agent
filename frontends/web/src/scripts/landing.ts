@@ -52,7 +52,7 @@ function initAura() {
   const IH = 768
   const HEAD: [number, number] = [700, 196]
   /** How far out of the halo a line has to start before it is drawn at all. */
-  const BEAM_START = 0.34
+  const BEAM_START = 0.2
   let sc = 1
   let ox = 0
   let oy = 0
@@ -165,7 +165,7 @@ function initAura() {
       ray.addColorStop(0.5, `rgba(94,110,70,${(a * 0.4).toFixed(3)})`)
       ray.addColorStop(1, `rgba(94,110,70,${a.toFixed(3)})`)
       ctx.strokeStyle = ray
-      ctx.lineWidth = 1
+      ctx.lineWidth = 1.2
       ctx.beginPath()
       ctx.moveTo(sx, sy)
       ctx.lineTo(nx, ny)
@@ -226,7 +226,7 @@ function initAura() {
       beam.addColorStop(0, 'rgba(94,110,70,0)')
       beam.addColorStop(1, `rgba(94,110,70,${(0.3 * fade).toFixed(3)})`)
       ctx.strokeStyle = beam
-      ctx.lineWidth = 1
+      ctx.lineWidth = 1.2
       ctx.beginPath()
       ctx.moveTo(bsx, bsy)
       ctx.lineTo(ex, ey)
