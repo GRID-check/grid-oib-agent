@@ -42,6 +42,22 @@
           "key": "fixes",
           "notes": [
             {
+              "en": "Using the research agent inside a project now requires the chat permission on every path, not only when starting a new conversation. A member with read-only access to a project could continue an existing conversation in it, which still ran the agent and still spent the organization's budget.",
+              "de": "Using the research agent inside a project now requires the chat permission on every path, not only when starting a new conversation. A member with read-only access to a project could continue an existing conversation in it, which still ran the agent and still spent the organization's budget."
+            },
+            {
+              "en": "Replying to a colleague in a shared conversation is unaffected. The restriction applies to messages addressed to the agent, not to taking part in the conversation.",
+              "de": "Replying to a colleague in a shared conversation is unaffected. The restriction applies to messages addressed to the agent, not to taking part in the conversation."
+            },
+            {
+              "en": "The Platform area no longer appears for members of the platform organization who hold no platform permissions; it opened and then refused every screen inside it.",
+              "de": "The Platform area no longer appears for members of the platform organization who hold no platform permissions; it opened and then refused every screen inside it."
+            },
+            {
+              "en": "Inviting a colleague to a project no longer fails for administrators whose organization-wide access came from a role the identity provider had not yet been updated for.",
+              "de": "Inviting a colleague to a project no longer fails for administrators whose organization-wide access came from a role the identity provider had not yet been updated for."
+            },
+            {
               "en": "Project roles now mean what the access reference says they mean. The Contributor role can be assigned — it could not be before — and the permission that defines it, using the research agent in a project, is now actually enforced. A Viewer reads a project's documents and conversations and can no longer start research runs against it.",
               "de": "Project roles now mean what the access reference says they mean. The Contributor role can be assigned — it could not be before — and the permission that defines it, using the research agent in a project, is now actually enforced. A Viewer reads a project's documents and conversations and can no longer start research runs against it."
             },
