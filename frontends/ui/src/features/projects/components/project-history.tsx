@@ -173,7 +173,7 @@ export function ProjectHistory({ projectId, projectCollection }: ProjectHistoryP
       <ProjectSectionActions>
         <SearchField
           type="text"
-          className="w-full sm:w-64"
+          className="w-48 sm:w-64"
           value={searchQuery}
           onChange={setSearchQuery}
           placeholder={t('history.searchPlaceholder')}

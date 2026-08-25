@@ -333,7 +333,7 @@ export const SCREENSHOT_TARGETS = [
     id: 'file-browser-search-failed',
     path: '/dev/file-browser?variant=search-failed',
     description:
-      'A semantic search that could not RUN, held apart from one that ran and found nothing. The hook fails open to an empty hit list so the pane cannot crash, and reports which of the two happened — but nothing read that flag, so a backend timeout rendered as "Keine semantischen Treffer für …": the surface told the reader something about their own corpus that the app had no way of knowing, and offered them a reset for it. The retry re-runs the SAME query, because they had already typed it once.',
+      'A semantic search that could not RUN, held apart from one that ran and found nothing. The hook fails open to an empty hit list so the pane cannot crash, and reports which of the two happened — but nothing read that flag, so a backend timeout rendered as "Keine semantischen Treffer für …": the surface told the reader something about their own corpus that the app had no way of knowing, and offered them a reset for it. The retry re-runs the SAME query, because they had already typed it once. The field sits in a header band above the listing, the way the Files page now carries it; the result banner stays over the results it describes.',
     waitFor: '[data-testid="file-browser-search-failed"]',
   },
   {
@@ -354,7 +354,7 @@ export const SCREENSHOT_TARGETS = [
     id: 'file-browser-search-list',
     path: '/dev/file-browser?variant=search-list',
     description:
-      'A semantic search answered in the DETAIL view. The card/list toggle was read only on the un-searched branch, so pressing Enter threw a reader who had deliberately chosen the list back into cards, and clearing the query threw them back again. The ranking comes with it: relevance is the column the list opens sorted by \u2014 its own default is newest-first, which would have silently discarded the order the backend ranked \u2014 and every row carries the passage that matched, with its page, in the slot the summary usually holds.',
+      'A semantic search answered in the DETAIL view. The card/list toggle was read only on the un-searched branch, so pressing Enter threw a reader who had deliberately chosen the list back into cards, and clearing the query threw them back again. The ranking comes with it: relevance is the column the list opens sorted by \u2014 its own default is newest-first, which would have silently discarded the order the backend ranked \u2014 and every row carries the passage that matched, with its page, in the slot the summary usually holds. The field is in the header band above the listing now, not in a sticky band inside it \u2014 the query state is owned above both, so this shot also proves the lift kept Enter-to-search working.',
     waitFor: '[data-testid="file-list-relevance"]',
   },
   {
@@ -399,7 +399,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/project-chrome',
     description:
-      'Shared project section chrome — one line, title + optional action — every section that uses it, grouped as Work (Files, History), Automate (Jobs, Skills), Project (Knowledge, Settings, Setup) and Organization (Archiv, Inbox). The comparison IS the evidence: band height, title baseline and the right edge line up whether the action slot holds a button, a search field, or nothing, which is what the breadcrumb-and-subtitle version could not show. Chat is the documented exception and is not shown.',
+      'Shared project section chrome — one line, title + optional action — every section that uses it, grouped as Work (Files, History), Automate (Jobs, Skills), Project (Knowledge, Settings, Setup) and Organization (Archiv, Inbox). The comparison IS the evidence: band height, title baseline and the right edge line up whether the action slot holds a button, a search field, or nothing, which is what the breadcrumb-and-subtitle version could not show. Files carries the real, fullest set — view toggles, assignment filter, the corpus search with its run button, Upload — so this is also the width case: the desktop shot proves it fits one line, and the MOBILE shot is the one that matters, because a header that lets its title shrink ahead of its controls renders "Files" as "Fi". Chat is the documented exception and is not shown.',
     waitFor: '[data-testid="project-chrome-preview"]',
   },
   {

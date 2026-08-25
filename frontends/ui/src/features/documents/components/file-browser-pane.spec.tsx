@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { FileBrowserPane } from './file-browser-pane'
+import { FileSearchField } from './file-search-bar'
+import { useFileSearch } from '../hooks/use-file-search'
+import { useTranslations } from '@/i18n'
 import type { FileItem, FolderItem } from './project-file-workspace'
 
 const files: FileItem[] = [
@@ -39,17 +42,50 @@ const files: FileItem[] = [
   },
 ]
 
-function renderPane(overrides: Partial<Parameters<typeof FileBrowserPane>[0]> = {}) {
-  return render(
-    <FileBrowserPane
-      files={files}
-      selectedFileId={null}
-      onSelectFile={vi.fn()}
-      isLoading={false}
-      hasFolderSelected={false}
-      {...overrides}
-    />
+type PaneProps = Parameters<typeof FileBrowserPane>[0]
+type HarnessProps = Omit<Partial<PaneProps>, 'search'> & {
+  /** Corpus the semantic search runs against. Omit to offer the filter alone. */
+  projectId?: string
+}
+
+/**
+ * The pane as the PAGE composes it — search field above, listing below. The
+ * query is owned by `useFileSearch` one level up (Files renders the field in
+ * the page header), so a test that types has to go through the same two-part
+ * arrangement the app uses rather than reaching into the pane.
+ */
+function Harness({ projectId, ...paneProps }: HarnessProps) {
+  const t = useTranslations('files')
+  const search = useFileSearch({ projectId })
+  return (
+    <>
+      <FileSearchField
+        value={search.query}
+        onChange={search.setQuery}
+        onSubmit={search.run}
+        onClear={search.clear}
+        placeholder={search.canSearch ? t('browser.semantic.searchPlaceholder') : t('browser.searchPlaceholder')}
+        searchLabel={t('browser.searchLabel')}
+        resetLabel={t('browser.resetSearch')}
+        canSearch={search.canSearch}
+        runLabel={t('browser.semantic.run')}
+        isSearching={search.semantic.isSearching}
+      />
+      <FileBrowserPane
+        files={files}
+        selectedFileId={null}
+        onSelectFile={vi.fn()}
+        isLoading={false}
+        hasFolderSelected={false}
+        {...paneProps}
+        search={search}
+      />
+    </>
   )
+}
+
+function renderPane(overrides: HarnessProps = {}) {
+  return render(<Harness {...overrides} />)
 }
 
 describe('FileBrowserPane — card grid', () => {

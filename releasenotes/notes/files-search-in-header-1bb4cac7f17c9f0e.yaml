@@ -1,0 +1,9 @@
+---
+improvements:
+  - >
+    Dateien searches from its header now. The field sits with the controls that
+    act on the same listing — the view switcher, the Alle / Meine / Nicht
+    zugewiesen filter and Hochladen — instead of in a band below them, so the
+    documents start a row higher and there is one search on the page rather
+    than two places to look. What a search found still says so above the
+    results it counts.

@@ -19,12 +19,14 @@
 
 import type { ReactNode } from 'react'
 
-import { Plus } from 'lucide-react'
+import { LayoutGrid, List, ListTree, Plus } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/ui/page-header'
 import { SearchField } from '@/components/ui/search-field'
 import { SectionLabel } from '@/components/ui/section-label'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { FileSearchField } from '@/features/documents/components/file-search-bar'
 
 /**
  * One section's header inside the band the shell wraps it in, so the gallery
@@ -51,13 +53,60 @@ export default function ProjectChromePreviewPage(): JSX.Element {
   return (
     <main data-testid="project-chrome-preview" className="bg-background space-y-12 p-8 text-foreground">
       <Group label="Work">
-        <Chrome title="Files" action={<Button type="button">Upload</Button>} />
+        {/* Files carries the fullest action slot in the app — view toggles,
+            assignment filter, the corpus search and Upload. It is the width
+            case: if the header row survives here, it survives everywhere. */}
+        <Chrome
+          title="Files"
+          action={
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+              <ToggleGroup type="single" value="cards" segmented size="icon-sm" aria-label="View">
+                <ToggleGroupItem value="cards" aria-label="Cards">
+                  <LayoutGrid />
+                </ToggleGroupItem>
+                <ToggleGroupItem value="list" aria-label="List">
+                  <List />
+                </ToggleGroupItem>
+                <ToggleGroupItem value="tree" aria-label="Folders">
+                  <ListTree />
+                </ToggleGroupItem>
+              </ToggleGroup>
+              <ToggleGroup type="single" value="all" size="sm" aria-label="Responsible">
+                <ToggleGroupItem value="all" className="px-2 text-xs">
+                  All
+                </ToggleGroupItem>
+                <ToggleGroupItem value="mine" className="px-2 text-xs">
+                  Mine
+                </ToggleGroupItem>
+                <ToggleGroupItem value="unassigned" className="px-2 text-xs">
+                  Unassigned
+                </ToggleGroupItem>
+              </ToggleGroup>
+              {/* The real control, not a lookalike — the run button is part of
+                  the width this row has to survive. */}
+              <FileSearchField
+                className="basis-full sm:w-56 sm:basis-auto lg:w-64"
+                value=""
+                onChange={() => undefined}
+                onSubmit={() => undefined}
+                onClear={() => undefined}
+                placeholder="Search files..."
+                searchLabel="Search files"
+                resetLabel="Reset search"
+                canSearch
+                runLabel="Search"
+                isSearching={false}
+              />
+              <Button type="button">Upload</Button>
+            </div>
+          }
+        />
         <Chrome
           title="History"
           action={
             <SearchField
               type="text"
-              className="w-full sm:w-64"
+              className="w-48 sm:w-64"
               value=""
               onChange={() => undefined}
               placeholder="Search history…"

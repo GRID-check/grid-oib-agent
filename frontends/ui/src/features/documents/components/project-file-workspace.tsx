@@ -19,6 +19,8 @@ import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
 import { UploadTray } from './upload-tray'
 import { ProjectSectionActions } from '@/components/shell/project-section-frame'
+import { useFileSearch } from '../hooks/use-file-search'
+import { FileSearchField } from './file-search-bar'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -277,6 +279,11 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         if (!quiet) setIsLoadingFiles(false)
       })
   }, [projectId])
+
+  // The query lives here rather than in the browser pane: the field sits in the
+  // page header (beside the view toggles and Upload) while the results it
+  // filters are rendered below, so the state has to be owned above both.
+  const search = useFileSearch({ projectId })
 
   const { uploadFiles, isUploading, trackedFiles, error, clearError, retryFile, cancelFile, cancelUpload, dismissFiles } =
     useProjectDocuments({
@@ -618,7 +625,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       )}
 
       <ProjectSectionActions>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
           <ToggleGroup
             type="single"
             value={view}
@@ -662,6 +669,26 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               ))}
             </ToggleGroup>
           )}
+          {/* The corpus search, in the header with the other controls that act
+              on the listing — one search on the page, not a band under the one
+              it duplicates. Its result banner stays over the hits, in the pane. */}
+          <FileSearchField
+            className="basis-full sm:w-56 sm:basis-auto lg:w-64"
+            value={search.query}
+            onChange={search.setQuery}
+            onSubmit={search.run}
+            onClear={search.clear}
+            // The short placeholder, always: the long one spells out "press
+            // Enter for semantic search" because the sticky band had no other
+            // way to say it. Here the run button is right beside the field and
+            // says it plainly, and the long string only truncated.
+            placeholder={t('browser.searchPlaceholder')}
+            searchLabel={t('browser.searchLabel')}
+            resetLabel={t('browser.resetSearch')}
+            canSearch={search.canSearch}
+            runLabel={t('browser.semantic.run')}
+            isSearching={search.semantic.isSearching}
+          />
           <ProjectUppyUpload
             projectId={projectId}
             folderId={selectedFolderId}
@@ -735,7 +762,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               onSelectFile={handleSelectFile}
               isLoading={isLoadingFiles}
               hasFolderSelected={selectedFolderId !== null}
-              projectId={projectId}
+              search={search}
               view={view === 'list' ? 'list' : 'cards'}
               showAssignment={canCollaborate}
               renderActions={(file) => (

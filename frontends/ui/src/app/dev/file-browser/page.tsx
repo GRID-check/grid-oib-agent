@@ -50,8 +50,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { FileBrowserPane } from '@/features/documents/components/file-browser-pane'
+import { useFileSearch, type FileSearch } from '@/features/documents/hooks/use-file-search'
 import { FolderTreePane } from '@/features/documents/components/folder-tree-pane'
-import { FileSearchBar } from '@/features/documents/components/file-search-bar'
+import { FileSearchBar, FileSearchField } from '@/features/documents/components/file-search-bar'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { LayoutGrid, ListTree } from 'lucide-react'
 import type { FileItem, FolderItem } from '@/features/documents/components/project-file-workspace'
@@ -219,6 +220,32 @@ export default function FileBrowserDevPage(): JSX.Element {
 }
 
 /**
+ * The Files page header, as far as these fixtures need it: the search field in
+ * the band the shell draws around it. The real header adds the title, the view
+ * toggles and Upload (see `/dev/project-chrome`); what matters here is that the
+ * field is ABOVE the listing rather than in a band inside it.
+ */
+function SearchHeader({ search }: { search: FileSearch }): JSX.Element {
+  return (
+    <div className="shrink-0 border-b border-border px-4 py-3">
+      <FileSearchField
+        className="w-full sm:w-72"
+        value={search.query}
+        onChange={search.setQuery}
+        onSubmit={search.run}
+        onClear={search.clear}
+        placeholder="Search the project — press Enter for semantic search…"
+        searchLabel="Search files"
+        resetLabel="Reset search"
+        canSearch={search.canSearch}
+        runLabel="Search"
+        isSearching={search.semantic.isSearching}
+      />
+    </div>
+  )
+}
+
+/**
  * Types a query and submits it, the way the failed-search fixture does — this
  * state only exists THROUGH a search, and setting it directly would be a
  * picture of the state rather than the pane arriving in it.
@@ -242,6 +269,7 @@ function useSelfDrivenSearch(testId: string, query: string): void {
 /** A ranked semantic answer, rendered in the view the reader actually chose. */
 function SearchInListViewFixture(): JSX.Element {
   const [selected, setSelected] = useState<string | null>(null)
+  const search = useFileSearch({ projectId: 'proj-demo' })
   useSelfDrivenSearch('file-browser-search-list', 'Fluchtwegbreite')
 
   return (
@@ -254,16 +282,22 @@ function SearchInListViewFixture(): JSX.Element {
         </p>
       </div>
 
-      <div className="h-[420px] overflow-hidden rounded-xl border" data-testid="file-browser-search-list">
-        <FileBrowserPane
-          files={FILES}
-          selectedFileId={selected}
-          onSelectFile={setSelected}
-          isLoading={false}
-          hasFolderSelected={false}
-          projectId="proj-demo"
-          view="list"
-        />
+      <div
+        className="flex h-[420px] flex-col overflow-hidden rounded-xl border"
+        data-testid="file-browser-search-list"
+      >
+        <SearchHeader search={search} />
+        <div className="min-h-0 flex-1">
+          <FileBrowserPane
+            files={FILES}
+            selectedFileId={selected}
+            onSelectFile={setSelected}
+            isLoading={false}
+            hasFolderSelected={false}
+            search={search}
+            view="list"
+          />
+        </div>
       </div>
     </main>
   )
@@ -346,6 +380,7 @@ function FolderCrudFixture({ mode }: { mode: 'menu' | 'rename' }): JSX.Element {
  */
 function SearchFailedFixture(): JSX.Element {
   const [selected, setSelected] = useState<string | null>(null)
+  const search = useFileSearch({ projectId: 'proj-demo' })
 
   useEffect(() => {
     const input = document.querySelector<HTMLInputElement>('[data-testid="file-browser-search-failed"] input')
@@ -372,15 +407,21 @@ function SearchFailedFixture(): JSX.Element {
         </p>
       </div>
 
-      <div className="h-[420px] overflow-hidden rounded-xl border" data-testid="file-browser-search-failed">
-        <FileBrowserPane
-          files={FILES}
-          selectedFileId={selected}
-          onSelectFile={setSelected}
-          isLoading={false}
-          hasFolderSelected={false}
-          projectId="proj-demo"
-        />
+      <div
+        className="flex h-[420px] flex-col overflow-hidden rounded-xl border"
+        data-testid="file-browser-search-failed"
+      >
+        <SearchHeader search={search} />
+        <div className="min-h-0 flex-1">
+          <FileBrowserPane
+            files={FILES}
+            selectedFileId={selected}
+            onSelectFile={setSelected}
+            isLoading={false}
+            hasFolderSelected={false}
+            search={search}
+          />
+        </div>
       </div>
     </main>
   )
@@ -393,6 +434,7 @@ function SearchFailedFixture(): JSX.Element {
  */
 function JustUploadedFixture(): JSX.Element {
   const [selected, setSelected] = useState<string | null>(null)
+  const search = useFileSearch({ projectId: 'proj-demo' })
 
   return (
     <main className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
@@ -410,7 +452,7 @@ function JustUploadedFixture(): JSX.Element {
           onSelectFile={setSelected}
           isLoading={false}
           hasFolderSelected={false}
-          projectId="proj-demo"
+          search={search}
         />
       </div>
     </main>
@@ -420,6 +462,8 @@ function JustUploadedFixture(): JSX.Element {
 function FileBrowserFixtures(): JSX.Element {
   const [selected, setSelected] = useState<string | null>('p2')
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
+  const treeBrowseSearch = useFileSearch({ projectId: 'proj-demo' })
+  const gridSearch = useFileSearch({ projectId: 'proj-demo' })
   const [view, setView] = useState<'cards' | 'tree'>('tree')
   // A non-empty query so the search bar's clear (X) target renders in the shot.
   const [treeSearch, setTreeSearch] = useState('Brandschutz')
@@ -481,7 +525,7 @@ function FileBrowserFixtures(): JSX.Element {
               onSelectFile={setSelected}
               isLoading={false}
               hasFolderSelected={selectedFolderId !== null}
-              projectId="proj-demo"
+              search={treeBrowseSearch}
               folders={FOLDERS}
               selectedFolderId={selectedFolderId}
               onSelectFolder={setSelectedFolderId}
@@ -522,7 +566,7 @@ function FileBrowserFixtures(): JSX.Element {
           onSelectFile={setSelected}
           isLoading={false}
           hasFolderSelected={false}
-          projectId="proj-demo"
+          search={gridSearch}
         />
       </div>
     </main>

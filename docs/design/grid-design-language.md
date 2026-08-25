@@ -136,8 +136,13 @@ content, next to the thing being explained — not in a caption under the title.
 **Project section chrome** — every project section except **Ask Piloti**
 (chat) opens with the same band: `border-b border-border bg-background px-4 py-4
 md:px-8` around a `PageHeader`, so the title sits on one line with optional
-actions on the right. The three shapes are an action button (Files, Jobs,
-Skills), a search field (History), and title-only (Settings). The intake wizard
+actions on the right. The shapes are an action button (Jobs, Skills), a search
+field (History), title-only (Settings), and — on Files, the densest of them —
+the view and assignment toggles, the corpus search and Upload in that order,
+left to right. **A section has one search.** Files puts its field in the header
+beside the controls that act on the same listing, so there is no second search
+band inside the pane; what stays over the listing is the result banner, which
+belongs with the hits it counts. The intake wizard
 is a content page too — `PageHeader` plus a `SectionLabel` eyebrow, never a
 second `text-2xl` title. Projects home (above a project) uses the same
 `PageHeader`. The org **Archiv** uses that same band as the first strip of its
@@ -160,7 +165,7 @@ Tabbed shells (Organisation, Platform, and the same pattern on Inbox) are **one 
 
 **Stat** — `rounded-lg border bg-card p-5`, number in `text-2xl font-semibold tabular-nums`, label in `text-sm text-muted-foreground` below.
 
-**Search** — `SearchField` (`components/ui/search-field.tsx`) is the one magnifier + input + clear control. Files and Archiv compose it inside `FileSearchBar` (sticky band + semantic run). Admin lists compose it inside `DataToolbar`. Do not hand-roll another `relative` + `Search` icon + `Input`.
+**Search** — `SearchField` (`components/ui/search-field.tsx`) is the one magnifier + input + clear control. The file surfaces compose it inside `FileSearchField` (input + semantic run button), which Files renders in the page header and the Archiv inside `FileSearchBar` (the sticky band, field + result banner). The banner is `FileSearchBanner` and always sits over the hits it counts, wherever the field went. Admin lists compose `SearchField` inside `DataToolbar`. Do not hand-roll another `relative` + `Search` icon + `Input`.
 
 **Exclusive / multi filters** — `ToggleGroup` (`components/ui/toggle-group.tsx`). Segmented icon clusters (Files view switcher) use `segmented`. Inverted pills (folder / category chips) use `variant="inverted"`. Exclusive form choices with a description (job output) use `RadioGroup`, not a toggle row.
 

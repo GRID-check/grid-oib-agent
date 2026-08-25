@@ -23,9 +23,16 @@ export interface PageHeaderProps extends Omit<React.HTMLAttributes<HTMLElement>,
 
 export function PageHeader({ title, action, className, ...props }: PageHeaderProps): JSX.Element {
   return (
-    <header className={cn('flex min-w-0 items-center justify-between gap-4', className)} {...props}>
-      <h1 className="min-w-0 text-balance text-xl font-semibold tracking-tight">{title}</h1>
-      {action ? <div className="shrink-0">{action}</div> : null}
+    // `flex-wrap` + a real basis on the title is what keeps a crowded header
+    // honest: with `min-w-0` alone the title shrank ahead of the controls and
+    // "Files" rendered as "Fi" on a phone. The 8rem basis makes the ACTION wrap
+    // to its own line first; only past that does the title truncate.
+    <header className={cn('flex min-w-0 flex-wrap items-center gap-x-4 gap-y-3', className)} {...props}>
+      <h1 className="min-w-0 grow basis-32 truncate text-xl font-semibold tracking-tight">{title}</h1>
+      {/* `max-w-full` is what lets a crowded action set wrap INSIDE itself once
+          it has its own line — without it the row keeps its content width and
+          runs off the edge of the band. */}
+      {action ? <div className="ml-auto max-w-full shrink-0">{action}</div> : null}
     </header>
   )
 }
