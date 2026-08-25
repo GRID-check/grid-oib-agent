@@ -48,6 +48,7 @@ import { ensureTenantBucketChecked } from '@/lib/storage/bucket'
 import { admitOrDiscard } from '@/lib/storage/admission'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { aiProvenanceMarking, markingIsInBytes, type AiProvenanceMarking } from '@/lib/ai-provenance'
+import { latinize } from '@/lib/text/latinize'
 import { FEATURE_FLAGS, isAgentAuthoredDocumentsEnabled } from '@/lib/authz/feature-flags'
 import { recordAuditEventOrThrow } from '@/lib/audit/service'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
@@ -332,15 +333,26 @@ const EXTENSION_BY_CONTENT_TYPE: Readonly<Record<string, string>> = {
  * `answer-export/service.ts` gives about the same problem: this name is
  * GENERATED, so a plain predictable stem is worth more than an umlaut — it is
  * what an architect types into a folder search a year later.
+ *
+ * Which is exactly why it goes through `lib/text/latinize` rather than doing
+ * its own NFKD. The hand-rolled version spelled only `ß`, so every other umlaut
+ * was STRIPPED rather than spelled: „Fluchtweglängen Gebäudeklasse 4" filed as
+ * `fluchtweglangen-gebaudeklasse-4-…`, two misspelt German words on the
+ * filename of a document that goes to a Behörde. It also defeated the stated
+ * purpose — an architect searching a folder types „Fluchtweglängen" or
+ * „Fluchtweglaengen", and that stem matches neither.
+ *
+ * `latinize` is DIN 5007-2 (the passport transliteration) followed by the
+ * generic fold, so `ä ö ü ß` spell out and a Czech or Polish client name
+ * survives instead of becoming hyphens. It was written to end precisely this
+ * drift — three private copies of the table, one of which slugged
+ * `Beispielstraße` to `Beispielstra-e` — and its header lists the callers that
+ * deliberately opt out. This was never one of them; it was a fourth copy,
+ * written after the module existed.
  */
 export function generatedFilename(title: string, contentType: string, now: Date): string {
   const day = now.toISOString().slice(0, 10)
-  const slug = title
-    .normalize('NFKD')
-    // `ö` decomposes to `o` + diaeresis and strips to `o`; `ß` has no
-    // decomposition at all and would otherwise vanish mid-word.
-    .replace(/ß/g, 'ss')
-    .replace(/[\u0300-\u036f]/g, '')
+  const slug = latinize(title)
     .replace(/[^a-zA-Z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .toLowerCase()

@@ -316,7 +316,7 @@ describe('fileGeneratedDocument', () => {
       // `filename` is the join key to the object AND to the retrieval index's
       // chunks. The row's copy and the key's tail are written from one variable
       // today; this is what notices if they stop being.
-      expect(row.filename).toMatch(/^brandschutz-strassenhauser-\d{4}-\d{2}-\d{2}\.docx$/)
+      expect(row.filename).toMatch(/^brandschutz-strassenhaeuser-\d{4}-\d{2}-\d{2}\.docx$/)
       expect(row.storageKey?.endsWith(`/${row.filename}`)).toBe(true)
       // The rename column carries the human title; `filename` stays ASCII.
       expect(row.displayName).toBe('Brandschutz Straßenhäuser')
@@ -1086,9 +1086,31 @@ describe('resolveGeneratedDocumentDestination', () => {
 describe('generatedFilename', () => {
   const day = new Date('2026-08-20T11:00:00Z')
 
+  it('spells the umlauts rather than stripping them, and keeps a foreign name whole', () => {
+    // The defect this replaces: a hand-rolled NFKD that spelled only `ß`, so
+    // „Fluchtweglängen Gebäudeklasse 4" filed as
+    // `fluchtweglangen-gebaudeklasse-4-…`. Two misspelt words, and a stem
+    // matching neither spelling anyone would search for.
+    expect(generatedFilename('Fluchtweglängen Gebäudeklasse 4', 'application/pdf', day)).toBe(
+      'fluchtweglaengen-gebaeudeklasse-4-2026-08-20.pdf',
+    )
+    // And the generic fold behind it, which the hand-rolled version also lost:
+    // a stroked letter has no decomposition, so `Łódź` became `odz` and the
+    // client's name was eaten. Austrian offices do work abroad.
+    expect(generatedFilename('Gutachten Łódź', 'application/pdf', day)).toBe(
+      'gutachten-lodz-2026-08-20.pdf',
+    )
+  })
+
   it('transliterates a German title into an ASCII stem with the date', () => {
+    // `häuser` → `haeuser`, not `hauser`. The stem exists to be TYPED into a
+    // folder search a year later, and an architect types „Straßenhäuser" or
+    // „Strassenhaeuser" — a stripped diaeresis matches neither, and puts a
+    // misspelt German word on the filename of a document that goes to a
+    // Behörde. `lib/text/latinize` is DIN 5007-2, the same transliteration a
+    // passport uses.
     expect(generatedFilename('Brandschutz Straßenhäuser', 'application/pdf', day)).toBe(
-      'brandschutz-strassenhauser-2026-08-20.pdf',
+      'brandschutz-strassenhaeuser-2026-08-20.pdf',
     )
   })
 
