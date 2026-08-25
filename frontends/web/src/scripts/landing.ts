@@ -719,6 +719,17 @@ function initPins() {
       window.removeEventListener('resize', onResize)
       ctx?.revert()
       ctx = null
+      // The transform and the opacity belong to GSAP and come back with the
+      // revert; `inert` and `aria-hidden` were set by hand and do not. Turning
+      // on reduced motion while the story held the navigation hidden used to
+      // leave a bar that looks perfectly normal and cannot be reached by
+      // keyboard or screen reader.
+      if (nav) {
+        navHidden = false
+        nav.removeAttribute('inert')
+        nav.removeAttribute('aria-hidden')
+        gsap.set(nav, { y: '0%', opacity: 1 })
+      }
     }
   })
 }

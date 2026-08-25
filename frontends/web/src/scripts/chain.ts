@@ -137,7 +137,7 @@ export function initChain() {
     return c
   }
 
-  type Wires = { stem: SVGPathElement; rows: { stub: SVGPathElement[]; dots: SVGCircleElement[] }[]; merges: SVGPathElement[]; toImpl: SVGPathElement | null }
+  type Wires = { stem: SVGPathElement; stops: number[]; rows: { stub: SVGPathElement[]; dots: SVGCircleElement[] }[]; merges: SVGPathElement[]; toImpl: SVGPathElement | null }
 
   const draw = (): Wires => {
     // The question is typed in, so it is measured holding all of its text —
@@ -149,8 +149,15 @@ export function initChain() {
     qText.textContent = shown
 
     const rows = sources.map((name) => ({ chip: part(name, 'chip')!, card: part(name, 'card')! }))
+    const headY = q.bottom + STEM_GAP
     const lastY = box(rows[rows.length - 1].chip).cy
-    const stem = wire('stem', `M${SPINE_X},${q.bottom + STEM_GAP} L${SPINE_X},${lastY}`, 'stem')
+    const stem = wire('stem', `M${SPINE_X},${headY} L${SPINE_X},${lastY}`, 'stem')
+
+    // How far down the spine each row sits, as a fraction of its length. The
+    // spine reaches a row when that row arrives and no further, so it is not
+    // running past sources the chain has not consulted yet.
+    const span = lastY - headY || 1
+    const stops = rows.map(({ chip }) => Math.min(100, ((box(chip).cy - headY) / span) * 100))
 
     const rowWires = rows.map(({ chip, card }, i) => {
       const c = box(chip)
@@ -195,7 +202,7 @@ export function initChain() {
     }
 
     if (scan) scan.style.top = `${q.bottom + STEM_GAP}px`
-    return { stem, rows: rowWires, merges, toImpl }
+    return { stem, stops, rows: rowWires, merges, toImpl }
   }
 
   // ── camera ────────────────────────────────────────────────────────────────
@@ -280,7 +287,7 @@ export function initChain() {
     sources.forEach((name, i) => {
       const at = i === 0 ? '+=0.35' : '+=0.2'
       tl.to(scan, { autoAlpha: 0, duration: 0.2 }, at)
-        .to(w.stem, { drawSVG: '100%', duration: 0.7 }, i === 0 ? '<' : '<')
+        .to(w.stem, { drawSVG: `0% ${w.stops[i]}%`, duration: 0.7 }, '<')
         .to(w.rows[i].stub, { drawSVG: '100%', duration: 0.35, stagger: 0.12 }, '<0.15')
         .to(w.rows[i].dots, { autoAlpha: 1, duration: 0.2 }, '<')
         .to([part(name, 'chip'), part(name, 'card')], { autoAlpha: 1, y: 0, duration: 0.4, stagger: 0.08 }, '<0.1')
@@ -345,6 +352,9 @@ export function initChain() {
     draw()
     qText.textContent = L.question
     gsap.set(caretT, { display: 'none' })
+    // The chain is finished here, so the spinner that means "still looking"
+    // has nothing to say.
+    gsap.set(scan, { autoAlpha: 0 })
     gsap.set(Array.from(wires.children), { autoAlpha: 1, drawSVG: '100%' })
     gsap.set(cam, frame(['all']))
     gsap.set([...optT(0), ...optT(2)], { opacity: 0.32 })
