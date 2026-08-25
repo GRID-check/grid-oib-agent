@@ -7,7 +7,7 @@ with. See the [root README](../README.md) for what Grid is, and
 ## New here? Read these five, in order
 
 1. [`architecture/system-overview.md`](architecture/system-overview.md) — what
-   the system is and how the pieces fit.
+   the system is, how the pieces fit, and what lives where in the checkout (§12).
 2. [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — setup, branching, the merge gate.
 3. [`contributing/testing-and-verification.md`](contributing/testing-and-verification.md)
    — `task verify`, and the traps behind it.
@@ -56,6 +56,7 @@ Index: [`contributing/README.md`](contributing/README.md).
 
 | File | Description |
 |---|---|
+| [Working style](contributing/working-style.md) | The cases behind the four rules in `AGENTS.md` |
 | [Testing and verification](contributing/testing-and-verification.md) | `task verify` as the merge gate, CI's sharding, the security stack, visual evidence |
 | [Code conventions](contributing/code-conventions.md) | The `any` ban, coercing raw `sql<T>`, where shared helpers belong, capability doctrine |
 | [Release notes](contributing/release-notes.md) | reno, what makes a note customer copy, publishing |

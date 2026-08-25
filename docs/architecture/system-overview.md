@@ -347,3 +347,27 @@ ingestion is a one-time `scripts/ingest_oib.py` after first boot. → `docs/depl
 
 See `docs/roadmap/` for forward-looking ideas and `docs/adr/` for the decisions
 behind the above.
+
+## 12. Repository layout
+
+What lives where in the checkout.
+
+
+| Path | Purpose |
+|------|---------|
+| `.devcontainer/` | VS Code dev container configuration |
+| `src/aiq_agent/` | Backend agent (LangGraph agents, cards, knowledge layer) |
+| `sources/` | NAT data-source packages (web search, knowledge layer, RIS adapter, grid cards) |
+| `frontends/ui/` | Next.js app: UI + BFF API routes + WS proxy (`server.js`) |
+| `frontends/web/` | Public Piloti landing page + blog (Astro microservice; `de`/`en`, Keystatic CMS for platform-owner blog writing) |
+| `frontends/aiq_api/` | The backend FastAPI front-end plugin (`_type: aiq_api`): REST routes, async jobs, `/v1/ingest` |
+| `frontends/debug/` | Debug console mounted at `/debug` |
+| `frontends/cli/` | `aiq-research` CLI |
+| `frontends/benchmarks/` | Evaluation harnesses |
+| `configs/` | Workflow configs. **LLM-agnostic** — any OpenAI-compatible endpoint (set `base_url`/key per config). **`config_oib_openrouter.yml` is the working reference config** (`config_grid_oib.yml`/Kimi is currently unmaintained). The `model_name` values are only the **boot fallback**: the live default per agent group is admin-controlled (Platform → Models, `platform_model_defaults`) and a tenant may override it (Organization → Models) — see `docs/architecture/org-model-configuration.md`. Do not edit the YAML to move the fleet to a new model. |
+| `deploy/` | Docker Compose assets and environment templates; `deploy/pulumi/` holds the Pulumi (TypeScript) Kubernetes deployment (see `docs/deployment/kubernetes.md`) |
+| `docs/architecture/` | Architecture docs (see `backend-deep-dive.md`, `project-memory-design.md`, `citation-system-audit-2026-07.md` for the citation pipeline as built) |
+| `skills/` | API-consumer skill examples |
+| `scripts/` | Utility scripts, including `scripts/ingest_oib.py` |
+| `releasenotes/` | reno release notes — one YAML file per user-visible change, published to piloti.at/changelog |
+| `data/oib/` | OIB Richtlinien PDFs, tracked with Git LFS |
