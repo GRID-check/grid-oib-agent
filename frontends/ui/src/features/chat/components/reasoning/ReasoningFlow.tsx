@@ -120,7 +120,6 @@ import {
   type EdgeProps,
   type NodeProps,
 } from '@xyflow/react'
-import { Sparkles } from 'lucide-react'
 import '@xyflow/react/dist/style.css'
 import type { Translator } from '@/i18n'
 import { useTranslations } from '@/i18n'
@@ -273,7 +272,7 @@ const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
   <div className="w-[var(--banner-w)] max-w-full rounded-xl border bg-card px-4 py-3 text-left shadow-xs">
     <Eyebrow>
       <span className="inline-flex items-center gap-1.5">
-        <Sparkles className="size-2.5" aria-hidden="true" /> {data.label}
+        {data.label}
       </span>
     </Eyebrow>
     <p className="mt-1 text-sm leading-relaxed text-foreground">{data.question}</p>

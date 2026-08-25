@@ -23,7 +23,7 @@
  */
 
 import { useState } from 'react'
-import { Clock, CornerUpLeft, Hand, Sparkles } from 'lucide-react'
+import { Clock, CornerUpLeft, Hand } from 'lucide-react'
 
 import { AvatarStack, PersonAvatar } from '@/components/ui/avatar-stack'
 import { AnimatePresence, motion, springGentle } from '@/components/motion'
@@ -316,7 +316,6 @@ export function AwaitingBanner({
                 className="h-8 gap-1.5"
                 onClick={onAskAgent}
               >
-                <Sparkles className="size-3.5" aria-hidden />
                 {t('mentions.awaiting.askAgent')}
               </Button>
             )}

@@ -21,7 +21,7 @@ import {
   useState,
   useMemo,
 } from 'react'
-import { ArrowDown, FileText, Lock, Sparkles } from 'lucide-react'
+import { ArrowDown, FileText, Lock } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
 import {
@@ -1289,7 +1289,6 @@ const TurnInFlightBanner: FC<{ label: string }> = ({ label }) => (
     role="status"
     data-testid="turn-in-flight"
   >
-    <Sparkles className="text-muted-foreground size-3.5 shrink-0" aria-hidden="true" />
     <span className="animate-text-shimmer text-foreground text-xs font-medium motion-reduce:animate-none">{label}</span>
   </div>
 )
