@@ -5,7 +5,14 @@ project. An ADR captures a single architecturally significant decision together 
 its context, the decision itself, and its consequences, so the rationale survives
 team and template churn.
 
-We follow the lightweight [Michael Nygard ADR pattern](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions).
+New records use [MADR 4](https://adr.github.io/madr/) — see
+[`0000-template.md`](0000-template.md). Records 0001–0049 predate that template
+and follow the lightweight
+[Michael Nygard pattern](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions);
+they are left in the shape they were written in, because an accepted decision is
+superseded rather than rewritten.
+
+Working in here: [`AGENTS.md`](AGENTS.md).
 
 ## Why ADRs
 
@@ -17,25 +24,37 @@ trail. ADRs give us shared context and make onboarding easier.
 
 ## Process
 
-1. Copy [`0000-template.md`](0000-template.md) to a new file.
-2. Number it sequentially: `NNNN-short-kebab-title.md` (e.g. `0008-...`).
-3. Fill in the metadata block and sections.
-4. Open it with status **Proposed**.
-5. Once the team agrees, change the status to **Accepted** (and update the `Date`).
-6. If a later ADR replaces this one, set the status to **Superseded by ADR-XXXX**
-   and add a back-link from the new ADR via the `Related` field.
+```bash
+python3 scripts/check_adrs.py --next    # the next free number, read from disk
+cp docs/adr/0000-template.md docs/adr/NNNN-short-kebab-title.md
+python3 scripts/check_adrs.py           # what `task lint:repo` runs
+```
 
-ADRs are immutable once Accepted: instead of rewriting a decision, supersede it with
-a new ADR. Small clarifications and typo fixes are fine.
+1. Take the number from `--next`. It reads the directory; this index lags it,
+   and reading the index is how four numbers ended up used twice.
+2. Open it as `proposed`. Fill in the frontmatter and the sections.
+3. Add its row to the index below **in the same commit**.
+4. When the team agrees, set `accepted` and update `date` in the same edit —
+   in the file *and* in the index row.
+5. When a later ADR replaces it, set `superseded by ADR-NNNN` here and name this
+   one in the new record.
+
+An accepted ADR is superseded, not rewritten; clarifications and typo fixes are
+fine. Fill in **Confirmation** before accepting: the gate that keeps the decision
+true, or an explicit statement that nothing enforces it yet.
 
 ## Status legend
 
+The frontmatter takes one of these and nothing else. Qualifications go in
+Consequences, where a reader looks for them.
+
 | Status | Meaning |
 |--------|---------|
-| **Proposed** | Drafted and under discussion; not yet agreed. |
-| **Accepted** | Agreed and in effect. |
-| **Superseded by ADR-XXXX** | Replaced by a later decision; kept for history. |
-| **Deprecated** | No longer relevant, but not directly replaced. |
+| `proposed` | Drafted and under discussion; not yet agreed. |
+| `accepted` | Agreed and in effect. |
+| `rejected` | Considered and declined; kept so it is not re-proposed. |
+| `superseded by ADR-NNNN` | Replaced by a later decision; kept for history. |
+| `deprecated` | No longer relevant, but not directly replaced. |
 
 ## Index
 
@@ -61,7 +80,7 @@ a new ADR. Small clarifications and typo fixes are fine.
 | [0018](0018-per-run-state-for-deep-research.md) | Per-run construction of deep research run state | Accepted |
 | [0019](0019-write-through-usage-rollups.md) | Write-through daily rollups for budget enforcement | Accepted |
 | [0020](0020-dragonfly-shared-cache.md) | Dragonfly as the shared cache tier | Accepted |
-| [0021](0021-db-claimed-research-workers.md) | DB-claimed workers for deep-research execution | Proposed |
+| [0021](0021-db-claimed-research-workers.md) | DB-claimed workers for deep-research execution | Accepted |
 | [0022](0022-org-byok-llm-credentials.md) | Enterprise BYOK LLM credentials per organization (WorkOS Vault) and the org web-search setting | Accepted |
 | [0023](0023-workflows-scheduled-research.md) | Workflows — saved research briefs with cron scheduling | Superseded by ADR-0046 |
 | [0024](0024-org-wide-document-archiv.md) | Org-wide document Archiv | Proposed |
@@ -87,12 +106,14 @@ a new ADR. Small clarifications and typo fixes are fine.
 | [0042](0042-object-storage-durability-and-quota.md) | Object-storage durability — backup, quota, and least privilege | Proposed |
 | [0043](0043-seaweedfs-split-topology-and-per-tenant-buckets.md) | SeaweedFS split topology, a Postgres filer store, and a bucket per tenant | Proposed |
 | [0044](0044-langfuse-durable-llm-observability.md) | Langfuse as the durable LLM-observability backend | Proposed |
-| [0045](0045-ifc-models-as-a-queryable-building-not-a-document.md) | IFC models are a queryable building, not another document | Proposed |
+| [0044](0044-retrieval-correctness-and-the-measurement-gate.md) | Retrieval correctness and the measurement gate (duplicate number) | Proposed |
+| [0045](0045-ifc-models-as-a-queryable-building-not-a-document.md) | IFC models are a queryable building, not another document | Accepted |
 | [0046](0046-agent-skills.md) | Agent skills — user-selected, progressive-disclosure instruction packages | Proposed |
 | [0047](0047-document-shelf-travels-as-data.md) | A document's shelf travels as data, not as a name or a label | Proposed |
 | [0047](0047-assignment-is-not-access.md) | Assignment is not access (and not provenance) | Proposed |
 | [0048](0048-tool-schemas-stay-with-the-provider.md) | Tool schemas stay with the provider, and a namespace is what makes that true | Proposed |
 | [0049](0049-folders-travel-as-a-materialised-path.md) | Folders reach the backend as a materialised path, mirrored on move | Proposed |
+| [0050](0050-scoped-agent-onboarding-guides.md) | Agent onboarding guides are scoped per service and bridged into Claude Code by import | Accepted |
 
 > Note: two ADRs were independently numbered 0027, two more 0039, and two more
 > 0047. Each collision is recorded rather than renumbered so existing links
