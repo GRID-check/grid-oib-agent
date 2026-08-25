@@ -7,7 +7,7 @@ holds the depth behind it.
 
 | Page | What it covers |
 |---|---|
-| [working-style.md](working-style.md) | The cases behind the four rules in `AGENTS.md`: what each one cost before it was written down |
+| [working-style.md](working-style.md) | The cases behind each working-style rule in `AGENTS.md`: what it cost before it was written down |
 | [testing-and-verification.md](testing-and-verification.md) | `task verify` as the merge gate, which task to run while iterating, and the traps the task list cannot tell you about |
 | [code-conventions.md](code-conventions.md) | House rules with a history: the `any` ban, coercing raw `sql<T>` results, where a shared helper belongs, the capability doctrine |
 | [release-notes.md](release-notes.md) | reno mechanics, what makes a note customer copy, publishing and the translation cache |

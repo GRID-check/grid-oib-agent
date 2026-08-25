@@ -1,6 +1,6 @@
 # Working style
 
-The four rules in [`AGENTS.md`](../../AGENTS.md) are the short form. This is the
+The rules in [`AGENTS.md`](../../AGENTS.md) are the short form. This is the
 long form: the cases that produced each one, kept out of always-loaded context
 because a case teaches once and then costs on every turn.
 
@@ -47,6 +47,79 @@ render a diagram with the **Excalidraw** tool (`create_view`) rather than
 describing it in prose alone. Keep diagrams structured: a clear layered/left-to
 -right flow, aligned grid, orthogonal arrows that don't cross boxes, and a short
 legend. Offer a diagram proactively for architecture/design discussions.
+
+## Buy, don't build
+
+Complexity that belongs to somebody else's domain is a dependency, not a module
+you write. Geometry, cryptography, time zones, PDF rendering, identity, object
+storage, observability: each is a field with its own decade of edge cases, and
+the hand-rolled version does not fail loudly — it works on your example and is
+wrong on the one you did not think of.
+
+Most of this system is already somebody else's problem, on purpose, and each one
+went through an ADR rather than a weekend:
+
+| Instead of | We run |
+|---|---|
+| A user table, sessions, SSO, SCIM | WorkOS ([ADR-0002](../adr/0002-outsource-identity-to-workos.md), [ADR-0007](../adr/0007-no-local-identity-sync.md)) |
+| A cache tier | Dragonfly ([ADR-0020](../adr/0020-dragonfly-shared-cache.md)) |
+| A blob store | SeaweedFS ([ADR-0005](../adr/0005-object-storage-for-documents-minio.md), [ADR-0043](../adr/0043-seaweedfs-split-topology-and-per-tenant-buckets.md)) |
+| An LLM trace viewer | Langfuse ([ADR-0044](../adr/0044-langfuse-durable-llm-observability.md)) |
+| A telemetry pane | The Aspire standalone dashboard ([ADR-0029](../adr/0029-aspire-dashboard-telemetry.md)) |
+| A changelog pipeline | reno |
+| A skill installer | apm |
+
+The move, before the second hundred lines of anything general: search for the
+library, then say in the pull request what you found and why it did or did not
+fit. "I looked and there is nothing" is a fine answer. Not looking is not.
+
+### The three reasons to write it anyway
+
+**The library's shape does not answer your question.** `ifc-spatial`'s minimum
+enclosing rectangle is the worked example. `shapely.minimum_rotated_rectangle`
+exists, is installed, and is trustworthy — it agrees with ours to 2.2e-16 m².
+It is not used because it hands back a *polygon*, and the operator needs the
+axis and the two extents; re-deriving those from the corners is the same
+rotating-caliper arithmetic with an extra parse in front of it.
+
+**It would drag a native toolchain into the image.** `render.plan` rasterises a
+storey with Pillow rather than cairosvg, even though cairosvg would let us reuse
+`ifcopenshell.draw`'s SVG output. cairosvg pulls native cairo, pango and libffi
+in to serve one call, and pure wheels are the difference between this working
+everywhere and working where somebody remembered to `apt-get`.
+
+**The thing is the product.** The OIB knowledge layer, the card contract, the
+authorization catalog, the norm registry. Nobody sells these, and they are what
+we are for.
+
+### When you do build it, keep the library as the oracle
+
+This is the part people skip. `ifc-spatial-py` pins `shapely>=2.1.0` *for its
+test suite, not for its operators* — nothing under `src/` calls anything newer
+than 2.0. 2.1 is where `minimum_rotated_rectangle` and
+`maximum_inscribed_circle` arrived, and those two GEOS functions are what the
+suite checks the hand-rolled clearance and accessibility geometry against.
+
+An independent implementation you compare against is what turns "it works on my
+example" into evidence. A cross-check that cannot run is not a cross-check,
+which is why the floor is a hard requirement rather than a nice-to-have.
+
+### The cost, stated honestly
+
+A dependency is not free, and this repo pays for the ones it has: a 21 KB
+`.trivyignore.yaml`, a `security.yml` workflow, and a standing list of Dependabot
+advisories on the default branch. So "buy" is not licence to add a package for
+something a function would do.
+
+The two rules meet at scale. "The best part is no part" ([Scope](../../AGENTS.md#scope))
+decides whether the thing should exist. This rule decides who writes it once the
+answer is yes. For genuinely small, genuinely local things, neither buying nor
+building is the answer — deleting the requirement is.
+
+Prefer dependencies that are pure wheels, keep heavy transports optional
+(`ifc-spatial-py` puts the MCP SDK and `ifctester` behind extras so a host
+embedding the library does not install starlette and uvicorn to get a tool
+surface), and pin them.
 
 ## Fix causes, not symptoms
 

@@ -84,6 +84,17 @@ sequence, render an Excalidraw diagram (`create_view`) rather than prose alone:
 layered left to right, aligned, orthogonal arrows that miss the boxes, short
 legend. Offer one proactively in design discussions.
 
+**Buy, don't build.** Complexity that belongs to somebody else's domain —
+geometry, cryptography, time zones, PDF, identity, storage, observability — is a
+dependency, not a module you write. Identity is WorkOS, the cache Dragonfly, the
+object store SeaweedFS, LLM traces Langfuse; each was an ADR rather than a
+weekend. Before the second hundred lines of something general, search for the
+library and say in the PR what you found and why it did or did not fit. Write it
+yourself when the library's shape does not answer the question you are asking,
+when it drags a native toolchain into the image, or when the thing *is* the
+product — and then keep the library in the suite as the oracle you check
+against.
+
 **Fix causes, not symptoms.** Establish what a measurement is *of* before
 optimising it. A change that improves a number without changing what produced it
 is a bandage, and it removes the signal pointing at the real fault. Verify the
@@ -179,11 +190,7 @@ delete. Reduce complexity, never features. That pass is part of done.
 - Verification, CI sharding, the security stack, visual evidence:
   [`docs/contributing/testing-and-verification.md`](docs/contributing/testing-and-verification.md).
 - Branching, Conventional Commits, PR titles: [`CONTRIBUTING.md`](CONTRIBUTING.md).
-  Substrate lifts go in the same branch, each its own commit, before the feature
-  depends on the repaired primitive.
-- Skills: `skills/` is the one source. `apm.yml` lists it and the pinned
-  third-party ones, and `task agents:setup` publishes the set into every
-  harness target. `.claude/` and `.agents/` are generated and gitignored.
+- Skills: `skills/` is the one source, `.claude/` and `.agents/` are generated.
   [`docs/contributing/agent-skills.md`](docs/contributing/agent-skills.md).
 - `configs/` model names are the boot fallback only. The live default is
   admin-controlled (Platform → Models); moving the fleet is a save in the admin
