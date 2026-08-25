@@ -1,5 +1,9 @@
-import { animate, inView, scrollInfo, type AnimationPlaybackControls } from 'motion'
+import { gsap } from 'gsap'
+import { DrawSVGPlugin } from 'gsap/DrawSVGPlugin'
+import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { landingScript } from '../i18n/ui'
+
+gsap.registerPlugin(DrawSVGPlugin, ScrollTrigger)
 import { initReveals } from './reveal'
 import { initChain } from './chain'
 import { initRoi } from './roi'
@@ -18,14 +22,22 @@ function initHeroCta() {
   if (!cta) return
   const wrap = document.querySelector<HTMLElement>('[data-hero-wrap]')
   if (wrap && !reduced) wrap.style.height = '200vh'
-  const apply = (scrollY: number) => {
-    const on = scrollY > window.innerHeight * 0.12
-    cta.style.opacity = on ? '0' : '1'
-    cta.style.transform = on ? 'translateY(-10px)' : 'translateY(0)'
-    cta.style.pointerEvents = on ? 'none' : 'auto'
-  }
-  apply(window.scrollY)
-  scrollInfo(({ y }) => apply(y.current))
+  // The closing line and its buttons yield as soon as the page starts moving —
+  // scrubbed, so it tracks the scroll rather than snapping at a threshold.
+  gsap.to(cta, {
+    opacity: 0,
+    y: -10,
+    ease: 'none',
+    scrollTrigger: {
+      trigger: wrap ?? cta,
+      start: 'top top',
+      end: () => `+=${window.innerHeight * 0.12}`,
+      scrub: true,
+      onUpdate: (self) => {
+        cta.style.pointerEvents = self.progress > 0.6 ? 'none' : 'auto'
+      },
+    },
+  })
 }
 
 function initAura() {
@@ -39,6 +51,8 @@ function initAura() {
   const IW = 1376
   const IH = 768
   const HEAD: [number, number] = [700, 196]
+  /** How far the orbital plane is tipped away from the viewer. */
+  const TILT = 0.42
   let sc = 1
   let ox = 0
   let oy = 0
@@ -109,6 +123,10 @@ function initAura() {
     ctx.lineWidth = 1
     // Two rings, not three, and drawn faint: the aura is instrumentation over a
     // photograph, and instrumentation that shouts stops looking like precision.
+    //
+    // They are read as a plane seen at an angle rather than as flat circles on
+    // the glass: squashed on the vertical, and each ring tipped a little further
+    // than the one inside it, which is what an orbit does in perspective.
     const rings: [number, number, number][] = [
       [116, 0.05, 0.13],
       [206, -0.03, 0.085],
@@ -116,11 +134,11 @@ function initAura() {
     rings.forEach(([r, spd, al], i) => {
       ctx.save()
       ctx.translate(hx, hy)
-      ctx.rotate(ts * spd + i)
+      ctx.rotate(ts * spd * 0.35 + i * 0.5)
       ctx.strokeStyle = `rgba(94,110,70,${al})`
       ctx.setLineDash([13 * sc, 11 * sc])
       ctx.beginPath()
-      ctx.arc(0, 0, r * sc, 0, Math.PI * 2)
+      ctx.ellipse(0, 0, r * sc, r * sc * (TILT - i * 0.05), 0, 0, Math.PI * 2)
       ctx.stroke()
       ctx.restore()
     })
@@ -130,21 +148,36 @@ function initAura() {
     ctx.letterSpacing = '0.08em'
     NODES.forEach((n, i) => {
       const ang = n.a + ts * n.v
+      // The node rides a tipped orbit, so the sine of its angle is how near the
+      // front of that orbit it currently is: 1 in front, -1 behind. Everything
+      // else — its size, its weight, how solid its leader line goes — follows
+      // from that one number, which is what sells depth without any real 3D.
+      const near = (Math.sin(ang) + 1) / 2
+      const depth = 0.72 + 0.28 * near
       const nx = hx + Math.cos(ang) * n.r * sc
-      const ny = hy + Math.sin(ang) * n.r * sc * 0.86
+      const ny = hy + Math.sin(ang) * n.r * sc * TILT
       const glow = 0.5 + 0.5 * Math.sin(ts * 1.1 + i)
       // A leader line is drawn to the nodes that say something, and only
       // suggested for the rest, so the eye follows the labels.
       const named = Boolean(n.label)
-      ctx.strokeStyle = `rgba(94,110,70,${((named ? 0.07 : 0.035) + (named ? 0.07 : 0.03) * glow).toFixed(3)})`
-      ctx.lineWidth = 1
+
+      // The line leaves the head as nothing and gathers as it travels out. A
+      // stroke of one flat alpha reads as a spoke pinned to the face; a stroke
+      // that arrives out of the halo reads as something being drawn from it.
+      const a = ((named ? 0.1 : 0.05) + (named ? 0.09 : 0.04) * glow) * depth
+      const ray = ctx.createLinearGradient(hx, hy, nx, ny)
+      ray.addColorStop(0, 'rgba(94,110,70,0)')
+      ray.addColorStop(0.45, `rgba(94,110,70,${(a * 0.35).toFixed(3)})`)
+      ray.addColorStop(1, `rgba(94,110,70,${a.toFixed(3)})`)
+      ctx.strokeStyle = ray
+      ctx.lineWidth = depth
       ctx.beginPath()
       ctx.moveTo(hx, hy)
       ctx.lineTo(nx, ny)
       ctx.stroke()
-      ctx.fillStyle = `rgba(88,104,64,${((named ? 0.4 : 0.22) + 0.35 * glow).toFixed(3)})`
+      ctx.fillStyle = `rgba(88,104,64,${(((named ? 0.4 : 0.22) + 0.35 * glow) * depth).toFixed(3)})`
       ctx.beginPath()
-      ctx.arc(nx, ny, (named ? 1.7 : 1.1 + 0.6 * glow) * Math.max(1, sc * 0.8), 0, Math.PI * 2)
+      ctx.arc(nx, ny, (named ? 1.7 : 1.1 + 0.6 * glow) * depth * Math.max(1, sc * 0.8), 0, Math.PI * 2)
       ctx.fill()
       // A label belongs to its node, so it takes whichever side of the node has
       // room for it. Written blindly to the right, the ones on a phone ran off
@@ -159,7 +192,7 @@ function initAura() {
         ctx.textAlign = flip ? 'right' : 'left'
         const lx = flip ? nx - 7 * sc : Math.min(right, Math.max(EDGE, w - EDGE - textW))
         lines.forEach((ln, li) => {
-          ctx.fillStyle = `rgba(78,92,56,${((li === 0 ? 0.44 : 0.3) + 0.3 * glow).toFixed(3)})`
+          ctx.fillStyle = `rgba(78,92,56,${(((li === 0 ? 0.44 : 0.3) + 0.3 * glow) * depth).toFixed(3)})`
           ctx.fillText(ln, lx, ny - 5 * sc + li * lh)
         })
         ctx.textAlign = 'left'
@@ -200,33 +233,16 @@ function initAura() {
     ctx.restore()
   }
 
-  let loop: AnimationPlaybackControls | null = null
-  let onScreen = false
-  const sync = () => {
-    if (onScreen && !document.hidden) {
-      if (!loop) {
-        loop = animate(0, 1, {
-          duration: 60,
-          repeat: Infinity,
-          ease: 'linear',
-          onUpdate: () => draw(performance.now()),
-        })
-      } else {
-        loop.play()
-      }
-    } else {
-      loop?.pause()
-    }
-  }
-  inView(cv, () => {
-    onScreen = true
-    sync()
-    return () => {
-      onScreen = false
-      sync()
-    }
+  // GSAP's ticker is the render loop: one rAF for the whole page, and the
+  // browser parks it with the tab, so the canvas costs nothing off-screen
+  // without a visibilitychange handler of its own.
+  const tick = () => draw(performance.now())
+  ScrollTrigger.create({
+    trigger: cv,
+    start: 'top bottom',
+    end: 'bottom top',
+    onToggle: (self) => (self.isActive ? gsap.ticker.add(tick) : gsap.ticker.remove(tick)),
   })
-  document.addEventListener('visibilitychange', sync)
 }
 
 interface Frag {
@@ -467,7 +483,7 @@ function initPins() {
     }
   )
 
-  let lineEls: { el: SVGLineElement; len: number }[] | null = null
+  let lineEls: SVGLineElement[] | null = null
   let mode: 'ring' | 'net' = 'ring'
 
   const measureStory = () => {
@@ -520,9 +536,8 @@ function initPins() {
         const l = document.createElementNS(NS, 'line')
         l.setAttribute('stroke', '#a4b47a')
         l.setAttribute('stroke-width', '1.5')
-        l.style.opacity = '0'
         linksSvg.appendChild(l)
-        return { el: l, len: 0 }
+        return l
       })
     }
     if (linksSvg) linksSvg.setAttribute('viewBox', `0 0 ${W} ${H}`)
@@ -531,43 +546,42 @@ function initPins() {
       // Fragments that were left out get a zero-length line, which draws nothing.
       const x = f.fits ? f.hx + f.tx : hub.x
       const y = f.fits ? f.hy + f.ty : hub.y
-      l.el.setAttribute('x1', String(hub.x))
-      l.el.setAttribute('y1', String(hub.y))
-      l.el.setAttribute('x2', String(x))
-      l.el.setAttribute('y2', String(y))
-      l.len = Math.hypot(x - hub.x, y - hub.y)
-      l.el.style.strokeDasharray = String(l.len)
+      l.setAttribute('x1', String(hub.x))
+      l.setAttribute('y1', String(hub.y))
+      l.setAttribute('x2', String(x))
+      l.setAttribute('y2', String(y))
     })
   }
 
-  const setStatic = () => {
-    fragEls.forEach((f) => {
-      f.el.style.opacity = '1'
-      f.el.style.transform = `translate(${f.tx}px,${f.ty}px)`
-    })
-    lineEls?.forEach((l) => {
-      l.el.style.strokeDashoffset = '0'
-      l.el.style.opacity = '0.45'
-    })
-    if (hProblem) hProblem.style.opacity = '0'
-    if (hSolution) hSolution.style.opacity = '1'
-    if (solutionCard) {
-      solutionCard.style.opacity = '1'
-      solutionCard.style.transform = 'translate(-50%,-50%) scale(1)'
-    }
+  /**
+   * The story, as one scrubbed timeline.
+   *
+   * This used to be a scroll handler that recomputed every fragment's transform
+   * on each frame: two easing windows per card worked out by hand, a transform
+   * string assembled with template literals, and the connecting lines drawn by
+   * setting strokeDashoffset against a length measured earlier. The arithmetic
+   * was correct and completely opaque — the choreography lived in expressions
+   * like `0.03 + (i / n) * 0.27` and could only be read by simulating it.
+   *
+   * A timeline says the same thing as a score: this fragment drifts in here, the
+   * net pulls it into place there. GSAP owns the interpolation, DrawSVGPlugin
+   * owns the lines, and ScrollTrigger owns the scrubbing, so the only thing
+   * still written here is the order of events.
+   */
+  const setNavHidden = (hide: boolean) => {
+    if (!nav || hide === navHidden) return
+    navHidden = hide
+    gsap.to(nav, { y: hide ? '-110%' : '0%', opacity: hide ? 0 : 1, duration: 0.5, ease: 'power2.out' })
+    nav.toggleAttribute('inert', hide)
+    if (hide) nav.setAttribute('aria-hidden', 'true')
+    else nav.removeAttribute('aria-hidden')
   }
-
-  if (reduced) {
-    measureStory()
-    setStatic()
-    return
-  }
-
-  sticky.style.position = 'sticky'
-  sticky.style.top = '0'
-  sticky.style.boxSizing = 'border-box'
+  let navHidden = false
 
   const sizePins = () => {
+    sticky.style.position = 'sticky'
+    sticky.style.top = '0'
+    sticky.style.boxSizing = 'border-box'
     sticky.style.height = 'auto'
     sticky.style.overflow = 'visible'
     if (sticky.scrollHeight <= window.innerHeight) {
@@ -580,72 +594,95 @@ function initPins() {
     wrap.style.height = mode === 'ring' ? '440vh' : '300vh'
   }
 
-  let navHidden = false
-  const setNavHidden = (hide: boolean) => {
-    if (!nav || hide === navHidden) return
-    navHidden = hide
-    animate(
-      nav,
-      { y: hide ? '-110%' : '0%', opacity: hide ? 0 : 1 },
-      { duration: 0.5, ease: 'easeOut' }
-    )
-    nav.toggleAttribute('inert', hide)
-    if (hide) nav.setAttribute('aria-hidden', 'true')
-    else nav.removeAttribute('aria-hidden')
-  }
+  const mm = gsap.matchMedia()
 
-  const update = (p: number, hide: boolean) => {
-    setNavHidden(hide)
-    const n = fragEls.length
-    fragEls.forEach((f, i) => {
-      const inStart = 0.03 + (i / n) * 0.27
-      const eIn = easeOut(clamp((p - inStart) / 0.16))
-      const orgStart = 0.5 + (i / n) * 0.16
-      const eOrg = easeOut(clamp((p - orgStart) / 0.24))
-      // drift in → lie scattered → get pulled onto the net
-      const tx = f.dx * 4 * (1 - eIn) + f.sx + (f.tx - f.sx) * eOrg
-      const ty = f.dy * 4 * (1 - eIn) + f.sy + (f.ty - f.sy) * eOrg
-      const sc = (0.85 + 0.15 * eIn) * (1 - 0.16 * eOrg)
-      const rot = f.rot * (1 - eOrg)
-      f.el.style.opacity = String(eIn)
-      f.el.style.transform = `translate(${tx}px,${ty}px) rotate(${rot}deg) scale(${sc})`
-    })
-    if (hProblem) {
-      const out = easeOut(clamp((p - 0.42) / 0.1))
-      hProblem.style.opacity = String(1 - out)
-      hProblem.style.transform = `translateY(${-26 * out}px)`
-    }
-    if (hSolution) {
-      const sIn = easeOut(clamp((p - 0.52) / 0.1))
-      hSolution.style.opacity = String(sIn)
-      hSolution.style.transform = `translateX(-50%) translateY(${18 * (1 - sIn)}px)`
-    }
-    if (solutionCard) {
-      const ce = easeOut(clamp((p - 0.56) / 0.14))
-      solutionCard.style.opacity = String(ce)
-      solutionCard.style.transform = `translate(-50%,-50%) scale(${0.8 + 0.2 * ce})`
-    }
-    if (lineEls) {
-      const lp = clamp((p - 0.68) / 0.26)
-      lineEls.forEach((l, i) => {
-        const se = easeOut(clamp((lp - i * 0.045) / 0.55))
-        l.el.style.strokeDashoffset = String(l.len * (1 - se))
-        l.el.style.opacity = String(0.45 * se)
-      })
-    }
-  }
+  mm.add('(prefers-reduced-motion: reduce)', () => {
+    sizePins()
+    fragEls.forEach((f) => gsap.set(f.el, { opacity: 1, x: f.tx, y: f.ty, rotation: 0, scale: 0.84 }))
+    if (lineEls) gsap.set(lineEls, { opacity: 0.45, drawSVG: '100%' })
+    gsap.set([hProblem].filter(Boolean), { opacity: 0 })
+    gsap.set([hSolution].filter(Boolean), { opacity: 1, xPercent: -50, y: 0 })
+    gsap.set([solutionCard].filter(Boolean), { opacity: 1, xPercent: -50, yPercent: -50, scale: 1 })
+  })
 
-  sizePins()
-  window.addEventListener('resize', sizePins)
-  scrollInfo(
-    ({ y }) => {
-      const r = wrap.getBoundingClientRect()
-      const vh = window.innerHeight
-      update(y.progress, r.top < vh * 0.4 && r.bottom > vh * 0.5)
-    },
-    { target: wrap, offset: ['start start', 'end end'] }
-  )
-  setTimeout(measureStory, 700)
+  mm.add('(prefers-reduced-motion: no-preference)', () => {
+    let ctx: gsap.Context | null = null
+
+    const build = () => {
+      ctx?.revert()
+      ctx = gsap.context(() => {
+        sizePins()
+        const n = fragEls.length || 1
+        const tl = gsap.timeline({
+          defaults: { ease: 'power2.out' },
+          scrollTrigger: {
+            trigger: wrap,
+            start: 'top top',
+            end: 'bottom bottom',
+            scrub: 0.4,
+            onToggle: (self) => setNavHidden(self.isActive),
+          },
+        })
+
+        fragEls.forEach((f, i) => {
+          if (!f.fits) return
+          // Drift in from where it was scattered, lie there a while, then get
+          // pulled onto the net.
+          tl.fromTo(
+            f.el,
+            { opacity: 0, x: f.sx + f.dx * 4, y: f.sy + f.dy * 4, rotation: f.rot, scale: 0.85 },
+            { opacity: 1, x: f.sx, y: f.sy, scale: 1, duration: 0.16 },
+            0.03 + (i / n) * 0.27
+          ).to(
+            f.el,
+            { x: f.tx, y: f.ty, rotation: 0, scale: 0.84, duration: 0.24 },
+            0.5 + (i / n) * 0.16
+          )
+        })
+
+        if (hProblem) tl.to(hProblem, { opacity: 0, y: -26, duration: 0.1 }, 0.42)
+        if (hSolution) {
+          tl.fromTo(
+            hSolution,
+            { opacity: 0, xPercent: -50, y: 18 },
+            { opacity: 1, y: 0, duration: 0.1 },
+            0.52
+          )
+        }
+        if (solutionCard) {
+          tl.fromTo(
+            solutionCard,
+            { opacity: 0, xPercent: -50, yPercent: -50, scale: 0.8 },
+            { opacity: 1, scale: 1, duration: 0.14 },
+            0.56
+          )
+        }
+        if (lineEls?.length) {
+          tl.fromTo(
+            lineEls,
+            { drawSVG: 0, opacity: 0 },
+            { drawSVG: '100%', opacity: 0.45, duration: 0.26, stagger: 0.045 },
+            0.68
+          )
+        }
+      }, wrap)
+    }
+
+    build()
+    let t = 0
+    const onResize = () => {
+      window.clearTimeout(t)
+      t = window.setTimeout(build, 200)
+    }
+    window.addEventListener('resize', onResize)
+    document.fonts?.ready.then(build)
+
+    return () => {
+      window.clearTimeout(t)
+      window.removeEventListener('resize', onResize)
+      ctx?.revert()
+    }
+  })
 }
 
 initHeroCta()

@@ -1,5 +1,8 @@
-import { animate, inView, type AnimationPlaybackControls } from 'motion'
+import { gsap } from 'gsap'
+import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { landingScript } from '../i18n/ui'
+
+gsap.registerPlugin(ScrollTrigger)
 import { computeRoi, ROI_DEFAULTS, type RoiInputs, type RoiResult } from '../lib/roi'
 import { formatEuro, formatRoi, type RoiText } from '../lib/roi-format'
 
@@ -66,16 +69,18 @@ export function initRoi() {
   const working = document.querySelector<HTMLAnchorElement>('[data-roi-href]')
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   let shown = computeRoi({ seats: read('seats'), salary: read('salary') }).netValue
-  let count: AnimationPlaybackControls | null = null
+  let count: gsap.core.Tween | null = null
 
   const countTo = (value: number, duration: number) => {
     if (!headline || reduced || value === shown) return false
-    count?.stop()
-    count = animate(shown, value, {
+    count?.kill()
+    const counter = { v: shown }
+    count = gsap.to(counter, {
+      v: value,
       duration,
-      ease: [0.16, 1, 0.3, 1],
-      onUpdate: (v) => {
-        headline.textContent = formatEuro(locale, v)
+      ease: 'power4.out',
+      onUpdate: () => {
+        headline.textContent = formatEuro(locale, counter.v)
       },
       onComplete: () => {
         headline.textContent = formatEuro(locale, value)
@@ -118,14 +123,15 @@ export function initRoi() {
   // On first sight the figure counts up from nothing — the server already wrote
   // the final value, so a visitor without motion, or without JS, simply reads it.
   if (headline && !reduced) {
-    inView(
-      headline,
-      () => {
+    ScrollTrigger.create({
+      trigger: headline,
+      start: 'top 90%',
+      once: true,
+      onEnter: () => {
         const target = shown
         shown = 0
         countTo(target, 1.1)
       },
-      { amount: 0.9 }
-    )
+    })
   }
 }
