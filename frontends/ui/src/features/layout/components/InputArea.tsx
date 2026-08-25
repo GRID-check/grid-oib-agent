@@ -33,7 +33,6 @@ import {
   FileText,
   Paperclip,
   RotateCw,
-  Sparkles,
   Square,
   X,
   XCircle,
@@ -1835,7 +1834,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
             role="note"
           >
-            <Sparkles className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
             <span>{tCollab('mentions.addressee.agentHint')}</span>
           </p>
         )}
@@ -1852,7 +1850,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
             role="note"
           >
-            <Sparkles className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
             <span>{tCollab('thread.composerBusy', { name: otherPersonsTurnName })}</span>
           </p>
         )}

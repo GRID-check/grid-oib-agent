@@ -31,7 +31,7 @@
  * is announced rather than only drawn.
  */
 
-import { AtSign, Sparkles, Users } from 'lucide-react'
+import { AtSign, Users } from 'lucide-react'
 
 import { AvatarStack, type AvatarStackPerson } from '@/components/ui/avatar-stack'
 import { useTranslations } from '@/i18n'
@@ -152,10 +152,9 @@ export function AddresseeIndicator({
     >
       {people.length > 0 && <AvatarStack people={people} size="sm" max={3} />}
       {mode === 'thread' && <Users className="size-3.5 shrink-0 opacity-70" aria-hidden />}
-      {/* The spark marks the agent riding along at the end of a list of people.
-          It is no longer drawn for the agent ALONE, because there is no longer
-          a statement there for it to lead. */}
-      {agentTagged && label && <Sparkles className="size-3.5 shrink-0 opacity-70" aria-hidden />}
+      {/* No agent glyph. The spark used to lead the agent — alone, and then at
+          the end of a list of people — and the composer no longer carries it
+          anywhere: the names say who is addressed, and "Piloti" is one of them. */}
       {label && <span className="min-w-0 truncate">{label}</span>}
 
       {/* The teaching affordance. A quiet trailing action rather than a button in

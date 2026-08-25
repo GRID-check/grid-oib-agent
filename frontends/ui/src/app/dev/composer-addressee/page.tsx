@@ -37,7 +37,7 @@
  */
 
 import { notFound } from 'next/navigation'
-import { ArrowUp, AtSign, ChevronDown, Layers, Sparkles, ZoomIn } from 'lucide-react'
+import { ArrowUp, AtSign, ChevronDown, Layers, ZoomIn } from 'lucide-react'
 
 import { AddresseeIndicator } from '@/features/collaboration/components/AddresseeIndicator'
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
@@ -98,10 +98,10 @@ function MockComposer({
 
       {hint && (
         <p className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed">
-          {hint.icon === 'at' ? (
+          {/* Only the `@` hint carries a glyph. The agent hint's spark went with
+              the rest of the composer's AI marks — see `InputArea`. */}
+          {hint.icon === 'at' && (
             <AtSign className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden />
-          ) : (
-            <Sparkles className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden />
           )}
           <span>{hint.body}</span>
         </p>
