@@ -171,7 +171,7 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
     const stub = stubFetch()
     stub.consistencyResponse.json = {
       findings: [
-        { kind: 'ai', fields: ['Projektbeschreibung & Entwurfsidee'], severity: 'inconsistency', message: 'The note contradicts the plan.' },
+        { kind: 'ai', fields: ['Projektbeschreibung, Entwurfsidee & Umfeld'], severity: 'inconsistency', message: 'The note contradicts the plan.' },
       ],
     }
     seedReviewDraft({ G1: 'Ein ausführlicher Freitext über das Brandschutzkonzept.' })
@@ -183,7 +183,7 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
     const call = consistencyCalls(stub)[0]
     expect(call).toBeDefined()
     expect(call.body).toMatchObject({
-      freeText: [{ field: 'Projektbeschreibung & Entwurfsidee', value: 'Ein ausführlicher Freitext über das Brandschutzkonzept.' }],
+      freeText: [{ field: 'Projektbeschreibung, Entwurfsidee & Umfeld', value: 'Ein ausführlicher Freitext über das Brandschutzkonzept.' }],
     })
   })
 
@@ -639,7 +639,7 @@ describe('ProjectIntakeWizard — Fix 5 non-finite number rejected', () => {
     )
     render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" />)
 
-    const floors = await screen.findByLabelText('Anzahl oberirdischer Geschoße')
+    const floors = await screen.findByLabelText('Anzahl oberirdischer Geschoße (Zielzustand)')
     fireEvent.change(floors, { target: { value: '1e999' } })
 
     await user.click(screen.getByRole('button', { name: /next/i }))

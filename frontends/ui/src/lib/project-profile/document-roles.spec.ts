@@ -88,8 +88,8 @@ describe('recommendedRoles', () => {
   })
 
   it('pushes the Schadstoffgutachten only when the project includes a demolition', () => {
-    expect(recommendedRoles({ A5: ['Neubau'] })).not.toContain('gutachten_schadstoffe')
-    expect(recommendedRoles({ A5: ['Neubau', 'Abbruch'] })).toContain('gutachten_schadstoffe')
+    expect(recommendedRoles({ A5: ['neubau'] })).not.toContain('gutachten_schadstoffe')
+    expect(recommendedRoles({ A5: ['neubau', 'abbruch'] })).toContain('gutachten_schadstoffe')
   })
 
   it('never pushes a role that states no condition', () => {

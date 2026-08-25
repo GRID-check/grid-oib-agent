@@ -162,7 +162,7 @@ export const DOCUMENT_ROLE_DEFINITIONS: readonly DocumentRoleDefinition[] = [
     label: 'Schadstoffgutachten',
     scope: 'projekt',
     cardinality: 'many',
-    recommendedWhen: [{ param: 'A5', op: 'includes_any', value: ['Abbruch'] }],
+    recommendedWhen: [{ param: 'A5', op: 'includes_any', value: ['abbruch'] }],
   },
   {
     role: 'vorentwurf_studie',

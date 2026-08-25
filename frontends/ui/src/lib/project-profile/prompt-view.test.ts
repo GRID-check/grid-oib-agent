@@ -79,7 +79,7 @@ describe('project profile prompt view', () => {
       { label: 'Bundesland', value: 'Wien' },
       { label: 'Bauwerkstyp · Haupthaus', value: 'Gebäude' },
     ])
-    expect(display.missingInfo).toEqual(['Fluchtniveau'])
+    expect(display.missingInfo).toEqual(['Fluchtniveau (Zielzustand)'])
   })
 
   it('applies safe add and replace patches only under profile paths', () => {
