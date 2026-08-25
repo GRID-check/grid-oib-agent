@@ -125,3 +125,12 @@ node_modules/
 
 # APM dependencies
 apm_modules/
+
+# `.claude/` is generated, never source. `task agents:setup` rebuilds it:
+# apm deploys the installed skills from apm.yml, and
+# scripts/link_agent_skills.py symlinks the repo-authored ones out of
+# `.agents/skills/` and `skills/`, which ARE tracked. Committing the generated
+# copies meant a third-party skill could be edited in place with nothing to
+# detect it, and it hid that the eight committed "symlinks" were plain text
+# files that never resolved.
+.claude/

@@ -1,7 +1,115 @@
 lockfile_version: '1'
-generated_at: '2026-08-25T07:08:21.773619+00:00'
+generated_at: '2026-08-25T07:27:35.753717+00:00'
 apm_version: 0.28.0
 dependencies:
+- repo_url: cursor/plugins
+  name: blast-radius
+  host: github.com
+  resolved_commit: bdf7aa355337897f167153e05069aca505dae17c
+  resolved_ref: bdf7aa355337897f167153e05069aca505dae17c
+  version: unknown
+  virtual_path: pstack/skills/blast-radius
+  is_virtual: true
+  package_type: claude_skill
+  deployed_files:
+  - .claude/skills/blast-radius
+  - .claude/skills/blast-radius/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/blast-radius/SKILL.md: sha256:b060df3ca85803eabbce9fab53f5cc024ca8d784bdde5513c1c1a784947523f8
+  content_hash: sha256:29c76d37a04163f5005cec955e4cdd0311783322d0c6bf478577955b6fefea40
+- repo_url: cursor/plugins
+  name: how
+  host: github.com
+  resolved_commit: bdf7aa355337897f167153e05069aca505dae17c
+  resolved_ref: bdf7aa355337897f167153e05069aca505dae17c
+  version: unknown
+  virtual_path: pstack/skills/how
+  is_virtual: true
+  package_type: claude_skill
+  deployed_files:
+  - .claude/skills/how
+  - .claude/skills/how/SKILL.md
+  - .claude/skills/how/references/critic-prompt.md
+  - .claude/skills/how/references/critique-rubric.md
+  - .claude/skills/how/references/explainer-prompt.md
+  - .claude/skills/how/references/explorer-prompt.md
+  deployed_file_hashes:
+    .claude/skills/how/SKILL.md: sha256:fe503e7a9b2a3a7ad2622a2de6124cb06c466922fb44bc61817b49b52042b885
+    .claude/skills/how/references/critic-prompt.md: sha256:aa77a15590814c814bd5cb074842029ab7b790c2e8379050525bdbc20739d1bb
+    .claude/skills/how/references/critique-rubric.md: sha256:5774ff2caf51796e54c4a61b63620a165de5801f23c8f47406e527abfbe9addc
+    .claude/skills/how/references/explainer-prompt.md: sha256:04336086e7c415394459ca2f461717d920e15339517dbf5a56ca042f8b4fead3
+    .claude/skills/how/references/explorer-prompt.md: sha256:fd1218b8cf1f467c644d4ce6fa5e54e6089ede65a28fbbae61f6ee7a2d462f85
+  content_hash: sha256:93f9d38c94e30056337fc28bbe7063d35f58cc8a1fd24e07043903f0b5b9ac1c
+- repo_url: cursor/plugins
+  name: interrogate
+  host: github.com
+  resolved_commit: bdf7aa355337897f167153e05069aca505dae17c
+  resolved_ref: bdf7aa355337897f167153e05069aca505dae17c
+  version: unknown
+  virtual_path: pstack/skills/interrogate
+  is_virtual: true
+  package_type: claude_skill
+  deployed_files:
+  - .claude/skills/interrogate
+  - .claude/skills/interrogate/SKILL.md
+  - .claude/skills/interrogate/references/code-quality-review.md
+  - .claude/skills/interrogate/references/lead-judgment.md
+  - .claude/skills/interrogate/references/reviewer-prompt.md
+  - .claude/skills/interrogate/references/rubric.md
+  deployed_file_hashes:
+    .claude/skills/interrogate/SKILL.md: sha256:a009220dfe6869c8f7980a94fb1c9c7763a081a0b32fb6d0afb65b8ff1868146
+    .claude/skills/interrogate/references/code-quality-review.md: sha256:2462f1347b99b412b04fcb0577b96d8744c801f792f2651746f9409fd4465dc9
+    .claude/skills/interrogate/references/lead-judgment.md: sha256:d2cea6cc308758201c6b8b82baf780947645f1ab752707ddf97fab374bf473f9
+    .claude/skills/interrogate/references/reviewer-prompt.md: sha256:a397cc61102add709803d917fb23d726920525bf23e7c06dc4ed0b5cbeb00e54
+    .claude/skills/interrogate/references/rubric.md: sha256:a67bf02426f88714634ff481d667db821d4b2cea7b335bcd165fe3126e427fb5
+  content_hash: sha256:4d2df8d5c4d55bd8c0d48ec7001a5f9b4d2d1d4b910d49c4890148f15843b673
+- repo_url: cursor/plugins
+  name: principle-model-the-domain
+  host: github.com
+  resolved_commit: bdf7aa355337897f167153e05069aca505dae17c
+  resolved_ref: bdf7aa355337897f167153e05069aca505dae17c
+  version: unknown
+  virtual_path: pstack/skills/principle-model-the-domain
+  is_virtual: true
+  package_type: claude_skill
+  deployed_files:
+  - .claude/skills/principle-model-the-domain
+  - .claude/skills/principle-model-the-domain/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/principle-model-the-domain/SKILL.md: sha256:6b359783c5c9be87860d0999321e864940ff17729b9f9a27f38abae449640022
+  content_hash: sha256:a94b6f9519c4cb6c79ba92c46030855bfd261c9270c97d6d33ae793a24221446
+- repo_url: cursor/plugins
+  name: typescript-best-practices
+  host: github.com
+  resolved_commit: bdf7aa355337897f167153e05069aca505dae17c
+  resolved_ref: bdf7aa355337897f167153e05069aca505dae17c
+  version: unknown
+  virtual_path: pstack/skills/typescript-best-practices
+  is_virtual: true
+  package_type: claude_skill
+  deployed_files:
+  - .claude/skills/typescript-best-practices
+  - .claude/skills/typescript-best-practices/SKILL.md
+  - .claude/skills/typescript-best-practices/references/patterns.md
+  deployed_file_hashes:
+    .claude/skills/typescript-best-practices/SKILL.md: sha256:df0ecd7518b33778f4b02c2f85ee577bbaea52caa1c49df6816b0594e128bb64
+    .claude/skills/typescript-best-practices/references/patterns.md: sha256:83d89dd2fdb81021eb18c77c57437f60314a60da79447756a547f08ece64b433
+  content_hash: sha256:e740a33e6f53eed14917c0b23cf20ccd472a128edcb4db92dfc4a4f85e5bddb4
+- repo_url: cursor/plugins
+  name: unslop
+  host: github.com
+  resolved_commit: bdf7aa355337897f167153e05069aca505dae17c
+  resolved_ref: bdf7aa355337897f167153e05069aca505dae17c
+  version: unknown
+  virtual_path: pstack/skills/unslop
+  is_virtual: true
+  package_type: claude_skill
+  deployed_files:
+  - .claude/skills/unslop
+  - .claude/skills/unslop/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/unslop/SKILL.md: sha256:181883e539caec8258ec9129e3ba5f133409144a2cbf2aa361158ab94cfc3441
+  content_hash: sha256:3dfc2afeda677e12c6065497a40df7d895859de1c7d1cffb899b1559d129fe4f
 - repo_url: mattpocock/skills
   name: writing-for-agents
   host: github.com
@@ -22,6 +130,195 @@ dependencies:
     .claude/skills/writing-for-agents/agents/openai.yaml: sha256:eacb24b2a618cfb81dacb0416f4fdd75ddf3a8060f8ddb99aae1b1e301907e4b
   content_hash: sha256:8365ebe1d0c343d3d46970526f30fcf7c5e0c5e49fd39a3c882977024626ff3c
 deployments:
+- kind: project-relative
+  target: claude
+  value: .claude/skills/blast-radius
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/blast-radius
+  active_owner: cursor/plugins/pstack/skills/blast-radius
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/blast-radius/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/blast-radius
+  active_owner: cursor/plugins/pstack/skills/blast-radius
+  content_hash: sha256:b060df3ca85803eabbce9fab53f5cc024ca8d784bdde5513c1c1a784947523f8
+- kind: project-relative
+  target: claude
+  value: .claude/skills/how
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/how
+  active_owner: cursor/plugins/pstack/skills/how
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/how/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/how
+  active_owner: cursor/plugins/pstack/skills/how
+  content_hash: sha256:fe503e7a9b2a3a7ad2622a2de6124cb06c466922fb44bc61817b49b52042b885
+- kind: project-relative
+  target: claude
+  value: .claude/skills/how/references/critic-prompt.md
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/how
+  active_owner: cursor/plugins/pstack/skills/how
+  content_hash: sha256:aa77a15590814c814bd5cb074842029ab7b790c2e8379050525bdbc20739d1bb
+- kind: project-relative
+  target: claude
+  value: .claude/skills/how/references/critique-rubric.md
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/how
+  active_owner: cursor/plugins/pstack/skills/how
+  content_hash: sha256:5774ff2caf51796e54c4a61b63620a165de5801f23c8f47406e527abfbe9addc
+- kind: project-relative
+  target: claude
+  value: .claude/skills/how/references/explainer-prompt.md
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/how
+  active_owner: cursor/plugins/pstack/skills/how
+  content_hash: sha256:04336086e7c415394459ca2f461717d920e15339517dbf5a56ca042f8b4fead3
+- kind: project-relative
+  target: claude
+  value: .claude/skills/how/references/explorer-prompt.md
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/how
+  active_owner: cursor/plugins/pstack/skills/how
+  content_hash: sha256:fd1218b8cf1f467c644d4ce6fa5e54e6089ede65a28fbbae61f6ee7a2d462f85
+- kind: project-relative
+  target: claude
+  value: .claude/skills/interrogate
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/interrogate
+  active_owner: cursor/plugins/pstack/skills/interrogate
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/interrogate/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/interrogate
+  active_owner: cursor/plugins/pstack/skills/interrogate
+  content_hash: sha256:a009220dfe6869c8f7980a94fb1c9c7763a081a0b32fb6d0afb65b8ff1868146
+- kind: project-relative
+  target: claude
+  value: .claude/skills/interrogate/references/code-quality-review.md
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/interrogate
+  active_owner: cursor/plugins/pstack/skills/interrogate
+  content_hash: sha256:2462f1347b99b412b04fcb0577b96d8744c801f792f2651746f9409fd4465dc9
+- kind: project-relative
+  target: claude
+  value: .claude/skills/interrogate/references/lead-judgment.md
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/interrogate
+  active_owner: cursor/plugins/pstack/skills/interrogate
+  content_hash: sha256:d2cea6cc308758201c6b8b82baf780947645f1ab752707ddf97fab374bf473f9
+- kind: project-relative
+  target: claude
+  value: .claude/skills/interrogate/references/reviewer-prompt.md
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/interrogate
+  active_owner: cursor/plugins/pstack/skills/interrogate
+  content_hash: sha256:a397cc61102add709803d917fb23d726920525bf23e7c06dc4ed0b5cbeb00e54
+- kind: project-relative
+  target: claude
+  value: .claude/skills/interrogate/references/rubric.md
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/interrogate
+  active_owner: cursor/plugins/pstack/skills/interrogate
+  content_hash: sha256:a67bf02426f88714634ff481d667db821d4b2cea7b335bcd165fe3126e427fb5
+- kind: project-relative
+  target: claude
+  value: .claude/skills/principle-model-the-domain
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/principle-model-the-domain
+  active_owner: cursor/plugins/pstack/skills/principle-model-the-domain
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/principle-model-the-domain/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/principle-model-the-domain
+  active_owner: cursor/plugins/pstack/skills/principle-model-the-domain
+  content_hash: sha256:6b359783c5c9be87860d0999321e864940ff17729b9f9a27f38abae449640022
+- kind: project-relative
+  target: claude
+  value: .claude/skills/typescript-best-practices
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/typescript-best-practices
+  active_owner: cursor/plugins/pstack/skills/typescript-best-practices
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/typescript-best-practices/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/typescript-best-practices
+  active_owner: cursor/plugins/pstack/skills/typescript-best-practices
+  content_hash: sha256:df0ecd7518b33778f4b02c2f85ee577bbaea52caa1c49df6816b0594e128bb64
+- kind: project-relative
+  target: claude
+  value: .claude/skills/typescript-best-practices/references/patterns.md
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/typescript-best-practices
+  active_owner: cursor/plugins/pstack/skills/typescript-best-practices
+  content_hash: sha256:83d89dd2fdb81021eb18c77c57437f60314a60da79447756a547f08ece64b433
+- kind: project-relative
+  target: claude
+  value: .claude/skills/unslop
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/unslop
+  active_owner: cursor/plugins/pstack/skills/unslop
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/unslop/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - cursor/plugins/pstack/skills/unslop
+  active_owner: cursor/plugins/pstack/skills/unslop
+  content_hash: sha256:181883e539caec8258ec9129e3ba5f133409144a2cbf2aa361158ab94cfc3441
 - kind: project-relative
   target: claude
   value: .claude/skills/writing-for-agents

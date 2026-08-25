@@ -1,0 +1,52 @@
+# Gotchas
+
+**Read this when something surprises you, before you start debugging it.** Every
+entry cost somebody real time once. Finding yours here turns an afternoon into a
+minute, and that is the whole return on the
+[correction ratchet](correction-ratchet.md).
+
+Entries are indexed by the **symptom you actually arrive with**, because you
+arrive with an error message and not with a category. Search this page for the
+string you are seeing.
+
+## Tooling and environment
+
+| Symptom | Cause | Do this |
+|---|---|---|
+| Backend tests pass, but the code you changed is clearly not running | `pytest` resolved `aiq_agent` from whatever the venv installed, possibly another worktree | Set `PYTHONPATH=src`. `Taskfile.yml` does it for you; call `pytest` directly and you own it |
+| `uv run` fails to import a knowledge-layer module | `uv run` resolves an environment without the `sources/` workspace packages | Use the venv `uv sync --group dev` builds, which is what the Taskfile does |
+| Turbopack's PostCSS step dies spawning `node` | Someone added `--bun`, which exports `NODE_OPTIONS=--bun`, and real `node` rejects the flag | Bun is the installer and script runner here, never the runtime. Do not add `--bun` |
+| `next build` fails on a file that is only a test | The UI `tsconfig` includes spec files, so a spec type error blocks the production build | Run `task fe:types`; it is the signal that the build will typecheck |
+| A required check fails that `task verify` never ran | `task db:test:rls` needs PostgreSQL server binaries, so it is not part of `verify` | Run it separately whenever you touch the tenant boundary |
+| trivy's `image-scan` job fails with `failed=0` | Five parallel `docker run --rm` pulls of `trivy-db` from GCR return 429 | The DB is downloaded once into a shared cache and reused with `--skip-db-update`. Keep it that way |
+| `apm audit` reports drift against files nothing wrote | apm 0.28 resolves targets differently in `install` (claude) and in the `audit` replay (also agents) | `apm.yml` pins `targets`. Leave it pinned |
+| A `grep` finds nothing in a file where the string is plainly visible | An invisible character, e.g. a zero-width space (`U+200B`), sits inside the match | `task agents:audit` scans for hidden Unicode. `apm audit --strip` removes it |
+
+## Data and correctness
+
+| Symptom | Cause | Do this |
+|---|---|---|
+| `toISOString is not a function` on a value `tsc` says is a `Date` | A raw ``sql<Date>`max(...)` `` fragment is a compile-time assertion only. Drizzle decodes column values only for direct column references | Coerce at the repository boundary (`new Date(row.x)`, `Number(row.x)`). See [code-conventions.md](code-conventions.md) |
+| A composite foreign key silently permits a bad row | Composite FKs are MATCH SIMPLE, so the check is skipped when **any** column of the key is NULL | Add a CHECK asserting the columns are populated together. `documents_folder_requires_project` is the worked example. MATCH FULL is the reflex fix and is wrong |
+| Cached project context comes back belonging to another tenant | `getCached` returns before the loader runs, so a key without the organization serves whatever the first caller populated, never entering the tenant scope | Put the organization in the cache key. `lib/project-profile/prompt-view.ts` is the pattern |
+| A tenant-scoped query returns rows it should not | The `WHERE organization_id` was lost, widened by a join, or written as a raw fragment | Row-level security is the backstop, not the plan. Check the table joined the boundary via `grid_secure_table` |
+
+## Documentation and agent setup
+
+| Symptom | Cause | Do this |
+|---|---|---|
+| A skill that exists on disk never loads | Eight `.claude/skills/*` entries were committed as **text files containing a path** (git mode `100644`) rather than symlinks (`120000`), so nothing resolved | Fixed structurally: `.claude/` is generated, and `scripts/link_agent_skills.py` creates real symlinks. Never commit into `.claude/` |
+| A doc contradicts the Taskfile | The doc predates `task verify` and still prescribes a throwaway Docker image or `.venv/Scripts` paths | The Taskfile is the source of truth for commands. Fix the doc in the same change |
+| `AGENTS.md` is growing again | Project knowledge is being written where only ways of working belong | Give it a home under `docs/contributing/` and leave a one-line pointer. See [documentation.md](documentation.md) |
+
+## Adding an entry
+
+Add one the moment a failure costs you more than a few minutes, while you still
+remember the symptom string. Three columns, and the symptom column is written as
+what you would have searched for, not as a tidy summary after the fact.
+
+Then ask the ratchet question: can this be closed rather than documented? A
+CHECK constraint, a lint rule, or a failing test beats an entry here, and an
+entry here beats nothing. When you do close it, keep the row and say what closed
+it, so the next person meeting the old symptom in an old branch still lands
+somewhere useful.

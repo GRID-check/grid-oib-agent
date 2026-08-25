@@ -60,6 +60,8 @@ Index: [`contributing/README.md`](contributing/README.md).
 | [Testing and verification](contributing/testing-and-verification.md) | `task verify` as the merge gate, CI's sharding, the security stack, visual evidence |
 | [Code conventions](contributing/code-conventions.md) | The `any` ban, coercing raw `sql<T>`, where shared helpers belong, capability doctrine |
 | [Release notes](contributing/release-notes.md) | reno, what makes a note customer copy, publishing |
+| [Gotchas](contributing/gotchas.md) | Known failures by symptom. Read before debugging a surprise |
+| [Agent skills](contributing/agent-skills.md) | How `.claude/` is generated and which skills are installed |
 | [Correction ratchet](contributing/correction-ratchet.md) | Closing the layer that allowed an error |
 | [Documentation obligations](contributing/documentation.md) | Which doc to update for which change |
 

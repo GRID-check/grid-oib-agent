@@ -11,6 +11,8 @@ holds the depth behind it.
 | [testing-and-verification.md](testing-and-verification.md) | `task verify` as the merge gate, which task to run while iterating, and the traps the task list cannot tell you about |
 | [code-conventions.md](code-conventions.md) | House rules with a history: the `any` ban, coercing raw `sql<T>` results, where a shared helper belongs, the capability doctrine |
 | [release-notes.md](release-notes.md) | reno mechanics, what makes a note customer copy, publishing and the translation cache |
+| [gotchas.md](gotchas.md) | Known failures indexed by the symptom you arrive with. Read it before debugging a surprise |
+| [agent-skills.md](agent-skills.md) | How `.claude/` is generated, which skills are installed and why, what to know before trusting them |
 | [correction-ratchet.md](correction-ratchet.md) | Closing the layer that allowed an error, instead of only fixing the output |
 | [documentation.md](documentation.md) | Which doc to update for which kind of change, and why that is part of the change |
 

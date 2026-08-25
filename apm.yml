@@ -24,6 +24,16 @@ dependencies:
     # Writing documents an agent consumes: skills, AGENTS.md, CLAUDE.md.
     # Pinned to a commit; an unpinned ref drifts silently under `apm install`.
     - mattpocock/skills/skills/productivity/writing-for-agents#6654f6b60cd9d5be8b54c6fafe44346dabeb3b76
+
+    # pstack (poteto's stack). unslop, writing-for-agents and
+    # typescript-best-practices fire on their own; the rest carry
+    # disable-model-invocation and only run when asked for by name.
+    - cursor/plugins/pstack/skills/unslop#bdf7aa355337897f167153e05069aca505dae17c
+    - cursor/plugins/pstack/skills/typescript-best-practices#bdf7aa355337897f167153e05069aca505dae17c
+    - cursor/plugins/pstack/skills/how#bdf7aa355337897f167153e05069aca505dae17c
+    - cursor/plugins/pstack/skills/interrogate#bdf7aa355337897f167153e05069aca505dae17c
+    - cursor/plugins/pstack/skills/blast-radius#bdf7aa355337897f167153e05069aca505dae17c
+    - cursor/plugins/pstack/skills/principle-model-the-domain#bdf7aa355337897f167153e05069aca505dae17c
   mcp: []
 
 includes: auto

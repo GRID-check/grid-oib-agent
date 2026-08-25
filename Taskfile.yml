@@ -103,11 +103,10 @@ tasks:
 
   # ── agent skills (apm) ──────────────────────────────────────────────────────
   #
-  # Third-party agent skills are dependencies, so they are installed from a
-  # manifest (`apm.yml`) against a lockfile (`apm.lock.yaml`) rather than
-  # copied in by hand. Deployed into `.claude/skills/`, alongside the skills
-  # this repo authors and the pstack set vendored on purpose; apm never touches
-  # a directory it does not own.
+  # `.claude/` is GENERATED and gitignored. Two halves rebuild it: apm deploys
+  # the third-party skills pinned in `apm.yml`, and the link script symlinks the
+  # repo-authored ones out of `.agents/skills/` and `skills/`, which are tracked.
+  # Nothing under `.claude/` is source, so nothing there is worth committing.
   #
   # Run through `uvx` rather than a global install: uv is already required for
   # the backend venv, and this way the CLI version is pinned in one line here
@@ -116,9 +115,22 @@ tasks:
   # which is what makes this reproducible in CI.
 
   agents:setup:
+    desc: Rebuild .claude/ — install the pinned third-party skills, link the repo's own
+    cmds:
+      - task: agents:install
+      - task: agents:link
+
+  agents:install:
     desc: Install the pinned third-party agent skills from apm.yml
     cmds:
       - uvx --from apm-cli=={{.APM_VERSION}} apm install --frozen
+
+  agents:link:
+    desc: Symlink the repo-authored skills into the generated .claude/skills/
+    cmds:
+      # `--no-project` because the script is stdlib-only and must work on a
+      # fresh clone, before `uv sync` has built `.venv`.
+      - uv run --no-project python scripts/link_agent_skills.py
 
   agents:audit:
     desc: Scan installed agent skills for drift and hidden Unicode

@@ -48,6 +48,14 @@ Ratcheted means a second occurrence is caught by something other than a person
 noticing. Reach for it when a reviewer corrects you, when something surprises
 you, or when you correct yourself twice for one reason.
 
+**When something surprises you or breaks, read
+[`docs/contributing/gotchas.md`](docs/contributing/gotchas.md) before you start
+debugging it.** It is indexed by the symptom you arrive with, and every entry is
+an afternoon somebody already spent. Add yours the moment a failure costs you
+more than a few minutes, while you still remember the string you searched for.
+That register is the other half of the ratchet: a correction with nowhere to
+land is not ratcheted.
+
 The cases that produced each rule:
 [`docs/contributing/working-style.md`](docs/contributing/working-style.md).
 Which layer to close: [`docs/contributing/correction-ratchet.md`](docs/contributing/correction-ratchet.md).
@@ -121,9 +129,10 @@ delete. Reduce complexity, never features. That pass is part of done.
 - Branching, Conventional Commits, PR titles: [`CONTRIBUTING.md`](CONTRIBUTING.md).
   Substrate lifts go in the same branch, each its own commit, before the feature
   depends on the repaired primitive.
-- Skills: repo-authored in `.agents/skills/` and `skills/`, third-party pinned in
-  `apm.yml` and installed by `task agents:setup`.
-  [`.claude/skills/PSTACK.md`](.claude/skills/PSTACK.md).
+- Skills: `.claude/` is generated and gitignored. Repo-authored ones live in
+  `.agents/skills/` and `skills/`; third-party ones are pinned in `apm.yml`.
+  `task agents:setup` rebuilds both halves.
+  [`docs/contributing/agent-skills.md`](docs/contributing/agent-skills.md).
 - `configs/` model names are the boot fallback only. The live default is
   admin-controlled (Platform → Models); moving the fleet is a save in the admin
   UI, never a YAML edit.

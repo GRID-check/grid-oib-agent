@@ -64,6 +64,18 @@ Its neighbour `documents_folder_id_project_id_fkey` is the same move: a
 composite foreign key so that "a folder belongs to the document's own project"
 is checked by PostgreSQL rather than remembered by a service.
 
+## When the layer cannot be closed
+
+Some failures have no layer you own: a bug in a third-party CLI, a rate limit on
+somebody's registry, an invisible character in a file. Those go in
+[gotchas.md](gotchas.md), indexed by the symptom you arrived with. That is the
+weakest ratchet, because it still needs a person to read it, which is exactly
+why it is the fallback rather than the default. It still beats nothing: the
+second person to hit it spends a minute instead of an afternoon.
+
+Keep the entry when you later close the layer properly, and say what closed it.
+Somebody on an old branch will still meet the old symptom.
+
 ## Where it stops
 
 Ratcheting is not an excuse to widen a pull request without limit.
