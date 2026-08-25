@@ -143,6 +143,63 @@ export async function insertBinding(input: InsertBindingInput): Promise<string> 
   return inserted.id
 }
 
+/**
+ * Replace a single-holder slot's bindings with one new binding, atomically.
+ *
+ * The delete and the insert were two unlocked statements. A failing insert left
+ * the slot EMPTY — the user's existing Bebauungsplan deleted and nothing put
+ * back — and two concurrent declarations could both pass the read and leave two
+ * bindings in a slot the vocabulary says holds one. The unique index cannot
+ * catch that: it keys on the document, so two DIFFERENT documents in the same
+ * slot are distinct rows.
+ *
+ * One transaction fixes the first; `FOR UPDATE` on the slot's existing rows
+ * serialises the second, so the loser observes the winner's state.
+ */
+export async function replaceSlotBinding(
+  input: InsertBindingInput,
+  displacedIds: readonly string[]
+): Promise<string> {
+  const db = getDb()
+  return db.transaction(async (tx) => {
+    if (displacedIds.length > 0) {
+      await tx
+        .delete(documentRoles)
+        .where(
+          and(
+            eq(documentRoles.projectId, input.projectId),
+            inArray(documentRoles.id, [...displacedIds])
+          )
+        )
+    }
+    const [inserted] = await tx
+      .insert(documentRoles)
+      .values(input)
+      .returning({ id: documentRoles.id })
+    return inserted.id
+  })
+}
+
+/**
+ * Re-declare an existing binding as user-confirmed.
+ *
+ * A classifier's `suggested` binding that the user then confirms was returned
+ * unchanged by the "already bound" no-op, so the prompt kept marking it
+ * `[nicht bestätigt]` however many times the user confirmed it.
+ */
+export async function confirmBinding(
+  projectId: string,
+  bindingId: string,
+  confidence: RoleConfidence,
+  source: RoleSource
+): Promise<void> {
+  const db = getDb()
+  await db
+    .update(documentRoles)
+    .set({ confidence, source, updatedAt: new Date() })
+    .where(and(eq(documentRoles.projectId, projectId), eq(documentRoles.id, bindingId)))
+}
+
 export async function deleteBindings(projectId: string, ids: readonly string[]): Promise<number> {
   if (ids.length === 0) return 0
   const db = getDb()

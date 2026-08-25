@@ -62,7 +62,7 @@ export const orgLlmCredentials = pgTable(
       .on(table.organizationId)
       .where(sql`${table.status} = 'active'`),
     orgIdx: index('idx_org_llm_credentials_org').on(table.organizationId, table.createdAt),
-  }),
+  })
 )
 
 export type OrgLlmCredential = typeof orgLlmCredentials.$inferSelect

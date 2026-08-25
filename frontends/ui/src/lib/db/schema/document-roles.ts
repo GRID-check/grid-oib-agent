@@ -74,10 +74,20 @@ export const documentRoles = pgTable(
       columns: [table.documentId, table.projectId],
       foreignColumns: [documents.id, documents.projectId],
     }).onDelete('cascade'),
-    projectFk: foreignKey({
-      name: 'document_roles_project_id_fkey',
-      columns: [table.projectId],
-      foreignColumns: [projects.id],
+    /**
+     * The project reference carries the ORGANIZATION too.
+     *
+     * `organizationId` is denormalised onto this table and `grid_secure_table`
+     * checks only that column, so a single-column project reference let a row
+     * bear this tenant's organization while pointing at another tenant's
+     * project — every constraint passed, and the row was then readable under
+     * this tenant's own policy. Tenancy is structural (ADR-0041), not a
+     * predicate the writer is trusted to get right.
+     */
+    projectOrgFk: foreignKey({
+      name: 'document_roles_project_id_organization_id_fkey',
+      columns: [table.projectId, table.organizationId],
+      foreignColumns: [projects.id, projects.organizationId],
     }).onDelete('cascade'),
     /**
      * A `bauwerk` role names its building; a `projekt` role does not. The

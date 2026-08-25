@@ -377,13 +377,11 @@ describe('ProjectBrief assumption confirm/dismiss error surfacing', () => {
   })
 
   test('the 403 and 409 messages are distinct from each other and from the generic failure', async () => {
-    const fetchSpy = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-        json: async () => ({ error: 'Internal server error' }),
-      })
+    const fetchSpy = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: 'Internal server error' }),
+    })
     vi.stubGlobal('fetch', fetchSpy)
     const user = userEvent.setup()
 

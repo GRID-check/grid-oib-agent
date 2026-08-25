@@ -16,11 +16,12 @@ import {
 import type { DocumentRole, RoleConfidence, RoleSource } from '@/lib/project-profile/document-roles'
 import { invalidateProjectPromptViewCache } from '@/lib/project-profile/prompt-view'
 import {
+  confirmBinding,
   deleteBindings,
   documentBelongsToProject,
   findBindingsForRole,
-  insertBinding,
   listProjectDocumentRoles,
+  replaceSlotBinding,
 } from './repository'
 import type { DocumentRoleBinding } from './repository'
 
@@ -100,31 +101,44 @@ export async function declareDocumentRole(
   }
 
   const existing = await findBindingsForRole(input.projectId, role, scopeInstanceId)
-  const alreadyBound = existing.find((binding) => binding.documentId === input.documentId)
-  if (alreadyBound) {
-    // Declaring the same thing twice is not an error, it is a no-op. The unique
-    // index would raise here, and a 500 for "yes, still true" helps nobody.
-    return { binding: alreadyBound, replaced: [] }
+  const confidence = input.confidence ?? 'declared'
+  const source = input.source ?? 'user'
+
+  const alreadyPresent = existing.find((binding) => binding.documentId === input.documentId)
+  if (alreadyPresent) {
+    // Declaring the same thing twice is not an error. It is not always a no-op
+    // either: a classifier's `suggested` binding that the user now confirms
+    // must become `declared`, or the prompt keeps marking it unbestätigt no
+    // matter how often the user confirms it. Only ever upgrades — a repeat that
+    // says nothing new leaves the row alone.
+    const upgrades = alreadyPresent.confidence === 'suggested' && confidence === 'declared'
+    if (!upgrades) return { binding: alreadyPresent, replaced: [] }
+
+    await confirmBinding(input.projectId, alreadyPresent.id, confidence, source)
+    await invalidateProjectPromptViewCache(input.projectId, session.organizationId)
+    return {
+      binding: { ...alreadyPresent, confidence, source },
+      replaced: [],
+    }
   }
 
   const replaced = definition.cardinality === 'one' ? existing : []
-  if (replaced.length > 0) {
-    await deleteBindings(
-      input.projectId,
-      replaced.map((binding) => binding.id)
-    )
-  }
 
-  await insertBinding({
-    organizationId: session.organizationId,
-    projectId: input.projectId,
-    documentId: input.documentId,
-    role,
-    scopeInstanceId,
-    confidence: input.confidence ?? 'declared',
-    source: input.source ?? 'user',
-    createdBy: session.userId,
-  })
+  // One statement, not two. Separately, a failing insert left the slot EMPTY —
+  // the user's existing Bebauungsplan deleted and nothing put back.
+  await replaceSlotBinding(
+    {
+      organizationId: session.organizationId,
+      projectId: input.projectId,
+      documentId: input.documentId,
+      role,
+      scopeInstanceId,
+      confidence,
+      source,
+      createdBy: session.userId,
+    },
+    replaced.map((binding) => binding.id)
+  )
 
   // The agent's project context carries the bindings, and it is cached for five
   // minutes. Without this, a document declared now would not reach Piloti until
@@ -149,6 +163,10 @@ export async function revokeDocumentRole(
 ): Promise<void> {
   await requireProjectAccess(session, projectId, [...WRITE_PERMISSIONS])
   const removed = await deleteBindings(projectId, [bindingId])
-  if (removed === 0) throw new NotFoundError('Document role binding not found.')
+  // Invalidate BEFORE reporting the miss. Throwing first meant a retry after a
+  // failed invalidation deleted nothing, took this branch, and returned without
+  // touching the cache again — so the removed binding stayed in the agent's
+  // prompt view until the five-minute TTL expired.
   await invalidateProjectPromptViewCache(projectId, session.organizationId)
+  if (removed === 0) throw new NotFoundError('Document role binding not found.')
 }

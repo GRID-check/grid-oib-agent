@@ -64,12 +64,32 @@ function stubFetch(): FetchStub {
   return { fetch, calls, consistencyResponse: state }
 }
 
+/**
+ * The answers the wizard hard-requires (A1 / A2_adr / A2_country / A2_land / A5).
+ *
+ * `A2_adr` is deliberately under the free-text threshold (10 chars): it is a
+ * `text` question, so a realistic street address would enrol every fixture in
+ * the LLM consistency check and change what the flag-OFF cases are testing.
+ *
+ * Every review-step fixture carries them because a real user cannot reach a
+ * successful save without them: `handleSave` refuses and jumps to the first one
+ * missing. A fixture without them models a user who cannot exist — and used to
+ * pass only because that gate did not exist.
+ */
+const REQUIRED_ANSWERS: Record<string, ProjectPrimitiveValue> = {
+  A1: 'Test',
+  A2_adr: 'Wien 1',
+  A2_country: 'at',
+  A2_land: 'tirol',
+  A5: ['neubau'],
+}
+
 /** Seed a draft so the wizard restores these answers and opens on the Review step (module H). */
 function seedReviewDraft(answers: Record<string, ProjectPrimitiveValue>, savedAt?: number): void {
   localStorage.setItem(
     `intake-draft-${PROJECT_ID}`,
     JSON.stringify({
-      answers,
+      answers: { ...REQUIRED_ANSWERS, ...answers },
       currentStep: REVIEW_STEP,
       ...(savedAt !== undefined ? { savedAt } : {}),
     })
@@ -259,14 +279,15 @@ describe('ProjectIntakeWizard — Fix 3 save-success feedback', () => {
   it('toasts a save confirmation with the captured-fact count after a successful save', async () => {
     const user = userEvent.setup()
     stubFetch()
-    // country + bundesland + vorhabensart + the seeded project_name fact = 4 captured facts.
-    seedReviewDraft({ A2_country: 'at', A2_land: 'wien', A5: ['neubau'] })
+    // project_name + standort_adresse + country + bundesland + vorhabensart:
+    // the five facts the required-answer set produces.
+    seedReviewDraft({ A2_land: 'wien' })
     renderWizard(false)
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
 
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
-    expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/4 details captured/i))
+    expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/5 details captured/i))
   })
 
   it('does NOT toast a success when the save fails', async () => {
@@ -934,5 +955,81 @@ describe('ProjectIntakeWizard — Rest überspringen', () => {
     // Skipping must not open the one gate the spec keeps closed.
     await user.click(screen.getByRole('button', { name: /^next$/i }))
     expect(await screen.findByText(/Modul A/)).toBeInTheDocument()
+  })
+})
+
+describe('ProjectIntakeWizard — required answers gate the save', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+  afterEach(() => localStorage.clear())
+
+  /** A draft that lands on Modul H with a required answer missing. */
+  function seedIncompleteReviewDraft(omit: string): void {
+    const answers: Record<string, ProjectPrimitiveValue> = { ...REQUIRED_ANSWERS }
+    delete answers[omit]
+    localStorage.setItem(
+      `intake-draft-${PROJECT_ID}`,
+      JSON.stringify({ answers, currentStep: REVIEW_STEP })
+    )
+  }
+
+  it('refuses to persist a profile missing a required answer', async () => {
+    const user = userEvent.setup()
+    const stub = stubFetch()
+    seedIncompleteReviewDraft('A5')
+    renderWizard(false)
+
+    await user.click(await screen.findByRole('button', { name: /save/i }))
+
+    // Modul H declares no required questions of its own, so before this gate
+    // ANY route onto it — the module rail, a restored draft, a condition that
+    // turned a question visible after it was passed — could save without them.
+    await waitFor(() => expect(screen.getByText(/Modul A/)).toBeInTheDocument())
+    expect(putProfileCalls(stub)).toHaveLength(0)
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it('lands the user on the unanswered question with its error showing', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    seedIncompleteReviewDraft('A5')
+    renderWizard(false)
+
+    await user.click(await screen.findByRole('button', { name: /save/i }))
+
+    // Refusing from the summary with nothing to act on would be worse than the
+    // hole it closes.
+    // A5 renders as a chip group, so the label owns no form control to query by
+    // — and its title also appears in the rail, hence findAllByText.
+    expect((await screen.findAllByText(/Art des Vorhabens/)).length).toBeGreaterThan(0)
+    expect(await screen.findByText(/mindestens eine Option|at least one/i)).toBeInTheDocument()
+  })
+
+  it('saves once every required answer is present', async () => {
+    const user = userEvent.setup()
+    const stub = stubFetch()
+    seedReviewDraft({})
+    renderWizard(false)
+
+    await user.click(await screen.findByRole('button', { name: /save/i }))
+
+    await waitFor(() => expect(putProfileCalls(stub)).toHaveLength(1))
+  })
+
+  it('the module rail can reach the summary without opening that hole', async () => {
+    const user = userEvent.setup()
+    const stub = stubFetch()
+    // No draft: a fresh wizard on Modul A, only A1 seeded from the project name.
+    renderWizard(false)
+    const rail = await screen.findByRole('navigation', { name: /wizard modules/i })
+
+    await user.click(within(rail).getByText('Zusammenfassung'))
+    await user.click(await screen.findByRole('button', { name: /save/i }))
+
+    // Free navigation stays — the gate is on the save, not on the rail.
+    expect(putProfileCalls(stub)).toHaveLength(0)
   })
 })

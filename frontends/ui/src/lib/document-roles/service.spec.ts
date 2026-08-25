@@ -20,6 +20,7 @@ const repo = vi.hoisted(() => ({
   bindings: [] as DocumentRoleBinding[],
   inserted: [] as Record<string, unknown>[],
   deleted: [] as string[],
+  confirmed: [] as Array<{ bindingId: string; confidence: string; source: string }>,
   documentInProject: true,
 }))
 
@@ -27,11 +28,40 @@ vi.mock('./repository', () => ({
   listProjectDocumentRoles: vi.fn(async () => repo.bindings),
   findBindingsForRole: vi.fn(async () => repo.bindings),
   documentBelongsToProject: vi.fn(async () => repo.documentInProject),
-  insertBinding: vi.fn(async (input: Record<string, unknown>) => {
-    repo.inserted.push(input)
-    repo.bindings = [...repo.bindings, binding({ documentId: String(input.documentId) })]
-    return 'new-binding'
-  }),
+  // The replacement is ONE call now, not a delete followed by an insert: the
+  // two separate statements could leave a single-holder slot empty when the
+  // insert failed. The double bookkeeping here mirrors that both still happen,
+  // inside one transaction.
+  replaceSlotBinding: vi.fn(
+    async (input: Record<string, unknown>, displacedIds: readonly string[]) => {
+      const matched = repo.bindings.filter((b) => displacedIds.includes(b.id)).map((b) => b.id)
+      repo.deleted.push(...matched)
+      repo.bindings = repo.bindings.filter((b) => !displacedIds.includes(b.id))
+      repo.inserted.push(input)
+      repo.bindings = [
+        ...repo.bindings,
+        binding({
+          documentId: String(input.documentId),
+          confidence: input.confidence as DocumentRoleBinding['confidence'],
+          source: input.source as DocumentRoleBinding['source'],
+        }),
+      ]
+      return 'new-binding'
+    }
+  ),
+  confirmBinding: vi.fn(
+    async (
+      _projectId: string,
+      bindingId: string,
+      confidence: DocumentRoleBinding['confidence'],
+      source: DocumentRoleBinding['source']
+    ) => {
+      repo.confirmed.push({ bindingId, confidence, source })
+      repo.bindings = repo.bindings.map((b) =>
+        b.id === bindingId ? { ...b, confidence, source } : b
+      )
+    }
+  ),
   deleteBindings: vi.fn(async (_projectId: string, ids: readonly string[]) => {
     // Count what actually matched, as the real repository does via
     // `.returning()`. Returning `ids.length` unconditionally made the
@@ -191,5 +221,62 @@ describe('revokeDocumentRole', () => {
     repo.bindings = [binding({ id: 'binding-7' })]
     await expect(revokeDocumentRole('proj-1', 'binding-7', session)).resolves.toBeUndefined()
     expect(repo.deleted).toEqual(['binding-7'])
+  })
+})
+
+describe('declareDocumentRole — a repeat can confirm', () => {
+  beforeEach(() => {
+    repo.bindings = []
+    repo.inserted = []
+    repo.deleted = []
+    repo.confirmed = []
+    repo.documentInProject = true
+    vi.clearAllMocks()
+  })
+
+  it('upgrades a classifier suggestion the user confirms', async () => {
+    repo.bindings = [binding({ confidence: 'suggested', source: 'classifier' })]
+
+    const result = await declareDocumentRole(
+      { projectId: 'proj-1', documentId: 'doc-1', role: 'bebauungsplan' },
+      session
+    )
+
+    // The "already bound" early return handed back the old row untouched, so
+    // the prompt kept marking it [nicht bestätigt] however often the user
+    // confirmed it.
+    expect(repo.confirmed).toEqual([
+      { bindingId: 'binding-1', confidence: 'declared', source: 'user' },
+    ])
+    expect(result.binding.confidence).toBe('declared')
+  })
+
+  it('leaves a repeat that says nothing new alone', async () => {
+    repo.bindings = [binding({ confidence: 'declared', source: 'user' })]
+
+    await declareDocumentRole(
+      { projectId: 'proj-1', documentId: 'doc-1', role: 'bebauungsplan' },
+      session
+    )
+
+    expect(repo.confirmed).toEqual([])
+  })
+
+  it('never downgrades a confirmed binding back to a suggestion', async () => {
+    repo.bindings = [binding({ confidence: 'declared', source: 'user' })]
+
+    await declareDocumentRole(
+      {
+        projectId: 'proj-1',
+        documentId: 'doc-1',
+        role: 'bebauungsplan',
+        confidence: 'suggested',
+        source: 'classifier',
+      },
+      session
+    )
+
+    // A later classifier pass must not un-confirm what a human decided.
+    expect(repo.confirmed).toEqual([])
   })
 })

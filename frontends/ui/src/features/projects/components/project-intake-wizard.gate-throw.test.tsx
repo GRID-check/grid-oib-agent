@@ -65,7 +65,19 @@ describe('ProjectIntakeWizard — Fix 2 pre-save gate fail-open', () => {
     const reviewStep = projectIntakeDefinitionV1.stages.length - 1
     localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
-      JSON.stringify({ answers: { A2_land: 'wien' }, currentStep: reviewStep })
+      JSON.stringify({
+        // Every required answer, because `handleSave` now refuses without them
+        // — a fixture missing them exercises that gate rather than the fail-open
+        // path this spec is about.
+        answers: {
+          A1: 'Test',
+          A2_adr: 'Wien 1',
+          A2_country: 'at',
+          A2_land: 'wien',
+          A5: ['neubau'],
+        },
+        currentStep: reviewStep,
+      })
     )
     render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" conflictCheckEnabled />)
 

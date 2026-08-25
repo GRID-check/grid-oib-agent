@@ -51,9 +51,24 @@ ALTER TABLE "document_roles"
   FOREIGN KEY ("document_id", "project_id")
   REFERENCES "documents"("id", "project_id") ON DELETE CASCADE;
 --> statement-breakpoint
+-- The project reference carries the ORGANIZATION too.
+--
+-- `organization_id` is denormalised onto this table and `grid_secure_table`
+-- checks only that column, so a single-column project reference let a row bear
+-- this tenant's organization while pointing at another tenant's project: every
+-- constraint passed, and the row was then readable under this tenant's own
+-- policy. Tenancy is structural here (ADR-0041), not a predicate the writer is
+-- trusted to get right, so the key includes the column the policy trusts.
+ALTER TABLE "projects"
+  DROP CONSTRAINT IF EXISTS projects_id_organization_id_key;
+--> statement-breakpoint
+ALTER TABLE "projects"
+  ADD CONSTRAINT projects_id_organization_id_key UNIQUE (id, organization_id);
+--> statement-breakpoint
 ALTER TABLE "document_roles"
-  ADD CONSTRAINT document_roles_project_id_fkey
-  FOREIGN KEY ("project_id") REFERENCES "projects"("id") ON DELETE CASCADE;
+  ADD CONSTRAINT document_roles_project_id_organization_id_fkey
+  FOREIGN KEY ("project_id", "organization_id")
+  REFERENCES "projects"("id", "organization_id") ON DELETE CASCADE;
 --> statement-breakpoint
 -- One binding per (project, document, role, instance). NULLS NOT DISTINCT
 -- because a project-scope role stores NULL for the instance, and under the

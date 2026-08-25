@@ -434,3 +434,40 @@ class TestBaseShelfIsFolded:
     def test_an_empty_base_shelf_still_says_it_is_empty(self):
         text = render_inventory_block([], in_scope_shelves=[Shelf.BASE])
         assert "empty" in text.lower()
+
+
+class TestTruncationEdgesTheFirstPassMissed:
+    """Two shelves the drop notice did not reach, both found in review.
+
+    Both are the same defect the per-shelf notice exists to prevent: a list the
+    cap shortened, presented as the whole of it.
+    """
+
+    def teardown_method(self):
+        set_inventory_drops(None)
+
+    def test_base_still_names_itself_when_the_cap_took_every_row(self):
+        # User shelves spend the whole cap, so base keeps nothing.
+        docs = [_doc(f"proj-{i:02d}.pdf", collection="proj_1", shelf="project") for i in range(6)]
+        docs += [_doc(f"oib-{i:02d}.pdf", collection="oib_knowledge", shelf="base") for i in range(39)]
+        kept, dropped = allocate_inventory_detailed(docs, max_documents=6)
+        set_inventory_drops(dropped)
+
+        rendered = render_inventory_block(kept, in_scope_shelves=[Shelf.PROJECT, Shelf.BASE])
+
+        # Reporting the platform corpus as "(empty)" tells the model the OIB
+        # files are gone — on the one shelf present in every single request.
+        assert "39 Dateien" in rendered
+        base = rendered.split("### Basiswissen", 1)[1]
+        assert "empty" not in base.lower()
+
+    def test_a_truncated_unattributed_list_says_it_is_incomplete(self):
+        docs = [_doc(f"mystery-{i:02d}.pdf", collection="unknown_coll") for i in range(9)]
+        kept, dropped = allocate_inventory_detailed(docs, max_documents=3)
+        set_inventory_drops(dropped)
+
+        rendered = render_inventory_block(kept)
+
+        # Shelf-less drops are recorded under `None`, a key no shelf lookup hits.
+        assert "### Unattributed" in rendered
+        assert "weitere Datei(en) ohne angegebenes Regal" in rendered

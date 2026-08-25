@@ -43,6 +43,22 @@ export interface PromptRoleBinding {
 export type BauwerkNames = Readonly<Record<string, string>>
 
 /**
+ * A role the intake answers say this project should hold, at one scope instance.
+ *
+ * The instance is part of the recommendation, not decoration: `bestandsplan`
+ * recommended for two buildings is two recommendations, and one of them can be
+ * satisfied while the other is not.
+ */
+export interface RecommendedSlot {
+  role: DocumentRole
+  scopeInstanceId: string | null
+}
+
+function slotKey(role: DocumentRole, scopeInstanceId: string | null): string {
+  return `${role}@${scopeInstanceId ?? ''}`
+}
+
+/**
  * Backstop, not the mechanism. The per-slot collapse above is what bounds this
  * block; the cap only catches a project with an implausible number of buildings
  * (each one adds two slots). Following the repo's own rule about caps, a
@@ -115,7 +131,7 @@ function renderSlot(slot: Slot, names: BauwerkNames): string {
  */
 export function buildDocumentRolesSection(
   bindings: readonly PromptRoleBinding[],
-  recommended: readonly DocumentRole[] = [],
+  recommended: readonly RecommendedSlot[] = [],
   bauwerkNames: BauwerkNames = {}
 ): string {
   if (bindings.length === 0 && recommended.length === 0) return ''
@@ -124,10 +140,18 @@ export function buildDocumentRolesSection(
   const shown = slots.slice(0, MAX_SLOT_LINES)
   const present = shown.map((slot) => renderSlot(slot, bauwerkNames))
 
-  const bound = new Set(slots.map((slot) => slot.role))
+  // Keyed by role AND scope instance, not role alone. With two buildings and a
+  // Bestandsplan bound only to the first, a role-only key counted the role as
+  // covered and dropped the second building's entry — the agent then could not
+  // tell that the Hoftrakt has no plan, which is precisely what this section
+  // exists to say.
+  const bound = new Set(slots.map((slot) => slotKey(slot.role, slot.scopeInstanceId)))
   const missing = recommended
-    .filter((role) => !bound.has(role))
-    .map((role) => `- ${documentRoleDefinition(role).label}`)
+    .filter((entry) => !bound.has(slotKey(entry.role, entry.scopeInstanceId)))
+    .map(
+      (entry) =>
+        `- ${documentRoleDefinition(entry.role).label}${scopeSuffix(entry.scopeInstanceId, bauwerkNames)}`
+    )
 
   const lines: string[] = []
   if (present.length > 0) {

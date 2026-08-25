@@ -642,6 +642,8 @@ describe('v1.0 → v1.2 legacy bridges (answersFromProfile)', () => {
   })
 
   it('condenses the three Erschließungs-booleans, refusing a partial picture', () => {
+    // Never 'ja': B6 also covers electricity, which v1.0 never asked, so all
+    // three legacy yeses still leave the new question genuinely unanswered.
     const full = answersFromProfile(
       {
         ...empty,
@@ -649,7 +651,7 @@ describe('v1.0 → v1.2 legacy bridges (answersFromProfile)', () => {
       },
       definition
     )
-    expect(full.answers['B6']).toBe('ja')
+    expect(full.answers['B6']).toBeUndefined()
 
     const mixed = answersFromProfile(
       {

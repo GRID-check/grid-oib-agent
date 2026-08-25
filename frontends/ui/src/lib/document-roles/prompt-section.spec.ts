@@ -42,20 +42,29 @@ describe('buildDocumentRolesSection', () => {
   })
 
   it('names a missing role explicitly rather than leaving it to be inferred', () => {
-    const section = buildDocumentRolesSection([], ['bebauungsplan'])
+    const section = buildDocumentRolesSection(
+      [],
+      [{ role: 'bebauungsplan', scopeInstanceId: null }]
+    )
     expect(section).toContain('documents_missing:')
     expect(section).toContain('- Bebauungsplan')
   })
 
   it('stops reporting a role as missing once it is bound', () => {
-    const section = buildDocumentRolesSection([bound()], ['bebauungsplan'])
+    const section = buildDocumentRolesSection(
+      [bound()],
+      [{ role: 'bebauungsplan', scopeInstanceId: null }]
+    )
     expect(section).not.toContain('documents_missing:')
   })
 
   it('leaves an unrecommended, unbound role out entirely', () => {
     // Every role is offerable, but telling the agent that a project with no
     // demolition lacks a Schadstoffgutachten costs tokens on every turn.
-    const section = buildDocumentRolesSection([bound()], ['bebauungsplan'])
+    const section = buildDocumentRolesSection(
+      [bound()],
+      [{ role: 'bebauungsplan', scopeInstanceId: null }]
+    )
     expect(section).not.toContain('Schadstoffgutachten')
   })
 
@@ -136,5 +145,45 @@ describe('buildDocumentRolesSection', () => {
       bound({ role: 'bebauungsplan', filename: 'bplan.pdf' }),
     ])
     expect(section.indexOf('bplan.pdf')).toBeLessThan(section.indexOf('lage.pdf'))
+  })
+})
+
+describe('buildDocumentRolesSection — a recommendation is per scope instance', () => {
+  const plan = (bauwerkId: string): PromptRoleBinding => ({
+    role: 'bestandsplan',
+    scopeInstanceId: bauwerkId,
+    confidence: 'declared',
+    filename: `bestand-${bauwerkId}.pdf`,
+    displayName: null,
+  })
+
+  it('still reports the second building when only the first is covered', () => {
+    const section = buildDocumentRolesSection(
+      [plan('bw1')],
+      [
+        { role: 'bestandsplan', scopeInstanceId: 'bw1' },
+        { role: 'bestandsplan', scopeInstanceId: 'bw2' },
+      ],
+      { bw1: 'Haupthaus', bw2: 'Hoftrakt' }
+    )
+
+    // Keyed on the role alone, binding bw1's plan counted the role as covered
+    // and silently dropped bw2 — so the agent could not tell that the Hoftrakt
+    // has no plan, which is the one thing this section exists to say.
+    expect(section).toContain('documents_missing:')
+    expect(section).toContain('Hoftrakt')
+    expect(section).not.toContain('- Bestandspläne (Haupthaus)\n')
+  })
+
+  it('drops the entry once that building is covered too', () => {
+    const section = buildDocumentRolesSection(
+      [plan('bw1'), plan('bw2')],
+      [
+        { role: 'bestandsplan', scopeInstanceId: 'bw1' },
+        { role: 'bestandsplan', scopeInstanceId: 'bw2' },
+      ],
+      { bw1: 'Haupthaus', bw2: 'Hoftrakt' }
+    )
+    expect(section).not.toContain('documents_missing:')
   })
 })

@@ -80,17 +80,17 @@ export const resourceShares = pgTable(
     subjectUniq: uniqueIndex('uniq_resource_shares_resource_subject').on(
       table.resourceType,
       table.resourceId,
-      table.subjectUserId,
+      table.subjectUserId
     ),
     /** "Everything shared with me" — the reverse lookup this table exists for. */
     subjectIdx: index('idx_resource_shares_org_subject').on(
       table.organizationId,
       table.subjectUserId,
-      table.resourceType,
+      table.resourceType
     ),
     /** The roster of one resource, and the cascade delete on purge. */
     resourceIdx: index('idx_resource_shares_resource').on(table.resourceType, table.resourceId),
-  }),
+  })
 )
 
 export type ResourceShare = typeof resourceShares.$inferSelect

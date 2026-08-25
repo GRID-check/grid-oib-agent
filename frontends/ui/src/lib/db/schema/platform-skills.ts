@@ -85,10 +85,7 @@ export const platformSkills = pgTable(
      * is what makes `standard` an enforced boundary rather than a convention an
      * org could route around by crafting a request.
      */
-    delivery: text('delivery')
-      .$type<PlatformSkillDelivery>()
-      .notNull()
-      .default('offer'),
+    delivery: text('delivery').$type<PlatformSkillDelivery>().notNull().default('offer'),
     createdBy: text('created_by').notNull(),
     createdByEmail: text('created_by_email'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -96,7 +93,7 @@ export const platformSkills = pgTable(
   },
   (table) => ({
     nameIdx: uniqueIndex('idx_platform_skills_name').on(table.name),
-  }),
+  })
 )
 
 export type PlatformSkillRow = typeof platformSkills.$inferSelect

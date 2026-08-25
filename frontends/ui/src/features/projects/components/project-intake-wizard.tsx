@@ -400,6 +400,18 @@ export function ProjectIntakeWizard({
 
   const hiddenByQuickStart = stageVisibleQuestions.length - flatVisibleQuestions.length
 
+  /**
+   * The stage a bauwerk module renders under Schnellstart.
+   *
+   * Required questions survive the filter for the same reason they do on a
+   * project-scope module: narrowing the view must never narrow the gate.
+   */
+  const quickStartStage = useMemo(() => {
+    if (!stage) return stage
+    if (!stageQuickStarted) return stage
+    return { ...stage, questions: stage.questions.filter((q) => q.core || q.required) }
+  }, [stage, stageQuickStarted])
+
   const stageValid = useMemo(() => {
     if (!stage) return true
     if (stage.scope === 'bauwerk') {
@@ -438,6 +450,9 @@ export function ProjectIntakeWizard({
           for (const q of s.questions) {
             if (evaluateIntakeCondition(q, answers, bw.id)) tally(q, answerKeyFor(q.id, bw.id))
           }
+          for (const zone of zoneQuestionsFor(s, bw.id, answers)) {
+            tally(zone.question, answerKeyFor(zone.question.id, bw.id, zone.use))
+          }
         }
       } else {
         for (const q of s.questions) {
@@ -466,6 +481,12 @@ export function ProjectIntakeWizard({
           return
         if (q.required) return
         if (isIntakeAnswerProvided(next[key])) return
+        if (q.type === 'yes_no_open') {
+          // Its own third state, not a mode sibling — so the control renders as
+          // "noch offen" rather than merely unselected.
+          next[key] = 'offen'
+          return
+        }
         next[modeKeyFor(key)] = 'offen'
         delete next[key]
       }
@@ -473,6 +494,11 @@ export function ProjectIntakeWizard({
         for (const bw of bauwerke) {
           for (const q of stage.questions) {
             if (evaluateIntakeCondition(q, next, bw.id)) markOpen(q, answerKeyFor(q.id, bw.id))
+          }
+          // Modul D renders a question set per selected use. Skipping the
+          // module while leaving those on screen unanswered is not skipping it.
+          for (const zone of zoneQuestionsFor(stage, bw.id, next)) {
+            markOpen(zone.question, answerKeyFor(zone.question.id, bw.id, zone.use))
           }
         }
       } else {
@@ -612,8 +638,55 @@ export function ProjectIntakeWizard({
     router.refresh()
   }, [router])
 
+  /**
+   * The first unanswered required question anywhere in the definition.
+   *
+   * Per-stage validation only guards the Next button, which was enough while
+   * the only way forward was linear. It is not enough now: Modul H declares no
+   * required questions of its own, so ANY route that lands on it — the module
+   * rail, a restored draft's `currentStep`, a condition that turned a required
+   * question visible after it was passed — reaches a Save that would persist a
+   * profile without A1/A2/A5.
+   *
+   * Guarding the save rather than re-locking the rail is deliberate. Locking
+   * navigation would close one route to a gate that is missing, and take the
+   * rail's whole point with it; this closes the gate.
+   */
+  const firstMissingRequired = useCallback((): { stageIndex: number; key: string } | null => {
+    if (!definition) return null
+    for (const [stageIndex, s] of definition.stages.entries()) {
+      if (s.scope === 'bauwerk') {
+        for (const bw of bauwerke) {
+          for (const q of s.questions) {
+            if (!q.required) continue
+            const key = answerKeyFor(q.id, bw.id)
+            if (!evaluateIntakeCondition(q, answers, bw.id)) continue
+            if (!isQuestionSatisfied(q, answers, key)) return { stageIndex, key }
+          }
+        }
+        continue
+      }
+      for (const q of s.questions) {
+        if (!q.required) continue
+        if (!evaluateIntakeCondition(q, answers)) continue
+        if (!isQuestionSatisfied(q, answers, q.id)) return { stageIndex, key: q.id }
+      }
+    }
+    return null
+  }, [definition, bauwerke, answers])
+
   const handleSave = useCallback(async () => {
     if (!definition) return
+
+    const missing = firstMissingRequired()
+    if (missing) {
+      // Land the user ON the unanswered question with its error showing, rather
+      // than refusing from the summary with nothing to act on.
+      setTouched((previous) => new Set(previous).add(missing.key))
+      goToStep(missing.stageIndex)
+      return
+    }
+
     if (!conflictCheckEnabled) {
       await runSave()
       return
@@ -671,7 +744,16 @@ export function ProjectIntakeWizard({
       return
     }
     await runSave()
-  }, [definition, conflictCheckEnabled, answers, projectId, locale, runSave])
+  }, [
+    definition,
+    conflictCheckEnabled,
+    answers,
+    projectId,
+    locale,
+    runSave,
+    firstMissingRequired,
+    goToStep,
+  ])
 
   const handleProceedAnyway = useCallback(() => {
     void runSave()
@@ -879,7 +961,11 @@ export function ProjectIntakeWizard({
                   </div>
                 ) : stage.scope === 'bauwerk' ? (
                   <BauwerkStage
-                    stage={stage}
+                    // Schnellstart is a view over the QUESTIONS, so it has to be
+                    // applied here as well: passing the raw stage left modules
+                    // C, D and E showing every question while the toggle claimed
+                    // to be showing only Kernfragen.
+                    stage={quickStartStage}
                     bauwerke={bauwerke}
                     answers={answers}
                     touched={touched}
@@ -1151,6 +1237,36 @@ function QuickStartToggle({
   )
 }
 
+/**
+ * The zone questions a building currently renders (Modul D).
+ *
+ * Zones are implicit: each use selected in `D0` expands into `zoneCommon` plus
+ * that use's own set. Anything walking a bauwerk stage has to expand them too,
+ * or it silently sees a module of three questions where the user sees thirty —
+ * which is how both the per-module count and "Rest überspringen" came to ignore
+ * every field in Modul D.
+ */
+function zoneQuestionsFor(
+  stage: ProjectIntakeStage,
+  bauwerkId: string,
+  answers: Answers
+): Array<{ question: ProjectIntakeQuestion; use: string }> {
+  if (!stage.zoneCommon && !stage.zoneDefinitions) return []
+  const selected = answers[answerKeyFor('D0', bauwerkId)]
+  if (!Array.isArray(selected)) return []
+  const out: Array<{ question: ProjectIntakeQuestion; use: string }> = []
+  for (const use of selected) {
+    const key = String(use)
+    for (const question of [
+      ...(stage.zoneCommon ?? []),
+      ...(stage.zoneDefinitions?.[key]?.questions ?? []),
+    ]) {
+      out.push({ question, use: key })
+    }
+  }
+  return out
+}
+
 /** The highest bwN number present, so newly-added buildings never reuse an id. */
 function maxBwNumber(bauwerke: BauwerkInstance[]): number {
   return bauwerke.reduce((max, bw) => {
@@ -1399,6 +1515,14 @@ function reviewItemsFor(
       if (raw === 'offen') items.push({ label: q.label, value: '—', mode: 'offen' })
       else if (raw === 'ja' || raw === 'nein')
         items.push({ label: q.label, value: raw === 'ja' ? 'Ja' : 'Nein' })
+      continue
+    }
+    // A plain question can be explicitly open too: "Rest überspringen" records
+    // an unanswered one as mode 'offen'. Reading the sibling only for
+    // `number_tri` made every skipped text/select question vanish from this
+    // checklist — the one place the feature promises they reappear.
+    if (answers[modeKeyFor(key)] === 'offen') {
+      items.push({ label: q.label, value: '—', mode: 'offen' })
       continue
     }
     if (isIntakeAnswerProvided(raw))

@@ -509,8 +509,14 @@ def render_inventory_block(
         rows = groups.get(shelf, [])
         lines.append(f"### {_heading(shelf)}")
         lines.append(_SHELF_BLURBS[shelf])
-        if shelf is Shelf.BASE and focused is not Shelf.BASE and rows:
-            lines.extend(_folded_base_lines(len(rows) + dropped.get(Shelf.BASE, 0)))
+        base_total = len(rows) + dropped.get(Shelf.BASE, 0)
+        # `base_total`, not `rows`: when user shelves spend the whole cap, every
+        # base row is dropped and the old `rows` guard fell through to
+        # "(empty — no files on this shelf)" plus a bare omission notice. That
+        # tells the model the OIB corpus is GONE, on the one shelf that is a
+        # platform constant present on every single request.
+        if shelf is Shelf.BASE and focused is not Shelf.BASE and base_total:
+            lines.extend(_folded_base_lines(base_total))
             lines.append("")
             continue
         if not rows:
@@ -541,6 +547,17 @@ def render_inventory_block(
         for doc in unknown:
             summary = _summary_of(doc) or "No summary available"
             lines.append(f"- **{_file_name_of(doc)}**: {summary}")
+        # Shelf-less files are capped like any other, and their drops are
+        # recorded under `None` — a key no shelf in `show` ever looks up. Without
+        # this the section presents a truncated list as the whole of it, which is
+        # the exact defect the per-shelf notice exists to prevent.
+        missing_unknown = dropped.get(None, 0)
+        if missing_unknown > 0:
+            lines.append(
+                f"- (und {missing_unknown} weitere Datei(en) ohne angegebenes Regal, hier nicht "
+                f"aufgeführt — diese Liste ist unvollständig; sage das, statt sie als vollständig "
+                f"zu behandeln)"
+            )
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"

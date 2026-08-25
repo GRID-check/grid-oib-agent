@@ -64,6 +64,18 @@ export function DocumentRoleField({
     [bindings, role, scopeInstanceId]
   )
 
+  /**
+   * Run an action and surface a rejection.
+   *
+   * `bind`, `unbind` and `uploadAndBind` were every one of them invoked with a
+   * bare `void`, so a network error or a malformed response rejected into
+   * nothing: the upload flow could leave a file uploaded and unbound while the
+   * UI reported no failure at all.
+   */
+  const run = useCallback((action: Promise<void>) => {
+    void action.catch(() => toast.error('Aktion fehlgeschlagen. Bitte erneut versuchen.'))
+  }, [])
+
   const bind = useCallback(
     async (documentId: string) => {
       setBusy(true)
@@ -76,6 +88,10 @@ export function DocumentRoleField({
         if (!response.ok) {
           const body = (await response.json().catch(() => null)) as { error?: string } | null
           toast.error(body?.error ?? 'Dokument konnte nicht zugeordnet werden.')
+          // The upload may have succeeded even though the binding did not.
+          // Returning without refreshing left the new file out of `documents`,
+          // so this mounted field could not offer it for a retry.
+          await refresh({ afterWrite: true })
           return
         }
         // A single-holder role displaces whatever held it. Naming the document
@@ -85,7 +101,7 @@ export function DocumentRoleField({
         for (const previous of body.replaced ?? []) {
           toast.info(`${documentLabel(previous)} ist nicht mehr ${definition.label}.`)
         }
-        await refresh()
+        await refresh({ afterWrite: true })
       } finally {
         setBusy(false)
       }
@@ -180,7 +196,7 @@ export function DocumentRoleField({
                 size="icon"
                 className="size-7 shrink-0"
                 disabled={busy}
-                onClick={() => void unbind(binding.id)}
+                onClick={() => run(unbind(binding.id))}
                 aria-label={`${documentLabel(binding)} nicht mehr als ${definition.label} führen`}
               >
                 <X className="size-3.5" aria-hidden />
@@ -192,7 +208,7 @@ export function DocumentRoleField({
 
       <div className="flex flex-wrap items-center gap-2">
         {selectable.length > 0 && (
-          <Select disabled={busy} value="" onValueChange={(value) => void bind(value)}>
+          <Select disabled={busy} value="" onValueChange={(value) => run(bind(value))}>
             <SelectTrigger className="h-9 max-w-xs">
               <SelectValue
                 placeholder={full ? 'Anderes Dokument wählen …' : 'Vorhandenes Dokument wählen …'}
@@ -217,7 +233,7 @@ export function DocumentRoleField({
           multiple={definition.cardinality === 'many'}
           className="sr-only"
           onChange={(event) => {
-            if (event.target.files) void uploadAndBind(event.target.files)
+            if (event.target.files) run(uploadAndBind(event.target.files))
             event.target.value = ''
           }}
         />
@@ -247,7 +263,16 @@ export function DocumentRoleField({
         onDrop={(event) => {
           event.preventDefault()
           setDragging(false)
-          if (event.dataTransfer.files) void uploadAndBind(event.dataTransfer.files)
+          // Ignored while a write is in flight: the other controls are disabled,
+          // but a drop bypassed them, and two overlapping writes to a
+          // single-holder slot leave whichever finishes LAST as the holder.
+          if (busy) return
+          const dropped = event.dataTransfer.files
+          if (!dropped?.length) return
+          // A slot that holds one document takes one file. Binding all of them
+          // made each replace the last, silently keeping only the final file.
+          const files = definition.cardinality === 'one' ? [dropped[0]] : Array.from(dropped)
+          run(uploadAndBind(files))
         }}
         className={cn(
           'rounded-lg border border-dashed px-3 py-2 text-center text-xs transition-colors duration-200 ease-out motion-reduce:transition-none',

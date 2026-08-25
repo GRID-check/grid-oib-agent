@@ -59,31 +59,63 @@ async function load(projectId: string): Promise<void> {
     fetch(`/api/documents?projectId=${encodeURIComponent(projectId)}`).catch(() => null),
   ])
 
-  const roles = rolesResponse?.ok
-    ? (((await rolesResponse.json()) as { roles?: RoleBinding[] }).roles ?? [])
-    : []
-  const documents = documentsResponse?.ok
-    ? (((await documentsResponse.json()) as { documents?: ProjectDocumentOption[] }).documents ??
-      [])
-    : []
+  // `.json()` on an OK response still rejects on a truncated or non-JSON body,
+  // and a body of literal `null` type-checks but has no `.roles`. Either used to
+  // reject `load` before `publish`, leaving `bindings` at `null` — which every
+  // subscribed field renders as a spinner that never stops.
+  const readList = async <T>(
+    response: Response | null,
+    key: 'roles' | 'documents'
+  ): Promise<T[]> => {
+    if (!response?.ok) return []
+    const parsed: unknown = await response.json().catch(() => null)
+    if (!parsed || typeof parsed !== 'object') return []
+    const value = (parsed as Record<string, unknown>)[key]
+    return Array.isArray(value) ? (value as T[]) : []
+  }
+  const roles = await readList<RoleBinding>(rolesResponse, 'roles')
+  const documents = await readList<ProjectDocumentOption>(documentsResponse, 'documents')
 
   // Bindings resolve to `[]` rather than staying `null` even when the request
   // failed: a field that shows a spinner forever is worse than one that shows
   // an empty slot the user can still fill.
-  publish(projectId, { bindings: roles, documents })
+  //
+  // Only while someone is still listening, though. Publishing after the last
+  // subscriber unmounted re-created the cache entry that cleanup had just
+  // deleted, so reopening the project saw `states.has(projectId)` and skipped
+  // the refetch — serving a snapshot from before whatever happened in between.
+  if (listeners.has(projectId)) publish(projectId, { bindings: roles, documents })
 }
 
-/** Refetch, coalescing concurrent callers onto one request. */
-export function refreshDocumentRoles(projectId: string): Promise<void> {
+/**
+ * Refetch, coalescing concurrent callers onto one request.
+ *
+ * A post-write refresh may NOT coalesce onto an in-flight read: that request was
+ * issued before the write landed, so joining it returns pre-write data and no
+ * later request is ever made — every field then shows the old binding until
+ * something else refetches. Such a caller waits for the in-flight read, then
+ * starts its own.
+ */
+export function refreshDocumentRoles(
+  projectId: string,
+  options?: { afterWrite?: boolean }
+): Promise<void> {
   const existing = inFlight.get(projectId)
-  if (existing) return existing
-  const promise = load(projectId).finally(() => inFlight.delete(projectId))
-  inFlight.set(projectId, promise)
-  return promise
+  if (existing && !options?.afterWrite) return existing
+
+  const start = (): Promise<void> => {
+    const promise = load(projectId).finally(() => {
+      if (inFlight.get(projectId) === promise) inFlight.delete(projectId)
+    })
+    inFlight.set(projectId, promise)
+    return promise
+  }
+
+  return existing ? existing.then(start, start) : start()
 }
 
 export function useDocumentRoles(projectId: string): DocumentRolesState & {
-  refresh: () => Promise<void>
+  refresh: (options?: { afterWrite?: boolean }) => Promise<void>
 } {
   const [state, setState] = useState<DocumentRolesState>(() => states.get(projectId) ?? EMPTY)
 
@@ -112,7 +144,10 @@ export function useDocumentRoles(projectId: string): DocumentRolesState & {
     }
   }, [projectId])
 
-  const refresh = useCallback(() => refreshDocumentRoles(projectId), [projectId])
+  const refresh = useCallback(
+    (options?: { afterWrite?: boolean }) => refreshDocumentRoles(projectId, options),
+    [projectId]
+  )
   return { ...state, refresh }
 }
 

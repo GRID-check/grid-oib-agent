@@ -7,7 +7,7 @@
 import { z } from 'zod'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
 import { declareDocumentRole, listDocumentRoles } from '@/lib/document-roles/service'
-import { DOCUMENT_ROLES, ROLE_CONFIDENCES, ROLE_SOURCES } from '@/lib/project-profile/document-roles'
+import { DOCUMENT_ROLES } from '@/lib/project-profile/document-roles'
 
 type Params = { id: string }
 
@@ -17,8 +17,15 @@ const declareSchema = z.object({
   // is accepted here without a second edit — and one removed is rejected.
   role: z.enum(DOCUMENT_ROLES),
   scopeInstanceId: z.string().min(1).max(64).nullable().optional(),
-  confidence: z.enum(ROLE_CONFIDENCES).optional(),
-  source: z.enum(ROLE_SOURCES).optional(),
+  // `confidence` and `source` are deliberately NOT accepted from the caller.
+  //
+  // They are provenance: `suggested` means a classifier proposed this and no
+  // human has confirmed it, and the prompt marks such a binding as unbestätigt.
+  // Letting the request name them let any `project:documents:write` holder mint
+  // a binding that reads as machine-proposed, or launder a real classifier
+  // suggestion into a confirmed fact. A human POSTing here IS the confirmation,
+  // so the service's defaults (`declared` / `user`) are the only correct values;
+  // classifier metadata is set by the server-side path that runs the classifier.
 })
 
 export const GET = apiRoute<Params>(

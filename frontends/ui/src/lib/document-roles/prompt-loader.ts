@@ -10,10 +10,11 @@
 import { findProjectProfile } from '@/lib/projects/repository'
 import { projectIntakeDefinitionV1 } from '@/lib/project-profile/intake-definition'
 import { answersFromProfile } from '@/lib/project-profile/intake-definition'
-import { recommendedRoles } from '@/lib/project-profile/document-roles'
+import { documentRoleDefinition, recommendedRoles } from '@/lib/project-profile/document-roles'
 import type { DocumentRole } from '@/lib/project-profile/document-roles'
 import { listProjectDocumentRoles } from './repository'
 import { buildDocumentRolesSection } from './prompt-section'
+import type { RecommendedSlot } from './prompt-section'
 
 export async function loadDocumentRolesPromptSection(
   projectId: string,
@@ -25,7 +26,7 @@ export async function loadDocumentRolesPromptSection(
       findProjectProfile(projectId, organizationId),
     ])
 
-    let recommended: DocumentRole[] = []
+    let recommended: RecommendedSlot[] = []
     const bauwerkNames: Record<string, string> = {}
 
     if (profile) {
@@ -34,12 +35,24 @@ export async function loadDocumentRolesPromptSection(
       // `bauwerk` condition read without an instance resolves against the
       // project-global answer, which would recommend Bestandspläne for every
       // building the moment any one of them is a Bestand.
-      const collected = new Set<DocumentRole>(recommendedRoles(answers))
+      //
+      // Each recommendation keeps the instance it was made for. Collapsing them
+      // into a set of roles made two buildings' Bestandspläne indistinguishable,
+      // so binding one silenced the other's missing entry.
+      const collected = new Map<string, RecommendedSlot>()
+      const add = (role: DocumentRole, scopeInstanceId: string | null) => {
+        collected.set(`${role}@${scopeInstanceId ?? ''}`, { role, scopeInstanceId })
+      }
+      for (const role of recommendedRoles(answers)) {
+        add(role, documentRoleDefinition(role).scope === 'bauwerk' ? null : null)
+      }
       for (const bauwerk of bauwerke) {
         bauwerkNames[bauwerk.id] = bauwerk.name
-        for (const role of recommendedRoles(answers, bauwerk.id)) collected.add(role)
+        for (const role of recommendedRoles(answers, bauwerk.id)) {
+          add(role, documentRoleDefinition(role).scope === 'bauwerk' ? bauwerk.id : null)
+        }
       }
-      recommended = [...collected]
+      recommended = [...collected.values()]
     }
 
     return buildDocumentRolesSection(bindings, recommended, bauwerkNames)

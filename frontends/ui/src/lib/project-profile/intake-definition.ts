@@ -1918,6 +1918,18 @@ export function answersFromProfile(
 // `mergeIntakeProfile` retires the intake-owned legacy keys.
 // ---------------------------------------------------------------------------
 
+/** The four v1.0 booleans that v1.2's `E2` multi-select absorbed. */
+const LEGACY_TECHNIK_KEYS = ['pv', 'lueftung', 'kuehlung', 'versickerung'] as const
+
+/** v1.0 `vorhabensart` → the v1.2 `CB4` measure it corresponds to. */
+const LEGACY_VORHABEN_TO_MASSNAHME: Record<string, string> = {
+  sanierung: 'huelle_sanierung',
+  umbau: 'umbau_innen',
+  zubau: 'zubau',
+  nutzungsaenderung: 'nutzungsaenderung',
+  abbruch: 'teilabbruch',
+}
+
 function legacyBoolean(profile: ProjectProfile, key: string): boolean | undefined {
   const value = profile.facts[key]?.value
   return typeof value === 'boolean' ? value : undefined
@@ -1963,6 +1975,12 @@ function applyLegacyAnswerBridges(
       if (bool !== undefined) {
         answers[answerKey] = bool ? 'ja' : 'nein'
         bridgedAny = true
+      } else if (profile.unknowns.includes(key)) {
+        // An explicitly-open legacy answer is an answer. Dropping it left
+        // `bridgedAny` false, so the C2 gate never opened and the whole
+        // Bestand block stayed hidden for a project that had described one.
+        answers[answerKey] = 'offen'
+        bridgedAny = true
       }
     }
     // A building whose Bestand was described IS a Bestandsgebäude — prefill the
@@ -1970,6 +1988,29 @@ function applyLegacyAnswerBridges(
     // unanswered C2.
     const c2Key = answerKeyFor('C2', bw)
     if (bridgedAny && answers[c2Key] === undefined) answers[c2Key] = 'bestand'
+
+    // CB6 sits behind a CB4 measure as well, and legacy profiles have no CB4.
+    // Without one the bridged answer renders nowhere and `buildIntakeProfile`
+    // drops it on save. The measures are read off the project's own
+    // `vorhabensart` rather than invented: v1.0 only ever ASKED A10 when A5
+    // included `sanierung`, so the mapping restates what the old catalog
+    // already implied.
+    const cb4Key = answerKeyFor('CB4', bw)
+    const cb6Key = answerKeyFor('CB6', bw)
+    if (answers[cb6Key] !== undefined && !isIntakeAnswerProvided(answers[cb4Key])) {
+      const vorhaben = profile.facts['vorhabensart']?.value
+      const measures = new Set<string>()
+      if (Array.isArray(vorhaben)) {
+        for (const art of vorhaben) {
+          const mapped = LEGACY_VORHABEN_TO_MASSNAHME[String(art)]
+          if (mapped) measures.add(mapped)
+        }
+      }
+      // CB6 only asks about the hull, so a bridged answer implies hull work
+      // even when `vorhabensart` named nothing that maps.
+      if (measures.size === 0) measures.add('huelle_sanierung')
+      answers[cb4Key] = [...measures]
+    }
   }
 
   for (const bw of bauwerke) {
@@ -2006,6 +2047,14 @@ function applyLegacyAnswerBridges(
       if (legacyBoolean(profile, `kuehlung@${bw.id}`)) technik.push('kuehlung')
       if (legacyBoolean(profile, `versickerung@${bw.id}`)) technik.push('versickerung')
       if (technik.length > 0) answers[e2Key] = technik
+      else if (
+        LEGACY_TECHNIK_KEYS.every((key) => legacyBoolean(profile, `${key}@${bw.id}`) === false)
+      ) {
+        // All four answered and all four "no" is the explicit `keine`, not an
+        // unanswered question — otherwise the migration puts a module the user
+        // completed back on the completion checklist.
+        answers[e2Key] = ['keine']
+      }
     }
   }
 
@@ -2034,7 +2083,12 @@ function applyLegacyAnswerBridges(
     const zufahrt = legacyBoolean(profile, 'zufahrt_feuerwehr')
     if (kanal !== undefined && wasser !== undefined && zufahrt !== undefined) {
       const yes = [kanal, wasser, zufahrt].filter(Boolean).length
-      answers['B6'] = yes === 3 ? 'ja' : yes === 0 ? 'nein' : 'teilweise'
+      // Never 'ja' from these three. The new question also covers electricity,
+      // which v1.0 never asked, so claiming full servicing would persist a fact
+      // nobody stated. Anything short of all three is honestly 'teilweise';
+      // all three leaves the electricity question for the user.
+      if (yes === 0) answers['B6'] = 'nein'
+      else if (yes < 3) answers['B6'] = 'teilweise'
     }
   }
 
@@ -2047,10 +2101,14 @@ function applyLegacyAnswerBridges(
     }
   }
 
-  // --- A8 → B3_bes: the Schutzzone statement becomes Kernset prose.
-  if (answers['B3_bes'] === undefined && legacyBoolean(profile, 'schutzzone_altstadt')) {
-    answers['B3_bes'] = 'Schutzzone / Altstadterhaltungsgebiet (aus früherer Angabe)'
-  }
+  // v1.0's A8 (Schutzzone) is deliberately NOT bridged into `B3_bes`.
+  //
+  // `B3_bes` only renders behind `B2 = ja`, so a bridged value would be
+  // invisible for a project with no Bebauungsplan — and then dropped on save,
+  // because `buildIntakeProfile` skips a question whose condition is false.
+  // Left alone, `schutzzone_altstadt` is owned by no current question, so
+  // `mergeIntakeProfile` preserves it as an agent-visible fact. Not bridging
+  // keeps it; bridging lost it.
 
   // --- F4 fusion: legacy Zertifizierung tokens are valid F4 values.
   const zert = profile.facts['zertifizierung']?.value
