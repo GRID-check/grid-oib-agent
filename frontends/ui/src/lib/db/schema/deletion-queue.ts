@@ -1,11 +1,6 @@
 import { integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 
-export type DeletionEntityType =
-  | 'project'
-  | 'document'
-  | 'conversation'
-  | 'organization'
-  | 'user'
+export type DeletionEntityType = 'project' | 'document' | 'conversation' | 'organization' | 'user'
 
 export type DeletionStatus = 'pending' | 'purging' | 'purged' | 'restored' | 'failed'
 

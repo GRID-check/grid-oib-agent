@@ -43,7 +43,10 @@ const KNOWN_STATUSES = ['running', 'submitted', 'pending', 'completed', 'failed'
 
 const shortJobId = (jobId: string): string => jobId.slice(0, 8)
 
-export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsListProps): JSX.Element {
+export function ResearchRunsList({
+  projectId,
+  projectCollection,
+}: ResearchRunsListProps): JSX.Element {
   const t = useTranslations('projects')
   const tr = useTranslations('research')
   const { locale } = useLocale()
@@ -71,7 +74,8 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
   const runLabel = (job: ResearchRun): string => {
     const title = job.conversation_id ? titles[job.conversation_id] : undefined
     if (title) return title
-    if (job.conversation_id) return tr('runsList.sessionLabel', { id: shortJobId(job.conversation_id) })
+    if (job.conversation_id)
+      return tr('runsList.sessionLabel', { id: shortJobId(job.conversation_id) })
     return tr('runsList.untitledRun')
   }
 
@@ -80,49 +84,46 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
   // newer project's list.
   const activeLoadRef = useRef<{ cancelled: boolean } | null>(null)
 
-  const load = useCallback(
-    () => {
-      if (activeLoadRef.current) {
-        activeLoadRef.current.cancelled = true
-      }
-      const signal = { cancelled: false }
-      activeLoadRef.current = signal
+  const load = useCallback(() => {
+    if (activeLoadRef.current) {
+      activeLoadRef.current.cancelled = true
+    }
+    const signal = { cancelled: false }
+    activeLoadRef.current = signal
 
-      setJobs(null)
-      setError(null)
-      setTitles({})
+    setJobs(null)
+    setError(null)
+    setTitles({})
 
-      listResearchRuns({ projectCollection, limit: DEFAULT_LIMIT })
-        .then((response) => {
-          if (signal.cancelled) return
-          setJobs(response.jobs)
-        })
-        .catch((err: unknown) => {
-          if (signal.cancelled) return
-          setError(err instanceof Error ? err.message : t('researchRuns.loadError'))
-        })
+    listResearchRuns({ projectCollection, limit: DEFAULT_LIMIT })
+      .then((response) => {
+        if (signal.cancelled) return
+        setJobs(response.jobs)
+      })
+      .catch((err: unknown) => {
+        if (signal.cancelled) return
+        setError(err instanceof Error ? err.message : t('researchRuns.loadError'))
+      })
 
-      // Best-effort session-title resolution. Failure is non-fatal: rows fall
-      // back to a session-id or job-id label rather than blocking the list.
-      conversationsClient
-        .list(projectId)
-        .then((conversations) => {
-          if (signal.cancelled) return
-          const map: Record<string, string> = {}
-          for (const conversation of conversations) {
-            const title = conversation.title?.trim()
-            if (conversation.id && title) {
-              map[conversation.id] = title
-            }
+    // Best-effort session-title resolution. Failure is non-fatal: rows fall
+    // back to a session-id or job-id label rather than blocking the list.
+    conversationsClient
+      .list(projectId)
+      .then((conversations) => {
+        if (signal.cancelled) return
+        const map: Record<string, string> = {}
+        for (const conversation of conversations) {
+          const title = conversation.title?.trim()
+          if (conversation.id && title) {
+            map[conversation.id] = title
           }
-          setTitles(map)
-        })
-        .catch(() => {
-          // Non-fatal — labels degrade gracefully without titles.
-        })
-    },
-    [projectCollection, projectId, t],
-  )
+        }
+        setTitles(map)
+      })
+      .catch(() => {
+        // Non-fatal — labels degrade gracefully without titles.
+      })
+  }, [projectCollection, projectId, t])
 
   useEffect(() => {
     load()
@@ -213,11 +214,7 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
 
             <ItemActions>
               {isCompleted || isFailed || isActive ? (
-                <Button
-                  asChild
-                  size="sm"
-                  variant={isCompleted ? 'default' : 'outline'}
-                >
+                <Button asChild size="sm" variant={isCompleted ? 'default' : 'outline'}>
                   <Link
                     href={
                       isCompleted
@@ -232,13 +229,11 @@ export function ResearchRunsList({ projectId, projectCollection }: ResearchRunsL
                       : isActive
                         ? t('researchRuns.viewProgress')
                         : tr('runsList.viewThinking')}
-                    <ArrowRight className="transition-transform duration-quick ease-out group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0" />
+                    <ArrowRight className="duration-quick transition-transform ease-out group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0" />
                   </Link>
                 </Button>
               ) : (
-                <span className="text-xs text-muted-foreground">
-                  {statusHint(job.status)}
-                </span>
+                <span className="text-muted-foreground text-xs">{statusHint(job.status)}</span>
               )}
             </ItemActions>
           </Item>

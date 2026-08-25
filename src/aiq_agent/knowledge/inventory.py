@@ -26,6 +26,14 @@ from aiq_agent.common.source_kinds import parse_shelf
 
 _listing_shelf: ContextVar[Shelf | None] = ContextVar("grid_listing_shelf", default=None)
 
+# How many files the cap dropped, per shelf, for the turn being rendered.
+#
+# A contextvar for the same reason ``_listing_shelf`` is one: the cap is applied
+# at AGGREGATION time (``chat_researcher.register``) and the block is rendered
+# much later, by ``render_prompt_template``, with no call path between them that
+# could carry an extra argument.
+_inventory_drops: ContextVar[dict[Shelf | None, int]] = ContextVar("grid_inventory_drops", default={})
+
 # User-facing shelves first; base last so the OIB corpus cannot evict them.
 _USER_SHELF_ORDER: tuple[Shelf, ...] = (Shelf.ARCHIV, Shelf.PROJECT, Shelf.SESSION)
 _INVENTORY_ORDER: tuple[Shelf, ...] = (*_USER_SHELF_ORDER, Shelf.BASE)
@@ -215,11 +223,28 @@ def _is_user_priority(shelf: Shelf | None) -> bool:
 
 
 def allocate_inventory(docs: Sequence[Any], max_documents: int | None) -> list[Any]:
+    """The kept files. See :func:`allocate_inventory_detailed` for what was dropped."""
+    return allocate_inventory_detailed(docs, max_documents)[0]
+
+
+def allocate_inventory_detailed(
+    docs: Sequence[Any], max_documents: int | None
+) -> tuple[list[Any], dict[Shelf | None, int]]:
     """Dedupe by ``(collection, file_name)``, keep user shelves, then spend the cap on base.
+
+    Returns the kept files AND how many were dropped per shelf.
 
     ``max_documents`` ``None``/``0``/negative disables the cap. When user-shelf
     files alone overflow the cap, each non-empty user shelf keeps at least one
     file (a whole shelf must not vanish so the agent can still say what is on it).
+
+    The per-shelf drop count is not bookkeeping. The block tells the model to
+    "answer ONLY from that shelf's group. If the group is empty, say so" — so a
+    shelf that silently lost its alphabetical tail produces a confidently
+    complete-looking, wrong answer, on exactly the turn class that cannot fall
+    back to retrieval (a listing question is routed to ``meta``, which strips
+    every search tool). A GLOBAL count would not fix that: the model needs to
+    know WHICH answer is incomplete.
     """
     unique = _dedupe(docs)
     groups: dict[Shelf | None, list[Any]] = defaultdict(list)
@@ -232,19 +257,28 @@ def allocate_inventory(docs: Sequence[Any], max_documents: int | None) -> list[A
     user_docs = [doc for shelf in user_shelves for doc in groups.get(shelf, [])]
     base_docs = list(groups.get(Shelf.BASE, []))
 
+    def drops(kept: Sequence[Any]) -> dict[Shelf | None, int]:
+        """Per-shelf shortfall between what exists and what survived the cap."""
+        kept_per_shelf: dict[Shelf | None, int] = defaultdict(int)
+        for doc in kept:
+            kept_per_shelf[_shelf_of(doc)] += 1
+        return {shelf: len(group) - kept_per_shelf[shelf] for shelf, group in groups.items()}
+
     if not max_documents or max_documents < 0:
-        return user_docs + base_docs
+        return user_docs + base_docs, {}
 
     if len(user_docs) <= max_documents:
         leftover = max_documents - len(user_docs)
-        return user_docs + base_docs[:leftover]
+        kept = user_docs + base_docs[:leftover]
+        return kept, drops(kept)
 
     nonempty = [shelf for shelf in user_shelves if groups.get(shelf)]
     if not nonempty:
-        return base_docs[:max_documents]
+        kept = base_docs[:max_documents]
+        return kept, drops(kept)
 
     share = max(1, max_documents // len(nonempty))
-    kept: list[Any] = []
+    kept = []
     remainder_pool: list[Any] = []
     for shelf in nonempty:
         group = groups[shelf]
@@ -253,7 +287,8 @@ def allocate_inventory(docs: Sequence[Any], max_documents: int | None) -> list[A
     leftover = max_documents - len(kept)
     if leftover > 0:
         kept.extend(remainder_pool[:leftover])
-    return kept[:max_documents]
+    kept = kept[:max_documents]
+    return kept, drops(kept)
 
 
 def _query_variants(query: str) -> tuple[str, str]:
@@ -284,6 +319,15 @@ def shelf_hint_from_query(query: str) -> Shelf | None:
             if any(token_l in text or token_folded in text for text in haystacks):
                 return shelf
     return None
+
+
+def set_inventory_drops(drops: dict[Shelf | None, int] | None) -> None:
+    """Remember how many files the cap dropped per shelf, or clear it."""
+    _inventory_drops.set({shelf: n for shelf, n in (drops or {}).items() if n > 0})
+
+
+def get_inventory_drops() -> dict[Shelf | None, int]:
+    return _inventory_drops.get()
 
 
 def set_listing_shelf(shelf: Shelf | str | None) -> None:
@@ -344,6 +388,39 @@ def _implied_shelves(groups: dict[Shelf, list[Any]]) -> list[Shelf]:
     if present & {Shelf.PROJECT, Shelf.SESSION}:
         implied.add(Shelf.PROJECT)
     return [shelf for shelf in _INVENTORY_ORDER if shelf in implied]
+
+
+def _folded_base_lines(count: int) -> list[str]:
+    """The base shelf as a shape, not a list of filenames.
+
+    Basiswissen is a platform constant: the same ~39 OIB files on every
+    request, project or not. Spelling them out costs the same tokens on a
+    Brandschutz question, on a greeting, and on a question about the user's own
+    plans — and buys nothing the retrieval layer does not already give, because
+    a ``knowledge_search`` with no ``file_name`` fans out across exactly this
+    corpus and its hits name the file they came from. This is the one shelf
+    where "that is what RAG is for" is straightforwardly true.
+
+    The user shelves stay spelled out. They are small, they are the reason the
+    model can cite a document by name, and they are what the model cannot
+    reconstruct from anywhere else.
+
+    A listing question about THIS shelf ("welche OIB-Richtlinien hast du") is
+    routed to ``intent="meta"``, which binds no search tools — so that turn has
+    no retrieval to fall back on, and ``focus_shelf`` prints the full list. The
+    fold applies to every other turn.
+    """
+    n = f"{count} Datei" if count == 1 else f"{count} Dateien"
+    return [
+        f"{n} — der Plattform-Korpus (OIB-Richtlinien samt Erläuterungen, Leitfäden "
+        "und Begriffsbestimmungen). Konstant auf jeder Anfrage und hier bewusst "
+        "nicht aufgezählt.",
+        "Durchsuche ihn mit `knowledge_search` ohne `file_name`; jeder Treffer nennt "
+        "die Datei, aus der er stammt, und die ist dann zitierbar.",
+        f"Fragt der Nutzer, was auf diesem Regal liegt: sage, dass es {n} des "
+        "OIB-Korpus sind und du sie über die Suche erreichst. Erfinde keine "
+        "Dateinamen.",
+    ]
 
 
 def render_inventory_block(
@@ -427,10 +504,21 @@ def render_inventory_block(
         )
         lines.append("")
 
+    dropped = get_inventory_drops()
     for shelf in show:
         rows = groups.get(shelf, [])
         lines.append(f"### {_heading(shelf)}")
         lines.append(_SHELF_BLURBS[shelf])
+        base_total = len(rows) + dropped.get(Shelf.BASE, 0)
+        # `base_total`, not `rows`: when user shelves spend the whole cap, every
+        # base row is dropped and the old `rows` guard fell through to
+        # "(empty — no files on this shelf)" plus a bare omission notice. That
+        # tells the model the OIB corpus is GONE, on the one shelf that is a
+        # platform constant present on every single request.
+        if shelf is Shelf.BASE and focused is not Shelf.BASE and base_total:
+            lines.extend(_folded_base_lines(base_total))
+            lines.append("")
+            continue
         if not rows:
             lines.append("(empty — no files on this shelf)")
         else:
@@ -441,6 +529,16 @@ def render_inventory_block(
                 folder_bit = f" (Ordner: {folder})" if folder else ""
                 summary = _summary_of(doc) or "No summary available"
                 lines.append(f"- **{_file_name_of(doc)}**{folder_bit}{tag_bit}: {summary}")
+        # Never a silent cap. Without this line the model reads a truncated
+        # shelf as the whole shelf, and the listing instruction above ("answer
+        # ONLY from that shelf's group") turns that into a confident wrong
+        # answer with no way to hedge.
+        missing = dropped.get(shelf, 0)
+        if missing > 0:
+            lines.append(
+                f"- (und {missing} weitere Datei(en) auf diesem Regal, hier nicht aufgeführt — "
+                f"diese Liste ist unvollständig; sage das, statt sie als vollständig zu behandeln)"
+            )
         lines.append("")
 
     if unknown:
@@ -449,6 +547,17 @@ def render_inventory_block(
         for doc in unknown:
             summary = _summary_of(doc) or "No summary available"
             lines.append(f"- **{_file_name_of(doc)}**: {summary}")
+        # Shelf-less files are capped like any other, and their drops are
+        # recorded under `None` — a key no shelf in `show` ever looks up. Without
+        # this the section presents a truncated list as the whole of it, which is
+        # the exact defect the per-shelf notice exists to prevent.
+        missing_unknown = dropped.get(None, 0)
+        if missing_unknown > 0:
+            lines.append(
+                f"- (und {missing_unknown} weitere Datei(en) ohne angegebenes Regal, hier nicht "
+                f"aufgeführt — diese Liste ist unvollständig; sage das, statt sie als vollständig "
+                f"zu behandeln)"
+            )
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"

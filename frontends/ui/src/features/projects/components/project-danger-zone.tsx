@@ -46,7 +46,7 @@ export function ProjectDangerZone({ projectId, projectName }: ProjectDangerZoneP
                 day: 'numeric',
               }),
             })
-          : t('dangerZone.deleteSuccessNoDate'),
+          : t('dangerZone.deleteSuccessNoDate')
       )
       setPending(false)
       setOpen(false)
@@ -59,17 +59,17 @@ export function ProjectDangerZone({ projectId, projectName }: ProjectDangerZoneP
   }
 
   return (
-    <section className="rounded-2xl border border-destructive/40 bg-destructive/[0.03] p-6">
+    <section className="border-destructive/40 bg-destructive/[0.03] rounded-2xl border p-6">
       <div className="flex items-start gap-3">
         <span
-          className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-destructive/10 text-destructive"
+          className="bg-destructive/10 text-destructive mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
           aria-hidden
         >
           <AlertTriangle className="size-[18px]" />
         </span>
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-destructive">{t('dangerZone.heading')}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{t('dangerZone.description')}</p>
+          <h3 className="text-destructive text-sm font-semibold">{t('dangerZone.heading')}</h3>
+          <p className="text-muted-foreground mt-1 text-sm">{t('dangerZone.description')}</p>
         </div>
       </div>
       <Button variant="destructive" className="mt-4" onClick={() => setOpen(true)}>

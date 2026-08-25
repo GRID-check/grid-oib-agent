@@ -61,7 +61,7 @@ describe('buildPatchPreviewRows', () => {
   it('formats yes_no_open booleans as Ja/Nein', () => {
     const rows = buildPatchPreviewRows([op('add', '/facts/denkmalschutz', true)], baseProfile)
     expect(rows[0]).toMatchObject({
-      label: 'Steht das Objekt unter Denkmalschutz?',
+      label: 'Steht das Gebäude unter Denkmalschutz?',
       before: 'Nein',
       after: 'Ja',
     })

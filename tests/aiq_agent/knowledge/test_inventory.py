@@ -11,8 +11,10 @@ from __future__ import annotations
 
 from aiq_agent.common.source_kinds import Shelf
 from aiq_agent.knowledge.inventory import allocate_inventory
+from aiq_agent.knowledge.inventory import allocate_inventory_detailed
 from aiq_agent.knowledge.inventory import document_identity
 from aiq_agent.knowledge.inventory import render_inventory_block
+from aiq_agent.knowledge.inventory import set_inventory_drops
 from aiq_agent.knowledge.inventory import shelf_hint_from_query
 from aiq_agent.knowledge.inventory import stamp_document
 from aiq_agent.knowledge.schema import AvailableDocument
@@ -174,7 +176,9 @@ class TestRenderInventoryBlock:
         assert "Basiswissen" in text
         assert "Buero-Standard.pdf" in text
         assert "Lacknergasse.pdf" in text
-        assert "oib-rl_2.pdf" in text
+        # The base shelf is folded to a count, so its filenames are absent by
+        # design. See TestBaseShelfIsFolded.
+        assert "oib-rl_2.pdf" not in text
 
         archiv = text.split("### Büroarchiv", 1)[1].split("### ", 1)[0]
         assert "Buero-Standard.pdf" in archiv
@@ -182,8 +186,8 @@ class TestRenderInventoryBlock:
         assert "Lacknergasse.pdf" not in archiv
 
         base = text.split("### Basiswissen", 1)[1]
-        assert "oib-rl_2.pdf" in base
         assert "Buero-Standard.pdf" not in base
+        assert "Lacknergasse.pdf" not in base
 
         assert "NOT base/OIB" in text
         assert "Never the Büroarchiv" in text or "never the Büroarchiv" in text
@@ -289,3 +293,181 @@ class TestScopedCollectionRoundTrip:
         text = render_inventory_block([], in_scope_shelves=[e.shelf for e in entries if e.shelf])
         assert "### Büroarchiv" in text
         assert "empty" in text.lower()
+
+
+class TestTruncationIsAnnouncedToTheModel:
+    """A capped shelf must say so IN THE BLOCK, not only in the operator's log.
+
+    The block instructs the model to "answer ONLY from that shelf's group. If
+    the group is empty, say so" — and a shelf-listing question is routed to
+    ``meta``, which strips every search tool, so the block is the only source
+    the answer can come from. A shelf that silently loses its alphabetical tail
+    therefore produces a confidently complete-looking wrong answer with no
+    fallback available.
+    """
+
+    def teardown_method(self):
+        set_inventory_drops(None)
+
+    def test_reports_what_the_cap_dropped_per_shelf(self):
+        docs = [_doc(f"archiv-{i:02d}.pdf", collection="archiv_org", shelf="archiv") for i in range(10)]
+        docs += [_doc(f"proj-{i:02d}.pdf", collection="proj_1", shelf="project") for i in range(4)]
+        kept, dropped = allocate_inventory_detailed(docs, max_documents=6)
+
+        assert len(kept) == 6
+        # Per shelf, not a single global number: the model has to know WHICH
+        # answer is incomplete, and a global count cannot say.
+        assert dropped[Shelf.ARCHIV] + dropped[Shelf.PROJECT] == 8
+        assert dropped[Shelf.ARCHIV] > 0
+
+    def test_no_drops_reported_when_nothing_was_cut(self):
+        docs = [_doc("a.pdf", collection="proj_1", shelf="project")]
+        kept, dropped = allocate_inventory_detailed(docs, max_documents=50)
+        assert len(kept) == 1
+        assert all(count == 0 for count in dropped.values())
+
+    def test_uncapped_allocation_reports_nothing(self):
+        docs = [_doc(f"a{i}.pdf", collection="proj_1", shelf="project") for i in range(3)]
+        _, dropped = allocate_inventory_detailed(docs, max_documents=0)
+        assert dropped == {}
+
+    def test_the_block_tells_the_model_the_shelf_is_incomplete(self):
+        docs = [_doc(f"archiv-{i:02d}.pdf", collection="archiv_org", shelf="archiv") for i in range(10)]
+        kept, dropped = allocate_inventory_detailed(docs, max_documents=4)
+        set_inventory_drops(dropped)
+
+        rendered = render_inventory_block(kept)
+        assert "6 weitere Datei(en)" in rendered
+        assert "unvollst" in rendered
+
+    def test_a_complete_shelf_carries_no_notice(self):
+        docs = [_doc("only.pdf", collection="proj_1", shelf="project")]
+        kept, dropped = allocate_inventory_detailed(docs, max_documents=50)
+        set_inventory_drops(dropped)
+
+        rendered = render_inventory_block(kept)
+        assert "weitere Datei" not in rendered
+
+    def test_the_notice_lands_in_the_truncated_shelf_section(self):
+        docs = [_doc(f"archiv-{i:02d}.pdf", collection="archiv_org", shelf="archiv") for i in range(10)]
+        docs += [_doc("proj.pdf", collection="proj_1", shelf="project")]
+        kept, dropped = allocate_inventory_detailed(docs, max_documents=5)
+        set_inventory_drops(dropped)
+
+        rendered = render_inventory_block(kept)
+        archiv_section = rendered.split("### ")[1]
+        # The notice belongs to the shelf that lost files, not to the block.
+        assert "Büroarchiv" in archiv_section
+        assert "weitere Datei(en)" in archiv_section
+
+    def test_a_stale_count_from_a_previous_turn_cannot_leak(self):
+        set_inventory_drops({Shelf.ARCHIV: 99})
+        set_inventory_drops(None)
+        rendered = render_inventory_block([_doc("a.pdf", collection="proj_1", shelf="project")])
+        assert "99" not in rendered
+
+
+class TestBaseShelfIsFolded:
+    """Basiswissen carries a count, not ~39 filenames, on every ordinary turn.
+
+    The platform corpus is a constant: the same OIB files on every request,
+    project or not. Spelling them out is paid on a greeting exactly as on a
+    Brandschutz question, and buys nothing retrieval does not already give —
+    ``knowledge_search`` with no ``file_name`` fans out across this corpus and
+    its hits name the file they came from.
+
+    The exception is the turn that has no retrieval: a listing question about
+    this shelf routes to ``intent="meta"``, which binds no search tools. That
+    turn arrives with ``focus_shelf=base`` and gets the full list.
+    """
+
+    def teardown_method(self):
+        set_inventory_drops(None)
+
+    def test_base_filenames_are_not_spelled_out(self):
+        docs = [_doc(f"oib-rl_{i}.pdf", collection="oib_knowledge", shelf="base") for i in range(39)]
+        text = render_inventory_block(docs)
+
+        assert "oib-rl_7.pdf" not in text
+        assert "39 Dateien" in text
+
+    def test_the_fold_names_the_way_to_reach_the_files(self):
+        docs = [_doc(f"oib-rl_{i}.pdf", collection="oib_knowledge", shelf="base") for i in range(39)]
+        text = render_inventory_block(docs)
+
+        # A count with no route to the contents would just be a smaller lie.
+        assert "knowledge_search" in text
+        assert "Erfinde keine" in text
+
+    def test_a_listing_turn_about_base_still_gets_every_name(self):
+        docs = [_doc(f"oib-rl_{i}.pdf", collection="oib_knowledge", shelf="base") for i in range(39)]
+        text = render_inventory_block(docs, focus_shelf=Shelf.BASE)
+
+        assert "oib-rl_7.pdf" in text
+        assert "39 Dateien" not in text
+
+    def test_user_shelves_are_still_spelled_out(self):
+        docs = [
+            _doc("oib-rl_2.pdf", collection="oib_knowledge", shelf="base"),
+            _doc("Lacknergasse.pdf", collection="proj_1", shelf="project"),
+            _doc("Buero-Standard.pdf", collection="archiv_org", shelf="archiv"),
+        ]
+        text = render_inventory_block(docs)
+
+        # The fold is about the platform constant, not about saving lines. The
+        # user's own files are why the model can cite a document by name.
+        assert "Lacknergasse.pdf" in text
+        assert "Buero-Standard.pdf" in text
+
+    def test_the_count_includes_what_the_cap_dropped(self):
+        docs = [_doc(f"oib-rl_{i:02d}.pdf", collection="oib_knowledge", shelf="base") for i in range(39)]
+        kept, dropped = allocate_inventory_detailed(docs, max_documents=10)
+        set_inventory_drops(dropped)
+
+        text = render_inventory_block(kept)
+
+        # The shelf holds 39 whether or not the cap let 10 through. Reporting
+        # the surviving count would understate the corpus on every capped turn.
+        assert "39 Dateien" in text
+        assert "10 Dateien" not in text
+
+    def test_an_empty_base_shelf_still_says_it_is_empty(self):
+        text = render_inventory_block([], in_scope_shelves=[Shelf.BASE])
+        assert "empty" in text.lower()
+
+
+class TestTruncationEdgesTheFirstPassMissed:
+    """Two shelves the drop notice did not reach, both found in review.
+
+    Both are the same defect the per-shelf notice exists to prevent: a list the
+    cap shortened, presented as the whole of it.
+    """
+
+    def teardown_method(self):
+        set_inventory_drops(None)
+
+    def test_base_still_names_itself_when_the_cap_took_every_row(self):
+        # User shelves spend the whole cap, so base keeps nothing.
+        docs = [_doc(f"proj-{i:02d}.pdf", collection="proj_1", shelf="project") for i in range(6)]
+        docs += [_doc(f"oib-{i:02d}.pdf", collection="oib_knowledge", shelf="base") for i in range(39)]
+        kept, dropped = allocate_inventory_detailed(docs, max_documents=6)
+        set_inventory_drops(dropped)
+
+        rendered = render_inventory_block(kept, in_scope_shelves=[Shelf.PROJECT, Shelf.BASE])
+
+        # Reporting the platform corpus as "(empty)" tells the model the OIB
+        # files are gone — on the one shelf present in every single request.
+        assert "39 Dateien" in rendered
+        base = rendered.split("### Basiswissen", 1)[1]
+        assert "empty" not in base.lower()
+
+    def test_a_truncated_unattributed_list_says_it_is_incomplete(self):
+        docs = [_doc(f"mystery-{i:02d}.pdf", collection="unknown_coll") for i in range(9)]
+        kept, dropped = allocate_inventory_detailed(docs, max_documents=3)
+        set_inventory_drops(dropped)
+
+        rendered = render_inventory_block(kept)
+
+        # Shelf-less drops are recorded under `None`, a key no shelf lookup hits.
+        assert "### Unattributed" in rendered
+        assert "weitere Datei(en) ohne angegebenes Regal" in rendered

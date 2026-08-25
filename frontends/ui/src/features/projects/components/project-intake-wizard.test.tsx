@@ -5,7 +5,7 @@
  * freshness, and numeric validation. The deterministic rule under test is the
  * fossil-fuel-on-a-new-build conflict (E1=gas + A5 includes Neubau).
  */
-import { fireEvent, render, screen, waitFor } from '@/test-utils'
+import { fireEvent, render, screen, waitFor, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'sonner'
@@ -64,21 +64,50 @@ function stubFetch(): FetchStub {
   return { fetch, calls, consistencyResponse: state }
 }
 
+/**
+ * The answers the wizard hard-requires (A1 / A2_adr / A2_country / A2_land / A5).
+ *
+ * `A2_adr` is deliberately under the free-text threshold (10 chars): it is a
+ * `text` question, so a realistic street address would enrol every fixture in
+ * the LLM consistency check and change what the flag-OFF cases are testing.
+ *
+ * Every review-step fixture carries them because a real user cannot reach a
+ * successful save without them: `handleSave` refuses and jumps to the first one
+ * missing. A fixture without them models a user who cannot exist — and used to
+ * pass only because that gate did not exist.
+ */
+const REQUIRED_ANSWERS: Record<string, ProjectPrimitiveValue> = {
+  A1: 'Test',
+  A2_adr: 'Wien 1',
+  A2_country: 'at',
+  A2_land: 'tirol',
+  A5: ['neubau'],
+}
+
 /** Seed a draft so the wizard restores these answers and opens on the Review step (module H). */
 function seedReviewDraft(answers: Record<string, ProjectPrimitiveValue>, savedAt?: number): void {
   localStorage.setItem(
     `intake-draft-${PROJECT_ID}`,
-    JSON.stringify({ answers, currentStep: REVIEW_STEP, ...(savedAt !== undefined ? { savedAt } : {}) }),
+    JSON.stringify({
+      answers: { ...REQUIRED_ANSWERS, ...answers },
+      currentStep: REVIEW_STEP,
+      ...(savedAt !== undefined ? { savedAt } : {}),
+    })
   )
 }
 
 function renderWizard(conflictCheckEnabled: boolean) {
   return render(
-    <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" conflictCheckEnabled={conflictCheckEnabled} />,
+    <ProjectIntakeWizard
+      projectId={PROJECT_ID}
+      projectName="Test"
+      conflictCheckEnabled={conflictCheckEnabled}
+    />
   )
 }
 
-const consistencyCalls = (stub: FetchStub) => stub.calls.filter((c) => c.url.endsWith('/consistency-check'))
+const consistencyCalls = (stub: FetchStub) =>
+  stub.calls.filter((c) => c.url.endsWith('/consistency-check'))
 const putProfileCalls = (stub: FetchStub) =>
   stub.calls.filter((c) => c.url.endsWith(`/projects/${PROJECT_ID}/profile`) && c.method === 'PUT')
 
@@ -149,7 +178,9 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
 
     // "Art des Vorhabens" (A5) lives in module A → step 1 of 8. Findings clear.
     expect(await screen.findByText(new RegExp(`step 1 of ${TOTAL}`, 'i'))).toBeInTheDocument()
-    await waitFor(() => expect(screen.queryByText(/Erneuerbare-Wärme-Gesetz/i)).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.queryByText(/Erneuerbare-Wärme-Gesetz/i)).not.toBeInTheDocument()
+    )
   })
 
   it('flag ON: no substantive free text → the LLM is never called', async () => {
@@ -171,7 +202,12 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
     const stub = stubFetch()
     stub.consistencyResponse.json = {
       findings: [
-        { kind: 'ai', fields: ['Projektbeschreibung & Entwurfsidee'], severity: 'inconsistency', message: 'The note contradicts the plan.' },
+        {
+          kind: 'ai',
+          fields: ['Projektbeschreibung, Entwurfsidee & Umfeld'],
+          severity: 'inconsistency',
+          message: 'The note contradicts the plan.',
+        },
       ],
     }
     seedReviewDraft({ G1: 'Ein ausführlicher Freitext über das Brandschutzkonzept.' })
@@ -183,7 +219,12 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
     const call = consistencyCalls(stub)[0]
     expect(call).toBeDefined()
     expect(call.body).toMatchObject({
-      freeText: [{ field: 'Projektbeschreibung & Entwurfsidee', value: 'Ein ausführlicher Freitext über das Brandschutzkonzept.' }],
+      freeText: [
+        {
+          field: 'Projektbeschreibung, Entwurfsidee & Umfeld',
+          value: 'Ein ausführlicher Freitext über das Brandschutzkonzept.',
+        },
+      ],
     })
   })
 
@@ -238,21 +279,26 @@ describe('ProjectIntakeWizard — Fix 3 save-success feedback', () => {
   it('toasts a save confirmation with the captured-fact count after a successful save', async () => {
     const user = userEvent.setup()
     stubFetch()
-    // country + bundesland + vorhabensart + the seeded project_name fact = 4 captured facts.
-    seedReviewDraft({ A2_country: 'at', A2_land: 'wien', A5: ['neubau'] })
+    // project_name + standort_adresse + country + bundesland + vorhabensart:
+    // the five facts the required-answer set produces.
+    seedReviewDraft({ A2_land: 'wien' })
     renderWizard(false)
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
 
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
-    expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/4 details captured/i))
+    expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/5 details captured/i))
   })
 
   it('does NOT toast a success when the save fails', async () => {
     const user = userEvent.setup()
     const fetch = vi.fn((url: string, init?: RequestInit) => {
       if (url.endsWith('/intake-definition')) {
-        return Promise.resolve({ ok: true, status: 200, json: async () => projectIntakeDefinitionV1 })
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => projectIntakeDefinitionV1,
+        })
       }
       if (init?.method === 'PUT') {
         return Promise.resolve({ ok: false, status: 500, json: async () => ({}) })
@@ -283,7 +329,11 @@ describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
     const headers: Array<Record<string, string> | undefined> = []
     const fetch = vi.fn((url: string, init?: RequestInit) => {
       if (url.endsWith('/intake-definition')) {
-        return Promise.resolve({ ok: true, status: 200, json: async () => projectIntakeDefinitionV1 })
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => projectIntakeDefinitionV1,
+        })
       }
       if (init?.method === 'PUT') headers.push(init.headers as Record<string, string>)
       return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
@@ -296,7 +346,9 @@ describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
     const user = userEvent.setup()
     const headers = recordHeaders()
     seedReviewDraft({ A2_land: 'wien' })
-    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />)
+    render(
+      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />
+    )
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
 
@@ -320,7 +372,11 @@ describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
     const user = userEvent.setup()
     const fetch = vi.fn((url: string, init?: RequestInit) => {
       if (url.endsWith('/intake-definition')) {
-        return Promise.resolve({ ok: true, status: 200, json: async () => projectIntakeDefinitionV1 })
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => projectIntakeDefinitionV1,
+        })
       }
       if (init?.method === 'PUT') {
         return Promise.resolve({ ok: false, status: 409, json: async () => ({}) })
@@ -329,7 +385,9 @@ describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
     })
     vi.stubGlobal('fetch', fetch)
     seedReviewDraft({ A2_land: 'wien' })
-    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />)
+    render(
+      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />
+    )
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
 
@@ -341,7 +399,11 @@ describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
     const user = userEvent.setup()
     const fetch = vi.fn((url: string, init?: RequestInit) => {
       if (url.endsWith('/intake-definition')) {
-        return Promise.resolve({ ok: true, status: 200, json: async () => projectIntakeDefinitionV1 })
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => projectIntakeDefinitionV1,
+        })
       }
       if (init?.method === 'PUT') {
         return Promise.resolve({ ok: false, status: 409, json: async () => ({}) })
@@ -350,7 +412,9 @@ describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
     })
     vi.stubGlobal('fetch', fetch)
     seedReviewDraft({ A2_land: 'wien' })
-    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />)
+    render(
+      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />
+    )
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
     await screen.findByText(/changed elsewhere/i)
@@ -386,7 +450,14 @@ describe('ProjectIntakeWizard — edit-mode save preserves agent-recorded knowle
       unknowns: ['statik_gutachten'],
       assumptions: {},
     }
-    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />)
+    render(
+      <ProjectIntakeWizard
+        projectId={PROJECT_ID}
+        projectName="Test"
+        mode="edit"
+        initialProfile={initialProfile}
+      />
+    )
 
     await user.click(await screen.findByRole('button', { name: /save changes/i }))
 
@@ -414,16 +485,24 @@ describe('ProjectIntakeWizard — Fix 1 salvage banner', () => {
 
   it('shows the partial-replacement banner when some parts were dropped', async () => {
     stubFetch()
-    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" salvageNotice="partial" />)
+    render(
+      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" salvageNotice="partial" />
+    )
     expect(
-      await screen.findByText(/parts of the existing project brief could not be loaded and will be replaced/i),
+      await screen.findByText(
+        /parts of the existing project brief could not be loaded and will be replaced/i
+      )
     ).toBeInTheDocument()
   })
 
   it('shows the full-failure banner when nothing was salvageable', async () => {
     stubFetch()
     render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" salvageNotice="full" />)
-    expect(await screen.findByText(/the existing project brief could not be loaded\. anything you enter/i)).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        /the existing project brief could not be loaded\. anything you enter/i
+      )
+    ).toBeInTheDocument()
   })
 
   it('shows no banner when the stored brief loaded cleanly', async () => {
@@ -460,12 +539,21 @@ describe('ProjectIntakeWizard — assumptions-only edit preserves assumptions', 
         },
       },
     }
-    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />)
+    render(
+      <ProjectIntakeWizard
+        projectId={PROJECT_ID}
+        projectName="Test"
+        mode="edit"
+        initialProfile={initialProfile}
+      />
+    )
 
     await user.click(await screen.findByRole('button', { name: /save changes/i }))
 
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
-    const body = putProfileCalls(stub)[0].body as { assumptions?: Record<string, { value?: unknown }> }
+    const body = putProfileCalls(stub)[0].body as {
+      assumptions?: Record<string, { value?: unknown }>
+    }
     expect(body.assumptions?.widmung?.value).toBe('wohnen')
   })
 })
@@ -483,7 +571,7 @@ describe('ProjectIntakeWizard — stale conditional answers pruned on load', () 
     const stub = stubFetch()
     // A6 (Baujahr) only applies to existing-building work. A restored draft with
     // pure Neubau + a stale Baujahr must be pruned on load like an interactive edit.
-    seedReviewDraft({ A5: ['neubau'], A6: 1990, 'A6__mode': 'wert' })
+    seedReviewDraft({ A5: ['neubau'], A6: 1990, A6__mode: 'wert' })
     renderWizard(false)
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
@@ -515,7 +603,11 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
     stubFetch()
     localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
-      JSON.stringify({ answers: { A5: ['sanierung'] }, currentStep: 0, savedAt: Date.parse('2026-01-01T00:00:00.000Z') }),
+      JSON.stringify({
+        answers: { A5: ['sanierung'] },
+        currentStep: 0,
+        savedAt: Date.parse('2026-01-01T00:00:00.000Z'),
+      })
     )
     const initialProfile = {
       facts: { vorhabensart: vorhabenFact(['neubau'], '2026-07-01T00:00:00.000Z') },
@@ -523,7 +615,14 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
       unknowns: [],
       assumptions: {},
     }
-    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />)
+    render(
+      <ProjectIntakeWizard
+        projectId={PROJECT_ID}
+        projectName="Test"
+        mode="edit"
+        initialProfile={initialProfile}
+      />
+    )
 
     await waitFor(() => expect(chip('Neubau')).toHaveAttribute('aria-pressed', 'true'))
     expect(chip('Sanierung')).toHaveAttribute('aria-pressed', 'false')
@@ -533,7 +632,11 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
     stubFetch()
     localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
-      JSON.stringify({ answers: { A5: ['sanierung'] }, currentStep: 0, savedAt: Date.parse('2026-07-20T00:00:00.000Z') }),
+      JSON.stringify({
+        answers: { A5: ['sanierung'] },
+        currentStep: 0,
+        savedAt: Date.parse('2026-07-20T00:00:00.000Z'),
+      })
     )
     const initialProfile = {
       facts: { vorhabensart: vorhabenFact(['neubau'], '2026-07-01T00:00:00.000Z') },
@@ -541,7 +644,14 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
       unknowns: [],
       assumptions: {},
     }
-    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />)
+    render(
+      <ProjectIntakeWizard
+        projectId={PROJECT_ID}
+        projectName="Test"
+        mode="edit"
+        initialProfile={initialProfile}
+      />
+    )
 
     await waitFor(() => expect(chip('Sanierung')).toHaveAttribute('aria-pressed', 'true'))
     expect(chip('Neubau')).toHaveAttribute('aria-pressed', 'false')
@@ -551,7 +661,12 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
     stubFetch()
     localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
-      JSON.stringify({ answers: { A5: ['sanierung'] }, currentStep: 0, savedAt: Date.now(), baseVersion: 3 }),
+      JSON.stringify({
+        answers: { A5: ['sanierung'] },
+        currentStep: 0,
+        savedAt: Date.now(),
+        baseVersion: 3,
+      })
     )
     const initialProfile = {
       facts: { vorhabensart: vorhabenFact(['neubau'], '2026-07-01T00:00:00.000Z') },
@@ -566,7 +681,7 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
         mode="edit"
         initialProfile={initialProfile}
         initialProfileVersion={4}
-      />,
+      />
     )
 
     await waitFor(() => expect(chip('Neubau')).toHaveAttribute('aria-pressed', 'true'))
@@ -577,7 +692,7 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
     stubFetch()
     localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
-      JSON.stringify({ answers: { A5: ['sanierung'] }, currentStep: 0 }),
+      JSON.stringify({ answers: { A5: ['sanierung'] }, currentStep: 0 })
     )
     const initialProfile = {
       facts: { vorhabensart: vorhabenFact(['neubau'], '2026-07-01T00:00:00.000Z') },
@@ -585,7 +700,14 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
       unknowns: [],
       assumptions: {},
     }
-    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />)
+    render(
+      <ProjectIntakeWizard
+        projectId={PROJECT_ID}
+        projectName="Test"
+        mode="edit"
+        initialProfile={initialProfile}
+      />
+    )
 
     await waitFor(() => expect(chip('Neubau')).toHaveAttribute('aria-pressed', 'true'))
     expect(chip('Sanierung')).toHaveAttribute('aria-pressed', 'false')
@@ -605,7 +727,12 @@ describe('ProjectIntakeWizard — Fix 2 AI-finding revise link resolves a stage'
     const stub = stubFetch()
     stub.consistencyResponse.json = {
       findings: [
-        { kind: 'ai', fields: ['the fire-compartment note'], severity: 'inconsistency', message: 'The note contradicts the plan.' },
+        {
+          kind: 'ai',
+          fields: ['the fire-compartment note'],
+          severity: 'inconsistency',
+          message: 'The note contradicts the plan.',
+        },
       ],
     }
     seedReviewDraft({ G1: 'Bestätige die Brandabschnittsstrategie für die Einreichung.' })
@@ -617,7 +744,9 @@ describe('ProjectIntakeWizard — Fix 2 AI-finding revise link resolves a stage'
     // The link falls back to the first free-text stage (module A, A1 is text) → step 1.
     await user.click(screen.getByRole('button', { name: /revise/i }))
     expect(await screen.findByText(new RegExp(`step 1 of ${TOTAL}`, 'i'))).toBeInTheDocument()
-    await waitFor(() => expect(screen.queryByText(/the note contradicts the plan/i)).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.queryByText(/the note contradicts the plan/i)).not.toBeInTheDocument()
+    )
   })
 })
 
@@ -635,11 +764,11 @@ describe('ProjectIntakeWizard — Fix 5 non-finite number rejected', () => {
     // Land on module C (index 2) with the building set to a Gebäude so C2 shows.
     localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
-      JSON.stringify({ answers: { 'C1@bw1': 'gebaeude' }, currentStep: 2 }),
+      JSON.stringify({ answers: { 'C1@bw1': 'gebaeude' }, currentStep: 2 })
     )
     render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" />)
 
-    const floors = await screen.findByLabelText('Anzahl oberirdischer Geschoße')
+    const floors = await screen.findByLabelText('Anzahl oberirdischer Geschoße (Zielzustand)')
     fireEvent.change(floors, { target: { value: '1e999' } })
 
     await user.click(screen.getByRole('button', { name: /next/i }))
@@ -648,5 +777,259 @@ describe('ProjectIntakeWizard — Fix 5 non-finite number rejected', () => {
     expect(screen.getByText(new RegExp(`step 3 of ${TOTAL}`, 'i'))).toBeInTheDocument()
     expect(putProfileCalls(stub)).toHaveLength(0)
     expect(pushMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('ProjectIntakeWizard — module rail', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+  afterEach(() => localStorage.clear())
+
+  it('names every module in full rather than truncating it', async () => {
+    stubFetch()
+    renderWizard(false)
+    const rail = await screen.findByRole('navigation', { name: /wizard modules/i })
+
+    // The horizontal stepper this replaced cut every label to ~8 characters,
+    // which turned three different modules into "Grundstück …" / "Technik &
+    // En…" / "Zusammenfa…". Full titles are the rail's whole reason to exist.
+    for (const title of [
+      'Grundstück & Widmung',
+      'Technik & Energie',
+      'Verfahren & Sonderrecht',
+      'Zusammenfassung',
+    ]) {
+      expect(within(rail).getByText(title)).toBeInTheDocument()
+    }
+  })
+
+  it('lets the user jump to a module they have not reached yet', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    renderWizard(false)
+    const rail = await screen.findByRole('navigation', { name: /wizard modules/i })
+
+    // Validation is soft everywhere but A1/A2/A5, so a rail that locked
+    // unvisited modules would enforce a gate the questionnaire does not have.
+    await user.click(within(rail).getByText('Projektkontext'))
+    expect(await screen.findByText(/Modul G/)).toBeInTheDocument()
+  })
+
+  it('counts answers per module as they are given', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    renderWizard(false)
+    const rail = await screen.findByRole('navigation', { name: /wizard modules/i })
+    const moduleA = within(rail).getByText('Projektbasis').closest('button')!
+
+    // A1 is seeded from the project name, so module A opens at 1 of 5.
+    expect(within(moduleA).getByText('1 of 5')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText(/Adresse \/ Gemeinde/), 'Innrain 1, 6020 Innsbruck')
+    await waitFor(() => expect(within(moduleA).getByText('2 of 5')).toBeInTheDocument())
+  })
+})
+
+describe('ProjectIntakeWizard — Schnellstart', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+  afterEach(() => localStorage.clear())
+
+  /** Module B: B1/B1_text/B2 are core, the risk/noise/erschliessung block is not. */
+  async function openModuleB(user: ReturnType<typeof userEvent.setup>) {
+    const rail = await screen.findByRole('navigation', { name: /wizard modules/i })
+    await user.click(within(rail).getByText('Grundstück & Widmung'))
+    await screen.findByText(/Modul B/)
+  }
+
+  it('narrows the module to its Kernfragen and says what it hid', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    renderWizard(false)
+    await openModuleB(user)
+
+    expect(screen.getByLabelText(/Lärmsituation am Standort/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /quick start/i }))
+
+    // Core survives, non-core goes, and the count says how much went.
+    expect(screen.getByLabelText(/Flächenwidmung \(Kategorie\)/)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/Lärmsituation am Standort/)).not.toBeInTheDocument()
+    expect(screen.getByText(/hidden in quick start/i)).toBeInTheDocument()
+  })
+
+  it('brings the hidden questions back for this module on request', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    renderWizard(false)
+    await openModuleB(user)
+    await user.click(screen.getByRole('button', { name: /quick start/i }))
+
+    // A count the user cannot act on would just be a nag.
+    await user.click(screen.getByRole('button', { name: /show all here/i }))
+    expect(screen.queryByText(/hidden in quick start/i)).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/Lärmsituation am Standort/)).toBeInTheDocument()
+  })
+
+  it('a module with no non-core questions shows no hidden-count nag', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    renderWizard(false)
+    await screen.findByText(/Modul A/)
+
+    // Every question v1.2 leaves in module A is core, so Schnellstart has
+    // nothing to hide there and must stay silent rather than print "0 more".
+    await user.click(screen.getByRole('button', { name: /quick start/i }))
+    expect(screen.queryByText(/hidden in quick start/i)).not.toBeInTheDocument()
+  })
+
+  it('never hides a required question', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    renderWizard(false)
+    await screen.findByText(/Modul A/)
+    await user.click(screen.getByRole('button', { name: /quick start/i }))
+
+    // Only A1/A2/A5 are hard-required and all are core; this guards the case
+    // where a later `required: true` lands on a non-core question.
+    for (const label of [/Projektname/, /Adresse \/ Gemeinde/, /^Land/]) {
+      expect(screen.getByLabelText(label)).toBeInTheDocument()
+    }
+  })
+})
+
+describe('ProjectIntakeWizard — Rest überspringen', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+  afterEach(() => localStorage.clear())
+
+  it("records the module's unanswered questions as explicitly open", async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    renderWizard(false)
+    const rail = await screen.findByRole('navigation', { name: /wizard modules/i })
+    await user.click(within(rail).getByText('Projektkontext'))
+    await screen.findByText(/Modul G/)
+    const moduleG = within(rail).getByText('Projektkontext').closest('button')!
+
+    expect(within(moduleG).getByText('0 of 4')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /skip the rest/i }))
+
+    // Explicitly open counts as answered: both produce an `unknown` in the
+    // profile, but only the explicit one is distinguishable from "not reached"
+    // in Modul H's completion checklist.
+    await waitFor(() => expect(within(moduleG).getByText('complete')).toBeInTheDocument())
+  })
+
+  it('leaves the required questions of a module untouched', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    renderWizard(false)
+    const rail = await screen.findByRole('navigation', { name: /wizard modules/i })
+    const moduleA = within(rail).getByText('Projektbasis').closest('button')!
+
+    // A1 is seeded from the project name; A2_adr/A2_country stay required, so
+    // module A can never be skipped to "complete".
+    await user.click(screen.getByRole('button', { name: /skip the rest/i }))
+    await waitFor(() => expect(within(moduleA).getByText(/of/)).toBeInTheDocument())
+    // Never "complete": the required questions are still unanswered.
+    expect(within(moduleA).queryByText('complete')).not.toBeInTheDocument()
+  })
+
+  it('leaves a required question for the user to answer', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    renderWizard(false)
+    await screen.findByText(/Modul A/)
+    await user.click(screen.getByRole('button', { name: /skip the rest/i }))
+
+    // Skipping must not open the one gate the spec keeps closed.
+    await user.click(screen.getByRole('button', { name: /^next$/i }))
+    expect(await screen.findByText(/Modul A/)).toBeInTheDocument()
+  })
+})
+
+describe('ProjectIntakeWizard — required answers gate the save', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+  afterEach(() => localStorage.clear())
+
+  /** A draft that lands on Modul H with a required answer missing. */
+  function seedIncompleteReviewDraft(omit: string): void {
+    const answers: Record<string, ProjectPrimitiveValue> = { ...REQUIRED_ANSWERS }
+    delete answers[omit]
+    localStorage.setItem(
+      `intake-draft-${PROJECT_ID}`,
+      JSON.stringify({ answers, currentStep: REVIEW_STEP })
+    )
+  }
+
+  it('refuses to persist a profile missing a required answer', async () => {
+    const user = userEvent.setup()
+    const stub = stubFetch()
+    seedIncompleteReviewDraft('A5')
+    renderWizard(false)
+
+    await user.click(await screen.findByRole('button', { name: /save/i }))
+
+    // Modul H declares no required questions of its own, so before this gate
+    // ANY route onto it — the module rail, a restored draft, a condition that
+    // turned a question visible after it was passed — could save without them.
+    await waitFor(() => expect(screen.getByText(/Modul A/)).toBeInTheDocument())
+    expect(putProfileCalls(stub)).toHaveLength(0)
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it('lands the user on the unanswered question with its error showing', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    seedIncompleteReviewDraft('A5')
+    renderWizard(false)
+
+    await user.click(await screen.findByRole('button', { name: /save/i }))
+
+    // Refusing from the summary with nothing to act on would be worse than the
+    // hole it closes.
+    // A5 renders as a chip group, so the label owns no form control to query by
+    // — and its title also appears in the rail, hence findAllByText.
+    expect((await screen.findAllByText(/Art des Vorhabens/)).length).toBeGreaterThan(0)
+    expect(await screen.findByText(/mindestens eine Option|at least one/i)).toBeInTheDocument()
+  })
+
+  it('saves once every required answer is present', async () => {
+    const user = userEvent.setup()
+    const stub = stubFetch()
+    seedReviewDraft({})
+    renderWizard(false)
+
+    await user.click(await screen.findByRole('button', { name: /save/i }))
+
+    await waitFor(() => expect(putProfileCalls(stub)).toHaveLength(1))
+  })
+
+  it('the module rail can reach the summary without opening that hole', async () => {
+    const user = userEvent.setup()
+    const stub = stubFetch()
+    // No draft: a fresh wizard on Modul A, only A1 seeded from the project name.
+    renderWizard(false)
+    const rail = await screen.findByRole('navigation', { name: /wizard modules/i })
+
+    await user.click(within(rail).getByText('Zusammenfassung'))
+    await user.click(await screen.findByRole('button', { name: /save/i }))
+
+    // Free navigation stays — the gate is on the save, not on the rail.
+    expect(putProfileCalls(stub)).toHaveLength(0)
   })
 })

@@ -50,8 +50,11 @@ from .factory import set_document_folder_path
 from .factory import unregister_summary
 from .factory import update_document_tags
 from .inventory import allocate_inventory
+from .inventory import allocate_inventory_detailed
+from .inventory import get_inventory_drops
 from .inventory import listing_intent_override
 from .inventory import render_inventory_block
+from .inventory import set_inventory_drops
 from .inventory import shelf_hint_from_query
 from .schema import AvailableDocument
 from .schema import Chunk
@@ -103,6 +106,9 @@ __all__ = [
     "get_available_documents",
     "get_available_documents_async",
     "allocate_inventory",
+    "allocate_inventory_detailed",
+    "get_inventory_drops",
+    "set_inventory_drops",
     "listing_intent_override",
     "render_inventory_block",
     "shelf_hint_from_query",

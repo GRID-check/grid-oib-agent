@@ -55,7 +55,7 @@ export function ProjectRenameButton({ projectId, projectName }: ProjectRenameBut
       })
       if (!res.ok) {
         throw new Error(
-          res.status === 403 ? t('overview.rename.forbidden') : t('overview.rename.error'),
+          res.status === 403 ? t('overview.rename.forbidden') : t('overview.rename.error')
         )
       }
       toast.success(t('overview.rename.success'))
@@ -73,7 +73,7 @@ export function ProjectRenameButton({ projectId, projectName }: ProjectRenameBut
       <Button
         variant="ghost"
         size="icon"
-        className="size-8 shrink-0 text-muted-foreground"
+        className="text-muted-foreground size-8 shrink-0"
         onClick={() => handleOpenChange(true)}
         aria-label={t('overview.rename.action')}
         title={t('overview.rename.action')}
@@ -94,7 +94,9 @@ export function ProjectRenameButton({ projectId, projectName }: ProjectRenameBut
             }}
           >
             <Field>
-              <FieldLabel htmlFor="project-rename-input">{t('overview.rename.nameLabel')}</FieldLabel>
+              <FieldLabel htmlFor="project-rename-input">
+                {t('overview.rename.nameLabel')}
+              </FieldLabel>
               <Input
                 id="project-rename-input"
                 value={name}
@@ -118,7 +120,7 @@ export function ProjectRenameButton({ projectId, projectName }: ProjectRenameBut
                   aria-hidden={!pending}
                   className={
                     pending
-                      ? 'transition-opacity duration-snap ease-out motion-reduce:transition-none'
+                      ? 'duration-snap transition-opacity ease-out motion-reduce:transition-none'
                       : 'opacity-0'
                   }
                 />

@@ -151,7 +151,10 @@ describe('ResearchRunsList', () => {
     // 2. Retry kicks off a SLOW fetch that we resolve later (stale response).
     let resolveStaleRetry: (value: ListResearchRunsResponse) => void = () => undefined
     listResearchRuns.mockImplementationOnce(
-      () => new Promise<ListResearchRunsResponse>((resolve) => { resolveStaleRetry = resolve })
+      () =>
+        new Promise<ListResearchRunsResponse>((resolve) => {
+          resolveStaleRetry = resolve
+        })
     )
     await userEvent.click(retryButton)
 
