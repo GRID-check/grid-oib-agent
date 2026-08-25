@@ -18,7 +18,7 @@
  * has a `browser` field, and under happy-dom the web build's `renderToStream`
  * throws "a web specific API".
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 
@@ -120,7 +120,14 @@ const runRenderer = () => {
   return input.render(context)
 }
 
+// The cover sheet is dated from the real clock (`research-report.ts` passes
+// `new Date()`, deliberately: a report filed today is dated today). The
+// assertions below name „20. August 2026", so without a frozen clock they
+// passed on exactly one day and failed on 25 August with a diff that looks
+// like a formatting change rather than a calendar.
 beforeEach(() => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-08-20T11:00:00Z'))
   vi.clearAllMocks()
   findProjectInOrg.mockResolvedValue({ id: 'proj-1', name: 'Haus Anna', profile: PROFILE })
   fileGeneratedDocument.mockResolvedValue({
@@ -129,6 +136,10 @@ beforeEach(() => {
     folderId: 'folder-1',
     alreadyFiled: false,
   })
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('splitReportTitle', () => {
