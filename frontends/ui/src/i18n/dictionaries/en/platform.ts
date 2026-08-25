@@ -1,7 +1,6 @@
 /** The platform owner's cross-organization dashboard (ADR-0016). */
 export const platform = {
   title: 'Platform',
-  subtitle: 'Cross-organization overview for the platform owner.',
   loading: 'Loading platform…',
   loadError: 'Could not load the platform overview.',
   // Generic empty state for `SectionCard`, whose `emptyTitle` prop is optional.
@@ -513,45 +512,33 @@ export const platform = {
   sections: {
     overview: {
       title: 'Overview',
-      subtitle: 'Every organization on the platform, with projects and LLM spend.',
     },
     skills: {
       title: 'Skills',
-      subtitle:
-        'The skills Piloti writes for every organization. Publish one as an offer and each decides whether to switch it on; publish it as a standard and they all simply run it.',
     },
     models: {
       title: 'Models',
-      subtitle: 'The default model every organization runs on until it picks its own.',
     },
     retrieval: {
       title: 'Retrieval',
-      subtitle: 'How many hits each search fetches and merges — fleet-wide, effective on the next request.',
     },
     cards: {
       title: 'Cards',
-      subtitle: 'What the agent can put on screen — every card type, rendered, with the values it carries.',
     },
     quality: {
       title: 'Answer quality',
-      subtitle: 'How well answers are grounded, what users thought of them, and the execution timeline behind any turn that was not.',
     },
     knowledge: {
       title: 'Base knowledge',
-      subtitle: 'The shared OIB corpus every project grounds its answers on.',
     },
     norms: {
       title: 'Norm catalog',
-      subtitle: 'Which legal sources bind, how they are ranked, and where they live in RIS.',
     },
     storage: {
       title: 'Storage',
-      subtitle:
-        'Stored bytes per organization, and the quota that bounds each one.',
     },
     maintenance: {
       title: 'Maintenance',
-      subtitle: 'Vector-store upkeep. Only needed when retrieval and the corpus have drifted apart.',
     },
   },
   /** Platform → cards: the agent's presentation vocabulary, rendered. */

@@ -15,7 +15,7 @@ export default async function PlatformModelsPage(): Promise<JSX.Element> {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={t('sections.models.title')} subtitle={t('sections.models.subtitle')} />
+      <PageHeader title={t('sections.models.title')} />
       <PlatformModelDefaults />
     </div>
   )

@@ -2,8 +2,8 @@
 
 /**
  * Dev preview for the org Archiv surface — the whole sheet, not just the grid:
- * the back control, the Büroarchiv identity row with its document count, and the
- * library pane inside the raised frame the real page renders. That is what the
+ * the back control, the header band with its document count, and the library
+ * pane inside the raised frame the real page renders. That is what the
  * screenshot evidence has to show, since the premium pass changed the chrome
  * around the cards rather than the cards themselves (which stay comparable with
  * `/dev/file-browser`).
@@ -21,12 +21,11 @@
 
 import { useEffect, useState } from 'react'
 import { notFound } from 'next/navigation'
-import { Archive } from 'lucide-react'
 // Imported from the module, not the shell barrel: the barrel also exports the
 // server-only OrgTopbar, which would drag `@/i18n/server` into this client page.
 import { BackLink } from '@/components/shell/back-link'
 import { CountPill } from '@/components/ui/count-pill'
-import { sourceTint } from '@/lib/ui/source-tint'
+import { PageHeader } from '@/components/ui/page-header'
 import { writeTrail } from '@/lib/navigation/return-trail'
 import { ArchivLibraryPane } from '@/features/documents/components/archiv-library-pane'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
@@ -98,8 +97,6 @@ const FILES: FileItem[] = [
   ),
 ]
 
-const OFFICE_TINT = sourceTint('office')
-
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   // Seed the tab's return trail at module scope — before the first render, so
   // the back control reads it on its own first effect — with the case the
@@ -139,27 +136,15 @@ export default function ArchivLibraryDevPage(): JSX.Element {
     <main className="mx-auto flex max-w-6xl flex-col p-6">
       <BackLink fallbackHref="/app/projects" fallbackLabel="Back to projects" />
       <div className="shadow-xs mt-3 flex h-[820px] flex-col overflow-hidden rounded-xl border">
-        <div className="flex items-center justify-between gap-4 border-b px-4 py-3.5">
-          <div className="flex min-w-0 items-center gap-3">
-            <span
-              className="shadow-2xs flex size-9 shrink-0 items-center justify-center rounded-xl"
-              style={OFFICE_TINT}
-              aria-hidden
-            >
-              <Archive className="size-[18px]" />
-            </span>
-            <div className="min-w-0">
-              <div className="flex min-w-0 items-center gap-2">
-                <h1 className="text-foreground truncate text-[15px] font-semibold tracking-tight">
-                  Archiv
-                </h1>
+        <div className="shrink-0 border-b border-border px-4 py-4">
+          <PageHeader
+            title={
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="truncate">Archiv</span>
                 {!isLoading && <CountPill>{FILES.length}</CountPill>}
-              </div>
-              <p className="text-muted-foreground truncate text-xs">
-                Shared documents available to every project in your organization
-              </p>
-            </div>
-          </div>
+              </span>
+            }
+          />
         </div>
         <div className="scroll-fade-bottom flex-1 overflow-y-auto">
           <ArchivLibraryPane

@@ -44,15 +44,6 @@ export const nav: typeof en.nav = {
     org: 'Organisation',
     account: 'Verwaltung',
   },
-  sectionSubtitles: {
-    files: 'Dokumente, auf die sich Piloti in diesem Projekt stützt.',
-    history: 'Alle Unterhaltungen und Deep-Research-Läufe dieses Projekts.',
-    skills: 'Wiederverwendbare Anweisungen, die die Organisation einmal schreibt.',
-    jobs: 'Prompts, die dieses Projekt zeitgesteuert ausführt.',
-    knowledge: 'Was die Wissensbasis derzeit enthält.',
-    settings: 'Projektprofil, Mitglieder, Gedächtnis und Gefahrenzone.',
-    intake: 'Geführtes Briefing für dieses Projekt.',
-  },
   backTo: 'Zurück zu {label}',
   returnTargets: {
     project: 'zum Projekt',
@@ -92,7 +83,6 @@ export const nav: typeof en.nav = {
   },
   /** Die Projekt-Historie: Unterhaltungen + Deep-Research-Läufe (FB-10). */
   history: {
-    subtitle: 'Alle Unterhaltungen und Deep-Research-Läufe dieses Projekts.',
     conversationsHeading: 'Unterhaltungen',
     researchHeading: 'Deep Research',
     filterAll: 'Alle',

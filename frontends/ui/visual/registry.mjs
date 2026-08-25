@@ -376,7 +376,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/archiv-library',
     description:
-      'The org Archiv sheet — back control, gold Büroarchiv identity row with the document count, search, category chips and the card grid inside one raised frame. The grid itself stays comparable with the Files browser; what is pinned here is the chrome around it, including the back control — the trail is seeded with a project visit, so it shows what it shows in the app, the NAME of the project the reader came out of — and the bottom scroll boundary that dissolves the last row instead of clipping it.',
+      'The org Archiv sheet — back control, then the standard header band (title, document count, upload) as the sheet\'s first strip, search, category chips and the card grid inside one raised frame. The band is the same one every project section opens with, so this shot doubles as the proof that stepping out of a project changes what the header says and not how it looks. The grid itself stays comparable with the Files browser; what is pinned here is the chrome around it, including the back control — the trail is seeded with a project visit, so it shows what it shows in the app, the NAME of the project the reader came out of — and the bottom scroll boundary that dissolves the last row instead of clipping it.',
     waitFor: '[data-testid="archiv-document-card"]',
   },
   {
@@ -384,7 +384,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/archiv-library?state=loading',
     description:
-      'The Archiv while it loads. Evidence for the transition, so compare it band for band with `archiv-library`: search row, chip row and card cells sit at the same heights in the same bordered bands, which is what stops the whole surface from jumping when the documents arrive. The previous skeleton was a bare bar over six cells and moved every row on the screen.',
+      'The Archiv while it loads. Evidence for the transition, so compare it band for band with `archiv-library`: header band, search row, chip row and card cells sit at the same heights in the same bordered bands, which is what stops the whole surface from jumping when the documents arrive. The count pill is absent until there is a count to state, and its slot is reserved, so its arrival moves nothing.',
     waitFor: '[aria-busy="true"]',
   },
   {
@@ -399,7 +399,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/project-chrome',
     description:
-      'Shared project section chrome — breadcrumb + title + subtitle + actions — every section that uses it, grouped as Work (Files, History), Automate (Jobs, Skills), Project (Knowledge, Settings, Setup) and Organization (Archiv, Inbox). Chat is the documented exception and is not shown.',
+      'Shared project section chrome — one line, title + optional action — every section that uses it, grouped as Work (Files, History), Automate (Jobs, Skills), Project (Knowledge, Settings, Setup) and Organization (Archiv, Inbox). The comparison IS the evidence: band height, title baseline and the right edge line up whether the action slot holds a button, a search field, or nothing, which is what the breadcrumb-and-subtitle version could not show. Chat is the documented exception and is not shown.',
     waitFor: '[data-testid="project-chrome-preview"]',
   },
   {

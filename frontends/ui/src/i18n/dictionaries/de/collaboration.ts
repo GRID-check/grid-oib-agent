@@ -191,7 +191,6 @@ export const collaboration: typeof en.collaboration = {
     badgeAria:
       '{count, plural, one {# Eintrag braucht} other {# Einträge brauchen}} Ihre Aufmerksamkeit',
     badgeAriaOne: '1 Eintrag braucht Ihre Aufmerksamkeit',
-    subtitle: 'Anfragen und Neuigkeiten aus Ihrem Team.',
     filters: {
       needsMe: 'Für mich',
       all: 'Alle',

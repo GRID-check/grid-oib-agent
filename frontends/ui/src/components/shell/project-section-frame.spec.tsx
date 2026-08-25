@@ -13,7 +13,7 @@ beforeEach(() => {
 })
 
 describe('ProjectSectionFrame', () => {
-  test('renders the section heading and a breadcrumb with the project name', () => {
+  test('opens the section with its heading and nothing above it', () => {
     render(
       <ProjectSectionFrame projectId="p1" projectName="Stadthaus Wien">
         <p>history body</p>
@@ -21,11 +21,11 @@ describe('ProjectSectionFrame', () => {
     )
 
     expect(screen.getByRole('heading', { level: 1, name: 'History' })).toBeInTheDocument()
-    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Stadthaus Wien')
-    expect(screen.getByRole('link', { name: 'Stadthaus Wien' })).toHaveAttribute(
-      'href',
-      '/app/projects/p1/settings',
-    )
+    // The header is one line: no trail back to the project, and no subtitle
+    // restating what the heading and the rail already say.
+    expect(screen.queryByRole('navigation', { name: 'breadcrumb' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Stadthaus Wien' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/deep-research run/i)).not.toBeInTheDocument()
     expect(screen.getByText('history body')).toBeInTheDocument()
   })
 

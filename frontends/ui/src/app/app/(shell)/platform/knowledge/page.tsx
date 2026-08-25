@@ -14,7 +14,7 @@ export default async function PlatformKnowledgePage(): Promise<JSX.Element> {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={t('sections.knowledge.title')} subtitle={t('sections.knowledge.subtitle')} />
+      <PageHeader title={t('sections.knowledge.title')} />
       <BaseKnowledge />
     </div>
   )

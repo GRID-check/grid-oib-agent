@@ -6,7 +6,6 @@
  */
 
 import { type Metadata } from 'next'
-import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { canManageArchiv } from '@/lib/authz/organizations'
@@ -15,19 +14,9 @@ import { findProjectInOrg } from '@/lib/projects/repository'
 import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { resolveActiveProjectId } from '@/lib/collection-scope-request'
 import { BackLink, ShellContent } from '@/components/shell'
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from '@/components/ui/breadcrumb'
-import { PageHeader } from '@/components/ui/page-header'
 import { getTranslations } from '@/i18n/server'
 import { ArchivWorkspace } from '@/features/documents/components/archiv-workspace'
 import { resolveArchivBackLink } from '@/features/documents/archiv-back-link'
-import { PRODUCT_NAME } from '@/lib/brand'
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations('archiv')
@@ -74,33 +63,17 @@ export default async function ArchivPage(): Promise<JSX.Element> {
       // scrolls. The frame supplies the `<main>` landmark and the page
       // background; this page adds neither.
       <ShellContent width="wide" fill className="pb-4 md:pb-6">
+        {/* The Archiv's own title sits in the first band of the sheet below,
+            beside the count and the upload control it belongs with (see
+            {@link ArchivWorkspace}). Naming it again out here was a second
+            header for one page. */}
         <div className="shrink-0 pb-4">
           <BackLink
-            className="mb-4"
             fallbackHref={backLink.href}
             fallbackLabel={t(
               backLink.labelKey,
               backLink.name ? { name: backLink.name } : undefined
             )}
-          />
-          <PageHeader
-            title={t('title')}
-            subtitle={t('subtitle')}
-            breadcrumb={
-              <Breadcrumb>
-                <BreadcrumbList>
-                  <BreadcrumbItem>
-                    <BreadcrumbLink asChild>
-                      <Link href="/app/projects">{PRODUCT_NAME}</Link>
-                    </BreadcrumbLink>
-                  </BreadcrumbItem>
-                  <BreadcrumbSeparator />
-                  <BreadcrumbItem>
-                    <BreadcrumbPage>{t('title')}</BreadcrumbPage>
-                  </BreadcrumbItem>
-                </BreadcrumbList>
-              </Breadcrumb>
-            }
           />
         </div>
         {/* The library reads as one sheet lifted off the page: hairline border,

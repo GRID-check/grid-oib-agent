@@ -1,7 +1,6 @@
 /** Org-wide Archiv: the top-level, cross-project document store (ADR-0024). */
 export const archiv = {
   title: 'Archiv',
-  subtitle: 'Shared documents available to every project in your organization',
   backToApp: 'Back to projects',
   backToProject: 'Back to project',
   backToNamedProject: 'Back to {name}',

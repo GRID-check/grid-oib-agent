@@ -27,7 +27,7 @@ export default async function OrganizationBudgetsPage(): Promise<JSX.Element> {
 
     return (
       <div className="flex flex-col gap-6">
-        <PageHeader title={t('sections.budgets.title')} subtitle={t('sections.budgets.subtitle')} />
+        <PageHeader title={t('sections.budgets.title')} />
 
         <Card>
           <CardHeader>

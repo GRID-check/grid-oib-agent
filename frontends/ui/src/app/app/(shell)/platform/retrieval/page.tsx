@@ -15,7 +15,7 @@ export default async function PlatformRetrievalPage(): Promise<JSX.Element> {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={t('sections.retrieval.title')} subtitle={t('sections.retrieval.subtitle')} />
+      <PageHeader title={t('sections.retrieval.title')} />
       <PlatformRetrievalSettings />
     </div>
   )

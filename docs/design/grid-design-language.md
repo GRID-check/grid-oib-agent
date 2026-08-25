@@ -121,24 +121,28 @@ procedure are in **`docs/design/project-surfaces.md`**.
 
 **Page header** — every content page opens with `PageHeader`
 (`components/ui/page-header.tsx`), so the title stays on-spec (`text-xl`)
-instead of drifting:
+instead of drifting. It is ONE line, and the primitive has no other slot:
 ```tsx
-<header className="flex items-end justify-between gap-4">
-  <div>
-    <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-    <p className="mt-1 text-sm text-muted-foreground">{oneLineContext}</p>
-  </div>
+<header className="flex min-w-0 items-center justify-between gap-4">
+  <h1 className="min-w-0 text-balance text-xl font-semibold tracking-tight">{title}</h1>
   {primaryAction}
 </header>
 ```
+There is no subtitle and no breadcrumb trail. Both restated to the reader what
+the rail's marked entry and the title already say, and cost every page ~50px
+above its content. A page that genuinely needs to explain itself does it in the
+content, next to the thing being explained — not in a caption under the title.
 
 **Project section chrome** — every project section except **Ask Piloti**
-(chat) opens with the same block: a muted `{project} / {section}` breadcrumb
-trail, then the `PageHeader` title + one-line subtitle, then optional actions
-on the right. The three shapes are an action button (Files, Jobs, Skills),
-a search field (History), and title-only (Settings). The intake wizard is a
-content page too — `PageHeader` plus a `SectionLabel` eyebrow, never a second
-`text-2xl` title. Projects home (above a project) uses the same `PageHeader`.
+(chat) opens with the same band: `border-b border-border bg-background px-4 py-4
+md:px-8` around a `PageHeader`, so the title sits on one line with optional
+actions on the right. The three shapes are an action button (Files, Jobs,
+Skills), a search field (History), and title-only (Settings). The intake wizard
+is a content page too — `PageHeader` plus a `SectionLabel` eyebrow, never a
+second `text-2xl` title. Projects home (above a project) uses the same
+`PageHeader`. The org **Archiv** uses that same band as the first strip of its
+sheet, carrying the document count beside the title and the upload control on
+the right — it is the store's only header, not a second one under the page's.
 Chat is the documented exception: it is a full-bleed conversation surface with
 its own toolbar, not a content page. Evidence: `/dev/project-chrome`.
 

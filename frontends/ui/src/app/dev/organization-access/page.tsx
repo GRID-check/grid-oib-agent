@@ -110,10 +110,7 @@ function Preview(): JSX.Element {
       data-testid="organization-access-preview"
       className="text-foreground mx-auto flex w-full max-w-5xl flex-col gap-6 p-8"
     >
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">{t('sections.access.title')}</h1>
-        <p className="text-muted-foreground mt-1 text-sm">{t('sections.access.subtitle')}</p>
-      </div>
+      <h1 className="text-xl font-semibold tracking-tight">{t('sections.access.title')}</h1>
 
       {/* The real sub-tab strip, so the shot shows how the three views are
           reached. `value` is controlled here because the route, not a click,

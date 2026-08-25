@@ -77,7 +77,7 @@ export default async function ProfilePage(): Promise<JSX.Element> {
           fallbackLabel={t('backToApp')}
         />
 
-        <PageHeader className="mb-8" title={t('title')} subtitle={t('subtitle')} />
+        <PageHeader className="mb-8" title={t('title')} />
 
         <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex flex-col gap-6 duration-200 ease-out motion-reduce:animate-none">
           {/* Account */}

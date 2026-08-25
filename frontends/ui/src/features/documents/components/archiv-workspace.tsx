@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { sourceBase, sourceTint } from '@/lib/ui/source-tint'
+import { sourceBase } from '@/lib/ui/source-tint'
 import { AlertCircle, Archive, RotateCcw, X } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { useArchivDocuments } from '../hooks/use-archiv-documents'
@@ -19,6 +19,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { CountPill } from '@/components/ui/count-pill'
 import { EmptyState } from '@/components/ui/empty-state'
+import { PageHeader } from '@/components/ui/page-header'
 import { useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
 
@@ -28,12 +29,6 @@ interface ArchivWorkspaceProps {
   /** Gates the ingestion-metadata block, mirroring the project Files tab. */
   showMetadataPanel?: boolean
 }
-
-/**
- * Gold Büroarchiv identity mark (spec §4, `--source-office`): icon + label
- * together so color is never the only carrier (a11y).
- */
-const OFFICE_TINT = sourceTint('office')
 
 interface ArchivListResponse {
   documents?: Array<Record<string, unknown>>
@@ -253,34 +248,26 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
         />
       )}
 
-      {/* Identity row — the gold Büroarchiv mark, the name of the store, and how
-          much is in it. The count sits with the title rather than in the grid:
-          it is a property of the Archiv, and it is the one number a reader wants
-          before they start filtering. */}
-      <div className="flex min-h-[4rem] items-center justify-between gap-4 border-b px-4 py-3.5">
-        <div className="flex min-w-0 items-center gap-3">
-          <span
-            className="shadow-2xs flex size-9 shrink-0 items-center justify-center rounded-xl"
-            style={OFFICE_TINT}
-            aria-hidden
-          >
-            <Archive className="size-[18px]" />
-          </span>
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2">
-              <h2 className="text-foreground truncate text-sm font-semibold tracking-tight">
-                {t('title')}
-              </h2>
+      {/* Header band — the Archiv's only title, in the band every project
+          section opens with (`PageHeader` in a `border-b … py-4` strip), so
+          stepping out of a project into the Archiv changes what the header says
+          and not how it looks. The count sits with the title rather than in the
+          grid: it is a property of the Archiv, and it is the one number a reader
+          wants before they start filtering. */}
+      <div className="shrink-0 border-b border-border px-4 py-4">
+        <PageHeader
+          title={
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate">{t('title')}</span>
               <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center">
                 {!isLoading && !loadError && files.length > 0 && (
                   <CountPill data-testid="archiv-document-count">{files.length}</CountPill>
                 )}
               </span>
-            </div>
-            <p className="text-muted-foreground truncate text-xs">{t('subtitle')}</p>
-          </div>
-        </div>
-        {uploadButton}
+            </span>
+          }
+          action={uploadButton}
+        />
       </div>
 
       {/* Error banner */}

@@ -34,7 +34,7 @@ export default async function OrganizationModelsPage(): Promise<JSX.Element> {
 
     return (
       <div className="flex flex-col gap-6">
-        <PageHeader title={t('sections.models.title')} subtitle={t('sections.models.subtitle')} />
+        <PageHeader title={t('sections.models.title')} />
 
         {/* Runtime model configuration (ADR-0014) */}
         {models && (

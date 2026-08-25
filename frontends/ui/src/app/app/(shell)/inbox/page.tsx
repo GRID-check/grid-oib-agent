@@ -19,25 +19,15 @@
  */
 
 import { type Metadata } from 'next'
-import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
 import { withPageSession } from '@/lib/auth/require-auth'
 import { isCollaborationEnabled } from '@/lib/authz/feature-flags'
 import { inboxIsReachable } from '@/lib/inbox/registry'
 import { BackLink, ShellContent } from '@/components/shell'
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from '@/components/ui/breadcrumb'
 import { PageHeader } from '@/components/ui/page-header'
 import { getTranslations } from '@/i18n/server'
 import { InboxList } from '@/features/collaboration/components'
-import { PRODUCT_NAME } from '@/lib/brand'
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations('collaboration')
@@ -56,25 +46,7 @@ export default async function InboxPage(): Promise<JSX.Element> {
     return (
       <ShellContent>
         <BackLink className="mb-6" fallbackHref="/app/projects" fallbackLabel={tOrg('backToApp')} />
-        <PageHeader
-          title={t('inbox.title')}
-          subtitle={t('inbox.subtitle')}
-          breadcrumb={
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbLink asChild>
-                    <Link href="/app/projects">{PRODUCT_NAME}</Link>
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>{t('inbox.title')}</BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
-          }
-        />
+        <PageHeader title={t('inbox.title')} />
         <div className="mt-7">
           <InboxList />
         </div>

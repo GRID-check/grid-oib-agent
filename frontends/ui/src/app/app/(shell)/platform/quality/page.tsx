@@ -18,7 +18,7 @@ export default async function PlatformQualityPage(): Promise<JSX.Element> {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={t('sections.quality.title')} subtitle={t('sections.quality.subtitle')} />
+      <PageHeader title={t('sections.quality.title')} />
       <CitationHealth />
       {/* What the people who read the answers thought — the other half of
           'answer quality', and until now the half nobody could see. */}

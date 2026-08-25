@@ -26,7 +26,7 @@ export default async function OrganizationStoragePage(): Promise<JSX.Element> {
 
     return (
       <div className="flex flex-col gap-6">
-        <PageHeader title={t('sections.storage.title')} subtitle={t('sections.storage.subtitle')} />
+        <PageHeader title={t('sections.storage.title')} />
 
         <Card>
           <CardHeader>

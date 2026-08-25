@@ -1,7 +1,6 @@
 /** Organisationsweites Archiv: der projektübergreifende Dokumentenspeicher (ADR-0024). */
 export const archiv = {
   title: 'Archiv',
-  subtitle: 'Gemeinsame Dokumente, die jedem Projekt Ihrer Organisation zur Verfügung stehen',
   backToApp: 'Zurück zu den Projekten',
   backToProject: 'Zurück zum Projekt',
   backToNamedProject: 'Zurück zu {name}',

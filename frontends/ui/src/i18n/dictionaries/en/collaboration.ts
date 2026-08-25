@@ -292,7 +292,6 @@ export const collaboration = {
     badgeAria:
       '{count, plural, one {# item needs} other {# items need}} your attention',
     badgeAriaOne: '1 item needs your attention',
-    subtitle: 'Requests and updates from your team.',
     filters: {
       needsMe: 'Needs me',
       all: 'All',

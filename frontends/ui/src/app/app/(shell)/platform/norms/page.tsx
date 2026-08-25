@@ -14,7 +14,7 @@ export default async function PlatformNormsPage(): Promise<JSX.Element> {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={t('sections.norms.title')} subtitle={t('sections.norms.subtitle')} />
+      <PageHeader title={t('sections.norms.title')} />
       <NormRegistry />
     </div>
   )

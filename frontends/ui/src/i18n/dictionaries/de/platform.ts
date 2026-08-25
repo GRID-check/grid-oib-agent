@@ -3,7 +3,6 @@ import type { en } from '../en'
 /** Das plattformweite Dashboard des Plattform-Inhabers (ADR-0016). */
 export const platform: typeof en.platform = {
   title: 'Plattform',
-  subtitle: 'Organisationsübergreifende Übersicht für den Plattform-Inhaber.',
   loading: 'Plattform wird geladen…',
   loadError: 'Die Plattform-Übersicht konnte nicht geladen werden.',
   empty: {
@@ -521,45 +520,33 @@ export const platform: typeof en.platform = {
   sections: {
     overview: {
       title: 'Übersicht',
-      subtitle: 'Alle Organisationen der Plattform, mit Projekten und LLM-Kosten.',
     },
     skills: {
       title: 'Skills',
-      subtitle:
-        'Die Skills, die Piloti für alle Organisationen schreibt. Als Angebot veröffentlicht entscheidet jede Organisation selbst, ob sie ihn einschaltet; als Standard veröffentlicht führen ihn schlicht alle aus.',
     },
     models: {
       title: 'Modelle',
-      subtitle: 'Das Standardmodell, auf dem jede Organisation läuft, solange sie kein eigenes wählt.',
     },
     retrieval: {
       title: 'Abruf',
-      subtitle: 'Wie viele Treffer jede Suche holt und zusammenführt — flottenweit, wirksam ab der nächsten Anfrage.',
     },
     cards: {
       title: 'Karten',
-      subtitle: 'Was der Agent darstellen kann — jeder Kartentyp, gerendert, mit den Werten, die er trägt.',
     },
     quality: {
       title: 'Antwortqualität',
-      subtitle: 'Wie gut Antworten belegt sind, was Nutzerinnen und Nutzer von ihnen hielten, und der Ausführungsverlauf hinter jedem Turn, der es nicht war.',
     },
     knowledge: {
       title: 'Basiswissen',
-      subtitle: 'Der gemeinsame OIB-Korpus, auf den jedes Projekt seine Antworten stützt.',
     },
     norms: {
       title: 'Normenkatalog',
-      subtitle: 'Welche Rechtsquellen binden, wie sie eingestuft sind und wo sie im RIS liegen.',
     },
     storage: {
       title: 'Speicher',
-      subtitle:
-        'Belegter Speicher je Organisation und das jeweils begrenzende Kontingent.',
     },
     maintenance: {
       title: 'Wartung',
-      subtitle: 'Pflege des Vektorspeichers. Nur nötig, wenn Retrieval und Korpus auseinanderlaufen.',
     },
   },
   /** Platform → Karten: das Darstellungsvokabular des Agenten, gerendert. */

@@ -1,0 +1,14 @@
+---
+improvements:
+  - >
+    Every page now opens with just its name. The breadcrumb trail above the
+    title and the sentence underneath it are gone — the rail already shows which
+    section you are in — so the header is one line and about 50px of every
+    screen goes back to the content. Files, Historie, Jobs, Skills, Wissen,
+    Einstellungen, Inbox, Profil, Organisation and Plattform all shrank alike.
+  - >
+    The Archiv had two headers: one over the sheet and a second inside it, the
+    same title twice in two sizes. It has one now, and it is the header every
+    other page uses: the name of the store, how many documents are in it, and
+    Hochladen on the right. Arriving from a project changes what the header says
+    and no longer changes how it looks.

@@ -30,10 +30,7 @@ export default async function OrganizationCompliancePage(): Promise<JSX.Element>
 
     return (
       <div className="flex flex-col gap-6">
-        <PageHeader
-          title={t('sections.compliance.title')}
-          subtitle={t('sections.compliance.subtitle')}
-        />
+        <PageHeader title={t('sections.compliance.title')} />
 
         {canRead ? (
           <Card>

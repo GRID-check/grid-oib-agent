@@ -43,10 +43,7 @@ export default async function OrganizationOverviewPage(): Promise<JSX.Element> {
     if (!admin) {
       return (
         <div className="flex flex-col gap-6">
-          <PageHeader
-            title={t('sections.overview.title')}
-            subtitle={t('sections.overview.subtitle')}
-          />
+          <PageHeader title={t('sections.overview.title')} />
 
           <Card>
             <CardHeader>
@@ -106,7 +103,7 @@ export default async function OrganizationOverviewPage(): Promise<JSX.Element> {
 
     return (
       <div className="flex flex-col gap-6">
-        <PageHeader title={t('sections.overview.title')} subtitle={t('sections.overview.subtitle')} />
+        <PageHeader title={t('sections.overview.title')} />
 
         <Card>
           <CardHeader>

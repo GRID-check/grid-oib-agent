@@ -54,15 +54,6 @@ export const nav = {
     /** Org-scope rail: the organization, platform and account destinations. */
     account: 'Administration',
   },
-  sectionSubtitles: {
-    files: 'Documents that ground Piloti’s answers in this project.',
-    history: 'Every conversation and deep-research run in this project.',
-    skills: 'Reusable instructions the organization writes once.',
-    jobs: 'Prompts this project runs on a timer.',
-    knowledge: 'What the knowledge base currently contains.',
-    settings: 'Project profile, members, memory, and danger zone.',
-    intake: 'Guided briefing for this project.',
-  },
   /**
    * The back control on pages outside the project shell (`BackLink`): `{label}`
    * is the name of the location the reader actually came from, resolved from the
@@ -116,7 +107,6 @@ export const nav = {
   },
   /** The project History page: conversations + research runs (FB-10). */
   history: {
-    subtitle: 'Every conversation and deep-research run in this project.',
     conversationsHeading: 'Conversations',
     researchHeading: 'Deep research',
     filterAll: 'All',

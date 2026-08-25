@@ -3,7 +3,6 @@ import type { en } from '../en'
 /** The profile / account settings page. */
 export const profile: typeof en.profile = {
   title: 'Profil',
-  subtitle: 'Verwalten Sie Ihr Konto, das Erscheinungsbild und Ihre Spracheinstellungen.',
   loading: 'Profil wird geladen…',
   backToApp: 'Zurück zu den Projekten',
   savedToast: 'Einstellungen gespeichert',

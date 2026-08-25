@@ -31,10 +31,7 @@ export default async function OrganizationEnterprisePage(): Promise<JSX.Element>
 
     return (
       <div className="flex flex-col gap-6">
-        <PageHeader
-          title={t('sections.enterprise.title')}
-          subtitle={t('sections.enterprise.subtitle')}
-        />
+        <PageHeader title={t('sections.enterprise.title')} />
 
         {admin ? (
           <OrgWidgets

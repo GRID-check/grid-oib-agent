@@ -14,7 +14,7 @@ export default async function PlatformMaintenancePage(): Promise<JSX.Element> {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={t('sections.maintenance.title')} subtitle={t('sections.maintenance.subtitle')} />
+      <PageHeader title={t('sections.maintenance.title')} />
       <VectorMaintenance />
     </div>
   )

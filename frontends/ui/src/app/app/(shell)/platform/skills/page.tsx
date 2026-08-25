@@ -14,7 +14,7 @@ export default async function PlatformSkillsPage(): Promise<JSX.Element> {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={t('sections.skills.title')} subtitle={t('sections.skills.subtitle')} />
+      <PageHeader title={t('sections.skills.title')} />
       <PlatformSkillCatalog />
     </div>
   )

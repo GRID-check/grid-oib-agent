@@ -1,7 +1,6 @@
 /** The organization management page (admin). */
 export const organization = {
   title: 'Organization',
-  subtitle: 'Manage your organization, its members, and access.',
   loading: 'Loading organization…',
   memberSubtitle: 'Your usage and your organization at a glance.',
   backToApp: 'Back to projects',
@@ -19,38 +18,24 @@ export const organization = {
   sections: {
     overview: {
       title: 'Overview',
-      subtitle:
-        'Your organization at a glance — name, domains, members, and the Piloti settings that apply to everyone in it.',
     },
     access: {
       title: 'People & access',
-      subtitle:
-        'Who is in the organization, the role each of them holds, and what that role is allowed to do.',
     },
     models: {
       title: 'Models',
-      subtitle:
-        'Which model each part of the agent runs on, and whether it runs on the platform key or your own.',
     },
     budgets: {
       title: 'Usage & budgets',
-      subtitle:
-        'LLM spend against the limits it is checked against. Admins see the whole organization, everyone else their own.',
     },
     storage: {
       title: 'Storage',
-      subtitle:
-        'How much document storage this organization uses, and the quota that bounds it.',
     },
     compliance: {
       title: 'Compliance',
-      subtitle:
-        'The audit trail of every privileged change, plus the legal holds and deletions that answer for your data.',
     },
     enterprise: {
       title: 'Enterprise',
-      subtitle:
-        'SSO, directory sync, domain verification and audit-log streaming — the WorkOS controls only an admin may touch.',
     },
   },
   /** People & access: the member directory, the role catalog, the permission map. */

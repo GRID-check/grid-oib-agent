@@ -41,7 +41,7 @@ export default async function OrganizationAccessPage(): Promise<JSX.Element> {
     const t = await getTranslations('organization')
 
     const header = (
-      <PageHeader title={t('sections.access.title')} subtitle={t('sections.access.subtitle')} />
+      <PageHeader title={t('sections.access.title')} />
     )
 
     // This is the gate. The shared layout deliberately is not one — it only omits

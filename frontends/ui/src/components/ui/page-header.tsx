@@ -8,57 +8,24 @@ import { cn } from '@/lib/utils'
  * the title size stays on-spec (`text-xl`, the documented 20px) instead of the
  * drifted `text-2xl` copies each page hand-rolled.
  *
+ * It is deliberately ONE line: a title, and the controls that act on the page.
+ * There is no subtitle slot and no breadcrumb slot — both restated what the rail
+ * and the title already say, and cost every page ~50px above its content.
+ *
  * @example
- * <PageHeader
- *   title={t('title')}
- *   subtitle={t('subtitle')}
- *   action={<Button>New project</Button>}
- * />
+ * <PageHeader title={t('title')} action={<Button>New project</Button>} />
  */
 export interface PageHeaderProps extends Omit<React.HTMLAttributes<HTMLElement>, 'title'> {
   title: React.ReactNode
-  subtitle?: React.ReactNode
   /** Optional primary action rendered on the right of the header row. */
   action?: React.ReactNode
-  /** Optional trail rendered above the title row. Absent = today's DOM. */
-  breadcrumb?: React.ReactNode
 }
 
-export function PageHeader({
-  title,
-  subtitle,
-  action,
-  breadcrumb,
-  className,
-  ...props
-}: PageHeaderProps): JSX.Element {
-  const titleRow = (
-    <>
-      <div className="min-w-0">
-        <h1 className="text-balance text-xl font-semibold tracking-tight">{title}</h1>
-        {subtitle && (
-          <p className="mt-1 text-pretty text-sm text-muted-foreground">{subtitle}</p>
-        )}
-      </div>
-      {action ? <div className="shrink-0">{action}</div> : null}
-    </>
-  )
-
+export function PageHeader({ title, action, className, ...props }: PageHeaderProps): JSX.Element {
   return (
-    <header
-      className={cn(
-        'min-w-0',
-        breadcrumb ? 'flex flex-col gap-3' : 'flex items-end justify-between gap-4',
-        className,
-      )}
-      {...props}
-    >
-      {breadcrumb}
-      {breadcrumb ? (
-        <div className="flex min-w-0 items-end justify-between gap-4">{titleRow}</div>
-      ) : (
-        titleRow
-      )}
+    <header className={cn('flex min-w-0 items-center justify-between gap-4', className)} {...props}>
+      <h1 className="min-w-0 text-balance text-xl font-semibold tracking-tight">{title}</h1>
+      {action ? <div className="shrink-0">{action}</div> : null}
     </header>
   )
 }
