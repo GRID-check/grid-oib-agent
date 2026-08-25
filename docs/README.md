@@ -31,6 +31,7 @@ with. See the [root README](../README.md) for what Grid is, and
 | [`ux/`](ux/) | UX playbooks: visual evidence, file explorer | You are adding a user-visible component |
 | [`product/`](product/) | Vision, positioning, long-form writing | You want the why behind the roadmap |
 | [`roadmap/`](roadmap/) | Where this is going: IFC, spatial reasoning, cross-project RAG | You are scoping something that is not built yet |
+| [`audit/`](audit/) | Frozen run logs from past audit and feedback-triage loops | You are tracing where a finding or a spec's evidence came from |
 | [`compliance/`](compliance/) | Audits and external dependency review | You are answering a compliance question |
 | [`superpowers/`](superpowers/) | Archived plans and specs from past pieces of work | You are reconstructing the history of a change |
 

@@ -1,5 +1,9 @@
 # Feedback Triage Backlog — colleague feedback, verified against code 2026-07-14
 
+> **Archived.** Frozen record of a finished loop, moved here from `feedback_backlog.md`
+> in the repo root. Do not append. Live loop state is `backlog.md` at the root.
+> Context: [`README.md`](README.md).
+
 > Working file for the feedback-triage loop. Every colleague feedback item was
 > verified against the current codebase (branch `claude/feedback-triage-backlog-ko6517`,
 > base `develop` @ `f941822`) by parallel code-research agents before being accepted
@@ -92,7 +96,7 @@
 - **Chat gives no answer** → fixed Jul 10–13: `ee284c2` (terminal `workflow_error` frame + 180s inactivity watchdog), `61a4858` (WS reconnect churn), `f732054`.
 - **Status display while AI works** → `ChatThinking.tsx` (live steps, waiting/interrupted/done).
 - **AI asks follow-up questions** → clarifier agent, live and recently fixed (`07251d0`).
-- **Design calmer/reduced** → design-language spec + UX audit rounds 1–8 (see `ux_audit_log.md`); pending only external-prototype comparison.
+- **Design calmer/reduced** → design-language spec + UX audit rounds 1–8 (see `docs/audit/ux-system-audit.md`); pending only external-prototype comparison.
 - **Wizard questions revised** → `intake-definition.ts` v2, actively iterated (`b97924a`, `4d76307`).
 
 ## Cycle log
