@@ -11,6 +11,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { DocumentRoleBinding } from './repository'
+import type { ProjectProfile } from '@/lib/project-profile/types'
 
 vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn().mockResolvedValue(undefined),
@@ -22,6 +23,13 @@ const repo = vi.hoisted(() => ({
   deleted: [] as string[],
   confirmed: [] as Array<{ bindingId: string; confidence: string; source: string }>,
   documentInProject: true,
+  // `null` means "no profile saved yet", where the implicit first building
+  // (`bw1`) is the only one that exists.
+  profile: null as ProjectProfile | null,
+}))
+
+vi.mock('@/lib/projects/repository', () => ({
+  findProjectProfile: vi.fn(async () => repo.profile),
 }))
 
 vi.mock('./repository', () => ({
@@ -278,5 +286,73 @@ describe('declareDocumentRole — a repeat can confirm', () => {
 
     // A later classifier pass must not un-confirm what a human decided.
     expect(repo.confirmed).toEqual([])
+  })
+})
+
+describe('declareDocumentRole — the Bauwerk has to exist', () => {
+  beforeEach(() => {
+    repo.bindings = []
+    repo.inserted = []
+    repo.deleted = []
+    repo.confirmed = []
+    repo.documentInProject = true
+    repo.profile = null
+    vi.clearAllMocks()
+  })
+
+  it('rejects a binding for a building this project does not have', async () => {
+    await expect(
+      declareDocumentRole(
+        {
+          projectId: 'proj-1',
+          documentId: 'doc-1',
+          role: 'bestandsplan',
+          scopeInstanceId: 'bw9',
+        },
+        session
+      )
+    ).rejects.toThrow(/bw9/)
+
+    // The vocabulary can only check the SHAPE of an instance id. An accepted
+    // string that names no building produced a binding matching no generated
+    // slot — invisible in the checklist, invisible to the agent, and impossible
+    // for the user to find and remove.
+    expect(repo.inserted).toEqual([])
+  })
+
+  it('accepts the implicit first building before any profile is saved', async () => {
+    await declareDocumentRole(
+      { projectId: 'proj-1', documentId: 'doc-1', role: 'bestandsplan', scopeInstanceId: 'bw1' },
+      session
+    )
+    expect(repo.inserted).toHaveLength(1)
+  })
+
+  it('accepts a building the stored profile actually names', async () => {
+    repo.profile = {
+      facts: {
+        'bauwerk_name@bw1': {
+          value: 'Haupthaus',
+          confidence: 'confirmed',
+          source: 'onboarding',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+        'bauwerk_name@bw2': {
+          value: 'Hoftrakt',
+          confidence: 'confirmed',
+          source: 'onboarding',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      },
+      goals: {},
+      unknowns: [],
+      assumptions: {},
+    }
+
+    await declareDocumentRole(
+      { projectId: 'proj-1', documentId: 'doc-1', role: 'bestandsplan', scopeInstanceId: 'bw2' },
+      session
+    )
+    expect(repo.inserted).toHaveLength(1)
   })
 })

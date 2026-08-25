@@ -15,6 +15,12 @@ import {
 } from '@/lib/project-profile/document-roles'
 import type { DocumentRole, RoleConfidence, RoleSource } from '@/lib/project-profile/document-roles'
 import { invalidateProjectPromptViewCache } from '@/lib/project-profile/prompt-view'
+import { findProjectProfile } from '@/lib/projects/repository'
+import {
+  answersFromProfile,
+  defaultBauwerke,
+  projectIntakeDefinitionV1,
+} from '@/lib/project-profile/intake-definition'
 import {
   confirmBinding,
   deleteBindings,
@@ -34,6 +40,26 @@ export type { DocumentRoleBinding } from './repository'
  * `project:edit` was broken up may hold only the umbrella.
  */
 const WRITE_PERMISSIONS = ['project:documents:write', 'project:edit'] as const
+
+/**
+ * Does this project have a building with this id?
+ *
+ * Read from the stored profile the wizard writes, which is the only place the
+ * building list lives. A project with no profile yet still has the implicit
+ * first building (`defaultBauwerke`), so declaring against it before the intake
+ * is saved keeps working.
+ */
+async function projectHasBauwerk(
+  projectId: string,
+  session: AuthorizedSession,
+  bauwerkId: string
+): Promise<boolean> {
+  const profile = await findProjectProfile(projectId, session.organizationId)
+  const bauwerke = profile
+    ? answersFromProfile(profile, projectIntakeDefinitionV1).bauwerke
+    : defaultBauwerke()
+  return bauwerke.some((bauwerk) => bauwerk.id === bauwerkId)
+}
 
 export async function listDocumentRoles(
   projectId: string,
@@ -90,6 +116,22 @@ export async function declareDocumentRole(
         ? `Role '${role}' belongs to one Bauwerk and needs its id.`
         : `Role '${role}' takes no scope instance.`
     )
+  }
+
+  // The vocabulary can only check the SHAPE of an instance id — that one is
+  // present for a `bauwerk` role and absent otherwise. Whether the building
+  // exists is a fact about this project, so it is checked here, against the
+  // project's own list.
+  //
+  // Without it any non-empty string was accepted, and the resulting binding
+  // matched no generated slot: invisible in the Modul I checklist, invisible in
+  // the agent's context, and impossible for the user to find and remove. A
+  // silent write to nowhere is worse than a rejection.
+  if (
+    scopeInstanceId !== null &&
+    !(await projectHasBauwerk(input.projectId, session, scopeInstanceId))
+  ) {
+    throw new BadRequestError(`Bauwerk '${scopeInstanceId}' does not exist in this project.`)
   }
 
   // The composite foreign key would reject a foreign document anyway, but as a
