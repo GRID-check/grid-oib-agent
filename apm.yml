@@ -7,11 +7,17 @@
 #   task agents:setup   install from this file
 #   task agents:audit   drift and hidden-Unicode scan
 #
-# No `targets:` on purpose: apm detects the harnesses present in the checkout
-# and deploys to each. Add `.cursor/` and Cursor starts getting them too.
+# `targets` is pinned rather than auto-detected because apm 0.28 resolves it
+# differently in `install` (claude, from .claude/ and CLAUDE.md) and in the
+# `audit` replay (also agents, from .agents/), so audit reported permanent
+# drift against files install never wrote. Add a harness here when the repo
+# gains one.
 name: grid-oib-agent
 version: 1.0.0
 description: Agent skills for working on the Grid OIB agent repository
+
+targets:
+  - claude
 
 dependencies:
   apm:
