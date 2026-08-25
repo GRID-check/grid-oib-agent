@@ -82,6 +82,22 @@ const de = {
     tag: 'Daten & Transparenz',
     title:
       'Keine Blackbox. Piloti macht KI und Daten nachvollziehbar — die Verantwortung bleibt bei Ihnen.',
+    // The section claims everything can be checked, so it shows the thing you
+    // check with: one answer with its whole apparatus attached.
+    receipt: {
+      tag: 'Beleg',
+      fictional: 'Fiktives Beispiel',
+      claim: 'Brandschutzschott je Geschoß — EPS über 10\u00a0cm zulässig.',
+      sourcesLabel: 'Grundlage',
+      sources: [
+        { kind: 'law', label: 'Baurecht', ref: 'OIB-RL 2, Pkt. 3.5' },
+        { kind: 'law', label: 'Baurecht', ref: 'BO Wien § 106' },
+        { kind: 'project', label: 'Projekt', ref: 'Einreichplan_EG.pdf' },
+        { kind: 'office', label: 'Büro', ref: 'VS Aspern 2019' },
+      ],
+      assumptionLabel: 'Annahme',
+      assumption: 'GK\u00a04, WDVS 14\u00a0cm EPS, Loggia über 2 Geschoße',
+    },
     cards: [
       {
         title: 'Spezialisiert auf Architektur',
@@ -443,6 +459,20 @@ const en: typeof de = {
   ki: {
     tag: 'Data & transparency',
     title: 'No black box. Piloti makes AI and data traceable — responsibility stays with you.',
+    receipt: {
+      tag: 'Trace',
+      fictional: 'Fictional example',
+      claim: 'Fire stop on each storey — EPS over 10\u00a0cm permitted.',
+      sourcesLabel: 'Basis',
+      sources: [
+        { kind: 'law', label: 'Building law', ref: 'OIB-RL 2, Sec. 3.5' },
+        { kind: 'law', label: 'Building law', ref: 'BO Wien § 106' },
+        { kind: 'project', label: 'Project', ref: 'Einreichplan_EG.pdf' },
+        { kind: 'office', label: 'Office', ref: 'VS Aspern 2019' },
+      ],
+      assumptionLabel: 'Assumption',
+      assumption: 'GK\u00a04, ETICS 14\u00a0cm EPS, loggia across 2 storeys',
+    },
     cards: [
       {
         title: 'Specialised in architecture',
