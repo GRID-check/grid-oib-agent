@@ -271,8 +271,16 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/intake',
     description:
-      'Project intake wizard (real ProjectIntakeWizard, backend-free) — mobile focus: sticky safe-area Back/Next footer, scroll-into-view stepper, ≥44px touch targets.',
+      'Project intake wizard (real ProjectIntakeWizard, backend-free) — the persistent module rail with per-module answered/total counts, the Schnellstart toggle, and the per-module "Rest überspringen". Mobile collapses the rail to a scrolling strip and keeps the sticky safe-area Back/Next footer and ≥44px touch targets.',
     waitFor: 'main',
+  },
+  {
+    id: 'intake-bestand',
+    mobile: true,
+    path: '/dev/intake?variant=bestand',
+    description:
+      'Modul C for a Bestandsgebäude — the v1.2 Bestandsblock (CB1–CB7_*) unfolded behind "Neubau oder Bestand?", beside the target-state geometry it is compared against. The rail shows real per-module counts once a profile is loaded.',
+    waitFor: 'text=Bauwerke',
   },
   {
     id: 'document-rename',

@@ -89,6 +89,17 @@ export interface ProjectIntakeQuestion {
    */
   role?: DocumentRole
   /**
+   * Sub-heading this question opens within its module.
+   *
+   * Modul C interleaves two descriptions of the same building — what stands
+   * there today (CB*) and what will stand there after the work (C3–C11) — and
+   * the Zielzustand principle is the concept's whole basis for deriving the
+   * Gebäudeklasse. Running them together as one list of twenty-two fields makes
+   * "Bestand heute: oberirdische Geschoße" and "Anzahl oberirdischer Geschoße
+   * (Zielzustand)" look like the same question asked twice.
+   */
+  group?: string
+  /**
    * Kernfrage: shown in Schnellstart mode; every non-core question the
    * Schnellstart skips is persisted with mode 'offen' so the completion
    * checklist in Modul H can list it.
@@ -527,6 +538,7 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
         // single-building case.
         {
           id: 'CB1',
+          group: 'Bestand heute',
           label: 'Baujahr des Bestands (ca.)',
           type: 'number_tri',
           placeholder: 'z. B. 1962',
@@ -623,6 +635,7 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
         // -------------------------------------------------- Zielgeometrie
         {
           id: 'C3',
+          group: 'Zielzustand — nach Umsetzung aller Maßnahmen',
           core: true,
           label: 'Anzahl oberirdischer Geschoße (Zielzustand)',
           type: 'number_tri',

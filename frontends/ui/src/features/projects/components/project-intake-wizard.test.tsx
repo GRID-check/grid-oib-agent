@@ -5,7 +5,7 @@
  * freshness, and numeric validation. The deterministic rule under test is the
  * fossil-fuel-on-a-new-build conflict (E1=gas + A5 includes Neubau).
  */
-import { fireEvent, render, screen, waitFor } from '@/test-utils'
+import { fireEvent, render, screen, waitFor, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'sonner'
@@ -648,5 +648,178 @@ describe('ProjectIntakeWizard — Fix 5 non-finite number rejected', () => {
     expect(screen.getByText(new RegExp(`step 3 of ${TOTAL}`, 'i'))).toBeInTheDocument()
     expect(putProfileCalls(stub)).toHaveLength(0)
     expect(pushMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('ProjectIntakeWizard — module rail', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+  afterEach(() => localStorage.clear())
+
+  it('names every module in full rather than truncating it', async () => {
+    stubFetch()
+    renderWizard(false)
+    const rail = await screen.findByRole('navigation', { name: /wizard modules/i })
+
+    // The horizontal stepper this replaced cut every label to ~8 characters,
+    // which turned three different modules into "Grundstück …" / "Technik &
+    // En…" / "Zusammenfa…". Full titles are the rail's whole reason to exist.
+    for (const title of ['Grundstück & Widmung', 'Technik & Energie', 'Verfahren & Sonderrecht', 'Zusammenfassung']) {
+      expect(within(rail).getByText(title)).toBeInTheDocument()
+    }
+  })
+
+  it('lets the user jump to a module they have not reached yet', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    renderWizard(false)
+    const rail = await screen.findByRole('navigation', { name: /wizard modules/i })
+
+    // Validation is soft everywhere but A1/A2/A5, so a rail that locked
+    // unvisited modules would enforce a gate the questionnaire does not have.
+    await user.click(within(rail).getByText('Projektkontext'))
+    expect(await screen.findByText(/Modul G/)).toBeInTheDocument()
+  })
+
+  it('counts answers per module as they are given', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    renderWizard(false)
+    const rail = await screen.findByRole('navigation', { name: /wizard modules/i })
+    const moduleA = within(rail).getByText('Projektbasis').closest('button')!
+
+    // A1 is seeded from the project name, so module A opens at 1 of 5.
+    expect(within(moduleA).getByText('1 of 5')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText(/Adresse \/ Gemeinde/), 'Innrain 1, 6020 Innsbruck')
+    await waitFor(() => expect(within(moduleA).getByText('2 of 5')).toBeInTheDocument())
+  })
+})
+
+describe('ProjectIntakeWizard — Schnellstart', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+  afterEach(() => localStorage.clear())
+
+  /** Module B: B1/B1_text/B2 are core, the risk/noise/erschliessung block is not. */
+  async function openModuleB(user: ReturnType<typeof userEvent.setup>) {
+    const rail = await screen.findByRole('navigation', { name: /wizard modules/i })
+    await user.click(within(rail).getByText('Grundstück & Widmung'))
+    await screen.findByText(/Modul B/)
+  }
+
+  it('narrows the module to its Kernfragen and says what it hid', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    renderWizard(false)
+    await openModuleB(user)
+
+    expect(screen.getByLabelText(/Lärmsituation am Standort/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /quick start/i }))
+
+    // Core survives, non-core goes, and the count says how much went.
+    expect(screen.getByLabelText(/Flächenwidmung \(Kategorie\)/)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/Lärmsituation am Standort/)).not.toBeInTheDocument()
+    expect(screen.getByText(/hidden in quick start/i)).toBeInTheDocument()
+  })
+
+  it('brings the hidden questions back for this module on request', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    renderWizard(false)
+    await openModuleB(user)
+    await user.click(screen.getByRole('button', { name: /quick start/i }))
+
+    // A count the user cannot act on would just be a nag.
+    await user.click(screen.getByRole('button', { name: /show all here/i }))
+    expect(screen.queryByText(/hidden in quick start/i)).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/Lärmsituation am Standort/)).toBeInTheDocument()
+  })
+
+  it('a module with no non-core questions shows no hidden-count nag', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    renderWizard(false)
+    await screen.findByText(/Modul A/)
+
+    // Every question v1.2 leaves in module A is core, so Schnellstart has
+    // nothing to hide there and must stay silent rather than print "0 more".
+    await user.click(screen.getByRole('button', { name: /quick start/i }))
+    expect(screen.queryByText(/hidden in quick start/i)).not.toBeInTheDocument()
+  })
+
+  it('never hides a required question', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    renderWizard(false)
+    await screen.findByText(/Modul A/)
+    await user.click(screen.getByRole('button', { name: /quick start/i }))
+
+    // Only A1/A2/A5 are hard-required and all are core; this guards the case
+    // where a later `required: true` lands on a non-core question.
+    for (const label of [/Projektname/, /Adresse \/ Gemeinde/, /^Land/]) {
+      expect(screen.getByLabelText(label)).toBeInTheDocument()
+    }
+  })
+})
+
+describe('ProjectIntakeWizard — Rest überspringen', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+  afterEach(() => localStorage.clear())
+
+  it('records the module\'s unanswered questions as explicitly open', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    renderWizard(false)
+    const rail = await screen.findByRole('navigation', { name: /wizard modules/i })
+    await user.click(within(rail).getByText('Projektkontext'))
+    await screen.findByText(/Modul G/)
+    const moduleG = within(rail).getByText('Projektkontext').closest('button')!
+
+    expect(within(moduleG).getByText('0 of 4')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /skip the rest/i }))
+
+    // Explicitly open counts as answered: both produce an `unknown` in the
+    // profile, but only the explicit one is distinguishable from "not reached"
+    // in Modul H's completion checklist.
+    await waitFor(() => expect(within(moduleG).getByText('complete')).toBeInTheDocument())
+  })
+
+  it('leaves the required questions of a module untouched', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    renderWizard(false)
+    const rail = await screen.findByRole('navigation', { name: /wizard modules/i })
+    const moduleA = within(rail).getByText('Projektbasis').closest('button')!
+
+    // A1 is seeded from the project name; A2_adr/A2_country stay required, so
+    // module A can never be skipped to "complete".
+    await user.click(screen.getByRole('button', { name: /skip the rest/i }))
+    await waitFor(() => expect(within(moduleA).getByText(/of/)).toBeInTheDocument())
+    // Never "complete": the required questions are still unanswered.
+    expect(within(moduleA).queryByText('complete')).not.toBeInTheDocument()
+  })
+
+  it('leaves a required question for the user to answer', async () => {
+    const user = userEvent.setup()
+    stubFetch()
+    renderWizard(false)
+    await screen.findByText(/Modul A/)
+    await user.click(screen.getByRole('button', { name: /skip the rest/i }))
+
+    // Skipping must not open the one gate the spec keeps closed.
+    await user.click(screen.getByRole('button', { name: /^next$/i }))
+    expect(await screen.findByText(/Modul A/)).toBeInTheDocument()
   })
 })

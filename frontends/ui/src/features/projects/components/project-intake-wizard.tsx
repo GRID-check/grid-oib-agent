@@ -1,14 +1,15 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { MutableRefObject } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import {
   AlertTriangle,
   Check,
-  ChevronDown,
   FolderOpen,
+  HelpCircle,
   Loader2,
   PencilLine,
   Plus,
@@ -99,6 +100,8 @@ interface ProjectIntakeWizardProps {
    * without the API. Undefined in production (the definition is fetched).
    */
   definitionOverride?: ProjectIntakeDefinition
+  /** Preview/deep-link entry module (index). A restored draft still wins. */
+  initialStep?: number
 }
 
 type Answers = Record<string, ProjectPrimitiveValue>
@@ -182,13 +185,14 @@ export function ProjectIntakeWizard({
   conflictCheckEnabled = false,
   salvageNotice = null,
   definitionOverride,
+  initialStep = 0,
 }: ProjectIntakeWizardProps) {
   const t = useTranslations('projects')
   const { locale } = useLocale()
   const router = useRouter()
   const [definition, setDefinition] = useState<ProjectIntakeDefinition | null>(null)
   const [loading, setLoading] = useState(true)
-  const [currentStep, setCurrentStep] = useState(0)
+  const [currentStep, setCurrentStep] = useState(initialStep)
   const [answers, setAnswers] = useState<Answers>({})
   const [bauwerke, setBauwerke] = useState<BauwerkInstance[]>(defaultBauwerke())
   const [touched, setTouched] = useState<Set<string>>(new Set())
@@ -199,6 +203,12 @@ export function ProjectIntakeWizard({
   const [findings, setFindings] = useState<ConsistencyFinding[] | null>(null)
   const [checking, setChecking] = useState(false)
   const [loadAttempt, setLoadAttempt] = useState(0)
+  // Schnellstart (spec `core_flag`): show only Kernfragen. Everything skipped is
+  // persisted with mode 'offen', which is already what an unanswered question
+  // becomes — so the mode is a VIEW, not a second answer state to reconcile.
+  const [quickStart, setQuickStart] = useState(false)
+  // Modules where the user chose "alle anzeigen" despite Schnellstart.
+  const [expandedStages, setExpandedStages] = useState<Set<string>>(new Set())
 
   const STORAGE_KEY = `intake-draft-${projectId}`
   const isEdit = mode === 'edit'
@@ -328,7 +338,7 @@ export function ProjectIntakeWizard({
     })
   }, [currentStep])
 
-  const stages = definition?.stages ?? []
+  const stages = useMemo(() => definition?.stages ?? [], [definition])
   const totalSteps = stages.length
   const stage: ProjectIntakeStage | null = stages[currentStep] ?? null
   const isReview = stage?.id === 'H'
@@ -356,10 +366,27 @@ export function ProjectIntakeWizard({
   }, [definition])
 
   /** Visible questions on a projekt/grundstueck stage (bauwerk stages iterate instances). */
-  const flatVisibleQuestions = useMemo(() => {
+  const stageVisibleQuestions = useMemo(() => {
     if (!stage || stage.scope === 'bauwerk') return []
     return stage.questions.filter((q) => evaluateIntakeCondition(q, answers))
   }, [stage, answers])
+
+  /** Whether Schnellstart is currently narrowing THIS module. */
+  const stageQuickStarted = quickStart && stage != null && !expandedStages.has(stage.id)
+
+  /**
+   * What the module actually renders. Validation still runs against the full
+   * visible set — a required question hidden by Schnellstart would otherwise
+   * let the user past a gate the spec keeps closed (only A1/A2/A5 are required,
+   * and all of them are core, so in practice this never bites; it is here so a
+   * later `required: true` on a non-core question cannot open a hole).
+   */
+  const flatVisibleQuestions = useMemo(() => {
+    if (!stageQuickStarted) return stageVisibleQuestions
+    return stageVisibleQuestions.filter((q) => q.core || q.required)
+  }, [stageQuickStarted, stageVisibleQuestions])
+
+  const hiddenByQuickStart = stageVisibleQuestions.length - flatVisibleQuestions.length
 
   const stageValid = useMemo(() => {
     if (!stage) return true
@@ -370,8 +397,78 @@ export function ProjectIntakeWizard({
           .every((q) => isQuestionSatisfied(q, answers, answerKeyFor(q.id, bw.id))),
       )
     }
-    return flatVisibleQuestions.every((q) => isQuestionSatisfied(q, answers, q.id))
-  }, [stage, bauwerke, answers, flatVisibleQuestions])
+    return stageVisibleQuestions.every((q) => isQuestionSatisfied(q, answers, q.id))
+  }, [stage, bauwerke, answers, stageVisibleQuestions])
+
+  /**
+   * Answered / total per module, for the rail.
+   *
+   * Counts only questions currently VISIBLE (a conditional question the project
+   * never reaches is not an unanswered one) and only those that write an answer
+   * — an `info_placeholder` or a `document_role` slot has nothing to satisfy.
+   * Bauwerk modules count across every building, which is what makes "3 von 14"
+   * on module C honest when there are two buildings.
+   */
+  const stageProgress = useMemo(() => {
+    const counts = new Map<string, { answered: number; total: number }>()
+    for (const s of stages) {
+      let answered = 0
+      let total = 0
+      const tally = (q: ProjectIntakeQuestion, key: string) => {
+        if (q.type === 'info_placeholder' || q.type === 'document_role' || q.type === 'upload') return
+        total += 1
+        if (isIntakeAnswerProvided(answers[key]) || answers[modeKeyFor(key)] === 'offen') answered += 1
+      }
+      if (s.scope === 'bauwerk') {
+        for (const bw of bauwerke) {
+          for (const q of s.questions) {
+            if (evaluateIntakeCondition(q, answers, bw.id)) tally(q, answerKeyFor(q.id, bw.id))
+          }
+        }
+      } else {
+        for (const q of s.questions) {
+          if (evaluateIntakeCondition(q, answers)) tally(q, q.id)
+        }
+      }
+      counts.set(s.id, { answered, total })
+    }
+    return counts
+  }, [stages, answers, bauwerke])
+
+  /**
+   * Record every unanswered question in this module as explicitly open.
+   *
+   * The spec's per-module "Rest überspringen – als offen übernehmen". Writing
+   * mode 'offen' rather than leaving the answer absent is the whole point: both
+   * produce an `unknown` in the profile, but only the explicit one can be told
+   * apart from "not reached yet" in Modul H's completion checklist.
+   */
+  const skipRestOfStage = useCallback(() => {
+    if (!stage) return
+    setAnswers((prev) => {
+      const next = { ...prev }
+      const markOpen = (q: ProjectIntakeQuestion, key: string) => {
+        if (q.type === 'info_placeholder' || q.type === 'document_role' || q.type === 'upload') return
+        if (q.required) return
+        if (isIntakeAnswerProvided(next[key])) return
+        next[modeKeyFor(key)] = 'offen'
+        delete next[key]
+      }
+      if (stage.scope === 'bauwerk') {
+        for (const bw of bauwerke) {
+          for (const q of stage.questions) {
+            if (evaluateIntakeCondition(q, next, bw.id)) markOpen(q, answerKeyFor(q.id, bw.id))
+          }
+        }
+      } else {
+        for (const q of stage.questions) {
+          if (evaluateIntakeCondition(q, next)) markOpen(q, q.id)
+        }
+      }
+      return pruneStaleConditionalAnswers(next, definition)
+    })
+    setFindings(null)
+  }, [stage, bauwerke, definition])
 
   const directionRef = useRef(1)
 
@@ -401,13 +498,13 @@ export function ProjectIntakeWizard({
           }
         }
       } else {
-        for (const q of flatVisibleQuestions) {
+        for (const q of stageVisibleQuestions) {
           if (!isQuestionSatisfied(q, answers, q.id)) next.add(q.id)
         }
       }
       return next
     })
-  }, [stage, bauwerke, answers, flatVisibleQuestions])
+  }, [stage, bauwerke, answers, stageVisibleQuestions])
 
   const handleNext = useCallback(() => {
     if (!stageValid) {
@@ -591,11 +688,24 @@ export function ProjectIntakeWizard({
   const progress = ((currentStep + 1) / totalSteps) * 100
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6 md:py-12">
-      <div className="mb-8">
-        <SectionLabel>{isEdit ? t('intake.eyebrowEdit') : t('intake.eyebrowCreate')}</SectionLabel>
-        <p className="mt-1 text-sm text-muted-foreground">{t('intake.subtitle')}</p>
-      </div>
+    <div className="mx-auto max-w-6xl px-4 py-6 md:py-10">
+      <header className="mb-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+        <div className="min-w-0">
+          <SectionLabel>{isEdit ? t('intake.eyebrowEdit') : t('intake.eyebrowCreate')}</SectionLabel>
+          <h1 className="mt-1 truncate text-xl font-semibold tracking-tight">
+            {projectName || t('intake.titleFallback')}
+          </h1>
+          <p className="mt-1 max-w-prose text-sm text-muted-foreground">{t('intake.subtitle')}</p>
+        </div>
+        <QuickStartToggle
+          enabled={quickStart}
+          onToggle={() => {
+            setQuickStart((previous) => !previous)
+            setExpandedStages(new Set())
+          }}
+          t={t}
+        />
+      </header>
 
       {salvageNotice && (
         <Alert variant="warning" className="mb-6">
@@ -606,234 +716,372 @@ export function ProjectIntakeWizard({
         </Alert>
       )}
 
-      {/* Module stepper (A–H). The edge fades signal that it scrolls
-          horizontally. They are a MASK on the scroll container, not two
-          overlay gradients: a mask composites against whatever surface the
-          stepper lands on and names no colour, where the overlays it replaced
-          hard-coded `from-background` and would have been wrong the moment
-          this wizard moved onto a card (same argument as the
-          `scroll-fade-bottom` utility in `app/globals.css`). It is inline
-          because that utility is vertical-only and `globals.css` is not this
-          change's to edit — it should graduate to a `scroll-fade-x` utility. */}
-      <div className="mb-6">
-        <nav
-          aria-label={t('intake.progressAria')}
-          className="-mx-1 overflow-x-auto px-1 pb-1"
-          style={{ maskImage: SCROLL_FADE_X, WebkitMaskImage: SCROLL_FADE_X }}
-        >
-          <ol className="flex min-w-max items-start gap-1.5">
-            {stages.map((s, i) => {
-              const state = i < currentStep ? 'complete' : i === currentStep ? 'current' : 'upcoming'
-              const reachable = i <= currentStep
-              return (
-                <li key={s.id} className="shrink-0">
-                  <button
-                    type="button"
-                    ref={state === 'current' ? activeStepRef : undefined}
-                    onClick={() => reachable && goToStep(i)}
-                    disabled={!reachable}
-                    aria-current={state === 'current' ? 'step' : undefined}
-                    className="group flex w-20 flex-col items-center gap-1.5 rounded-lg px-1 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-default"
-                  >
-                    <span
-                      className={cn(
-                        'flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-medium transition-colors duration-quick ease-out motion-reduce:transition-none',
-                        state === 'complete' && 'border-primary bg-primary text-primary-foreground',
-                        state === 'current' && 'border-primary text-primary ring-2 ring-ring/30',
-                        state === 'upcoming' && 'border-border text-muted-foreground',
-                        reachable && state !== 'current' && 'group-hover:border-primary/60',
-                      )}
-                    >
-                      {state === 'complete' ? <Check className="size-3.5" aria-hidden /> : s.id}
-                    </span>
-                    <span
-                      className={cn(
-                        'w-full truncate text-center text-[11px] leading-tight',
-                        state === 'current' ? 'font-medium text-foreground' : 'text-muted-foreground',
-                      )}
-                    >
-                      {s.title}
-                    </span>
-                  </button>
-                </li>
-              )
-            })}
-          </ol>
-        </nav>
-      </div>
+      {/* Two columns from `lg`: a persistent module rail beside the questions.
+          The horizontal A–H stepper this replaced truncated every label past
+          eight characters ("Grundstück …", "Zusammenfa…"), which is the one job
+          a module nav has. Vertically there is room for the real title AND a
+          per-module count, so the rail answers "where am I / what is left"
+          without the user opening a module to find out. Below `lg` it collapses
+          to the same scrolling strip, where truncation is at least a real
+          space constraint rather than a layout choice. */}
+      <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start lg:gap-10">
+        <ModuleRail
+          stages={stages}
+          currentStep={currentStep}
+          progress={stageProgress}
+          onSelect={goToStep}
+          activeStepRef={activeStepRef}
+          t={t}
+        />
 
-      <div className="mb-8 flex items-center justify-between gap-4">
-        <Progress value={progress} className="h-1 flex-1" />
-        <span
-          className={cn(
-            'shrink-0 text-xs transition-opacity duration-200 ease-out motion-reduce:transition-none',
-            draftSaved ? 'text-success opacity-100' : 'text-muted-foreground opacity-0',
-          )}
-          aria-live="polite"
-        >
-          {t('intake.draftSaved')}
-        </span>
-      </div>
-
-      <form
-        noValidate
-        onSubmit={(event) => {
-          event.preventDefault()
-          if (saving || checking) return
-          if (isReview) {
-            if (findings && findings.length > 0) return
-            void handleSave()
-          } else {
-            handleNext()
-          }
-        }}
-      >
-        <AnimatePresence mode="wait" initial={false} custom={directionRef.current}>
-          <motion.div
-            key={currentStep}
-            custom={directionRef.current}
-            variants={{
-              enter: (direction: number) => ({ opacity: 0, x: direction * 12 }),
-              center: { opacity: 1, x: 0 },
-              exit: (direction: number) => ({ opacity: 0, x: direction * -12 }),
-            }}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
-          >
-            <div className="mb-6">
-              <div className="flex items-baseline gap-2">
-                <span className="font-mono text-xs text-primary">Modul {stage.id}</span>
-                <span className="text-xs text-muted-foreground">
-                  {currentStep + 1}/{totalSteps}
-                </span>
-              </div>
-              <h2 className="mt-1 text-lg font-semibold tracking-tight">{stage.title}</h2>
-              {stage.description && (
-                <p className="mt-1 text-sm text-muted-foreground">{stage.description}</p>
+        <div className="min-w-0 lg:max-w-2xl">
+          <div className="mb-6 flex items-center justify-between gap-4">
+            <Progress value={progress} className="h-1 flex-1" />
+            <span
+              className={cn(
+                'shrink-0 text-xs transition-opacity duration-200 ease-out motion-reduce:transition-none',
+                draftSaved ? 'text-success opacity-100' : 'text-muted-foreground opacity-0',
               )}
-            </div>
+              aria-live="polite"
+            >
+              {t('intake.draftSaved')}
+            </span>
+          </div>
 
-            {isGrundlagen ? (
-              <ProjektgrundlagenStep projectId={projectId} answers={answers} bauwerke={bauwerke} />
-            ) : isReview ? (
-              <div className="space-y-4">
-                <ReviewStep
-                  definition={definition}
-                  answers={answers}
-                  bauwerke={bauwerke}
-                  onEditStage={(stageIndex) => goToStep(stageIndex)}
-                />
-                {checking && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
-                    <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />
-                    {t('intake.consistency.checking')}
+        <form
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (saving || checking) return
+            if (isReview) {
+              if (findings && findings.length > 0) return
+              void handleSave()
+            } else {
+              handleNext()
+            }
+          }}
+        >
+          <AnimatePresence mode="wait" initial={false} custom={directionRef.current}>
+            <motion.div
+              key={currentStep}
+              custom={directionRef.current}
+              variants={{
+                enter: (direction: number) => ({ opacity: 0, x: direction * 12 }),
+                center: { opacity: 1, x: 0 },
+                exit: (direction: number) => ({ opacity: 0, x: direction * -12 }),
+              }}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+            >
+              <div className="mb-6">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-mono text-xs text-primary">Modul {stage.id}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {currentStep + 1}/{totalSteps}
+                    </span>
                   </div>
+                  {/* Per-module "Rest überspringen – als offen übernehmen". Only
+                      where there is something to skip, and never on the two
+                      modules that carry no questions to skip. */}
+                  {!isReview && !isGrundlagen && stageProgress.get(stage.id) !== undefined &&
+                    stageProgress.get(stage.id)!.answered < stageProgress.get(stage.id)!.total && (
+                      <Button type="button" variant="ghost" size="sm" onClick={skipRestOfStage}>
+                        {t('intake.skipRest')}
+                      </Button>
+                    )}
+                </div>
+                <h2 className="mt-1 text-lg font-semibold tracking-tight">{stage.title}</h2>
+                {stage.description && (
+                  <p className="mt-1 max-w-prose text-sm text-muted-foreground">{stage.description}</p>
                 )}
-                {findings && findings.length > 0 && (
-                  <ConflictFindings
+              </div>
+
+              {isGrundlagen ? (
+                <ProjektgrundlagenStep projectId={projectId} answers={answers} bauwerke={bauwerke} />
+              ) : isReview ? (
+                <div className="space-y-4">
+                  <ReviewStep
                     definition={definition}
-                    findings={findings}
-                    saving={saving}
-                    onRevise={handleReviseAt}
-                    onProceed={handleProceedAnyway}
-                  />
-                )}
-              </div>
-            ) : stage.scope === 'bauwerk' ? (
-              <BauwerkStage
-                stage={stage}
-                bauwerke={bauwerke}
-                answers={answers}
-                touched={touched}
-                projectId={projectId}
-                onSetAnswer={setAnswer}
-                onSetMode={setMode}
-                onAddBauwerk={addBauwerk}
-                onRemoveBauwerk={removeBauwerk}
-                onRenameBauwerk={renameBauwerk}
-                validationMessageFor={(q) => validationMessage(q, t)}
-              />
-            ) : (
-              <div className="space-y-6">
-                {flatVisibleQuestions.map((q) => (
-                  <QuestionField
-                    key={q.id}
-                    question={q}
-                    answerKey={q.id}
                     answers={answers}
-                    projectId={projectId}
-                    error={
-                      touched.has(q.id) && !isQuestionSatisfied(q, answers, q.id)
-                        ? validationMessage(q, t)
-                        : null
-                    }
-                    onSetAnswer={setAnswer}
-                    onSetMode={setMode}
+                    bauwerke={bauwerke}
+                    onEditStage={(stageIndex) => goToStep(stageIndex)}
                   />
-                ))}
-              </div>
-            )}
-          </motion.div>
-        </AnimatePresence>
-
-        {error && definition && (
-          <Alert variant="destructive" className="mt-8">
-            <AlertDescription className={conflict ? 'flex flex-col items-start gap-3' : undefined}>
-              <span>{error}</span>
-              {conflict && (
-                <Button type="button" variant="outline" size="sm" onClick={reloadAfterConflict}>
-                  {t('intake.conflictReload')}
-                </Button>
-              )}
-            </AlertDescription>
-          </Alert>
-        )}
-
-        <div className="sticky bottom-0 z-20 -mx-4 mt-10 flex items-center justify-between gap-4 border-t bg-background/85 px-4 pt-4 backdrop-blur-md pb-[max(1rem,env(safe-area-inset-bottom))]">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => goToStep(currentStep - 1)}
-            disabled={currentStep === 0 || saving}
-          >
-            {t('intake.back')}
-          </Button>
-
-          <span className="text-xs text-muted-foreground">
-            {t('intake.stepCounter', { current: currentStep + 1, total: totalSteps })}
-          </span>
-
-          {isReview ? (
-            findings && findings.length > 0 ? (
-              <span aria-hidden className="inline-flex min-h-9 min-w-36" />
-            ) : (
-              <Button type="submit" disabled={saving || checking} className="min-w-36">
-                <Loader2
-                  className={
-                    saving || checking
-                      ? 'size-4 animate-spin motion-reduce:animate-none'
-                      : 'size-4 opacity-0'
-                  }
-                  aria-hidden
+                  {checking && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+                      <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />
+                      {t('intake.consistency.checking')}
+                    </div>
+                  )}
+                  {findings && findings.length > 0 && (
+                    <ConflictFindings
+                      definition={definition}
+                      findings={findings}
+                      saving={saving}
+                      onRevise={handleReviseAt}
+                      onProceed={handleProceedAnyway}
+                    />
+                  )}
+                </div>
+              ) : stage.scope === 'bauwerk' ? (
+                <BauwerkStage
+                  stage={stage}
+                  bauwerke={bauwerke}
+                  answers={answers}
+                  touched={touched}
+                  projectId={projectId}
+                  onSetAnswer={setAnswer}
+                  onSetMode={setMode}
+                  onAddBauwerk={addBauwerk}
+                  onRemoveBauwerk={removeBauwerk}
+                  onRenameBauwerk={renameBauwerk}
+                  validationMessageFor={(q) => validationMessage(q, t)}
                 />
-                {checking
-                  ? t('intake.consistency.checking')
-                  : saving
-                    ? t('intake.saving')
-                    : isEdit
-                      ? t('intake.saveChanges')
-                      : t('intake.saveAndSee')}
-              </Button>
-            )
-          ) : (
-            <Button type="submit" disabled={saving}>
-              {t('intake.next')}
-            </Button>
+              ) : (
+                <div className="space-y-6">
+                  {flatVisibleQuestions.map((q) => (
+                    <QuestionField
+                      key={q.id}
+                      question={q}
+                      answerKey={q.id}
+                      answers={answers}
+                      projectId={projectId}
+                      error={
+                        touched.has(q.id) && !isQuestionSatisfied(q, answers, q.id)
+                          ? validationMessage(q, t)
+                          : null
+                      }
+                      onSetAnswer={setAnswer}
+                      onSetMode={setMode}
+                    />
+                  ))}
+                  {/* Says what Schnellstart is hiding, and offers it here. A
+                      count the user cannot act on would just be a nag. */}
+                  {hiddenByQuickStart > 0 && (
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-dashed px-4 py-3">
+                      <span className="text-sm text-muted-foreground">
+                        {t('intake.hiddenByQuickstart', { count: hiddenByQuickStart })}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0"
+                        onClick={() =>
+                          setExpandedStages((previous) => new Set(previous).add(stage.id))
+                        }
+                      >
+                        {t('intake.showAllHere')}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </motion.div>
+          </AnimatePresence>
+
+          {error && definition && (
+            <Alert variant="destructive" className="mt-8">
+              <AlertDescription className={conflict ? 'flex flex-col items-start gap-3' : undefined}>
+                <span>{error}</span>
+                {conflict && (
+                  <Button type="button" variant="outline" size="sm" onClick={reloadAfterConflict}>
+                    {t('intake.conflictReload')}
+                  </Button>
+                )}
+              </AlertDescription>
+            </Alert>
           )}
+
+          <div className="sticky bottom-0 z-20 -mx-4 mt-10 flex items-center justify-between gap-4 border-t bg-background/85 px-4 pt-4 backdrop-blur-md pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => goToStep(currentStep - 1)}
+              disabled={currentStep === 0 || saving}
+            >
+              {t('intake.back')}
+            </Button>
+
+            <span className="text-xs text-muted-foreground">
+              {t('intake.stepCounter', { current: currentStep + 1, total: totalSteps })}
+            </span>
+
+            {isReview ? (
+              findings && findings.length > 0 ? (
+                <span aria-hidden className="inline-flex min-h-9 min-w-36" />
+              ) : (
+                <Button type="submit" disabled={saving || checking} className="min-w-36">
+                  <Loader2
+                    className={
+                      saving || checking
+                        ? 'size-4 animate-spin motion-reduce:animate-none'
+                        : 'size-4 opacity-0'
+                    }
+                    aria-hidden
+                  />
+                  {checking
+                    ? t('intake.consistency.checking')
+                    : saving
+                      ? t('intake.saving')
+                      : isEdit
+                        ? t('intake.saveChanges')
+                        : t('intake.saveAndSee')}
+                </Button>
+              )
+            ) : (
+              <Button type="submit" disabled={saving}>
+                {t('intake.next')}
+              </Button>
+            )}
+          </div>
+        </form>
         </div>
-      </form>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Module rail — the wizard's primary orientation surface.
+// ---------------------------------------------------------------------------
+
+/**
+ * The A–I module list, vertical on desktop and a scrolling strip below `lg`.
+ *
+ * Each row carries the module's real title and its answered/total count, which
+ * is the pair that answers "where am I and what is left" at a glance. The
+ * horizontal stepper this replaced could show neither: at eight modules across
+ * a 3xl column every label truncated to about eight characters, so the nav read
+ * "Grundstück …", "Technik & En…", "Zusammenfa…" — three labels that are the
+ * same word to a reader scanning for where to click.
+ *
+ * Rows stay reachable in BOTH directions. Forward navigation to an unvisited
+ * module is deliberate: the spec's validation is soft everywhere but A1/A2/A5,
+ * so a locked-until-complete rail would enforce a gate the questionnaire does
+ * not have, and an architect who wants to fill in the Bauwerk geometry first
+ * should be able to.
+ */
+function ModuleRail({
+  stages,
+  currentStep,
+  progress,
+  onSelect,
+  activeStepRef,
+  t,
+}: {
+  stages: ProjectIntakeStage[]
+  currentStep: number
+  progress: Map<string, { answered: number; total: number }>
+  onSelect: (step: number) => void
+  activeStepRef: MutableRefObject<HTMLButtonElement | null>
+  t: Translator
+}) {
+  return (
+    <nav aria-label={t('intake.moduleNavAria')} className="mb-6 lg:sticky lg:top-6 lg:mb-0">
+      <SectionLabel className="mb-2 hidden lg:block">{t('intake.moduleNav')}</SectionLabel>
+      <ol
+        className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 lg:mx-0 lg:flex-col lg:gap-0.5 lg:overflow-visible lg:px-0 lg:pb-0"
+        style={{ maskImage: SCROLL_FADE_X, WebkitMaskImage: SCROLL_FADE_X }}
+      >
+        {stages.map((stage, index) => {
+          const state = index < currentStep ? 'visited' : index === currentStep ? 'current' : 'upcoming'
+          const counts = progress.get(stage.id)
+          const complete = counts !== undefined && counts.total > 0 && counts.answered === counts.total
+          return (
+            <li key={stage.id} className="shrink-0 lg:shrink">
+              <button
+                type="button"
+                ref={state === 'current' ? activeStepRef : undefined}
+                onClick={() => onSelect(index)}
+                aria-current={state === 'current' ? 'step' : undefined}
+                className={cn(
+                  'group flex w-20 flex-col items-center gap-1.5 rounded-lg px-1 py-1.5 text-left outline-none transition-colors duration-quick ease-out focus-visible:ring-2 focus-visible:ring-ring/40 motion-reduce:transition-none',
+                  'lg:w-full lg:flex-row lg:items-center lg:gap-2.5 lg:px-2 lg:py-2',
+                  state === 'current' ? 'lg:bg-muted' : 'lg:hover:bg-muted/50',
+                )}
+              >
+                <span
+                  className={cn(
+                    'flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-medium transition-colors duration-quick ease-out motion-reduce:transition-none',
+                    complete && state !== 'current' && 'border-primary bg-primary text-primary-foreground',
+                    state === 'current' && 'border-primary text-primary ring-2 ring-ring/30',
+                    !complete && state !== 'current' && 'border-border text-muted-foreground',
+                  )}
+                >
+                  {/* The step NUMBER, not `stage.id`. Modul I (Projektgrundlagen)
+                      deliberately runs before Modul H (Zusammenfassung) — the
+                      documents are inputs to the B and C answers, and the
+                      summary is the save gate, so it has to be last — which
+                      makes a letter column read "… G, I, H" and look like a
+                      bug. The letter still anchors the content header, where it
+                      ties back to the spec. */}
+                  {complete && state !== 'current' ? <Check className="size-3.5" aria-hidden /> : index + 1}
+                </span>
+                <span className="w-full min-w-0 lg:flex lg:flex-col">
+                  <span
+                    className={cn(
+                      'block truncate text-center text-[11px] leading-tight lg:text-left lg:text-sm',
+                      state === 'current' ? 'font-medium text-foreground' : 'text-muted-foreground',
+                    )}
+                  >
+                    {stage.title}
+                  </span>
+                  {/* Counts on the rail only: on the mobile strip they would not
+                      fit under a 20-unit-wide pill without truncating the title
+                      they are meant to annotate. */}
+                  {counts !== undefined && counts.total > 0 && (
+                    <span className="hidden text-xs text-muted-foreground lg:block">
+                      {complete
+                        ? t('intake.moduleDone')
+                        : t('intake.moduleProgress', { answered: counts.answered, total: counts.total })}
+                    </span>
+                  )}
+                </span>
+              </button>
+            </li>
+          )
+        })}
+      </ol>
+    </nav>
+  )
+}
+
+/**
+ * Schnellstart switch (spec `core_flag`).
+ *
+ * A view, not a second answer state: it narrows each module to its Kernfragen,
+ * and everything it hides is already what an unanswered question becomes — an
+ * unknown. That is why turning it off cannot lose an answer, and why the copy
+ * can promise the skipped questions come back in the summary's checklist.
+ */
+function QuickStartToggle({
+  enabled,
+  onToggle,
+  t,
+}: {
+  enabled: boolean
+  onToggle: () => void
+  t: Translator
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <Button
+        type="button"
+        variant={enabled ? 'default' : 'outline'}
+        size="sm"
+        onClick={onToggle}
+        aria-pressed={enabled}
+        className="shrink-0"
+      >
+        <Sparkles className="size-4" aria-hidden />
+        {t('intake.schnellstart')}
+      </Button>
+      <p className="max-w-[24rem] text-xs leading-snug text-muted-foreground">
+        {enabled ? t('intake.schnellstartOn') : t('intake.schnellstartOff')}
+      </p>
     </div>
   )
 }
@@ -912,27 +1160,40 @@ function BauwerkStage({
           </div>
 
           <div className="space-y-6 px-4 py-5 md:px-6">
-            {stage.questions
-              .filter((q) => evaluateIntakeCondition(q, answers, bw.id))
-              .map((q) => {
+            {(() => {
+              const visible = stage.questions.filter((q) => evaluateIntakeCondition(q, answers, bw.id))
+              // Track the group ACROSS the filtered list, so a heading whose
+              // first question is hidden still opens on the next one that is
+              // visible — and a group with nothing visible prints no heading.
+              let openGroup: string | undefined
+              return visible.map((q) => {
                 const answerKey = answerKeyFor(q.id, bw.id)
+                const heading = q.group && q.group !== openGroup ? q.group : null
+                if (q.group) openGroup = q.group
                 return (
-                  <QuestionField
-                    key={answerKey}
-                    question={q}
-                    answerKey={answerKey}
-                    answers={answers}
-                    projectId={projectId}
-                    error={
-                      touched.has(answerKey) && !isQuestionSatisfied(q, answers, answerKey)
-                        ? validationMessageFor(q)
-                        : null
-                    }
-                    onSetAnswer={onSetAnswer}
-                    onSetMode={onSetMode}
-                  />
+                  <div key={answerKey} className={heading ? 'space-y-6 pt-2' : undefined}>
+                    {heading && (
+                      <h3 className="border-b pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        {heading}
+                      </h3>
+                    )}
+                    <QuestionField
+                      question={q}
+                      answerKey={answerKey}
+                      answers={answers}
+                      projectId={projectId}
+                      error={
+                        touched.has(answerKey) && !isQuestionSatisfied(q, answers, answerKey)
+                          ? validationMessageFor(q)
+                          : null
+                      }
+                      onSetAnswer={onSetAnswer}
+                      onSetMode={onSetMode}
+                    />
+                  </div>
                 )
-              })}
+              })
+            })()}
 
             {/* Module D: implicit use-zones expanded from D0. */}
             {stage.id === 'D' && <ZoneBlocks stage={stage} bw={bw} answers={answers} onSetAnswer={onSetAnswer} onSetMode={onSetMode} projectId={projectId} />}
@@ -1488,6 +1749,8 @@ function QuestionField({
 
 function QuestionHeader({ question, domId }: { question: ProjectIntakeQuestion; domId: string }) {
   const t = useTranslations('projects')
+  const [whyOpen, setWhyOpen] = useState(false)
+  const whyId = `${domId}-why`
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline gap-2">
@@ -1503,42 +1766,33 @@ function QuestionHeader({ question, domId }: { question: ProjectIntakeQuestion; 
         {question.optional && (
           <span className="text-xs font-normal text-muted-foreground">{t('intake.optional')}</span>
         )}
+        {/* The rationale rides ON the label row as a glyph rather than under it
+            as its own "Warum fragen wir das?" line. Nearly every question in the
+            catalog carries a `why`, so a per-field row put a second, louder
+            control beside every label — an accordion the length of the form
+            competing with the questions it annotates. */}
+        {question.why && (
+          <button
+            type="button"
+            onClick={() => setWhyOpen((previous) => !previous)}
+            aria-expanded={whyOpen}
+            aria-controls={whyId}
+            aria-label={t('intake.why')}
+            title={t('intake.why')}
+            className="inline-flex size-4 shrink-0 items-center justify-center self-center rounded-full text-muted-foreground outline-none transition-colors duration-200 ease-out hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 pointer-coarse:-m-2.5 pointer-coarse:size-9 motion-reduce:transition-none"
+          >
+            <HelpCircle className="size-3.5" aria-hidden />
+          </button>
+        )}
       </div>
-      {question.why && <WhyDisclosure why={question.why} />}
-      {question.help && <p className="text-xs text-muted-foreground">{question.help}</p>}
-    </div>
-  )
-}
-
-/** "Warum fragen wir das?" — collapsible legal rationale. */
-function WhyDisclosure({ why }: { why: string }) {
-  const t = useTranslations('projects')
-  const [open, setOpen] = useState(false)
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="inline-flex items-center gap-1 font-mono text-[11px] text-primary transition-colors duration-200 ease-out hover:text-primary/80 pointer-coarse:-my-2 pointer-coarse:min-h-11 pointer-coarse:py-2 motion-reduce:transition-none"
-      >
-        <ChevronDown
-          className={cn(
-            'size-3 transition-transform duration-200 ease-out motion-reduce:transition-none',
-            open && 'rotate-180',
-          )}
-          aria-hidden
-        />
-        {t('intake.why')}
-      </button>
-      {open && (
-        // Same resolution as the zone block above: a real surface plus the
-        // documented quotation rule (`border-l-2 border-border`), instead of a
-        // second, differently-alpha'd invention of the action ink.
-        <p className="mt-1.5 max-w-xl border-l-2 border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
-          {why}
+      {question.why && whyOpen && (
+        // The documented quotation rule (`border-l-2 border-border`) on a real
+        // surface, rather than a second differently-alpha'd action ink.
+        <p id={whyId} className="max-w-prose border-l-2 border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
+          {question.why}
         </p>
       )}
+      {question.help && <p className="text-xs text-muted-foreground">{question.help}</p>}
     </div>
   )
 }
