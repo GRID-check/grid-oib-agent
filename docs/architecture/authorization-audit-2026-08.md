@@ -140,7 +140,15 @@ indefinitely and spend the tenant's LLM budget. Gating creation stopped new
 threads and left every existing one open.
 
 The second pass gates messages the server's ruling actually addressed **to the
-agent**, checked before `insertMessages` so a refused turn leaves no row. It is
+agent**. It runs in two places, and the split is the point: an explicit
+`@Piloti` is gated **before** the prepare loop, because `prepareMessage`'s
+mention path writes — grants, requests and inbox rows, via
+`applyMessageMentions` — so a gate after the loop rejects the message and leaves
+that state behind for a row that was never inserted. `prepareMessage` already
+states that discipline for the collaboration flag, and the first version of this
+gate missed it; a reviewer caught it. The ruling-derived case (a plain message
+that the engagement mode sends to the agent) is query-only, so it is gated after
+the loop, still before `insertMessages`. It is
 deliberately narrower than blocking the write: a Viewer may still reply to a
 colleague in a shared thread, because contributing to a conversation is not what
 `project:chat` governs — spending a turn is. The denial is 403, not

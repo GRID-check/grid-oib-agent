@@ -49,6 +49,7 @@ import {
   resolveRequestsOnReply,
   threadIsAwaitingHuman,
 } from '@/lib/mentions/service'
+import { AGENT_MENTION_ID } from '@/lib/mentions/types'
 import type { AddresseeSet, MentionInput, PersistedMessageResult } from '@/lib/mentions/types'
 import { isShared, requireResourceAccess } from '@/lib/sharing/access'
 import { countGrantsForResource } from '@/lib/sharing/repository'
@@ -902,6 +903,55 @@ export async function createConversationMessages(
   const engagement = async (): Promise<EngagementState> =>
     (engagementState ??= await resolveEngagementFor(conversationId, session.organizationId))
 
+  /**
+   * Addressing the agent inside a project requires `project:chat` — gating the
+   * CREATION of a project thread is not enough on its own.
+   *
+   * The hole this closes: `requireResourceAccess` above gates the container on
+   * `project:view` (correctly — a Viewer reads the project's threads), and
+   * `resolveResourceAccess` grants the creator `owner`. So a project Viewer
+   * holding a thread stamped with this project satisfied `collaborator` and could
+   * open agent turns in it indefinitely. Gating creation alone stopped new
+   * threads and left every existing one open.
+   *
+   * Deliberately narrower than blocking the write: it fires only where the agent
+   * is actually addressed, so a Viewer may still reply to a colleague in a shared
+   * thread. Contributing to a conversation is not what `project:chat` governs;
+   * spending a turn is.
+   *
+   * Denies 403 rather than `requireProjectAccess`'s 404. That 404 exists so a
+   * response never confirms a project's existence, and the caller here is
+   * demonstrably looking at a thread inside the project — so it is no secret from
+   * them, and a 404 would only read as "my message vanished".
+   */
+  const assertMayRunAgent = async (): Promise<void> => {
+    if (!access.container.projectId) return
+    try {
+      await requireProjectAccess(session, access.container.projectId, CHAT_PERMISSIONS)
+    } catch {
+      throw new ForbiddenError(
+        'You do not have permission to use the research agent in this project.'
+      )
+    }
+  }
+
+  // An EXPLICIT `@Piloti` is gated BEFORE the loop, not after it.
+  //
+  // `prepareMessage`'s mention path writes — grants, requests and inbox rows, via
+  // `applyMessageMentions` — so a gate that runs after the loop rejects the
+  // message and leaves that state behind for a row that was never inserted.
+  // `prepareMessage` already states this discipline for the collaboration flag
+  // ("Checked BEFORE the replay lookup and before `applyMessageMentions`, so a
+  // flag-off send writes no grant, no request and no inbox row"); the same
+  // applies here, and the first version of this gate missed it. Reading
+  // `input.mentions` costs nothing and writes nothing.
+  const mentionsAgent = inputs.some(
+    (input) =>
+      input.role === 'user' &&
+      (input.mentions ?? []).some((mention) => mention.targetId === AGENT_MENTION_ID)
+  )
+  if (mentionsAgent) await assertMayRunAgent()
+
   // Sequential, not parallel: mention application writes grants and requests,
   // and a batch must not race itself over the same conversation.
   const prepared: PreparedMessage[] = []
@@ -909,38 +959,13 @@ export async function createConversationMessages(
     prepared.push(await prepareMessage(session, conversationId, input, { shared, engagement }))
   }
 
-  // Addressing the agent inside a project requires `project:chat` — the gate on
-  // CREATING a project thread is not enough on its own.
-  //
-  // The hole this closes: `requireResourceAccess` above gates the container on
-  // `project:view` (correctly — a Viewer reads the project's threads), and
-  // `resolveResourceAccess` grants the creator `owner`. So a project Viewer
-  // holding a thread stamped with this project — one created before the create
-  // gate shipped, or one they own for any other reason — satisfied
-  // `collaborator` and could open agent turns in it indefinitely. Gating the
-  // creation path alone stopped new threads and left every existing one open.
-  //
-  // Deliberately narrower than "block the write": it fires only on messages the
-  // ruling actually addressed to the agent, so a Viewer can still reply to a
-  // colleague in a shared thread. Contributing to a conversation is not the
-  // thing `project:chat` governs; spending a turn is.
-  //
-  // Checked BEFORE `insertMessages`, so a refused turn leaves no row behind.
+  // The ruling can also address the agent WITHOUT an explicit mention — a plain
+  // message in a solo thread, or one in a shared thread whose engagement mode
+  // says so. That path is query-only, so gating it here writes nothing either
+  // way, and it still runs before `insertMessages` so a refused turn leaves no
+  // row behind.
   const addressesAgent = prepared.some((entry) => entry.addressees?.agent === true)
-  if (addressesAgent && access.container.projectId) {
-    try {
-      await requireProjectAccess(session, access.container.projectId, CHAT_PERMISSIONS)
-    } catch {
-      // `requireProjectAccess` denies with 404 so a response never confirms a
-      // project's existence. That reasoning does not apply here: the caller is
-      // demonstrably looking at a thread inside this project, so the project is
-      // not a secret from them and a 404 would only read as "your message
-      // vanished". 403 is the honest answer.
-      throw new ForbiddenError(
-        'You do not have permission to use the research agent in this project.'
-      )
-    }
-  }
+  if (addressesAgent) await assertMayRunAgent()
 
   const rows = await insertMessages(
     prepared.map((entry) => buildMessageRow(conversationId, entry, session.userId))

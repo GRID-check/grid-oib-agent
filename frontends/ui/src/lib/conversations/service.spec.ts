@@ -86,6 +86,7 @@ import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess, type ProjectRole } from '@/lib/authz/projects'
 import { threadIsAwaitingHuman } from '@/lib/mentions/service'
+import { AGENT_MENTION_ID } from '@/lib/mentions/types'
 import type { Message, ResourceVisibility } from '@/lib/db/schema'
 import { publishToUsers } from '@/lib/events/bus'
 import { emitInboxItems, markResourceItemsReadFor } from '@/lib/inbox/service'
@@ -1288,6 +1289,47 @@ describe('project:chat gates the AGENT, not the conversation (the message-write 
     ])
 
     expect(persisted.addressees).toEqual({ agent: false, users: [] })
+    expect(insertMessages).toHaveBeenCalled()
+  })
+
+  it('refuses an explicit @Piloti BEFORE applying its mentions', async () => {
+    // The ordering defect a review caught in the first version of this gate.
+    // `prepareMessage`'s mention path WRITES — grants, requests and inbox rows,
+    // through `applyMessageMentions` — so a gate that ran after the prepare loop
+    // rejected the message and left that state behind for a row that was never
+    // inserted. Asserting the refusal alone could not tell "gated" from "gated
+    // too late"; this asserts nothing was written.
+    asViewer()
+
+    await expect(
+      createConversationMessages(session, CONVERSATION_ID, [
+        {
+          id: 'msg_1',
+          role: 'user',
+          content: '@Piloti und wie sieht es im EG aus?',
+          mentions: [{ targetId: AGENT_MENTION_ID }],
+        },
+      ])
+    ).rejects.toBeInstanceOf(ForbiddenError)
+
+    expect(applyMessageMentions).not.toHaveBeenCalled()
+    expect(insertMessages).not.toHaveBeenCalled()
+  })
+
+  it('still applies mentions when the caller MAY chat', async () => {
+    // The gate must not cost the mention path its behaviour for everyone else.
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' })
+
+    await createConversationMessages(session, CONVERSATION_ID, [
+      {
+        id: 'msg_1',
+        role: 'user',
+        content: '@Piloti und wie sieht es im EG aus?',
+        mentions: [{ targetId: AGENT_MENTION_ID }],
+      },
+    ])
+
+    expect(applyMessageMentions).toHaveBeenCalled()
     expect(insertMessages).toHaveBeenCalled()
   })
 
