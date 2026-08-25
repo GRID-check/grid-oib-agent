@@ -264,7 +264,7 @@ in them is measured. And the fixes proposed above cannot be shown to help
 without it, which is why this is the first item of work rather than the last.
 
 A useful first cut is small: ~50–100 real German questions from
-`feedback_backlog.md` / `run_log.md`, each labelled with the Richtlinie and Punkt
+`docs/audit/feedback-backlog.md` / `docs/audit/overnight-run-log.md`, each labelled with the Richtlinie and Punkt
 that *should* be retrieved, scored offline against the live corpus. That is
 enough to detect a regression and to settle F2/F3/F5/F9 empirically.
 
