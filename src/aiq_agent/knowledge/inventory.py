@@ -390,6 +390,39 @@ def _implied_shelves(groups: dict[Shelf, list[Any]]) -> list[Shelf]:
     return [shelf for shelf in _INVENTORY_ORDER if shelf in implied]
 
 
+def _folded_base_lines(count: int) -> list[str]:
+    """The base shelf as a shape, not a list of filenames.
+
+    Basiswissen is a platform constant: the same ~39 OIB files on every
+    request, project or not. Spelling them out costs the same tokens on a
+    Brandschutz question, on a greeting, and on a question about the user's own
+    plans — and buys nothing the retrieval layer does not already give, because
+    a ``knowledge_search`` with no ``file_name`` fans out across exactly this
+    corpus and its hits name the file they came from. This is the one shelf
+    where "that is what RAG is for" is straightforwardly true.
+
+    The user shelves stay spelled out. They are small, they are the reason the
+    model can cite a document by name, and they are what the model cannot
+    reconstruct from anywhere else.
+
+    A listing question about THIS shelf ("welche OIB-Richtlinien hast du") is
+    routed to ``intent="meta"``, which binds no search tools — so that turn has
+    no retrieval to fall back on, and ``focus_shelf`` prints the full list. The
+    fold applies to every other turn.
+    """
+    n = f"{count} Datei" if count == 1 else f"{count} Dateien"
+    return [
+        f"{n} — der Plattform-Korpus (OIB-Richtlinien samt Erläuterungen, Leitfäden "
+        "und Begriffsbestimmungen). Konstant auf jeder Anfrage und hier bewusst "
+        "nicht aufgezählt.",
+        "Durchsuche ihn mit `knowledge_search` ohne `file_name`; jeder Treffer nennt "
+        "die Datei, aus der er stammt, und die ist dann zitierbar.",
+        f"Fragt der Nutzer, was auf diesem Regal liegt: sage, dass es {n} des "
+        "OIB-Korpus sind und du sie über die Suche erreichst. Erfinde keine "
+        "Dateinamen.",
+    ]
+
+
 def render_inventory_block(
     docs: Sequence[Any],
     *,
@@ -476,6 +509,10 @@ def render_inventory_block(
         rows = groups.get(shelf, [])
         lines.append(f"### {_heading(shelf)}")
         lines.append(_SHELF_BLURBS[shelf])
+        if shelf is Shelf.BASE and focused is not Shelf.BASE and rows:
+            lines.extend(_folded_base_lines(len(rows) + dropped.get(Shelf.BASE, 0)))
+            lines.append("")
+            continue
         if not rows:
             lines.append("(empty — no files on this shelf)")
         else:

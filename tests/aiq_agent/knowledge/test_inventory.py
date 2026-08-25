@@ -176,7 +176,9 @@ class TestRenderInventoryBlock:
         assert "Basiswissen" in text
         assert "Buero-Standard.pdf" in text
         assert "Lacknergasse.pdf" in text
-        assert "oib-rl_2.pdf" in text
+        # The base shelf is folded to a count, so its filenames are absent by
+        # design. See TestBaseShelfIsFolded.
+        assert "oib-rl_2.pdf" not in text
 
         archiv = text.split("### Büroarchiv", 1)[1].split("### ", 1)[0]
         assert "Buero-Standard.pdf" in archiv
@@ -184,8 +186,8 @@ class TestRenderInventoryBlock:
         assert "Lacknergasse.pdf" not in archiv
 
         base = text.split("### Basiswissen", 1)[1]
-        assert "oib-rl_2.pdf" in base
         assert "Buero-Standard.pdf" not in base
+        assert "Lacknergasse.pdf" not in base
 
         assert "NOT base/OIB" in text
         assert "Never the Büroarchiv" in text or "never the Büroarchiv" in text
@@ -363,3 +365,72 @@ class TestTruncationIsAnnouncedToTheModel:
         set_inventory_drops(None)
         rendered = render_inventory_block([_doc("a.pdf", collection="proj_1", shelf="project")])
         assert "99" not in rendered
+
+
+class TestBaseShelfIsFolded:
+    """Basiswissen carries a count, not ~39 filenames, on every ordinary turn.
+
+    The platform corpus is a constant: the same OIB files on every request,
+    project or not. Spelling them out is paid on a greeting exactly as on a
+    Brandschutz question, and buys nothing retrieval does not already give —
+    ``knowledge_search`` with no ``file_name`` fans out across this corpus and
+    its hits name the file they came from.
+
+    The exception is the turn that has no retrieval: a listing question about
+    this shelf routes to ``intent="meta"``, which binds no search tools. That
+    turn arrives with ``focus_shelf=base`` and gets the full list.
+    """
+
+    def teardown_method(self):
+        set_inventory_drops(None)
+
+    def test_base_filenames_are_not_spelled_out(self):
+        docs = [_doc(f"oib-rl_{i}.pdf", collection="oib_knowledge", shelf="base") for i in range(39)]
+        text = render_inventory_block(docs)
+
+        assert "oib-rl_7.pdf" not in text
+        assert "39 Dateien" in text
+
+    def test_the_fold_names_the_way_to_reach_the_files(self):
+        docs = [_doc(f"oib-rl_{i}.pdf", collection="oib_knowledge", shelf="base") for i in range(39)]
+        text = render_inventory_block(docs)
+
+        # A count with no route to the contents would just be a smaller lie.
+        assert "knowledge_search" in text
+        assert "Erfinde keine" in text
+
+    def test_a_listing_turn_about_base_still_gets_every_name(self):
+        docs = [_doc(f"oib-rl_{i}.pdf", collection="oib_knowledge", shelf="base") for i in range(39)]
+        text = render_inventory_block(docs, focus_shelf=Shelf.BASE)
+
+        assert "oib-rl_7.pdf" in text
+        assert "39 Dateien" not in text
+
+    def test_user_shelves_are_still_spelled_out(self):
+        docs = [
+            _doc("oib-rl_2.pdf", collection="oib_knowledge", shelf="base"),
+            _doc("Lacknergasse.pdf", collection="proj_1", shelf="project"),
+            _doc("Buero-Standard.pdf", collection="archiv_org", shelf="archiv"),
+        ]
+        text = render_inventory_block(docs)
+
+        # The fold is about the platform constant, not about saving lines. The
+        # user's own files are why the model can cite a document by name.
+        assert "Lacknergasse.pdf" in text
+        assert "Buero-Standard.pdf" in text
+
+    def test_the_count_includes_what_the_cap_dropped(self):
+        docs = [_doc(f"oib-rl_{i:02d}.pdf", collection="oib_knowledge", shelf="base") for i in range(39)]
+        kept, dropped = allocate_inventory_detailed(docs, max_documents=10)
+        set_inventory_drops(dropped)
+
+        text = render_inventory_block(kept)
+
+        # The shelf holds 39 whether or not the cap let 10 through. Reporting
+        # the surviving count would understate the corpus on every capped turn.
+        assert "39 Dateien" in text
+        assert "10 Dateien" not in text
+
+    def test_an_empty_base_shelf_still_says_it_is_empty(self):
+        text = render_inventory_block([], in_scope_shelves=[Shelf.BASE])
+        assert "empty" in text.lower()
