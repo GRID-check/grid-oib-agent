@@ -644,21 +644,40 @@ export async function fileGeneratedDocument(
 /**
  * Take back a document that was filed and then could not be accounted for.
  *
- * Both steps are best-effort in the same direction admission's discard is: the
+ * Both steps are best-effort in the direction admission's discard is: the
  * caller is already failing, and turning the compensation's own failure into a
- * different error would hide the one that matters. The row goes first — it is
- * what any surface reads — so a failure after it leaves an orphan object the
- * project purge collects, never a document with no bytes.
+ * different error would hide the one that matters. Neither throws.
  *
- * They are, however, INDEPENDENTLY best-effort, and that is the whole point of
- * the two blocks below. Sharing one `try` made the object delete conditional on
- * the row delete having succeeded, so the one failure the ordering was chosen
- * to survive — the row delete itself — skipped the object entirely and left
- * exactly what this function exists to prevent: a row that is filed,
- * quota-charged, visible in Files as „Von Piloti erstellt", and backed by no
- * audit record at all. The ordering argument above only ever justified the
- * SEQUENCE; it never justified coupling the second step's execution to the
- * first step's success.
+ * ## Which leftover is worse, which is what decides the order
+ *
+ * Compensation can fail, so the only question this function gets to answer is
+ * WHICH wreckage it leaves. There are two:
+ *
+ *   - **Row gone, object left.** An orphan object. Nobody can see it, nothing
+ *     lists it, and the project purge collects it. Costs bytes.
+ *   - **Row left, object gone.** A document in the Files pane, labelled „Von
+ *     Piloti erstellt", whose preview and download 404 forever, and whose
+ *     idempotency key is occupied — so the report it stood for can never be
+ *     filed again under that (project, reference, producer). Costs the reader's
+ *     trust in every other row beside it.
+ *
+ * The second is strictly worse, so the object is deleted only once the row is
+ * known to be gone.
+ *
+ * This corrects the arrangement that stood here before, which ran the two
+ * deletes independently so that neither waited on the other. That was reasoned
+ * from a real failure — an earlier version shared one `try`, so a failed row
+ * delete skipped the object — but it fixed it by producing the worse leftover
+ * instead of the better one: with the steps independent, a failed row delete
+ * still deletes the object, which is precisely "row left, object gone". The
+ * header nonetheless kept claiming the outcome was "never a document with no
+ * bytes", one paragraph above the change that made it reachable.
+ *
+ * What the coupling actually leaves when the row delete fails is a filed,
+ * quota-charged row with no audit record AND ITS BYTES INTACT — bad, and worth
+ * the log line below, but a document that opens. An operator can delete it
+ * through the application, which releases the quota and the object together.
+ * The other order leaves them nothing to delete cleanly.
  */
 async function unfile(
   documentId: string,
@@ -671,16 +690,19 @@ async function unfile(
     await deleteProjectDocument(documentId, organizationId, projectId)
   } catch (error) {
     console.error(
-      '[documents] failed to delete the row of a generated document after its audit write failed',
-      { documentId, cause: error instanceof Error ? error.name : 'unknown' },
+      '[documents] failed to delete the row of a generated document after its audit write failed; ' +
+        'its object is deliberately LEFT so the document still opens — delete it through the application',
+      { documentId, bucket, storageKey, cause: error instanceof Error ? error.name : 'unknown' },
     )
+    return
   }
 
   try {
     await s3Client.send(new DeleteObjectCommand({ Bucket: bucket, Key: storageKey }))
   } catch (error) {
     console.error(
-      '[documents] failed to delete the object of a generated document after its audit write failed',
+      '[documents] failed to delete the object of a generated document after its audit write failed; ' +
+        'the row is gone, so this is an orphan object for the project purge',
       { documentId, bucket, storageKey, cause: error instanceof Error ? error.name : 'unknown' },
     )
   }

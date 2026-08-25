@@ -1169,14 +1169,25 @@ describe('the audit event this feature depends on', () => {
 
 describe('taking a document back when its audit write fails', () => {
   /**
-   * Both compensating steps used to share one `try`, so a failure of the FIRST
-   * skipped the second entirely — leaving the object behind for a row that no
-   * longer existed, or, in the case that matters, leaving BOTH behind: a filed,
-   * quota-charged, visible „Von Piloti erstellt" document with no audit record
-   * at all. The ordering (row first) is still right; coupling the second step's
-   * execution to the first step's success never was.
+   * Compensation can fail too, so the only thing this code chooses is WHICH
+   * leftover it produces. This test pins that choice, and it reverses an
+   * earlier one.
+   *
+   * The earlier arrangement ran both deletes independently, so a failed row
+   * delete still removed the object. It was reasoned from a real bug — an even
+   * earlier version shared one `try`, so a failed row delete skipped the object
+   * — and its stated objection to the fix was that coupling leaves BOTH behind:
+   * a filed, quota-charged „Von Piloti erstellt" row with no audit record.
+   *
+   * That is the wrong thing to be most afraid of. Leaving both behind is
+   * recoverable: the document opens, and deleting it through the application
+   * releases the row, the object and the quota together. Deleting the object
+   * while the row survives is not: the reader gets a document in their Files
+   * pane whose preview and download 404 forever, and its idempotency key stays
+   * occupied, so the report it stood for can never be filed again under that
+   * (project, reference, producer).
    */
-  it('still takes the object back when the ROW delete fails', async () => {
+  it('leaves the object alone when the ROW delete fails, so the document still opens', async () => {
     recordAuditEventOrThrow.mockRejectedValueOnce(new Error('audit rejected'))
     deleteProjectDocument.mockRejectedValueOnce(new Error('row delete failed'))
 
@@ -1185,6 +1196,28 @@ describe('taking a document back when its audit write fails', () => {
     const deletes = s3Send.mock.calls.filter(
       ([command]) => (command as { constructor: { name: string } }).constructor.name === 'DeleteObjectCommand',
     )
+    expect(deletes).toHaveLength(0)
+  })
+
+  it('takes the object back once the row is known to be gone', async () => {
+    // The ordinary compensation, and the reason the object delete is not simply
+    // dropped: a row that IS removed must not leave its bytes paid for.
+    recordAuditEventOrThrow.mockRejectedValueOnce(new Error('audit rejected'))
+
+    await expect(file()).rejects.toThrow('audit rejected')
+
+    const deletes = s3Send.mock.calls.filter(
+      ([command]) => (command as { constructor: { name: string } }).constructor.name === 'DeleteObjectCommand',
+    )
     expect(deletes).toHaveLength(1)
+  })
+
+  it('never turns a failure of its own into the error the caller sees', async () => {
+    // Both steps swallow. The caller is already failing on the audit write, and
+    // that is the failure worth reporting.
+    recordAuditEventOrThrow.mockRejectedValueOnce(new Error('audit rejected'))
+    deleteProjectDocument.mockRejectedValueOnce(new Error('row delete failed'))
+
+    await expect(file()).rejects.toThrow('audit rejected')
   })
 })
