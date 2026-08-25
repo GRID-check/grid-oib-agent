@@ -1045,7 +1045,26 @@ export function evaluateIntakeCondition(
   answers: Record<string, ProjectPrimitiveValue>,
   instanceId?: string,
 ): boolean {
-  const conditions = question.conditions
+  return evaluateIntakeConditions(question.conditions, answers, instanceId)
+}
+
+/**
+ * The same evaluation, given the conditions directly rather than a question.
+ *
+ * Exported because conditions are no longer only a question's: document roles
+ * (`document-roles.ts`) carry a `recommendedWhen` list in this language so the
+ * Modul I checklist is data rather than bespoke UI code. Sharing the evaluator
+ * is what stops the checklist and the questions ever disagreeing about what a
+ * project is.
+ *
+ * An empty or absent list means "always", which is what a question with no
+ * conditions means.
+ */
+export function evaluateIntakeConditions(
+  conditions: ProjectIntakeCondition[] | undefined,
+  answers: Record<string, ProjectPrimitiveValue>,
+  instanceId?: string,
+): boolean {
   if (!conditions || conditions.length === 0) return true
   return conditions.every((cond) => evaluateSingleCondition(cond, answers, instanceId))
 }
