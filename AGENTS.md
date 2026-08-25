@@ -74,8 +74,8 @@ Which layer to close: [`docs/contributing/correction-ratchet.md`](docs/contribut
 | When you | You must | What fails you |
 |---|---|---|
 | Add an `app/api` route | Declare `authz` on the factory from `@/lib/api/handler` | `apiRoute` does not compile; `authz-coverage.spec.ts` |
-| Add a permission | Add it to `lib/authz/catalog.ts` first, then `bun run provision:authz` | WorkOS drifts from the code |
-| Decide access | Go through `lib/authz/decide.ts`, the single decision point | Bypasses become implicit |
+| Add a permission | Add it to `lib/authz/catalog.ts` first, then `bun run provision:authz --apply` against every environment | WorkOS drifts from the code. A project-tier permission that exists only in the catalog is held by **nobody** |
+| Decide access | Check a permission, never a role slug. `lib/authz/decide.ts` is the intended single decision point; adoption is incremental (ADR-0038 §6) and the gates still call `hasPermission` / `requireProjectAccess` / `requirePlatformPermission` directly | Bypasses become implicit. A role-name check breaks every custom role |
 | Create a table | `SELECT grid_secure_table('<table>','<tenancy predicate>');` in the same migration | `rls-coverage.spec.ts`, by name |
 | Read tenant rows | Take context from `getGridSession()`, or state it (`withTenant`, `withPlatformAccess`, `withOptionalTenant`) | `internalApiRoute` does not compile |
 | Write an endpoint | Route stays a thin adapter, service owns logic and authorization, repository owns the SQL and bounds every list | Review. `publicApiRoute` needs an ADR |
@@ -95,7 +95,14 @@ builds, `fe:build` and `web:build`. `task --list` is the current command list.
 Spec type errors fail the production build, because the UI tsconfig includes
 tests.
 
-## Four rules that need more than a row
+## Five rules that need more than a row
+
+**Authorization checks a permission, never a role name.** Both bypasses are
+permissions: `org:projects:administer` reaches every project in one organization,
+and platform access is membership of the GRID Platform organization *plus* the
+specific `platform:*` permission the surface needs. `session.role === 'admin'`
+looks equivalent and is not — it denies a custom role holding every `org:*`
+permission, and grants any role that merely shares the name.
 
 **Stepping up is not authorization.** Row-level security guards application
 bugs, the missing `WHERE` and the widened join. Anything that runs arbitrary SQL

@@ -7,14 +7,25 @@
 
 import 'server-only'
 import { getWorkOS } from '@/lib/workos/client'
-import { requireProjectAccess } from '@/lib/authz/projects'
+import { requireProjectAccess, type ProjectPermission } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { ConflictError, NotFoundError } from '@/lib/api/errors'
 import { revokeCollaborationForProjectMember } from '@/lib/collaboration/cleanup'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { findProjectWorkosResourceId } from './repository'
 
-export type ProjectMemberRole = 'project-viewer' | 'project-editor' | 'project-admin'
+/**
+ * The project roles a member can be assigned, exactly as the catalog defines
+ * them. `project-contributor` belongs here even though `requireProjectAccess`'s
+ * derived ladder does not distinguish it (see `ProjectRole` there): this is what
+ * WorkOS holds and what the roster shows, and leaving it out is why the role
+ * shipped assignable-in-theory and unassignable-in-practice.
+ */
+export type ProjectMemberRole =
+  | 'project-viewer'
+  | 'project-contributor'
+  | 'project-editor'
+  | 'project-admin'
 
 const PROJECT_ADMIN_ROLE_SLUG = 'project-admin'
 
@@ -28,12 +39,12 @@ const LAST_ADMIN_DETAILS = { reason: 'last-admin' } as const
  * plus group-derived) and each counts as a single admin.
  */
 function adminMembershipIds(
-  assignments: Array<{ organizationMembershipId: string; role: { slug: string } }>,
+  assignments: Array<{ organizationMembershipId: string; role: { slug: string } }>
 ): Set<string> {
   return new Set(
     assignments
       .filter((assignment) => assignment.role.slug === PROJECT_ADMIN_ROLE_SLUG)
-      .map((assignment) => assignment.organizationMembershipId),
+      .map((assignment) => assignment.organizationMembershipId)
   )
 }
 
@@ -49,7 +60,7 @@ function adminMembershipIds(
 function assertNotLastAdmin(
   assignments: Array<{ organizationMembershipId: string; role: { slug: string } }>,
   targetMembershipId: string,
-  willRemainAdmin: boolean,
+  willRemainAdmin: boolean
 ): void {
   if (willRemainAdmin) return
   const admins = adminMembershipIds(assignments)
@@ -58,17 +69,36 @@ function assertNotLastAdmin(
   if (otherAdmins.length === 0) {
     throw new ConflictError(
       'This project must keep at least one admin. Assign another admin before removing this one.',
-      LAST_ADMIN_DETAILS,
+      LAST_ADMIN_DETAILS
     )
   }
 }
 
+/**
+ * Permission → displayed role, as an ORDERED ladder: the roster probes each
+ * permission and a later match overwrites an earlier one, so the strongest rung
+ * a member reaches is the one shown.
+ *
+ * Every rung the catalog defines has an entry, which it did not before. Probing
+ * only `view`/`edit`/`manage` meant a Contributor displayed as "Viewer" (it
+ * holds `project:view` and nothing further down the old ladder) and a custom
+ * role built the way the catalog recommends — narrow writes, no umbrella —
+ * displayed as "Viewer" too. A roster that under-reports somebody's access is
+ * worse than no roster: it is the screen an admin uses to audit exactly that.
+ *
+ * The two narrow writes both map to Editor because that is the rung, not because
+ * they are interchangeable; `project:edit` stays for roles provisioned before
+ * the ADR-0038 split.
+ */
 const PROJECT_ROLE_BY_PERMISSION: Array<{
-  permissionSlug: 'project:view' | 'project:edit' | 'project:manage'
+  permissionSlug: ProjectPermission
   role: ProjectMemberRole
 }> = [
   { permissionSlug: 'project:view', role: 'project-viewer' },
+  { permissionSlug: 'project:chat', role: 'project-contributor' },
   { permissionSlug: 'project:edit', role: 'project-editor' },
+  { permissionSlug: 'project:documents:write', role: 'project-editor' },
+  { permissionSlug: 'project:memory:write', role: 'project-editor' },
   { permissionSlug: 'project:manage', role: 'project-admin' },
 ]
 
@@ -87,7 +117,7 @@ export interface ProjectMember {
  */
 export async function listProjectMembers(
   session: AuthorizedSession,
-  projectId: string,
+  projectId: string
 ): Promise<ProjectMember[]> {
   await requireProjectAccess(session, projectId, ['project:members:manage', 'project:manage'])
 
@@ -95,7 +125,9 @@ export async function listProjectMembers(
 
   // WorkOS list endpoints return 10 items per page by default; autoPagination
   // walks every page so rosters larger than one page aren't silently truncated.
-  // All five lists are independent — fetch them in parallel.
+  // Every list is independent — fetch them in parallel. This is the one screen
+  // in the product whose whole job is to report access accurately, so it probes
+  // each rung rather than inferring one from another.
   const [users, orgMemberships, ...membershipLists] = await Promise.all([
     workos.userManagement
       .listUsers({ organizationId: session.organizationId })
@@ -166,7 +198,7 @@ export async function setProjectMemberRole(
   session: AuthorizedSession,
   projectId: string,
   input: { organizationMembershipId: string; roleSlug: ProjectMemberRole | '' },
-  request: Request,
+  request: Request
 ): Promise<void> {
   await requireProjectAccess(session, projectId, ['project:members:manage', 'project:manage'])
 
@@ -225,7 +257,7 @@ export async function removeProjectRoleAssignment(
   session: AuthorizedSession,
   projectId: string,
   assignmentId: string,
-  request: Request,
+  request: Request
 ): Promise<void> {
   await requireProjectAccess(session, projectId, ['project:members:manage', 'project:manage'])
 
@@ -257,10 +289,14 @@ export async function removeProjectRoleAssignment(
   // Best-effort: an access-control change must not fail on notification bookkeeping.
   try {
     const membership = await workos.userManagement.getOrganizationMembership(
-      assignment.organizationMembershipId,
+      assignment.organizationMembershipId
     )
     if (membership?.userId) {
-      await revokeCollaborationForProjectMember(session.organizationId, projectId, membership.userId)
+      await revokeCollaborationForProjectMember(
+        session.organizationId,
+        projectId,
+        membership.userId
+      )
     }
   } catch (error) {
     console.warn('[members-service] collaboration cleanup after role removal failed:', error)

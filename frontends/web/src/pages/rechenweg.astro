@@ -1,0 +1,18 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import Rechenweg from '../components/organisms/Rechenweg.astro'
+import { ui } from '../i18n/ui'
+
+const t = ui.de.rechenweg
+---
+
+<BaseLayout locale="de" title={t.metaTitle} description={t.metaDescription}>
+  <Rechenweg locale="de" />
+</BaseLayout>
+
+<script>
+  import { initReveals } from '../scripts/reveal'
+  import { initRoiWorking } from '../scripts/roi'
+  initReveals()
+  initRoiWorking()
+</script>

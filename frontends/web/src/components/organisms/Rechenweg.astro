@@ -1,0 +1,284 @@
+---
+import SectionTag from '../atoms/SectionTag.astro'
+import { ui, type Locale } from '../../i18n/ui'
+import { useTranslatedPath } from '../../i18n/utils'
+import { computeRoi, RESEARCH_SHARE, ROI_DEFAULTS, TIME_SAVED, WEEK_HOURS } from '../../lib/roi'
+import { formatRoi, type RoiText } from '../../lib/roi-format'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale]
+const r = t.rechenweg
+const home = useTranslatedPath(locale)('/')
+
+// Same model, same formatter as the calculator above — this section is the
+// calculator's working shown, not a second account of it.
+const text = formatRoi(ROI_DEFAULTS, computeRoi(ROI_DEFAULTS), locale, t.roi.units)
+
+
+// The week bar, as three shares of one row. `back` is the claim; it is drawn
+// inside the research block because that is where it comes from.
+const backShare = RESEARCH_SHARE * TIME_SAVED
+const bar = {
+  plan: (1 - RESEARCH_SHARE) * 100,
+  rest: (RESEARCH_SHARE - backShare) * 100,
+  back: backShare * 100,
+}
+
+// Every tenth hour gets a mark; the last one carries the unit.
+const marks = [25, 50, 75, 100].map((at) => ({
+  at,
+  label: at === 100 ? `${WEEK_HOURS} h` : `${(WEEK_HOURS * at) / 100}`,
+  // The final mark is the end of the rule: it hangs to the left of its tick, or
+  // it would wrap against the edge of the sheet.
+  end: at === 100,
+}))
+
+type Origin = 'ours' | 'yours' | 'price' | 'sum'
+const rows: {
+  label: string
+  note?: string
+  key: keyof RoiText
+  origin: Origin
+  rule?: 'sub' | 'total'
+}[] = [
+  { label: r.ledger.week, key: 'weekHours', origin: 'ours' },
+  { label: r.ledger.research, key: 'researchHours', origin: 'ours' },
+  { label: r.ledger.back, key: 'backHours', origin: 'ours' },
+  { label: r.ledger.year, key: 'yearHours', origin: 'ours' },
+  { label: r.ledger.hourly, note: r.ledger.hourlyNote, key: 'hourly', origin: 'yours' },
+  { label: r.ledger.perSeat, key: 'perSeat', origin: 'sum', rule: 'sub' },
+  { label: r.ledger.licence, key: 'licencePerSeat', origin: 'price' },
+  { label: r.ledger.netPerSeat, key: 'netPerSeat', origin: 'sum', rule: 'sub' },
+  { label: r.ledger.seats, key: 'seatsTimes', origin: 'yours' },
+  { label: r.ledger.total, key: 'net', origin: 'sum', rule: 'total' },
+]
+
+// One colour per provenance, used by the legend, the chips and the bar alike —
+// so "this figure is ours, that one is yours" is legible without reading a word.
+// The bar's key, in the order the bar reads.
+const key = [
+  { value: text.planHours, label: r.week.plan, swatch: 'bg-hero-bg ring-1 ring-ink/15', tone: 'text-ink-soft' },
+  { value: text.restHours, label: r.week.rest, swatch: 'bg-tint', tone: 'text-ink-soft' },
+  {
+    value: text.backHours,
+    label: r.week.back,
+    swatch: 'bg-accent-400',
+    tone: 'font-semibold text-accent-700',
+  },
+]
+
+const origin: Record<Origin, string> = {
+  ours: 'border-accent-600/45 text-accent-600',
+  yours: 'border-accent-900/70 bg-accent-900 text-surface',
+  price: 'border-ink/25 text-ink-mute',
+  sum: 'border-transparent text-ink-faint',
+}
+const legend: Origin[] = ['ours', 'yours', 'price']
+---
+
+<section class="mx-auto box-border max-w-[85rem] px-4 pb-28 pt-32 sm:px-10">
+  <div class="box-border rounded-panel bg-paper px-6 py-16 shadow-card ring-1 ring-ink/8 sheet-light sm:px-16 sm:py-20">
+    <div data-reveal class="mb-12 max-w-2xl">
+      <SectionTag no="A" class="mb-5">{r.tag}</SectionTag>
+      <h1 class="m-0 mb-5 font-voice text-v3 text-panel" style="text-wrap: balance">
+        {r.title}
+      </h1>
+      <p class="m-0 text-base leading-relaxed text-ink-soft" style="text-wrap: pretty">
+        {r.intro}
+      </p>
+      <p class="m-0 mt-6 border-t border-ink/15 pt-5 text-sm text-ink-mute">
+        <span data-roi-out="office">{text.office}</span>{' '}
+        <a href={`${home}#wert`} class="text-accent-600 underline underline-offset-2 hover:text-accent-700"
+          >{r.back}</a
+        >
+      </p>
+    </div>
+
+    <!-- The claim, drawn to scale. A ruled bar is the one form in which "30 %
+         of the week, and 40 % of that back" can be checked at a glance instead
+         of believed: each cell is an hour, so the returned time is countable. -->
+    <figure data-reveal class="m-0 mb-14">
+      <figcaption class="m-0 mb-5 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
+        <span class="font-display text-sm font-semibold tracking-tight text-panel">
+          {r.week.title}
+        </span>
+        <span class="font-mono text-2xs uppercase tracking-widest text-ink-faint">
+          {r.week.scale} · {text.weekHours}
+        </span>
+      </figcaption>
+
+      <!-- A dimension line, as on a drawing: the measured span sits over what it
+           measures, its label inside the span so it cannot run off the sheet. -->
+      <div class="flex w-full items-end max-sm:hidden">
+        <div style={`width: ${bar.plan}%`}></div>
+        <div style={`width: ${bar.rest + bar.back}%`}>
+          <p class="m-0 mb-1.5 pl-1 font-mono text-2xs uppercase tracking-widest text-ink-mute">
+            {r.week.bracket}
+          </p>
+          <div class="h-2 border-x border-t border-ink/30"></div>
+        </div>
+      </div>
+
+      <div class="relative mt-1.5 flex h-14 w-full overflow-hidden rounded-xs sm:h-16">
+        <div class="bg-hero-bg" style={`width: ${bar.plan}%`}></div>
+        <div class="bg-tint" style={`width: ${bar.rest}%`}></div>
+        <div
+          class="flex items-center justify-center bg-accent-400"
+          style={`width: ${bar.back}%`}
+        >
+          <span
+            class="font-mono text-sm font-medium tabular-nums text-accent-900 max-sm:hidden"
+          >
+            {text.backHours}
+          </span>
+        </div>
+        <!-- One hour per cell, drawn once as a gradient rather than 40 nodes. -->
+        <div class="pointer-events-none absolute inset-0 hour-rule"></div>
+      </div>
+
+      <!-- The scale rule: the hour marks make "one cell is one hour" checkable
+           rather than asserted, which is the whole point of drawing it. -->
+      <div class="relative h-5">
+        {
+          marks.map((m) => (
+            <span
+              class:list={[
+                'absolute top-0 whitespace-nowrap font-mono text-2xs text-ink-ghost',
+                m.end
+                  ? '-translate-x-full border-r border-ink/20 pr-1.5'
+                  : '-translate-x-1/2 border-l border-ink/20 pl-1.5',
+              ]}
+              style={`left: ${m.at}%`}
+            >
+              {m.label}
+            </span>
+          ))
+        }
+      </div>
+
+      <!-- The key, in the reading order of the bar. -->
+      <dl class="m-0 mt-6 grid grid-cols-3 gap-x-8 gap-y-4 max-sm:grid-cols-1">
+        {
+          key.map((k) => (
+            <div class="grid grid-cols-[auto_1fr] items-baseline gap-x-3">
+              <span class={`mt-1.5 size-3 rounded-xs ${k.swatch}`} aria-hidden="true" />
+              <div>
+                <dt class="m-0 font-mono text-sm tabular-nums text-panel">{k.value}</dt>
+                <dd class={`m-0 mt-0.5 text-sm leading-snug ${k.tone}`}>{k.label}</dd>
+              </div>
+            </div>
+          ))
+        }
+      </dl>
+    </figure>
+
+    <div class="grid grid-cols-[7fr_5fr] gap-x-16 gap-y-12 max-lg:grid-cols-1">
+      <!-- The ledger. Live: drag a slider two sections up and the working
+           re-derives with it, because it is the same model. -->
+      <div data-reveal>
+        <ul class="m-0 mb-5 flex list-none flex-wrap gap-2 p-0">
+          {
+            legend.map((o) => (
+              <li
+                class={`rounded-full border px-3 py-1 font-mono text-2xs uppercase tracking-widest ${origin[o]}`}
+              >
+                {r.originsLong[o]}
+              </li>
+            ))
+          }
+        </ul>
+        <dl class="m-0">
+        {
+          rows.map((row) => (
+            <div
+              class:list={[
+                'grid grid-cols-[1fr_auto_auto] items-baseline gap-x-4 border-t py-3 sm:gap-x-6',
+                row.rule === 'total'
+                  ? 'border-t-2 border-panel'
+                  : row.rule === 'sub'
+                    ? 'border-panel/40'
+                    : 'border-ink/12',
+              ]}
+            >
+              <dt
+                class:list={[
+                  'm-0 text-sm leading-snug',
+                  row.rule ? 'font-semibold text-panel' : 'text-ink-soft',
+                ]}
+              >
+                {row.label}
+                {row.note && (
+                  <span class="block text-2xs leading-relaxed text-ink-faint">{row.note}</span>
+                )}
+              </dt>
+              <dd
+                data-roi-out={row.key}
+                class:list={[
+                  'm-0 font-mono tabular-nums text-panel',
+                  row.rule === 'total' ? 'text-xl font-medium' : 'text-sm',
+                ]}
+              >
+                {text[row.key]}
+              </dd>
+              <dd class="m-0 w-28 text-right max-sm:hidden">
+                {row.origin !== 'sum' && (
+                  <span
+                    class={`inline-block whitespace-nowrap rounded-full border px-2 py-0.5 font-mono text-2xs uppercase tracking-widest ${origin[row.origin]}`}
+                  >
+                    {r.origins[row.origin]}
+                  </span>
+                )}
+              </dd>
+            </div>
+          ))
+        }
+        </dl>
+      </div>
+
+      <div data-reveal>
+        <h3 class="m-0 font-display text-lg font-semibold tracking-tight text-panel">
+          {r.excludedTitle}
+        </h3>
+        <ol class="m-0 mt-5 list-none p-0">
+          {
+            r.excluded.map((e, i) => (
+              <li class="grid grid-cols-[auto_1fr] gap-x-4 border-t border-ink/12 py-4 first:border-t-0 first:pt-0">
+                <span class="font-mono text-2xs uppercase tracking-widest text-ink-ghost">
+                  {`0${i + 1}`}
+                </span>
+                <div>
+                  <p class="m-0 text-sm leading-relaxed text-ink-soft" style="text-wrap: pretty">
+                    {e.text}
+                  </p>
+                  <p class="m-0 mt-1.5 font-mono text-2xs uppercase tracking-widest text-accent-600">
+                    {e.effect}
+                  </p>
+                </div>
+              </li>
+            ))
+          }
+        </ol>
+        <p
+          class="m-0 mt-7 border-t border-panel/30 pt-6 text-sm leading-relaxed text-ink-mid"
+          style="text-wrap: pretty"
+        >
+          {r.honesty}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    /* One hour per cell: 40 columns across the bar, drawn as a single ruled
+       gradient so the figure costs one element instead of forty. */
+    .hour-rule {
+      background-image: linear-gradient(to right, rgb(42 48 31 / 0.18) 0 1px, transparent 1px);
+      background-size: 2.5% 100%;
+      box-shadow: inset 0 0 0 1px rgb(42 48 31 / 0.12);
+      border-radius: 0.375rem;
+    }
+  </style>
+</section>

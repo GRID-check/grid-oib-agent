@@ -3,7 +3,7 @@
  * the platform owner's dashboard. Combines the WorkOS organization directory
  * with Grid-side per-org stats (projects, LLM spend from the usage ledger).
  *
- * Caller authorization (requirePlatformOwner) happens in the routes — this
+ * Caller authorization (requirePlatformPermission) happens in the routes — this
  * module is data-only and must never be exposed to tenant sessions.
  */
 

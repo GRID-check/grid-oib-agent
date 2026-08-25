@@ -44,6 +44,13 @@ export const ORG_PERMISSIONS = {
   projectsCreate: 'org:projects:create',
   /** See and manage who is in the organization and what role they hold. */
   membersManage: 'org:members:manage',
+  /**
+   * Reach every project in the organization without a per-project role — the
+   * org-admin bypass, expressed as a permission (ADR-0038). Checking a
+   * permission rather than the role slug `admin` is what makes a restricted
+   * admin, or a custom owner role, constructible for the project tier too.
+   */
+  projectsAdminister: 'org:projects:administer',
 } as const
 
 /**
@@ -56,6 +63,8 @@ export const PLATFORM_PERMISSIONS = {
   organizationsView: 'platform:organizations:view',
   organizationsManage: 'platform:organizations:manage',
   usageView: 'platform:usage:view',
+  /** Read platform configuration. The read half of {@link settingsManage}. */
+  settingsView: 'platform:settings:view',
   settingsManage: 'platform:settings:manage',
 } as const
 
@@ -92,10 +101,9 @@ export type SkillPermission = (typeof SKILL_PERMISSIONS)[keyof typeof SKILL_PERM
 export type KnownPermission = OrgPermission | PlatformPermission
 
 /** Any permission in the catalog, across all four tiers. */
-export type AnyPermission =
-  | KnownPermission
-  | ProjectPermission
-  | SkillPermission
+export type AnyPermission = KnownPermission | ProjectPermission | SkillPermission
+
+const EMPTY_PERMISSIONS: ReadonlySet<string> = new Set()
 
 /**
  * Permissions each ENVIRONMENT-SCOPED ORG role holds, straight from the catalog.
@@ -112,13 +120,51 @@ const ORG_ROLE_PERMISSIONS: ReadonlyMap<string, ReadonlySet<string>> = new Map(
 )
 
 /**
+ * The same table for PLATFORM-ORG roles, kept separate on purpose.
+ *
+ * `hasPermission` must never consult this one — that is the invariant the
+ * comment above rests on. It exists for `./platform`, which has already
+ * established real platform-org membership before it asks what that membership's
+ * role holds, and which therefore needs the bounded implication for the same
+ * reason the org tier does: a session minted before `platform:settings:view` was
+ * provisioned carries the role slug without the claim.
+ */
+const PLATFORM_ROLE_PERMISSIONS: ReadonlyMap<string, ReadonlySet<string>> = new Map(
+  ROLES.filter((role) => role.scope === 'platform-org').map((role) => [
+    role.slug,
+    new Set(role.permissions),
+  ])
+)
+
+/**
+ * Every permission the catalog says an ENVIRONMENT-SCOPED org role holds.
+ *
+ * Exported so the two places that must reason about a THIRD PARTY's org role —
+ * `./project-membership` mirroring the project bypass for an invitee, and the
+ * provisioning check — derive it from the same table `hasPermission` uses
+ * instead of re-deriving "which roles are admin-ish" by hand.
+ */
+export function permissionsForOrgRole(roleSlug: string | null | undefined): ReadonlySet<string> {
+  if (!roleSlug) return EMPTY_PERMISSIONS
+  return ORG_ROLE_PERMISSIONS.get(roleSlug) ?? EMPTY_PERMISSIONS
+}
+
+/** Every permission the catalog says a PLATFORM-ORG role holds. */
+export function permissionsForPlatformRole(
+  roleSlug: string | null | undefined
+): ReadonlySet<string> {
+  if (!roleSlug) return EMPTY_PERMISSIONS
+  return PLATFORM_ROLE_PERMISSIONS.get(roleSlug) ?? EMPTY_PERMISSIONS
+}
+
+/**
  * Whether the session holds a permission for its ACTIVE organization.
  *
  * Two ways to hold one:
  *
  *  1. The JWT `permissions` claim names it. This is the normal path.
  *  2. **Bounded legacy implication.** Sessions minted before the permission
- *     rollout (or in an environment whose provisioning has not been replayed)
+ *     rollout — or in an environment whose provisioning has not been replayed —
  *     carry a role slug without the granular claims. Such a session holds
  *     exactly the permissions the CATALOG says that role holds.
  *
@@ -128,6 +174,23 @@ const ORG_ROLE_PERMISSIONS: ReadonlyMap<string, ReadonlySet<string>> = new Map(
  * permission to every admin the moment it was defined. Deriving the implication
  * from the catalog keeps existing admins working while making the grant finite,
  * reviewable, and identical to what WorkOS would return once provisioned.
+ *
+ * ## Why the implication applies even to a session that HAS claims
+ *
+ * Because the catalog routinely ships ahead of provisioning, and this fallback
+ * is the only thing that keeps that gap invisible to users. Restricting it to
+ * claims-less sessions was tried here and reverted: both live environments hold
+ * an Admin role WITHOUT `org:skills:manage` — the catalog has it, the
+ * provisioner has not been re-run — so every admin carrying claims would have
+ * lost the org skills toolbox the moment the narrower rule shipped. Turning
+ * every catalog/WorkOS gap into a silent permission removal is a worse failure
+ * than the one the narrowing fixes.
+ *
+ * The cost, stated plainly: a WorkOS role whose slug happens to be `admin` is
+ * handed the whole Admin bundle whatever it actually holds, so a restricted
+ * admin must be built as a NEW role rather than by editing Admin. That is
+ * bounded (the catalog decides the set), visible (the `provision:authz --check`
+ * drift job compares the two), and it retires when the implication does.
  *
  * `platform:*` is never implied, by construction: the map above only contains
  * environment-scoped org-tier roles.

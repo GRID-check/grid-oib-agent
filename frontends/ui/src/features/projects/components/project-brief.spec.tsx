@@ -139,8 +139,16 @@ describe('ProjectBrief summary auto-generation (post-wizard-save)', () => {
     // First (auto) call fails; the manual retry then succeeds and refreshes.
     const fetchSpy = vi
       .fn()
-      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ summary: '', error: 'llm_not_configured' }) })
-      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ summary: 'A crisp brief.' }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ summary: '', error: 'llm_not_configured' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ summary: 'A crisp brief.' }),
+      })
     vi.stubGlobal('fetch', fetchSpy)
     const user = userEvent.setup()
 
@@ -167,7 +175,9 @@ describe('ProjectBrief summary auto-generation (post-wizard-save)', () => {
     const fetchSpy = mockFetch(200, { summary: '' })
     vi.stubGlobal('fetch', fetchSpy)
 
-    render(<ProjectBrief projectId="proj-1" profile={profile} summary="Existing prose." briefStarted />)
+    render(
+      <ProjectBrief projectId="proj-1" profile={profile} summary="Existing prose." briefStarted />
+    )
 
     expect(screen.getByText('Existing prose.')).toBeDefined()
     expect(fetchSpy).not.toHaveBeenCalled()
@@ -205,7 +215,7 @@ describe('ProjectBrief manual summary control', () => {
     await user.click(screen.getByRole('button', { name: /Generate summary/i }))
 
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/no language model/i)),
+      expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/no language model/i))
     )
     expect(refresh).not.toHaveBeenCalled()
   })
@@ -218,14 +228,14 @@ describe('ProjectBrief manual summary control', () => {
     await user.click(screen.getByRole('button', { name: /Generate summary/i }))
 
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/permission/i)),
+      expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/permission/i))
     )
     expect(refresh).not.toHaveBeenCalled()
   })
 
   test('offers a subtle Regenerate control when prose is already present', () => {
     render(
-      <ProjectBrief projectId="proj-1" profile={profile} summary="Existing prose." briefStarted />,
+      <ProjectBrief projectId="proj-1" profile={profile} summary="Existing prose." briefStarted />
     )
     expect(screen.getByText('Existing prose.')).toBeDefined()
     expect(screen.getByRole('button', { name: /Regenerate/i })).toBeDefined()
@@ -253,7 +263,7 @@ describe('ProjectBrief stale-language summary regeneration (locale switch)', () 
         summary="An English summary."
         summaryLocale="en"
         briefStarted
-      />,
+      />
     )
 
     await waitFor(() => expect(refresh).toHaveBeenCalled())
@@ -278,7 +288,7 @@ describe('ProjectBrief stale-language summary regeneration (locale switch)', () 
         summary="Eine deutsche Zusammenfassung."
         summaryLocale="de"
         briefStarted
-      />,
+      />
     )
 
     expect(screen.getByText('Eine deutsche Zusammenfassung.')).toBeDefined()
@@ -293,7 +303,7 @@ describe('ProjectBrief stale-language summary regeneration (locale switch)', () 
     vi.stubGlobal('fetch', fetchSpy)
 
     render(
-      <ProjectBrief projectId="proj-1" profile={profile} summary="A legacy summary." briefStarted />,
+      <ProjectBrief projectId="proj-1" profile={profile} summary="A legacy summary." briefStarted />
     )
 
     expect(screen.getByText('A legacy summary.')).toBeDefined()
@@ -314,7 +324,7 @@ describe('ProjectBrief stale-language summary regeneration (locale switch)', () 
         summary="An English summary."
         summaryLocale="en"
         briefStarted
-      />,
+      />
     )
 
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1))
@@ -326,7 +336,7 @@ describe('ProjectBrief stale-language summary regeneration (locale switch)', () 
         summary="An English summary."
         summaryLocale="en"
         briefStarted
-      />,
+      />
     )
 
     // Still exactly one — the attempted-ref guard stops the loop.
@@ -344,7 +354,9 @@ describe('ProjectBrief assumption confirm/dismiss error surfacing', () => {
     vi.stubGlobal('fetch', mockFetch(403, { error: 'Forbidden', code: 'FORBIDDEN' }))
     const user = userEvent.setup()
 
-    render(<ProjectBrief projectId="proj-1" profile={profileWithAssumption} summary="" briefStarted />)
+    render(
+      <ProjectBrief projectId="proj-1" profile={profileWithAssumption} summary="" briefStarted />
+    )
     await user.click(screen.getByRole('button', { name: /confirm/i }))
 
     expect(await screen.findByText(/don.t have permission to update the brief/i)).toBeDefined()
@@ -355,7 +367,9 @@ describe('ProjectBrief assumption confirm/dismiss error surfacing', () => {
     vi.stubGlobal('fetch', mockFetch(409, { error: 'Conflict', code: 'CONFLICT' }))
     const user = userEvent.setup()
 
-    render(<ProjectBrief projectId="proj-1" profile={profileWithAssumption} summary="" briefStarted />)
+    render(
+      <ProjectBrief projectId="proj-1" profile={profileWithAssumption} summary="" briefStarted />
+    )
     await user.click(screen.getByRole('button', { name: /confirm/i }))
 
     expect(await screen.findByText(/changed elsewhere/i)).toBeDefined()
@@ -365,11 +379,17 @@ describe('ProjectBrief assumption confirm/dismiss error surfacing', () => {
   test('the 403 and 409 messages are distinct from each other and from the generic failure', async () => {
     const fetchSpy = vi
       .fn()
-      .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({ error: 'Internal server error' }) })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: async () => ({ error: 'Internal server error' }),
+      })
     vi.stubGlobal('fetch', fetchSpy)
     const user = userEvent.setup()
 
-    render(<ProjectBrief projectId="proj-1" profile={profileWithAssumption} summary="" briefStarted />)
+    render(
+      <ProjectBrief projectId="proj-1" profile={profileWithAssumption} summary="" briefStarted />
+    )
     await user.click(screen.getByRole('button', { name: /dismiss/i }))
 
     const generic = await screen.findByText(/could not update the brief/i)
@@ -382,7 +402,9 @@ describe('ProjectBrief assumption confirm/dismiss error surfacing', () => {
     vi.stubGlobal('fetch', mockFetch(200, {}))
     const user = userEvent.setup()
 
-    render(<ProjectBrief projectId="proj-1" profile={profileWithAssumption} summary="" briefStarted />)
+    render(
+      <ProjectBrief projectId="proj-1" profile={profileWithAssumption} summary="" briefStarted />
+    )
     await user.click(screen.getByRole('button', { name: /confirm/i }))
 
     await waitFor(() => expect(refresh).toHaveBeenCalled())

@@ -57,7 +57,9 @@ describe('buildIntakeProfile', () => {
   })
 
   it('lets an explicit A1 answer override the seeded project name', () => {
-    const profile = buildIntakeProfile({ A1: 'Renamed Project' }, definition, { projectName: 'Seed' })
+    const profile = buildIntakeProfile({ A1: 'Renamed Project' }, definition, {
+      projectName: 'Seed',
+    })
     expect(profile.facts.project_name?.value).toBe('Renamed Project')
   })
 
@@ -81,7 +83,7 @@ describe('buildIntakeProfile', () => {
 
     const withDetails = buildIntakeProfile(
       { A2_country: 'de', standort_details: 'Bayern, Deutschland' },
-      definition,
+      definition
     )
     expect(withDetails.facts.standort_details?.value).toBe('Bayern, Deutschland')
     expect(withDetails.facts.bundesland?.value).toBe('ausserhalb_oesterreichs')
@@ -93,22 +95,19 @@ describe('buildIntakeProfile', () => {
 
     const confirmed = buildIntakeProfile(
       { ...base, 'C3@bw1': 3, [modeKeyFor('C3@bw1')]: 'wert' },
-      definition,
+      definition
     )
     expect(confirmed.facts['geschosse_oberirdisch@bw1']?.value).toBe(3)
 
     const estimated = buildIntakeProfile(
       { ...base, 'C3@bw1': 4, [modeKeyFor('C3@bw1')]: 'geschaetzt' },
-      definition,
+      definition
     )
     expect(estimated.facts['geschosse_oberirdisch@bw1']).toBeUndefined()
     expect(estimated.assumptions['geschosse_oberirdisch@bw1']?.value).toBe(4)
     expect(estimated.assumptions['geschosse_oberirdisch@bw1']?.status).toBe('unconfirmed')
 
-    const open = buildIntakeProfile(
-      { ...base, [modeKeyFor('C3@bw1')]: 'offen' },
-      definition,
-    )
+    const open = buildIntakeProfile({ ...base, [modeKeyFor('C3@bw1')]: 'offen' }, definition)
     expect(open.unknowns).toContain('geschosse_oberirdisch@bw1')
   })
 
@@ -121,7 +120,7 @@ describe('buildIntakeProfile', () => {
     const profile = buildIntakeProfile(
       { A2_country: 'at', A2_land: 'wien', A2_adr: 'Test', A5: ['neubau'] },
       definition,
-      { projectName: 'Test' },
+      { projectName: 'Test' }
     )
     expect(profile.facts.country?.value).toBe('at')
     expect(profile.facts.bundesland?.value).toBe('wien')
@@ -131,7 +130,7 @@ describe('buildIntakeProfile', () => {
     const profile = buildIntakeProfile(
       { A2_country: 'de', standort_details: 'Bayern, Deutschland' },
       definition,
-      { projectName: 'Test' },
+      { projectName: 'Test' }
     )
     expect(profile.facts.bundesland?.value).toBe('ausserhalb_oesterreichs')
     expect(profile.facts.standort_details?.value).toBe('Bayern, Deutschland')
@@ -223,7 +222,9 @@ describe('labelForProfileKey', () => {
   })
 
   it('resolves a scoped key by its base', () => {
-    expect(labelForProfileKey(definition, 'geschosse_oberirdisch@bw1')).toBe('Anzahl oberirdischer Geschoße (Zielzustand)')
+    expect(labelForProfileKey(definition, 'geschosse_oberirdisch@bw1')).toBe(
+      'Anzahl oberirdischer Geschoße (Zielzustand)'
+    )
   })
 
   it('falls back to a title-cased humanization for genuinely unknown keys', () => {
@@ -280,7 +281,7 @@ describe('validateProfilePatchVocabulary', () => {
         confidence: 'confirmed',
         source: 'user_confirmed',
         updatedAt: '2026-07-08T00:00:00.000Z',
-      }),
+      })
     ).toThrow(/Bauwerkstyp/)
   })
 
@@ -293,7 +294,9 @@ describe('validateProfilePatchVocabulary', () => {
   })
 
   it('rejects a multi-select value outside the options', () => {
-    expect(() => validate('add', '/facts/vorhabensart', ['neubau', 'nope'])).toThrow(/Art des Vorhabens/)
+    expect(() => validate('add', '/facts/vorhabensart', ['neubau', 'nope'])).toThrow(
+      /Art des Vorhabens/
+    )
   })
 })
 
@@ -302,7 +305,7 @@ describe('pruneStaleConditionalAnswers', () => {
     // CB1 (Baujahr) belongs to a Bestandsgebäude. Flip C2 to Neubau → prune it.
     const pruned = pruneStaleConditionalAnswers(
       { 'C2@bw1': 'neubau', 'CB1@bw1': 1962, [modeKeyFor('CB1@bw1')]: 'wert' },
-      definition,
+      definition
     )
     expect(pruned['CB1@bw1']).toBeUndefined()
     expect(pruned[modeKeyFor('CB1@bw1')]).toBeUndefined()
@@ -319,7 +322,7 @@ describe('pruneStaleConditionalAnswers', () => {
     // C2@bw1 depends on C1@bw1 === 'gebaeude'. Flip the building type → prune C2.
     const pruned = pruneStaleConditionalAnswers(
       { 'C1@bw1': 'klein', 'C3@bw1': 3, [modeKeyFor('C3@bw1')]: 'wert' },
-      definition,
+      definition
     )
     expect(pruned['C3@bw1']).toBeUndefined()
     expect(pruned['C1@bw1']).toBe('klein')
@@ -399,7 +402,9 @@ describe('evaluateIntakeCondition', () => {
     const cb6 = findIntakeQuestion(definition, 'CB6')!
     const base = { 'C2@bw1': 'bestand' }
     expect(evaluateIntakeCondition(cb6, { ...base, 'CB4@bw1': ['umbau_innen'] }, 'bw1')).toBe(false)
-    expect(evaluateIntakeCondition(cb6, { ...base, 'CB4@bw1': ['kernsanierung'] }, 'bw1')).toBe(true)
+    expect(evaluateIntakeCondition(cb6, { ...base, 'CB4@bw1': ['kernsanierung'] }, 'bw1')).toBe(
+      true
+    )
   })
 
   it('resolves a bauwerk-scope param within the current instance', () => {
@@ -418,16 +423,34 @@ describe('evaluateIntakeCondition', () => {
     const gebaeude = { 'C1@bw1': 'gebaeude' }
 
     it('is satisfied only at or below the bound', () => {
-      expect(evaluateIntakeCondition(c8, { ...gebaeude, 'C3@bw1': 4, [modeKeyFor('C3@bw1')]: 'wert' }, 'bw1')).toBe(true)
-      expect(evaluateIntakeCondition(c8, { ...gebaeude, 'C3@bw1': 5, [modeKeyFor('C3@bw1')]: 'wert' }, 'bw1')).toBe(false)
+      expect(
+        evaluateIntakeCondition(
+          c8,
+          { ...gebaeude, 'C3@bw1': 4, [modeKeyFor('C3@bw1')]: 'wert' },
+          'bw1'
+        )
+      ).toBe(true)
+      expect(
+        evaluateIntakeCondition(
+          c8,
+          { ...gebaeude, 'C3@bw1': 5, [modeKeyFor('C3@bw1')]: 'wert' },
+          'bw1'
+        )
+      ).toBe(false)
     })
 
     it('an estimate can satisfy it, an explicitly open value cannot', () => {
       // Spec conventions: lte needs a present value whose mode is not 'offen'.
       expect(
-        evaluateIntakeCondition(c8, { ...gebaeude, 'C3@bw1': 3, [modeKeyFor('C3@bw1')]: 'geschaetzt' }, 'bw1'),
+        evaluateIntakeCondition(
+          c8,
+          { ...gebaeude, 'C3@bw1': 3, [modeKeyFor('C3@bw1')]: 'geschaetzt' },
+          'bw1'
+        )
       ).toBe(true)
-      expect(evaluateIntakeCondition(c8, { ...gebaeude, [modeKeyFor('C3@bw1')]: 'offen' }, 'bw1')).toBe(false)
+      expect(
+        evaluateIntakeCondition(c8, { ...gebaeude, [modeKeyFor('C3@bw1')]: 'offen' }, 'bw1')
+      ).toBe(false)
     })
 
     it('an absent storey count never reveals the question', () => {
@@ -440,7 +463,17 @@ describe('projectIntakeDefinitionV1 shape', () => {
   it('starts with module A and carries the stable spec anchors', () => {
     expect(definition.stages[0].id).toBe('A')
     const ids = flattenIntakeQuestions(definition).map((q) => q.id)
-    for (const anchor of ['A5', 'C2', 'CB1', 'CB7_fn', 'C8', 'C10_text', 'B3_stellplatz', 'D0', 'D_garagenfl']) {
+    for (const anchor of [
+      'A5',
+      'C2',
+      'CB1',
+      'CB7_fn',
+      'C8',
+      'C10_text',
+      'B3_stellplatz',
+      'D0',
+      'D_garagenfl',
+    ]) {
       expect(ids).toContain(anchor)
     }
   })
@@ -473,7 +506,7 @@ describe('BUNDESLAND_TOKENS / isValidBundeslandToken', () => {
         'vorarlberg',
         'burgenland',
         'ausserhalb_oesterreichs',
-      ]),
+      ])
     )
   })
 
@@ -529,13 +562,13 @@ describe('v1.0 → v1.2 legacy bridges (answersFromProfile)', () => {
     // the GK derivation with it.
     const allSmall = answersFromProfile(
       { ...empty, facts: { 'ne_unter_400@bw1': fact(true) } },
-      definition,
+      definition
     )
     expect(allSmall.answers['C8@bw1']).toBe('nein')
 
     const hasLarge = answersFromProfile(
       { ...empty, facts: { 'ne_unter_400@bw1': fact(false) } },
-      definition,
+      definition
     )
     expect(hasLarge.answers['C8@bw1']).toBe('ja')
   })
@@ -553,7 +586,7 @@ describe('v1.0 → v1.2 legacy bridges (answersFromProfile)', () => {
         [modeKeyFor('C3@bw1')]: 'wert',
         'C8@bw1': 'ja',
       },
-      definition,
+      definition
     )
     expect(profile.facts['einheiten_ueber_400@bw1']?.value).toBe(true)
     expect(profile.facts['ne_unter_400@bw1']).toBeUndefined()
@@ -564,7 +597,7 @@ describe('v1.0 → v1.2 legacy bridges (answersFromProfile)', () => {
     // building it is that building's, and C2 gates open so the block shows.
     const restored = answersFromProfile(
       { ...empty, facts: { baujahr_bestand: fact(1962), denkmalschutz: fact(true) } },
-      definition,
+      definition
     )
     expect(restored.answers['CB1@bw1']).toBe(1962)
     expect(restored.answers[modeKeyFor('CB1@bw1')]).toBe('wert')
@@ -582,7 +615,7 @@ describe('v1.0 → v1.2 legacy bridges (answersFromProfile)', () => {
           'bauwerk_name@bw2': fact('Hoftrakt'),
         },
       },
-      definition,
+      definition
     )
     expect(restored.answers['CB1@bw1']).toBeUndefined()
     expect(restored.answers['CB1@bw2']).toBeUndefined()
@@ -592,23 +625,34 @@ describe('v1.0 → v1.2 legacy bridges (answersFromProfile)', () => {
     const restored = answersFromProfile(
       {
         ...empty,
-        facts: { gefahrenzonen: fact(['hw_hq100']), altlast: fact(true), schutzgebiet: fact(true), baumbestand: fact(false) },
+        facts: {
+          gefahrenzonen: fact(['hw_hq100']),
+          altlast: fact(true),
+          schutzgebiet: fact(true),
+          baumbestand: fact(false),
+        },
       },
-      definition,
+      definition
     )
     expect(restored.answers['B4']).toEqual(['hw_hq100', 'altlast', 'schutzgebiet'])
   })
 
   it('condenses the three Erschließungs-booleans, refusing a partial picture', () => {
     const full = answersFromProfile(
-      { ...empty, facts: { kanal: fact(true), trinkwasser: fact(true), zufahrt_feuerwehr: fact(true) } },
-      definition,
+      {
+        ...empty,
+        facts: { kanal: fact(true), trinkwasser: fact(true), zufahrt_feuerwehr: fact(true) },
+      },
+      definition
     )
     expect(full.answers['B6']).toBe('ja')
 
     const mixed = answersFromProfile(
-      { ...empty, facts: { kanal: fact(true), trinkwasser: fact(false), zufahrt_feuerwehr: fact(true) } },
-      definition,
+      {
+        ...empty,
+        facts: { kanal: fact(true), trinkwasser: fact(false), zufahrt_feuerwehr: fact(true) },
+      },
+      definition
     )
     expect(mixed.answers['B6']).toBe('teilweise')
 
@@ -619,28 +663,40 @@ describe('v1.0 → v1.2 legacy bridges (answersFromProfile)', () => {
   it('maps Fernwärme booleans onto the status select, Anschlussgebiet first', () => {
     const zone = answersFromProfile(
       { ...empty, facts: { fernwaerme: fact(true), fernwaerme_zone: fact(true) } },
-      definition,
+      definition
     )
     expect(zone.answers['B7']).toBe('anschlussgebiet')
 
-    const available = answersFromProfile({ ...empty, facts: { fernwaerme: fact(true) } }, definition)
+    const available = answersFromProfile(
+      { ...empty, facts: { fernwaerme: fact(true) } },
+      definition
+    )
     expect(available.answers['B7']).toBe('verfuegbar')
   })
 
   it('maps the legacy single Bauweise token into the multi-select', () => {
-    const restored = answersFromProfile({ ...empty, facts: { 'bauweise@bw1': fact('massivbau') } }, definition)
+    const restored = answersFromProfile(
+      { ...empty, facts: { 'bauweise@bw1': fact('massivbau') } },
+      definition
+    )
     expect(restored.answers['C10@bw1']).toEqual(['mauerwerk_massivbau'])
   })
 
   it('drops a legacy hybrid Bauweise rather than guessing its members', () => {
-    const restored = answersFromProfile({ ...empty, facts: { 'bauweise@bw1': fact('hybrid') } }, definition)
+    const restored = answersFromProfile(
+      { ...empty, facts: { 'bauweise@bw1': fact('hybrid') } },
+      definition
+    )
     expect(restored.answers['C10@bw1']).toBeUndefined()
   })
 
   it('carries a legacy Zertifizierung into the fused F4', () => {
     const restored = answersFromProfile(
-      { ...empty, facts: { foerderung: fact(['wohnbaufoerderung']), zertifizierung: fact('klimaaktiv') } },
-      definition,
+      {
+        ...empty,
+        facts: { foerderung: fact(['wohnbaufoerderung']), zertifizierung: fact('klimaaktiv') },
+      },
+      definition
     )
     expect(restored.answers['F4']).toEqual(['wohnbaufoerderung', 'klimaaktiv'])
   })
@@ -655,7 +711,7 @@ describe('v1.0 → v1.2 legacy bridges (answersFromProfile)', () => {
           kontext_sonstiges: fact('Noch etwas.'),
         },
       },
-      definition,
+      definition
     )
     expect(restored.answers['G1']).toBe('Ein Wohnhaus.\n\nHanglage.')
     expect(restored.answers['G4']).toBe('Noch etwas.')
@@ -663,8 +719,15 @@ describe('v1.0 → v1.2 legacy bridges (answersFromProfile)', () => {
 
   it('folds the four legacy Technik booleans into E2', () => {
     const restored = answersFromProfile(
-      { ...empty, facts: { 'pv@bw1': fact(true), 'versickerung@bw1': fact(true), 'kuehlung@bw1': fact(false) } },
-      definition,
+      {
+        ...empty,
+        facts: {
+          'pv@bw1': fact(true),
+          'versickerung@bw1': fact(true),
+          'kuehlung@bw1': fact(false),
+        },
+      },
+      definition
     )
     expect(restored.answers['E2@bw1']).toEqual(['pv', 'versickerung'])
   })
@@ -678,12 +741,27 @@ describe('v1.2 catalog shape', () => {
     // The spec's core:true set — the Schnellstart path.
     expect(new Set(core)).toEqual(
       new Set([
-        'A1', 'A2_adr', 'A2_country', 'A2_land', 'A4', 'A5',
-        'B1', 'B1_text', 'B2', 'B2_upl',
-        'C1', 'C2', 'CB3', 'CB4', 'C3', 'C5', 'C7',
-        'D0', 'DX1',
+        'A1',
+        'A2_adr',
+        'A2_country',
+        'A2_land',
+        'A4',
+        'A5',
+        'B1',
+        'B1_text',
+        'B2',
+        'B2_upl',
+        'C1',
+        'C2',
+        'CB3',
+        'CB4',
+        'C3',
+        'C5',
+        'C7',
+        'D0',
+        'DX1',
         'G1',
-      ]),
+      ])
     )
   })
 
@@ -692,13 +770,25 @@ describe('v1.2 catalog shape', () => {
       .filter((q) => q.kernset)
       .map((q) => q.id)
     expect(new Set(kernset)).toEqual(
-      new Set(['B3_hoehe', 'B3_weise', 'B3_dichte', 'B3_flucht', 'B3_bes', 'B3_stellplatz']),
+      new Set(['B3_hoehe', 'B3_weise', 'B3_dichte', 'B3_flucht', 'B3_bes', 'B3_stellplatz'])
     )
   })
 
   it('dropped the v1.0-only questions', () => {
     const ids = new Set(flattenIntakeQuestions(definition).map((q) => q.id))
-    for (const gone of ['A3', 'A6', 'A11', 'B1_orig', 'B6_tag', 'B7_kanal', 'B9', 'C12', 'E6', 'F6', 'G5']) {
+    for (const gone of [
+      'A3',
+      'A6',
+      'A11',
+      'B1_orig',
+      'B6_tag',
+      'B7_kanal',
+      'B9',
+      'C12',
+      'E6',
+      'F6',
+      'G5',
+    ]) {
       expect(ids.has(gone)).toBe(false)
     }
   })

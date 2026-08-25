@@ -43,14 +43,17 @@ import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { GridSession } from '@/lib/auth/types'
 import { findJob } from '@/lib/jobs/repository'
 import { findPermissionSpec, type PermissionTier } from './catalog'
+import { findProjectTenancy } from '@/lib/projects/repository'
 import {
   hasPermission,
+  ORG_PERMISSIONS,
   type AnyPermission,
   type KnownPermission,
+  type PlatformPermission,
   type ProjectPermission,
   type SkillPermission,
 } from './permissions'
-import { isPlatformOwner } from './platform'
+import { hasPlatformPermission } from './platform'
 import { requireProjectAccess } from './projects'
 import { checkResourcePermission } from './resource-check'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -94,6 +97,16 @@ export interface AuthzDecision {
   /** Set when a resource tier decided; useful for audit and logging. */
   readonly resource?: AuthzResource
 }
+
+/**
+ * Whether per-skill FGA resources exist to check against.
+ *
+ * `false` today and deliberately a named constant rather than a silent omission:
+ * the skill tier's permissions and its parent fallback are real and used, only
+ * the per-resource grants are unbuilt. Flipping this is one half of shipping
+ * them; the other half is creating the resource alongside the job row.
+ */
+const SKILL_RESOURCES_PROVISIONED = false
 
 /**
  * Project-tier permission that also covers a job action. Same reasoning as
@@ -157,9 +170,11 @@ async function decideClaimsTier(
 ): Promise<AuthzDecision> {
   if (tier === 'platform') {
     // Platform access is membership of the platform organization, never a
-    // permission a tenant role could carry. `isPlatformOwner` also covers the
-    // audited break-glass allowlist.
-    return (await isPlatformOwner(session))
+    // permission a tenant role could carry — but WHICH platform permission the
+    // membership's role holds still decides, or the read-only
+    // `org-platform-support` role would pass every write gate.
+    // `hasPlatformPermission` also covers the audited break-glass allowlist.
+    return (await hasPlatformPermission(session, permission as PlatformPermission))
       ? allow(permission, tier, 'platform-membership')
       : deny(permission, tier, 'no-grant')
   }
@@ -191,14 +206,33 @@ async function decideProjectTier(
     await requireProjectAccess(authorized, resource.id, permission)
   } catch (error) {
     if (error instanceof NotFoundError) {
-      return deny(permission, 'project', 'no-grant', resource)
+      // `requireProjectAccess` collapses "not in your organization" and "no
+      // grant" into the same NotFoundError on purpose — the response must not
+      // distinguish them. The DECISION may, and should: an operator reading the
+      // trail needs to know which one happened. One extra tenancy probe, only on
+      // the denial path, so the allow path is unchanged.
+      const tenancy = await findProjectTenancy(resource.id)
+      // A soft-deleted project is unreachable for everyone, including the org
+      // admins who bypass FGA — so labelling that denial `no-grant` is as
+      // untruthful as the label this branch was written to fix. It is the
+      // resource being gone, not a missing grant.
+      const mismatched =
+        !tenancy ||
+        tenancy.organizationId !== authorized.organizationId ||
+        Boolean(tenancy.deletedAt)
+      return deny(permission, 'project', mismatched ? 'tenancy-mismatch' : 'no-grant', resource)
     }
     throw error
   }
   return allow(
     permission,
     'project',
-    session.role === 'admin' ? 'org-admin-bypass' : 'resource-role',
+    // Which rule allowed it. The bypass is a permission, so ask the permission —
+    // asking `session.role === 'admin'` would mislabel a custom org role that
+    // legitimately holds `org:projects:administer`.
+    hasPermission(session, ORG_PERMISSIONS.projectsAdminister)
+      ? 'org-admin-bypass'
+      : 'resource-role',
     resource
   )
 }
@@ -222,13 +256,24 @@ async function decideSkillTier(
   const job = await findJob(resource.id, authorized.organizationId)
   if (!job) return deny(permission, 'skill', 'tenancy-mismatch', resource)
 
-  const granted = await checkResourcePermission({
-    organizationMembershipId: authorized.organizationMembershipId,
-    permissionSlug: permission,
-    resourceExternalId: resource.id,
-    resourceTypeSlug: 'skill',
-  })
-  if (granted) return allow(permission, 'skill', 'resource-role', resource)
+  // Per-skill FGA is only asked when there is something it could answer.
+  //
+  // Nothing in the app creates a `skill` FGA resource — `createResource` is
+  // called for projects and nothing else — and the catalog defines no
+  // skill-tier ROLE, so no membership can hold `skill:*` on anything. Asking
+  // WorkOS anyway was a guaranteed-false round-trip plus a warning line on every
+  // skill decision, which reads in the logs like a broken authorization check
+  // rather than an unbuilt feature. When per-skill grants ship, this predicate
+  // is where they turn on.
+  if (SKILL_RESOURCES_PROVISIONED) {
+    const granted = await checkResourcePermission({
+      organizationMembershipId: authorized.organizationMembershipId,
+      permissionSlug: permission,
+      resourceExternalId: resource.id,
+      resourceTypeSlug: 'skill',
+    })
+    if (granted) return allow(permission, 'skill', 'resource-role', resource)
+  }
 
   // Parent fallback: the project role that covers this job action.
   const viaProject = await decideProjectTier(session, SKILL_FALLBACK[permission], {

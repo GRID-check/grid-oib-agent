@@ -21,12 +21,12 @@ const session = {
 vi.mock('@/lib/auth/session', () => ({ getGridSession: async () => session }))
 vi.mock('@/lib/auth/require-auth', () => ({ authzErrorResponse: vi.fn().mockReturnValue(null) }))
 
-const requirePlatformOwner = vi.fn().mockResolvedValue(undefined)
+const requirePlatformPermission = vi.fn().mockResolvedValue(undefined)
 vi.mock('@/lib/authz/platform', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/authz/platform')>()
   return {
     ...original,
-    requirePlatformOwner: (s: unknown) => requirePlatformOwner(s),
+    requirePlatformPermission: (s: unknown) => requirePlatformPermission(s),
     getPlatformOrganizationId: vi.fn().mockResolvedValue('org_platform'),
   }
 })
@@ -98,7 +98,7 @@ const put = (body: unknown): Promise<Response> =>
 
 describe('/api/platform/model-defaults', () => {
   beforeEach(() => {
-    requirePlatformOwner.mockReset().mockResolvedValue(undefined)
+    requirePlatformPermission.mockReset().mockResolvedValue(undefined)
     savePlatformModelDefaults
       .mockReset()
       .mockImplementation(async (input: { defaults: Record<string, string> }) =>
@@ -119,7 +119,7 @@ describe('/api/platform/model-defaults', () => {
   })
 
   it('rejects a caller who is not the platform owner', async () => {
-    requirePlatformOwner.mockRejectedValue(new PlatformAccessDeniedError())
+    requirePlatformPermission.mockRejectedValue(new PlatformAccessDeniedError())
     expect((await get()).status).toBe(403)
     expect((await put({ defaults: {} })).status).toBe(403)
     expect(savePlatformModelDefaults).not.toHaveBeenCalled()

@@ -136,7 +136,10 @@ export interface InsertBindingInput {
 
 export async function insertBinding(input: InsertBindingInput): Promise<string> {
   const db = getDb()
-  const [inserted] = await db.insert(documentRoles).values(input).returning({ id: documentRoles.id })
+  const [inserted] = await db
+    .insert(documentRoles)
+    .values(input)
+    .returning({ id: documentRoles.id })
   return inserted.id
 }
 
@@ -151,13 +154,20 @@ export async function deleteBindings(projectId: string, ids: readonly string[]):
 }
 
 /** Does this document belong to this project? The FK enforces it; this reports it. */
-export async function documentBelongsToProject(documentId: string, projectId: string): Promise<boolean> {
+export async function documentBelongsToProject(
+  documentId: string,
+  projectId: string
+): Promise<boolean> {
   const db = getDb()
   const [row] = await db
     .select({ id: documents.id })
     .from(documents)
     .where(
-      and(eq(documents.id, documentId), eq(documents.projectId, projectId), isNull(documents.deletedAt))
+      and(
+        eq(documents.id, documentId),
+        eq(documents.projectId, projectId),
+        isNull(documents.deletedAt)
+      )
     )
     .limit(1)
   return row !== undefined

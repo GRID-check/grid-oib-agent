@@ -17,12 +17,12 @@ const session = {
 }
 
 vi.mock('@/lib/auth/session', () => ({ getGridSession: async () => session }))
-const requirePlatformOwner = vi.fn().mockResolvedValue(undefined)
+const requirePlatformPermission = vi.fn().mockResolvedValue(undefined)
 vi.mock('@/lib/authz/platform', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/authz/platform')>()
   return {
     ...original,
-    requirePlatformOwner: (s: unknown) => requirePlatformOwner(s),
+    requirePlatformPermission: (s: unknown) => requirePlatformPermission(s),
     getPlatformOrganizationId: vi.fn().mockResolvedValue('org_platform'),
   }
 })
@@ -31,7 +31,9 @@ const recordAuditEvent = vi.fn().mockResolvedValue(undefined)
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: (e: unknown) => recordAuditEvent(e) }))
 
 vi.mock('@/lib/model-config/backend-defaults', () => ({
-  getWorkflowGroupReasoningEfforts: vi.fn().mockResolvedValue({ intent: 'none', deep_research: 'medium' }),
+  getWorkflowGroupReasoningEfforts: vi
+    .fn()
+    .mockResolvedValue({ intent: 'none', deep_research: 'medium' }),
 }))
 
 const listPlatformReasoningEfforts = vi.fn()
@@ -51,7 +53,7 @@ const put = (body: unknown): Request =>
 describe('/api/platform/reasoning-efforts', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    requirePlatformOwner.mockResolvedValue(undefined)
+    requirePlatformPermission.mockResolvedValue(undefined)
     listPlatformReasoningEfforts.mockResolvedValue([
       {
         agentGroup: 'deep_research',
@@ -62,15 +64,16 @@ describe('/api/platform/reasoning-efforts', () => {
         updatedAt: new Date('2026-08-01T00:00:00Z'),
       },
     ])
-    savePlatformReasoningEfforts.mockImplementation(async (input: { efforts: Record<string, string> }) =>
-      Object.entries(input.efforts).map(([agentGroup, effort]) => ({
-        agentGroup,
-        effort,
-        note: null,
-        updatedBy: 'owner-1',
-        updatedByEmail: 'owner@grid.com',
-        updatedAt: new Date('2026-08-01T00:00:00Z'),
-      })),
+    savePlatformReasoningEfforts.mockImplementation(
+      async (input: { efforts: Record<string, string> }) =>
+        Object.entries(input.efforts).map(([agentGroup, effort]) => ({
+          agentGroup,
+          effort,
+          note: null,
+          updatedBy: 'owner-1',
+          updatedByEmail: 'owner@grid.com',
+          updatedAt: new Date('2026-08-01T00:00:00Z'),
+        }))
     )
   })
 
@@ -88,17 +91,19 @@ describe('/api/platform/reasoning-efforts', () => {
 
   it('GET is refused for a non-platform-owner', async () => {
     const { PlatformAccessDeniedError } = await import('@/lib/authz/platform')
-    requirePlatformOwner.mockRejectedValue(new PlatformAccessDeniedError())
+    requirePlatformPermission.mockRejectedValue(new PlatformAccessDeniedError())
     const { GET } = await import('./route')
 
-    expect(
-      (await GET(new Request('http://localhost/api/platform/reasoning-efforts'))).status,
-    ).toBe(403)
+    expect((await GET(new Request('http://localhost/api/platform/reasoning-efforts'))).status).toBe(
+      403
+    )
   })
 
   it('PUT saves a valid effort set', async () => {
     const { PUT } = await import('./route')
-    const res = await PUT(put({ efforts: { intent: 'none', deep_research: 'xhigh' }, note: 'tuning' }))
+    const res = await PUT(
+      put({ efforts: { intent: 'none', deep_research: 'xhigh' }, note: 'tuning' })
+    )
 
     expect(res.status).toBe(200)
     expect(savePlatformReasoningEfforts).toHaveBeenCalledWith(
@@ -106,7 +111,7 @@ describe('/api/platform/reasoning-efforts', () => {
         efforts: { intent: 'none', deep_research: 'xhigh' },
         note: 'tuning',
         actorUserId: 'owner-1',
-      }),
+      })
     )
     expect((await res.json()).efforts.deep_research.effort).toBe('xhigh')
   })
@@ -134,7 +139,7 @@ describe('/api/platform/reasoning-efforts', () => {
 
     expect(res.status).toBe(200)
     expect(savePlatformReasoningEfforts).toHaveBeenCalledWith(
-      expect.objectContaining({ efforts: {} }),
+      expect.objectContaining({ efforts: {} })
     )
   })
 
@@ -147,13 +152,13 @@ describe('/api/platform/reasoning-efforts', () => {
         action: 'platform.reasoning_efforts.updated',
         organizationId: 'org_platform',
         metadata: { intent: 'minimal' },
-      }),
+      })
     )
   })
 
   it('PUT is refused for a non-platform-owner', async () => {
     const { PlatformAccessDeniedError } = await import('@/lib/authz/platform')
-    requirePlatformOwner.mockRejectedValue(new PlatformAccessDeniedError())
+    requirePlatformPermission.mockRejectedValue(new PlatformAccessDeniedError())
     const { PUT } = await import('./route')
 
     expect((await PUT(put({ efforts: { intent: 'low' } }))).status).toBe(403)

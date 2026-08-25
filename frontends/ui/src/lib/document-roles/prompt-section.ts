@@ -25,7 +25,10 @@
  * Pure: bindings in, one block of prompt text out.
  */
 
-import { documentRoleDefinition, DOCUMENT_ROLE_DEFINITIONS } from '@/lib/project-profile/document-roles'
+import {
+  documentRoleDefinition,
+  DOCUMENT_ROLE_DEFINITIONS,
+} from '@/lib/project-profile/document-roles'
 import type { DocumentRole } from '@/lib/project-profile/document-roles'
 
 export interface PromptRoleBinding {

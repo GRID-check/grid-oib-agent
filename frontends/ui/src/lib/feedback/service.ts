@@ -17,7 +17,8 @@ import 'server-only'
 import { withPlatformAccess } from '@/lib/db/tenant-context'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { BadRequestError } from '@/lib/api/errors'
-import { requirePlatformOwner } from '@/lib/authz/platform'
+import { requirePlatformPermission } from '@/lib/authz/platform'
+import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 import {
   ANSWER_FEEDBACK_REASONS,
@@ -33,16 +34,12 @@ import {
   type FeedbackHealth,
   type FeedbackHealthFilters,
 } from './repository'
-import {
-  getFeedbackDigest,
-  type FeedbackDigestOptions,
-  type FeedbackDigestResult,
-} from './digest'
+import { getFeedbackDigest, type FeedbackDigestOptions, type FeedbackDigestResult } from './digest'
 
 /** Upsert the caller's vote on one assistant answer. */
 export async function submitAnswerFeedback(
   session: AuthorizedSession,
-  input: UpsertAnswerFeedbackInput,
+  input: UpsertAnswerFeedbackInput
 ): Promise<AnswerFeedbackView> {
   // Defense in depth: the route's zod schema already constrains these, but a
   // service must not rely on its transport (validates verdict/reason itself).
@@ -70,7 +67,7 @@ export async function submitAnswerFeedback(
     messageId: input.messageId,
     verdict: input.verdict,
     reason: input.verdict === 'down' ? (input.reason ?? null) : null,
-    comment: input.verdict === 'down' ? (input.comment || null) : null,
+    comment: input.verdict === 'down' ? input.comment || null : null,
     conversationId: input.conversationId ?? null,
     projectId: input.projectId ?? null,
   })
@@ -81,19 +78,22 @@ export async function submitAnswerFeedback(
  * Toggle-off: retract the caller's vote. Idempotent — deleting a vote that
  * does not exist (already retracted in another tab) is a success.
  */
-export async function retractAnswerFeedback(session: AuthorizedSession, messageId: string): Promise<void> {
+export async function retractAnswerFeedback(
+  session: AuthorizedSession,
+  messageId: string
+): Promise<void> {
   await deleteAnswerFeedbackForUser(session.userId, messageId, session.organizationId)
 }
 
 /** The caller's own votes in one conversation, for client-side hydration. */
 export async function getOwnConversationFeedback(
   session: AuthorizedSession,
-  conversationId: string,
+  conversationId: string
 ): Promise<AnswerFeedbackView[]> {
   const rows = await listAnswerFeedbackForConversation(
     session.userId,
     conversationId,
-    session.organizationId,
+    session.organizationId
   )
   return rows.map(toView)
 }
@@ -111,7 +111,7 @@ function toView(row: AnswerFeedback): AnswerFeedbackView {
  * The platform owner's cross-organization view of answer feedback.
  *
  * This is the one function in this service that is NOT tenant-scoped, and the
- * gate is therefore the whole of its authorization: `requirePlatformOwner`
+ * gate is therefore the whole of its authorization: `requirePlatformPermission`
  * throws `PlatformAccessDeniedError` for everyone else, and the repository read
  * it wraps takes no `organizationId` at all. Keeping the guard here rather than
  * in the route means a second caller cannot reach the data by forgetting it.
@@ -124,16 +124,16 @@ function toView(row: AnswerFeedback): AnswerFeedbackView {
  */
 export async function getAnswerFeedbackHealth(
   session: GridSession | null,
-  filters: FeedbackHealthFilters = {},
+  filters: FeedbackHealthFilters = {}
 ): Promise<FeedbackHealth> {
-  await requirePlatformOwner(session)
+  await requirePlatformPermission(session, PLATFORM_PERMISSIONS.organizationsView)
   // The read groups BY organization across every tenant, so it must not run
   // pinned to the owner's active one — row-level security would quietly return
   // that org's rows, or none at all, and the page would look merely empty
   // rather than broken (ADR-0041). The gate above is the authorization this
   // bypass rests on; it sits here so no caller can reach the data without it.
   return withPlatformAccess('answer feedback: cross-organization quality view', () =>
-    getFeedbackHealth(filters),
+    getFeedbackHealth(filters)
   )
 }
 
@@ -151,12 +151,12 @@ export async function getAnswerFeedbackHealth(
 export async function getAnswerFeedbackDigest(
   session: GridSession | null,
   filters: FeedbackHealthFilters = {},
-  options: FeedbackDigestOptions = {},
+  options: FeedbackDigestOptions = {}
 ): Promise<FeedbackDigestResult> {
-  await requirePlatformOwner(session)
+  await requirePlatformPermission(session, PLATFORM_PERMISSIONS.organizationsView)
   const health = await withPlatformAccess(
     'answer feedback digest: cross-organization quality view',
-    () => getFeedbackHealth({ ...filters, limit: 0 }),
+    () => getFeedbackHealth({ ...filters, limit: 0 })
   )
   return getFeedbackDigest(health, filters, options)
 }

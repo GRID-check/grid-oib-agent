@@ -84,7 +84,10 @@ describe('declareDocumentRole', () => {
 
   it('refuses a bauwerk role with no building', async () => {
     await expect(
-      declareDocumentRole({ projectId: 'proj-1', documentId: 'doc-1', role: 'bestandsplan' }, session)
+      declareDocumentRole(
+        { projectId: 'proj-1', documentId: 'doc-1', role: 'bestandsplan' },
+        session
+      )
     ).rejects.toThrow(/needs its id/)
   })
 
@@ -105,7 +108,10 @@ describe('declareDocumentRole', () => {
   })
 
   it('checks write permission before doing anything', async () => {
-    await declareDocumentRole({ projectId: 'proj-1', documentId: 'doc-1', role: 'lageplan' }, session)
+    await declareDocumentRole(
+      { projectId: 'proj-1', documentId: 'doc-1', role: 'lageplan' },
+      session
+    )
     expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', [
       'project:documents:write',
       'project:edit',
@@ -113,7 +119,10 @@ describe('declareDocumentRole', () => {
   })
 
   it('records the declaration with its provenance', async () => {
-    await declareDocumentRole({ projectId: 'proj-1', documentId: 'doc-1', role: 'lageplan' }, session)
+    await declareDocumentRole(
+      { projectId: 'proj-1', documentId: 'doc-1', role: 'lageplan' },
+      session
+    )
     expect(repo.inserted[0]).toMatchObject({
       organizationId: 'org-1',
       createdBy: 'user-1',

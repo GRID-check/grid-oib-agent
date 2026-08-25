@@ -68,17 +68,26 @@ function stubFetch(): FetchStub {
 function seedReviewDraft(answers: Record<string, ProjectPrimitiveValue>, savedAt?: number): void {
   localStorage.setItem(
     `intake-draft-${PROJECT_ID}`,
-    JSON.stringify({ answers, currentStep: REVIEW_STEP, ...(savedAt !== undefined ? { savedAt } : {}) }),
+    JSON.stringify({
+      answers,
+      currentStep: REVIEW_STEP,
+      ...(savedAt !== undefined ? { savedAt } : {}),
+    })
   )
 }
 
 function renderWizard(conflictCheckEnabled: boolean) {
   return render(
-    <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" conflictCheckEnabled={conflictCheckEnabled} />,
+    <ProjectIntakeWizard
+      projectId={PROJECT_ID}
+      projectName="Test"
+      conflictCheckEnabled={conflictCheckEnabled}
+    />
   )
 }
 
-const consistencyCalls = (stub: FetchStub) => stub.calls.filter((c) => c.url.endsWith('/consistency-check'))
+const consistencyCalls = (stub: FetchStub) =>
+  stub.calls.filter((c) => c.url.endsWith('/consistency-check'))
 const putProfileCalls = (stub: FetchStub) =>
   stub.calls.filter((c) => c.url.endsWith(`/projects/${PROJECT_ID}/profile`) && c.method === 'PUT')
 
@@ -149,7 +158,9 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
 
     // "Art des Vorhabens" (A5) lives in module A → step 1 of 8. Findings clear.
     expect(await screen.findByText(new RegExp(`step 1 of ${TOTAL}`, 'i'))).toBeInTheDocument()
-    await waitFor(() => expect(screen.queryByText(/Erneuerbare-Wärme-Gesetz/i)).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.queryByText(/Erneuerbare-Wärme-Gesetz/i)).not.toBeInTheDocument()
+    )
   })
 
   it('flag ON: no substantive free text → the LLM is never called', async () => {
@@ -171,7 +182,12 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
     const stub = stubFetch()
     stub.consistencyResponse.json = {
       findings: [
-        { kind: 'ai', fields: ['Projektbeschreibung, Entwurfsidee & Umfeld'], severity: 'inconsistency', message: 'The note contradicts the plan.' },
+        {
+          kind: 'ai',
+          fields: ['Projektbeschreibung, Entwurfsidee & Umfeld'],
+          severity: 'inconsistency',
+          message: 'The note contradicts the plan.',
+        },
       ],
     }
     seedReviewDraft({ G1: 'Ein ausführlicher Freitext über das Brandschutzkonzept.' })
@@ -183,7 +199,12 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
     const call = consistencyCalls(stub)[0]
     expect(call).toBeDefined()
     expect(call.body).toMatchObject({
-      freeText: [{ field: 'Projektbeschreibung, Entwurfsidee & Umfeld', value: 'Ein ausführlicher Freitext über das Brandschutzkonzept.' }],
+      freeText: [
+        {
+          field: 'Projektbeschreibung, Entwurfsidee & Umfeld',
+          value: 'Ein ausführlicher Freitext über das Brandschutzkonzept.',
+        },
+      ],
     })
   })
 
@@ -252,7 +273,11 @@ describe('ProjectIntakeWizard — Fix 3 save-success feedback', () => {
     const user = userEvent.setup()
     const fetch = vi.fn((url: string, init?: RequestInit) => {
       if (url.endsWith('/intake-definition')) {
-        return Promise.resolve({ ok: true, status: 200, json: async () => projectIntakeDefinitionV1 })
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => projectIntakeDefinitionV1,
+        })
       }
       if (init?.method === 'PUT') {
         return Promise.resolve({ ok: false, status: 500, json: async () => ({}) })
@@ -283,7 +308,11 @@ describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
     const headers: Array<Record<string, string> | undefined> = []
     const fetch = vi.fn((url: string, init?: RequestInit) => {
       if (url.endsWith('/intake-definition')) {
-        return Promise.resolve({ ok: true, status: 200, json: async () => projectIntakeDefinitionV1 })
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => projectIntakeDefinitionV1,
+        })
       }
       if (init?.method === 'PUT') headers.push(init.headers as Record<string, string>)
       return Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
@@ -296,7 +325,9 @@ describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
     const user = userEvent.setup()
     const headers = recordHeaders()
     seedReviewDraft({ A2_land: 'wien' })
-    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />)
+    render(
+      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />
+    )
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
 
@@ -320,7 +351,11 @@ describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
     const user = userEvent.setup()
     const fetch = vi.fn((url: string, init?: RequestInit) => {
       if (url.endsWith('/intake-definition')) {
-        return Promise.resolve({ ok: true, status: 200, json: async () => projectIntakeDefinitionV1 })
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => projectIntakeDefinitionV1,
+        })
       }
       if (init?.method === 'PUT') {
         return Promise.resolve({ ok: false, status: 409, json: async () => ({}) })
@@ -329,7 +364,9 @@ describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
     })
     vi.stubGlobal('fetch', fetch)
     seedReviewDraft({ A2_land: 'wien' })
-    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />)
+    render(
+      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />
+    )
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
 
@@ -341,7 +378,11 @@ describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
     const user = userEvent.setup()
     const fetch = vi.fn((url: string, init?: RequestInit) => {
       if (url.endsWith('/intake-definition')) {
-        return Promise.resolve({ ok: true, status: 200, json: async () => projectIntakeDefinitionV1 })
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => projectIntakeDefinitionV1,
+        })
       }
       if (init?.method === 'PUT') {
         return Promise.resolve({ ok: false, status: 409, json: async () => ({}) })
@@ -350,7 +391,9 @@ describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
     })
     vi.stubGlobal('fetch', fetch)
     seedReviewDraft({ A2_land: 'wien' })
-    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />)
+    render(
+      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" initialProfileVersion={7} />
+    )
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
     await screen.findByText(/changed elsewhere/i)
@@ -386,7 +429,14 @@ describe('ProjectIntakeWizard — edit-mode save preserves agent-recorded knowle
       unknowns: ['statik_gutachten'],
       assumptions: {},
     }
-    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />)
+    render(
+      <ProjectIntakeWizard
+        projectId={PROJECT_ID}
+        projectName="Test"
+        mode="edit"
+        initialProfile={initialProfile}
+      />
+    )
 
     await user.click(await screen.findByRole('button', { name: /save changes/i }))
 
@@ -414,16 +464,24 @@ describe('ProjectIntakeWizard — Fix 1 salvage banner', () => {
 
   it('shows the partial-replacement banner when some parts were dropped', async () => {
     stubFetch()
-    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" salvageNotice="partial" />)
+    render(
+      <ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" salvageNotice="partial" />
+    )
     expect(
-      await screen.findByText(/parts of the existing project brief could not be loaded and will be replaced/i),
+      await screen.findByText(
+        /parts of the existing project brief could not be loaded and will be replaced/i
+      )
     ).toBeInTheDocument()
   })
 
   it('shows the full-failure banner when nothing was salvageable', async () => {
     stubFetch()
     render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" salvageNotice="full" />)
-    expect(await screen.findByText(/the existing project brief could not be loaded\. anything you enter/i)).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        /the existing project brief could not be loaded\. anything you enter/i
+      )
+    ).toBeInTheDocument()
   })
 
   it('shows no banner when the stored brief loaded cleanly', async () => {
@@ -460,12 +518,21 @@ describe('ProjectIntakeWizard — assumptions-only edit preserves assumptions', 
         },
       },
     }
-    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />)
+    render(
+      <ProjectIntakeWizard
+        projectId={PROJECT_ID}
+        projectName="Test"
+        mode="edit"
+        initialProfile={initialProfile}
+      />
+    )
 
     await user.click(await screen.findByRole('button', { name: /save changes/i }))
 
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
-    const body = putProfileCalls(stub)[0].body as { assumptions?: Record<string, { value?: unknown }> }
+    const body = putProfileCalls(stub)[0].body as {
+      assumptions?: Record<string, { value?: unknown }>
+    }
     expect(body.assumptions?.widmung?.value).toBe('wohnen')
   })
 })
@@ -483,7 +550,7 @@ describe('ProjectIntakeWizard — stale conditional answers pruned on load', () 
     const stub = stubFetch()
     // A6 (Baujahr) only applies to existing-building work. A restored draft with
     // pure Neubau + a stale Baujahr must be pruned on load like an interactive edit.
-    seedReviewDraft({ A5: ['neubau'], A6: 1990, 'A6__mode': 'wert' })
+    seedReviewDraft({ A5: ['neubau'], A6: 1990, A6__mode: 'wert' })
     renderWizard(false)
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
@@ -515,7 +582,11 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
     stubFetch()
     localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
-      JSON.stringify({ answers: { A5: ['sanierung'] }, currentStep: 0, savedAt: Date.parse('2026-01-01T00:00:00.000Z') }),
+      JSON.stringify({
+        answers: { A5: ['sanierung'] },
+        currentStep: 0,
+        savedAt: Date.parse('2026-01-01T00:00:00.000Z'),
+      })
     )
     const initialProfile = {
       facts: { vorhabensart: vorhabenFact(['neubau'], '2026-07-01T00:00:00.000Z') },
@@ -523,7 +594,14 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
       unknowns: [],
       assumptions: {},
     }
-    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />)
+    render(
+      <ProjectIntakeWizard
+        projectId={PROJECT_ID}
+        projectName="Test"
+        mode="edit"
+        initialProfile={initialProfile}
+      />
+    )
 
     await waitFor(() => expect(chip('Neubau')).toHaveAttribute('aria-pressed', 'true'))
     expect(chip('Sanierung')).toHaveAttribute('aria-pressed', 'false')
@@ -533,7 +611,11 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
     stubFetch()
     localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
-      JSON.stringify({ answers: { A5: ['sanierung'] }, currentStep: 0, savedAt: Date.parse('2026-07-20T00:00:00.000Z') }),
+      JSON.stringify({
+        answers: { A5: ['sanierung'] },
+        currentStep: 0,
+        savedAt: Date.parse('2026-07-20T00:00:00.000Z'),
+      })
     )
     const initialProfile = {
       facts: { vorhabensart: vorhabenFact(['neubau'], '2026-07-01T00:00:00.000Z') },
@@ -541,7 +623,14 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
       unknowns: [],
       assumptions: {},
     }
-    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />)
+    render(
+      <ProjectIntakeWizard
+        projectId={PROJECT_ID}
+        projectName="Test"
+        mode="edit"
+        initialProfile={initialProfile}
+      />
+    )
 
     await waitFor(() => expect(chip('Sanierung')).toHaveAttribute('aria-pressed', 'true'))
     expect(chip('Neubau')).toHaveAttribute('aria-pressed', 'false')
@@ -551,7 +640,12 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
     stubFetch()
     localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
-      JSON.stringify({ answers: { A5: ['sanierung'] }, currentStep: 0, savedAt: Date.now(), baseVersion: 3 }),
+      JSON.stringify({
+        answers: { A5: ['sanierung'] },
+        currentStep: 0,
+        savedAt: Date.now(),
+        baseVersion: 3,
+      })
     )
     const initialProfile = {
       facts: { vorhabensart: vorhabenFact(['neubau'], '2026-07-01T00:00:00.000Z') },
@@ -566,7 +660,7 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
         mode="edit"
         initialProfile={initialProfile}
         initialProfileVersion={4}
-      />,
+      />
     )
 
     await waitFor(() => expect(chip('Neubau')).toHaveAttribute('aria-pressed', 'true'))
@@ -577,7 +671,7 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
     stubFetch()
     localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
-      JSON.stringify({ answers: { A5: ['sanierung'] }, currentStep: 0 }),
+      JSON.stringify({ answers: { A5: ['sanierung'] }, currentStep: 0 })
     )
     const initialProfile = {
       facts: { vorhabensart: vorhabenFact(['neubau'], '2026-07-01T00:00:00.000Z') },
@@ -585,7 +679,14 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
       unknowns: [],
       assumptions: {},
     }
-    render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" mode="edit" initialProfile={initialProfile} />)
+    render(
+      <ProjectIntakeWizard
+        projectId={PROJECT_ID}
+        projectName="Test"
+        mode="edit"
+        initialProfile={initialProfile}
+      />
+    )
 
     await waitFor(() => expect(chip('Neubau')).toHaveAttribute('aria-pressed', 'true'))
     expect(chip('Sanierung')).toHaveAttribute('aria-pressed', 'false')
@@ -605,7 +706,12 @@ describe('ProjectIntakeWizard — Fix 2 AI-finding revise link resolves a stage'
     const stub = stubFetch()
     stub.consistencyResponse.json = {
       findings: [
-        { kind: 'ai', fields: ['the fire-compartment note'], severity: 'inconsistency', message: 'The note contradicts the plan.' },
+        {
+          kind: 'ai',
+          fields: ['the fire-compartment note'],
+          severity: 'inconsistency',
+          message: 'The note contradicts the plan.',
+        },
       ],
     }
     seedReviewDraft({ G1: 'Bestätige die Brandabschnittsstrategie für die Einreichung.' })
@@ -617,7 +723,9 @@ describe('ProjectIntakeWizard — Fix 2 AI-finding revise link resolves a stage'
     // The link falls back to the first free-text stage (module A, A1 is text) → step 1.
     await user.click(screen.getByRole('button', { name: /revise/i }))
     expect(await screen.findByText(new RegExp(`step 1 of ${TOTAL}`, 'i'))).toBeInTheDocument()
-    await waitFor(() => expect(screen.queryByText(/the note contradicts the plan/i)).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.queryByText(/the note contradicts the plan/i)).not.toBeInTheDocument()
+    )
   })
 })
 
@@ -635,7 +743,7 @@ describe('ProjectIntakeWizard — Fix 5 non-finite number rejected', () => {
     // Land on module C (index 2) with the building set to a Gebäude so C2 shows.
     localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
-      JSON.stringify({ answers: { 'C1@bw1': 'gebaeude' }, currentStep: 2 }),
+      JSON.stringify({ answers: { 'C1@bw1': 'gebaeude' }, currentStep: 2 })
     )
     render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" />)
 
@@ -667,7 +775,12 @@ describe('ProjectIntakeWizard — module rail', () => {
     // The horizontal stepper this replaced cut every label to ~8 characters,
     // which turned three different modules into "Grundstück …" / "Technik &
     // En…" / "Zusammenfa…". Full titles are the rail's whole reason to exist.
-    for (const title of ['Grundstück & Widmung', 'Technik & Energie', 'Verfahren & Sonderrecht', 'Zusammenfassung']) {
+    for (const title of [
+      'Grundstück & Widmung',
+      'Technik & Energie',
+      'Verfahren & Sonderrecht',
+      'Zusammenfassung',
+    ]) {
       expect(within(rail).getByText(title)).toBeInTheDocument()
     }
   })
@@ -778,7 +891,7 @@ describe('ProjectIntakeWizard — Rest überspringen', () => {
   })
   afterEach(() => localStorage.clear())
 
-  it('records the module\'s unanswered questions as explicitly open', async () => {
+  it("records the module's unanswered questions as explicitly open", async () => {
     const user = userEvent.setup()
     stubFetch()
     renderWizard(false)

@@ -36,7 +36,9 @@ describe('buildDocumentRolesSection', () => {
   })
 
   it('marks an unconfirmed suggestion so the agent does not treat it as fact', () => {
-    expect(buildDocumentRolesSection([bound({ confidence: 'suggested' })])).toContain('[nicht bestätigt]')
+    expect(buildDocumentRolesSection([bound({ confidence: 'suggested' })])).toContain(
+      '[nicht bestätigt]'
+    )
   })
 
   it('names a missing role explicitly rather than leaving it to be inferred', () => {
@@ -88,7 +90,10 @@ describe('buildDocumentRolesSection', () => {
 
   it('stays the same size whether the project has three files or a thousand', () => {
     const small = buildDocumentRolesSection(
-      [bound({ role: 'bestandsplan', scopeInstanceId: 'bw1' }), bound({ role: 'bestandsplan', scopeInstanceId: 'bw1' })],
+      [
+        bound({ role: 'bestandsplan', scopeInstanceId: 'bw1' }),
+        bound({ role: 'bestandsplan', scopeInstanceId: 'bw1' }),
+      ],
       []
     )
     const huge = buildDocumentRolesSection(

@@ -152,10 +152,10 @@ export function DocumentRoleField({
   return (
     <div className="flex flex-col gap-2">
       {label && <span className="text-sm font-medium">{label}</span>}
-      {definition.why && <p className="text-xs text-muted-foreground">{definition.why}</p>}
+      {definition.why && <p className="text-muted-foreground text-xs">{definition.why}</p>}
 
       {bindings === null ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="text-muted-foreground flex items-center gap-2 text-sm">
           <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />
           Zuordnungen werden geladen …
         </div>
@@ -164,13 +164,13 @@ export function DocumentRoleField({
           {mine.map((binding) => (
             <li
               key={binding.id}
-              className="flex items-center gap-2 rounded-lg border bg-muted/20 px-3 py-2 text-sm"
+              className="bg-muted/20 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
             >
-              <CheckCircle2 className="size-4 shrink-0 text-primary" aria-hidden />
-              <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+              <CheckCircle2 className="text-primary size-4 shrink-0" aria-hidden />
+              <FileText className="text-muted-foreground size-4 shrink-0" aria-hidden />
               <span className="min-w-0 flex-1 truncate">{documentLabel(binding)}</span>
               {binding.confidence === 'suggested' && (
-                <span className="shrink-0 rounded border border-dashed px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                <span className="text-muted-foreground shrink-0 rounded border border-dashed px-1.5 py-0.5 font-mono text-[10px]">
                   vorgeschlagen
                 </span>
               )}
@@ -201,7 +201,10 @@ export function DocumentRoleField({
             <SelectContent>
               {selectable.map((document) => (
                 <SelectItem key={document.id} value={document.id}>
-                  {documentLabel({ displayName: document.displayName ?? null, filename: document.filename })}
+                  {documentLabel({
+                    displayName: document.displayName ?? null,
+                    filename: document.filename,
+                  })}
                 </SelectItem>
               ))}
             </SelectContent>

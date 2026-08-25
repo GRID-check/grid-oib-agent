@@ -10,7 +10,7 @@ planner LLM guesses which of ~40 OGD-RIS application silos to query
 (`CONTROLLER_FOR_APPLICATION`, `sources/ris_adapter/src/client.py:51-96`), fires a
 live full-text `Suchworte` search, and hopes. Wrong term or wrong silo →
 "No RIS documents found". This already caused trust-chain pollution
-(`feedback_backlog.md:106`, Cycle 13). Nothing in the system knows *which laws
+(`docs/audit/feedback-backlog.md:106`, Cycle 13). Nothing in the system knows *which laws
 exist* or *where they live*.
 
 ## Goal

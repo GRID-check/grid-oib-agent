@@ -65,6 +65,32 @@ describe('permission registry', () => {
     expect(hasPermission(session('made-up-role'), ORG_PERMISSIONS.settingsManage)).toBe(false)
   })
 
+  it('the implication survives partial claims, so a lagging environment loses nothing', () => {
+    // Deliberate, and load-bearing: both live WorkOS environments hold an Admin
+    // role WITHOUT `org:skills:manage` while the catalog has it. Restricting the
+    // fallback to claims-less sessions — which was tried — would have taken the
+    // org skills toolbox away from every admin the day it shipped. The catalog
+    // bounds what is implied, and the drift job is what closes the gap for real.
+    const admin = session('admin', ['org:settings:manage'])
+    expect(hasPermission(admin, ORG_PERMISSIONS.settingsManage)).toBe(true)
+    expect(hasPermission(admin, ORG_PERMISSIONS.skillsManage)).toBe(true)
+  })
+
+  it('Admin holds the org-wide project bypass, by permission', () => {
+    // The bypass `requireProjectAccess` applies. Checked here because the
+    // project tier reads it through exactly this function.
+    expect(hasPermission(session('admin'), ORG_PERMISSIONS.projectsAdminister)).toBe(true)
+    expect(hasPermission(session('member'), ORG_PERMISSIONS.projectsAdminister)).toBe(false)
+    expect(hasPermission(session('org-user-admin'), ORG_PERMISSIONS.projectsAdminister)).toBe(false)
+    // And it works for a role the catalog has never heard of, via its claim.
+    expect(
+      hasPermission(
+        session('acme-owner', ['org:projects:administer']),
+        ORG_PERMISSIONS.projectsAdminister
+      )
+    ).toBe(true)
+  })
+
   it('admin role NEVER implies platform permissions', () => {
     expect(hasPermission(session('admin'), PLATFORM_PERMISSIONS.organizationsView)).toBe(false)
     expect(hasPermission(session('admin'), PLATFORM_PERMISSIONS.usageView)).toBe(false)

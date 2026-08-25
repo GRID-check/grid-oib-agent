@@ -299,7 +299,8 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
       id: 'B',
       title: 'Grundstück & Widmung',
       scope: 'grundstueck',
-      description: 'Widmung, Bebauungsplan-Kernset, Standortrisiken und Erschließung. Jede Kennzahl einzeln offen lassbar.',
+      description:
+        'Widmung, Bebauungsplan-Kernset, Standortrisiken und Erschließung. Jede Kennzahl einzeln offen lassbar.',
       questions: [
         {
           id: 'B1',
@@ -685,7 +686,8 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
           // this question. Reusing the old key would silently flip the meaning
           // of every stored answer — and the GK derivation with it.
           id: 'C8',
-          label: 'Gibt es einzelne Wohnungen oder Betriebseinheiten mit mehr als 400 m² Brutto-Grundfläche?',
+          label:
+            'Gibt es einzelne Wohnungen oder Betriebseinheiten mit mehr als 400 m² Brutto-Grundfläche?',
           type: 'yes_no_open',
           why: 'Hilft bei der Abgrenzung zwischen den Gebäudeklassen — erscheint nur, wenn es für die Einstufung wirklich gebraucht wird.',
           conditions: [
@@ -763,7 +765,8 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
       title: 'Nutzungen',
       scope: 'bauwerk',
       repeatable: true,
-      description: 'Nutzungsmix je Bauwerk. Jede gewählte Nutzung erzeugt eine Zone mit generischen und nutzungsspezifischen Kennzahlen.',
+      description:
+        'Nutzungsmix je Bauwerk. Jede gewählte Nutzung erzeugt eine Zone mit generischen und nutzungsspezifischen Kennzahlen.',
       questions: [
         {
           id: 'D0',
@@ -793,7 +796,13 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
         },
       ],
       zoneCommon: [
-        { id: 'D_fl', label: 'Fläche der Zone (BGF)', type: 'number_tri', unit: 'm²', writesTo: '/facts/zone_flaeche/value' },
+        {
+          id: 'D_fl',
+          label: 'Fläche der Zone (BGF)',
+          type: 'number_tri',
+          unit: 'm²',
+          writesTo: '/facts/zone_flaeche/value',
+        },
         {
           id: 'D_lage',
           label: 'Geschoßlage',
@@ -809,7 +818,12 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
       zoneDefinitions: {
         wohnen: {
           questions: [
-            { id: 'D_we', label: 'Anzahl Wohneinheiten', type: 'number_tri', writesTo: '/facts/wohneinheiten/value' },
+            {
+              id: 'D_we',
+              label: 'Anzahl Wohneinheiten',
+              type: 'number_tri',
+              writesTo: '/facts/wohneinheiten/value',
+            },
             {
               id: 'D_wohnform',
               label: 'Wohnform',
@@ -826,28 +840,59 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
         },
         buero: {
           questions: [
-            { id: 'D_an', label: 'Max. gleichzeitig anwesende Arbeitnehmer:innen', type: 'number_tri', writesTo: '/facts/arbeitnehmer/value' },
+            {
+              id: 'D_an',
+              label: 'Max. gleichzeitig anwesende Arbeitnehmer:innen',
+              type: 'number_tri',
+              writesTo: '/facts/arbeitnehmer/value',
+            },
           ],
         },
         handel: {
           questions: [
-            { id: 'D_vkf', label: 'Verkaufsfläche', type: 'number_tri', unit: 'm²', writesTo: '/facts/verkaufsflaeche/value' },
-            { id: 'D_ekz', label: 'Teil eines Einkaufszentrums?', type: 'yes_no_open', writesTo: '/facts/einkaufszentrum/value' },
+            {
+              id: 'D_vkf',
+              label: 'Verkaufsfläche',
+              type: 'number_tri',
+              unit: 'm²',
+              writesTo: '/facts/verkaufsflaeche/value',
+            },
+            {
+              id: 'D_ekz',
+              label: 'Teil eines Einkaufszentrums?',
+              type: 'yes_no_open',
+              writesTo: '/facts/einkaufszentrum/value',
+            },
           ],
         },
         gastro: {
           questions: [
-            { id: 'D_plaetze', label: 'Max. Verabreichungsplätze / Personen', type: 'number_tri', writesTo: '/facts/verabreichungsplaetze/value' },
+            {
+              id: 'D_plaetze',
+              label: 'Max. Verabreichungsplätze / Personen',
+              type: 'number_tri',
+              writesTo: '/facts/verabreichungsplaetze/value',
+            },
           ],
         },
         beherbergung: {
           questions: [
-            { id: 'D_betten', label: 'Anzahl Gästebetten', type: 'number_tri', writesTo: '/facts/gaestebetten/value' },
+            {
+              id: 'D_betten',
+              label: 'Anzahl Gästebetten',
+              type: 'number_tri',
+              writesTo: '/facts/gaestebetten/value',
+            },
           ],
         },
         versammlung: {
           questions: [
-            { id: 'D_pers', label: 'Max. gleichzeitig anwesende Personen', type: 'number_tri', writesTo: '/facts/personen_max/value' },
+            {
+              id: 'D_pers',
+              label: 'Max. gleichzeitig anwesende Personen',
+              type: 'number_tri',
+              writesTo: '/facts/personen_max/value',
+            },
           ],
         },
         bildung: {
@@ -864,7 +909,12 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
               ],
               writesTo: '/facts/bildung_typ/value',
             },
-            { id: 'D_kinder', label: 'Anzahl Kinder / Schüler:innen', type: 'number_tri', writesTo: '/facts/anzahl_kinder/value' },
+            {
+              id: 'D_kinder',
+              label: 'Anzahl Kinder / Schüler:innen',
+              type: 'number_tri',
+              writesTo: '/facts/anzahl_kinder/value',
+            },
           ],
         },
         gesundheit: {
@@ -884,13 +934,28 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
         },
         produktion: {
           questions: [
-            { id: 'D_gefstoffe', label: 'Lagerung / Verwendung gefährlicher Stoffe?', type: 'yes_no_open', writesTo: '/facts/gefaehrliche_stoffe/value' },
-            { id: 'D_brandlast', label: 'Brandlastintensive Nutzung?', type: 'yes_no_open', writesTo: '/facts/brandlast/value' },
+            {
+              id: 'D_gefstoffe',
+              label: 'Lagerung / Verwendung gefährlicher Stoffe?',
+              type: 'yes_no_open',
+              writesTo: '/facts/gefaehrliche_stoffe/value',
+            },
+            {
+              id: 'D_brandlast',
+              label: 'Brandlastintensive Nutzung?',
+              type: 'yes_no_open',
+              writesTo: '/facts/brandlast/value',
+            },
           ],
         },
         garage: {
           questions: [
-            { id: 'D_stp', label: 'Anzahl Pkw-Stellplätze', type: 'number_tri', writesTo: '/facts/stellplaetze/value' },
+            {
+              id: 'D_stp',
+              label: 'Anzahl Pkw-Stellplätze',
+              type: 'number_tri',
+              writesTo: '/facts/stellplaetze/value',
+            },
             {
               id: 'D_garagenlage',
               label: 'Lage',
@@ -903,12 +968,30 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
               ],
               writesTo: '/facts/garagenlage/value',
             },
-            { id: 'D_garagenfl', label: 'Nutzfläche der Garage', type: 'number_tri', unit: 'm²', writesTo: '/facts/garagenflaeche/value' },
-            { id: 'D_lade', label: 'E-Ladepunkte geplant?', type: 'yes_no_open', writesTo: '/facts/e_ladepunkte/value' },
+            {
+              id: 'D_garagenfl',
+              label: 'Nutzfläche der Garage',
+              type: 'number_tri',
+              unit: 'm²',
+              writesTo: '/facts/garagenflaeche/value',
+            },
+            {
+              id: 'D_lade',
+              label: 'E-Ladepunkte geplant?',
+              type: 'yes_no_open',
+              writesTo: '/facts/e_ladepunkte/value',
+            },
           ],
         },
         landwirtschaft: {
-          questions: [{ id: 'D_tiere', label: 'Tierhaltung?', type: 'yes_no_open', writesTo: '/facts/tierhaltung/value' }],
+          questions: [
+            {
+              id: 'D_tiere',
+              label: 'Tierhaltung?',
+              type: 'yes_no_open',
+              writesTo: '/facts/tierhaltung/value',
+            },
+          ],
         },
         technik: {
           questions: [
@@ -1003,7 +1086,8 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
       id: 'F',
       title: 'Verfahren & Sonderrecht',
       scope: 'projekt',
-      description: 'Behördenverfahren, Förderungen und Sonderthemen — im Zielsystem großteils vorbelegt, hier bestätigen.',
+      description:
+        'Behördenverfahren, Förderungen und Sonderthemen — im Zielsystem großteils vorbelegt, hier bestätigen.',
       questions: [
         {
           id: 'F1',
@@ -1062,7 +1146,8 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
       id: 'G',
       title: 'Projektkontext',
       scope: 'projekt',
-      description: 'Geführter Freitext: alles, was der Assistent über die Zahlen hinaus wissen sollte. Alle Felder optional — je mehr Kontext, desto besser.',
+      description:
+        'Geführter Freitext: alles, was der Assistent über die Zahlen hinaus wissen sollte. Alle Felder optional — je mehr Kontext, desto besser.',
       questions: [
         {
           // v1.0's G1 + G2; the legacy `kontext_grundstueck` text is bridged
@@ -1081,7 +1166,8 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
           label: 'Ziele & Prioritäten der Bauherrschaft',
           type: 'textarea',
           optional: true,
-          placeholder: 'Kosten- und Terminrahmen, Nachhaltigkeitsambition, Flexibilität, besondere Wünsche …',
+          placeholder:
+            'Kosten- und Terminrahmen, Nachhaltigkeitsambition, Flexibilität, besondere Wünsche …',
           writesTo: '/facts/kontext_ziele/value',
         },
         {
@@ -1127,7 +1213,8 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
       id: 'H',
       title: 'Zusammenfassung',
       scope: 'projekt',
-      description: 'Ihre Angaben im Überblick. Prüfen Sie alles, bevor das Projektprofil an Piloti übergeben wird.',
+      description:
+        'Ihre Angaben im Überblick. Prüfen Sie alles, bevor das Projektprofil an Piloti übergeben wird.',
       questions: [],
     },
   ],
@@ -1206,7 +1293,9 @@ export function isValidBundeslandToken(token: string): boolean {
 }
 
 export const COUNTRY_TOKENS: readonly string[] = (() => {
-  const question = flattenIntakeQuestions(projectIntakeDefinitionV1).find((q) => q.id === 'A2_country')
+  const question = flattenIntakeQuestions(projectIntakeDefinitionV1).find(
+    (q) => q.id === 'A2_country'
+  )
   return question?.options?.map((option) => option.value) ?? []
 })()
 
@@ -1223,7 +1312,7 @@ export function isValidCountryToken(token: string): boolean {
 export function evaluateIntakeCondition(
   question: ProjectIntakeQuestion,
   answers: Record<string, ProjectPrimitiveValue>,
-  instanceId?: string,
+  instanceId?: string
 ): boolean {
   return evaluateIntakeConditions(question.conditions, answers, instanceId)
 }
@@ -1243,7 +1332,7 @@ export function evaluateIntakeCondition(
 export function evaluateIntakeConditions(
   conditions: ProjectIntakeCondition[] | undefined,
   answers: Record<string, ProjectPrimitiveValue>,
-  instanceId?: string,
+  instanceId?: string
 ): boolean {
   if (!conditions || conditions.length === 0) return true
   return conditions.every((cond) => evaluateSingleCondition(cond, answers, instanceId))
@@ -1252,7 +1341,7 @@ export function evaluateIntakeConditions(
 function evaluateSingleCondition(
   cond: ProjectIntakeCondition,
   answers: Record<string, ProjectPrimitiveValue>,
-  instanceId?: string,
+  instanceId?: string
 ): boolean {
   // Resolve which answer key this param lives under: a bauwerk-scope param is
   // read from the current building instance; everything else is project-global.
@@ -1264,7 +1353,11 @@ function evaluateSingleCondition(
     case 'not_empty':
       return isIntakeAnswerProvided(answer)
     case 'includes_any': {
-      const needles = Array.isArray(cond.value) ? cond.value : cond.value !== undefined ? [cond.value] : []
+      const needles = Array.isArray(cond.value)
+        ? cond.value
+        : cond.value !== undefined
+          ? [cond.value]
+          : []
       if (Array.isArray(answer)) return answer.some((v) => needles.includes(String(v)))
       return typeof answer === 'string' && needles.includes(answer)
     }
@@ -1279,14 +1372,17 @@ function evaluateSingleCondition(
     }
     case 'equals':
     default: {
-      if (Array.isArray(answer)) return cond.value !== undefined && answer.includes(cond.value as string)
+      if (Array.isArray(answer))
+        return cond.value !== undefined && answer.includes(cond.value as string)
       return answer === cond.value
     }
   }
 }
 
 /** All questions across every stage (including zone questions), in definition order. */
-export function flattenIntakeQuestions(definition: ProjectIntakeDefinition): ProjectIntakeQuestion[] {
+export function flattenIntakeQuestions(
+  definition: ProjectIntakeDefinition
+): ProjectIntakeQuestion[] {
   const out: ProjectIntakeQuestion[] = []
   for (const stage of definition.stages) {
     out.push(...stage.questions)
@@ -1299,7 +1395,7 @@ export function flattenIntakeQuestions(definition: ProjectIntakeDefinition): Pro
 /** Look up a question by its stable id anywhere in the definition. */
 export function findIntakeQuestion(
   definition: ProjectIntakeDefinition,
-  questionId: string,
+  questionId: string
 ): ProjectIntakeQuestion | undefined {
   return flattenIntakeQuestions(definition).find((q) => q.id === questionId)
 }
@@ -1309,7 +1405,9 @@ export function findIntakeQuestion(
  * Reconstructed from `@bwN`-suffixed keys plus any stored bauwerk names, so an
  * edit session can rebuild the building list the same way the wizard held it.
  */
-export function bauwerkeFromAnswers(answers: Record<string, ProjectPrimitiveValue>): BauwerkInstance[] {
+export function bauwerkeFromAnswers(
+  answers: Record<string, ProjectPrimitiveValue>
+): BauwerkInstance[] {
   const ids = new Set<string>()
   for (const key of Object.keys(answers)) {
     const match = key.match(/@(bw\d+)(?:@|$|__)/)
@@ -1330,7 +1428,7 @@ export function bauwerkeFromAnswers(answers: Record<string, ProjectPrimitiveValu
  */
 export function pruneStaleConditionalAnswers(
   answers: Record<string, ProjectPrimitiveValue>,
-  definition: ProjectIntakeDefinition | null | undefined,
+  definition: ProjectIntakeDefinition | null | undefined
 ): Record<string, ProjectPrimitiveValue> {
   if (!definition) return answers
   const bauwerke = bauwerkeFromAnswers(answers)
@@ -1341,7 +1439,11 @@ export function pruneStaleConditionalAnswers(
     let changedThisPass = false
     let next: Record<string, ProjectPrimitiveValue> | null = null
 
-    const dropIfOrphaned = (question: ProjectIntakeQuestion, answerKey: string, instanceId?: string) => {
+    const dropIfOrphaned = (
+      question: ProjectIntakeQuestion,
+      answerKey: string,
+      instanceId?: string
+    ) => {
       if (!question.conditions || question.conditions.length === 0) return
       const hasAnswer = answerKey in current || modeKeyFor(answerKey) in current
       if (!hasAnswer) return
@@ -1421,7 +1523,7 @@ function emitAnswer(
   answerKey: string,
   storageKey: string,
   target: WriteTarget,
-  answers: Record<string, ProjectPrimitiveValue>,
+  answers: Record<string, ProjectPrimitiveValue>
 ): void {
   const raw = answers[answerKey]
 
@@ -1472,7 +1574,12 @@ function emitAnswer(
   addFact(ctx, target, storageKey, value)
 }
 
-function addFact(ctx: BuildContext, target: WriteTarget, storageKey: string, value: ProjectPrimitiveValue): void {
+function addFact(
+  ctx: BuildContext,
+  target: WriteTarget,
+  storageKey: string,
+  value: ProjectPrimitiveValue
+): void {
   if (target.scope === 'goals') {
     ctx.patch.push({ op: 'add', path: `/goals/${encodeKey(storageKey)}`, value })
   } else {
@@ -1496,7 +1603,7 @@ function encodeKey(key: string): string {
 export function buildIntakeProfile(
   answers: Record<string, ProjectPrimitiveValue>,
   definition: ProjectIntakeDefinition,
-  options?: { projectName?: string; bauwerke?: BauwerkInstance[] },
+  options?: { projectName?: string; bauwerke?: BauwerkInstance[] }
 ): ProjectProfile {
   const ctx: BuildContext = { now: new Date().toISOString(), patch: [], unknowns: [] }
   const bauwerke = options?.bauwerke ?? bauwerkeFromAnswers(answers)
@@ -1508,7 +1615,12 @@ export function buildIntakeProfile(
     ctx.patch.push({
       op: 'add',
       path: '/facts/project_name',
-      value: { value: projectName, confidence: 'confirmed', source: NOW_SOURCE, updatedAt: ctx.now },
+      value: {
+        value: projectName,
+        confidence: 'confirmed',
+        source: NOW_SOURCE,
+        updatedAt: ctx.now,
+      },
     })
   }
 
@@ -1547,11 +1659,15 @@ export function buildIntakeProfile(
       : value
 
   // Derive country from bundesland for legacy profiles.
-  const hasCountry = ctx.patch.some(p => p.path === '/facts/country')
-  const bundeslandPatch = ctx.patch.find(p => p.path === bundeslandPath)
+  const hasCountry = ctx.patch.some((p) => p.path === '/facts/country')
+  const bundeslandPatch = ctx.patch.find((p) => p.path === bundeslandPath)
   if (!hasCountry && bundeslandPatch) {
     const bToken = unwrapFactValue(bundeslandPatch.value)
-    if (typeof bToken === 'string' && bToken !== 'ausserhalb_oesterreichs' && (BUNDESLAND_TOKENS as readonly string[]).includes(bToken)) {
+    if (
+      typeof bToken === 'string' &&
+      bToken !== 'ausserhalb_oesterreichs' &&
+      (BUNDESLAND_TOKENS as readonly string[]).includes(bToken)
+    ) {
       ctx.patch.push({
         op: 'add',
         path: '/facts/country',
@@ -1561,14 +1677,19 @@ export function buildIntakeProfile(
   }
 
   // Derive bundesland for non-AT country.
-  const countryFact = ctx.patch.find(p => p.path === '/facts/country')
-  const hasBundesland = ctx.patch.some(p => p.path === bundeslandPath)
+  const countryFact = ctx.patch.find((p) => p.path === '/facts/country')
+  const hasBundesland = ctx.patch.some((p) => p.path === bundeslandPath)
   const countryValue = unwrapFactValue(countryFact?.value)
   if (countryFact && typeof countryValue === 'string' && countryValue !== 'at' && !hasBundesland) {
     ctx.patch.push({
       op: 'add',
       path: bundeslandPath,
-      value: { value: 'ausserhalb_oesterreichs', confidence: 'confirmed', source: NOW_SOURCE, updatedAt: ctx.now },
+      value: {
+        value: 'ausserhalb_oesterreichs',
+        confidence: 'confirmed',
+        source: NOW_SOURCE,
+        updatedAt: ctx.now,
+      },
     })
   }
 
@@ -1583,7 +1704,7 @@ function emitStageForBauwerk(
   ctx: BuildContext,
   stage: ProjectIntakeStage,
   bw: BauwerkInstance,
-  answers: Record<string, ProjectPrimitiveValue>,
+  answers: Record<string, ProjectPrimitiveValue>
 ): void {
   for (const question of stage.questions) {
     const target = resolveWriteTarget(question.writesTo)
@@ -1599,12 +1720,22 @@ function emitStageForBauwerk(
   if (!Array.isArray(selectedUses)) return
 
   for (const use of selectedUses) {
-    const zoneQuestions = [...(stage.zoneCommon ?? []), ...(stage.zoneDefinitions?.[use]?.questions ?? [])]
+    const zoneQuestions = [
+      ...(stage.zoneCommon ?? []),
+      ...(stage.zoneDefinitions?.[use]?.questions ?? []),
+    ]
     for (const question of zoneQuestions) {
       const target = resolveWriteTarget(question.writesTo)
       if (!target) continue
       const answerKey = answerKeyFor(question.id, bw.id, use)
-      emitAnswer(ctx, question, answerKey, instanceStorageKey(target.key, bw.id, use), target, answers)
+      emitAnswer(
+        ctx,
+        question,
+        answerKey,
+        instanceStorageKey(target.key, bw.id, use),
+        target,
+        answers
+      )
     }
   }
 }
@@ -1620,7 +1751,7 @@ function emitStageForBauwerk(
 export function mergeIntakeProfile(
   built: ProjectProfile,
   previous: ProjectProfile | null | undefined,
-  definition: ProjectIntakeDefinition,
+  definition: ProjectIntakeDefinition
 ): ProjectProfile {
   if (!previous) return built
 
@@ -1644,7 +1775,11 @@ export function mergeIntakeProfile(
     ...built.goals,
   }
   const assumptions = {
-    ...Object.fromEntries(Object.entries(previous.assumptions).filter(([key]) => !isIntakeFact(key) && !isIntakeGoal(key))),
+    ...Object.fromEntries(
+      Object.entries(previous.assumptions).filter(
+        ([key]) => !isIntakeFact(key) && !isIntakeGoal(key)
+      )
+    ),
     ...built.assumptions,
   }
 
@@ -1665,7 +1800,7 @@ export function mergeIntakeProfile(
  */
 export function answersFromProfile(
   profile: ProjectProfile,
-  definition: ProjectIntakeDefinition,
+  definition: ProjectIntakeDefinition
 ): { answers: Record<string, ProjectPrimitiveValue>; bauwerke: BauwerkInstance[] } {
   const answers: Record<string, ProjectPrimitiveValue> = {}
 
@@ -1743,10 +1878,18 @@ export function answersFromProfile(
         const uses = answers[answerKeyFor('D0', bw.id)]
         if (Array.isArray(uses)) {
           for (const use of uses) {
-            const zoneQs = [...(stage.zoneCommon ?? []), ...(stage.zoneDefinitions?.[use]?.questions ?? [])]
+            const zoneQs = [
+              ...(stage.zoneCommon ?? []),
+              ...(stage.zoneDefinitions?.[use]?.questions ?? []),
+            ]
             for (const q of zoneQs) {
               const target = resolveWriteTarget(q.writesTo)
-              if (target) readInto(q, answerKeyFor(q.id, bw.id, use), instanceStorageKey(target.key, bw.id, use))
+              if (target)
+                readInto(
+                  q,
+                  answerKeyFor(q.id, bw.id, use),
+                  instanceStorageKey(target.key, bw.id, use)
+                )
             }
           }
         }
@@ -1783,7 +1926,7 @@ function legacyBoolean(profile: ProjectProfile, key: string): boolean | undefine
 function applyLegacyAnswerBridges(
   profile: ProjectProfile,
   answers: Record<string, ProjectPrimitiveValue>,
-  bauwerke: BauwerkInstance[],
+  bauwerke: BauwerkInstance[]
 ): void {
   // --- Bestand block (v1.0 A6/A7/A9/A10 → CB1/CB3/CB5/CB6, project → bauwerk).
   // Only bridged into a single-building project: the legacy answer was one
@@ -1875,7 +2018,10 @@ function applyLegacyAnswerBridges(
   if (legacyBoolean(profile, 'schutzgebiet')) b4Additions.push('schutzgebiet')
   if (b4Additions.length > 0) {
     const current = Array.isArray(answers['B4']) ? (answers['B4'] as string[]) : []
-    const merged = [...current.filter((value) => value !== 'keine'), ...b4Additions.filter((v) => !current.includes(v))]
+    const merged = [
+      ...current.filter((value) => value !== 'keine'),
+      ...b4Additions.filter((v) => !current.includes(v)),
+    ]
     answers['B4'] = merged
   }
 
@@ -1910,7 +2056,8 @@ function applyLegacyAnswerBridges(
   const zert = profile.facts['zertifizierung']?.value
   if (typeof zert === 'string' && !['keine', 'offen'].includes(zert)) {
     const current = Array.isArray(answers['F4']) ? (answers['F4'] as string[]) : []
-    if (!current.includes(zert)) answers['F4'] = [...current.filter((value) => value !== 'keine'), zert]
+    if (!current.includes(zert))
+      answers['F4'] = [...current.filter((value) => value !== 'keine'), zert]
   }
 
   // --- G merges: appended, never overwritten.
@@ -1918,7 +2065,8 @@ function applyLegacyAnswerBridges(
     const legacy = profile.facts[key]?.value
     if (typeof legacy !== 'string' || !legacy.trim()) return
     const current = answers[answerKey]
-    answers[answerKey] = typeof current === 'string' && current.trim() ? `${current}\n\n${legacy}` : legacy
+    answers[answerKey] =
+      typeof current === 'string' && current.trim() ? `${current}\n\n${legacy}` : legacy
   }
   appendText('G1', 'kontext_grundstueck')
   appendText('G4', 'kontext_sonstiges')
@@ -1971,7 +2119,13 @@ function extractVocabKey(path: string): string | null {
   const section = parts[1]
   if (section === 'facts' || section === 'assumptions' || section === 'goals') {
     if (parts.length === 3 && parts[2] && parts[2] !== '-') return decodeVocabSegment(parts[2])
-    if (section !== 'goals' && parts.length === 4 && parts[3] === 'value' && parts[2] && parts[2] !== '-') {
+    if (
+      section !== 'goals' &&
+      parts.length === 4 &&
+      parts[3] === 'value' &&
+      parts[2] &&
+      parts[2] !== '-'
+    ) {
       return decodeVocabSegment(parts[2])
     }
   }
@@ -1981,7 +2135,7 @@ function extractVocabKey(path: string): string | null {
 function questionForKey(key: string): ProjectIntakeQuestion | undefined {
   const base = decodeVocabSegment(key).split('@')[0]
   return flattenIntakeQuestions(projectIntakeDefinitionV1).find(
-    (question) => resolveWriteTarget(question.writesTo)?.key === base,
+    (question) => resolveWriteTarget(question.writesTo)?.key === base
   )
 }
 
@@ -1997,15 +2151,23 @@ function assertVocabulary(question: ProjectIntakeQuestion, value: unknown): void
   const shown = JSON.stringify(value)
   switch (question.type) {
     case 'single_select': {
-      if (typeof value !== 'string' || !question.options?.some((option) => option.value === value)) {
+      if (
+        typeof value !== 'string' ||
+        !question.options?.some((option) => option.value === value)
+      ) {
         throw new Error(`Invalid value for "${label}": ${shown} is not an allowed option.`)
       }
       return
     }
     case 'multi_select': {
       const allowed = new Set(question.options?.map((option) => option.value) ?? [])
-      if (!Array.isArray(value) || !value.every((item) => typeof item === 'string' && allowed.has(item))) {
-        throw new Error(`Invalid value for "${label}": ${shown} is not a subset of the allowed options.`)
+      if (
+        !Array.isArray(value) ||
+        !value.every((item) => typeof item === 'string' && allowed.has(item))
+      ) {
+        throw new Error(
+          `Invalid value for "${label}": ${shown} is not a subset of the allowed options.`
+        )
       }
       return
     }
@@ -2042,10 +2204,13 @@ function decodeVocabSegment(segment: string): string {
 /** Human-readable rendering of a single answer, using option labels where available. */
 export function formatIntakeAnswer(
   question: ProjectIntakeQuestion,
-  answer: ProjectPrimitiveValue | undefined,
+  answer: ProjectPrimitiveValue | undefined
 ): string {
   // yes_no_open facts persist as booleans; render them like a boolean here.
-  if (question.type === 'boolean' || (question.type === 'yes_no_open' && typeof answer === 'boolean')) {
+  if (
+    question.type === 'boolean' ||
+    (question.type === 'yes_no_open' && typeof answer === 'boolean')
+  ) {
     return answer ? 'Ja' : answer === false ? 'Nein' : '—'
   }
   if (!isIntakeAnswerProvided(answer)) return '—'
@@ -2056,7 +2221,10 @@ export function formatIntakeAnswer(
   if (question.type === 'multi_select' && Array.isArray(answer)) {
     return answer.map(optionLabel).join(', ')
   }
-  if ((question.type === 'single_select' || question.type === 'yes_no_open') && typeof answer === 'string') {
+  if (
+    (question.type === 'single_select' || question.type === 'yes_no_open') &&
+    typeof answer === 'string'
+  ) {
     return optionLabel(answer)
   }
   if (question.type === 'number_tri' && typeof answer === 'number') {

@@ -62,7 +62,7 @@ export default function IntakeGalleryPage({
   const bestand = params.variant === 'bestand'
 
   return (
-    <main className="min-h-screen bg-background">
+    <main className="bg-background min-h-screen">
       <ProjectIntakeWizard
         key={bestand ? 'bestand' : 'default'}
         projectId={bestand ? 'dev-bestand' : 'dev'}

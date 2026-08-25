@@ -1,0 +1,30 @@
+---
+fixes:
+  - >
+    The photograph in the hero never covered the hero. It was laid out at its
+    own proportions and stopped partway down, leaving a hard line across the
+    page. It now fills the frame and softens towards the foot of it.
+  - >
+    The closing section could not be scrolled past on some setups, so the footer
+    was unreachable. It no longer holds the scroll.
+improvements:
+  - >
+    The decision chain frames what it is showing. The camera used to work from
+    fixed coordinates and cut through the middle of cards; it now measures each
+    card and keeps it whole, in both languages and at any window size.
+  - >
+    The footer carries the whole site: what Piloti is, where every page is, and
+    how to reach a person.
+  - >
+    The site has been reset onto one type scale, one set of neutrals and one
+    elevation system: headings a shade lighter, set larger and drawn closer
+    together, greys that share the warmth of the paper, and the drafting grid
+    turned down so it reads as structure rather than noise.
+  - >
+    The site now speaks in two typefaces with a rule behind them: what Piloti
+    says is set in a serif, and what Piloti measures — every figure, label and
+    instrument — stays in the grotesque it was already set in.
+  - >
+    The data-and-transparency section now carries a check sheet: what is
+    attached to every answer, and what is true of your office's data, stated
+    plainly enough to be held to.

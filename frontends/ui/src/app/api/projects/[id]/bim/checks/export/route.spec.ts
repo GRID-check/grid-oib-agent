@@ -85,11 +85,12 @@ describe('GET /api/projects/[id]/bim/checks/export', () => {
     // in the file that nobody chose.
     await call(`?modelId=${MODEL_ID}&gebaeudeklasse=7`)
 
-    expect(exportAccessibleComplianceBcf).toHaveBeenCalledWith(
-      expect.anything(),
-      'proj-1',
-      { modelId: MODEL_ID, modelName: null, gebaeudeklasse: null, hauptnutzung: null }
-    )
+    expect(exportAccessibleComplianceBcf).toHaveBeenCalledWith(expect.anything(), 'proj-1', {
+      modelId: MODEL_ID,
+      modelName: null,
+      gebaeudeklasse: null,
+      hauptnutzung: null,
+    })
   })
 
   it('accepts a model addressed by file name, the way a chat answer links one', async () => {

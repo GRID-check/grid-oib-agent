@@ -57,7 +57,12 @@ const storedState = {
   profile: storedProfile,
   profileVersion: 5,
   profilePromptView: 'PROJECT_CONTEXT v1',
-  profileDisplay: { title: 'Project profile', summary: 'Old prose.', keyFacts: [], missingInfo: [] },
+  profileDisplay: {
+    title: 'Project profile',
+    summary: 'Old prose.',
+    keyFacts: [],
+    missingInfo: [],
+  },
   profileUpdatedAt: new Date('2026-01-01T00:00:00.000Z'),
 } as never
 
@@ -74,18 +79,26 @@ describe('checkProjectConsistency authorization (FB-13)', () => {
     vi.unstubAllGlobals()
   })
 
-  it('requires project:edit — the pre-save check runs only for editors', async () => {
+  it('requires a profile write — the pre-save check runs only for editors', async () => {
     await checkProjectConsistency(session, 'proj-1', { freeText: [] })
 
     // Aligned with generateProjectSummary; viewers cannot save the wizard, so the
-    // check must not be reachable with the broader project:view.
-    expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', 'project:edit')
+    // check must not be reachable with the broader project:view. Any-of, not the
+    // bare umbrella: the profile is structured project knowledge, so the
+    // permission is `project:memory:write`, with the deprecated `project:edit`
+    // still accepted for roles provisioned before the ADR-0038 split.
+    expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', [
+      'project:memory:write',
+      'project:edit',
+    ])
   })
 
   it('propagates an authorization failure and never reaches the backend', async () => {
     vi.mocked(requireProjectAccess).mockRejectedValueOnce(new Error('forbidden'))
 
-    await expect(checkProjectConsistency(session, 'proj-1', { freeText: [] })).rejects.toThrow('forbidden')
+    await expect(checkProjectConsistency(session, 'proj-1', { freeText: [] })).rejects.toThrow(
+      'forbidden'
+    )
     expect(mockFetch).not.toHaveBeenCalled()
   })
 })
@@ -149,7 +162,9 @@ describe('saveProjectProfile optimistic concurrency (If-Match)', () => {
   })
 
   it('rejects with a conflict when the client-loaded version is stale', async () => {
-    await expect(saveProjectProfile(session, 'proj-1', storedProfile, 4)).rejects.toThrow(/modified since/i)
+    await expect(saveProjectProfile(session, 'proj-1', storedProfile, 4)).rejects.toThrow(
+      /modified since/i
+    )
     expect(updateProjectProfileIfVersion).not.toHaveBeenCalled()
   })
 
@@ -230,7 +245,12 @@ describe('generateProjectSummary', () => {
     expect(body.locale).toBe('de')
     // The locale is persisted alongside the prose so a later UI language switch
     // can trigger exactly one regeneration.
-    expect(setProjectProfileSummaryInOrg).toHaveBeenCalledWith('proj-1', 'org-1', 'Ein Wohnprojekt.', 'de')
+    expect(setProjectProfileSummaryInOrg).toHaveBeenCalledWith(
+      'proj-1',
+      'org-1',
+      'Ein Wohnprojekt.',
+      'de'
+    )
   })
 
   it('persists the summary with the DEFAULT locale (de) when none is supplied', async () => {
@@ -242,7 +262,12 @@ describe('generateProjectSummary', () => {
     await generateProjectSummary(session, 'proj-1')
 
     // Mirrors the backend's own default so the stored locale matches the prose.
-    expect(setProjectProfileSummaryInOrg).toHaveBeenCalledWith('proj-1', 'org-1', 'Ein Wohnprojekt.', 'de')
+    expect(setProjectProfileSummaryInOrg).toHaveBeenCalledWith(
+      'proj-1',
+      'org-1',
+      'Ein Wohnprojekt.',
+      'de'
+    )
   })
 
   it('degrades a timeout/transport failure to a diagnosable code instead of a 500', async () => {
@@ -255,7 +280,11 @@ describe('generateProjectSummary', () => {
   })
 
   it('degrades a non-2xx backend response the same way', async () => {
-    mockFetch.mockResolvedValue({ ok: false, status: 502, text: () => Promise.resolve('bad gateway') })
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 502,
+      text: () => Promise.resolve('bad gateway'),
+    })
 
     const result = await generateProjectSummary(session, 'proj-1')
 

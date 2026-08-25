@@ -63,7 +63,8 @@ async function load(projectId: string): Promise<void> {
     ? (((await rolesResponse.json()) as { roles?: RoleBinding[] }).roles ?? [])
     : []
   const documents = documentsResponse?.ok
-    ? (((await documentsResponse.json()) as { documents?: ProjectDocumentOption[] }).documents ?? [])
+    ? (((await documentsResponse.json()) as { documents?: ProjectDocumentOption[] }).documents ??
+      [])
     : []
 
   // Bindings resolve to `[]` rather than staying `null` even when the request

@@ -80,9 +80,7 @@ describe('resolveActiveProjectId', () => {
   })
 
   it('returns active_project_id from user_preferences', async () => {
-    mockGetDb.mockReturnValue(
-      mockDbSelect([{ prefs: { active_project_id: 'pref_1' } }]) as never,
-    )
+    mockGetDb.mockReturnValue(mockDbSelect([{ prefs: { active_project_id: 'pref_1' } }]) as never)
     const result = await resolveActiveProjectId(baseSession)
     expect(result).toBe('pref_1')
   })
@@ -115,19 +113,19 @@ describe('buildCollectionScopeFromRequest', () => {
       conversationId: 'conv_1',
     })
     expect(scope).toEqual(['oib_knowledge', 'proj_proj_1', 's_conv_1'])
-    expect(mockRequireProjectAccess).toHaveBeenCalledWith(
-      baseSession,
-      'proj_1',
-      'project:view',
-    )
+    // The collection scope is what a chat request retrieves against, so reaching
+    // it requires `project:chat`, not `project:view` — a reader gets the
+    // project's documents through the documents API, not the agent.
+    expect(mockRequireProjectAccess).toHaveBeenCalledWith(baseSession, 'proj_1', [
+      'project:chat',
+      'project:edit',
+    ])
     delete process.env.REQUIRE_AUTH
   })
 
   it('reads active project from preferences when no explicit id', async () => {
     process.env.REQUIRE_AUTH = 'true'
-    mockGetDb.mockReturnValue(
-      mockDbSelect([{ prefs: { active_project_id: 'pref_1' } }]) as never,
-    )
+    mockGetDb.mockReturnValue(mockDbSelect([{ prefs: { active_project_id: 'pref_1' } }]) as never)
     mockRequireProjectAccess.mockResolvedValue({ role: 'project-viewer' })
     const { scope } = await buildCollectionScopeFromRequest(baseSession, {})
     expect(scope).toEqual(['oib_knowledge', 'proj_pref_1'])

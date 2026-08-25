@@ -43,30 +43,38 @@ const bundeslandCacheKey = (projectId: string, organizationId: string | null | u
  */
 export async function loadProjectPromptView(
   projectId: string | undefined,
-  organizationId: string | null | undefined,
+  organizationId: string | null | undefined
 ): Promise<string | null> {
   if (!projectId) return null
 
-  return getCached(promptViewCacheKey(projectId, organizationId), PROMPT_VIEW_CACHE_TTL_MS, async () => {
-    const [stored, documents] = await Promise.all([
-      findProjectPromptView(projectId, organizationId),
-      // Appended here rather than baked into the stored view, because a role
-      // binding changes without the profile changing. `buildProjectPromptView`
-      // runs at profile-save; a document declared afterwards would never reach
-      // a view built there. Declaring or revoking a role invalidates this cache
-      // (`lib/document-roles/service`), so the block cannot go stale either.
-      loadDocumentRolesPromptSection(projectId, organizationId),
-    ])
-    const combined = [stored?.trim(), documents].filter(Boolean).join('\n\n').trim()
-    return combined || null
-  })
+  return getCached(
+    promptViewCacheKey(projectId, organizationId),
+    PROMPT_VIEW_CACHE_TTL_MS,
+    async () => {
+      const [stored, documents] = await Promise.all([
+        findProjectPromptView(projectId, organizationId),
+        // Appended here rather than baked into the stored view, because a role
+        // binding changes without the profile changing. `buildProjectPromptView`
+        // runs at profile-save; a document declared afterwards would never reach
+        // a view built there. Declaring or revoking a role invalidates this cache
+        // (`lib/document-roles/service`), so the block cannot go stale either.
+        loadDocumentRolesPromptSection(projectId, organizationId),
+      ])
+      const combined = [stored?.trim(), documents].filter(Boolean).join('\n\n').trim()
+      return combined || null
+    }
+  )
 }
 
 export async function invalidateProjectPromptViewCache(
   projectId: string,
-  organizationId: string | null | undefined,
+  organizationId: string | null | undefined
 ): Promise<void> {
-  await Promise.all(tenantVariants(promptViewCacheKey, projectId, organizationId).map((key) => invalidateCached(key)))
+  await Promise.all(
+    tenantVariants(promptViewCacheKey, projectId, organizationId).map((key) =>
+      invalidateCached(key)
+    )
+  )
 }
 
 /**
@@ -80,7 +88,7 @@ export async function invalidateProjectPromptViewCache(
 function tenantVariants(
   key: (projectId: string, organizationId: string | null | undefined) => string,
   projectId: string,
-  organizationId: string | null | undefined,
+  organizationId: string | null | undefined
 ): string[] {
   const keys = new Set([key(projectId, organizationId), key(projectId, null)])
   return [...keys]
@@ -97,13 +105,13 @@ function tenantVariants(
  */
 export async function invalidateProjectProfileCaches(
   projectId: string,
-  organizationId: string | null | undefined,
+  organizationId: string | null | undefined
 ): Promise<void> {
   await Promise.all(
     [
       ...tenantVariants(promptViewCacheKey, projectId, organizationId),
       ...tenantVariants(bundeslandCacheKey, projectId, organizationId),
-    ].map((key) => invalidateCached(key)),
+    ].map((key) => invalidateCached(key))
   )
 }
 
@@ -123,15 +131,19 @@ export async function invalidateProjectProfileCaches(
  */
 export async function loadProjectBundesland(
   projectId: string | undefined,
-  organizationId: string | null | undefined,
+  organizationId: string | null | undefined
 ): Promise<string | null> {
   if (!projectId) return null
 
-  return getCached(bundeslandCacheKey(projectId, organizationId), PROMPT_VIEW_CACHE_TTL_MS, async () => {
-    const profile = await findProjectProfile(projectId, organizationId)
-    const value = profile?.facts?.bundesland?.value
-    return typeof value === 'string' && isValidBundeslandToken(value) ? value : null
-  })
+  return getCached(
+    bundeslandCacheKey(projectId, organizationId),
+    PROMPT_VIEW_CACHE_TTL_MS,
+    async () => {
+      const profile = await findProjectProfile(projectId, organizationId)
+      const value = profile?.facts?.bundesland?.value
+      return typeof value === 'string' && isValidBundeslandToken(value) ? value : null
+    }
+  )
 }
 
 export function buildProjectPromptView(profile: ProjectProfile): string {
@@ -146,14 +158,21 @@ export function buildProjectPromptView(profile: ProjectProfile): string {
     const bv = normalized.facts.bundesland.value
     if (typeof bv === 'string' && bv !== 'ausserhalb_oesterreichs' && isValidBundeslandToken(bv)) {
       factKeys.unshift('country')
-      normalized.facts.country = { value: 'at', confidence: 'confirmed', source: 'onboarding', updatedAt: '' }
+      normalized.facts.country = {
+        value: 'at',
+        confidence: 'confirmed',
+        source: 'onboarding',
+        updatedAt: '',
+      }
     }
   }
 
   if (factKeys.length > 0) {
     sections.push([
       'confirmed:',
-      ...factKeys.map((key) => `- ${formatPromptToken(key)}=${formatPromptValue(normalized.facts[key].value)}`),
+      ...factKeys.map(
+        (key) => `- ${formatPromptToken(key)}=${formatPromptValue(normalized.facts[key].value)}`
+      ),
     ])
   }
 
@@ -161,7 +180,9 @@ export function buildProjectPromptView(profile: ProjectProfile): string {
   if (goalKeys.length > 0) {
     sections.push([
       'goals:',
-      ...goalKeys.map((key) => `- ${formatPromptToken(key)}=${formatPromptValue(normalized.goals[key])}`),
+      ...goalKeys.map(
+        (key) => `- ${formatPromptToken(key)}=${formatPromptValue(normalized.goals[key])}`
+      ),
     ])
   }
 
@@ -174,7 +195,10 @@ export function buildProjectPromptView(profile: ProjectProfile): string {
   if (assumptionKeys.length > 0) {
     sections.push([
       'assumptions:',
-      ...assumptionKeys.map((key) => `- ${formatPromptToken(key)}=${formatPromptValue(normalized.assumptions[key].value)}`),
+      ...assumptionKeys.map(
+        (key) =>
+          `- ${formatPromptToken(key)}=${formatPromptValue(normalized.assumptions[key].value)}`
+      ),
     ])
   }
 
@@ -192,7 +216,7 @@ export function buildProjectProfileDisplay(
   // The locale that `previousSummary` was generated in, carried over 1:1 with
   // the summary so a preserved prose keeps its language provenance (and a reset
   // summary drops it — callers pass undefined). See ProjectProfileDisplaySchema.
-  previousSummaryLocale?: string,
+  previousSummaryLocale?: string
 ): ProjectProfileDisplay {
   const normalized = ProjectProfileSchema.parse(profile)
   const brief = buildProjectBriefView(normalized)
@@ -204,14 +228,16 @@ export function buildProjectProfileDisplay(
     // Human-readable, intake-ordered: question labels ("Building class") and
     // option labels ("Residential") instead of raw keys/enum values.
     keyFacts: brief.groups.flatMap((group) =>
-      group.facts.map((fact) => ({ label: fact.label, value: fact.value })),
+      group.facts.map((fact) => ({ label: fact.label, value: fact.value }))
     ),
     missingInfo: brief.missing.map((item) => item.label),
   }
 }
 
 function formatPromptToken(value: string): string {
-  return isSafePromptToken(value) ? value : JSON.stringify(value).replace(/[\u0080-\u009f\u2028\u2029]/g, escapeLineSeparator)
+  return isSafePromptToken(value)
+    ? value
+    : JSON.stringify(value).replace(/[\u0080-\u009f\u2028\u2029]/g, escapeLineSeparator)
 }
 
 function formatPromptValue(value: ProjectPrimitiveValue): string {

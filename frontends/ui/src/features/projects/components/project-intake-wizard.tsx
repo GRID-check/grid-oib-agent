@@ -131,7 +131,7 @@ function profileUpdatedAtMs(profile: ProjectProfile | null | undefined): number 
 function draftShouldWinInEditMode(
   draft: IntakeDraft,
   profile: ProjectProfile | null,
-  profileVersion: number | null,
+  profileVersion: number | null
 ): boolean {
   if (typeof profileVersion === 'number' && typeof draft.baseVersion === 'number') {
     return profileVersion <= draft.baseVersion
@@ -149,7 +149,11 @@ function draftShouldWinInEditMode(
  * "1e999" (→ Infinity) serializes to null and would corrupt the fact, so it is
  * rejected even when the field is optional.
  */
-function isQuestionSatisfied(question: ProjectIntakeQuestion, answers: Answers, answerKey: string): boolean {
+function isQuestionSatisfied(
+  question: ProjectIntakeQuestion,
+  answers: Answers,
+  answerKey: string
+): boolean {
   const answer = answers[answerKey]
   if (question.type === 'number' || question.type === 'number_tri') {
     if (answers[modeKeyFor(answerKey)] === 'offen') return true
@@ -223,7 +227,9 @@ export function ProjectIntakeWizard({
     const load = definitionOverride
       ? Promise.resolve(definitionOverride)
       : fetch(`/api/projects/${projectId}/intake-definition`).then((r) =>
-          r.ok ? (r.json() as Promise<ProjectIntakeDefinition>) : Promise.reject(new Error('Failed to load')),
+          r.ok
+            ? (r.json() as Promise<ProjectIntakeDefinition>)
+            : Promise.reject(new Error('Failed to load'))
         )
     load
       .then((data: ProjectIntakeDefinition) => {
@@ -306,7 +312,7 @@ export function ProjectIntakeWizard({
             currentStep,
             savedAt: Date.now(),
             baseVersion: typeof initialProfileVersion === 'number' ? initialProfileVersion : null,
-          } satisfies IntakeDraft),
+          } satisfies IntakeDraft)
         )
         setDraftSaved(true)
       } catch {
@@ -345,25 +351,31 @@ export function ProjectIntakeWizard({
   /** Modul I renders document slots from the role registry, not questions. */
   const isGrundlagen = stage?.id === 'I'
 
-  const setAnswer = useCallback((key: string, value: ProjectPrimitiveValue) => {
-    setAnswers((prev) => pruneStaleConditionalAnswers({ ...prev, [key]: value }, definition))
-    setFindings(null)
-    setTouched((prev) => {
-      if (!prev.has(key)) return prev
-      const next = new Set(prev)
-      next.delete(key)
-      return next
-    })
-  }, [definition])
+  const setAnswer = useCallback(
+    (key: string, value: ProjectPrimitiveValue) => {
+      setAnswers((prev) => pruneStaleConditionalAnswers({ ...prev, [key]: value }, definition))
+      setFindings(null)
+      setTouched((prev) => {
+        if (!prev.has(key)) return prev
+        const next = new Set(prev)
+        next.delete(key)
+        return next
+      })
+    },
+    [definition]
+  )
 
-  const setMode = useCallback((answerKey: string, nextMode: IntakeAnswerMode) => {
-    setAnswers((prev) => {
-      const next = { ...prev, [modeKeyFor(answerKey)]: nextMode }
-      if (nextMode === 'offen') delete next[answerKey]
-      return pruneStaleConditionalAnswers(next, definition)
-    })
-    setFindings(null)
-  }, [definition])
+  const setMode = useCallback(
+    (answerKey: string, nextMode: IntakeAnswerMode) => {
+      setAnswers((prev) => {
+        const next = { ...prev, [modeKeyFor(answerKey)]: nextMode }
+        if (nextMode === 'offen') delete next[answerKey]
+        return pruneStaleConditionalAnswers(next, definition)
+      })
+      setFindings(null)
+    },
+    [definition]
+  )
 
   /** Visible questions on a projekt/grundstueck stage (bauwerk stages iterate instances). */
   const stageVisibleQuestions = useMemo(() => {
@@ -394,7 +406,7 @@ export function ProjectIntakeWizard({
       return bauwerke.every((bw) =>
         stage.questions
           .filter((q) => evaluateIntakeCondition(q, answers, bw.id))
-          .every((q) => isQuestionSatisfied(q, answers, answerKeyFor(q.id, bw.id))),
+          .every((q) => isQuestionSatisfied(q, answers, answerKeyFor(q.id, bw.id)))
       )
     }
     return stageVisibleQuestions.every((q) => isQuestionSatisfied(q, answers, q.id))
@@ -415,9 +427,11 @@ export function ProjectIntakeWizard({
       let answered = 0
       let total = 0
       const tally = (q: ProjectIntakeQuestion, key: string) => {
-        if (q.type === 'info_placeholder' || q.type === 'document_role' || q.type === 'upload') return
+        if (q.type === 'info_placeholder' || q.type === 'document_role' || q.type === 'upload')
+          return
         total += 1
-        if (isIntakeAnswerProvided(answers[key]) || answers[modeKeyFor(key)] === 'offen') answered += 1
+        if (isIntakeAnswerProvided(answers[key]) || answers[modeKeyFor(key)] === 'offen')
+          answered += 1
       }
       if (s.scope === 'bauwerk') {
         for (const bw of bauwerke) {
@@ -448,7 +462,8 @@ export function ProjectIntakeWizard({
     setAnswers((prev) => {
       const next = { ...prev }
       const markOpen = (q: ProjectIntakeQuestion, key: string) => {
-        if (q.type === 'info_placeholder' || q.type === 'document_role' || q.type === 'upload') return
+        if (q.type === 'info_placeholder' || q.type === 'document_role' || q.type === 'upload')
+          return
         if (q.required) return
         if (isIntakeAnswerProvided(next[key])) return
         next[modeKeyFor(key)] = 'offen'
@@ -483,7 +498,7 @@ export function ProjectIntakeWizard({
         return next
       })
     },
-    [totalSteps],
+    [totalSteps]
   )
 
   const markStageTouched = useCallback(() => {
@@ -494,7 +509,8 @@ export function ProjectIntakeWizard({
         for (const bw of bauwerke) {
           for (const q of stage.questions) {
             const key = answerKeyFor(q.id, bw.id)
-            if (evaluateIntakeCondition(q, answers, bw.id) && !isQuestionSatisfied(q, answers, key)) next.add(key)
+            if (evaluateIntakeCondition(q, answers, bw.id) && !isQuestionSatisfied(q, answers, key))
+              next.add(key)
           }
         }
       } else {
@@ -577,7 +593,18 @@ export function ProjectIntakeWizard({
       setError(isConflict ? (e as Error).message : t('intake.errors.saveFailed'))
       setSaving(false)
     }
-  }, [definition, answers, bauwerke, initialProfile, initialProfileVersion, projectId, projectName, router, STORAGE_KEY, t])
+  }, [
+    definition,
+    answers,
+    bauwerke,
+    initialProfile,
+    initialProfileVersion,
+    projectId,
+    projectName,
+    router,
+    STORAGE_KEY,
+    t,
+  ])
 
   const reloadAfterConflict = useCallback(() => {
     setError(null)
@@ -599,7 +626,10 @@ export function ProjectIntakeWizard({
       deterministic = checkIntakeConsistencyFromAnswers(answers, definition)
       freeText = collectFreeTextFields(answers, definition)
     } catch (e) {
-      console.error('[ProjectIntakeWizard] Pre-save consistency gate threw; saving anyway (fail-open):', e)
+      console.error(
+        '[ProjectIntakeWizard] Pre-save consistency gate threw; saving anyway (fail-open):',
+        e
+      )
       await runSave()
       return
     }
@@ -618,10 +648,15 @@ export function ProjectIntakeWizard({
           }),
         })
         if (res.ok) {
-          const data = (await res.json().catch(() => null)) as { findings?: ConsistencyFinding[] | null } | null
+          const data = (await res.json().catch(() => null)) as {
+            findings?: ConsistencyFinding[] | null
+          } | null
           if (data?.findings) aiFindings = data.findings
         } else {
-          console.warn('[ProjectIntakeWizard] Consistency check returned a non-ok status (non-fatal):', res.status)
+          console.warn(
+            '[ProjectIntakeWizard] Consistency check returned a non-ok status (non-fatal):',
+            res.status
+          )
         }
       } catch (e) {
         console.warn('[ProjectIntakeWizard] Consistency check request failed (non-fatal):', e)
@@ -647,7 +682,7 @@ export function ProjectIntakeWizard({
       setFindings(null)
       goToStep(stageIndex)
     },
-    [goToStep],
+    [goToStep]
   )
 
   if (loading) {
@@ -691,11 +726,13 @@ export function ProjectIntakeWizard({
     <div className="mx-auto max-w-6xl px-4 py-6 md:py-10">
       <header className="mb-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <div className="min-w-0">
-          <SectionLabel>{isEdit ? t('intake.eyebrowEdit') : t('intake.eyebrowCreate')}</SectionLabel>
+          <SectionLabel>
+            {isEdit ? t('intake.eyebrowEdit') : t('intake.eyebrowCreate')}
+          </SectionLabel>
           <h1 className="mt-1 truncate text-xl font-semibold tracking-tight">
             {projectName || t('intake.titleFallback')}
           </h1>
-          <p className="mt-1 max-w-prose text-sm text-muted-foreground">{t('intake.subtitle')}</p>
+          <p className="text-muted-foreground mt-1 max-w-prose text-sm">{t('intake.subtitle')}</p>
         </div>
         <QuickStartToggle
           enabled={quickStart}
@@ -740,7 +777,7 @@ export function ProjectIntakeWizard({
             <span
               className={cn(
                 'shrink-0 text-xs transition-opacity duration-200 ease-out motion-reduce:transition-none',
-                draftSaved ? 'text-success opacity-100' : 'text-muted-foreground opacity-0',
+                draftSaved ? 'text-success opacity-100' : 'text-muted-foreground opacity-0'
               )}
               aria-live="polite"
             >
@@ -748,196 +785,213 @@ export function ProjectIntakeWizard({
             </span>
           </div>
 
-        <form
-          noValidate
-          onSubmit={(event) => {
-            event.preventDefault()
-            if (saving || checking) return
-            if (isReview) {
-              if (findings && findings.length > 0) return
-              void handleSave()
-            } else {
-              handleNext()
-            }
-          }}
-        >
-          <AnimatePresence mode="wait" initial={false} custom={directionRef.current}>
-            <motion.div
-              key={currentStep}
-              custom={directionRef.current}
-              variants={{
-                enter: (direction: number) => ({ opacity: 0, x: direction * 12 }),
-                center: { opacity: 1, x: 0 },
-                exit: (direction: number) => ({ opacity: 0, x: direction * -12 }),
-              }}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
-            >
-              <div className="mb-6">
-                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                  <div className="flex items-baseline gap-2">
-                    <span className="font-mono text-xs text-primary">Modul {stage.id}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {currentStep + 1}/{totalSteps}
-                    </span>
-                  </div>
-                  {/* Per-module "Rest überspringen – als offen übernehmen". Only
+          <form
+            noValidate
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (saving || checking) return
+              if (isReview) {
+                if (findings && findings.length > 0) return
+                void handleSave()
+              } else {
+                handleNext()
+              }
+            }}
+          >
+            <AnimatePresence mode="wait" initial={false} custom={directionRef.current}>
+              <motion.div
+                key={currentStep}
+                custom={directionRef.current}
+                variants={{
+                  enter: (direction: number) => ({ opacity: 0, x: direction * 12 }),
+                  center: { opacity: 1, x: 0 },
+                  exit: (direction: number) => ({ opacity: 0, x: direction * -12 }),
+                }}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+              >
+                <div className="mb-6">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-primary font-mono text-xs">Modul {stage.id}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {currentStep + 1}/{totalSteps}
+                      </span>
+                    </div>
+                    {/* Per-module "Rest überspringen – als offen übernehmen". Only
                       where there is something to skip, and never on the two
                       modules that carry no questions to skip. */}
-                  {!isReview && !isGrundlagen && stageProgress.get(stage.id) !== undefined &&
-                    stageProgress.get(stage.id)!.answered < stageProgress.get(stage.id)!.total && (
-                      <Button type="button" variant="ghost" size="sm" onClick={skipRestOfStage}>
-                        {t('intake.skipRest')}
-                      </Button>
-                    )}
+                    {!isReview &&
+                      !isGrundlagen &&
+                      stageProgress.get(stage.id) !== undefined &&
+                      stageProgress.get(stage.id)!.answered <
+                        stageProgress.get(stage.id)!.total && (
+                        <Button type="button" variant="ghost" size="sm" onClick={skipRestOfStage}>
+                          {t('intake.skipRest')}
+                        </Button>
+                      )}
+                  </div>
+                  <h2 className="mt-1 text-lg font-semibold tracking-tight">{stage.title}</h2>
+                  {stage.description && (
+                    <p className="text-muted-foreground mt-1 max-w-prose text-sm">
+                      {stage.description}
+                    </p>
+                  )}
                 </div>
-                <h2 className="mt-1 text-lg font-semibold tracking-tight">{stage.title}</h2>
-                {stage.description && (
-                  <p className="mt-1 max-w-prose text-sm text-muted-foreground">{stage.description}</p>
-                )}
-              </div>
 
-              {isGrundlagen ? (
-                <ProjektgrundlagenStep projectId={projectId} answers={answers} bauwerke={bauwerke} />
-              ) : isReview ? (
-                <div className="space-y-4">
-                  <ReviewStep
-                    definition={definition}
+                {isGrundlagen ? (
+                  <ProjektgrundlagenStep
+                    projectId={projectId}
                     answers={answers}
                     bauwerke={bauwerke}
-                    onEditStage={(stageIndex) => goToStep(stageIndex)}
                   />
-                  {checking && (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
-                      <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />
-                      {t('intake.consistency.checking')}
-                    </div>
-                  )}
-                  {findings && findings.length > 0 && (
-                    <ConflictFindings
+                ) : isReview ? (
+                  <div className="space-y-4">
+                    <ReviewStep
                       definition={definition}
-                      findings={findings}
-                      saving={saving}
-                      onRevise={handleReviseAt}
-                      onProceed={handleProceedAnyway}
-                    />
-                  )}
-                </div>
-              ) : stage.scope === 'bauwerk' ? (
-                <BauwerkStage
-                  stage={stage}
-                  bauwerke={bauwerke}
-                  answers={answers}
-                  touched={touched}
-                  projectId={projectId}
-                  onSetAnswer={setAnswer}
-                  onSetMode={setMode}
-                  onAddBauwerk={addBauwerk}
-                  onRemoveBauwerk={removeBauwerk}
-                  onRenameBauwerk={renameBauwerk}
-                  validationMessageFor={(q) => validationMessage(q, t)}
-                />
-              ) : (
-                <div className="space-y-6">
-                  {flatVisibleQuestions.map((q) => (
-                    <QuestionField
-                      key={q.id}
-                      question={q}
-                      answerKey={q.id}
                       answers={answers}
-                      projectId={projectId}
-                      error={
-                        touched.has(q.id) && !isQuestionSatisfied(q, answers, q.id)
-                          ? validationMessage(q, t)
-                          : null
-                      }
-                      onSetAnswer={setAnswer}
-                      onSetMode={setMode}
+                      bauwerke={bauwerke}
+                      onEditStage={(stageIndex) => goToStep(stageIndex)}
                     />
-                  ))}
-                  {/* Says what Schnellstart is hiding, and offers it here. A
-                      count the user cannot act on would just be a nag. */}
-                  {hiddenByQuickStart > 0 && (
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-dashed px-4 py-3">
-                      <span className="text-sm text-muted-foreground">
-                        {t('intake.hiddenByQuickstart', { count: hiddenByQuickStart })}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="link"
-                        size="sm"
-                        className="h-auto p-0"
-                        onClick={() =>
-                          setExpandedStages((previous) => new Set(previous).add(stage.id))
-                        }
+                    {checking && (
+                      <div
+                        className="text-muted-foreground flex items-center gap-2 text-sm"
+                        aria-live="polite"
                       >
-                        {t('intake.showAllHere')}
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </motion.div>
-          </AnimatePresence>
-
-          {error && definition && (
-            <Alert variant="destructive" className="mt-8">
-              <AlertDescription className={conflict ? 'flex flex-col items-start gap-3' : undefined}>
-                <span>{error}</span>
-                {conflict && (
-                  <Button type="button" variant="outline" size="sm" onClick={reloadAfterConflict}>
-                    {t('intake.conflictReload')}
-                  </Button>
-                )}
-              </AlertDescription>
-            </Alert>
-          )}
-
-          <div className="sticky bottom-0 z-20 -mx-4 mt-10 flex items-center justify-between gap-4 border-t bg-background/85 px-4 pt-4 backdrop-blur-md pb-[max(1rem,env(safe-area-inset-bottom))]">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => goToStep(currentStep - 1)}
-              disabled={currentStep === 0 || saving}
-            >
-              {t('intake.back')}
-            </Button>
-
-            <span className="text-xs text-muted-foreground">
-              {t('intake.stepCounter', { current: currentStep + 1, total: totalSteps })}
-            </span>
-
-            {isReview ? (
-              findings && findings.length > 0 ? (
-                <span aria-hidden className="inline-flex min-h-9 min-w-36" />
-              ) : (
-                <Button type="submit" disabled={saving || checking} className="min-w-36">
-                  <Loader2
-                    className={
-                      saving || checking
-                        ? 'size-4 animate-spin motion-reduce:animate-none'
-                        : 'size-4 opacity-0'
-                    }
-                    aria-hidden
+                        <Loader2
+                          className="size-4 animate-spin motion-reduce:animate-none"
+                          aria-hidden
+                        />
+                        {t('intake.consistency.checking')}
+                      </div>
+                    )}
+                    {findings && findings.length > 0 && (
+                      <ConflictFindings
+                        definition={definition}
+                        findings={findings}
+                        saving={saving}
+                        onRevise={handleReviseAt}
+                        onProceed={handleProceedAnyway}
+                      />
+                    )}
+                  </div>
+                ) : stage.scope === 'bauwerk' ? (
+                  <BauwerkStage
+                    stage={stage}
+                    bauwerke={bauwerke}
+                    answers={answers}
+                    touched={touched}
+                    projectId={projectId}
+                    onSetAnswer={setAnswer}
+                    onSetMode={setMode}
+                    onAddBauwerk={addBauwerk}
+                    onRemoveBauwerk={removeBauwerk}
+                    onRenameBauwerk={renameBauwerk}
+                    validationMessageFor={(q) => validationMessage(q, t)}
                   />
-                  {checking
-                    ? t('intake.consistency.checking')
-                    : saving
-                      ? t('intake.saving')
-                      : isEdit
-                        ? t('intake.saveChanges')
-                        : t('intake.saveAndSee')}
-                </Button>
-              )
-            ) : (
-              <Button type="submit" disabled={saving}>
-                {t('intake.next')}
-              </Button>
+                ) : (
+                  <div className="space-y-6">
+                    {flatVisibleQuestions.map((q) => (
+                      <QuestionField
+                        key={q.id}
+                        question={q}
+                        answerKey={q.id}
+                        answers={answers}
+                        projectId={projectId}
+                        error={
+                          touched.has(q.id) && !isQuestionSatisfied(q, answers, q.id)
+                            ? validationMessage(q, t)
+                            : null
+                        }
+                        onSetAnswer={setAnswer}
+                        onSetMode={setMode}
+                      />
+                    ))}
+                    {/* Says what Schnellstart is hiding, and offers it here. A
+                      count the user cannot act on would just be a nag. */}
+                    {hiddenByQuickStart > 0 && (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-dashed px-4 py-3">
+                        <span className="text-muted-foreground text-sm">
+                          {t('intake.hiddenByQuickstart', { count: hiddenByQuickStart })}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="link"
+                          size="sm"
+                          className="h-auto p-0"
+                          onClick={() =>
+                            setExpandedStages((previous) => new Set(previous).add(stage.id))
+                          }
+                        >
+                          {t('intake.showAllHere')}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </motion.div>
+            </AnimatePresence>
+
+            {error && definition && (
+              <Alert variant="destructive" className="mt-8">
+                <AlertDescription
+                  className={conflict ? 'flex flex-col items-start gap-3' : undefined}
+                >
+                  <span>{error}</span>
+                  {conflict && (
+                    <Button type="button" variant="outline" size="sm" onClick={reloadAfterConflict}>
+                      {t('intake.conflictReload')}
+                    </Button>
+                  )}
+                </AlertDescription>
+              </Alert>
             )}
-          </div>
-        </form>
+
+            <div className="bg-background/85 sticky bottom-0 z-20 -mx-4 mt-10 flex items-center justify-between gap-4 border-t px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 backdrop-blur-md">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => goToStep(currentStep - 1)}
+                disabled={currentStep === 0 || saving}
+              >
+                {t('intake.back')}
+              </Button>
+
+              <span className="text-muted-foreground text-xs">
+                {t('intake.stepCounter', { current: currentStep + 1, total: totalSteps })}
+              </span>
+
+              {isReview ? (
+                findings && findings.length > 0 ? (
+                  <span aria-hidden className="inline-flex min-h-9 min-w-36" />
+                ) : (
+                  <Button type="submit" disabled={saving || checking} className="min-w-36">
+                    <Loader2
+                      className={
+                        saving || checking
+                          ? 'size-4 animate-spin motion-reduce:animate-none'
+                          : 'size-4 opacity-0'
+                      }
+                      aria-hidden
+                    />
+                    {checking
+                      ? t('intake.consistency.checking')
+                      : saving
+                        ? t('intake.saving')
+                        : isEdit
+                          ? t('intake.saveChanges')
+                          : t('intake.saveAndSee')}
+                  </Button>
+                )
+              ) : (
+                <Button type="submit" disabled={saving}>
+                  {t('intake.next')}
+                </Button>
+              )}
+            </div>
+          </form>
         </div>
       </div>
     </div>
@@ -987,9 +1041,11 @@ function ModuleRail({
         style={{ maskImage: SCROLL_FADE_X, WebkitMaskImage: SCROLL_FADE_X }}
       >
         {stages.map((stage, index) => {
-          const state = index < currentStep ? 'visited' : index === currentStep ? 'current' : 'upcoming'
+          const state =
+            index < currentStep ? 'visited' : index === currentStep ? 'current' : 'upcoming'
           const counts = progress.get(stage.id)
-          const complete = counts !== undefined && counts.total > 0 && counts.answered === counts.total
+          const complete =
+            counts !== undefined && counts.total > 0 && counts.answered === counts.total
           return (
             <li key={stage.id} className="shrink-0 lg:shrink">
               <button
@@ -998,17 +1054,19 @@ function ModuleRail({
                 onClick={() => onSelect(index)}
                 aria-current={state === 'current' ? 'step' : undefined}
                 className={cn(
-                  'group flex w-20 flex-col items-center gap-1.5 rounded-lg px-1 py-1.5 text-left outline-none transition-colors duration-quick ease-out focus-visible:ring-2 focus-visible:ring-ring/40 motion-reduce:transition-none',
+                  'duration-quick focus-visible:ring-ring/40 group flex w-20 flex-col items-center gap-1.5 rounded-lg px-1 py-1.5 text-left outline-none transition-colors ease-out focus-visible:ring-2 motion-reduce:transition-none',
                   'lg:w-full lg:flex-row lg:items-center lg:gap-2.5 lg:px-2 lg:py-2',
-                  state === 'current' ? 'lg:bg-muted' : 'lg:hover:bg-muted/50',
+                  state === 'current' ? 'lg:bg-muted' : 'lg:hover:bg-muted/50'
                 )}
               >
                 <span
                   className={cn(
-                    'flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-medium transition-colors duration-quick ease-out motion-reduce:transition-none',
-                    complete && state !== 'current' && 'border-primary bg-primary text-primary-foreground',
-                    state === 'current' && 'border-primary text-primary ring-2 ring-ring/30',
-                    !complete && state !== 'current' && 'border-border text-muted-foreground',
+                    'duration-quick flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-medium transition-colors ease-out motion-reduce:transition-none',
+                    complete &&
+                      state !== 'current' &&
+                      'border-primary bg-primary text-primary-foreground',
+                    state === 'current' && 'border-primary text-primary ring-ring/30 ring-2',
+                    !complete && state !== 'current' && 'border-border text-muted-foreground'
                   )}
                 >
                   {/* The step NUMBER, not `stage.id`. Modul I (Projektgrundlagen)
@@ -1018,13 +1076,17 @@ function ModuleRail({
                       makes a letter column read "… G, I, H" and look like a
                       bug. The letter still anchors the content header, where it
                       ties back to the spec. */}
-                  {complete && state !== 'current' ? <Check className="size-3.5" aria-hidden /> : index + 1}
+                  {complete && state !== 'current' ? (
+                    <Check className="size-3.5" aria-hidden />
+                  ) : (
+                    index + 1
+                  )}
                 </span>
                 <span className="w-full min-w-0 lg:flex lg:flex-col">
                   <span
                     className={cn(
                       'block truncate text-center text-[11px] leading-tight lg:text-left lg:text-sm',
-                      state === 'current' ? 'font-medium text-foreground' : 'text-muted-foreground',
+                      state === 'current' ? 'text-foreground font-medium' : 'text-muted-foreground'
                     )}
                   >
                     {stage.title}
@@ -1033,10 +1095,13 @@ function ModuleRail({
                       fit under a 20-unit-wide pill without truncating the title
                       they are meant to annotate. */}
                   {counts !== undefined && counts.total > 0 && (
-                    <span className="hidden text-xs text-muted-foreground lg:block">
+                    <span className="text-muted-foreground hidden text-xs lg:block">
                       {complete
                         ? t('intake.moduleDone')
-                        : t('intake.moduleProgress', { answered: counts.answered, total: counts.total })}
+                        : t('intake.moduleProgress', {
+                            answered: counts.answered,
+                            total: counts.total,
+                          })}
                     </span>
                   )}
                 </span>
@@ -1079,7 +1144,7 @@ function QuickStartToggle({
         <Sparkles className="size-4" aria-hidden />
         {t('intake.schnellstart')}
       </Button>
-      <p className="max-w-[24rem] text-xs leading-snug text-muted-foreground">
+      <p className="text-muted-foreground max-w-[24rem] text-xs leading-snug">
         {enabled ? t('intake.schnellstartOn') : t('intake.schnellstartOff')}
       </p>
     </div>
@@ -1130,8 +1195,8 @@ function BauwerkStage({
   return (
     <div className="space-y-4">
       {bauwerke.map((bw, index) => (
-        <div key={bw.id} className="overflow-hidden rounded-2xl border bg-card shadow-xs">
-          <div className="flex items-center gap-3 border-b bg-muted/40 px-4 py-2.5">
+        <div key={bw.id} className="bg-card shadow-xs overflow-hidden rounded-2xl border">
+          <div className="bg-muted/40 flex items-center gap-3 border-b px-4 py-2.5">
             <Badge variant="default" className="font-mono">
               {bw.id.toUpperCase()}
             </Badge>
@@ -1140,7 +1205,7 @@ function BauwerkStage({
                 value={bw.name}
                 onChange={(e) => onRenameBauwerk(bw.id, e.target.value)}
                 aria-label={t('intake.bauwerk.nameAria')}
-                className="min-w-0 flex-1 border-b border-dashed border-transparent bg-transparent py-0.5 text-sm font-medium outline-none hover:border-border focus:border-primary"
+                className="hover:border-border focus:border-primary min-w-0 flex-1 border-b border-dashed border-transparent bg-transparent py-0.5 text-sm font-medium outline-none"
               />
             ) : (
               <span className="flex-1 truncate text-sm font-medium">{bw.name}</span>
@@ -1151,7 +1216,7 @@ function BauwerkStage({
                 variant="ghost"
                 size="sm"
                 onClick={() => onRemoveBauwerk(bw.id)}
-                className="h-auto gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-destructive"
+                className="text-muted-foreground hover:text-destructive h-auto gap-1 px-2 py-1 text-xs"
               >
                 <Trash2 className="size-3.5" aria-hidden />
                 {t('intake.bauwerk.remove')}
@@ -1161,7 +1226,9 @@ function BauwerkStage({
 
           <div className="space-y-6 px-4 py-5 md:px-6">
             {(() => {
-              const visible = stage.questions.filter((q) => evaluateIntakeCondition(q, answers, bw.id))
+              const visible = stage.questions.filter((q) =>
+                evaluateIntakeCondition(q, answers, bw.id)
+              )
               // Track the group ACROSS the filtered list, so a heading whose
               // first question is hidden still opens on the next one that is
               // visible — and a group with nothing visible prints no heading.
@@ -1173,7 +1240,7 @@ function BauwerkStage({
                 return (
                   <div key={answerKey} className={heading ? 'space-y-6 pt-2' : undefined}>
                     {heading && (
-                      <h3 className="border-b pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      <h3 className="text-muted-foreground border-b pb-2 text-xs font-medium uppercase tracking-wide">
                         {heading}
                       </h3>
                     )}
@@ -1196,14 +1263,23 @@ function BauwerkStage({
             })()}
 
             {/* Module D: implicit use-zones expanded from D0. */}
-            {stage.id === 'D' && <ZoneBlocks stage={stage} bw={bw} answers={answers} onSetAnswer={onSetAnswer} onSetMode={onSetMode} projectId={projectId} />}
+            {stage.id === 'D' && (
+              <ZoneBlocks
+                stage={stage}
+                bw={bw}
+                answers={answers}
+                onSetAnswer={onSetAnswer}
+                onSetMode={onSetMode}
+                projectId={projectId}
+              />
+            )}
           </div>
           {index === bauwerke.length - 1 && canManage && (
             <div className="border-t px-4 py-3 md:px-6">
               <button
                 type="button"
                 onClick={onAddBauwerk}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-2.5 font-mono text-xs text-muted-foreground transition-colors duration-200 ease-out hover:border-primary/60 hover:bg-primary/5 hover:text-primary motion-reduce:transition-none"
+                className="border-border text-muted-foreground hover:border-primary/60 hover:bg-primary/5 hover:text-primary inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed py-2.5 font-mono text-xs transition-colors duration-200 ease-out motion-reduce:transition-none"
               >
                 <Plus className="size-4" aria-hidden />
                 {t('intake.bauwerk.add')}
@@ -1240,7 +1316,10 @@ function ZoneBlocks({
     <>
       {selected.map((use) => {
         const label = d0?.options?.find((o) => o.value === use)?.label ?? use
-        const zoneQuestions = [...(stage.zoneCommon ?? []), ...(stage.zoneDefinitions?.[use]?.questions ?? [])]
+        const zoneQuestions = [
+          ...(stage.zoneCommon ?? []),
+          ...(stage.zoneDefinitions?.[use]?.questions ?? []),
+        ]
         if (zoneQuestions.length === 0) return null
         return (
           // The zone grouping is a quiet surface off the four-token ladder
@@ -1249,8 +1328,13 @@ function ZoneBlocks({
           // stays — it is INK, which is allowed; `border` + `border-l-2` used
           // to draw that edge twice, so the shorthand now names the other
           // three sides only.
-          <div key={use} className="rounded-xl border-y border-r border-l-2 border-l-primary bg-muted px-4 py-4">
-            <p className="mb-3 font-mono text-[11px] uppercase tracking-wider text-primary">Zone · {label}</p>
+          <div
+            key={use}
+            className="border-l-primary bg-muted rounded-xl border-y border-l-2 border-r px-4 py-4"
+          >
+            <p className="text-primary mb-3 font-mono text-[11px] uppercase tracking-wider">
+              Zone · {label}
+            </p>
             <div className="space-y-5">
               {zoneQuestions.map((q) => {
                 const answerKey = answerKeyFor(q.id, bw.id, use)
@@ -1289,7 +1373,7 @@ function reviewItemsFor(
   questions: ProjectIntakeQuestion[],
   answers: Answers,
   keyOf: (q: ProjectIntakeQuestion) => string,
-  instanceId?: string,
+  instanceId?: string
 ): ReviewItem[] {
   const items: ReviewItem[] = []
   for (const q of questions) {
@@ -1313,10 +1397,12 @@ function reviewItemsFor(
     }
     if (q.type === 'yes_no_open') {
       if (raw === 'offen') items.push({ label: q.label, value: '—', mode: 'offen' })
-      else if (raw === 'ja' || raw === 'nein') items.push({ label: q.label, value: raw === 'ja' ? 'Ja' : 'Nein' })
+      else if (raw === 'ja' || raw === 'nein')
+        items.push({ label: q.label, value: raw === 'ja' ? 'Ja' : 'Nein' })
       continue
     }
-    if (isIntakeAnswerProvided(raw)) items.push({ label: q.label, value: formatIntakeAnswer(q, raw) })
+    if (isIntakeAnswerProvided(raw))
+      items.push({ label: q.label, value: formatIntakeAnswer(q, raw) })
   }
   return items
 }
@@ -1341,7 +1427,7 @@ function ReviewSection({
           <button
             type="button"
             onClick={onEdit}
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground motion-reduce:transition-none"
+            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs transition-colors duration-200 ease-out motion-reduce:transition-none"
           >
             <PencilLine className="size-3" aria-hidden />
             {editLabel}
@@ -1351,8 +1437,13 @@ function ReviewSection({
       <dl className="mt-3 grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2">
         {items.map((item, i) => (
           <div key={i} className="flex flex-col">
-            <dt className="text-xs text-muted-foreground">{item.label}</dt>
-            <dd className={cn('mt-0.5 text-sm', item.mode === 'offen' ? 'text-muted-foreground' : 'font-medium')}>
+            <dt className="text-muted-foreground text-xs">{item.label}</dt>
+            <dd
+              className={cn(
+                'mt-0.5 text-sm',
+                item.mode === 'offen' ? 'text-muted-foreground' : 'font-medium'
+              )}
+            >
               {item.value}
               {item.mode === 'geschaetzt' && (
                 <Badge variant="warning" className="ml-2 align-middle">
@@ -1397,7 +1488,7 @@ function ReviewStep({
 
   return (
     <div className="space-y-4">
-      <div className="divide-y divide-border overflow-hidden rounded-2xl border bg-card shadow-xs">
+      <div className="divide-border bg-card shadow-xs divide-y overflow-hidden rounded-2xl border">
         {projektStages.map(({ stage, index }) => (
           <ReviewSection
             key={stage.id}
@@ -1412,18 +1503,25 @@ function ReviewStep({
       {bauwerke.map((bw) => {
         const items: ReviewItem[] = []
         for (const { stage } of bauwerkStages) {
-          items.push(...reviewItemsFor(stage.questions, answers, (q) => answerKeyFor(q.id, bw.id), bw.id))
+          items.push(
+            ...reviewItemsFor(stage.questions, answers, (q) => answerKeyFor(q.id, bw.id), bw.id)
+          )
           const uses = answers[answerKeyFor('D0', bw.id)]
           if (Array.isArray(uses)) {
             for (const use of uses) {
-              const zoneQs = [...(stage.zoneCommon ?? []), ...(stage.zoneDefinitions?.[use]?.questions ?? [])]
-              items.push(...reviewItemsFor(zoneQs, answers, (q) => answerKeyFor(q.id, bw.id, use), bw.id))
+              const zoneQs = [
+                ...(stage.zoneCommon ?? []),
+                ...(stage.zoneDefinitions?.[use]?.questions ?? []),
+              ]
+              items.push(
+                ...reviewItemsFor(zoneQs, answers, (q) => answerKeyFor(q.id, bw.id, use), bw.id)
+              )
             }
           }
         }
         if (items.length === 0) return null
         return (
-          <div key={bw.id} className="overflow-hidden rounded-2xl border bg-card shadow-xs">
+          <div key={bw.id} className="bg-card shadow-xs overflow-hidden rounded-2xl border">
             <ReviewSection
               title={bw.name}
               editLabel={t('intake.edit')}
@@ -1434,12 +1532,14 @@ function ReviewStep({
         )
       })}
 
-      <div className="rounded-2xl border border-dashed bg-muted/30 p-5">
+      <div className="bg-muted/30 rounded-2xl border border-dashed p-5">
         <div className="flex items-start gap-2">
-          <Sparkles className="size-4 shrink-0 translate-y-0.5 text-primary" aria-hidden />
+          <Sparkles className="text-primary size-4 shrink-0 translate-y-0.5" aria-hidden />
           <div>
             <p className="text-sm font-medium">{t('intake.classification.title')}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{t('intake.classification.description')}</p>
+            <p className="text-muted-foreground mt-1 text-sm">
+              {t('intake.classification.description')}
+            </p>
           </div>
         </div>
       </div>
@@ -1451,14 +1551,19 @@ function ReviewStep({
 // Findings panel (unchanged behaviour, adapted to modules).
 // ---------------------------------------------------------------------------
 
-function resolveReviseStage(definition: ProjectIntakeDefinition, finding: ConsistencyFinding): number {
+function resolveReviseStage(
+  definition: ProjectIntakeDefinition,
+  finding: ConsistencyFinding
+): number {
   for (const label of finding.fields) {
-    const idx = definition.stages.findIndex((stage) => stage.questions.some((q) => q.label === label))
+    const idx = definition.stages.findIndex((stage) =>
+      stage.questions.some((q) => q.label === label)
+    )
     if (idx >= 0) return idx
   }
   if (finding.kind === 'ai') {
     const freeTextStage = definition.stages.findIndex((stage) =>
-      stage.questions.some((q) => q.type === 'text' || q.type === 'textarea'),
+      stage.questions.some((q) => q.type === 'text' || q.type === 'textarea')
     )
     if (freeTextStage >= 0) return freeTextStage
   }
@@ -1485,12 +1590,15 @@ function ConflictFindings({
 }) {
   const t = useTranslations('projects')
   return (
-    <section aria-label={t('intake.consistency.title')} className="rounded-2xl border bg-card p-5 shadow-xs">
+    <section
+      aria-label={t('intake.consistency.title')}
+      className="bg-card shadow-xs rounded-2xl border p-5"
+    >
       <div className="flex items-start gap-2">
-        <AlertTriangle className="size-4 shrink-0 translate-y-0.5 text-warning" aria-hidden />
+        <AlertTriangle className="text-warning size-4 shrink-0 translate-y-0.5" aria-hidden />
         <div>
           <h3 className="text-sm font-semibold">{t('intake.consistency.title')}</h3>
-          <p className="mt-0.5 text-sm text-muted-foreground">{t('intake.consistency.subtitle')}</p>
+          <p className="text-muted-foreground mt-0.5 text-sm">{t('intake.consistency.subtitle')}</p>
         </div>
       </div>
 
@@ -1511,7 +1619,7 @@ function ConflictFindings({
                 // is already ~55% alpha; the solid class is the intended edge.
                 isHard
                   ? 'border-destructive/30 bg-danger-subtle text-destructive'
-                  : 'border-warning bg-warning-subtle text-warning',
+                  : 'border-warning bg-warning-subtle text-warning'
               )}
             >
               <div className="flex items-center justify-between gap-3">
@@ -1529,9 +1637,9 @@ function ConflictFindings({
                   {t('intake.consistency.revise')}
                 </button>
               </div>
-              <p className="mt-1 text-foreground">{findingMessage(finding, t)}</p>
+              <p className="text-foreground mt-1">{findingMessage(finding, t)}</p>
               {finding.fields.length > 0 && (
-                <p className="mt-1.5 text-xs text-muted-foreground">{finding.fields.join(' · ')}</p>
+                <p className="text-muted-foreground mt-1.5 text-xs">{finding.fields.join(' · ')}</p>
               )}
             </li>
           )
@@ -1541,7 +1649,9 @@ function ConflictFindings({
       <div className="mt-4 flex items-center justify-end">
         <Button type="button" onClick={onProceed} disabled={saving} className="min-w-36">
           <Loader2
-            className={saving ? 'size-4 animate-spin motion-reduce:animate-none' : 'size-4 opacity-0'}
+            className={
+              saving ? 'size-4 animate-spin motion-reduce:animate-none' : 'size-4 opacity-0'
+            }
             aria-hidden
           />
           {t('intake.consistency.proceed')}
@@ -1599,11 +1709,9 @@ function QuestionField({
     )
   }
 
-  const header = (
-    <QuestionHeader question={question} domId={domId} />
-  )
+  const header = <QuestionHeader question={question} domId={domId} />
   const errorText = error ? (
-    <p id={`${domId}-error`} className="text-sm text-destructive">
+    <p id={`${domId}-error`} className="text-destructive text-sm">
       {error}
     </p>
   ) : null
@@ -1716,7 +1824,11 @@ function QuestionField({
             value={typeof value === 'string' ? value : ''}
             onValueChange={(v) => onSetAnswer(answerKey, v)}
           >
-            <SelectTrigger id={domId} className="w-full max-w-md" aria-invalid={error ? true : undefined}>
+            <SelectTrigger
+              id={domId}
+              className="w-full max-w-md"
+              aria-invalid={error ? true : undefined}
+            >
               <SelectValue placeholder={t('intake.selectPlaceholder')} />
             </SelectTrigger>
             <SelectContent>
@@ -1760,11 +1872,14 @@ function QuestionHeader({ question, domId }: { question: ProjectIntakeQuestion; 
               from the ~90 soft ones BEFORE Next is pressed (error prevention),
               mirroring the FieldShell required marker used elsewhere. */}
           {question.required && (
-            <span aria-hidden className="text-destructive"> *</span>
+            <span aria-hidden className="text-destructive">
+              {' '}
+              *
+            </span>
           )}
         </Label>
         {question.optional && (
-          <span className="text-xs font-normal text-muted-foreground">{t('intake.optional')}</span>
+          <span className="text-muted-foreground text-xs font-normal">{t('intake.optional')}</span>
         )}
         {/* The rationale rides ON the label row as a glyph rather than under it
             as its own "Warum fragen wir das?" line. Nearly every question in the
@@ -1779,7 +1894,7 @@ function QuestionHeader({ question, domId }: { question: ProjectIntakeQuestion; 
             aria-controls={whyId}
             aria-label={t('intake.why')}
             title={t('intake.why')}
-            className="inline-flex size-4 shrink-0 items-center justify-center self-center rounded-full text-muted-foreground outline-none transition-colors duration-200 ease-out hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 pointer-coarse:-m-2.5 pointer-coarse:size-9 motion-reduce:transition-none"
+            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/40 pointer-coarse:-m-2.5 pointer-coarse:size-9 inline-flex size-4 shrink-0 items-center justify-center self-center rounded-full outline-none transition-colors duration-200 ease-out focus-visible:ring-2 motion-reduce:transition-none"
           >
             <HelpCircle className="size-3.5" aria-hidden />
           </button>
@@ -1788,11 +1903,14 @@ function QuestionHeader({ question, domId }: { question: ProjectIntakeQuestion; 
       {question.why && whyOpen && (
         // The documented quotation rule (`border-l-2 border-border`) on a real
         // surface, rather than a second differently-alpha'd action ink.
-        <p id={whyId} className="max-w-prose border-l-2 border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
+        <p
+          id={whyId}
+          className="border-border bg-muted text-muted-foreground max-w-prose border-l-2 px-3 py-2 text-xs"
+        >
           {question.why}
         </p>
       )}
-      {question.help && <p className="text-xs text-muted-foreground">{question.help}</p>}
+      {question.help && <p className="text-muted-foreground text-xs">{question.help}</p>}
     </div>
   )
 }
@@ -1833,7 +1951,9 @@ function NumberTriControl({
           }}
           className="max-w-32 font-mono"
         />
-        {question.unit && <span className="font-mono text-xs text-muted-foreground">{question.unit}</span>}
+        {question.unit && (
+          <span className="text-muted-foreground font-mono text-xs">{question.unit}</span>
+        )}
         <Segmented
           ariaLabel={t('intake.mode.aria')}
           size="sm"
@@ -1846,7 +1966,7 @@ function NumberTriControl({
           onChange={(v) => onMode(v as IntakeAnswerMode)}
         />
       </div>
-      {question.hint && <p className="max-w-xl text-xs text-muted-foreground">{question.hint}</p>}
+      {question.hint && <p className="text-muted-foreground max-w-xl text-xs">{question.hint}</p>}
     </div>
   )
 }
@@ -1871,7 +1991,7 @@ function Segmented({
     <div
       role="group"
       aria-label={ariaLabel}
-      className="inline-flex w-fit flex-wrap self-start overflow-hidden rounded-lg border border-border"
+      className="border-border inline-flex w-fit flex-wrap self-start overflow-hidden rounded-lg border"
     >
       {options.map((opt, i) => {
         const active = value === opt.value
@@ -1883,7 +2003,7 @@ function Segmented({
             aria-pressed={active}
             onClick={() => onChange(opt.value)}
             className={cn(
-              'inline-flex items-center justify-center border-border transition-colors duration-200 ease-out motion-reduce:transition-none',
+              'border-border inline-flex items-center justify-center transition-colors duration-200 ease-out motion-reduce:transition-none',
               i > 0 && 'border-l',
               // Comfortable tap targets on touch screens; denser on desktop pointers.
               size === 'sm'
@@ -1892,7 +2012,7 @@ function Segmented({
               !active && 'bg-card text-foreground hover:bg-muted',
               active && tone === 'default' && 'bg-primary text-primary-foreground',
               active && tone === 'warning' && 'bg-warning text-white',
-              active && tone === 'muted' && 'bg-muted-foreground text-background',
+              active && tone === 'muted' && 'bg-muted-foreground text-background'
             )}
           >
             {opt.label}
@@ -1922,12 +2042,14 @@ function ChipMultiSelect({
             key={opt.value}
             type="button"
             aria-pressed={active}
-            onClick={() => onChange(active ? value.filter((v) => v !== opt.value) : [...value, opt.value])}
+            onClick={() =>
+              onChange(active ? value.filter((v) => v !== opt.value) : [...value, opt.value])
+            }
             className={cn(
               'inline-flex min-h-11 items-center justify-center rounded-full border px-4 py-1.5 text-sm transition-colors duration-200 ease-out motion-reduce:transition-none md:min-h-9 md:px-3.5',
               active
                 ? 'border-primary bg-primary text-primary-foreground'
-                : 'border-border bg-card text-foreground hover:border-primary/50 hover:bg-primary/5',
+                : 'border-border bg-card text-foreground hover:border-primary/50 hover:bg-primary/5'
             )}
           >
             {opt.label}
@@ -1939,16 +2061,22 @@ function ChipMultiSelect({
 }
 
 /** Upload slot — directs the user to the project's Files tab (v1: no in-wizard upload). */
-function UploadField({ question, projectId }: { question: ProjectIntakeQuestion; projectId: string }) {
+function UploadField({
+  question,
+  projectId,
+}: {
+  question: ProjectIntakeQuestion
+  projectId: string
+}) {
   const t = useTranslations('projects')
   return (
     <div className="flex flex-col gap-2">
       <span className="text-sm font-medium">{question.label}</span>
       <Link
         href={`/app/projects/${projectId}/files`}
-        className="inline-flex max-w-md items-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground transition-colors duration-200 ease-out hover:border-primary/50 hover:bg-primary/5 hover:text-foreground motion-reduce:transition-none"
+        className="border-border bg-muted/20 text-muted-foreground hover:border-primary/50 hover:bg-primary/5 hover:text-foreground inline-flex max-w-md items-center gap-3 rounded-lg border border-dashed px-4 py-3 text-sm transition-colors duration-200 ease-out motion-reduce:transition-none"
       >
-        <FolderOpen className="size-4 shrink-0 text-primary" aria-hidden />
+        <FolderOpen className="text-primary size-4 shrink-0" aria-hidden />
         <span>{t('intake.upload.hint')}</span>
       </Link>
     </div>
@@ -1959,15 +2087,15 @@ function UploadField({ question, projectId }: { question: ProjectIntakeQuestion;
 function InfoPlaceholder({ question }: { question: ProjectIntakeQuestion }) {
   const t = useTranslations('projects')
   return (
-    <div className="rounded-xl border border-dashed bg-muted/30 px-4 py-3.5">
+    <div className="bg-muted/30 rounded-xl border border-dashed px-4 py-3.5">
       <div className="flex items-start gap-2.5">
-        <Sparkles className="size-4 shrink-0 translate-y-0.5 text-primary" aria-hidden />
+        <Sparkles className="text-primary size-4 shrink-0 translate-y-0.5" aria-hidden />
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <p className="text-sm font-medium">{question.label}</p>
             <Badge variant="info">{t('intake.derived.badge')}</Badge>
           </div>
-          {question.hint && <p className="mt-1 text-xs text-muted-foreground">{question.hint}</p>}
+          {question.hint && <p className="text-muted-foreground mt-1 text-xs">{question.hint}</p>}
         </div>
       </div>
     </div>

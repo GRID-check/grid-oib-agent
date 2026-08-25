@@ -8,7 +8,7 @@
  * take that page down with it.
  *
  * Declared through `apiRoute` (ADR-0017) like its siblings, so session auth and
- * error mapping live in the factory; the owner gate itself is inside
+ * error mapping live in the factory; the platform permission gate itself is inside
  * `getAnswerFeedbackDigest`, and the only translation left is the typed denial.
  */
 
@@ -42,5 +42,9 @@ export const GET = apiRoute(
       throw error
     }
   },
-  { authz: { enforcedBy: 'getAnswerFeedbackDigest (requirePlatformOwner)' } }
+  {
+    authz: {
+      enforcedBy: 'getAnswerFeedbackDigest (requirePlatformPermission platform:organizations:view)',
+    },
+  }
 )

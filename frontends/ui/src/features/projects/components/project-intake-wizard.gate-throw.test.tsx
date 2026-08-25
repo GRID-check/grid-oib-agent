@@ -65,7 +65,7 @@ describe('ProjectIntakeWizard — Fix 2 pre-save gate fail-open', () => {
     const reviewStep = projectIntakeDefinitionV1.stages.length - 1
     localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
-      JSON.stringify({ answers: { A2_land: 'wien' }, currentStep: reviewStep }),
+      JSON.stringify({ answers: { A2_land: 'wien' }, currentStep: reviewStep })
     )
     render(<ProjectIntakeWizard projectId={PROJECT_ID} projectName="Test" conflictCheckEnabled />)
 
@@ -73,7 +73,9 @@ describe('ProjectIntakeWizard — Fix 2 pre-save gate fail-open', () => {
 
     // The save completed despite the gate throwing.
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
-    const putCalls = calls.filter((c) => c.url.endsWith(`/projects/${PROJECT_ID}/profile`) && c.method === 'PUT')
+    const putCalls = calls.filter(
+      (c) => c.url.endsWith(`/projects/${PROJECT_ID}/profile`) && c.method === 'PUT'
+    )
     expect(putCalls).toHaveLength(1)
     // ...and the throw was logged rather than swallowed silently.
     expect(console.error).toHaveBeenCalled()

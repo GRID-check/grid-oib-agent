@@ -8,6 +8,21 @@
   font-display: swap;
   src: url('/fonts/archivo-var-latin.woff2') format('woff2');
 }
+/*
+ * Instrument Serif (SIL OFL 1.1, fontsource.org/fonts/instrument-serif).
+ *
+ * One weight, display only — which is the point. It cannot be misused for
+ * running text, so it stays where it belongs: on the sentences the site says in
+ * its own voice. Everything the site *measures* stays in the grotesque and the
+ * mono.
+ */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/instrument-serif-400-latin.woff2') format('woff2');
+}
 @font-face {
   font-family: Inter;
   font-style: normal;
@@ -54,12 +69,12 @@
 @theme {
   --color-canvas: #f7f7f3;
   --color-hero-bg: #e8e5dd;
-  --color-ink: #1f2023;
-  --color-ink-soft: #55565a;
-  --color-ink-mid: #3d3e3a;
-  --color-ink-mute: #6f706c;
-  --color-ink-faint: #8a8a86;
-  --color-ink-ghost: #a8a8a4;
+  --color-ink: #1b1c19;
+  --color-ink-soft: #53534c;
+  --color-ink-mid: #3b3c36;
+  --color-ink-mute: #726f66;
+  --color-ink-faint: #8d8a80;
+  --color-ink-ghost: #aaa79d;
   --color-panel: #22271a;
   --color-accent-900: #2a301f;
   --color-accent-800: #2c3620;
@@ -75,10 +90,14 @@
   --color-paper-dim: #fafaf8;
   --color-hairline: #dcdfd8;
   --color-ok: #17914d;
-  --color-chip-law: #e3eafb;
+  /* Provenance signals — the one place this brand allows colour, taken from the
+     product's own tokens (frontends/ui/src/styles/tokens.css) so a mock of the
+     app is not a drawing of the app in different paint. */
+  --color-chip-law: #e6edfb;
   --color-chip-law-ink: #1c47ab;
-  --color-chip-project: #e7f0e0;
-  --color-chip-project-ink: #3f6b50;
+  --color-chip-project: #e0f1e6;
+  --color-chip-project-ink: #0f7a3d;
+
   --color-on-dark: #b9c2a4;
   --color-on-dark-strong: #eef2e4;
   --color-on-dark-label: #a4b47a;
@@ -86,49 +105,86 @@
 
   --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-display: 'Helvetica Neue', Archivo, Helvetica, sans-serif;
+  /* The voice. Used for what the site says, never for what it counts. */
+  --font-voice: 'Instrument Serif', 'Iowan Old Style', 'Times New Roman', serif;
   --font-logo: Poppins, 'Helvetica Neue', Archivo, sans-serif;
   --font-mono: 'IBM Plex Mono', monospace;
 
   /* Type scale. The display sizes are fluid and carry their own leading,
      tracking and weight, so a heading is one utility (`text-h2`) instead of a
-     size/leading/tracking triplet repeated in every section. */
+     size/leading/tracking triplet repeated in every section.
+
+     The display weights are 600, not 700, and the tracking is tighter than the
+     face's default. Bold-and-loose is how a landing page announces itself;
+     large type set a shade lighter and drawn closer together is how a printed
+     one carries authority without raising its voice. The scale is also a step
+     larger, because the confidence is in the size, not the weight. */
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1.45;
 
-  --text-display: clamp(2.25rem, 4.8vw, 4.375rem);
-  --text-display--line-height: 1;
-  --text-display--letter-spacing: -0.032em;
-  --text-display--font-weight: 700;
+  --text-display: clamp(2.5rem, 5.2vw, 5rem);
+  --text-display--line-height: 1.02;
+  --text-display--letter-spacing: -0.038em;
+  --text-display--font-weight: 600;
 
-  --text-h1: clamp(2.25rem, 5.5vw, 4.5rem);
+  --text-h1: clamp(2.375rem, 5.6vw, 4.75rem);
   --text-h1--line-height: 1.04;
-  --text-h1--letter-spacing: -0.025em;
-  --text-h1--font-weight: 700;
+  --text-h1--letter-spacing: -0.034em;
+  --text-h1--font-weight: 600;
 
-  --text-h2: clamp(1.75rem, 4vw, 3.125rem);
-  --text-h2--line-height: 1.08;
-  --text-h2--letter-spacing: -0.02em;
-  --text-h2--font-weight: 700;
+  --text-h2: clamp(1.875rem, 4.2vw, 3.375rem);
+  --text-h2--line-height: 1.07;
+  --text-h2--letter-spacing: -0.03em;
+  --text-h2--font-weight: 600;
 
-  --text-h3: clamp(1.625rem, 3.5vw, 2.75rem);
-  --text-h3--line-height: 1.12;
-  --text-h3--letter-spacing: -0.018em;
-  --text-h3--font-weight: 700;
+  --text-h3: clamp(1.75rem, 3.6vw, 3rem);
+  --text-h3--line-height: 1.1;
+  --text-h3--letter-spacing: -0.026em;
+  --text-h3--font-weight: 600;
 
-  --text-h4: clamp(1.375rem, 2.6vw, 2.375rem);
-  --text-h4--line-height: 1.15;
-  --text-h4--letter-spacing: -0.018em;
-  --text-h4--font-weight: 700;
+  --text-h4: clamp(1.4375rem, 2.7vw, 2.5rem);
+  --text-h4--line-height: 1.14;
+  --text-h4--letter-spacing: -0.024em;
+  --text-h4--font-weight: 600;
 
-  --tracking-label: 0.14em;
+  /* The voice scale. A serif of this contrast reads a size smaller than the
+     grotesque at the same measure and needs less negative tracking, so these are
+     not the display sizes with a different family bolted on — they are drawn for
+     the face that uses them. One weight, because the face has one. */
+  --text-v-display: clamp(2.75rem, 5.9vw, 5.75rem);
+  --text-v-display--line-height: 1;
+  --text-v-display--letter-spacing: -0.012em;
+  --text-v-display--font-weight: 400;
+
+  --text-v1: clamp(2.625rem, 6.2vw, 5.25rem);
+  --text-v1--line-height: 1.02;
+  --text-v1--letter-spacing: -0.012em;
+  --text-v1--font-weight: 400;
+
+  --text-v2: clamp(2.125rem, 4.8vw, 3.875rem);
+  --text-v2--line-height: 1.06;
+  --text-v2--letter-spacing: -0.008em;
+  --text-v2--font-weight: 400;
+
+  --text-v3: clamp(1.9375rem, 4.1vw, 3.375rem);
+  --text-v3--line-height: 1.08;
+  --text-v3--letter-spacing: -0.006em;
+  --text-v3--font-weight: 400;
+
+  --text-v4: clamp(1.625rem, 3.1vw, 2.875rem);
+  --text-v4--line-height: 1.12;
+  --text-v4--letter-spacing: -0.004em;
+  --text-v4--font-weight: 400;
+
+  --tracking-label: 0.17em;
   --tracking-logo: 0.2em;
 
   --radius-card: 1.25rem;
-  --radius-panel: 1.75rem;
+  --radius-panel: 2rem;
 
-  --shadow-card: 0 1px 3px rgb(30 40 30 / 0.1);
-  --shadow-lift: 0 14px 36px rgb(24 28 16 / 0.12);
-  --shadow-mock: 0 32px 70px -36px rgb(42 48 31 / 0.35);
+  --shadow-card: 0 1px 2px rgb(32 38 24 / 0.06), 0 4px 14px -6px rgb(32 38 24 / 0.1);
+  --shadow-lift: 0 2px 4px rgb(24 28 16 / 0.05), 0 18px 44px -14px rgb(24 28 16 / 0.16);
+  --shadow-mock: 0 1px 2px rgb(42 48 31 / 0.06), 0 30px 68px -34px rgb(42 48 31 / 0.34);
   --shadow-frag: 0 8px 24px rgb(0 0 0 / 0.35);
   --shadow-float: 0 18px 40px -22px rgb(0 0 0 / 0.6);
   --shadow-hero: 0 24px 60px -24px rgb(0 0 0 / 0.7);
@@ -139,16 +195,16 @@
    rather than as a card pasted over it. */
 @utility sheet-dark {
   background-image:
-    linear-gradient(to right, rgb(238 242 228 / 0.045) 0 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(238 242 228 / 0.045) 0 1px, transparent 1px);
+    linear-gradient(to right, rgb(238 242 228 / 0.035) 0 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(238 242 228 / 0.035) 0 1px, transparent 1px);
   background-size: 28px 28px;
   background-position: center top;
 }
 
 @utility sheet-light {
   background-image:
-    linear-gradient(to right, rgb(42 48 31 / 0.05) 0 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(42 48 31 / 0.05) 0 1px, transparent 1px);
+    linear-gradient(to right, rgb(42 48 31 / 0.035) 0 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(42 48 31 / 0.035) 0 1px, transparent 1px);
   background-size: 28px 28px;
   background-position: center top;
 }
@@ -172,17 +228,24 @@
   #nutzung,
   #daten,
   #datenschutz,
-  #kontakt {
+  #wert {
     scroll-snap-align: center;
+  }
+
+  /* The last section must not be a snap target. Snapping it — to centre or to
+     start — parks the viewport on it and pulls back out of the footer, which is
+     shorter than the snap it is fighting, so the footer became unreachable. */
+  #kontakt {
+    scroll-snap-align: none;
   }
 
   body {
     background-color: var(--color-canvas);
     background-image:
-      linear-gradient(to right, rgb(42 48 31 / 0.1) 0 1px, transparent 1px),
-      linear-gradient(to bottom, rgb(42 48 31 / 0.1) 0 1px, transparent 1px),
-      linear-gradient(to right, rgb(42 48 31 / 0.05) 0 1px, transparent 1px),
-      linear-gradient(to bottom, rgb(42 48 31 / 0.05) 0 1px, transparent 1px);
+      linear-gradient(to right, rgb(42 48 31 / 0.075) 0 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(42 48 31 / 0.075) 0 1px, transparent 1px),
+      linear-gradient(to right, rgb(42 48 31 / 0.032) 0 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(42 48 31 / 0.032) 0 1px, transparent 1px);
     background-size:
       168px 168px,
       168px 168px,
@@ -257,11 +320,6 @@
   }
 }
 
-[data-reveal] {
-  transition:
-    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
-}
 
 /* Tailwind v4 compiles `-translate-x-1/2` / `scale-*` to the standalone
    `translate:` and `scale:` properties, which compose with `transform` instead

@@ -28,7 +28,9 @@ describe('the role registry', () => {
   it('only makes a role single-holder when the project really has one', () => {
     // A cardinality claim is about the world. The plan sets are many; the
     // governing documents are one.
-    const single = DOCUMENT_ROLE_DEFINITIONS.filter((d) => d.cardinality === 'one').map((d) => d.role)
+    const single = DOCUMENT_ROLE_DEFINITIONS.filter((d) => d.cardinality === 'one').map(
+      (d) => d.role
+    )
     expect(single).toEqual(['bebauungsplan', 'flaechenwidmungsplan', 'grundbuchauszug', 'lageplan'])
   })
 

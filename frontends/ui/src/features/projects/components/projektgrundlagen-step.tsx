@@ -40,7 +40,11 @@ interface Slot {
   recommended: boolean
 }
 
-export function ProjektgrundlagenStep({ projectId, answers, bauwerke }: ProjektgrundlagenStepProps) {
+export function ProjektgrundlagenStep({
+  projectId,
+  answers,
+  bauwerke,
+}: ProjektgrundlagenStepProps) {
   const slots = useMemo<Slot[]>(() => {
     const projectRecommended = new Set(recommendedRoles(answers))
     const perBauwerk = new Map<string, Set<DocumentRole>>(
@@ -83,7 +87,7 @@ export function ProjektgrundlagenStep({ projectId, answers, bauwerke }: Projektg
         <section className="space-y-3">
           <div>
             <h3 className="text-sm font-semibold">Für dieses Projekt besonders wichtig</h3>
-            <p className="mt-0.5 text-sm text-muted-foreground">
+            <p className="text-muted-foreground mt-0.5 text-sm">
               {recommended.length === 1
                 ? 'Diese Unterlage ergibt sich aus Ihren Angaben.'
                 : `Diese ${recommended.length} Unterlagen ergeben sich aus Ihren Angaben.`}{' '}
@@ -92,7 +96,7 @@ export function ProjektgrundlagenStep({ projectId, answers, bauwerke }: Projektg
           </div>
           <ul className="space-y-3">
             {recommended.map((slot) => (
-              <li key={slot.key} className="rounded-xl border bg-card px-4 py-3.5">
+              <li key={slot.key} className="bg-card rounded-xl border px-4 py-3.5">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <span className="text-sm font-medium">{slot.label}</span>
                   <Badge variant="info">dringend empfohlen</Badge>
@@ -112,11 +116,11 @@ export function ProjektgrundlagenStep({ projectId, answers, bauwerke }: Projektg
         <section className="space-y-2">
           <div>
             <h3 className="text-sm font-semibold">Weitere Unterlagen</h3>
-            <p className="mt-0.5 text-sm text-muted-foreground">
+            <p className="text-muted-foreground mt-0.5 text-sm">
               Optional, und jederzeit später ergänzbar.
             </p>
           </div>
-          <ul className="divide-y rounded-xl border bg-card">
+          <ul className="bg-card divide-y rounded-xl border">
             {optional.map((slot) => (
               <CollapsedSlot key={slot.key} slot={slot} projectId={projectId} />
             ))}
@@ -138,13 +142,13 @@ function CollapsedSlot({ slot, projectId }: { slot: Slot; projectId: string }) {
         onClick={() => setOpen((previous) => !previous)}
         aria-expanded={open}
         aria-controls={panelId}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-200 ease-out hover:bg-muted/40 motion-reduce:transition-none"
+        className="hover:bg-muted/40 flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-200 ease-out motion-reduce:transition-none"
       >
         <span className="min-w-0 flex-1 truncate text-sm">{slot.label}</span>
         {open ? (
-          <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <ChevronDown className="text-muted-foreground size-4 shrink-0" aria-hidden />
         ) : (
-          <Plus className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <Plus className="text-muted-foreground size-4 shrink-0" aria-hidden />
         )}
       </button>
       {/* Mounted only once opened. The store means this is no longer about

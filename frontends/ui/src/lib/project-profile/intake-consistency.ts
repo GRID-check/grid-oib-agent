@@ -55,7 +55,10 @@ export interface ConsistencyCheckField {
 
 type Answers = Record<string, ProjectPrimitiveValue>
 
-function questionById(definition: ProjectIntakeDefinition, id: string): ProjectIntakeQuestion | undefined {
+function questionById(
+  definition: ProjectIntakeDefinition,
+  id: string
+): ProjectIntakeQuestion | undefined {
   return flattenIntakeQuestions(definition).find((q) => q.id === id)
 }
 
@@ -75,7 +78,7 @@ function labelFor(definition: ProjectIntakeDefinition, id: string): string {
 
 function checkFossilNeubauConflict(
   answers: Answers,
-  definition: ProjectIntakeDefinition,
+  definition: ProjectIntakeDefinition
 ): DeterministicConsistencyFinding[] {
   const vorhaben = answers['A5']
   const isNeubau = Array.isArray(vorhaben) && vorhaben.includes('neubau')
@@ -102,14 +105,14 @@ function checkFossilNeubauConflict(
 
 export function checkIntakeConsistencyFromAnswers(
   answers: Answers,
-  definition: ProjectIntakeDefinition = projectIntakeDefinitionV1,
+  definition: ProjectIntakeDefinition = projectIntakeDefinitionV1
 ): DeterministicConsistencyFinding[] {
   return [...checkFossilNeubauConflict(answers, definition)]
 }
 
 export function checkIntakeConsistency(
   profile: ProjectProfile,
-  definition: ProjectIntakeDefinition = projectIntakeDefinitionV1,
+  definition: ProjectIntakeDefinition = projectIntakeDefinitionV1
 ): DeterministicConsistencyFinding[] {
   const { answers } = answersFromProfile(profile, definition)
   return checkIntakeConsistencyFromAnswers(answers, definition)
@@ -133,7 +136,7 @@ function isFreeText(question: ProjectIntakeQuestion): boolean {
 export function collectFreeTextFields(
   answers: Answers,
   definition: ProjectIntakeDefinition = projectIntakeDefinitionV1,
-  minLength = 10,
+  minLength = 10
 ): ConsistencyCheckField[] {
   const fields: ConsistencyCheckField[] = []
   for (const stage of definition.stages) {
@@ -156,7 +159,7 @@ export function collectFreeTextFields(
  */
 export function collectStructuredContextFields(
   answers: Answers,
-  definition: ProjectIntakeDefinition = projectIntakeDefinitionV1,
+  definition: ProjectIntakeDefinition = projectIntakeDefinitionV1
 ): ConsistencyCheckField[] {
   const fields: ConsistencyCheckField[] = []
   for (const stage of definition.stages) {

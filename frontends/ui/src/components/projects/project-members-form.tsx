@@ -36,7 +36,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslations } from '@/i18n'
 
-type ProjectRole = 'project-viewer' | 'project-editor' | 'project-admin'
+type ProjectRole = 'project-viewer' | 'project-contributor' | 'project-editor' | 'project-admin'
 
 interface Member {
   organizationMembershipId: string
@@ -72,7 +72,12 @@ interface PendingRoleConfirm {
   run: () => Promise<void>
 }
 
-const ROLE_VALUES: ProjectRole[] = ['project-viewer', 'project-editor', 'project-admin']
+const ROLE_VALUES: ProjectRole[] = [
+  'project-viewer',
+  'project-contributor',
+  'project-editor',
+  'project-admin',
+]
 
 /** Radix Select items cannot use an empty-string value; sentinel for "no access". */
 const NO_ACCESS = 'none'
@@ -121,7 +126,11 @@ interface RoleSelectFieldProps {
  * primitives (rather than the shared `field.SelectField`) so each option can
  * carry a one-line explainer of what the role actually grants.
  */
-function RoleSelectField({ label, options, containerClassName }: RoleSelectFieldProps): JSX.Element {
+function RoleSelectField({
+  label,
+  options,
+  containerClassName,
+}: RoleSelectFieldProps): JSX.Element {
   const field = useFieldContext<ProjectRole>()
   const errors = field.state.meta.isTouched
     ? (field.state.meta.errors as Array<string | { message: string } | undefined>)
@@ -132,7 +141,10 @@ function RoleSelectField({ label, options, containerClassName }: RoleSelectField
 
   return (
     <FieldShell label={label} htmlFor={field.name} errors={errors} className={containerClassName}>
-      <Select value={field.state.value} onValueChange={(value) => field.handleChange(value as ProjectRole)}>
+      <Select
+        value={field.state.value}
+        onValueChange={(value) => field.handleChange(value as ProjectRole)}
+      >
         <SelectTrigger id={field.name} className="w-full" onBlur={field.handleBlur}>
           <SelectValue>{selectedLabel}</SelectValue>
         </SelectTrigger>
@@ -141,7 +153,9 @@ function RoleSelectField({ label, options, containerClassName }: RoleSelectField
             <SelectItem key={option.value} value={option.value}>
               <div className="flex flex-col gap-0.5 py-0.5 text-left">
                 <span>{option.label}</span>
-                <span className="text-xs font-normal text-muted-foreground">{option.description}</span>
+                <span className="text-muted-foreground text-xs font-normal">
+                  {option.description}
+                </span>
               </div>
             </SelectItem>
           ))}
@@ -176,7 +190,7 @@ function MemberSuggestField({
     .sort(
       (a, b) =>
         // Members without project access first — they're the ones being added.
-        Number(Boolean(a.role)) - Number(Boolean(b.role)) || a.name.localeCompare(b.name),
+        Number(Boolean(a.role)) - Number(Boolean(b.role)) || a.name.localeCompare(b.name)
     )
     .slice(0, MAX_SUGGESTIONS)
 
@@ -241,10 +255,10 @@ function MemberSuggestField({
             id={listboxId}
             role="listbox"
             aria-label={t('invite.suggestionsAria')}
-            className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-y-auto rounded-xl border bg-popover shadow-md"
+            className="bg-popover absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-y-auto rounded-xl border shadow-md"
           >
             {suggestions.length === 0 ? (
-              <p className="px-3 py-2.5 text-sm text-muted-foreground">
+              <p className="text-muted-foreground px-3 py-2.5 text-sm">
                 {t('invite.noSuggestions')}
               </p>
             ) : (
@@ -262,16 +276,16 @@ function MemberSuggestField({
                   }}
                   onMouseEnter={() => setHighlight(index)}
                   className={cn(
-                    'flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors duration-snap ease-out motion-reduce:transition-none',
-                    index === active && 'bg-accent',
+                    'duration-snap flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors ease-out motion-reduce:transition-none',
+                    index === active && 'bg-accent'
                   )}
                 >
                   <MemberAvatar member={member} className="size-7" />
                   <div className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate text-sm font-medium">{member.name}</span>
-                    <span className="truncate text-xs text-muted-foreground">{member.email}</span>
+                    <span className="text-muted-foreground truncate text-xs">{member.email}</span>
                   </div>
-                  <span className="shrink-0 text-xs text-muted-foreground">
+                  <span className="text-muted-foreground shrink-0 text-xs">
                     {member.role ? roleLabel(member.role) : t('roster.noAccess')}
                   </span>
                 </div>
@@ -301,7 +315,7 @@ export function ProjectMembersForm({
 
   const inviteSchema = z.object({
     email: z.string().min(1, t('validation.emailRequired')).email(t('validation.emailInvalid')),
-    roleSlug: z.enum(['project-viewer', 'project-editor', 'project-admin']),
+    roleSlug: z.enum(['project-viewer', 'project-contributor', 'project-editor', 'project-admin']),
   })
 
   const [members, setMembers] = useState<Member[]>([])
@@ -377,8 +391,8 @@ export function ProjectMembersForm({
           prev.map((member) =>
             member.organizationMembershipId === organizationMembershipId
               ? { ...member, role: roleSlug || null }
-              : member,
-          ),
+              : member
+          )
         )
         return true
       } catch (err) {
@@ -390,7 +404,7 @@ export function ProjectMembersForm({
         setUpdatingId(null)
       }
     },
-    [projectId, t],
+    [projectId, t]
   )
 
   /**
@@ -401,7 +415,8 @@ export function ProjectMembersForm({
    * `assignRole` directly.
    */
   const handleRosterRoleChange = (member: Member, nextRole: ProjectRole | ''): void => {
-    const isSelf = currentMembershipId != null && member.organizationMembershipId === currentMembershipId
+    const isSelf =
+      currentMembershipId != null && member.organizationMembershipId === currentMembershipId
     if (!isSelf) {
       void assignRole(member.organizationMembershipId, nextRole)
       return
@@ -436,7 +451,9 @@ export function ProjectMembersForm({
     onSubmit: async ({ value, formApi }) => {
       setInviteError(null)
       const email = value.email.trim().toLowerCase()
-      const match = membersRef.current.find((member) => (member.email ?? '').toLowerCase() === email)
+      const match = membersRef.current.find(
+        (member) => (member.email ?? '').toLowerCase() === email
+      )
 
       if (!match) {
         setInviteError(t('invite.notFound'))
@@ -446,9 +463,7 @@ export function ProjectMembersForm({
       const grantAndAnnounce = async (): Promise<void> => {
         const ok = await assignRole(match.organizationMembershipId, value.roleSlug)
         if (ok) {
-          toast.success(
-            t('invite.success', { name: match.name, role: roleLabel(value.roleSlug) }),
-          )
+          toast.success(t('invite.success', { name: match.name, role: roleLabel(value.roleSlug) }))
           formApi.reset()
         }
       }
@@ -461,7 +476,9 @@ export function ProjectMembersForm({
 
       if (match.role === value.roleSlug) {
         // Nothing would actually change; say so instead of a no-op success.
-        setInviteError(t('invite.alreadyHasRole', { name: match.name, role: roleLabel(match.role) }))
+        setInviteError(
+          t('invite.alreadyHasRole', { name: match.name, role: roleLabel(match.role) })
+        )
         return
       }
 
@@ -519,208 +536,218 @@ export function ProjectMembersForm({
   return (
     <>
       <div className="flex flex-col gap-8">
-      {canManage ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <UserPlus className="size-4 text-muted-foreground" aria-hidden />
-              {t('invite.title')}
-            </CardTitle>
-            <CardDescription>{t('invite.description')}</CardDescription>
+        {canManage ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UserPlus className="text-muted-foreground size-4" aria-hidden />
+                {t('invite.title')}
+              </CardTitle>
+              <CardDescription>{t('invite.description')}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  void inviteForm.handleSubmit()
+                }}
+                className="flex flex-col gap-4"
+              >
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                  <inviteForm.AppField name="email">
+                    {() => (
+                      <MemberSuggestField
+                        label={t('invite.memberLabel')}
+                        placeholder={t('invite.searchPlaceholder')}
+                        members={members}
+                        roleLabel={roleLabel}
+                        containerClassName="flex-1"
+                      />
+                    )}
+                  </inviteForm.AppField>
+                  <inviteForm.AppField name="roleSlug">
+                    {() => (
+                      <RoleSelectField
+                        label={t('invite.roleLabel')}
+                        options={roleOptions}
+                        containerClassName="sm:w-56"
+                      />
+                    )}
+                  </inviteForm.AppField>
+                </div>
+
+                {inviteError && <FieldError>{inviteError}</FieldError>}
+
+                <div className="flex justify-end">
+                  <inviteForm.AppForm>
+                    <inviteForm.SubmitButton>{t('invite.submit')}</inviteForm.SubmitButton>
+                  </inviteForm.AppForm>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        ) : (
+          <Alert>
+            <Lock className="size-4" />
+            <AlertTitle>{t('readOnly.title')}</AlertTitle>
+            <AlertDescription>{t('readOnly.description')}</AlertDescription>
+          </Alert>
+        )}
+
+        {actionError && (
+          <Alert variant="destructive">
+            <AlertTitle>{t('errors.actionTitle')}</AlertTitle>
+            <AlertDescription>{actionError}</AlertDescription>
+          </Alert>
+        )}
+
+        <Card className="gap-0 overflow-hidden py-0">
+          <CardHeader className="[.border-b]:pb-4 gap-3 border-b py-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="text-muted-foreground size-4" aria-hidden />
+                  {t('roster.title')}
+                </CardTitle>
+                <CardDescription>
+                  {t('roster.counts', { active: activeCount, total: members.length })}
+                </CardDescription>
+              </div>
+
+              <searchForm.AppField name="query">
+                {(field) => (
+                  <SearchField
+                    type="text"
+                    className="w-full sm:max-w-xs"
+                    value={field.state.value}
+                    onChange={(value) => field.handleChange(value)}
+                    placeholder={t('roster.searchPlaceholder')}
+                    label={t('roster.searchAria')}
+                    clearLabel={t('roster.clearSearch')}
+                    onClear={() => searchForm.setFieldValue('query', '')}
+                  />
+                )}
+              </searchForm.AppField>
+            </div>
           </CardHeader>
-          <CardContent>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-                void inviteForm.handleSubmit()
-              }}
-              className="flex flex-col gap-4"
-            >
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-                <inviteForm.AppField name="email">
-                  {() => (
-                    <MemberSuggestField
-                      label={t('invite.memberLabel')}
-                      placeholder={t('invite.searchPlaceholder')}
-                      members={members}
-                      roleLabel={roleLabel}
-                      containerClassName="flex-1"
-                    />
-                  )}
-                </inviteForm.AppField>
-                <inviteForm.AppField name="roleSlug">
-                  {() => (
-                    <RoleSelectField
-                      label={t('invite.roleLabel')}
-                      options={roleOptions}
-                      containerClassName="sm:w-56"
-                    />
-                  )}
-                </inviteForm.AppField>
-              </div>
 
-              {inviteError && <FieldError>{inviteError}</FieldError>}
-
-              <div className="flex justify-end">
-                <inviteForm.AppForm>
-                  <inviteForm.SubmitButton>{t('invite.submit')}</inviteForm.SubmitButton>
-                </inviteForm.AppForm>
-              </div>
-            </form>
+          <CardContent className="p-0">
+            {members.length === 0 ? (
+              <EmptyState
+                variant="bare"
+                icon={Users}
+                title={t('roster.emptyTitle')}
+                description={t('roster.emptyDescription')}
+              />
+            ) : filteredMembers.length === 0 ? (
+              <EmptyState
+                variant="bare"
+                icon={Search}
+                title={t('roster.noMatchTitle')}
+                description={t('roster.noMatchDescription')}
+                action={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => searchForm.setFieldValue('query', '')}
+                  >
+                    {t('roster.clearSearch')}
+                  </Button>
+                }
+              />
+            ) : (
+              <ItemList className="rounded-none border-0">
+                {filteredMembers.map((member) => {
+                  const isUpdating = updatingId === member.organizationMembershipId
+                  const isSelf =
+                    currentMembershipId != null &&
+                    member.organizationMembershipId === currentMembershipId
+                  return (
+                    <Item
+                      key={member.organizationMembershipId}
+                      className="flex-col items-stretch sm:flex-row sm:items-center"
+                    >
+                      <ItemMedia className="size-9">
+                        <MemberAvatar member={member} className="size-9" />
+                      </ItemMedia>
+                      <ItemContent>
+                        <ItemTitle className="flex min-w-0 items-center gap-1.5">
+                          <span className="truncate">{member.name}</span>
+                          {isSelf && (
+                            <Badge variant="outline" className="shrink-0">
+                              {t('roster.youBadge')}
+                            </Badge>
+                          )}
+                        </ItemTitle>
+                        <ItemDescription>{member.email ?? member.userId}</ItemDescription>
+                      </ItemContent>
+                      <ItemActions className="ml-0 w-full justify-end sm:ml-auto sm:w-auto sm:min-w-[220px]">
+                        {canManage ? (
+                          <>
+                            <span
+                              className={cn(
+                                'text-muted-foreground duration-snap text-xs uppercase tracking-widest transition-opacity ease-out motion-reduce:transition-none',
+                                !isUpdating && 'invisible'
+                              )}
+                              aria-hidden={!isUpdating}
+                            >
+                              {t('roster.saving')}
+                            </span>
+                            <Select
+                              value={member.role || NO_ACCESS}
+                              onValueChange={(value) =>
+                                handleRosterRoleChange(
+                                  member,
+                                  value === NO_ACCESS ? '' : (value as ProjectRole)
+                                )
+                              }
+                              disabled={isUpdating}
+                            >
+                              <SelectTrigger
+                                className="w-full sm:w-[180px]"
+                                aria-label={t('roster.roleForMember', { name: member.name })}
+                              >
+                                <SelectValue>
+                                  {member.role
+                                    ? roleLabel(member.role)
+                                    : t('roster.noAccessOption')}
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={NO_ACCESS}>
+                                  {t('roster.noAccessOption')}
+                                </SelectItem>
+                                {roleOptions.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    <div className="flex flex-col gap-0.5 py-0.5 text-left">
+                                      <span>{option.label}</span>
+                                      <span className="text-muted-foreground text-xs font-normal">
+                                        {option.description}
+                                      </span>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </>
+                        ) : member.role ? (
+                          <Badge variant="secondary" className="shrink-0">
+                            {roleLabel(member.role)}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground shrink-0 text-xs">
+                            {t('roster.noAccess')}
+                          </span>
+                        )}
+                      </ItemActions>
+                    </Item>
+                  )
+                })}
+              </ItemList>
+            )}
           </CardContent>
         </Card>
-      ) : (
-        <Alert>
-          <Lock className="size-4" />
-          <AlertTitle>{t('readOnly.title')}</AlertTitle>
-          <AlertDescription>{t('readOnly.description')}</AlertDescription>
-        </Alert>
-      )}
-
-      {actionError && (
-        <Alert variant="destructive">
-          <AlertTitle>{t('errors.actionTitle')}</AlertTitle>
-          <AlertDescription>{actionError}</AlertDescription>
-        </Alert>
-      )}
-
-      <Card className="gap-0 overflow-hidden py-0">
-        <CardHeader className="gap-3 border-b py-4 [.border-b]:pb-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 flex-col gap-1.5">
-              <CardTitle className="flex items-center gap-2">
-                <Users className="size-4 text-muted-foreground" aria-hidden />
-                {t('roster.title')}
-              </CardTitle>
-              <CardDescription>
-                {t('roster.counts', { active: activeCount, total: members.length })}
-              </CardDescription>
-            </div>
-
-            <searchForm.AppField name="query">
-              {(field) => (
-                <SearchField
-                  type="text"
-                  className="w-full sm:max-w-xs"
-                  value={field.state.value}
-                  onChange={(value) => field.handleChange(value)}
-                  placeholder={t('roster.searchPlaceholder')}
-                  label={t('roster.searchAria')}
-                  clearLabel={t('roster.clearSearch')}
-                  onClear={() => searchForm.setFieldValue('query', '')}
-                />
-              )}
-            </searchForm.AppField>
-          </div>
-        </CardHeader>
-
-        <CardContent className="p-0">
-          {members.length === 0 ? (
-            <EmptyState
-              variant="bare"
-              icon={Users}
-              title={t('roster.emptyTitle')}
-              description={t('roster.emptyDescription')}
-            />
-          ) : filteredMembers.length === 0 ? (
-            <EmptyState
-              variant="bare"
-              icon={Search}
-              title={t('roster.noMatchTitle')}
-              description={t('roster.noMatchDescription')}
-              action={
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => searchForm.setFieldValue('query', '')}
-                >
-                  {t('roster.clearSearch')}
-                </Button>
-              }
-            />
-          ) : (
-            <ItemList className="rounded-none border-0">
-              {filteredMembers.map((member) => {
-                const isUpdating = updatingId === member.organizationMembershipId
-                const isSelf =
-                  currentMembershipId != null && member.organizationMembershipId === currentMembershipId
-                return (
-                  <Item
-                    key={member.organizationMembershipId}
-                    className="flex-col items-stretch sm:flex-row sm:items-center"
-                  >
-                    <ItemMedia className="size-9">
-                      <MemberAvatar member={member} className="size-9" />
-                    </ItemMedia>
-                    <ItemContent>
-                      <ItemTitle className="flex min-w-0 items-center gap-1.5">
-                        <span className="truncate">{member.name}</span>
-                        {isSelf && (
-                          <Badge variant="outline" className="shrink-0">
-                            {t('roster.youBadge')}
-                          </Badge>
-                        )}
-                      </ItemTitle>
-                      <ItemDescription>{member.email ?? member.userId}</ItemDescription>
-                    </ItemContent>
-                    <ItemActions className="ml-0 w-full justify-end sm:ml-auto sm:w-auto sm:min-w-[220px]">
-                      {canManage ? (
-                        <>
-                          <span
-                            className={cn(
-                              'text-xs uppercase tracking-widest text-muted-foreground transition-opacity duration-snap ease-out motion-reduce:transition-none',
-                              !isUpdating && 'invisible',
-                            )}
-                            aria-hidden={!isUpdating}
-                          >
-                            {t('roster.saving')}
-                          </span>
-                          <Select
-                            value={member.role || NO_ACCESS}
-                            onValueChange={(value) =>
-                              handleRosterRoleChange(member, value === NO_ACCESS ? '' : (value as ProjectRole))
-                            }
-                            disabled={isUpdating}
-                          >
-                            <SelectTrigger
-                              className="w-full sm:w-[180px]"
-                              aria-label={t('roster.roleForMember', { name: member.name })}
-                            >
-                              <SelectValue>
-                                {member.role ? roleLabel(member.role) : t('roster.noAccessOption')}
-                              </SelectValue>
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value={NO_ACCESS}>{t('roster.noAccessOption')}</SelectItem>
-                              {roleOptions.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  <div className="flex flex-col gap-0.5 py-0.5 text-left">
-                                    <span>{option.label}</span>
-                                    <span className="text-xs font-normal text-muted-foreground">
-                                      {option.description}
-                                    </span>
-                                  </div>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </>
-                      ) : member.role ? (
-                        <Badge variant="secondary" className="shrink-0">
-                          {roleLabel(member.role)}
-                        </Badge>
-                      ) : (
-                        <span className="shrink-0 text-xs text-muted-foreground">{t('roster.noAccess')}</span>
-                      )}
-                    </ItemActions>
-                  </Item>
-                )
-              })}
-            </ItemList>
-          )}
-        </CardContent>
-      </Card>
       </div>
 
       <ConfirmDialog

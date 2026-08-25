@@ -21,7 +21,8 @@ const de = {
     nutzung: '03 Nutzung',
     daten: '04 Datengrundlage',
     ki: '05 Daten und Transparenz',
-    kontakt: '06 Kontakt',
+    wert: '06 Wert',
+    kontakt: '07 Kontakt',
   },
   nav: {
     ariaLabel: 'Hauptnavigation',
@@ -81,6 +82,27 @@ const de = {
     tag: 'Daten & Transparenz',
     title:
       'Keine Blackbox. Piloti macht KI und Daten nachvollziehbar — die Verantwortung bleibt bei Ihnen.',
+    // The section's claim is that everything here can be checked. So the right
+    // column is a sheet you could check it against: what accompanies every
+    // answer, and what happens to the office's data — with the page that has to
+    // hold us to it linked at the foot.
+    proof: {
+      tag: 'Prüfblatt',
+      answerHeading: 'Zu jeder Antwort',
+      answer: [
+        { label: 'Begründung', value: 'warum die Antwort so lautet' },
+        { label: 'Annahmen', value: 'worauf sie beruht' },
+        { label: 'Regeln', value: 'welche Vorschrift greift' },
+        { label: 'Quellenverweis', value: 'Paragraf, Punkt, Seite' },
+      ],
+      dataHeading: 'Zu Ihren Daten',
+      data: [
+        { label: 'Verarbeitung', value: 'EU · nach DSGVO' },
+        { label: 'KI-Training', value: 'nicht mit Ihren Daten' },
+        { label: 'Pläne und Projekte', value: 'Eigentum Ihres Büros' },
+      ],
+      link: 'In der Datenschutzerklärung nachlesen',
+    },
     cards: [
       {
         title: 'Spezialisiert auf Architektur',
@@ -95,6 +117,111 @@ const de = {
         body: 'Pläne und Projekte gehören Ihrem Büro — wir trainieren keine KI-Modelle mit Ihren Daten. Cloud und KI laufen in der EU nach DSGVO, und Ihre Daten sind jederzeit exportierbar.',
       },
     ],
+  },
+  roi: {
+    tag: 'Wert',
+    title: 'Rechnen Sie nach, bevor Sie kaufen.',
+    body: 'Rund 30 % einer Planungswoche gehen in die Suche — Normen, Vorprojekte, Kennwerte. Piloti gibt 40 % dieser Zeit zurück. Was das bei Ihnen wert ist, hängt nur noch von zwei Zahlen ab, die Sie kennen.',
+    badge: 'Modellrechnung',
+    inputsLabel: 'Ihr Büro',
+    fields: {
+      seats: 'Planer:innen mit Piloti',
+      salary: 'Medianes Jahresgehalt',
+    },
+    claimsLabel: 'Unsere Annahmen',
+    claims: {
+      week: 'Arbeitswoche',
+      research: 'Anteil Recherche',
+      saved: 'Davon gibt Piloti zurück',
+      price: 'Piloti je Platz und Monat',
+    },
+    resultLabel: 'Jahreswert',
+    resultNote: 'netto, nach Lizenzkosten, für Ihr ganzes Büro',
+    metrics: {
+      hours: 'Zurückgewonnene Zeit',
+      payback: 'Amortisiert nach',
+      paybackNote: 'danach trägt sich jeder Platz selbst',
+      ratio: 'Rendite',
+      ratioNote: 'Wert je 1 € Lizenzkosten',
+    },
+    footnote:
+      'Eine Modellrechnung: unsere Annahmen, Ihre Zahlen, keine Zusage. Jeder Schritt dahinter steht offen —',
+    footnoteLink: 'ganzer Rechenweg',
+    cta: 'Zahlen gemeinsam durchgehen',
+    subject: 'ROI-Rechnung',
+    units: {
+      hours: '{value} h/Jahr',
+      hoursPlain: '{value} h',
+      perHour: '{value}/h',
+      times: '× {value}',
+      minus: '−{value}',
+      fte: '≈ {value} Vollzeitstellen',
+      months: '{value} Monate',
+      ratio: '{value}×',
+      never: '—',
+      office: 'Diese Rechnung gilt für {seats} Plätze und ein medianes Jahresgehalt von {salary}.',
+      officeOne: 'Diese Rechnung gilt für einen Platz und ein medianes Jahresgehalt von {salary}.',
+    },
+  },
+  rechenweg: {
+    metaTitle: 'Rechenweg — Piloti',
+    metaDescription:
+      'Jeder Schritt hinter der Wertrechnung von Piloti: Annahmen, Ihre Zahlen, und was die Rechnung bewusst weglässt.',
+    back: 'Zahlen ändern',
+    tag: 'Rechenweg',
+    title: 'Die ganze Rechnung, offen.',
+    intro:
+      'Eine Zahl mit Nachkommastelle ist noch kein Argument. Deshalb steht hier jeder Schritt, der zu ihr führt — samt der Stellen, an denen wir etwas annehmen, statt es zu wissen.',
+    origins: {
+      ours: 'Annahme',
+      yours: 'Ihre Zahl',
+      price: 'Preis',
+      sum: 'Ergebnis',
+    },
+    originsLong: {
+      ours: 'Unsere Annahme',
+      yours: 'Ihre Zahl',
+      price: 'Unser Listenpreis',
+      sum: 'Ergebnis',
+    },
+    week: {
+      title: 'Die Woche einer Planer:in',
+      scale: '1 Feld = 1 Stunde',
+      bracket: 'Recherche — 30 % der Woche',
+      plan: 'Entwerfen, abstimmen, ausführen',
+      rest: 'Recherche, die bleibt',
+      back: 'Gibt Piloti zurück',
+    },
+    ledger: {
+      week: 'Arbeitswoche',
+      research: 'Anteil Recherche, 30 %',
+      back: 'Davon gibt Piloti zurück, 40 %',
+      year: 'Über 44 Arbeitswochen',
+      hourly: 'Ihr Stundensatz',
+      hourlyNote: 'Bruttogehalt geteilt durch 1.760 Jahresstunden',
+      perSeat: 'Wert je Platz und Jahr',
+      licence: 'Lizenz, 12 × 120 €',
+      netPerSeat: 'Netto je Platz',
+      seats: 'Plätze in Ihrem Büro',
+      total: 'Jahreswert',
+    },
+    excludedTitle: 'Was in der Rechnung fehlt',
+    excluded: [
+      {
+        text: 'Lohnnebenkosten. Wir rechnen mit dem Bruttogehalt, nicht mit den rund 30 % Dienstgeberanteil, die eine Stunde tatsächlich kostet.',
+        effect: 'macht den Wert kleiner, als er ist',
+      },
+      {
+        text: 'Einarbeitung und Umstellung. Kein Werkzeug wirkt am ersten Tag so wie im sechsten Monat.',
+        effect: 'macht den Wert größer, als er anfangs ist',
+      },
+      {
+        text: 'Vermiedene Planungsfehler, Nachträge, verlorene Ausschreibungen. Der teuerste Fehler ist der, den niemand rechtzeitig findet.',
+        effect: 'gar nicht bewertet',
+      },
+    ],
+    honesty:
+      'Diese Zahlen sind Annahmen, keine Messwerte aus Kundenprojekten — und sie stehen hier offen, damit Sie sie durch Ihre eigenen ersetzen können. Wenn Ihre Recherchezeit bei 20 % liegt, halbiert sich das Ergebnis fast, und die Rechnung geht immer noch auf.',
   },
   cta: {
     titleHtml: 'Bringen Sie Intelligenz in jede Planungs&shy;entscheidung.',
@@ -165,12 +292,31 @@ const de = {
   },
   footer: {
     ariaLabel: 'Footer',
+    tagline: 'Die KI-Plattform für Architektur- und Planungsbüros. Entwickelt in Wien, betrieben in der EU.',
+    productHeading: 'Produkt',
+    companyHeading: 'Mehr erfahren',
+    legalHeading: 'Rechtliches',
+    contactHeading: 'Kontakt',
+    contactBody: 'Schreiben Sie uns — wir melden uns am selben Werktag zurück.',
+    demo: 'Demo anfragen',
     usage: 'Nutzung',
     data: 'Datengrundlage',
+    value: 'Wertrechner',
+    working: 'Rechenweg',
+    privacyPromise: 'Daten und KI in der EU',
     blog: 'Blog',
     changelog: 'Neuerungen',
     privacy: 'Datenschutz',
     imprint: 'Impressum',
+    rights: 'Alle Rechte vorbehalten.',
+    // The title block: what a drawing states about itself in the corner of the
+    // sheet. An empty value is filled with the current year.
+    block: [
+      { label: 'Projekt', value: 'Piloti' },
+      { label: 'Ausgabe', value: '' },
+      { label: 'Ort', value: 'Wien · EU' },
+      { label: 'Maßstab', value: '1:1' },
+    ],
   },
   blog: {
     metaTitle: 'Blog — Piloti',
@@ -258,7 +404,8 @@ const en: typeof de = {
     nutzung: '03 Usage',
     daten: '04 Data foundation',
     ki: '05 Data and transparency',
-    kontakt: '06 Contact',
+    wert: '06 Value',
+    kontakt: '07 Contact',
   },
   nav: {
     ariaLabel: 'Main navigation',
@@ -317,6 +464,23 @@ const en: typeof de = {
   ki: {
     tag: 'Data & transparency',
     title: 'No black box. Piloti makes AI and data traceable — responsibility stays with you.',
+    proof: {
+      tag: 'Check sheet',
+      answerHeading: 'With every answer',
+      answer: [
+        { label: 'Reasoning', value: 'why the answer is what it is' },
+        { label: 'Assumptions', value: 'what it rests on' },
+        { label: 'Rules', value: 'which regulation applies' },
+        { label: 'Source reference', value: 'clause, section, page' },
+      ],
+      dataHeading: 'With your data',
+      data: [
+        { label: 'Processing', value: 'EU · under the GDPR' },
+        { label: 'AI training', value: 'never on your data' },
+        { label: 'Plans and projects', value: 'owned by your office' },
+      ],
+      link: 'Read it in the privacy policy',
+    },
     cards: [
       {
         title: 'Specialised in architecture',
@@ -331,6 +495,111 @@ const en: typeof de = {
         body: 'Plans and projects belong to your office — we do not train AI models on your data. Cloud and AI run in the EU under the GDPR, and your data is exportable at any time.',
       },
     ],
+  },
+  roi: {
+    tag: 'Value',
+    title: 'Do the maths before you buy.',
+    body: 'Around 30% of a planning week goes into the search — codes, past projects, material values. Piloti gives 40% of that time back. What it is worth in your office comes down to two numbers only you know.',
+    badge: 'Model calculation',
+    inputsLabel: 'Your office',
+    fields: {
+      seats: 'Planners using Piloti',
+      salary: 'Median annual salary',
+    },
+    claimsLabel: 'Our assumptions',
+    claims: {
+      week: 'Work week',
+      research: 'Share spent searching',
+      saved: 'Of that, Piloti gives back',
+      price: 'Piloti per seat per month',
+    },
+    resultLabel: 'Annual value',
+    resultNote: 'net of licence cost, across your whole office',
+    metrics: {
+      hours: 'Time recovered',
+      payback: 'Pays for itself in',
+      paybackNote: 'after that every seat carries itself',
+      ratio: 'Return',
+      ratioNote: 'value per €1 of licence cost',
+    },
+    footnote:
+      'A model calculation: our assumptions, your numbers, no promise. Every step behind it is in the open —',
+    footnoteLink: 'the whole calculation',
+    cta: 'Walk through the numbers with us',
+    subject: 'ROI calculation',
+    units: {
+      hours: '{value} h/year',
+      hoursPlain: '{value} h',
+      perHour: '{value}/h',
+      times: '× {value}',
+      minus: '−{value}',
+      fte: '≈ {value} full-time roles',
+      months: '{value} months',
+      ratio: '{value}×',
+      never: '—',
+      office: 'This working is for {seats} seats at a median salary of {salary}.',
+      officeOne: 'This working is for one seat at a median salary of {salary}.',
+    },
+  },
+  rechenweg: {
+    metaTitle: 'The maths — Piloti',
+    metaDescription:
+      'Every step behind the Piloti value calculation: our assumptions, your numbers, and what the calculation leaves out.',
+    back: 'Change the numbers',
+    tag: 'The maths',
+    title: 'The whole calculation, in the open.',
+    intro:
+      'A figure with a decimal point is not yet an argument. So every step behind it is written out here — including the places where we assume something rather than know it.',
+    origins: {
+      ours: 'Assumed',
+      yours: 'Yours',
+      price: 'Price',
+      sum: 'Result',
+    },
+    originsLong: {
+      ours: 'Our assumption',
+      yours: 'Your number',
+      price: 'Our list price',
+      sum: 'Result',
+    },
+    week: {
+      title: 'One planner\u2019s week',
+      scale: '1 cell = 1 hour',
+      bracket: 'Searching — 30% of the week',
+      plan: 'Designing, coordinating, delivering',
+      rest: 'Searching that remains',
+      back: 'Piloti gives back',
+    },
+    ledger: {
+      week: 'Work week',
+      research: 'Share spent searching, 30%',
+      back: 'Of that, Piloti gives back, 40%',
+      year: 'Over 44 working weeks',
+      hourly: 'Your hourly cost',
+      hourlyNote: 'gross salary divided by 1,760 hours a year',
+      perSeat: 'Value per seat per year',
+      licence: 'Licence, 12 × €120',
+      netPerSeat: 'Net per seat',
+      seats: 'Seats in your office',
+      total: 'Annual value',
+    },
+    excludedTitle: 'What the calculation leaves out',
+    excluded: [
+      {
+        text: 'Employer on-costs. We use gross salary, not the roughly 30% on top that an hour actually costs the office.',
+        effect: 'makes the value smaller than it is',
+      },
+      {
+        text: 'Onboarding and the switch itself. No tool works on day one the way it works in month six.',
+        effect: 'makes the value larger than it is at first',
+      },
+      {
+        text: 'Planning errors avoided, variation orders, tenders lost. The most expensive mistake is the one nobody catches in time.',
+        effect: 'not valued at all',
+      },
+    ],
+    honesty:
+      'These are assumptions, not measurements from customer projects — and they are in the open so you can replace them with your own. If your search time is 20%, the result nearly halves, and the case still holds.',
   },
   cta: {
     titleHtml: 'Bring intelligence to every planning decision.',
@@ -401,12 +670,29 @@ const en: typeof de = {
   },
   footer: {
     ariaLabel: 'Footer',
+    tagline: 'The AI platform for architecture and planning firms. Built in Vienna, run in the EU.',
+    productHeading: 'Product',
+    companyHeading: 'Learn more',
+    legalHeading: 'Legal',
+    contactHeading: 'Contact',
+    contactBody: 'Write to us — we reply the same working day.',
+    demo: 'Request a demo',
     usage: 'Usage',
     data: 'Data foundation',
+    value: 'Value calculator',
+    working: 'The maths',
+    privacyPromise: 'Data and AI in the EU',
     blog: 'Blog',
     changelog: "What's new",
     privacy: 'Privacy',
     imprint: 'Imprint',
+    rights: 'All rights reserved.',
+    block: [
+      { label: 'Project', value: 'Piloti' },
+      { label: 'Issue', value: '' },
+      { label: 'Place', value: 'Vienna · EU' },
+      { label: 'Scale', value: '1:1' },
+    ],
   },
   blog: {
     metaTitle: 'Blog — Piloti',
@@ -486,11 +772,13 @@ export const landingScript = {
     typing: de.chain.typing,
     beats: de.chain.beats,
     aura: de.chain.aura,
+    roi: de.roi.units,
   },
   en: {
     question: en.chat.question,
     typing: en.chain.typing,
     beats: en.chain.beats,
     aura: en.chain.aura,
+    roi: en.roi.units,
   },
 }

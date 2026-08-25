@@ -9,9 +9,18 @@ import { listProjectMembers, setProjectMemberRole } from '@/lib/projects/members
 
 type Params = { id: string }
 
+/**
+ * The assignable project roles, mirroring `ROLES` in `lib/authz/catalog.ts`.
+ * `project-contributor` was missing here, which is what made a catalog role
+ * unreachable from the product: the API refused the slug, so the form could not
+ * offer it and the roster could only ever show the other three.
+ */
 const addMemberSchema = z.object({
   organizationMembershipId: z.string().min(1),
-  roleSlug: z.union([z.enum(['project-viewer', 'project-editor', 'project-admin']), z.literal('')]),
+  roleSlug: z.union([
+    z.enum(['project-viewer', 'project-contributor', 'project-editor', 'project-admin']),
+    z.literal(''),
+  ]),
 })
 
 export const GET = apiRoute<Params>(
