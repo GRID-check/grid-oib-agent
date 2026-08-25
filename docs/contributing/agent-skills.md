@@ -11,7 +11,7 @@ Source of truth on disk, tracked in git:
 
 | Location | Audience |
 |---|---|
-| `.agents/skills/` | Maintainers working **on** this repo (`aiq-add-tool`, `aiq-release-qa`, `definition-of-done`, …) |
+| `.agents/skills/` | Maintainers working **on** this repo (`aiq-add-tool`, `aiq-release-qa`, `aiq-definition-of-done`, …) |
 | `skills/` | Consumers calling a running AI-Q server (`aiq-deploy`, `aiq-research`) |
 
 See [`../../.agents/skills/README.md`](../../.agents/skills/README.md) for which

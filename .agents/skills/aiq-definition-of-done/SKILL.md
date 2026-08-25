@@ -1,5 +1,5 @@
 ---
-name: definition-of-done
+name: aiq-definition-of-done
 description: >
   The Grid repo's definition of done — the verification bar every change must
   clear before anyone (human or agent) may claim it is finished. Use this skill
