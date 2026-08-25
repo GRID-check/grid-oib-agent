@@ -36,6 +36,8 @@ string you are seeing.
 | Symptom | Cause | Do this |
 |---|---|---|
 | A skill that exists on disk never loads | Eight `.claude/skills/*` entries were committed as **text files containing a path** (git mode `100644`) rather than symlinks (`120000`), so nothing resolved | Fixed structurally: `.claude/` is generated, and `scripts/link_agent_skills.py` creates real symlinks. Never commit into `.claude/` |
+| A relative link passes your local check and CI still calls it dead | You verified against your working tree, where gitignored paths like `.claude/` still exist. CI checks out fresh, where they do not | Resolve links against `git ls-files`, not the filesystem. A link into a generated directory is dead for every reader |
+| `task verify` fails at `infra:types` right after `task setup` on a fresh clone | `setup` installed `deploy/pulumi/policy` but not `deploy/pulumi` itself, so the program's own TypeScript and Vitest were missing | Fixed in `Taskfile.yml`: `setup` now installs both |
 | A doc contradicts the Taskfile | The doc predates `task verify` and still prescribes a throwaway Docker image or `.venv/Scripts` paths | The Taskfile is the source of truth for commands. Fix the doc in the same change |
 | `AGENTS.md` is growing again | Project knowledge is being written where only ways of working belong | Give it a home under `docs/contributing/` and leave a one-line pointer. See [documentation.md](documentation.md) |
 

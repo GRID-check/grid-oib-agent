@@ -110,4 +110,3 @@ Reach for the playbook, which names the layer to close for each kind of failure
 and where each lives in this repo, whenever a reviewer corrects you, something
 surprises you, or you correct yourself twice for one reason:
 [`correction-ratchet.md`](correction-ratchet.md).
-

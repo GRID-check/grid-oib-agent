@@ -96,8 +96,12 @@ tasks:
       - uv sync --group dev
       - task: fe:install
       - task: web:install
-      # The policy pack is its own Node program with its own lockfile; CI
-      # installs it separately and `infra:types` typechecks it.
+      # Two Node programs under deploy/pulumi, each with its own lockfile: the
+      # Pulumi program itself (which `infra:types` typechecks and `infra:test`
+      # runs) and the policy pack beside it. Installing only the policy pack
+      # left a fresh clone failing `task verify` at `infra:types`, because the
+      # program's own TypeScript and Vitest were never fetched.
+      - npm --prefix deploy/pulumi ci
       - npm --prefix deploy/pulumi/policy ci
       - task: agents:setup
 
