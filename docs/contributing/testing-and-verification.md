@@ -124,6 +124,29 @@ adds a component without that evidence; opt a non-visual component out with a
 module-scope fetch shims and the pre-installed Chromium:
 [`../ux/visual-screenshots.md`](../ux/visual-screenshots.md).
 
+## Mobile evidence
+
+`task fe:touch-audit` loads the same registry at 390×844 with touch emulation
+and reports what a screenshot cannot: regions whose `touch-action` refuses the
+vertical pan (a finger lands and the page does not move), boxes that stick out
+past the viewport, and interactive elements under the 44px floor — the last
+measured including any `touch-target` catchment, so a control that widens its
+catchment correctly does not report. Add `-- <registry id>` for one surface.
+
+It is NOT part of `verify`, on purpose: the shape errors it exists for are held
+statically by `src/components/ui/mobile-affordances.spec.ts` and
+`touch-target.spec.ts`, and a browser pass over ~120 surfaces is a deliberate
+run rather than a per-commit tax. Reach for it when you build a user-visible
+surface, and read `SMALL` as a prompt rather than a verdict — an inline target
+inside a sentence cannot reach 44px without stealing its neighbour's taps, which
+is why WCAG 2.5.8 exempts it.
+
+Both of the worst defects it has found were invisible to review, to the type
+checker and to a desktop screenshot: a reasoning graph that swallowed every
+swipe because a library stylesheet claimed a gesture the graph had turned off,
+and a file list whose `truncate` never fired because auto table layout sized the
+column to the filename. Neither looked wrong. Both were measured.
+
 ## Before opening a PR
 
 - `task verify:fast` green.

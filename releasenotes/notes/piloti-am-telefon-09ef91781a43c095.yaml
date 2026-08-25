@@ -23,6 +23,6 @@ fixes:
     Renaming a conversation, a file or a building in the project wizard no
     longer zooms an iPhone into the page and leaves it there.
   - >
-    The controls for zooming a cited PDF stayed off the right-hand edge of a
-    phone screen, so reading a passage meant scrolling the page sideways to
-    find them. They now wrap onto a second line when the screen is narrow.
+    The controls for zooming a cited PDF were laid out past the right-hand edge
+    of a phone screen, where they could not be reached. They now wrap onto a
+    second line when the screen is narrow.

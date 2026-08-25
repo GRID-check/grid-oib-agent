@@ -206,7 +206,10 @@ const FileChip: FC<{
         // A finger has to be able to hit the remove-x, and that button can only
         // grow inside a taller chip — the strip scrolls horizontally, so the
         // extra height costs nothing but a slightly shorter filename.
-        'pointer-coarse:h-11',
+        // `max-w` grows with it: the buttons inside are 44px square now, so at
+        // 200px a failed chip (retry AND remove) had ~90px left for a filename.
+        // The strip already scrolls sideways, so width here is free.
+        'pointer-coarse:h-11 pointer-coarse:max-w-[260px]',
         // `border-error` is a static `@utility` in globals.css with no
         // `--modifier()`, so the slash form (`border-error/50`) matched nothing
         // and this chip kept the neutral default border — a failed upload was
@@ -238,7 +241,10 @@ const FileChip: FC<{
           onClick={() => onRetry(file.id)}
           aria-label={t('inputArea.retryUpload')}
           title={t('inputArea.retryUpload')}
-          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 pointer-coarse:size-9 inline-flex shrink-0 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2"
+          // The chip above is already `pointer-coarse:h-11` precisely so this
+          // button could grow inside it — and then the button stopped at 36.
+          // `size-11` fills the height the chip is already paying for.
+          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 pointer-coarse:size-11 inline-flex shrink-0 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2"
         >
           <RotateCw className="size-3" aria-hidden="true" />
         </button>
@@ -249,7 +255,10 @@ const FileChip: FC<{
           onClick={() => onRemove(file.id)}
           aria-label={t('inputArea.removeFile', { name: file.fileName })}
           title={t('inputArea.removeFile', { name: file.fileName })}
-          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 pointer-coarse:size-9 inline-flex shrink-0 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2"
+          // The chip above is already `pointer-coarse:h-11` precisely so this
+          // button could grow inside it — and then the button stopped at 36.
+          // `size-11` fills the height the chip is already paying for.
+          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 pointer-coarse:size-11 inline-flex shrink-0 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2"
         >
           <X className="size-3" aria-hidden="true" />
         </button>

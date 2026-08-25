@@ -140,7 +140,14 @@ export function UploadTray({ files, onRetry, onCancel, onCancelAll, onDismiss }:
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsHeld(false)
       }}
     >
-      <div className="flex items-center gap-3 px-4 py-2.5">
+      {/* `flex-wrap`: the settled-with-failures state puts "Retry all",
+          "Dismiss all" and the expander in this row, all `shrink-0`, so on a
+          phone the summary — which is the only thing that says WHAT happened —
+          took what was left of the width. Measured 33px: both its lines
+          truncated to an ellipsis while three buttons sat beside them at full
+          size. The summary now holds a readable floor and the actions drop to a
+          second line when they no longer fit beside it. */}
+      <div className="flex flex-wrap items-center gap-3 px-4 py-2.5">
         <TrayGlyph summary={summary} />
 
         <button
@@ -152,7 +159,7 @@ export function UploadTray({ files, onRetry, onCancel, onCancelAll, onDismiss }:
           // aims at — the whole band — was dead along its top and bottom edges.
           // `-my-2.5 py-2.5` cancels to the same margin box, so nothing moves;
           // the button simply stops leaving its own padding on the table.
-          className="min-w-0 flex-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:-my-2.5 pointer-coarse:py-2.5"
+          className="min-w-40 flex-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:-my-2.5 pointer-coarse:py-2.5"
         >
           {/* Polite, not assertive: the phase changes two or three times per
               batch and each one is worth hearing, but the byte counter beneath

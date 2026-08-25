@@ -19,7 +19,12 @@
  * It loads every `/dev` preview in `registry.mjs` at a phone viewport with
  * `hasTouch`, then reports, per target:
  *
- *   DOC OVERFLOW  the document itself scrolls horizontally — always a defect.
+ *   PAGE SCROLLS  the document itself moves sideways — always a defect. Measured
+ *   SIDEWAYS      by asking the browser to scroll and reading back how far it
+ *                 went, NOT by `scrollWidth > clientWidth`: an ancestor's
+ *                 `scrollWidth` counts content laid out inside a nested
+ *                 horizontal scroller, so a composer with a chip rail reads as
+ *                 453px wide on a 390px screen and scrolls nowhere.
  *   OVERFLOW      an element's box sticks out past the viewport with nothing
  *                 above it to catch the overhang. Only the OUTERMOST offender is
  *                 listed. Content clipped by an ancestor is not reported at all
@@ -29,6 +34,13 @@
  *                 is reachable sideways. A deliberate strip of chips and a table
  *                 nobody meant to make horizontal look identical from here —
  *                 this line says "this scrolls", and you decide whether it should.
+ *   SCROLL TRAP   a region at least a third of the viewport tall whose
+ *                 `touch-action` refuses the vertical pan. A finger landing on
+ *                 it moves nothing, so the page reads as frozen rather than as a
+ *                 control misbehaving — taps still work. This is how React
+ *                 Flow's `.react-flow__pane` took the whole reasoning graph: one
+ *                 inherited declaration from a library stylesheet, for gestures
+ *                 the graph had already turned off in its props.
  *   SMALL         an interactive element under 44px on either axis, measured
  *                 INCLUDING any `touch-target` ::after catchment, so a control
  *                 that widens its catchment correctly does not report.
@@ -158,6 +170,42 @@ const AUDIT = ({ interactive, floor, slack }) => {
     })
   }
 
+  // Scroll traps: a region that refuses the vertical pan, so a finger landing on
+  // it moves nothing and the page reads as frozen.
+  //
+  // The browser decides a gesture by intersecting `touch-action` across the
+  // touched element AND every ancestor up to the scroll container, so one
+  // declaration on a wrapper strands everything inside it no matter what those
+  // descendants compute for themselves. That is how React Flow's
+  // `.react-flow__pane` took the whole reasoning graph — 877px of it on an 844px
+  // screen. Reading a node's own computed style there says `auto` and is
+  // worthless, which is why this walks outward instead.
+  //
+  // Only regions worth stranding on are reported: at least a third of the
+  // viewport tall and most of it wide, i.e. big enough that a reader's thumb has
+  // no obvious way around. A 3D canvas or a slider that legitimately owns its
+  // gestures will show up here too — this says "nothing scrolls here", and you
+  // decide whether that is the intent.
+  const traps = []
+  const PANS_VERTICALLY = /^(auto|manipulation|pan-y|pan-up|pan-down)\b/
+  for (const el of document.querySelectorAll('*')) {
+    const style = getComputedStyle(el)
+    if (PANS_VERTICALLY.test(style.touchAction)) continue
+    const rect = el.getBoundingClientRect()
+    if (rect.height < window.innerHeight / 3) continue
+    if (rect.width < viewportWidth * 0.6) continue
+    // Report the outermost region only: the declaration is inherited, so every
+    // descendant would otherwise repeat its ancestor's finding.
+    const parent = el.parentElement
+    if (parent && !PANS_VERTICALLY.test(getComputedStyle(parent).touchAction)) continue
+    traps.push({
+      what: describe(el),
+      touchAction: style.touchAction,
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+    })
+  }
+
   const small = []
   for (const el of document.querySelectorAll(interactive)) {
     const rect = el.getBoundingClientRect()
@@ -183,8 +231,24 @@ const AUDIT = ({ interactive, floor, slack }) => {
 
   return {
     viewportWidth,
+    // How far the document ACTUALLY scrolls sideways, by trying it — not
+    // `scrollWidth > clientWidth`, which was the first version of this check and
+    // reports pages that do not scroll at all. An ancestor's `scrollWidth`
+    // accounts for content laid out inside a nested horizontal scroller even
+    // though that content is reachable only by scrolling the strip, so a
+    // composer with a chip rail read as 453px wide on a 390px screen and moved
+    // nowhere. Asking the browser to scroll and reading back how far it went is
+    // the question we actually mean.
+    documentScrollX: (() => {
+      const before = window.scrollX
+      window.scrollTo(99999, window.scrollY)
+      const reached = window.scrollX
+      window.scrollTo(before, window.scrollY)
+      return reached
+    })(),
     documentScrollWidth: document.documentElement.scrollWidth,
     overflow,
+    traps,
     small,
   }
 }
@@ -257,16 +321,27 @@ try {
       continue
     }
 
-    const scrolls = report.documentScrollWidth > report.viewportWidth + 1
-    const clean = !scrolls && report.overflow.length === 0 && report.small.length === 0
+    const scrolls = report.documentScrollX > 1
+    const clean =
+      !scrolls &&
+      report.overflow.length === 0 &&
+      report.traps.length === 0 &&
+      report.small.length === 0
     if (!clean) flagged += 1
     console.log(`\n## ${target.id}  (${target.path})${clean ? '  clean' : ''}`)
     if (scrolls) {
-      console.log(`   DOC OVERFLOW  ${report.documentScrollWidth} > ${report.viewportWidth}`)
+      console.log(
+        `   PAGE SCROLLS SIDEWAYS  by ${report.documentScrollX}px  (laid out ${report.documentScrollWidth} in ${report.viewportWidth})`,
+      )
     }
     for (const item of report.overflow) {
       const label = item.scroller ? 'SCROLLS  ' : 'OVERFLOW '
       console.log(`   ${label} ${item.left}..${item.right}  ${item.what}`)
+    }
+    for (const item of report.traps) {
+      console.log(
+        `   SCROLL TRAP  ${item.width}x${item.height}  touch-action: ${item.touchAction}  ${item.what}`,
+      )
     }
     for (const item of report.small) {
       console.log(`   SMALL  ${item.width}x${item.height}  ${item.what}`)

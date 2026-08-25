@@ -280,7 +280,10 @@ export function IfcSpatialTree({
             onClick={() => onSelectStorey(null)}
             aria-pressed={selectedStorey === null}
             className={cn(
-              'w-full rounded-md px-2 py-1 text-left font-medium transition-colors duration-quick ease-out hover:bg-muted',
+              // "All storeys" sits at the head of the storey list and is the way
+              // back out of a filtered model — the same stacked row as the ones
+              // under it, so it takes the same growth.
+              'w-full rounded-md px-2 py-1 text-left font-medium transition-colors duration-quick ease-out hover:bg-muted pointer-coarse:py-3',
               selectedStorey === null && 'bg-muted'
             )}
           >
@@ -298,7 +301,10 @@ export function IfcSpatialTree({
                 aria-pressed={selectable ? active : undefined}
                 onClick={() => selectable && onSelectStorey(row.storeyName)}
                 className={cn(
-                  'flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left font-medium',
+                  // A storey row, stacked on its neighbours — so it grows rather
+                  // than overhangs, or each row's catchment would sit on the one
+                  // below it.
+                  'flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left font-medium pointer-coarse:py-3',
                   selectable
                     ? 'transition-colors duration-quick ease-out hover:bg-muted'
                     : 'cursor-default text-muted-foreground',
@@ -420,13 +426,18 @@ export function IfcElementTable({
           onChange={(event) => setSearch(event.target.value)}
           placeholder={t('elements.search')}
           aria-label={t('elements.search')}
-          className="h-8 max-w-56"
+          // The Input primitive already carries the 16px floor and the coarse
+          // height; `h-8` was overriding the latter back down to 32px.
+          className="h-8 max-w-56 pointer-coarse:h-11"
         />
         <select
           value={typeFilter}
           onChange={(event) => setTypeFilter(event.target.value)}
           aria-label={t('elements.columns.type')}
-          className="h-8 rounded-md border bg-background px-2 text-sm"
+          // A native `<select>`, so it carries none of what `ui/select.tsx` does
+          // for a phone: 32px tall, and `text-sm` is under the 16px iOS Safari
+          // needs to leave the page unzoomed when a field takes focus.
+          className="h-8 rounded-md border bg-background px-2 text-base pointer-coarse:h-11 sm:text-sm"
         >
           <option value="">{t('elements.allTypes')}</option>
           {types.map((type) => (
@@ -530,7 +541,13 @@ export function IfcElementTable({
                     type="button"
                     onClick={() => onSelect(element)}
                     aria-current={element.globalId === selectedGlobalId}
-                    className="w-full rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    // 20px: the button is the cell's TEXT, and the cell's own
+                    // `py-1` sits outside it, so the row a finger aims at was
+                    // dead along both edges. It takes that padding into itself
+                    // (`-my-1 py-1` cancels, so nothing moves) and then reaches
+                    // the floor. Selecting an element here is how the model view
+                    // is driven at all — on a phone it is the only way in.
+                    className="w-full rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:-my-1 pointer-coarse:flex pointer-coarse:min-h-11 pointer-coarse:items-center pointer-coarse:py-1"
                   >
                     {element.name ?? t('elements.unnamed')}
                   </button>

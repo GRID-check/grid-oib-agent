@@ -345,7 +345,14 @@ function AppSidebarFrame({
       <header
         data-scope={inProject ? 'project' : 'org'}
         className={cn(
-          'border-border bg-surface-sunken h-14 w-full shrink-0 items-center justify-between gap-2 border-b px-3 md:hidden',
+          // The app renders edge-to-edge (`viewportFit: 'cover'` in the root
+          // viewport), so a bar pinned to the top of the screen has to say where
+          // the screen actually starts. `ChatToolbar` already does this; this bar
+          // is the same band on every other section and did not, which put the
+          // hamburger under the status bar on a home-screen install and under the
+          // notch in landscape. `min-h-14` rather than `h-14`, because the inset
+          // has to be able to make the bar taller instead of eating its contents.
+          'border-border bg-surface-sunken min-h-14 w-full shrink-0 items-center justify-between gap-2 border-b px-3 pt-[env(safe-area-inset-top)] md:hidden',
           isChatRoute ? 'hidden' : 'flex',
           orgSurface
         )}

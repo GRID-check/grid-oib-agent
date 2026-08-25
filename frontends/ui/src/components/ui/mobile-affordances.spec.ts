@@ -145,6 +145,54 @@ describe('no text field invites the iOS zoom', () => {
   })
 })
 
+describe('no library stylesheet keeps the page scroll', () => {
+  /**
+   * The reasoning graph is built on React Flow, whose stylesheet sets
+   * `touch-action: none` on `.react-flow__pane` unconditionally — a graph
+   * normally owns pan and pinch. Ours owns neither: `panOnDrag`, `panOnScroll`,
+   * `zoomOnScroll`, `zoomOnPinch` and `zoomOnDoubleClick` are all false. CSS does
+   * not know that, and the browser decides a gesture by intersecting
+   * `touch-action` across every ancestor, so the declaration stranded the entire
+   * graph — 877px of it, measured on an 844px screen. A finger anywhere on the
+   * Herleitung moved nothing, and taps kept working, so it read as the page
+   * being frozen.
+   *
+   * Three assertions, because the override has three ways to die quietly: the
+   * class comes off the element, the rule comes out of the stylesheet, or
+   * upstream fixes the default and the override becomes a lie nobody rereads.
+   */
+  const FLOW = join(SRC, 'features', 'chat', 'components', 'reasoning', 'ReasoningFlow.tsx')
+
+  it('the reasoning graph opts into the override', () => {
+    const source = readFileSync(FLOW, 'utf8')
+    expect(source).toContain('reasoning-flow-scrollable')
+    // The override is only defensible while the graph really does own no
+    // gestures. If one of these is ever turned on, the pane needs its
+    // `touch-action` back and this spec should fail rather than let a pan and a
+    // page scroll fight over the same finger.
+    for (const prop of ['panOnDrag', 'panOnScroll', 'zoomOnScroll', 'zoomOnPinch']) {
+      expect(source).toMatch(new RegExp(`${prop}=\\{false\\}`))
+    }
+  })
+
+  it('globals.css carries the rule the class refers to', () => {
+    const css = readFileSync(join(SRC, 'app', 'globals.css'), 'utf8')
+    expect(css).toMatch(/\.reasoning-flow-scrollable\s+\.react-flow__pane\s*\{[^}]*touch-action:\s*auto/)
+  })
+
+  it('React Flow still ships the default this exists to undo', () => {
+    // A stale-guard, the same idea as the empty baseline in
+    // `scripts/check-static-utility-modifiers.mjs`: if upstream ever drops
+    // `touch-action: none`, this fails and the override can be deleted instead
+    // of being carried forever as a rule nobody can justify.
+    const upstream = readFileSync(
+      join(SRC, '..', 'node_modules', '@xyflow', 'react', 'dist', 'style.css'),
+      'utf8',
+    )
+    expect(upstream).toMatch(/\.react-flow__pane\s*\{[^}]*touch-action:\s*none/)
+  })
+})
+
 describe('the soft keyboard is told what the action key does', () => {
   /**
    * `enterKeyHint` relabels the phone's action key. It changes nothing on a
