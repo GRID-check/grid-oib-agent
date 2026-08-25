@@ -1,7 +1,9 @@
 # Testing and verification
 
-`task verify` is the merge gate. If it passes locally it passes in CI, because
-both run the same task definitions out of the root `Taskfile.yml`.
+`task verify` is the local gate, and the closest single command to what CI
+requires. It is not literally what CI runs: CI calls the same Taskfile
+definitions but schedules them differently, and two required checks sit outside
+`verify` entirely. Green locally is strong evidence, not a guarantee.
 
 ```bash
 task verify        # everything CI runs
@@ -58,10 +60,15 @@ release rather than trusting a green suite.
 
 CI calls the Taskfile, so there is no second copy of the commands. Only the
 scheduling differs: the frontend tier's lint, types and build run in one job
-while the suite is sharded four ways (`fe:test:shard`) and stitched back
-together by `fe:test:merge` for the coverage comment. Run in series on one
-runner, the tests were about 63% of the job's wall clock. Locally
-`task fe:verify` still runs all four in order.
+while the suite is sharded six ways (`fe:test:shard`) and stitched back together
+by `fe:test:merge` for the coverage comment. Run in series on one runner, the
+tests were about 63% of the job's wall clock. Locally `task fe:verify` runs lint,
+types, tests and build in order instead.
+
+Two required checks are not in `task verify` at all: `db:test:rls` (it needs
+PostgreSQL server binaries) and the release-note gate (it needs the PR's base
+and head). Run the first by hand when you touch the tenant boundary; the second
+only exists on a PR.
 
 The single required status check is **CI OK**
 ([`ci.yml`](../../.github/workflows/ci.yml)), which passes only when every
@@ -75,13 +82,15 @@ Advanced Security licence and no SonarQube subscription.
 
 | Tool | Covers | Blocking |
 |---|---|---|
-| Semgrep | SAST for Python, TS/JS and Actions. Replaces CodeQL and Sonar's security rules | No, phase 1 while noise is tuned via `.semgrepignore` |
+| Semgrep | SAST for Python, TS/JS and Actions. Replaces CodeQL and Sonar's security rules | **Yes on a PR.** `semgrep ci` is diff-aware, so it blocks a *new* finding without failing on the existing backlog. Push and schedule runs stay advisory |
 | OSV-Scanner | Dependency CVEs from lockfiles. Replaces Sonar SCA | No, phase 1 |
-| pip-audit, npm audit | Dependency advisories | Yes |
+| pip-audit, bun audit, npm audit | Dependency advisories | **No.** Each step is `continue-on-error: true` *and* the command ends `\|\| true`, so findings only reach the log |
 | gitleaks | Secret scan over full history | Yes |
 | trivy (`image-scan`) | The digest-pinned observability and Langfuse images from `deploy/pulumi/src/config.ts` | Yes, on **fixable** HIGH and CRITICAL findings (it runs `--ignore-unfixed`) |
 
-Drop the `continue-on-error` on Semgrep and OSV-Scanner to make them required.
+The dependency audits being advisory is worth knowing before you rely on them: a
+vulnerable dependency passes CI today. Making them block means removing both the
+`continue-on-error` and the `|| true`, not just one.
 
 Two things about the trivy job that are not obvious:
 

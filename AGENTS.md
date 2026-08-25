@@ -70,7 +70,7 @@ Which layer to close: [`docs/contributing/correction-ratchet.md`](docs/contribut
 | Create a table | `SELECT grid_secure_table('<table>','<tenancy predicate>');` in the same migration | `rls-coverage.spec.ts`, by name |
 | Read tenant rows | Take context from `getGridSession()`, or state it (`withTenant`, `withPlatformAccess`, `withOptionalTenant`) | `internalApiRoute` does not compile |
 | Write an endpoint | Route stays a thin adapter, service owns logic and authorization, repository owns the SQL and bounds every list | Review. `publicApiRoute` needs an ADR |
-| Add a card type | Classify it in `CARD_INTERACTIVITY` (`features/grid-cards/card-decision.ts`) | `task fe:types` |
+| Add a card type | Classify it in `CARD_INTERACTIVITY` (`frontends/ui/src/features/grid-cards/card-decision.ts`) | `task fe:types` |
 | Store a card's answer | Put it on `ChatMessage.cardInteractions` via `useCardDecision` | A reload re-applies the patch; neither endpoint is idempotent |
 | Add an environment variable | Add its row to [`docs/deployment/environment-variables.md`](docs/deployment/environment-variables.md) in the same change | Review |
 | Change what a customer can notice | `task release:note -- <slug>` | The **Release note** CI job |
@@ -79,9 +79,12 @@ Which layer to close: [`docs/contributing/correction-ratchet.md`](docs/contribut
 | Touch the tenant boundary | `task db:test:rls`, which `task verify` does not include | A required merge check |
 | Run `pytest` directly | Set `PYTHONPATH=src`, which `Taskfile.yml` otherwise sets for you | Silently validating another worktree's code |
 
-`task verify` is the merge gate: host-native, defined once in `Taskfile.yml`, run
-unchanged by CI. `task --list` is the current command list. Spec type errors fail
-the production build, because the UI tsconfig includes tests.
+`task verify` is the local gate: host-native, defined once in `Taskfile.yml`. CI
+calls the same definitions but schedules them differently, so a local pass is
+strong evidence rather than a guarantee. `task verify:fast` skips two production
+builds, `fe:build` and `web:build`. `task --list` is the current command list.
+Spec type errors fail the production build, because the UI tsconfig includes
+tests.
 
 ## Four rules that need more than a row
 
@@ -96,7 +99,7 @@ in the guided flow rather than a second form.
 
 **One coarse `SourceKind` drives all rendering** (`baurecht | buero | projekt |
 web`), defined in `src/aiq_agent/common/source_kinds.py`, mirrored in
-`features/chat/lib/source-kinds.ts`. The fine `norm_registry` lanes are a
+`frontends/ui/src/features/chat/lib/source-kinds.ts`. The fine `norm_registry` lanes are a
 sub-label within a kind. `doc_class` is human-set and beats every filename guess.
 
 **Correlated substrate debt belongs in the change that tripped over it.** YAGNI

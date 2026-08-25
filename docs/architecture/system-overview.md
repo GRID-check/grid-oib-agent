@@ -290,9 +290,10 @@ frontend start). → `docs/database/`.
 - **Tenancy.** `organization_id` on every `grid_app` row; collection scope +
   `requireProjectAccess` on every backend request; org-scoped memory never
   crosses organizations.
-- **Verification / CI.** `task verify` is the merge gate, host-native, defined
-  once in the root `Taskfile.yml` and run unchanged by CI.
-  → `docs/contributing/testing-and-verification.md`.
+- **Verification / CI.** `task verify` is the local gate, host-native, defined
+  once in the root `Taskfile.yml`. CI calls the same definitions but schedules
+  them differently (concurrent jobs, a six-way test shard), and two required
+  checks sit outside it. → `docs/contributing/testing-and-verification.md`.
 
 ---
 

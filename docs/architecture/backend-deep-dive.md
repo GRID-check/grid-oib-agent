@@ -1754,10 +1754,12 @@ loads house voice, offers and org skills through `use_skill`
 
 ## 10. Verification workflow
 
-`task verify` is the merge gate: host-native, defined once in the root
-`Taskfile.yml`, and run unchanged by CI. `task verify:fast` skips only the slow
-production build. Full command list, and the two gotchas that `task --list` does
-not carry, in `docs/contributing/testing-and-verification.md`.
+`task verify` is the local gate: host-native, defined once in the root
+`Taskfile.yml`. CI calls the same definitions but schedules them differently, so
+a local pass is strong evidence rather than a guarantee. `task verify:fast`
+skips two production builds, `fe:build` and `web:build`. Full command list, the
+checks that sit outside `verify`, and the traps `task --list` does not carry:
+`docs/contributing/testing-and-verification.md`.
 
 Runtime-behavioural changes (deep-research cards, agent refactor, research 403)
 still need a running stack before merge: the `.devcontainer` (VS Code,
