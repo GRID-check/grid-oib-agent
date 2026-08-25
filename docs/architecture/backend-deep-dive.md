@@ -1754,19 +1754,13 @@ loads house voice, offers and org skills through `use_skill`
 
 ## 10. Verification workflow
 
-The host's `npm install` hangs, so verify in containers:
+`task verify` is the local gate: host-native, defined once in the root
+`Taskfile.yml`. CI calls the same definitions but schedules them differently, so
+a local pass is strong evidence rather than a guarantee. `task verify:fast`
+skips two production builds, `fe:build` and `web:build`. Full command list, the
+checks that sit outside `verify`, and the traps `task --list` does not carry:
+`docs/contributing/testing-and-verification.md`.
 
-- **Frontend typecheck (fast, no NGC auth):**
-  ```
-  cd frontends/ui
-  docker build -q -f Dockerfile.typecheck -t grid-tsc .   # deps layer caches
-  docker run --rm grid-tsc                                 # runs tsc --noEmit
-  ```
-  Note: tsconfig includes test files, so spec type errors block the production
-  `next build`.
-- **Backend:** `.venv/Scripts/python.exe -m py_compile <files>` and
-  `.venv/Scripts/ruff.exe check <files>` (uv hangs on cross-filesystem sync here).
-- **Full stack / runtime:** the `.devcontainer` (VS Code, `deploy/Dockerfile`
-  target `dev-builder`, NGC auth required) or `docker compose … up -d --build`.
-  Runtime-behavioural changes (deep-research cards, agent refactor, research 403)
-  must be verified here before merge.
+Runtime-behavioural changes (deep-research cards, agent refactor, research 403)
+still need a running stack before merge: the `.devcontainer` (VS Code,
+`deploy/Dockerfile` target `dev-builder`) or `docker compose … up -d --build`.

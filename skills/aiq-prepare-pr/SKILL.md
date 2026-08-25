@@ -29,11 +29,11 @@ flow followed correctly.
 
 ## Authoritative References
 
-- [CONTRIBUTING.md](../../../CONTRIBUTING.md): the canonical PR workflow, Local
+- [CONTRIBUTING.md](../../CONTRIBUTING.md): the canonical PR workflow, Local
   Validation, DCO text, and the CI merge gate.
-- [.github/pull_request_template.md](../../../.github/pull_request_template.md):
+- [.github/pull_request_template.md](../../.github/pull_request_template.md):
   the exact sections and checklist your PR description must fill.
-- [AGENTS.md](../../../AGENTS.md): "Git and PR hygiene" and the validation
+- [AGENTS.md](../../AGENTS.md): "Git and PR hygiene" and the validation
   commands `aiq-release-qa` runs.
 
 For the step-by-step checklist and the bot command reference:

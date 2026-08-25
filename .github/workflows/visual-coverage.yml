@@ -16,7 +16,7 @@
 # exactly the noise this phase is meant to avoid. Per-component enforcement needs
 # a declared component→target link first (ADR-level change).
 #
-# Scope: src/features/**​/components and src/components — excluding shadcn
+# Scope: src/features/**/components and src/components — excluding shadcn
 # primitives (src/components/ui, covered by the cards/focus-ring targets), test
 # files, and /dev routes themselves.
 

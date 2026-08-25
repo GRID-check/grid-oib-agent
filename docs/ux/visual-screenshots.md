@@ -1,7 +1,7 @@
 # Visual screenshots (UI evidence framework)
 
 User-visible changes are "done" only with a screenshot as evidence (see the
-`definition-of-done` skill). This repo has a small, reproducible screenshot
+`aiq-definition-of-done` skill). This repo has a small, reproducible screenshot
 harness so that evidence is a committed artifact, not a one-off manual capture.
 
 - **Harness:** `frontends/ui/visual/capture.mjs`
@@ -78,7 +78,7 @@ real device) and written as `<id>.mobile.<theme>.png`. It is produced when:
 - you pass `--mobile-only` (captures the mobile variant and skips desktop).
 
 Mobile is a first-class surface here — a change to any responsive layout is not
-done (see the definition-of-done skill) until its mobile twin has been reviewed
+done (see the aiq-definition-of-done skill) until its mobile twin has been reviewed
 in light and dark, the same bar as desktop.
 
 ## Adding a new screenshot target

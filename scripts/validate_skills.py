@@ -2,7 +2,7 @@
 
 """Validate AI-Q repo-local agent skill bundles.
 
-Checks every skill directory under one or more roots (default ``.agents/skills``)
+Checks every skill directory under one or more roots (default ``skills``)
 for a well-formed ``SKILL.md`` and bundle layout. Runs fully offline with no
 network access so it is safe in pre-commit and CI.
 
@@ -41,7 +41,7 @@ BUNDLE_DIRS = ("references", "scripts", "templates", "assets")
 FRONTMATTER_RE = re.compile(r"^---\r?\n(.*?)\r?\n---(?:\r?\n|$)", re.DOTALL)
 MD_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 
-DEFAULT_ROOTS = (".agents/skills",)
+DEFAULT_ROOTS = ("skills",)
 
 
 @dataclass
@@ -151,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
         "roots",
         nargs="*",
         default=list(DEFAULT_ROOTS),
-        help="Skill root directories to validate (default: .agents/skills).",
+        help="Skill root directories to validate (default: skills).",
     )
     args = parser.parse_args(argv)
 
