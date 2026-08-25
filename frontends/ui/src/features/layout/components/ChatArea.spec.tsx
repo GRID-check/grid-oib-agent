@@ -231,55 +231,34 @@ describe('ChatArea', () => {
     mockBimModels = null
   })
 
-  describe('the empty canvas offers the building when there is one', () => {
-    const MODEL_CHIP = /how many external walls/i
-    const REQUIREMENTS_CHIP = /which requirements can my model not answer/i
+  describe('the empty canvas offers nothing to read, only something to do', () => {
+    // The greeting used to be followed by a subtitle and a row of example
+    // questions — one explaining that answers cite their sources, the others
+    // proposing a first question. Both were addressed to somebody opening the
+    // product for the first time, and both were charged to every user on every
+    // new thread forever. They are gone; what the canvas offers instead is the
+    // composer, lifted into the middle of the screen to meet the greeting.
+    //
+    // This block is the ratchet. Suggestion chips are the kind of thing that
+    // grows back one well-argued pull request at a time, so the absence is
+    // asserted in the exact conditions that used to produce the most of them.
 
-    test('offers only corpus questions in a project with no model', () => {
+    test('grows no suggestion chips, not even where a readable model exists', () => {
       mockProjectId = 'proj-1'
-      mockBimModels = []
-      render(<ChatArea isAuthenticated />)
-
-      expect(screen.queryByRole('button', { name: MODEL_CHIP })).not.toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /escape route length/i })).toBeInTheDocument()
-    })
-
-    test('offers building questions FIRST once a model is readable', async () => {
-      mockProjectId = 'proj-1'
+      // The strongest case: this project's model is ready, which is precisely
+      // when the canvas used to lead with two building questions.
       mockBimModels = [{ status: 'ready' }]
       render(<ChatArea isAuthenticated />)
 
-      const chips = screen.getAllByRole('button', { name: /\?$/ })
-      // The building leads: it is this project's own content, and it is the
-      // half of the product the OIB corpus cannot answer.
-      expect(chips[0]).toHaveAccessibleName(MODEL_CHIP)
-      expect(screen.getByRole('button', { name: REQUIREMENTS_CHIP })).toBeInTheDocument()
-      // The corpus questions stay — both capabilities are on offer, not one.
-      expect(screen.getByRole('button', { name: /fire compartments/i })).toBeInTheDocument()
-
-      // A chip prefills the composer rather than sending, like every other one.
-      await userEvent.click(chips[0])
-      expect(mockSetComposerPrefill).toHaveBeenCalledWith(
-        expect.stringMatching(MODEL_CHIP)
-      )
+      expect(screen.queryAllByRole('button', { name: /\?$/ })).toHaveLength(0)
+      expect(mockSetComposerPrefill).not.toHaveBeenCalled()
     })
 
-    test('says nothing about a model that cannot be asked anything yet', () => {
-      mockProjectId = 'proj-1'
-      // Still extracting: the query layer has no rows, so a chip promising an
-      // exact count would be answered with "I could not read the model".
-      mockBimModels = [{ status: 'extracting' }]
+    test('leaves the greeting alone under it', () => {
       render(<ChatArea isAuthenticated />)
 
-      expect(screen.queryByRole('button', { name: MODEL_CHIP })).not.toBeInTheDocument()
-    })
-
-    test('never asks for models outside a project', () => {
-      mockProjectId = null
-      mockBimModels = [{ status: 'ready' }]
-      render(<ChatArea isAuthenticated />)
-
-      expect(screen.queryByRole('button', { name: MODEL_CHIP })).not.toBeInTheDocument()
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(GREETING_RE)
+      expect(screen.queryByText(/answers cite their sources/i)).not.toBeInTheDocument()
     })
   })
 

@@ -887,8 +887,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   /*
     The thread's hand-off state, read from the server (never computed here — the
     banner, the inbox and this composer read the same rows, ADR-0034). It is what
-    turns the default "Geht an Piloti" into "Geht an den Chat": while a named person
-    is awaited, a plain message is a remark and the agent stays out.
+    turns the silent default into "Geht an den Chat": while a named person is
+    awaited, a plain message is a remark and the agent stays out.
 
     Off entirely without the flag, so a gated org opens no request (spec NF-8) —
     and off on a PRIVATE thread too. Gating on the flag alone was not enough:
@@ -1933,18 +1933,19 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       {/* AI-transparency disclosure (EU AI Act Art. 50): users must know they
           interact with an AI system and that answers can be wrong. Kept to a
           single compact line so it costs minimal vertical space on both mobile
-          and desktop, while staying persistently visible, legible, and clearly
-          identifiable as a separate AI notice (leading spark glyph) — not
+          and desktop, while staying persistently visible, legible and not
           hidden behind a click, per the Art. 50(5) "clear and distinguishable"
-          standard. The composer floats over the scrolling chat, so a light
+          standard. That standard is carried by the SENTENCE, which is
+          unabridged, always rendered and never collapsed; it used to be led by
+          a spark glyph as well, and the glyph was reinforcement rather than the
+          disclosure. The composer floats over the scrolling chat, so a light
           blurred pill keeps it readable over messages behind it. */}
       <div className="mt-1.5 flex justify-center">
         {/* Frosted, not hand-derived: this hint sits ON the transcript, and the
             alpha pair is what `backdrop-blur-sm` has to blur (the `supports-`
             step is the no-blur fallback). */}
-        <p className="text-muted-foreground bg-muted/70 supports-[backdrop-filter]:bg-muted/45 inline-flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-lg px-2.5 py-1 text-center text-xs leading-snug backdrop-blur-sm">
-          <Sparkles className="size-3 shrink-0 opacity-70" aria-hidden="true" />
-          <span>{t('inputArea.aiDisclosure')}</span>
+        <p className="text-muted-foreground bg-muted/70 supports-[backdrop-filter]:bg-muted/45 inline-flex max-w-[calc(100%-1rem)] items-center rounded-lg px-2.5 py-1 text-center text-xs leading-snug backdrop-blur-sm">
+          {t('inputArea.aiDisclosure')}
         </p>
       </div>
 

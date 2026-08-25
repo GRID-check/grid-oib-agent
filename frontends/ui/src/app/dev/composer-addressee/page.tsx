@@ -11,8 +11,13 @@
  * it *changes* as the state changes, and the three states cannot coexist in one
  * composer. Stacked here, the transition is legible in a single still:
  *
- *   1. **Geht an Piloti** — the default, and where a thread always returns. Quiet
- *      reassurance; the Piloti mark, no colour, no border.
+ *   1. **Silence** — the default, and where a thread always returns. It used to
+ *      state "Geht an Piloti" here; that sentence described the case the user is
+ *      already in and was rendered forever to do it. What remains on the line is
+ *      the `@` offer, which is not a statement but the only thing in the product
+ *      that teaches mentions exist. Captured deliberately: an empty row IS the
+ *      evidence, and without it nothing would show that the other two are
+ *      departures rather than the norm.
  *   2. **Geht an Anna Berger** — a person is tagged in the message being written, so
  *      the agent will stay out; paired with the "Piloti antwortet nicht" hint, which
  *      the user must see BEFORE sending.
@@ -122,7 +127,7 @@ function Previews(): JSX.Element {
   return (
     <>
       <section className="space-y-3">
-        <Eyebrow>Standard — der Chat fragt Piloti</Eyebrow>
+        <Eyebrow>Standard — der Chat fragt Piloti, ohne es zu sagen</Eyebrow>
         {/* `onMentionSomeone` is passed because the real composer passes it, and
             without it this preview quietly captured a state the product never
             shows: the affordance renders only when a handler exists, so every

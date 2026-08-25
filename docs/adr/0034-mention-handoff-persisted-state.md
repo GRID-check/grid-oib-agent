@@ -107,10 +107,13 @@ the database. `createConversationMessages` resolves shared-ness once and threads
 to both the addressee decision and the fan-out, so neither pays twice.
 
 **The behaviour was not the whole defect.** The rule was invisible: nothing in the
-UI said who the next message would reach. The composer now states its addressee in
-every state ("Geht an Piloti" / "Geht an {name}" / "Geht an den Chat" with
+UI said who the next message would reach. The composer now states its addressee
+wherever it departs from the default ("Geht an {name}" / "Geht an den Chat" with
 "@Piloti eingeben, um Piloti zu fragen"), because a correct rule the user has to
-infer is still an unclear product.
+infer is still an unclear product. The default itself ("Geht an Piloti") was stated
+too, and no longer is — see the 2026-08-25 addendum to
+[ADR-0036](0036-when-the-agent-answers-in-a-shared-thread.md) for why the promise was
+narrowed to the departures.
 
 ## Addendum (2026-07-30): the agent tier needed a change after all — "always send, never always judge"
 
