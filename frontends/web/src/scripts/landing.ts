@@ -52,7 +52,7 @@ function initAura() {
   const IH = 768
   const HEAD: [number, number] = [700, 196]
   /** How far the orbital plane is tipped away from the viewer. */
-  const TILT = 0.42
+  const TILT = 0.38
   let sc = 1
   let ox = 0
   let oy = 0
@@ -121,45 +121,70 @@ function initAura() {
     ctx.fill()
 
     ctx.lineWidth = 1
-    // Two rings, not three, and drawn faint: the aura is instrumentation over a
-    // photograph, and instrumentation that shouts stops looking like precision.
+    // Two rings, drawn faint: the aura is instrumentation over a photograph, and
+    // instrumentation that shouts stops looking like precision.
     //
-    // They are read as a plane seen at an angle rather than as flat circles on
-    // the glass: squashed on the vertical, and each ring tipped a little further
-    // than the one inside it, which is what an orbit does in perspective.
+    // They read as a plane seen at an angle rather than as circles on the glass:
+    // squashed on the vertical, each tipped a little further than the one inside
+    // it, which is what an orbit does in perspective.
     const rings: [number, number, number][] = [
       [116, 0.05, 0.13],
       [206, -0.03, 0.085],
     ]
-    rings.forEach(([r, spd, al], i) => {
-      ctx.save()
-      ctx.translate(hx, hy)
-      ctx.rotate(ts * spd * 0.35 + i * 0.5)
-      ctx.strokeStyle = `rgba(94,110,70,${al})`
-      ctx.setLineDash([13 * sc, 11 * sc])
-      ctx.beginPath()
-      ctx.ellipse(0, 0, r * sc, r * sc * (TILT - i * 0.05), 0, 0, Math.PI * 2)
-      ctx.stroke()
-      ctx.restore()
-    })
-    ctx.setLineDash([])
+    const drawRings = () =>
+      rings.forEach(([r, spd, al], i) => {
+        ctx.save()
+        ctx.translate(hx, hy)
+        ctx.rotate(ts * spd * 0.35 + i * 0.5)
+        ctx.strokeStyle = `rgba(94,110,70,${al})`
+        ctx.setLineDash([13 * sc, 11 * sc])
+        ctx.beginPath()
+        ctx.ellipse(0, 0, r * sc, r * sc * (TILT - i * 0.05), 0, 0, Math.PI * 2)
+        ctx.stroke()
+        ctx.restore()
+        ctx.setLineDash([])
+      })
 
     ctx.font = `${(9.5 * Math.max(1, sc * 0.75)).toFixed(1)}px 'IBM Plex Mono', monospace`
     ctx.letterSpacing = '0.08em'
-    NODES.forEach((n, i) => {
+
+    // Every node is solved before anything is drawn, because the order it is
+    // drawn in IS the depth: the ones on the far side of the orbit go down
+    // first, then the rings, then the near ones — so the plane passes in front
+    // of what is behind it and behind what is in front. Occlusion is the cue
+    // that sells a tilted plane; without it this is just a flat scatter that
+    // happens to be squashed.
+    const solved = NODES.map((n, i) => {
       const ang = n.a + ts * n.v
-      // The node rides a tipped orbit, so the sine of its angle is how near the
-      // front of that orbit it currently is: 1 in front, -1 behind. Everything
-      // else — its size, its weight, how solid its leader line goes — follows
-      // from that one number, which is what sells depth without any real 3D.
       const near = (Math.sin(ang) + 1) / 2
-      const depth = 0.72 + 0.28 * near
-      const nx = hx + Math.cos(ang) * n.r * sc
-      const ny = hy + Math.sin(ang) * n.r * sc * TILT
-      const glow = 0.5 + 0.5 * Math.sin(ts * 1.1 + i)
-      // A leader line is drawn to the nodes that say something, and only
-      // suggested for the rest, so the eye follows the labels.
-      const named = Boolean(n.label)
+      return {
+        n,
+        ang,
+        near,
+        depth: 0.72 + 0.28 * near,
+        nx: hx + Math.cos(ang) * n.r * sc,
+        ny: hy + Math.sin(ang) * n.r * sc * TILT,
+        glow: 0.5 + 0.5 * Math.sin(ts * 1.1 + i),
+        named: Boolean(n.label),
+      }
+    })
+
+    const paint = (s: (typeof solved)[number]) => {
+      const { n, ang, depth, nx, ny, glow, named } = s
+
+      // A short arc of the orbit trails behind the node, fading as it goes: the
+      // path it is on, made visible for the last few degrees it travelled.
+      const TRAIL = 0.75
+      const steps = 4
+      for (let k = 0; k < steps; k++) {
+        const a0 = ang - (TRAIL * (k + 1)) / steps
+        const a1 = ang - (TRAIL * k) / steps
+        ctx.strokeStyle = `rgba(94,110,70,${((named ? 0.17 : 0.1) * depth * (1 - k / steps)).toFixed(3)})`
+        ctx.lineWidth = depth * (1 - k / (steps * 1.6))
+        ctx.beginPath()
+        ctx.ellipse(hx, hy, n.r * sc, n.r * sc * TILT, 0, a0, a1)
+        ctx.stroke()
+      }
 
       // The line leaves the head as nothing and gathers as it travels out. A
       // stroke of one flat alpha reads as a spoke pinned to the face; a stroke
@@ -175,11 +200,29 @@ function initAura() {
       ctx.moveTo(hx, hy)
       ctx.lineTo(nx, ny)
       ctx.stroke()
-      ctx.fillStyle = `rgba(88,104,64,${(((named ? 0.4 : 0.22) + 0.35 * glow) * depth).toFixed(3)})`
+
+      // The dot is a soft body rather than a hard disc, and the far ones are
+      // softer — the cheapest depth of field there is.
+      const rad = (named ? 1.9 : 1.2 + 0.6 * glow) * depth * Math.max(1, sc * 0.8)
+      const core = ((named ? 0.42 : 0.24) + 0.35 * glow) * depth
+      const body = ctx.createRadialGradient(nx, ny, 0, nx, ny, rad * (2.6 - depth))
+      body.addColorStop(0, `rgba(88,104,64,${core.toFixed(3)})`)
+      body.addColorStop(0.5, `rgba(88,104,64,${(core * 0.45).toFixed(3)})`)
+      body.addColorStop(1, 'rgba(88,104,64,0)')
+      ctx.fillStyle = body
       ctx.beginPath()
-      ctx.arc(nx, ny, (named ? 1.7 : 1.1 + 0.6 * glow) * depth * Math.max(1, sc * 0.8), 0, Math.PI * 2)
+      ctx.arc(nx, ny, rad * (2.6 - depth), 0, Math.PI * 2)
       ctx.fill()
-      // A label belongs to its node, so it takes whichever side of the node has
+    }
+
+    solved.filter((s) => s.near < 0.5).forEach(paint)
+    drawRings()
+    solved.filter((s) => s.near >= 0.5).forEach(paint)
+
+    // Labels sit above the whole constellation, so a node passing behind a ring
+    // never takes its own name with it.
+    solved.forEach(({ n, depth, nx, ny, glow }) => {
+        // A label belongs to its node, so it takes whichever side of the node has
       // room for it. Written blindly to the right, the ones on a phone ran off
       // the canvas and were read as a column of broken words down the edge.
       const EDGE = 12
