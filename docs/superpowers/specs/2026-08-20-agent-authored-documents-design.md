@@ -602,6 +602,28 @@ default**, and a default leaves no diff to review.
 
 ## Open questions
 
+0. **Deleting a filed report does not stick, and this is the one to fix next.**
+   `deleteProjectDocument` is a hard DELETE — `documents.deleted_at` exists and
+   is read, but nothing writes it, unlike `projects` and `conversations`. Filing
+   is triggered by a GET of the report, so once the row is gone the idempotency
+   probe finds nothing and the next open of that run re-renders the report,
+   files it under a new id, charges the quota again and emits a second
+   `document.generated`. An architect who deletes Piloti's report gets it back.
+
+   For a document removed on legal instruction that is the wrong failure, and it
+   is why ADR-0047's "an agent-authored document is erasable on day one" needs
+   qualifying: the ROW is erasable, the DOCUMENT is not, because the producer
+   regenerates it.
+
+   It cannot be fixed in the index — nothing keyed on a row can remember a row
+   that no longer exists. The two candidate designs are a soft delete for
+   machine-authored rows (so the probe still sees them, at the cost of a
+   „bereits abgelegt" answer pointing at something the reader deleted) and a
+   tombstone keyed on `(organization, project, ref, producer)` (which survives
+   the row, at the cost of a second table and its own retention question).
+   Migration 0064's header asserted the first of these as existing behaviour
+   until 2026-08-25; it never existed.
+
 1. ~~Which folder?~~ **Resolved:** a fixed `Berichte` folder, with finding
    them driven by `authored_by` rather than by the folder (decisions 8–9).
 2. ~~Re-runs.~~ **Resolved:** a second run makes a second document. A report is

@@ -76,11 +76,30 @@
 --     `projectId` that is not optional. A future org-scoped producer needs BOTH
 --     changed together — the probe to ask a question it can answer for a null
 --     project, and this index to key on the same COALESCE the folder index uses.
---   - Soft-deleted rows stay in the index, because the probe does not filter
---     `deleted_at` either. So deleting a filed report and re-fetching its tab
---     still answers "already filed", pointing at the deleted row. That is 0063's
---     behaviour, preserved rather than changed here; changing it means changing
---     the probe and this predicate in the same commit, or they disagree again.
+--   - DELETION, and this paragraph used to describe the opposite of what
+--     happens. It said soft-deleted rows stay in the index, so deleting a filed
+--     report and re-fetching its tab still answers "already filed", pointing at
+--     the deleted row. `documents` HAS NO SOFT DELETE. `deleted_at` exists on
+--     the table and is read (`repository.ts`), but nothing writes it —
+--     `deleteProjectDocument` is a hard DELETE, unlike `projects` and
+--     `conversations`, which do soft-delete.
+--
+--     So the real behaviour is the one nobody wrote down: the row is gone, this
+--     index no longer covers it, the probe finds nothing, and because filing is
+--     triggered by a GET of the report — every time the tab is opened — the
+--     report is RE-RENDERED, RE-FILED under a new id, re-charged against the
+--     quota, and emits a second `document.generated`. An architect who deletes
+--     Piloti's report gets it back the next time they open that run, for as
+--     long as the backend still holds the output.
+--
+--     That is the wrong failure for a document removed on legal instruction,
+--     and it is not fixable in an index predicate: nothing keyed on a row can
+--     remember a row that no longer exists. It needs either a soft delete for
+--     machine-authored rows (so the probe can still see them) or a tombstone
+--     keyed on (organization, project, ref, producer), and either is a design
+--     with its own consequences for the Files pane and the quota ledger. It is
+--     the top open question on this feature, recorded in the design spec rather
+--     than guessed at here.
 --
 -- ## Existing data
 --
