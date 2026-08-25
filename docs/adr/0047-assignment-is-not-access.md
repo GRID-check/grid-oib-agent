@@ -111,8 +111,10 @@ independent of access grants and of upload provenance.**
 
 Documents are now created by something that is not a human being. A commissioned
 deep-research run is rendered by the BFF and filed into the project as an
-ordinary `documents` row — `authored_by = 'agent'`, `authored_by_run_id` naming
-the run, `status = 'stored'`, and **zero assignees**. The design is
+ordinary `documents` row — `authored_by = 'agent'`, `authored_by_ref` naming
+the run with `authored_by_ref_kind = 'agent_run'` saying what kind of identifier
+that is (migration 0066; the column was `authored_by_run_id` until then),
+`status = 'stored'`, and **zero assignees**. The design is
 [../superpowers/specs/2026-08-20-agent-authored-documents-design.md](../superpowers/specs/2026-08-20-agent-authored-documents-design.md).
 
 Four things this ADR has to say about it.

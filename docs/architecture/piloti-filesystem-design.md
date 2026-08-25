@@ -29,8 +29,8 @@
 >   and `Zuweisen` is the promotion primitive. See
 >   [ADR-0047's 2026-08-20 addendum](../adr/0047-assignment-is-not-access.md).
 > - **Authorship is a column, and it is not responsibility.** `authored_by` /
->   `authored_by_run_id` on `documents`, rendered as a quiet byline and never as
->   a face.
+>   `authored_by_ref` / `authored_by_ref_kind` on `documents`, rendered as a
+>   quiet byline and never as a face.
 > - **Machine-authored documents are never ingested.** The safety invariant that
 >   the exploration argued for as a filter is enforced at the *dispatch site*
 >   instead: no ingest call is made, so no chunks exist and self-citation is

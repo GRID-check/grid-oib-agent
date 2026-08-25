@@ -99,6 +99,14 @@ ALTER TABLE "documents" VALIDATE CONSTRAINT "documents_authorship_requires_prove
 -- 3. The catalog comments 0063 and 0065 wrote, restored with their objects
 -- ---------------------------------------------------------------------------
 --> statement-breakpoint
+-- 0063's wording, restored with the column it names. Leaving 0066's text here
+-- would describe `authored_by_ref` and `authored_by_ref_kind`, neither of which
+-- exists after this file runs — the same stale-catalog failure in the other
+-- direction.
+COMMENT ON COLUMN "documents"."authored_by_producer" IS
+  'What wrote an authored_by <> user document, as a producer identifier (deep_research), never a display label. NULL for everything a person uploaded. Separate from authored_by_run_id because a run id only identifies the producer while there is exactly one, and recovering it later from pruned job history is archaeology.';
+
+--> statement-breakpoint
 COMMENT ON COLUMN "documents"."authored_by_run_id" IS
   'The backend async job id of the run that wrote an authored_by <> user document; NULL for everything a person uploaded. Required together with authored_by_producer (documents_authorship_requires_provenance) because a machine-written document nobody can trace back to a run is an audit trail in appearance only.';
 

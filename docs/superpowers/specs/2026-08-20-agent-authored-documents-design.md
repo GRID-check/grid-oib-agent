@@ -59,7 +59,8 @@ Two failure modes make the naive fix worse than the gap:
    exists (`lib/storage/admission.ts`, `admitOrDiscard`).
 
 2. **Authorship is provenance, and provenance is never responsibility.** New
-   columns `authored_by` (`user` | `agent`) and `authored_by_run_id`. The
+   columns `authored_by` (`user` | `agent`) and `authored_by_run_id` — shipped
+   as `authored_by_ref` plus `authored_by_ref_kind`, see the Data model note. The
    file-native spec already fixed this separation — *"Provenance — who put the
    bytes here (`createdBy`). Keep. Never render as 'verantwortlich'"* — and
    this is the change that makes it load-bearing rather than tidy.
@@ -158,6 +159,14 @@ Cut deliberately, each with the reason:
 | Chat-turn writes, skills, memory, Archiv, re-ingestion | Each is a second consumer. One first. |
 
 ## Data model
+
+> **As built — the column is `authored_by_ref`, and it names its kind.** The
+> sketch below is the design as proposed, kept as the record of it. What shipped
+> is migrations 0063–0066: `authored_by_run_id` was renamed to `authored_by_ref`
+> and joined by `authored_by_ref_kind` (`agent_run` | `answer_artifact`), because
+> two of the three producers file a reference that is not a job id at all. Read
+> `frontends/ui/drizzle/0066_authored_ref_names_its_kind.sql` for the current
+> shape and the argument; `docs/database/schema.md` for the table.
 
 Migration `00NN`:
 
