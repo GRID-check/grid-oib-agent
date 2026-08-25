@@ -1118,10 +1118,17 @@ describe('InputArea', () => {
 
       await user.click(trigger)
 
-      // The honest sentence is the first thing in the picker, not a footnote.
+      // Four named bodies of knowledge, and nothing explaining them. The
+      // sentence that used to sit on top ("this sets where Piloti may look")
+      // was charged to every reader on every open to describe four rows that
+      // already say so.
+      expect(screen.getByTestId('source-basis-row-law')).toBeInTheDocument()
+      expect(screen.getByTestId('source-basis-row-project')).toBeInTheDocument()
+      expect(screen.getByTestId('source-basis-row-office')).toBeInTheDocument()
+      expect(screen.getByTestId('source-basis-row-web')).toBeInTheDocument()
       expect(
-        screen.getByText(/what it actually used is in the derivation/i)
-      ).toBeInTheDocument()
+        screen.queryByText(/what it actually used is in the derivation/i)
+      ).not.toBeInTheDocument()
       expect(mockOpenRightPanel).not.toHaveBeenCalled()
     })
 
@@ -1142,81 +1149,112 @@ describe('InputArea', () => {
       expect(trigger).not.toHaveTextContent('0')
     })
 
-    test('with every external source off the trigger says project knowledge only', () => {
+    test('a narrower mix is named, not reduced to "internal only"', () => {
+      // The web sources are off, the two shelf-backed categories are not. The
+      // trigger used to collapse this to "Nur Projektwissen", which was wrong
+      // in both directions: it omitted the law that always rides along, and it
+      // ignored the office archive that was still in scope.
       mockEnabledDataSourceIds = []
 
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 
-      expect(screen.getByRole('button', { name: /data basis/i })).toHaveTextContent(
-        'Project knowledge only'
-      )
+      const trigger = screen.getByRole('button', { name: /data basis/i })
+      expect(trigger).toHaveTextContent('Building law & guidelines')
+      expect(trigger).toHaveTextContent('Project documents')
+      // Two named, the third behind a +N rather than a truncated third word.
+      expect(trigger).toHaveTextContent('+1')
     })
 
-    test('the always-on knowledge layer is listed in the picker instead of hidden', async () => {
+    test('Baurecht carries a chip rather than a switch, and says why', async () => {
       const user = userEvent.setup()
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 
       await user.click(screen.getByRole('button', { name: /data basis/i }))
 
-      // It rides on every turn (`use-websocket-chat` appends `knowledge_layer`),
-      // so it is drawn — with a chip where a Switch would lie about agency.
-      const alwaysOn = screen.getByRole('list', { name: /always included/i })
-      expect(within(alwaysOn).getByText('Project knowledge')).toBeInTheDocument()
-      expect(within(alwaysOn).getByText('Office archive')).toBeInTheDocument()
-      // A Chip, not a Switch: there is nothing here for the reader to decide.
-      expect(within(alwaysOn).getAllByText('Always on')).toHaveLength(2)
-      expect(within(alwaysOn).queryAllByRole('switch')).toHaveLength(0)
-    })
+      // Every `source_preset` the wire can carry includes the `base` shelf, so
+      // a law switch would keep searching the OIB corpus after being turned
+      // off. A Chip plus a stated reason, not a Switch that half works.
+      const law = screen.getByTestId('source-basis-row-law')
+      expect(within(law).getByText('Always on')).toBeInTheDocument()
+      expect(within(law).queryByRole('switch')).not.toBeInTheDocument()
+      expect(within(law).getByText(/currently always included/i)).toBeInTheDocument()
 
-    test('switching a source off in the picker persists the new basis', async () => {
-      const user = userEvent.setup()
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
-
-      await user.click(screen.getByRole('button', { name: /data basis/i }))
-      await user.click(screen.getByRole('switch', { name: /allow quelle eins/i }))
-
-      expect(mockToggleDataSource).toHaveBeenCalledWith('source-1')
-      expect(mockSaveDataSourcesToConversation).toHaveBeenCalledWith(['source-2'])
-    })
-
-    test('turning the last external source off warns, where the banner stays silent', async () => {
-      const user = userEvent.setup()
-      mockEnabledDataSourceIds = []
-
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
-      await user.click(screen.getByRole('button', { name: /data basis/i }))
-
-      // `NoSourcesBanner` short-circuits on `knowledgeLayerAvailable`, so this
-      // case is completely silent in the transcript.
+      // The other three are real switches.
       expect(
-        screen.getByText(/search only your project documents/i)
+        within(screen.getByTestId('source-basis-row-project')).getByRole('switch')
+      ).toBeInTheDocument()
+      expect(
+        within(screen.getByTestId('source-basis-row-office')).getByRole('switch')
+      ).toBeInTheDocument()
+      expect(
+        within(screen.getByTestId('source-basis-row-web')).getByRole('switch')
       ).toBeInTheDocument()
     })
 
-    test('the presets live in the picker permanently and apply the mapped subset', async () => {
+    test('one switch writes the whole answer — shelves and sources together', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(screen.getByRole('button', { name: /data basis/i }))
+      await user.click(screen.getByRole('switch', { name: /allow web search/i }))
+
+      // The preset (which shelves) and the enabled ids (which tools) used to be
+      // two controls that could disagree. Neither can now be set without the
+      // other. The fixture's two sources both classify as `auto`, so the web
+      // switch governs both and switching it off leaves nothing enabled.
+      expect(mockApplySourcePreset).toHaveBeenCalledWith(null, [])
+      expect(mockSaveDataSourcesToConversation).toHaveBeenCalledWith([])
+    })
+
+    test('there is no way to switch everything off', async () => {
+      // The old picker needed a warning for it ("Piloti sucht dann nur noch in
+      // Ihren Projektunterlagen") because the state was reachable. It is not
+      // reachable any more: law has no switch, so the worst the reader can do
+      // is narrow to the law they always had.
+      const user = userEvent.setup()
+      mockEnabledDataSourceIds = []
+      mockActiveSourcePreset = 'law'
+
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      await user.click(screen.getByRole('button', { name: /data basis/i }))
+
+      const switches = screen.getAllByRole('switch')
+      expect(switches.every((toggle) => !toggle.hasAttribute('checked'))).toBe(true)
+      expect(
+        within(screen.getByTestId('source-basis-row-law')).getByText('Always on')
+      ).toBeInTheDocument()
+    })
+
+    test('switching off the project narrows the turn to the office preset', async () => {
       const user = userEvent.setup()
       mockAvailableDataSources = [
         { id: 'web_search', name: 'Web Search' },
         { id: 'ris', name: 'RIS – Österreichisches Recht' },
       ]
       mockEnabledDataSourceIds = ['web_search', 'ris']
-      // The chips used to be onboarding-only (empty thread, no prior chat), so
-      // the informative control expired and the naked integer outlived it.
+      // The control used to be onboarding-only (empty thread, no prior chat),
+      // so the informative half expired while the naked integer lasted forever.
       mockConversationMessages = [
         { id: 'msg-1', role: 'user', content: 'Hello', messageType: 'user' },
       ]
 
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
       await user.click(screen.getByRole('button', { name: /data basis/i }))
-      await user.click(screen.getByRole('radio', { name: /building law & guidelines/i }))
+      await user.click(screen.getByRole('switch', { name: /allow project documents/i }))
 
-      expect(mockApplySourcePreset).toHaveBeenCalledWith('law', ['ris'])
-      expect(mockSaveDataSourcesToConversation).toHaveBeenCalledWith(['ris'])
+      // Project off, office still on — which is exactly what the wire calls
+      // `office`. RIS rides along because the law row says it does.
+      expect(mockApplySourcePreset).toHaveBeenCalledWith('office', ['web_search', 'ris'])
+      expect(mockSaveDataSourcesToConversation).toHaveBeenCalledWith(['web_search', 'ris'])
     })
 
-    test('"All sources" makes the default all-on state a named choice', async () => {
+    test('switching the last narrowed category back on drops the preset entirely', async () => {
+      // Both shelf categories on is not a preset — it is the signed collection
+      // scope, left intact (ADR-0024). Reaching it has to be possible from the
+      // rows, or "everything" would be a state the reader could leave and never
+      // return to.
       const user = userEvent.setup()
-      mockActiveSourcePreset = 'law'
+      mockActiveSourcePreset = 'office'
       mockAvailableDataSources = [
         { id: 'web_search', name: 'Web Search' },
         { id: 'ris', name: 'RIS – Österreichisches Recht' },
@@ -1225,10 +1263,10 @@ describe('InputArea', () => {
 
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
       await user.click(screen.getByRole('button', { name: /data basis/i }))
-      await user.click(screen.getByRole('radio', { name: /^all sources$/i }))
+      await user.click(screen.getByRole('switch', { name: /allow project documents/i }))
 
-      expect(mockApplySourcePreset).toHaveBeenCalledWith(null, ['web_search', 'ris'])
-      expect(mockSaveDataSourcesToConversation).toHaveBeenCalledWith(['web_search', 'ris'])
+      expect(mockApplySourcePreset).toHaveBeenCalledWith(null, ['ris'])
+      expect(mockSaveDataSourcesToConversation).toHaveBeenCalledWith(['ris'])
     })
 
     test('shows a stop button while streaming and cancels via stopStreaming (C1)', async () => {
@@ -1930,16 +1968,17 @@ describe('InputArea', () => {
       expect(screen.getByRole('button', { name: /data basis/i })).not.toBeDisabled()
     })
 
-    test('the presets outlive onboarding — they are in the picker, not on a chip row', async () => {
-      // They used to render only while `isEmptyThread && !hasHadAChat`, so the
-      // one informative, colour-coded source control expired after the first
-      // chat while the naked integer lasted forever. Backwards.
+    test('the control outlives onboarding — it is in the picker, not on a chip row', async () => {
+      // The preset chips used to render only while `isEmptyThread &&
+      // !hasHadAChat`, so the one informative source control expired after the
+      // first chat while the naked integer lasted forever. Backwards.
       const user = userEvent.setup()
       mockConversationMessages = [{ id: 'm1', role: 'user', content: 'hello' }]
       render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
 
       await user.click(screen.getByRole('button', { name: /data basis/i }))
-      expect(screen.getByRole('radio', { name: /building law & guidelines/i })).toBeInTheDocument()
+      expect(screen.getByTestId('source-basis-row-law')).toBeInTheDocument()
+      expect(screen.getByTestId('source-basis-row-web')).toBeInTheDocument()
     })
   })
 

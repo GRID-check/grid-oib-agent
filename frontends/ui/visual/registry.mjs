@@ -226,6 +226,30 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="composer-files-preview"]',
   },
   {
+    id: 'source-basis',
+    mobile: true,
+    path: '/dev/source-basis',
+    description:
+      'The Datenbasis control in its default state — the composer trigger above the popover it opens. Four bodies of knowledge an architect already thinks in (Baurecht & Richtlinien, Projektunterlagen, Büroarchiv, Web-Suche), replacing a picker that asked the same question three times in two grammars: an always-on section naming the knowledge layer, a list of whatever data sources the registry returned, and a row of preset chips that overrode both. Baurecht carries a chip rather than a switch, and says why on its own line.',
+    waitFor: '[data-testid="source-basis-row-law"]',
+  },
+  {
+    id: 'source-basis-project',
+    mobile: true,
+    path: '/dev/source-basis?variant=project',
+    description:
+      'The same control narrowed to this project, web off — the state the wire encodes as source_preset=project. Two switches off, the locked law row unchanged, and the trigger above naming the categories rather than reading "Alle Quellen".',
+    waitFor: '[data-testid="source-basis-row-law"]',
+  },
+  {
+    id: 'source-basis-law',
+    mobile: true,
+    path: '/dev/source-basis?variant=law',
+    description:
+      'Baurecht only: project documents and the office archive both off, which is the one turn the wire can express without any shelf beyond `base`. Evidence that switching everything off still leaves a defensible state rather than an empty one — the law row cannot be switched off, so the reader can never reach "Piloti may look nowhere".',
+    waitFor: '[data-testid="source-basis-row-law"]',
+  },
+  {
     id: 'chat-welcome',
     mobile: true,
     path: '/dev/chat-welcome',

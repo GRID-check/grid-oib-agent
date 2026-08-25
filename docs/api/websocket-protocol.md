@@ -224,7 +224,7 @@ expanded collection list:
 |-------|------|---------|
 | `focus_file_name` | `string` | Filename of the file this send is about (the composer "Asking about …" subject). Retrieval prefers it, AND it is named in the prompts. |
 | `focus_shelf` | `"session"` \| `"project"` \| `"archiv"` | Shelf that file sits on. Wins over `source_preset`. |
-| `source_preset` | `"law"` \| `"project"` \| `"office"` | Composer shortcut chip. Used only when no subject shelf is set. |
+| `source_preset` | `"law"` \| `"project"` \| `"office"` | Derived from the composer's Datenbasis switches (Baurecht is always in, so the three shelf categories collapse onto these values plus "no preset" for all-on). Used only when no subject shelf is set. |
 
 ```typescript
 text: JSON.stringify({
@@ -232,7 +232,7 @@ text: JSON.stringify({
   data_sources: [],
   focus_file_name: "Protokoll.pdf",
   focus_shelf: "session"        // omitted when there is no subject file
-  // source_preset: "project"   // omitted when no chip is pressed
+  // source_preset: "project"   // omitted when every category is on
 })
 ```
 

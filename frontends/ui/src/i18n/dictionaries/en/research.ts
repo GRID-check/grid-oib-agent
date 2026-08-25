@@ -71,57 +71,34 @@ export const research = {
     retryAria: 'Retry loading data sources',
   },
 
-  /**
-   * Datenbasis — the composer control for WHERE Piloti may look.
-   *
-   * One name for one thing: this object retires the four competing labels the
-   * same surface used to carry. Tense is meaning here — the control speaks only
-   * in the present/permissive ("may search"); what was actually used is the
-   * Herleitung's job to report, never this control's.
-   */
   sourceBasis: {
     label: 'Data basis',
-    triggerAria: 'Data basis: {summary}. Opens the picker.',
-    description: 'Where Piloti may search. What it actually used is in the derivation.',
+    triggerAria: 'Data basis: {summary}. Opens the selection.',
     allSources: 'All sources',
-    internalOnly: 'Project knowledge only',
-    overflowAria: '{count, plural, one {# more source type} other {# more source types}}',
-    alwaysOn: 'Always included',
+    overflowAria: '{count, plural, one {# more kind of source} other {# more kinds of source}}',
     alwaysOnChip: 'Always on',
-    external: 'External sources',
     signInRequired: 'Sign-in required',
     signInReason: 'Sign in to use this source.',
     lockedBusy: 'The data basis cannot be changed while research is running.',
-    noExternalWarning: 'Piloti will then search only your project documents.',
-    presetsLabel: 'Presets',
-    emptyTitle: 'No external sources',
-    emptyBody:
-      'No external sources are enabled for this project right now. Piloti searches your project documents.',
     toggleAria: 'Allow {name}',
-    /** Stratum wordmarks — always shown together with their icon and colour. */
-    strata: {
-      law: 'Building law',
-      office: 'Office archive',
-      project: 'Project knowledge',
-      auto: 'Web',
-    },
-    /** Presets in the picker footer — "All" makes the normal case nameable. */
-    presets: {
-      all: 'All sources',
-      law: 'Building law & guidelines',
-      project: 'Project documents',
-      office: 'Office archive',
-    },
-    /**
-     * The knowledge layer is not a toggleable source — it rides along on every
-     * turn. It is listed here instead of being filtered away and skewing the
-     * count.
-     */
-    knowledge: {
-      projectName: 'Project knowledge',
-      projectDescription: 'Your project documents in this project.',
-      officeName: 'Office archive',
-      officeDescription: 'Shared documents from your office.',
+    categories: {
+      law: {
+        name: 'Building law & guidelines',
+        description: 'Austrian building law, OIB guidelines',
+        lockedReason: 'Currently always included.',
+      },
+      project: {
+        name: 'Project documents',
+        description: "Plans, reports and minutes for this project",
+      },
+      office: {
+        name: 'Office archive',
+        description: 'Details, templates and past projects from your office',
+      },
+      web: {
+        name: 'Web search',
+        description: 'The open web, outside your own documents',
+      },
     },
   },
 

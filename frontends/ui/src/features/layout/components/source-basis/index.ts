@@ -1,19 +1,22 @@
 /** Datenbasis — the composer's "where may Piloti look" control. */
 export { SourceBasisTrigger, type SourceBasisTriggerProps } from './SourceBasisTrigger'
-export { SourceBasisPicker } from './SourceBasisPicker'
+export { SourceBasisPicker, useSourceCategoryLabels } from './SourceBasisPicker'
 export { SourceBasisRow, type SourceBasisRowProps } from './SourceBasisRow'
 export {
-  buildSourceBasis,
-  summariseBasis,
-  hasNoExternalSources,
+  buildSourceCategories,
+  summariseCategories,
+  selectionFromCategories,
+  wireForSelection,
   KNOWLEDGE_LAYER_ID,
-  KNOWLEDGE_PROJECT_ID,
-  KNOWLEDGE_OFFICE_ID,
-  MAX_TRIGGER_STRATA,
-  STRATUM_ORDER,
-  type SourceBasis,
-  type SourceBasisEntry,
+  CATEGORY_ORDER,
+  CATEGORY_SIGNAL,
+  MAX_TRIGGER_CATEGORIES,
+  type SourceCategory,
+  type SourceCategoryId,
+  type SourceCategoryLabels,
   type SourceBasisState,
+  type CategorySelection,
+  type BuildSourceCategoriesInput,
   type BasisSummary,
   type BasisSummaryKind,
 } from './source-basis-model'

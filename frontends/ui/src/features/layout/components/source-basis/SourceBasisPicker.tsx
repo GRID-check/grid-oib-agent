@@ -1,61 +1,78 @@
 /**
  * SourceBasisPicker — the body of the Datenbasis popover.
  *
- * Replaces `SourcesPopoverContent`, which nested cards three deep
- * (`bg-popover` → `rounded-xl bg-card` toggle-all → N × `rounded-2xl bg-card`
- * rows), hid the knowledge layer entirely, and put its only honest sentence in
- * a footnote under the fold.
+ * One question, one list. It used to ask the same question three times in two
+ * grammars: an "Immer dabei" section naming the knowledge layer, an "Externe
+ * Quellen" section listing whatever `GET /v1/data_sources` returned, and a row
+ * of preset chips underneath that overrode both. An architect had to learn what
+ * a "data source" is, and how it differs from a "preset", before they could
+ * answer "where should Piloti look?".
  *
- * What changed, and why:
+ * Now the reader meets the four bodies of knowledge they already think in —
+ * Baurecht & Richtlinien, Projektunterlagen, Büroarchiv, Web — and each row
+ * owns whatever machinery stands behind it (`source-basis-model`).
  *
- * - **The honest sentence is first.** A `Field` + `FieldDescription` at the top
- *   says what this control does *and* what it does not do: it sets where Piloti
- *   may look; what it actually used is the Herleitung's job to report.
- * - **"Immer dabei" is a real section.** The knowledge layer rides on every turn
- *   whether or not it is drawn, so it is drawn — non-interactive, with a Chip
- *   where the Switch would be. It used to be invisible, which is precisely how
- *   the trigger's count came to be wrong.
- * - **One list, not a stack of cards.** `ItemList` + `Item`, hairline divided.
- * - **The scroll region fades.** `scroll-fade-bottom` on the scroll container so
- *   a half-clipped row reads as "more below" rather than as broken chrome.
- * - **The presets are permanent and live outside the fade.** They used to render
- *   only on an empty thread — the informative, colour-coded control was
- *   onboarding-only while the naked integer lasted forever. Backwards. "Alle
- *   Quellen" is one of the options, so the default all-on state is a named
- *   choice rather than an accident.
+ * The explanatory sentence at the top is gone with the sections. Four named
+ * rows with switches do not need to be told they set where Piloti may look, and
+ * the sentence's other half — that the Herleitung reports what was actually
+ * used — was being paid for on every open by every reader forever.
  */
 
 'use client'
 
 import { type FC, useCallback, useMemo } from 'react'
-import { AlertTriangle, Layers } from 'lucide-react'
+import { Layers } from 'lucide-react'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Field, FieldDescription } from '@/components/ui/field'
 import { ItemList } from '@/components/ui/item'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useAuth } from '@/adapters/auth'
 import { useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { useTranslations } from '@/i18n'
-import { SectionLabel } from '@/components/ui/section-label'
 import { useLayoutStore } from '../../store'
-import { computePresetSourceIds } from '../../lib/source-presets'
-import type { SourcePresetId } from '../../types'
-import { iconForTint } from '../SourceSignalChip'
 import { SourceBasisRow } from './SourceBasisRow'
-import { buildSourceBasis, hasNoExternalSources, summariseBasis } from './source-basis-model'
+import {
+  buildSourceCategories,
+  selectionFromCategories,
+  wireForSelection,
+  type SourceCategoryId,
+  type SourceCategoryLabels,
+} from './source-basis-model'
 
-/** Preset order in the footer, authority-descending after the "everything" option. */
-const PRESETS: readonly SourcePresetId[] = ['law', 'office', 'project']
-/** Sentinel value for the "Alle Quellen" option — not a preset id in the store. */
-const ALL = 'all'
+/** Build the locale-dependent copy the model must not hard-code. */
+export const useSourceCategoryLabels = (): SourceCategoryLabels => {
+  const t = useTranslations('research')
+  return useMemo(
+    () => ({
+      law: {
+        name: t('sourceBasis.categories.law.name'),
+        description: t('sourceBasis.categories.law.description'),
+      },
+      project: {
+        name: t('sourceBasis.categories.project.name'),
+        description: t('sourceBasis.categories.project.description'),
+      },
+      office: {
+        name: t('sourceBasis.categories.office.name'),
+        description: t('sourceBasis.categories.office.description'),
+      },
+      web: {
+        name: t('sourceBasis.categories.web.name'),
+        description: t('sourceBasis.categories.web.description'),
+      },
+      lawLockedReason: t('sourceBasis.categories.law.lockedReason'),
+      signInRequired: t('sourceBasis.signInReason'),
+    }),
+    [t]
+  )
+}
 
 export const SourceBasisPicker: FC = () => {
   const t = useTranslations('research')
   const tc = useTranslations('common')
   const { idToken } = useAuth()
+  const labels = useSourceCategoryLabels()
 
   const enabledDataSourceIds = useLayoutStore((s) => s.enabledDataSourceIds)
   const availableDataSources = useLayoutStore((s) => s.availableDataSources)
@@ -63,84 +80,52 @@ export const SourceBasisPicker: FC = () => {
   const activeSourcePreset = useLayoutStore((s) => s.activeSourcePreset)
   const dataSourcesLoading = useLayoutStore((s) => s.dataSourcesLoading)
   const dataSourcesError = useLayoutStore((s) => s.dataSourcesError)
-  const toggleDataSource = useLayoutStore((s) => s.toggleDataSource)
   const applySourcePreset = useLayoutStore((s) => s.applySourcePreset)
   const fetchDataSources = useLayoutStore((s) => s.fetchDataSources)
   const saveDataSourcesToConversation = useChatStore((s) => s.saveDataSourcesToConversation)
   const isBusy = useIsCurrentSessionBusy()
 
-  const basis = useMemo(
+  const categories = useMemo(
     () =>
-      buildSourceBasis({
+      buildSourceCategories({
         sources: availableDataSources,
         enabledIds: enabledDataSourceIds,
+        activePreset: activeSourcePreset,
         knowledgeLayerAvailable,
         hasValidToken: !!idToken,
-        labels: {
-          projectName: t('sourceBasis.knowledge.projectName'),
-          projectDescription: t('sourceBasis.knowledge.projectDescription'),
-          officeName: t('sourceBasis.knowledge.officeName'),
-          officeDescription: t('sourceBasis.knowledge.officeDescription'),
-          signInRequired: t('sourceBasis.signInReason'),
-        },
+        labels,
       }),
-    [availableDataSources, enabledDataSourceIds, knowledgeLayerAvailable, idToken, t]
-  )
-
-  const summary = useMemo(
-    () => summariseBasis(basis, activeSourcePreset),
-    [basis, activeSourcePreset]
-  )
-
-  const handleToggle = useCallback(
-    (sourceId: string, enabled: boolean) => {
-      const updatedIds = enabled
-        ? [...enabledDataSourceIds, sourceId]
-        : enabledDataSourceIds.filter((id) => id !== sourceId)
-      toggleDataSource(sourceId)
-      saveDataSourcesToConversation?.(updatedIds)
-    },
-    [toggleDataSource, enabledDataSourceIds, saveDataSourcesToConversation]
+    [
+      availableDataSources,
+      enabledDataSourceIds,
+      activeSourcePreset,
+      knowledgeLayerAvailable,
+      idToken,
+      labels,
+    ]
   )
 
   /**
-   * A preset click is one write: which preset is named AND which ids it stands
-   * for. "Alle Quellen" is the null preset with every id — the same state a
-   * fresh fetch produces, now reachable by name.
+   * One switch is one write of the whole answer: which shelves the turn may
+   * read (the preset) AND which data sources it may call. They were two
+   * controls that could disagree; now neither can be set without the other.
    */
-  const handlePreset = useCallback(
-    (value: string) => {
-      // Radix hands back '' when the pressed item is deselected. Re-pressing the
-      // active preset is not "select nothing" — it is "go back to everything".
-      const sources = availableDataSources ?? []
-      const allIds = sources.map((s) => s.id)
-      if (!value || value === ALL) {
-        applySourcePreset(null, allIds)
-        saveDataSourcesToConversation?.(allIds)
-        return
-      }
-      const preset = value as SourcePresetId
-      const nextIds = computePresetSourceIds(preset, sources)
-      applySourcePreset(preset, nextIds)
-      saveDataSourcesToConversation?.(nextIds)
+  const handleToggle = useCallback(
+    (id: SourceCategoryId, next: boolean) => {
+      const selection = { ...selectionFromCategories(categories), [id]: next }
+      const { preset, enabledIds } = wireForSelection(selection, availableDataSources)
+      applySourcePreset(preset, enabledIds)
+      saveDataSourcesToConversation?.(enabledIds)
     },
-    [availableDataSources, applySourcePreset, saveDataSourcesToConversation]
+    [categories, availableDataSources, applySourcePreset, saveDataSourcesToConversation]
   )
-
-  const presetValue = activeSourcePreset ?? (summary.kind === 'all' ? ALL : '')
-  const nothingExternal = hasNoExternalSources(basis)
-  const isEmpty = basis.external.length === 0 && basis.always.length === 0
 
   return (
     <div className="flex max-h-[min(70vh,460px)] flex-col gap-3">
-      {/* The honest sentence, at the top — not a footnote under the fold. */}
-      <Field className="gap-1">
-        <div className="flex items-center gap-2">
-          <Layers className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <span className="text-sm font-semibold">{t('sourceBasis.label')}</span>
-        </div>
-        <FieldDescription>{t('sourceBasis.description')}</FieldDescription>
-      </Field>
+      <div className="flex items-center gap-2">
+        <Layers className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span className="text-sm font-semibold">{t('sourceBasis.label')}</span>
+      </div>
 
       {isBusy && (
         <p className="text-xs text-muted-foreground" role="note">
@@ -148,7 +133,7 @@ export const SourceBasisPicker: FC = () => {
         </p>
       )}
 
-      <div className="scroll-fade-bottom min-h-0 flex-1 space-y-4 overflow-y-auto pb-1">
+      <div className="scroll-fade-bottom min-h-0 flex-1 overflow-y-auto pb-1">
         {dataSourcesLoading ? (
           <div className="space-y-2" aria-busy="true" aria-label={t('dataSources.loading')}>
             <Skeleton className="h-14 w-full" />
@@ -171,80 +156,18 @@ export const SourceBasisPicker: FC = () => {
             </AlertDescription>
           </Alert>
         ) : (
-          <>
-            {basis.always.length > 0 && (
-              <section className="space-y-2">
-                <SectionLabel as="h3">{t('sourceBasis.alwaysOn')}</SectionLabel>
-                <ItemList as="ul" aria-label={t('sourceBasis.alwaysOn')}>
-                  {basis.always.map((entry) => (
-                    <SourceBasisRow key={entry.id} entry={entry} />
-                  ))}
-                </ItemList>
-              </section>
-            )}
-
-            <section className="space-y-2">
-              <SectionLabel as="h3">{t('sourceBasis.external')}</SectionLabel>
-              {basis.external.length === 0 ? (
-                <div className="rounded-lg border border-dashed bg-muted p-6 text-center">
-                  <Layers className="mx-auto size-6 text-muted-foreground/60" aria-hidden="true" />
-                  <p className="mt-2 text-sm font-medium">{t('sourceBasis.emptyTitle')}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{t('sourceBasis.emptyBody')}</p>
-                </div>
-              ) : (
-                <ItemList as="ul" aria-label={t('sourceBasis.external')}>
-                  {basis.external.map((entry) => (
-                    <SourceBasisRow
-                      key={entry.id}
-                      entry={entry}
-                      isBusy={isBusy}
-                      onToggle={handleToggle}
-                    />
-                  ))}
-                </ItemList>
-              )}
-            </section>
-
-            {/* The case the composer's NoSourcesBanner cannot see: it
-                short-circuits on `knowledgeLayerAvailable`, so switching off
-                every external source is completely silent today. */}
-            {nothingExternal && (
-              <Alert variant="warning">
-                <AlertTriangle aria-hidden="true" />
-                <AlertDescription>{t('sourceBasis.noExternalWarning')}</AlertDescription>
-              </Alert>
-            )}
-          </>
+          <ItemList as="ul" aria-label={t('sourceBasis.label')}>
+            {categories.map((entry) => (
+              <SourceBasisRow
+                key={entry.id}
+                entry={entry}
+                isBusy={isBusy}
+                onToggle={handleToggle}
+              />
+            ))}
+          </ItemList>
         )}
       </div>
-
-      {/* Outside the fade: a footer must stay sharp. */}
-      {!isEmpty && !dataSourcesError && (
-        <div className="space-y-1.5 border-t pt-3">
-          <SectionLabel as="h3">{t('sourceBasis.presetsLabel')}</SectionLabel>
-          <ToggleGroup
-            type="single"
-            variant="inverted"
-            size="sm"
-            value={presetValue}
-            onValueChange={handlePreset}
-            disabled={isBusy}
-            aria-label={t('sourceBasis.presetsLabel')}
-          >
-            <ToggleGroupItem value={ALL}>{t('sourceBasis.presets.all')}</ToggleGroupItem>
-            {PRESETS.map((preset) => {
-              const signal = preset === 'law' ? 'law' : preset === 'office' ? 'office' : 'project'
-              const Icon = iconForTint(signal)
-              return (
-                <ToggleGroupItem key={preset} value={preset}>
-                  <Icon aria-hidden="true" />
-                  {t(`sourceBasis.presets.${preset}`)}
-                </ToggleGroupItem>
-              )
-            })}
-          </ToggleGroup>
-        </div>
-      )}
     </div>
   )
 }

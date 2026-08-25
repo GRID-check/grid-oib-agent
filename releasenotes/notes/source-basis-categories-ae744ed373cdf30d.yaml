@@ -1,0 +1,14 @@
+---
+improvements:
+  - >
+    The composer's data-basis control now asks one question instead of three.
+    Where it used to show an always-on section, a list of technical data
+    sources and a row of preset chips, it offers the four bodies of knowledge
+    you already work in: Baurecht & Richtlinien, Projektunterlagen, Büroarchiv
+    and Web-Suche, each with its own switch.
+  - >
+    Baurecht & Richtlinien now covers both the Austrian RIS and the OIB
+    guidelines in one entry, so you no longer have to know which of the two is
+    a separate connection. It is marked as always included, because a turn
+    without it cannot currently be requested — the row says so rather than
+    offering a switch that would not take effect.

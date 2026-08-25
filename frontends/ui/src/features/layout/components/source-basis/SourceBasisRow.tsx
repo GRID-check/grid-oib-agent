@@ -1,5 +1,5 @@
 /**
- * SourceBasisRow — one source, listed.
+ * SourceBasisRow — one body of knowledge, listed.
  *
  * Replaces `DataConnectionCard`, which was a `role="button"` div wrapping a
  * `<Switch>` that needed `stopPropagation` and two eslint-disables to survive.
@@ -7,12 +7,13 @@
  * was on. Here the Switch is the only control, the row is a plain `Item`, and
  * the row's own text is the Switch's accessible name.
  *
- * Three states, three different pictures — because they are three different
- * facts:
+ * Four states, four different pictures — because they are four different facts:
  *
  * - **on / off** — a Switch the reader can flip.
- * - **always** — the knowledge layer. No Switch at all, a `Chip` reading
- *   "Immer aktiv" where the Switch would be. There is nothing to decide.
+ * - **locked** — on, and not theirs to change: a `Chip` reading "Immer aktiv"
+ *   where the Switch would be, plus the reason on its own line. Today this is
+ *   only Baurecht & Richtlinien, and only because the wire cannot yet express
+ *   a turn without it (see `source-basis-model`).
  * - **unavailable** — a `Chip variant="outline"` reading "Anmeldung nötig" plus
  *   the reason as visible `ItemDescription`. The old row drew this identically
  *   to "off" (`opacity-50` + unchecked Switch, reason hidden in a `title=`), and
@@ -29,13 +30,13 @@ import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { iconForTint } from '../SourceSignalChip'
-import type { SourceBasisEntry } from './source-basis-model'
+import type { SourceCategory, SourceCategoryId } from './source-basis-model'
 
 export interface SourceBasisRowProps {
-  entry: SourceBasisEntry
+  entry: SourceCategory
   /** A turn is in flight — the basis is frozen for its duration. */
   isBusy?: boolean
-  onToggle?: (id: string, enabled: boolean) => void
+  onToggle?: (id: SourceCategoryId, enabled: boolean) => void
 }
 
 export const SourceBasisRow: FC<SourceBasisRowProps> = ({ entry, isBusy = false, onToggle }) => {
@@ -44,8 +45,13 @@ export const SourceBasisRow: FC<SourceBasisRowProps> = ({ entry, isBusy = false,
   const isSwitchable = entry.state === 'on' || entry.state === 'off'
 
   return (
-    <Item as="li" className={cn('gap-3 px-3 py-2.5', !isSwitchable && 'hover:bg-transparent')}>
-      {/* Provenance rides on its own tint, exactly as the preset chips do. The
+    <Item
+      as="li"
+      data-testid={`source-basis-row-${entry.id}`}
+      data-state={entry.state}
+      className={cn('gap-3 px-3 py-2.5', !isSwitchable && 'hover:bg-transparent')}
+    >
+      {/* Provenance rides on its own tint, exactly as the citation chips do. The
           old picker drew a `Globe` on `bg-muted` for every row while the chips
           800 lines away were fully colour-coded — two controls, one subject,
           opposite visual languages. */}
@@ -69,10 +75,15 @@ export const SourceBasisRow: FC<SourceBasisRowProps> = ({ entry, isBusy = false,
             ? (entry.unavailableReason ?? t('sourceBasis.signInReason'))
             : entry.description}
         </ItemDescription>
+        {entry.state === 'locked' && entry.lockedReason && (
+          <ItemDescription className="text-muted-foreground/80">
+            {entry.lockedReason}
+          </ItemDescription>
+        )}
       </ItemContent>
 
       <ItemActions>
-        {entry.state === 'always' ? (
+        {entry.state === 'locked' ? (
           <Chip variant="muted" size="sm">
             {t('sourceBasis.alwaysOnChip')}
           </Chip>

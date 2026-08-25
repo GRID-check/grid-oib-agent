@@ -594,8 +594,8 @@ no project scope when `session.organizationId` is falsy (anonymous /
 
 The signed header is the **authorization ceiling**, not the turn's search set.
 The client states **intent** on the user message — `focus_file_name`,
-`focus_shelf` (the composer subject's shelf), `source_preset` (the shortcut
-chip) — never an expanded collection list. `shelves_for_turn`
+`focus_shelf` (the composer subject's shelf), `source_preset` (derived from
+the composer's Datenbasis switches) — never an expanded collection list. `shelves_for_turn`
 (`src/aiq_agent/common/focus_file.py`) is the one mapping from that intent
 to the shelves retrieval may keep; the knowledge layer **subtracts** other
 shelves from the ceiling at the retrieve site and, when the focused file has

@@ -73,62 +73,47 @@ export const research: typeof en.research = {
     retryAria: 'Laden der Datenquellen erneut versuchen',
   },
 
-  /**
-   * Datenbasis — der Verfasser-Regler dafür, WORIN Piloti suchen darf.
-   *
-   * Ein Name für eine Sache: dieses Objekt löst die vier konkurrierenden
-   * Bezeichnungen ab, die dieselbe Fläche früher trugen (aria-label
-   * „Datengrundlage“, sichtbar „Datengrundlage“, title „Ausgewählte
-   * Datenverbindungen“, Kopfzeile „Datenquellen“).
-   *
-   * Zeitform ist hier Bedeutung: der Regler spricht ausschließlich in der
-   * Gegenwart/Möglichkeit („darf suchen“). Was tatsächlich benutzt wurde, sagt
-   * die Herleitung — nie dieses Bedienelement.
-   */
   sourceBasis: {
     label: 'Datenbasis',
     triggerAria: 'Datenbasis: {summary}. Öffnet die Auswahl.',
-    description:
-      'Worin Piloti suchen darf. Was tatsächlich verwendet wurde, steht in der Herleitung.',
     allSources: 'Alle Quellen',
-    internalOnly: 'Nur Projektwissen',
     overflowAria: '{count, plural, one {# weitere Quellenart} other {# weitere Quellenarten}}',
-    alwaysOn: 'Immer dabei',
     alwaysOnChip: 'Immer aktiv',
-    external: 'Externe Quellen',
     signInRequired: 'Anmeldung nötig',
     signInReason: 'Melden Sie sich an, um diese Quelle zu nutzen.',
     lockedBusy: 'Während einer laufenden Recherche lässt sich die Datenbasis nicht ändern.',
-    noExternalWarning: 'Piloti sucht dann nur noch in Ihren Projektunterlagen.',
-    presetsLabel: 'Voreinstellungen',
-    emptyTitle: 'Keine externen Quellen',
-    emptyBody:
-      'Für dieses Projekt sind derzeit keine externen Quellen freigeschaltet. Piloti sucht in Ihren Projektunterlagen.',
     toggleAria: '{name} zulassen',
-    /** Wortmarken der Provenienz-Straten — immer mit Icon und Farbe zusammen. */
-    strata: {
-      law: 'Baurecht',
-      office: 'Büroarchiv',
-      project: 'Projektwissen',
-      auto: 'Web',
-    },
-    /** Voreinstellungen im Fuß der Auswahl — „Alle“ macht den Normalfall benennbar. */
-    presets: {
-      all: 'Alle Quellen',
-      law: 'Baurecht & Richtlinien',
-      project: 'Projektunterlagen',
-      office: 'Büroarchiv',
-    },
     /**
-     * Die Wissensschicht ist keine umschaltbare Quelle — sie geht bei jedem Zug
-     * mit auf die Leitung. Deshalb steht sie hier sichtbar drin, statt gefiltert
-     * zu verschwinden und die Zählung zu verfälschen.
+     * Die vier Wissensbestände, in der Sprache eines Architekturbüros — nicht in
+     * der des Systems. Was früher hier stand („Datenquellen“, „externe Quellen“,
+     * „Wissensschicht“), waren Namen für Maschinerie: der Leser musste erst
+     * wissen, was eine Datenquelle ist, um zu beantworten, wo Piloti suchen soll.
      */
-    knowledge: {
-      projectName: 'Projektwissen',
-      projectDescription: 'Ihre Projektunterlagen in diesem Projekt.',
-      officeName: 'Büroarchiv',
-      officeDescription: 'Freigegebene Unterlagen Ihres Büros.',
+    categories: {
+      law: {
+        name: 'Baurecht & Richtlinien',
+        description: 'Baurecht Österreich, OIB-Richtlinien',
+        /**
+         * Ehrlich statt bequem: die Leitung überträgt eine einzelne
+         * Voreinstellung, und jede davon schließt das Baurecht ein. Ein
+         * Schalter, der nach dem Ausschalten weiter in den OIB-Richtlinien
+         * sucht, wäre eine Falschaussage — also sagt die Zeile, dass sie
+         * mitläuft. Siehe backlog.md.
+         */
+        lockedReason: 'Läuft derzeit immer mit.',
+      },
+      project: {
+        name: 'Projektunterlagen',
+        description: 'Pläne, Gutachten und Protokolle dieses Projekts',
+      },
+      office: {
+        name: 'Büroarchiv',
+        description: 'Details, Vorlagen und frühere Projekte Ihres Büros',
+      },
+      web: {
+        name: 'Web-Suche',
+        description: 'Das offene Web, außerhalb Ihrer Unterlagen',
+      },
     },
   },
 

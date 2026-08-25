@@ -13,15 +13,13 @@
  * stripped from the list yet appended to every turn) and, on the Büroarchiv
  * preset, it read **0** — the user names the office archive and the composer
  * reports zero sources. Worse, a bare number says nothing about *what* is in
- * scope. So the trigger renders one of four shapes instead, resolved by
- * `summariseBasis`:
+ * scope. So the trigger renders one of two shapes instead, resolved by
+ * `summariseCategories`:
  *
  * | shape | reads |
  * |---|---|
  * | `all` | "Alle Quellen" — in ink, no chroma: "everything" is not a provenance claim |
- * | `preset` | that preset's icon + name, in its signal colour |
- * | `subset` | icon + German word per stratum, max two, then a `+N` `CountPill` |
- * | `internalOnly` | "Nur Projektwissen" |
+ * | `subset` | icon + category name, max two, then a `+N` `CountPill` |
  *
  * Every coloured unit is icon + word + colour together — never a colour-only
  * dot (design language §2).
@@ -51,7 +49,13 @@ import { useTranslations } from '@/i18n'
 import { useLayoutStore } from '../../store'
 import type { SourceSignal } from '../../lib/source-presets'
 import { iconForTint } from '../SourceSignalChip'
-import { buildSourceBasis, summariseBasis, type BasisSummary } from './source-basis-model'
+import { useSourceCategoryLabels } from './SourceBasisPicker'
+import {
+  buildSourceCategories,
+  summariseCategories,
+  CATEGORY_SIGNAL,
+  type BasisSummary,
+} from './source-basis-model'
 
 /**
  * Static class map rather than an interpolated `text-source-${signal}-text`:
@@ -64,12 +68,6 @@ const SIGNAL_TEXT: Record<SourceSignal, string> = {
   project: 'text-source-project-text',
   model: 'text-source-model-text',
   auto: 'text-source-auto-text',
-}
-
-const PRESET_SIGNAL: Record<'law' | 'project' | 'office', SourceSignal> = {
-  law: 'law',
-  project: 'project',
-  office: 'office',
 }
 
 /** One stratum, spelled out: icon + word + colour, never colour alone. */
@@ -105,33 +103,33 @@ export const SourceBasisTrigger = forwardRef<HTMLButtonElement, SourceBasisTrigg
     const knowledgeLayerAvailable = useLayoutStore((s) => s.knowledgeLayerAvailable)
     const activeSourcePreset = useLayoutStore((s) => s.activeSourcePreset)
 
-    const summary: BasisSummary = useMemo(() => {
-      const basis = buildSourceBasis({
-        sources: availableDataSources,
-        enabledIds: enabledDataSourceIds,
+    const labels = useSourceCategoryLabels()
+
+    const summary: BasisSummary = useMemo(
+      () =>
+        summariseCategories(
+          buildSourceCategories({
+            sources: availableDataSources,
+            enabledIds: enabledDataSourceIds,
+            activePreset: activeSourcePreset,
+            knowledgeLayerAvailable,
+            hasValidToken: !!idToken,
+            labels,
+          })
+        ),
+      [
+        availableDataSources,
+        enabledDataSourceIds,
+        activeSourcePreset,
         knowledgeLayerAvailable,
-        hasValidToken: !!idToken,
-        labels: {
-          projectName: t('sourceBasis.knowledge.projectName'),
-          projectDescription: t('sourceBasis.knowledge.projectDescription'),
-          officeName: t('sourceBasis.knowledge.officeName'),
-          officeDescription: t('sourceBasis.knowledge.officeDescription'),
-          signInRequired: t('sourceBasis.signInReason'),
-        },
-      })
-      return summariseBasis(basis, activeSourcePreset)
-    }, [
-      availableDataSources,
-      enabledDataSourceIds,
-      knowledgeLayerAvailable,
-      idToken,
-      activeSourcePreset,
-      t,
-    ])
+        idToken,
+        labels,
+      ]
+    )
 
     // One-shot receipt: the mix changed while the picker was closed, so this
     // button is the only place the change can be seen.
-    const signature = `${summary.kind}:${summary.preset ?? ''}:${summary.strata.join(',')}:${summary.overflow}`
+    const signature = `${summary.kind}:${summary.categories.join(',')}:${summary.overflow}`
     const previousSignature = useRef(signature)
     const [receipt, setReceipt] = useState(0)
     useEffect(() => {
@@ -143,11 +141,7 @@ export const SourceBasisTrigger = forwardRef<HTMLButtonElement, SourceBasisTrigg
     const label =
       summary.kind === 'all'
         ? t('sourceBasis.allSources')
-        : summary.kind === 'internalOnly'
-          ? t('sourceBasis.internalOnly')
-          : summary.kind === 'preset' && summary.preset
-            ? t(`sourceBasis.presets.${summary.preset}`)
-            : summary.strata.map((signal) => t(`sourceBasis.strata.${signal}`)).join(', ')
+        : summary.categories.map((id) => t(`sourceBasis.categories.${id}.name`)).join(', ')
 
     return (
       <Button
@@ -174,20 +168,13 @@ export const SourceBasisTrigger = forwardRef<HTMLButtonElement, SourceBasisTrigg
               <Layers className="size-3.5 shrink-0" aria-hidden="true" />
               <span className="truncate">{t('sourceBasis.allSources')}</span>
             </span>
-          ) : summary.kind === 'preset' && summary.preset ? (
-            <StratumUnit
-              signal={PRESET_SIGNAL[summary.preset]}
-              label={t(`sourceBasis.presets.${summary.preset}`)}
-            />
-          ) : summary.kind === 'internalOnly' ? (
-            <StratumUnit signal="project" label={t('sourceBasis.internalOnly')} />
           ) : (
             <AnimatePresence mode="popLayout" initial={false}>
-              {summary.strata.map((signal) => (
+              {summary.categories.map((id) => (
                 <StratumUnit
-                  key={signal}
-                  signal={signal}
-                  label={t(`sourceBasis.strata.${signal}`)}
+                  key={id}
+                  signal={CATEGORY_SIGNAL[id]}
+                  label={t(`sourceBasis.categories.${id}.name`)}
                 />
               ))}
             </AnimatePresence>
