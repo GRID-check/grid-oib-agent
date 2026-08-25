@@ -422,14 +422,18 @@ describe('evaluateIntakeCondition', () => {
     const c8 = findIntakeQuestion(definition, 'C8')!
     const gebaeude = { 'C1@bw1': 'gebaeude' }
 
-    it('is satisfied only at or below the bound', () => {
-      expect(
-        evaluateIntakeCondition(
-          c8,
-          { ...gebaeude, 'C3@bw1': 4, [modeKeyFor('C3@bw1')]: 'wert' },
-          'bw1'
-        )
-      ).toBe(true)
+    it('is satisfied below the bound, not only AT it', () => {
+      // 3 as well as 4: a bound of 4 exercised only with 4 passes just as well
+      // under plain `equals`, so it cannot tell a real `lte` from no `lte`.
+      for (const storeys of [3, 4]) {
+        expect(
+          evaluateIntakeCondition(
+            c8,
+            { ...gebaeude, 'C3@bw1': storeys, [modeKeyFor('C3@bw1')]: 'wert' },
+            'bw1'
+          )
+        ).toBe(true)
+      }
       expect(
         evaluateIntakeCondition(
           c8,
