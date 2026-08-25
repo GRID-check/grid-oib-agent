@@ -1,0 +1,37 @@
+# Infrastructure — `deploy/`
+
+Three deployment paths off one image set: Docker Compose (`compose/`, plus a
+Coolify variant), Helm charts (`helm/`), and the Pulumi TypeScript program
+(`pulumi/`) that is the Kubernetes source of truth.
+
+Read [`../AGENTS.md`](../AGENTS.md) too. This file is only what is true here.
+
+## Commands
+
+```bash
+task infra:types     # typechecks the Pulumi program AND its policy pack
+task infra:test      # manifest tests under pulumi.runtime.setMocks — no cluster needed
+task infra:preview   # real `pulumi preview`; needs stack credentials
+```
+
+Two Node programs live here, `pulumi/` and `pulumi/policy/`, each with its own
+lockfile. `task setup` installs both — installing only the policy pack is what
+once left a fresh clone failing `task verify` at `infra:types`.
+
+## Obligations
+
+| When you | You must | What fails you |
+|---|---|---|
+| Change a manifest | Add or update a case in `index*.spec.ts` | `typecheck` proves the program is well-typed and nothing about the manifests. Every SeaweedFS bug in this repo's history was a string: a renamed flag, a Service missing the gRPC port `weed shell` needs, a probe pointed at an endpoint that answers 423 |
+| Add a service | Add it to Compose **and** Pulumi, or say in the PR why only one | The paths silently diverge and the difference is found in production |
+| Add an environment variable | Its row in [`docs/deployment/environment-variables.md`](../docs/deployment/environment-variables.md), in the same change | Review, and an operator with no way to know what it does |
+| Edit `Pulumi.<stack>.yaml` | Leave the encrypted secrets alone and do not reorder keys above them | They are encrypted by the stack's Pulumi-Cloud key and deliberately committed. detect-secrets' filter here is line-scoped, so inserting a key above them shifts every line and breaks the next unlucky PR |
+| Add a replica | Check the tier actually scales — the chat/web tier is single-replica pending the ingest-status + reaper-lock follow-up | Conversation affinity (ADR-0028) is what makes the agent tier scale; the web tier does not have it yet |
+
+## Reference
+
+- [`pulumi/README.md`](pulumi/README.md) explains the committed-secrets design.
+- [`docs/deployment/kubernetes.md`](../docs/deployment/kubernetes.md) §6.3 has
+  the open scaling follow-ups; [`docs/deployment/docker-compose.md`](../docs/deployment/docker-compose.md)
+  is the service reference.
+- ADR-0020 (Dragonfly), ADR-0029 (Aspire telemetry), ADR-0043 (SeaweedFS topology).

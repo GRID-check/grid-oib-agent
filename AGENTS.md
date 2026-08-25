@@ -4,6 +4,31 @@ Grid is an OIB building-regulation assistant: a Next.js UI and BFF
 (`frontends/ui`), a Python agent on the NeMo Agent Toolkit (`src/aiq_agent`),
 and a custom OIB knowledge source.
 
+## Setup
+
+Run this before anything else, including before reading much further — every
+command this guide names comes from `Taskfile.yml` and none of them exist until
+the first line has run.
+
+```bash
+npm i -g @go-task/cli   # `task` itself. Nothing in the repo installs it
+task setup              # backend venv, UI, web, both Pulumi programs, agent skills
+pre-commit install      # NOT part of `task setup`, and CI lints the whole repo
+task verify             # the merge gate. Run it before you call anything done
+```
+
+`task setup` needs `uv`, `bun` and Node on the PATH; it installs everything
+else, is idempotent, and takes a few minutes on a cold clone. `bun` is the
+installer and script runner for the UI, never the runtime — see
+[`gotchas.md`](docs/contributing/gotchas.md) before you reach for `--bun`.
+
+Two things `task setup` does not do, both of which fail later and confusingly:
+it does not install the git hooks (`pre-commit install`, above), and it does not
+give you `task db:test:rls`, which needs PostgreSQL server binaries and is a
+required merge check whenever you touch the tenant boundary.
+
+`task --list` is the current command list and beats any list written down here.
+
 ## Start here
 
 | Question | Go to |
@@ -17,6 +42,32 @@ and a custom OIB knowledge source.
 This file is what you must **act on** while working. Project knowledge you want
 to add here has no home yet: give it one under
 [`docs/contributing/`](docs/contributing/README.md) and leave a one-line pointer.
+
+## Where the scoped guides are
+
+This file is the part that is true everywhere. Each service carries its own
+`AGENTS.md` with the part that is true only there — the onboarding guide for
+that one thing. **Read the guide for the area you are about to touch before you
+touch it**, and read this one as well; they are additive, not alternatives.
+
+| You are working in | Read |
+|---|---|
+| `src/aiq_agent/` — the agent: LangGraph agents, tools, cards, stages, knowledge | [`src/aiq_agent/AGENTS.md`](src/aiq_agent/AGENTS.md) |
+| `frontends/ui/` — Next.js UI, the BFF, the WebSocket proxy | [`frontends/ui/AGENTS.md`](frontends/ui/AGENTS.md) |
+| `frontends/aiq_api/` — the FastAPI plugin: REST routes, async jobs, `/v1/ingest` | [`frontends/aiq_api/AGENTS.md`](frontends/aiq_api/AGENTS.md) |
+| `frontends/web/` — the public Astro site and blog | [`frontends/web/AGENTS.md`](frontends/web/AGENTS.md) |
+| `sources/` — NAT data-source packages | [`sources/AGENTS.md`](sources/AGENTS.md) |
+| `packages/` — standalone libraries, gated by nothing yet | [`packages/AGENTS.md`](packages/AGENTS.md) |
+| `deploy/` — Compose, Helm, Pulumi | [`deploy/AGENTS.md`](deploy/AGENTS.md) |
+| `tests/` — the backend suite | [`tests/AGENTS.md`](tests/AGENTS.md) |
+| `docs/adr/` — writing or superseding a decision | [`docs/adr/AGENTS.md`](docs/adr/AGENTS.md) |
+
+Open it yourself, and treat anything your harness loaded on its own as a bonus.
+Claude Code reaches a nested guide only after it has already read a file in that
+directory, and some harnesses never do. One read settles it.
+
+Why these files are shaped the way they are, and what breaks when they are not:
+[`docs/contributing/agent-onboarding-files.md`](docs/contributing/agent-onboarding-files.md).
 
 ## Working style
 
@@ -71,52 +122,33 @@ Which layer to close: [`docs/contributing/correction-ratchet.md`](docs/contribut
 
 ## Obligations
 
+Repo-wide. Each service adds its own — the map is above, and the rows there are
+the ones that will actually fail your PR.
+
 | When you | You must | What fails you |
 |---|---|---|
-| Add an `app/api` route | Declare `authz` on the factory from `@/lib/api/handler` | `apiRoute` does not compile; `authz-coverage.spec.ts` |
-| Add a permission | Add it to `lib/authz/catalog.ts` first, then `bun run provision:authz --apply` against every environment | WorkOS drifts from the code. A project-tier permission that exists only in the catalog is held by **nobody** |
-| Decide access | Check a permission, never a role slug. `lib/authz/decide.ts` is the intended single decision point; adoption is incremental (ADR-0038 §6) and the gates still call `hasPermission` / `requireProjectAccess` / `requirePlatformPermission` directly | Bypasses become implicit. A role-name check breaks every custom role |
-| Create a table | `SELECT grid_secure_table('<table>','<tenancy predicate>');` in the same migration | `rls-coverage.spec.ts`, by name |
-| Read tenant rows | Take context from `getGridSession()`, or state it (`withTenant`, `withPlatformAccess`, `withOptionalTenant`) | `internalApiRoute` does not compile |
-| Write an endpoint | Route stays a thin adapter, service owns logic and authorization, repository owns the SQL and bounds every list | Review. `publicApiRoute` needs an ADR |
-| Add a card type | Classify it in `CARD_INTERACTIVITY` (`frontends/ui/src/features/grid-cards/card-decision.ts`) | `task fe:types` |
-| Store a card's answer | Put it on `ChatMessage.cardInteractions` via `useCardDecision` | A reload re-applies the patch; neither endpoint is idempotent |
 | Add an environment variable | Add its row to [`docs/deployment/environment-variables.md`](docs/deployment/environment-variables.md) in the same change | Review |
 | Change what a customer can notice | `task release:note -- <slug>` | The **Release note** CI job |
-| Change behaviour a doc describes | Update the doc in the same commit | Review. Stale docs are a bug |
-| Ship a user-visible surface | `/dev/<name>` preview route, a registry target, committed PNGs from `task fe:screenshots` | `visual-coverage` |
-| Touch the tenant boundary | `task db:test:rls`, which `task verify` does not include | A required merge check |
-| Run `pytest` directly | Set `PYTHONPATH=src`, which `Taskfile.yml` otherwise sets for you | Silently validating another worktree's code |
+| Change behaviour a doc describes | Update the doc in the same commit | Review. Stale docs are a bug, because an agent acts on them |
+| Learn something the repo could have told you | Write it down where the next agent will already be looking, before you carry on | Nothing, once. Then everyone re-earns it. [The ratchet](docs/contributing/correction-ratchet.md#human-intervention-is-a-failure-signal) |
 
 `task verify` is the local gate: host-native, defined once in `Taskfile.yml`. CI
 calls the same definitions but schedules them differently, so a local pass is
 strong evidence rather than a guarantee. `task verify:fast` skips two production
-builds, `fe:build` and `web:build`. `task --list` is the current command list.
-Spec type errors fail the production build, because the UI tsconfig includes
-tests.
+builds, `fe:build` and `web:build`.
 
-## Five rules that need more than a row
+Two gates sit outside `task verify` and are still required: `task db:test:rls`
+whenever you touch the tenant boundary, and the suites under `sources/` and
+`packages/`, which no CI job runs at all.
 
-**Authorization checks a permission, never a role name.** Both bypasses are
-permissions: `org:projects:administer` reaches every project in one organization,
-and platform access is membership of the GRID Platform organization *plus* the
-specific `platform:*` permission the surface needs. `session.role === 'admin'`
-looks equivalent and is not — it denies a custom role holding every `org:*`
-permission, and grants any role that merely shares the name.
-
-**Stepping up is not authorization.** Row-level security guards application
-bugs, the missing `WHERE` and the widened join. Anything that runs arbitrary SQL
-as `grid_app_rw` can name any tenant, so every platform-scope caller keeps its
-own check.
-
-**The project profile has one editor, the intake wizard.** Settings shows it
-read-only and links to the wizard. Its facts are interdependent, so edits belong
-in the guided flow rather than a second form.
+## Two rules that span services
 
 **One coarse `SourceKind` drives all rendering** (`baurecht | buero | projekt |
 web`), defined in `src/aiq_agent/common/source_kinds.py`, mirrored in
-`frontends/ui/src/features/chat/lib/source-kinds.ts`. The fine `norm_registry` lanes are a
-sub-label within a kind. `doc_class` is human-set and beats every filename guess.
+`frontends/ui/src/features/chat/lib/source-kinds.ts`. The fine `norm_registry`
+lanes are a sub-label within a kind. `doc_class` is human-set and beats every
+filename guess. There is no shared schema between the two files: changing one
+and not the other renders the chip as unknown.
 
 **Correlated substrate debt belongs in the change that tripped over it.** YAGNI
 forbids unused features, not known defects on the path you are walking. If B
@@ -141,8 +173,6 @@ delete. Reduce complexity, never features. That pass is part of done.
 - Code conventions, the `any` ban, coercing raw `sql<T>`, where a shared helper
   belongs, capability doctrine:
   [`docs/contributing/code-conventions.md`](docs/contributing/code-conventions.md).
-  Python is ruff, line length 120, 3.11; new tools use `@register_function` with
-  a `FunctionBaseConfig` subclass.
 - Verification, CI sharding, the security stack, visual evidence:
   [`docs/contributing/testing-and-verification.md`](docs/contributing/testing-and-verification.md).
 - Branching, Conventional Commits, PR titles: [`CONTRIBUTING.md`](CONTRIBUTING.md).

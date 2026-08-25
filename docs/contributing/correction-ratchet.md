@@ -6,14 +6,50 @@ through. A correction that changes only the output leaves the layer exactly as
 it was, so the same class of error is free to recur, and the next person pays
 for it again.
 
-One manual correction is fine. The second one is the signal, and recurring
-manual correction is waste.
+Recurring manual correction is waste. When the correction came from a person,
+the first one is already the signal.
+
+## Human intervention is a failure signal
+
+The strongest evidence a layer is missing is that a person had to step in.
+
+An intervention is not a normal part of the loop. It means the agent was about
+to proceed, or had already proceeded, on something the repo could have told it
+and did not. The intervention is the cheapest possible detection of that gap,
+and it is also the most expensive to repeat: it costs a human's attention every
+single time. So treat the first one as the signal, not the second.
+
+The move is the same as any other correction, with one addition — **write the
+learning down before you carry on with the task.** The intervention arrives
+mid-work, which is exactly when it is tempting to act on it and move on. Acting
+on it fixes this run. Writing it down fixes every run.
+
+Two questions, both answered in the same pull request:
+
+1. What did the person know that the repo did not say?
+2. Where would they have expected it to be said?
+
+Answer two literally. If they told you to run a setup command, the answer is
+"at the top of the file an agent reads first", and the fix is to put it there —
+not to remember it. A learning that lives only in the transcript is gone the
+moment the session ends, which makes the next agent re-earn it from the same
+human.
+
+The worked example is this repo's own: an agent was told, mid-task, to run
+`task setup` and to note it at the top of `AGENTS.md`. The underlying gap was
+that `AGENTS.md` named `task verify`, `task fe:types` and a dozen other
+commands without ever saying that `task` is not installed by anything in the
+repo and that `task setup` has to run first. Every agent before that one had
+either guessed or asked. The ratchet was a Setup section as the first thing in
+the file, not a note to self.
 
 ## When to reach for this
 
 Three moments, and only these:
 
-1. A human corrected you. Reviewer comment, a "no, not like that", a revert.
+1. A human intervened. A reviewer comment, a "no, not like that", a revert, or
+   a mid-task instruction. See [above](#human-intervention-is-a-failure-signal):
+   this one counts from the first occurrence.
 2. Something surprised you. The code did not do what the name said, a config
    was not where it should be, a test passed that should not have.
 3. You corrected yourself twice for the same reason inside one task.

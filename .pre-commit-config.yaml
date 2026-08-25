@@ -86,6 +86,38 @@ repos:
         pass_filenames: false
         files: ^(src/aiq_agent/skills/builtin/.*/SKILL\.md|frontends/ui/src/lib/skills/platform-skills\.ts|frontends/ui/scripts/sync-platform-skills\.mjs)$
 
+      - id: agent-docs
+        name: every AGENTS.md is reachable by the agents that need it
+        # Claude Code reads CLAUDE.md, never AGENTS.md, and bridges them with an
+        # `@AGENTS.md` import. The root bridge here was the ten bytes
+        # "AGENTS.md\n" — no `@`, so it was prose, and the root guide loaded in
+        # exactly zero sessions while /context still showed a memory file.
+        # A missing guide has no symptom, so it needs a gate, not a gotcha.
+        entry: python3 scripts/check_agent_docs.py
+        language: system
+        pass_filenames: false
+        files: ^(.*/)?(AGENTS|CLAUDE)\.md$|^scripts/check_agent_docs\.py$
+
+      - id: adr-check
+        name: the ADR directory and its index tell the same story
+        # Four numbers used twice, two statuses that disagreed with the index,
+        # and one record indexed nowhere — none of which has a symptom until
+        # somebody acts on a decision that was superseded a month ago.
+        entry: python3 scripts/check_adrs.py
+        language: system
+        pass_filenames: false
+        files: ^docs/adr/.*\.md$|^scripts/check_adrs\.py$
+
+      - id: validate-skills
+        name: skill bundles are well-formed
+        # The script existed and nothing ran it — not pre-commit, not the
+        # Taskfile, not CI. A validator nobody invokes is a validator that is
+        # not ratcheting.
+        entry: python3 scripts/validate_skills.py
+        language: system
+        pass_filenames: false
+        files: ^skills/.*$|^scripts/validate_skills\.py$
+
       - id: pytest
         name: pytest
         entry: pytest tests sources --cov=aiq_agent --cov-report=term --cov-fail-under=65

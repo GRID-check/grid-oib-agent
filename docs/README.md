@@ -63,6 +63,7 @@ Index: [`contributing/README.md`](contributing/README.md).
 | [Code conventions](contributing/code-conventions.md) | The `any` ban, coercing raw `sql<T>`, where shared helpers belong, capability doctrine |
 | [Release notes](contributing/release-notes.md) | reno, what makes a note customer copy, publishing |
 | [Gotchas](contributing/gotchas.md) | Known failures by symptom. Read before debugging a surprise |
+| [Agent onboarding files](contributing/agent-onboarding-files.md) | What `AGENTS.md` and its `CLAUDE.md` bridge are for, and which rules belong where |
 | [Agent skills](contributing/agent-skills.md) | How `.claude/` is generated and which skills are installed |
 | [Correction ratchet](contributing/correction-ratchet.md) | Closing the layer that allowed an error |
 | [Documentation obligations](contributing/documentation.md) | Which doc to update for which change |
