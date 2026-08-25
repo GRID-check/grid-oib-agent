@@ -39,6 +39,31 @@
       "summary": null,
       "sections": [
         {
+          "key": "improvements",
+          "notes": [
+            {
+              "en": "The decision chain frames what it is showing. The camera used to work from fixed coordinates and cut through the middle of cards; it now measures each card and keeps it whole, in both languages and at any window size.",
+              "de": "The decision chain frames what it is showing. The camera used to work from fixed coordinates and cut through the middle of cards; it now measures each card and keeps it whole, in both languages and at any window size."
+            },
+            {
+              "en": "The footer carries the whole site: what Piloti is, where every page is, and how to reach a person.",
+              "de": "The footer carries the whole site: what Piloti is, where every page is, and how to reach a person."
+            },
+            {
+              "en": "The site has been reset onto one type scale, one set of neutrals and one elevation system: headings a shade lighter, set larger and drawn closer together, greys that share the warmth of the paper, and the drafting grid turned down so it reads as structure rather than noise.",
+              "de": "The site has been reset onto one type scale, one set of neutrals and one elevation system: headings a shade lighter, set larger and drawn closer together, greys that share the warmth of the paper, and the drafting grid turned down so it reads as structure rather than noise."
+            },
+            {
+              "en": "The site now speaks in two typefaces with a rule behind them: what Piloti says is set in a serif, and what Piloti measures — every figure, label and instrument — stays in the grotesque it was already set in.",
+              "de": "The site now speaks in two typefaces with a rule behind them: what Piloti says is set in a serif, and what Piloti measures — every figure, label and instrument — stays in the grotesque it was already set in."
+            },
+            {
+              "en": "The data-and-transparency section now carries a check sheet: what is attached to every answer, and what is true of your office's data, stated plainly enough to be held to.",
+              "de": "The data-and-transparency section now carries a check sheet: what is attached to every answer, and what is true of your office's data, stated plainly enough to be held to."
+            }
+          ]
+        },
+        {
           "key": "fixes",
           "notes": [
             {
@@ -56,6 +81,14 @@
             {
               "en": "Inviting a colleague to a project no longer fails for administrators whose organization-wide access came from a role the identity provider had not yet been updated for.",
               "de": "Inviting a colleague to a project no longer fails for administrators whose organization-wide access came from a role the identity provider had not yet been updated for."
+            },
+            {
+              "en": "The photograph in the hero never covered the hero. It was laid out at its own proportions and stopped partway down, leaving a hard line across the page. It now fills the frame and softens towards the foot of it.",
+              "de": "The photograph in the hero never covered the hero. It was laid out at its own proportions and stopped partway down, leaving a hard line across the page. It now fills the frame and softens towards the foot of it."
+            },
+            {
+              "en": "The closing section could not be scrolled past on some setups, so the footer was unreachable. It no longer holds the scroll.",
+              "de": "The closing section could not be scrolled past on some setups, so the footer was unreachable. It no longer holds the scroll."
             },
             {
               "en": "Project roles now mean what the access reference says they mean. The Contributor role can be assigned — it could not be before — and the permission that defines it, using the research agent in a project, is now actually enforced. A Viewer reads a project's documents and conversations and can no longer start research runs against it.",
@@ -213,6 +246,14 @@
             {
               "en": "Moving a document also tells Piloti where it went, so an answer that mentions where a document lives follows the move immediately, with nothing re-indexed.",
               "de": "Moving a document also tells Piloti where it went, so an answer that mentions where a document lives follows the move immediately, with nothing re-indexed."
+            },
+            {
+              "en": "The website now shows what Piloti is worth to an office before anyone signs anything. Enter how many planners would use it and what they earn, and the calculation gives the value per year, the hours it hands back and how quickly a seat pays for itself.",
+              "de": "The website now shows what Piloti is worth to an office before anyone signs anything. Enter how many planners would use it and what they earn, and the calculation gives the value per year, the hours it hands back and how quickly a seat pays for itself."
+            },
+            {
+              "en": "Every step behind that figure is published with it: which numbers are our assumptions, which are yours, what a planner's week is assumed to look like, and what the calculation deliberately leaves out.",
+              "de": "Every step behind that figure is published with it: which numbers are our assumptions, which are yours, what a planner's week is assumed to look like, and what the calculation deliberately leaves out."
             }
           ]
         },
