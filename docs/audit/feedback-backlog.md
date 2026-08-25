@@ -1,5 +1,9 @@
 # Feedback Triage Backlog — colleague feedback, verified against code 2026-07-14
 
+> **Archived.** Frozen record of a finished loop, moved here from `feedback_backlog.md`
+> in the repo root. Do not append. Live loop state is `backlog.md` at the root.
+> Context: [`README.md`](README.md).
+
 > Working file for the feedback-triage loop. Every colleague feedback item was
 > verified against the current codebase (branch `claude/feedback-triage-backlog-ko6517`,
 > base `develop` @ `f941822`) by parallel code-research agents before being accepted
