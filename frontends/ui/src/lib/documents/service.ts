@@ -786,7 +786,13 @@ export async function dispatchDocument(input: DispatchDocumentInput): Promise<Di
    * wrong, which is exactly what happened.
    */
   const row = await findDocumentInOrg(input.documentId, input.organizationId)
-  if (row && row.authoredBy !== 'user') {
+  // An allow-list on a row that must EXIST. `if (row && …)` read a missing row
+  // as permission to ingest, which is the one default this guard was moved here
+  // to stop making: the argument for reading the row is "never trust the
+  // caller", and treating an absent row as `user` trusts the caller about the
+  // only thing left. No caller reaches this without having inserted first, so
+  // the refusal costs nothing today; it is what keeps the next one honest.
+  if (!row || row.authoredBy !== 'user') {
     throw new AgentAuthoredDocumentNotIndexableError(input.documentId)
   }
 

@@ -93,6 +93,8 @@ import {
   searchProjectDocuments,
   joinHitsToFiles,
   deriveSearchTopK,
+  dispatchDocument,
+  AgentAuthoredDocumentNotIndexableError,
   INGEST_DISPATCH_FAILED_MESSAGE,
 } from './service'
 import {
@@ -144,12 +146,42 @@ beforeEach(() => {
   }
   mockFetch.mockReset()
   vi.mocked(findProjectInOrg).mockResolvedValue(makeProject())
+  // `dispatchDocument` reads the row it is about to ingest and refuses when
+  // there is none — the row always exists in production, because
+  // `admitOrDiscard` commits it before the dispatch. A spec that leaves this
+  // unmocked puts every upload path on a shape the application cannot produce,
+  // and would have made the guard look breakable when it is not.
+  vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument())
 })
 
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
   vi.clearAllMocks()
+})
+
+describe('dispatchDocument reads the row, and needs one', () => {
+  it('refuses a document whose row it cannot read', async () => {
+    // The guard is an allow-list on a row that must EXIST. `if (row && …)` read
+    // a missing row as permission to ingest — trusting the caller about the one
+    // thing reading the row was meant to stop trusting them about. Unreachable
+    // today (every path inserts before dispatching), which is exactly when a
+    // default is cheap to fix and expensive to discover.
+    vi.mocked(findDocumentInOrg).mockResolvedValue(null)
+
+    await expect(
+      dispatchDocument({
+        organizationId: 'org-1',
+        projectId: 'proj-1',
+        documentId: 'doc-vanished',
+        filename: 'plan.pdf',
+        storageKey: 'k',
+        storageBucket: 'b',
+        collectionName: 'proj_abc',
+      }),
+    ).rejects.toBeInstanceOf(AgentAuthoredDocumentNotIndexableError)
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
 })
 
 describe('uploadDocument server-side type gate', () => {
