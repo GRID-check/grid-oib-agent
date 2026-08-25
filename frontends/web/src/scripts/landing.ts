@@ -12,16 +12,17 @@ import { initSheetIndex } from './sheet-index'
 const L = document.documentElement.lang.startsWith('en') ? landingScript.en : landingScript.de
 
 
-const clamp = (v: number) => Math.max(0, Math.min(1, v))
-const easeOut = (t: number) => 1 - Math.pow(1 - t, 3)
-
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
 function initHeroCta() {
   const cta = document.querySelector<HTMLElement>('[data-hero-cta]')
   if (!cta) return
   const wrap = document.querySelector<HTMLElement>('[data-hero-wrap]')
-  if (wrap && !reduced) wrap.style.height = '200vh'
+  // Without motion the hero is a single screen and the closing line simply
+  // stays put: the yield below is scrubbed against scroll position, which is
+  // the kind of scroll-linked movement `prefers-reduced-motion` asks us to drop.
+  if (reduced) return
+  if (wrap) wrap.style.height = '200vh'
   // The closing line and its buttons yield as soon as the page starts moving —
   // scrubbed, so it tracks the scroll rather than snapping at a threshold.
   gsap.to(cta, {
@@ -694,17 +695,25 @@ function initPins() {
 
     build()
     let t = 0
+    let live = true
     const onResize = () => {
       window.clearTimeout(t)
       t = window.setTimeout(build, 200)
     }
     window.addEventListener('resize', onResize)
-    document.fonts?.ready.then(build)
+    // A promise cannot be cancelled the way a timeout can, so the flag is what
+    // stops a late-resolving `fonts.ready` from building a timeline and a
+    // ScrollTrigger into a branch that matchMedia has already torn down.
+    document.fonts?.ready.then(() => {
+      if (live) build()
+    })
 
     return () => {
+      live = false
       window.clearTimeout(t)
       window.removeEventListener('resize', onResize)
       ctx?.revert()
+      ctx = null
     }
   })
 }

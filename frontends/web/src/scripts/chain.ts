@@ -87,33 +87,59 @@ export function initChain() {
   // ── geometry ──────────────────────────────────────────────────────────────
 
   const SVG_NS = 'http://www.w3.org/2000/svg'
-  const wire = (d: string, kind: string) => {
-    const path = document.createElementNS(SVG_NS, 'path')
+
+  /*
+   * A wire is a lasting element whose geometry is re-derived — not a fresh
+   * element per measurement.
+   *
+   * `draw()` runs again on every ScrollTrigger refresh and once more when the
+   * fonts land. Replacing the paths there would break the animation twice over:
+   * the timeline was built against the old elements and would go on animating
+   * them after they were detached (`invalidate()` re-reads values, it does not
+   * re-target), and the replacements, never having been set to `drawSVG: 0`,
+   * would stand fully drawn from the moment they appeared. Keeping the elements
+   * and moving them keeps every target valid, and `invalidate()` then does the
+   * one job it is good at: re-reading the new lengths.
+   */
+  const kept = new Map<string, SVGElement>()
+  const keep = <T extends SVGElement>(key: string, make: () => T): T => {
+    const found = kept.get(key)
+    if (found) return found as T
+    const made = make()
+    kept.set(key, made)
+    wires.appendChild(made)
+    return made
+  }
+
+  const wire = (key: string, d: string, kind: string) => {
+    const path = keep(key, () => {
+      const p = document.createElementNS(SVG_NS, 'path')
+      p.setAttribute('fill', 'none')
+      p.setAttribute('stroke', '#26272a')
+      p.setAttribute('stroke-width', '1.6')
+      p.setAttribute('stroke-linecap', 'round')
+      p.dataset.wire = kind
+      return p
+    })
     path.setAttribute('d', d)
-    path.setAttribute('fill', 'none')
-    path.setAttribute('stroke', '#26272a')
-    path.setAttribute('stroke-width', '1.6')
-    path.setAttribute('stroke-linecap', 'round')
-    path.dataset.wire = kind
-    wires.appendChild(path)
     return path
   }
-  const dot = (x: number, y: number) => {
-    const c = document.createElementNS(SVG_NS, 'circle')
+  const dot = (key: string, x: number, y: number) => {
+    const c = keep(key, () => {
+      const el = document.createElementNS(SVG_NS, 'circle')
+      el.setAttribute('r', '3')
+      el.setAttribute('fill', '#26272a')
+      el.dataset.wire = 'dot'
+      return el
+    })
     c.setAttribute('cx', String(x))
     c.setAttribute('cy', String(y))
-    c.setAttribute('r', '3')
-    c.setAttribute('fill', '#26272a')
-    c.dataset.wire = 'dot'
-    wires.appendChild(c)
     return c
   }
 
   type Wires = { stem: SVGPathElement; rows: { stub: SVGPathElement[]; dots: SVGCircleElement[] }[]; merges: SVGPathElement[]; toImpl: SVGPathElement | null }
 
   const draw = (): Wires => {
-    wires.replaceChildren()
-
     // The question is typed in, so it is measured holding all of its text —
     // otherwise a rebuild that lands mid-typing pins the chain to a card that is
     // about to grow.
@@ -124,17 +150,17 @@ export function initChain() {
 
     const rows = sources.map((name) => ({ chip: part(name, 'chip')!, card: part(name, 'card')! }))
     const lastY = box(rows[rows.length - 1].chip).cy
-    const stem = wire(`M${SPINE_X},${q.bottom + STEM_GAP} L${SPINE_X},${lastY}`, 'stem')
+    const stem = wire('stem', `M${SPINE_X},${q.bottom + STEM_GAP} L${SPINE_X},${lastY}`, 'stem')
 
-    const rowWires = rows.map(({ chip, card }) => {
+    const rowWires = rows.map(({ chip, card }, i) => {
       const c = box(chip)
       const k = box(card)
       return {
         stub: [
-          wire(`M${SPINE_X},${c.cy} L${c.x},${c.cy}`, 'stub'),
-          wire(`M${c.right},${c.cy} L${k.x},${c.cy}`, 'stub'),
+          wire(`stub-${i}-in`, `M${SPINE_X},${c.cy} L${c.x},${c.cy}`, 'stub'),
+          wire(`stub-${i}-out`, `M${c.right},${c.cy} L${k.x},${c.cy}`, 'stub'),
         ],
-        dots: [dot(SPINE_X, c.cy), dot(c.right, c.cy)],
+        dots: [dot(`dot-${i}-in`, SPINE_X, c.cy), dot(`dot-${i}-out`, c.right, c.cy)],
       }
     })
 
@@ -144,10 +170,11 @@ export function initChain() {
     const dec = node('dec')[0]
     const inPort = dec ? portBox(dec, cam, '[data-port="in"]') : null
     const merges = inPort
-      ? rows.map(({ card }) => {
+      ? rows.map(({ card }, i) => {
           const k = box(card)
           const midX = (k.right + inPort.x) / 2
           return wire(
+            `merge-${i}`,
             `M${k.right},${k.cy} C${midX},${k.cy} ${midX},${inPort.cy} ${inPort.x},${inPort.cy}`,
             'merge'
           )
@@ -161,6 +188,7 @@ export function initChain() {
       const i = box(impl)
       const midY = (outPort.bottom + i.y) / 2
       toImpl = wire(
+        'to-impl',
         `M${outPort.cx},${outPort.bottom} C${outPort.cx},${midY} ${i.cx},${midY} ${i.cx},${i.y}`,
         'impl'
       )
@@ -214,7 +242,7 @@ export function initChain() {
   const mm = gsap.matchMedia()
 
   mm.add('(prefers-reduced-motion: no-preference)', () => {
-    let w = draw()
+    const w = draw()
     const cards = sources.flatMap((n) => node(n)).concat(node('dec'), node('impl'))
     const allWires = () => Array.from(wires.children) as SVGElement[]
 
@@ -282,8 +310,10 @@ export function initChain() {
     // The mock's size decides both the wires and the framing, so a resize
     // re-derives them; ScrollTrigger already debounces that for us.
     const rebuild = () => {
-      w = draw()
-      if (tl.progress() > 0) tl.invalidate()
+      draw()
+      // The paths are the same elements, so this is all `invalidate` has to do:
+      // forget the lengths it recorded and measure the moved lines again.
+      tl.invalidate()
     }
     ScrollTrigger.addEventListener('refresh', rebuild)
     document.fonts?.ready.then(rebuild)
