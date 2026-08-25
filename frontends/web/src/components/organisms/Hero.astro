@@ -25,13 +25,41 @@ const t = ui[locale]
       loading="eager"
       fetchpriority="high"
       sizes="100vw"
-      class="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
+      class="hero-photo pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
     />
     <canvas data-aura class="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true"
     ></canvas>
+    <!-- The photograph does not stop, it settles. Four blur layers, each masked
+         to start lower than the last, ramp the focus out towards the foot of the
+         hero instead of the single hard edge a lone backdrop-blur would leave;
+         the tint over them carries the same fall so the headline keeps its
+         contrast. -->
+    <div class="pointer-events-none absolute inset-x-0 bottom-0 h-[42%]" aria-hidden="true">
+      <div
+        class="absolute inset-0 backdrop-blur-[2px]"
+        style="-webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 26%); mask-image: linear-gradient(to bottom, transparent 0%, #000 26%)"
+      >
+      </div>
+      <div
+        class="absolute inset-0 backdrop-blur-[5px]"
+        style="-webkit-mask-image: linear-gradient(to bottom, transparent 28%, #000 56%); mask-image: linear-gradient(to bottom, transparent 28%, #000 56%)"
+      >
+      </div>
+      <div
+        class="absolute inset-0 backdrop-blur-[11px]"
+        style="-webkit-mask-image: linear-gradient(to bottom, transparent 54%, #000 82%); mask-image: linear-gradient(to bottom, transparent 54%, #000 82%)"
+      >
+      </div>
+      <div
+        class="absolute inset-0 backdrop-blur-[20px]"
+        style="-webkit-mask-image: linear-gradient(to bottom, transparent 76%, #000 100%); mask-image: linear-gradient(to bottom, transparent 76%, #000 100%)"
+      >
+      </div>
+    </div>
+
     <div
-      class="absolute inset-0"
-      style="background: linear-gradient(180deg, rgb(232 229 221 / 0) 0%, rgb(232 229 221 / 0) 66%, rgb(234 231 223 / 0.5) 84%, rgb(237 235 227 / 0.88) 100%)"
+      class="pointer-events-none absolute inset-0"
+      style="background: linear-gradient(180deg, rgb(232 229 221 / 0) 0%, rgb(232 229 221 / 0) 62%, rgb(234 231 223 / 0.38) 78%, rgb(237 235 227 / 0.82) 90%, rgb(240 238 231 / 0.96) 100%)"
       aria-hidden="true"
     >
     </div>
@@ -65,3 +93,25 @@ const t = ui[locale]
     </div>
   </header>
 </div>
+
+<style>
+  /*
+   * The size has to be stated here, not in a utility class.
+   *
+   * astro:assets ships `:where([data-astro-image]) { height: auto }` in its own
+   * cascade layer, and layer order outranks specificity: that rule beat
+   * `h-full`, so the photograph was laid out at its own aspect ratio and simply
+   * stopped partway down the hero — the hard line across the page. A scoped
+   * rule here is unlayered, which is what it takes to win.
+   *
+   * The photograph then fades out before the frame does, so its own edge never
+   * becomes a line again.
+   */
+  .hero-photo {
+    height: 100%;
+    width: 100%;
+    object-fit: cover;
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 62%, rgb(0 0 0 / 0.35) 88%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 0%, #000 62%, rgb(0 0 0 / 0.35) 88%, transparent 100%);
+  }
+</style>

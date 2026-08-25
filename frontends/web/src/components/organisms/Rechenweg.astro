@@ -1,6 +1,7 @@
 ---
 import SectionTag from '../atoms/SectionTag.astro'
 import { ui, type Locale } from '../../i18n/ui'
+import { useTranslatedPath } from '../../i18n/utils'
 import { computeRoi, RESEARCH_SHARE, ROI_DEFAULTS, TIME_SAVED, WEEK_HOURS } from '../../lib/roi'
 import { formatRoi, type RoiText } from '../../lib/roi-format'
 
@@ -10,10 +11,12 @@ interface Props {
 const { locale = 'de' } = Astro.props
 const t = ui[locale]
 const r = t.rechenweg
+const home = useTranslatedPath(locale)('/')
 
 // Same model, same formatter as the calculator above — this section is the
 // calculator's working shown, not a second account of it.
 const text = formatRoi(ROI_DEFAULTS, computeRoi(ROI_DEFAULTS), locale, t.roi.units)
+
 
 // The week bar, as three shares of one row. `back` is the claim; it is drawn
 // inside the research block because that is where it comes from.
@@ -76,19 +79,21 @@ const origin: Record<Origin, string> = {
 const legend: Origin[] = ['ours', 'yours', 'price']
 ---
 
-<section
-  id="rechenweg"
-  data-screen-label={t.sheets.rechenweg}
-  class="mx-auto box-border flex min-h-screen max-w-[85rem] flex-col justify-center px-4 py-24 sm:px-10"
->
+<section class="mx-auto box-border max-w-[85rem] px-4 pb-28 pt-32 sm:px-10">
   <div class="box-border rounded-panel bg-paper px-6 py-14 shadow-card ring-1 ring-ink/8 sheet-light sm:px-16 sm:py-18">
     <div data-reveal class="mb-12 max-w-2xl">
       <SectionTag class="mb-5">{r.tag}</SectionTag>
-      <h2 class="m-0 mb-5 font-display text-h3 text-panel" style="text-wrap: balance">
+      <h1 class="m-0 mb-5 font-display text-h3 text-panel" style="text-wrap: balance">
         {r.title}
-      </h2>
+      </h1>
       <p class="m-0 text-base leading-relaxed text-ink-soft" style="text-wrap: pretty">
         {r.intro}
+      </p>
+      <p class="m-0 mt-6 border-t border-ink/15 pt-5 text-sm text-ink-mute">
+        <span data-roi-out="office">{text.office}</span>{' '}
+        <a href={`${home}#wert`} class="text-accent-600 underline underline-offset-2 hover:text-accent-700"
+          >{r.back}</a
+        >
       </p>
     </div>
 

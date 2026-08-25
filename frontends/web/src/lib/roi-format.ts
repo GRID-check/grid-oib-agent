@@ -29,6 +29,8 @@ export interface RoiUnits {
   ratio: string
   /** Shown where a figure has no meaningful value. */
   never: string
+  /** `'… für {seats} Plätze … {salary}'` — which office a working belongs to. */
+  office: string
 }
 
 /** The readouts the section paints, keyed by their `data-roi-out` value. */
@@ -47,6 +49,7 @@ export interface RoiText {
   licencePerSeat: string
   netPerSeat: string
   seatsTimes: string
+  office: string
   net: string
   hours: string
   fte: string
@@ -105,6 +108,9 @@ export function formatRoi(
     licencePerSeat: fillTemplate(units.minus, formatEuro(locale, result.licencePerSeat)),
     netPerSeat: formatEuro(locale, result.netPerSeat),
     seatsTimes: fillTemplate(units.times, decimal(locale, inputs.seats)),
+    office: units.office
+      .replace('{seats}', decimal(locale, inputs.seats))
+      .replace('{salary}', formatEuro(locale, inputs.salary)),
     net: formatEuro(locale, result.netValue),
     hours: fillTemplate(units.hours, decimal(locale, Math.round(result.hoursPerYear))),
     fte: fillTemplate(units.fte, decimal(locale, result.fte, 1)),

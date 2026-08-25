@@ -3,6 +3,7 @@ import SectionTag from '../atoms/SectionTag.astro'
 import Pill from '../atoms/Pill.astro'
 import { CONTACT_EMAIL } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
+import { useTranslatedPath } from '../../i18n/utils'
 import {
   computeRoi,
   RESEARCH_SHARE,
@@ -18,6 +19,7 @@ interface Props {
 }
 const { locale = 'de' } = Astro.props
 const t = ui[locale]
+const working = useTranslatedPath(locale)('/rechenweg/')
 
 // Rendered for the default office on the server, so the section states a real
 // figure before a single byte of script runs — and keeps stating one if none
@@ -208,8 +210,11 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?:
 
         <p class="m-0 mt-6 text-2xs leading-relaxed text-on-dark/80" style="text-wrap: pretty">
           {t.roi.footnote}{' '}
-          <a href="#rechenweg" class="text-on-dark-label underline underline-offset-2 hover:text-surface"
-            >{t.roi.footnoteLink} ↓</a
+          <a
+            href={working}
+            data-roi-href={working}
+            class="text-on-dark-label underline underline-offset-2 hover:text-surface"
+            >{t.roi.footnoteLink} →</a
           >
         </p>
       </div>

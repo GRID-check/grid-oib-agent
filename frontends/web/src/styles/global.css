@@ -172,9 +172,15 @@
   #nutzung,
   #daten,
   #datenschutz,
-  #wert,
-  #kontakt {
+  #wert {
     scroll-snap-align: center;
+  }
+
+  /* The last section must not be a snap target. Snapping it — to centre or to
+     start — parks the viewport on it and pulls back out of the footer, which is
+     shorter than the snap it is fighting, so the footer became unreachable. */
+  #kontakt {
+    scroll-snap-align: none;
   }
 
   body {

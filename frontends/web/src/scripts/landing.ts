@@ -10,20 +10,30 @@ const TYPE = 1900
 const RATE = 1.18
 const LOOP = 13600
 
-const KEYS = [
-  { t: 0, x: 180, y: 60, z: 0.98 },
-  { t: 1500, x: 180, y: 60, z: 0.98 },
-  { t: 2100, x: 240, y: 140, z: 0.94 },
-  { t: 2700, x: 300, y: 220, z: 0.92 },
-  { t: 3300, x: 320, y: 320, z: 0.9 },
-  { t: 3900, x: 300, y: 230, z: 0.76 },
-  { t: 4000, x: 300, y: 230, z: 0.76 },
-  { t: 5300, x: 930, y: 255, z: 0.92 },
-  { t: 6200, x: 935, y: 330, z: 0.9 },
-  { t: 7000, x: 1000, y: 540, z: 0.86 },
-  { t: 7800, x: 1000, y: 540, z: 0.86 },
-  { t: 9300, x: 560, y: 300, z: 0.42 },
-  { t: 11000, x: 560, y: 300, z: 0.42 },
+/**
+ * The chain's storyboard: which subjects are in frame at each moment, by the
+ * `data-shot` names authored on the mock.
+ *
+ * Coordinates are deliberately absent. The previous version pinned the camera
+ * to hand-tuned x/y/z, which framed a card only as long as nothing about it
+ * changed — a longer German string, a different panel width, and the shot cut
+ * through the middle of a card. Naming the subject and measuring it means the
+ * camera always frames whole elements, in any locale, at any size.
+ */
+const SHOTS: { t: number; on: string[] }[] = [
+  { t: 0, on: ['q'] },
+  { t: 1500, on: ['q'] },
+  { t: 2200, on: ['q', 's1'] },
+  { t: 2900, on: ['q', 's1', 's2'] },
+  { t: 3500, on: ['s1', 's2', 's3'] },
+  { t: 4300, on: ['s1', 's2', 's3'] },
+  { t: 4900, on: ['s1', 's2', 's3', 'dec'] },
+  { t: 5600, on: ['dec'] },
+  { t: 6600, on: ['dec'] },
+  { t: 7300, on: ['dec', 'impl'] },
+  { t: 8200, on: ['impl'] },
+  { t: 9400, on: ['all'] },
+  { t: 11000, on: ['all'] },
 ]
 
 const BEATS = [
@@ -173,13 +183,23 @@ function initAura() {
       ctx.beginPath()
       ctx.arc(nx, ny, (1.6 + 0.9 * glow) * Math.max(1, sc * 0.8), 0, Math.PI * 2)
       ctx.fill()
-      if (n.label) {
+      // A label belongs to its node, so it takes whichever side of the node has
+      // room for it. Written blindly to the right, the ones on a phone ran off
+      // the canvas and were read as a column of broken words down the edge.
+      const EDGE = 12
+      if (n.label && nx > EDGE && nx < w - EDGE) {
         const lines = Array.isArray(n.label) ? n.label : [n.label]
         const lh = 11.5 * Math.max(1, sc * 0.75)
+        const textW = Math.max(...lines.map((ln) => ctx.measureText(ln).width))
+        const right = nx + 7 * sc
+        const flip = right + textW > w - EDGE && nx - 7 * sc - textW > EDGE
+        ctx.textAlign = flip ? 'right' : 'left'
+        const lx = flip ? nx - 7 * sc : Math.min(right, Math.max(EDGE, w - EDGE - textW))
         lines.forEach((ln, li) => {
           ctx.fillStyle = `rgba(88,104,64,${((li === 0 ? 0.35 : 0.24) + 0.35 * glow).toFixed(3)})`
-          ctx.fillText(ln, nx + 7 * sc, ny - 5 * sc + li * lh)
+          ctx.fillText(ln, lx, ny - 5 * sc + li * lh)
         })
+        ctx.textAlign = 'left'
       }
     })
 
@@ -665,8 +685,13 @@ function initPins() {
   setTimeout(measureStory, 700)
 }
 
-function camAt(ms: number) {
-  const K = KEYS
+type Cam = { t: number; x: number; y: number; z: number }
+
+/**
+ * Catmull-Rom through the measured frames, clamped to the segment so an
+ * overshoot can never swing the camera off the diagram.
+ */
+function camAt(K: Cam[], ms: number) {
   const n = K.length
   if (ms <= K[0].t) return K[0]
   if (ms >= K[n - 1].t) return K[n - 1]
@@ -689,7 +714,7 @@ function camAt(ms: number) {
     const v = cr(p0, p1, p2, p3, u)
     return Math.max(Math.min(p1, p2), Math.min(Math.max(p1, p2), v))
   }
-  return { x: axis(a.x, b.x, c.x, d.x), y: axis(a.y, b.y, c.y, d.y), z: axis(a.z, b.z, c.z, d.z) }
+  return { t: ms, x: axis(a.x, b.x, c.x, d.x), y: axis(a.y, b.y, c.y, d.y), z: axis(a.z, b.z, c.z, d.z) }
 }
 
 function initChain() {
@@ -735,9 +760,86 @@ function initChain() {
     camEl.style.transform = `translate3d(${tx.toFixed(2)}px,${ty.toFixed(2)}px,0) scale(${c.z.toFixed(4)})`
   }
 
+  type Box = { x: number; y: number; w: number; h: number }
+
+  /**
+   * Turn the storyboard into camera frames for the size the mock actually has.
+   *
+   * Each shot is the bounding box of its subjects plus a margin, scaled to fit
+   * the stage and never magnified past 1: the mock is drawn at its true size,
+   * so anything above 1 would only soften it. The bottom inset is larger
+   * because the status line sits over the frame.
+   */
+  const INSET = { top: 22, right: 24, bottom: 48, left: 24 }
+  const MARGIN = 14
+
+  const boxOf = (els: HTMLElement[]): Box | null => {
+    if (!els.length) return null
+    let x0 = Infinity
+    let y0 = Infinity
+    let x1 = -Infinity
+    let y1 = -Infinity
+    for (const el of els) {
+      x0 = Math.min(x0, el.offsetLeft)
+      y0 = Math.min(y0, el.offsetTop)
+      x1 = Math.max(x1, el.offsetLeft + el.offsetWidth)
+      y1 = Math.max(y1, el.offsetTop + el.offsetHeight)
+    }
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+  }
+
+  const shotEls = (name: string) =>
+    Array.from(
+      camEl.querySelectorAll<HTMLElement>(name === 'all' ? '[data-shot]' : `[data-shot="${name}"]`)
+    )
+
+  const buildCam = (): Cam[] => {
+    const r = stage.getBoundingClientRect()
+    const vw = r.width || 700
+    const vh = r.height || 430
+    const world = boxOf(shotEls('all')) ?? { x: 0, y: 0, w: 1160, h: 670 }
+    // A phone cannot hold two subjects side by side at a readable size, so it
+    // follows the newest one instead of pulling back to a composition shot.
+    const narrow = vw < 560
+
+    return SHOTS.map((shot) => {
+      const names = narrow ? [shot.on[shot.on.length - 1]] : shot.on
+      const box = boxOf(names.flatMap(shotEls)) ?? world
+      const bw = box.w + MARGIN * 2
+      const bh = box.h + MARGIN * 2
+      const z = Math.min(1, (vw - INSET.left - INSET.right) / bw, (vh - INSET.top - INSET.bottom) / bh)
+
+      // Centre the subject in the *inset* frame, not the raw rectangle.
+      let x = box.x + box.w / 2 - (INSET.left - INSET.right) / 2 / z
+      let y = box.y + box.h / 2 - (INSET.top - INSET.bottom) / 2 / z
+
+      // Never look past the edge of the diagram: pan is bounded by the world.
+      const halfW = vw / (2 * z)
+      const halfH = vh / (2 * z)
+      const wx0 = world.x - MARGIN
+      const wy0 = world.y - MARGIN
+      const wx1 = world.x + world.w + MARGIN
+      const wy1 = world.y + world.h + MARGIN
+      x = wx1 - wx0 <= halfW * 2 ? (wx0 + wx1) / 2 : Math.min(Math.max(x, wx0 + halfW), wx1 - halfW)
+      y = wy1 - wy0 <= halfH * 2 ? (wy0 + wy1) / 2 : Math.min(Math.max(y, wy0 + halfH), wy1 - halfH)
+
+      return { t: shot.t, x, y, z }
+    })
+  }
+
+  // Every element is measured with its step-gating off, so a card that has not
+  // appeared yet still reports the size it will have — the camera is already
+  // framing the place it arrives in.
+  let cam = buildCam()
+  // Card heights depend on how the copy wraps, which depends on the webfont:
+  // measured before it lands, a card can be a line taller than the frame allows.
+  document.fonts?.ready.then(() => {
+    cam = buildCam()
+  })
+
   if (reduced) {
     setStep(10)
-    setCam(KEYS[KEYS.length - 1])
+    setCam(cam[cam.length - 1])
     statusEl.textContent = L.beats[10]
     if (replayBtn) replayBtn.hidden = true
     return
@@ -752,11 +854,11 @@ function initChain() {
     if (raw < TYPE) {
       if (statusEl.textContent !== L.typing) statusEl.textContent = L.typing
       setStep(0)
-      setCam(KEYS[0])
+      setCam(cam[0])
       return
     }
     const ms = raw - TYPE
-    setCam(camAt(ms))
+    setCam(camAt(cam, ms))
     let bi = 0
     for (let i = 0; i < BEATS.length; i++) if (ms >= BEATS[i].t) bi = i
     setStep(BEATS[bi].step)
@@ -794,6 +896,16 @@ function initChain() {
   replayBtn?.addEventListener('click', () => {
     controls.time = 0
     controls.play()
+  })
+
+  // The frames are a function of the mock's size, so they are re-solved when it
+  // changes rather than being stretched out of shape.
+  let resizeTimer = 0
+  window.addEventListener('resize', () => {
+    window.clearTimeout(resizeTimer)
+    resizeTimer = window.setTimeout(() => {
+      cam = buildCam()
+    }, 150)
   })
 }
 
