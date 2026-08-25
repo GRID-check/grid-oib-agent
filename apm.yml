@@ -1,0 +1,40 @@
+# Agent Package Manager manifest — third-party agent skills, versioned.
+#
+# Why this file exists
+# -------------------
+# Skills we did not write are dependencies, and dependencies belong in a
+# manifest with a lockfile. Copying someone's SKILL.md into `.claude/skills/`
+# by hand works exactly once: there is then no record of where it came from,
+# no way to tell a local edit from an upstream change, and no way to pull a
+# fix. `apm install --frozen` reproduces the same bytes on every machine and
+# in CI, the same contract `uv.lock` and `bun.lockb` already give us.
+#
+# Install:  task agents:setup   (installs the pinned CLI and runs this)
+# Verify:   task agents:audit   (drift + hidden-Unicode scan)
+#
+# Skills we DO author, and the pstack set vendored on purpose (see
+# .claude/skills/PSTACK.md), sit in `.claude/skills/` beside the installed
+# ones. apm leaves files it does not own alone: `apm prune` removes only
+# orphaned packages under `apm_modules/`, and neither install nor prune
+# touches a locally-authored skill directory.
+name: grid-oib-agent
+version: 1.0.0
+description: Agent skills for working on the Grid OIB agent repository
+
+# `claude` deploys skills to `.claude/skills/<name>/`, which is where Claude
+# Code actually looks. The alternative shared `.agents/skills/` path is where
+# this repo's own maintainer skills live, and it reaches Claude Code through
+# `.claude/skills/` entries that are committed as plain text rather than real
+# symlinks — so they do not resolve. Deploy where the agent reads.
+targets:
+  - claude
+
+dependencies:
+  apm:
+    # Writing documents an agent consumes: skills, AGENTS.md, CLAUDE.md.
+    # Pinned to a commit; an unpinned ref drifts silently under `apm install`.
+    - mattpocock/skills/skills/productivity/writing-for-agents#6654f6b60cd9d5be8b54c6fafe44346dabeb3b76
+  mcp: []
+
+includes: auto
+scripts: {}

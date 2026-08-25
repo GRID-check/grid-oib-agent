@@ -1,0 +1,60 @@
+lockfile_version: '1'
+generated_at: '2026-08-25T07:08:21.773619+00:00'
+apm_version: 0.28.0
+dependencies:
+- repo_url: mattpocock/skills
+  name: writing-for-agents
+  host: github.com
+  resolved_commit: 6654f6b60cd9d5be8b54c6fafe44346dabeb3b76
+  resolved_ref: 6654f6b60cd9d5be8b54c6fafe44346dabeb3b76
+  version: unknown
+  virtual_path: skills/productivity/writing-for-agents
+  is_virtual: true
+  package_type: claude_skill
+  deployed_files:
+  - .claude/skills/writing-for-agents
+  - .claude/skills/writing-for-agents/SKILL-MECHANICS.md
+  - .claude/skills/writing-for-agents/SKILL.md
+  - .claude/skills/writing-for-agents/agents/openai.yaml
+  deployed_file_hashes:
+    .claude/skills/writing-for-agents/SKILL-MECHANICS.md: sha256:c768e6307c7c10728c401c213f2c4ba71c542127eeb7ad2956aabd15a0fa0059
+    .claude/skills/writing-for-agents/SKILL.md: sha256:551adca942227b44192edba88acd4e8db911f0121ce58ad16944ccf6a896a74a
+    .claude/skills/writing-for-agents/agents/openai.yaml: sha256:eacb24b2a618cfb81dacb0416f4fdd75ddf3a8060f8ddb99aae1b1e301907e4b
+  content_hash: sha256:8365ebe1d0c343d3d46970526f30fcf7c5e0c5e49fd39a3c882977024626ff3c
+deployments:
+- kind: project-relative
+  target: claude
+  value: .claude/skills/writing-for-agents
+  runtime: null
+  scope: project
+  owners:
+  - mattpocock/skills/skills/productivity/writing-for-agents
+  active_owner: mattpocock/skills/skills/productivity/writing-for-agents
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/writing-for-agents/SKILL-MECHANICS.md
+  runtime: null
+  scope: project
+  owners:
+  - mattpocock/skills/skills/productivity/writing-for-agents
+  active_owner: mattpocock/skills/skills/productivity/writing-for-agents
+  content_hash: sha256:c768e6307c7c10728c401c213f2c4ba71c542127eeb7ad2956aabd15a0fa0059
+- kind: project-relative
+  target: claude
+  value: .claude/skills/writing-for-agents/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - mattpocock/skills/skills/productivity/writing-for-agents
+  active_owner: mattpocock/skills/skills/productivity/writing-for-agents
+  content_hash: sha256:551adca942227b44192edba88acd4e8db911f0121ce58ad16944ccf6a896a74a
+- kind: project-relative
+  target: claude
+  value: .claude/skills/writing-for-agents/agents/openai.yaml
+  runtime: null
+  scope: project
+  owners:
+  - mattpocock/skills/skills/productivity/writing-for-agents
+  active_owner: mattpocock/skills/skills/productivity/writing-for-agents
+  content_hash: sha256:eacb24b2a618cfb81dacb0416f4fdd75ddf3a8060f8ddb99aae1b1e301907e4b

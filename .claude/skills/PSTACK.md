@@ -4,6 +4,22 @@ Six skills from [cursor/plugins/pstack](https://github.com/cursor/plugins/tree/m
 (poteto's stack), copied verbatim so upstream updates stay a clean `cp`. Do not
 edit the vendored `SKILL.md` files. Corrections belong here or upstream.
 
+They are copied rather than installed because pstack is a Cursor plugin, not an
+apm package. Everything apm *can* resolve goes through `apm.yml` instead (see
+the Agent skills section of `AGENTS.md`). The two live side by side in
+`.claude/skills/`: apm deploys into that directory and leaves directories it
+does not own alone, which `apm prune` and `apm audit` both confirm.
+
+To refresh from upstream:
+
+```bash
+git clone --depth 1 --filter=blob:none --sparse https://github.com/cursor/plugins.git /tmp/pstack
+git -C /tmp/pstack sparse-checkout set pstack
+for s in unslop typescript-best-practices how interrogate blast-radius principle-model-the-domain; do
+  rm -rf ".claude/skills/$s" && cp -r "/tmp/pstack/pstack/skills/$s" ".claude/skills/$s"
+done
+```
+
 | Skill | Fires | Why this one |
 |---|---|---|
 | `unslop` | automatically, on any writing | Requested as mandatory. This repo carries a lot of prose: `AGENTS.md`, ADR-style schema comments, release notes. |

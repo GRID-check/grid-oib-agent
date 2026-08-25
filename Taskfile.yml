@@ -20,6 +20,9 @@ version: '3'
 
 vars:
   UI: frontends/ui
+  # Agent Package Manager CLI, pinned so every machine and CI resolve the same
+  # skill bytes. Bump deliberately and re-run `task agents:audit`.
+  APM_VERSION: 0.28.0
   WEB: frontends/web
   # go-task ships its own POSIX shell, so command SYNTAX is already portable and
   # nothing below needs an OS branch. These two are the exception, because they
@@ -96,6 +99,36 @@ tasks:
       # The policy pack is its own Node program with its own lockfile; CI
       # installs it separately and `infra:types` typechecks it.
       - npm --prefix deploy/pulumi/policy ci
+      - task: agents:setup
+
+  # ── agent skills (apm) ──────────────────────────────────────────────────────
+  #
+  # Third-party agent skills are dependencies, so they are installed from a
+  # manifest (`apm.yml`) against a lockfile (`apm.lock.yaml`) rather than
+  # copied in by hand. Deployed into `.claude/skills/`, alongside the skills
+  # this repo authors and the pstack set vendored on purpose; apm never touches
+  # a directory it does not own.
+  #
+  # Run through `uvx` rather than a global install: uv is already required for
+  # the backend venv, and this way the CLI version is pinned in one line here
+  # instead of depending on whatever `apm` happens to be on someone's PATH.
+  # `--frozen` refuses to install when the lockfile is missing or out of sync,
+  # which is what makes this reproducible in CI.
+
+  agents:setup:
+    desc: Install the pinned third-party agent skills from apm.yml
+    cmds:
+      - uvx --from apm-cli=={{.APM_VERSION}} apm install --frozen
+
+  agents:audit:
+    desc: Scan installed agent skills for drift and hidden Unicode
+    cmds:
+      - uvx --from apm-cli=={{.APM_VERSION}} apm audit
+
+  agents:update:
+    desc: Refresh agent-skill pins in apm.yml, then review the diff before committing
+    cmds:
+      - uvx --from apm-cli=={{.APM_VERSION}} apm update --yes
 
   # ── frontend (frontends/ui) ─────────────────────────────────────────────────
 

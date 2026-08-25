@@ -175,6 +175,26 @@ component without that evidence — opt out non-visual components with a
 
 **Security & static analysis (free, runs entirely in CI).** `.github/workflows/security.yml` runs on push/PR + weekly: **Semgrep** (SAST for Python/TS/JS/Actions — replaces CodeQL and Sonar's security rules), **OSV-Scanner** (dependency CVEs from lockfiles — replaces Sonar SCA), **pip-audit + npm audit**, **gitleaks** (secret scan, full history), and **trivy** (`image-scan` job: blocks on **fixable** HIGH/CRITICAL findings — it runs with `--ignore-unfixed` — in the digest-pinned observability and Langfuse images from `deploy/pulumi/src/config.ts` — five of them as of ADR-0044, and the job asserts that exact count so a new pin fails CI until it is added to the scan list rather than going unscanned forever; the vulnerability DB is downloaded **once** into a shared cache and the five scans reuse it with `--skip-db-update`, because five fresh `docker run --rm` pulls of `trivy-db` from GCR 429 and fail the job with `failed=0`; findings inside those upstream images that no digest bump can clear go in `.trivyignore.yaml` as time-boxed exceptions with a justification and an `expired_at`, never by loosening the gate). No GitHub Advanced Security licence or SonarQube Cloud subscription needed. Semgrep and OSV-Scanner are currently non-blocking (Phase 1: findings in the job log while noise is tuned via `.semgrepignore` / `.gitleaks.toml`); drop their `continue-on-error` to make them required checks. **Dependabot** (`.github/dependabot.yml`) opens the dependency fix PRs. Code smells / maintainability are covered by the native linters and the coverage gate in `ci.yml` (ruff, eslint, `--cov-fail-under`); note this drops Sonar's **clean-as-you-code** gate, so the `PLR09xx` refactor rules ruff ignores (too-many-arguments/branches/statements) are no longer reported on new code.
 
+## Agent skills
+
+Skills live in `.claude/skills/`, from three sources with different rules.
+
+| Source | Where it comes from | How to change it |
+|---|---|---|
+| Repo-authored | `.agents/skills/` (maintainer skills for working on this repo) and top-level `skills/` (API-consumer skills). See `.agents/skills/README.md` for which is which. | Edit in place. |
+| Installed | `apm.yml` plus `apm.lock.yaml`, pinned to a commit, deployed by `task agents:setup`. Currently `writing-for-agents`. | Edit `apm.yml`, run `task agents:update`, commit the lockfile. Never edit the deployed files: `task agents:audit` reports them as drift. |
+| Vendored | Copied verbatim from [cursor/plugins/pstack](https://github.com/cursor/plugins/tree/main/pstack) because apm has no package for them. Six of them. Rationale, Cursor-to-Claude-Code differences, and the em-dash conflict with house prose: **`.claude/skills/PSTACK.md`**. | Re-copy from upstream. Corrections go in `PSTACK.md`, not the vendored file. |
+
+`task setup` runs `agents:setup`, so a fresh checkout gets the installed skills
+without a separate step. `task agents:audit` scans for drift against the lock and
+for hidden Unicode.
+
+Three of these fire on their own: `unslop` on any writing, `writing-for-agents`
+when you touch a skill or this file, `typescript-best-practices` on any `.ts` or
+`.tsx`. The rest carry `disable-model-invocation: true` and only run when asked
+for by name, which is deliberate: `interrogate` and `blast-radius` spawn
+subagents, and you want that on purpose rather than by accident.
+
 ## Release notes are mandatory (obligation)
 
 **A change a customer can notice does not merge without a release note.** Not a
