@@ -31,9 +31,9 @@ boundaries — not to run every command every time.
 
 ## Authoritative References
 
-- [AGENTS.md](../../../AGENTS.md): the "Build, test, and validation commands"
+- [AGENTS.md](../../AGENTS.md): the "Build, test, and validation commands"
   section is the source of truth for every command below.
-- [CONTRIBUTING.md](../../../CONTRIBUTING.md): "Local Validation" — the exact
+- [CONTRIBUTING.md](../../CONTRIBUTING.md): "Local Validation" — the exact
   commands to run and the requirement to include their output in the PR.
 - `pyproject.toml`: Ruff config (line length 120, rule sets `E,F,W,I,PL,UP`)
   and the dev dependency group used by `uv sync --group dev`.

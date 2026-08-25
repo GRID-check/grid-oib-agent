@@ -7,7 +7,7 @@ Use this reference when the user has not already pointed to an AI-Q checkout.
 From the current workspace, look for an AI-Q repository before cloning:
 
 ```bash
-test -f pyproject.toml && test -d deploy && test -d skills && test -L .agents/skills && echo "aiq_repo=."
+test -f pyproject.toml && test -d deploy && test -d skills && test -f Taskfile.yml && echo "aiq_repo=."
 find .. -maxdepth 3 -name pyproject.toml -print 2>/dev/null
 ```
 

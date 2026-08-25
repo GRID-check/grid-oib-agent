@@ -20,6 +20,9 @@ version: '3'
 
 vars:
   UI: frontends/ui
+  # Agent Package Manager CLI, pinned so every machine and CI resolve the same
+  # skill bytes. Bump deliberately and re-run `task agents:audit`.
+  APM_VERSION: 0.28.0
   WEB: frontends/web
   # go-task ships its own POSIX shell, so command SYNTAX is already portable and
   # nothing below needs an OS branch. These two are the exception, because they
@@ -93,9 +96,43 @@ tasks:
       - uv sync --group dev
       - task: fe:install
       - task: web:install
-      # The policy pack is its own Node program with its own lockfile; CI
-      # installs it separately and `infra:types` typechecks it.
+      # Two Node programs under deploy/pulumi, each with its own lockfile: the
+      # Pulumi program itself (which `infra:types` typechecks and `infra:test`
+      # runs) and the policy pack beside it. Installing only the policy pack
+      # left a fresh clone failing `task verify` at `infra:types`, because the
+      # program's own TypeScript and Vitest were never fetched.
+      - npm --prefix deploy/pulumi ci
       - npm --prefix deploy/pulumi/policy ci
+      - task: agents:setup
+
+  # ── agent skills (apm) ──────────────────────────────────────────────────────
+  #
+  # `skills/` is the single source: this repo's own skills live there, declared
+  # in `apm.yml` as local paths beside the pinned third-party ones. apm
+  # publishes the whole set into every target in that manifest, so `.claude/`
+  # and `.agents/` are GENERATED and gitignored. Adding a harness is one line
+  # in `apm.yml`, not a new copy step here.
+  #
+  # Run through `uvx` rather than a global install: uv is already required for
+  # the backend venv, and this way the CLI version is pinned in one line here
+  # instead of depending on whatever `apm` happens to be on someone's PATH.
+  # `--frozen` refuses to install when the lockfile is missing or out of sync,
+  # which is what makes this reproducible in CI.
+
+  agents:setup:
+    desc: Publish every skill in apm.yml into the harness directories it targets
+    cmds:
+      - uvx --from apm-cli=={{.APM_VERSION}} apm install --frozen
+
+  agents:audit:
+    desc: Scan installed agent skills for drift and hidden Unicode
+    cmds:
+      - uvx --from apm-cli=={{.APM_VERSION}} apm audit
+
+  agents:update:
+    desc: Refresh agent-skill pins in apm.yml, then review the diff before committing
+    cmds:
+      - uvx --from apm-cli=={{.APM_VERSION}} apm update --yes
 
   # ── frontend (frontends/ui) ─────────────────────────────────────────────────
 

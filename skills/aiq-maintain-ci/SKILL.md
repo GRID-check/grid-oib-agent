@@ -33,9 +33,9 @@ keep the gate working and must not weaken security or review rules.
 
 ## Authoritative References
 
-- [CONTRIBUTING.md](../../../CONTRIBUTING.md): the CI merge gate — workflows
+- [CONTRIBUTING.md](../../CONTRIBUTING.md): the CI merge gate — workflows
   run directly on PRs (`pull_request` events); there is no bot mirror.
-- [AGENTS.md](../../../AGENTS.md): "Git and PR hygiene" and the validation
+- [AGENTS.md](../../AGENTS.md): "Git and PR hygiene" and the validation
   commands CI mirrors.
 - `.github/workflows/ci.yml`: jobs `pre-commit`, `test` (pytest + coverage),
   `helm-lint`, `test-scripts`. The `pre-commit` job runs Ruff separately and

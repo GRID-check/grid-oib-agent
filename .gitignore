@@ -121,3 +121,18 @@ node_modules/
 
 # Visual brainstorm companion (session mockups)
 .superpowers/
+
+
+# APM dependencies
+apm_modules/
+
+# Harness directories are generated, never source. `skills/` is the one place
+# this repo's skills live; `task agents:setup` runs `apm install`, which
+# publishes them and the pinned third-party ones into every target in apm.yml.
+# Add a harness there and its directory appears here too.
+#
+# Committing the generated copies let a skill be edited in place with nothing
+# to detect it, and it hid that ten committed "symlinks" were plain text files
+# containing a path (git mode 100644) that never resolved for anyone.
+.claude/
+.agents/
