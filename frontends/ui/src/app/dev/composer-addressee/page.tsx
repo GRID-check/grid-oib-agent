@@ -207,8 +207,8 @@ export default function ComposerAddresseePreviewPage(): JSX.Element {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Wer die Nachricht bekommt</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Die Aussage im Composer — in jedem Zustand, damit „Piloti ist als Nächstes dran“ nichts
-            ist, was man erschließen muss.
+            Die Aussage im Composer — überall dort, wo die Nachricht nicht an Piloti geht.
+            Der Standardfall bleibt still; genau das macht die anderen lesbar.
           </p>
         </div>
 
