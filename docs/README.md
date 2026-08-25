@@ -42,6 +42,7 @@ Start with [`system-overview.md`](architecture/system-overview.md), then
 
 | Area | Documents |
 |---|---|
+| Patterns | [`patterns-in-use.md`](architecture/patterns-in-use.md) |
 | Whole system | [`system-overview.md`](architecture/system-overview.md), [`overview.md`](architecture/overview.md), [`backend-deep-dive.md`](architecture/backend-deep-dive.md) |
 | BFF and data | [`bff-service-architecture.md`](architecture/bff-service-architecture.md), [`grid-app-database.md`](architecture/grid-app-database.md), [`multitenancy-and-auth-spec.md`](architecture/multitenancy-and-auth-spec.md) |
 | Documents and projects | [`document-roles.md`](architecture/document-roles.md) |

@@ -43,12 +43,22 @@ includes spec files — a type error in a test blocks `next build`.
 | Read a raw `sql<T>` result | Coerce at the repository boundary (`new Date(row.x)`, `Number(row.x)`) | Nothing. `tsc` believes the annotation and you get `toISOString is not a function` at runtime |
 | Reach for `any` | Use the real type, `Partial<T>`, `unknown`, or the fixtures in `@/test-utils/*` | `@typescript-eslint/no-explicit-any` is an error, in tests too |
 | Write a general-purpose helper | Put it in `lib/text/`, `lib/utils/`, `lib/format.ts` — and search first | A private copy is a fork, and the drift is invisible because each copy looks locally correct |
+| Build a component | Compose atoms; if the kit lacks a shape, add the atom rather than a `<div className="…">` in the organism | Review. The viewport that ignored this had four floating panels in three materials, none testable |
+| Show something a surface already shows | Compose the same atoms, or reuse the organism | Two lookalikes drift on the first token retune. `project-atoms.tsx` exists for exactly this |
 | Add a card type | Classify it in `CARD_INTERACTIVITY` (`features/grid-cards/card-decision.ts`) | `task fe:types` |
 | Store a card's answer | On `ChatMessage.cardInteractions` via `useCardDecision` | A reload re-applies the patch; neither endpoint is idempotent |
 | Add user-facing copy | Add the key to every dictionary in `src/i18n/dictionaries` | `key-coverage.spec.ts` |
 | Ship a user-visible surface | A `/dev/<name>` preview route, a registry target, committed PNGs from `task fe:screenshots` | `visual-coverage` |
 
 ## Rules that need more than a row
+
+**The UI is built atomically: atoms → molecules → organisms → route.** An
+organism reaches for an atom, never for Tailwind; shape is a primitive
+(`components/ui/raised-card.tsx`) and the domain is an atom on top of it
+(`components/projects/project-atoms.tsx`). `features/bim/components/viewer/index.ts`
+is a barrel that exists purely to enforce the import direction. The layers, and
+the three rules that carry them:
+[`docs/design/grid-design-language.md`](../../docs/design/grid-design-language.md#component-layers-atomic-design).
 
 **Authorization checks a permission, never a role name.** Both bypasses are
 permissions: `org:projects:administer` reaches every project in one

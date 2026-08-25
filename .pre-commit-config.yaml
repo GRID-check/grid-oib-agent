@@ -86,6 +86,29 @@ repos:
         pass_filenames: false
         files: ^(src/aiq_agent/skills/builtin/.*/SKILL\.md|frontends/ui/src/lib/skills/platform-skills\.ts|frontends/ui/scripts/sync-platform-skills\.mjs)$
 
+      - id: card-schemas
+        name: the card schemas are generated from cards/models.py
+        # Two generated, committed artifacts in one pipeline: the Pydantic
+        # models render to shared/cards/schemas.json, which renders to the Zod
+        # module the frontend validates with. Neither had a guard, and the
+        # failure mode is the one platform-skills.ts already demonstrated three
+        # times — a stale generated module type-checks perfectly, so nothing
+        # local objects and only CI (or a user) finds out.
+        #
+        # Running the generators IS the check: pre-commit fails the commit if
+        # they modify anything. Neither stamps a timestamp, so a clean tree
+        # stays clean (verified).
+        # The venv python explicitly, not a bare `python`: `task lint:repo`
+        # invokes `.venv/bin/pre-commit` WITHOUT activating the venv, so a
+        # bare interpreter here resolves to the system one and cannot import
+        # langchain_core. (The `pytest` hook below gets away with it only
+        # because it is stages: [push] and CI activates the venv first.)
+        # On Windows this path is .venv/Scripts/python.exe.
+        entry: bash -c 'PYTHONPATH=src .venv/bin/python scripts/generate_card_schema.py && node frontends/ui/scripts/generate-card-schemas.mjs'
+        language: system
+        pass_filenames: false
+        files: ^(src/aiq_agent/cards/models\.py|shared/cards/schemas\.json|scripts/generate_card_schema\.py|frontends/ui/scripts/generate-card-schemas\.mjs|frontends/ui/src/shared/cards/generated\.ts)$
+
       - id: agent-docs
         name: every AGENTS.md is reachable by the agents that need it
         # Claude Code reads CLAUDE.md, never AGENTS.md, and bridges them with an

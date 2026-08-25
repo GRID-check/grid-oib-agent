@@ -173,6 +173,9 @@ delete. Reduce complexity, never features. That pass is part of done.
 - Code conventions, the `any` ban, coercing raw `sql<T>`, where a shared helper
   belongs, capability doctrine:
   [`docs/contributing/code-conventions.md`](docs/contributing/code-conventions.md).
+- Patterns this codebase applies and what enforces each one (atomic design,
+  guard scripts, generated artifacts, per-turn `ContextVar` registries):
+  [`docs/architecture/patterns-in-use.md`](docs/architecture/patterns-in-use.md).
 - Verification, CI sharding, the security stack, visual evidence:
   [`docs/contributing/testing-and-verification.md`](docs/contributing/testing-and-verification.md).
 - Branching, Conventional Commits, PR titles: [`CONTRIBUTING.md`](CONTRIBUTING.md).

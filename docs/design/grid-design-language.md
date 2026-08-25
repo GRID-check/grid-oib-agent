@@ -108,6 +108,46 @@ The ramp targets the dummy's 9.5–24px scale: **20px page titles**, **23px hero
 - **Radius:** cards `rounded-lg` (var --radius, 12px — inside the dummy's 7–14px range), inputs/buttons follow shadcn defaults, pills/badges `rounded-md`.
 - **Borders:** hairline `border` (border-border — alpha ink, composites on any surface). Prefer a single border + `bg-card` over nested boxes. Use `divide-y` for list groups inside one bordered container. Depth = surface step + layered soft shadow (`shadow-xs/sm/md/lg` are bound to `--elevation-*`), never a heavy border.
 
+## Component layers (atomic design)
+
+The UI is built atomically: **atoms** compose into **molecules**, molecules into
+**organisms**, and only then into a route. The vocabulary is already in the code
+— `project-atoms.tsx`, "the shared `SearchField` molecule", "the organisms
+import from HERE" — and this section is what it means, because the layering is
+a rule and not a filing convention.
+
+| Layer | Where it lives | What it is |
+|---|---|---|
+| Atom | `components/ui/` for the product-wide kit; a local `*-atoms.tsx` or a `viewer/`-style kit folder for a surface's own | One decision each: a shape, a control, a piece of material. Knows no domain |
+| Molecule | `components/ui/`, `components/<area>/` | A few atoms with one job. `SearchField`, `PageHeader`, `RaisedCard` |
+| Organism | `components/<area>/`, `features/<domain>/components/` | A meaningful chunk of a screen. `ProjectCard`, the viewer rail, the model stage |
+| Route | `app/**` | Composition and data, not markup |
+
+Three rules carry the weight:
+
+**An organism reaches for an atom, never for Tailwind.** If a control needs a
+shape the kit does not have, **the kit gains an atom** — the organism does not
+gain a `<div className="…">`. `features/bim/components/viewer/index.ts` is a
+barrel that exists purely to enforce this: nine atoms, exported from one place,
+and everything the model stage draws is built from them. The viewport before it
+had four floating panels in three different materials, all written inline, none
+testable.
+
+**A second surface showing the same thing composes the same atoms.** It does not
+hand-roll a lookalike. Two lookalikes drift on the first token retune, and the
+divergence surfaces as one card with a different corner radius or a hover lift
+that does not match. `project-atoms.tsx` exists so a genuinely different
+*arrangement* — the dense list row next to the card grid — is still made of the
+same material.
+
+**Shape is a primitive; domain is an atom on top of it.** The raised white plate
+on a subtler tray is `components/ui/raised-card.tsx`. What makes it a *project*
+is `project-atoms.tsx`. Re-declaring the geometry in the domain file is how you
+get the fifth hand-rolled copy of `rounded-b-[10px] bg-card shadow-xs`.
+
+The layer names are load-bearing in review: "make it an atom" and "that belongs
+in the kit" are the two most common notes on a UI diff.
+
 ## Component patterns
 
 **Project card** — "a project, listed" has ONE component: `ProjectCard`

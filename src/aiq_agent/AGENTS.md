@@ -29,6 +29,7 @@ another worktree — while everything appears to pass.
 | Emit a card | Push it through the `emit_card` tool into the session `CardRegistry`; address it from prose as `[[card:N]]` | The frontend resolves N positionally against the same ordered array. A card added by any other path is unaddressable |
 | Add per-turn state | A `ContextVar` registry created/reset per turn, the way `cards/registry.py` and `common/citation_verification.py` do | Module-level state leaks across turns and across tenants |
 | Build a prompt block from rows | Bound it, and say in the text the model reads that it is bounded | Cost grows with project size on every turn, and the agent answers "which files do I have" confidently and wrongly. See `render_inventory_block` |
+| Change `cards/models.py` | Re-run both generators: `uv run python scripts/generate_card_schema.py`, then `npm run generate:cards` in `frontends/ui` | The `card-schemas` pre-commit hook. Without it the frontend validates the old schema, and it type-checks |
 | Change a builtin skill's `SKILL.md` | Re-run the generator: `node frontends/ui/scripts/sync-platform-skills.mjs` | `sync-platform-skills` pre-commit hook. A stale generated module type-checks perfectly, which is why it has broken the build from behind three times |
 | Change a prompt or a model name | Remember `configs/*.yml` model names are the **boot fallback only**; the live default is admin-controlled | Editing YAML to move the fleet does nothing. See ADR-0014 |
 
