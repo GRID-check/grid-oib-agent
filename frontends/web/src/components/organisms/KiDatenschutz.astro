@@ -1,12 +1,15 @@
 ---
 import SectionTag from '../atoms/SectionTag.astro'
 import { ui, type Locale } from '../../i18n/ui'
+import { useTranslatedPath } from '../../i18n/utils'
 
 interface Props {
   locale?: Locale
 }
 const { locale = 'de' } = Astro.props
 const t = ui[locale]
+const p = t.ki.proof
+const privacy = useTranslatedPath(locale)('/datenschutz/')
 ---
 
 <section
@@ -14,42 +17,109 @@ const t = ui[locale]
   data-screen-label={t.sheets.ki}
   class="mx-auto box-border max-w-[85rem] px-4 py-24 sm:px-10"
 >
-  <div class="box-border rounded-panel bg-tint px-6 py-14 sheet-light sm:px-16 sm:py-20">
-    <!-- Two columns rather than a third heading-over-cards block: the statement
-         holds its position on the left while the three answers scroll past it. -->
-    <div class="grid grid-cols-[5fr_7fr] gap-x-16 gap-y-10 max-lg:grid-cols-1">
-      <div id="datenschutz" data-reveal class="lg:sticky lg:top-28 lg:self-start">
-        <SectionTag class="mb-5 text-accent-900/80">{t.ki.tag}</SectionTag>
-        <h2 class="m-0 font-display text-h4 text-panel" style="text-wrap: balance">
+  <div class="box-border rounded-panel bg-tint px-6 py-16 sheet-light sm:px-16 sm:py-20">
+    <!-- The claim and its three supports on the left; on the right, the sheet
+         you would check them against. A section arguing that nothing here is a
+         black box should hand over something to hold it to, and a specification
+         reads as a commitment in a way that a fourth paragraph does not. -->
+    <div class="grid grid-cols-[6fr_5fr] items-start gap-x-14 gap-y-12 max-lg:grid-cols-1">
+      <div id="datenschutz" data-reveal>
+        <SectionTag no="05" class="mb-5 text-accent-900/80">{t.ki.tag}</SectionTag>
+        <h2 class="m-0 mb-9 font-voice text-v4 text-panel" style="text-wrap: balance">
           {t.ki.title}
         </h2>
+
+        <ol class="m-0 list-none p-0">
+          {
+            t.ki.cards.map((c, i) => (
+              <li class="grid grid-cols-[auto_1fr] gap-x-4 border-t border-panel/15 py-5 first:border-t-0 first:pt-0 last:pb-0 sm:gap-x-5">
+                <span class="mt-1 font-mono text-2xs uppercase tracking-widest text-accent-600">
+                  {`0${i + 1}`}
+                </span>
+                <div>
+                  <h3 class="m-0 font-display text-lg font-semibold tracking-tight text-panel">
+                    {c.title}
+                  </h3>
+                  <p
+                    class="m-0 mt-2 text-sm leading-relaxed text-accent-900/75"
+                    style="text-wrap: pretty"
+                  >
+                    {c.body}
+                  </p>
+                </div>
+              </li>
+            ))
+          }
+        </ol>
       </div>
 
-      <ol class="m-0 list-none p-0">
-        {
-          t.ki.cards.map((c, i) => (
-            <li
-              data-reveal
-              class="grid grid-cols-[auto_1fr] gap-x-5 border-t border-panel/15 py-7 first:border-t-0 first:pt-0 sm:gap-x-8"
+      <div data-reveal class="min-w-0">
+        <div
+          class="box-border rounded-card bg-paper px-6 py-7 shadow-card ring-1 ring-panel/10 sm:px-7"
+        >
+          <p
+            class="m-0 mb-6 border-b border-ink/12 pb-4 font-mono text-2xs uppercase tracking-label text-accent-600"
+          >
+            {p.tag}
+          </p>
+
+          <!-- Two textures on one sheet: what is always attached to an answer,
+               ticked; and what is true of the office's data, stated. -->
+          <p class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
+            {p.answerHeading}
+          </p>
+          <ul class="m-0 mt-3 list-none p-0">
+            {
+              p.answer.map((row) => (
+                <li class="grid grid-cols-[auto_1fr] items-baseline gap-x-3 border-t border-ink/10 py-2.5 first:border-t-0 first:pt-0">
+                  <svg
+                    viewBox="0 0 24 24"
+                    class="size-3 translate-y-px text-accent-600"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m4 12 6 6L20 6" />
+                  </svg>
+                  <p class="m-0 text-sm leading-snug text-panel">
+                    {row.label}
+                    <span class="text-ink-mute"> — {row.value}</span>
+                  </p>
+                </li>
+              ))
+            }
+          </ul>
+
+          <p class="m-0 mt-7 font-mono text-2xs uppercase tracking-widest text-ink-faint">
+            {p.dataHeading}
+          </p>
+          <dl class="m-0 mt-3">
+            {
+              p.data.map((row) => (
+                <div class="flex items-baseline justify-between gap-4 border-t border-ink/10 py-2.5 first:border-t-0 first:pt-0">
+                  <dt class="m-0 text-sm text-ink-soft">{row.label}</dt>
+                  <dd class="m-0 text-right font-mono text-2xs text-panel">{row.value}</dd>
+                </div>
+              ))
+            }
+          </dl>
+
+          <!-- The rule belongs to the sheet, not to the link, or it stops where
+               the words do and reads as an underline. -->
+          <div class="mt-6 border-t border-ink/10 pt-5">
+            <a
+              href={privacy}
+              class="inline-flex items-center gap-1.5 text-sm text-accent-600 transition-colors hover:text-accent-700"
             >
-              <span class="font-mono text-2xs uppercase tracking-widest text-accent-600">
-                {`0${i + 1}`}
-              </span>
-              <div>
-                <h3 class="m-0 font-display text-xl font-semibold tracking-tight text-panel">
-                  {c.title}
-                </h3>
-                <p
-                  class="m-0 mt-3 max-w-2xl text-base leading-relaxed text-accent-900/75"
-                  style="text-wrap: pretty"
-                >
-                  {c.body}
-                </p>
-              </div>
-            </li>
-          ))
-        }
-      </ol>
+              {p.link}
+              <span aria-hidden="true">→</span>
+            </a>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </section>
