@@ -39,6 +39,27 @@
       "summary": null,
       "sections": [
         {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Sie können einem Projekt jetzt sagen, welche Datei der Bebauungsplan ist. Im Projekt-Assistenten laden Sie den Plan direkt an der Frage hoch oder wählen ein Dokument aus, das bereits im Projekt liegt. Piloti nennt den Plan danach beim Namen, statt allgemein von hochgeladenen Dateien zu sprechen.",
+              "de": "Sie können einem Projekt jetzt sagen, welche Datei der Bebauungsplan ist. Im Projekt-Assistenten laden Sie den Plan direkt an der Frage hoch oder wählen ein Dokument aus, das bereits im Projekt liegt. Piloti nennt den Plan danach beim Namen, statt allgemein von hochgeladenen Dateien zu sprechen."
+            },
+            {
+              "en": "Piloti weiß außerdem, welche Unterlagen noch fehlen, und antwortet entsprechend vorsichtig. Fehlt der Bebauungsplan, sagt Piloti das, statt zu antworten, als hätte es ihn gelesen.",
+              "de": "Piloti weiß außerdem, welche Unterlagen noch fehlen, und antwortet entsprechend vorsichtig. Fehlt der Bebauungsplan, sagt Piloti das, statt zu antworten, als hätte es ihn gelesen."
+            },
+            {
+              "en": "Der Projekt-Assistent hat eine durchgehende Modulübersicht: alle Module stehen mit vollem Namen daneben, jedes zeigt, wie viele Angaben schon gemacht sind, und Sie springen jederzeit dorthin, wo Sie gerade weiterarbeiten wollen.",
+              "de": "Der Projekt-Assistent hat eine durchgehende Modulübersicht: alle Module stehen mit vollem Namen daneben, jedes zeigt, wie viele Angaben schon gemacht sind, und Sie springen jederzeit dorthin, wo Sie gerade weiterarbeiten wollen."
+            },
+            {
+              "en": "Neu ist der Schnellstart: er zeigt nur die Kernfragen. Alles Übrige wird als „offen“ übernommen und in der Zusammenfassung als offener Punkt gelistet, sodass Sie es später gezielt ergänzen können. Pro Modul können Sie den Rest auch einzeln überspringen.",
+              "de": "Neu ist der Schnellstart: er zeigt nur die Kernfragen. Alles Übrige wird als „offen“ übernommen und in der Zusammenfassung als offener Punkt gelistet, sodass Sie es später gezielt ergänzen können. Pro Modul können Sie den Rest auch einzeln überspringen."
+            }
+          ]
+        },
+        {
           "key": "improvements",
           "notes": [
             {
@@ -117,6 +138,28 @@
             {
               "en": "A project whose creation failed part-way is no longer left behind unreachable by the person who created it.",
               "de": "A project whose creation failed part-way is no longer left behind unreachable by the person who created it."
+            },
+            {
+              "en": "Wenn ein Projekt mehr Dateien enthält, als Piloti auf einmal überblicken kann, sagt Piloti das jetzt. Bisher hat es die verkürzte Liste als vollständig behandelt und auf die Frage \"welche Dateien liegen im Projekt\" zuversichtlich eine unvollständige Antwort gegeben. Jetzt weist es pro Regal darauf hin, dass weitere Dateien vorhanden sind, die es hier nicht aufzählt.",
+              "de": "Wenn ein Projekt mehr Dateien enthält, als Piloti auf einmal überblicken kann, sagt Piloti das jetzt. Bisher hat es die verkürzte Liste als vollständig behandelt und auf die Frage \"welche Dateien liegen im Projekt\" zuversichtlich eine unvollständige Antwort gegeben. Jetzt weist es pro Regal darauf hin, dass weitere Dateien vorhanden sind, die es hier nicht aufzählt."
+            }
+          ]
+        },
+        {
+          "key": "upgrade",
+          "notes": [
+            {
+              "en": "Der Fragebogen ist auf den aktuellen Stand gebracht. Die Fragen zum Bestand — Baujahr, Denkmalschutz, Eingriff ins Tragwerk, Umfang der Sanierung — gehören jetzt zum jeweiligen Bauwerk statt zum ganzen Projekt und stehen dort neben dem Zielzustand. Bestehende Projekte mit genau einem Bauwerk übernehmen ihre bisherigen Angaben automatisch; bei mehreren Bauwerken ordnen Sie sie einmalig zu.",
+              "de": "Der Fragebogen ist auf den aktuellen Stand gebracht. Die Fragen zum Bestand — Baujahr, Denkmalschutz, Eingriff ins Tragwerk, Umfang der Sanierung — gehören jetzt zum jeweiligen Bauwerk statt zum ganzen Projekt und stehen dort neben dem Zielzustand. Bestehende Projekte mit genau einem Bauwerk übernehmen ihre bisherigen Angaben automatisch; bei mehreren Bauwerken ordnen Sie sie einmalig zu."
+            }
+          ]
+        },
+        {
+          "key": "other",
+          "notes": [
+            {
+              "en": "Piloti trägt den OIB-Grundkorpus nicht mehr Datei für Datei in jeder Anfrage mit — der Korpus ist immer derselbe, und Piloti findet darin über die Suche. Ihre eigenen Unterlagen nennt Piloti weiterhin einzeln beim Namen, und auf die Frage, welche OIB-Richtlinien vorliegen, zählt es sie vollständig auf.",
+              "de": "Piloti trägt den OIB-Grundkorpus nicht mehr Datei für Datei in jeder Anfrage mit — der Korpus ist immer derselbe, und Piloti findet darin über die Suche. Ihre eigenen Unterlagen nennt Piloti weiterhin einzeln beim Namen, und auf die Frage, welche OIB-Richtlinien vorliegen, zählt es sie vollständig auf."
             }
           ]
         }
