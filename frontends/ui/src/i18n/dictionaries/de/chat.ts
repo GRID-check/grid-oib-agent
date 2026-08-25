@@ -66,7 +66,7 @@ export const chat: typeof en.chat = {
   composer: {
     /** Shown when the reader holds project:view but not project:chat. */
     noProjectChatPermission:
-      'Sie haben Lesezugriff auf dieses Projekt. Bitten Sie eine Projekt-Administratorin oder einen Projekt-Administrator um die Rolle „Mitwirkender“, um den Recherche-Agenten hier zu nutzen.',
+      'Der Recherche-Agent steht Ihnen in diesem Projekt derzeit nicht zur Verfügung. Wenn Sie nur Lesezugriff haben, kann Ihnen eine Projektadministratorin oder ein Projektadministrator die Rolle „Mitwirkender“ erteilen.',
     placeholder: 'Fragen Sie Piloti zu diesem Projekt …',
     sources: 'Datengrundlage',
     sourcesAria: 'Datengrundlage – {enabled} von {total} Quellen aktiv. Öffnet die Datenquellen.',
