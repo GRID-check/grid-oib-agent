@@ -502,10 +502,12 @@ Read-only inspection of the live environments on 2026-08-25, via the WorkOS API:
 | Production | `environment_01KEF0YGNYDFAFAS77EZEFQ839` (client `client_01KEF0YGXCZ6QCJGGBWD7Z266J`, the `prod` Pulumi stack) |
 | Staging | `environment_01KEF0YG238CSMNF731TEG010E` (client `client_01KEF0YGNPX7S4SF952ZX46V1K`, the `dev` Pulumi stack) |
 
-**Both environments carry the same drift**, and none of it is fixable in code —
-the catalog is the source of truth for the app, not for WorkOS.
+**Both environments carried the same drift**, and none of it was fixable in code
+— the catalog is the source of truth for the app, not for WorkOS. **W1–W3 were
+reconciled on 2026-08-25**; what each one was, and what the fix was, is below.
+W4 is unchanged and still worth acting on.
 
-### W1 — Agent Skills is unprovisioned, so project admins cannot reach it
+### W1 — Agent Skills was unprovisioned, so project admins could not reach it — RECONCILED
 
 The rename from Workflows to Agent Skills landed in the catalog and never
 reached WorkOS. Neither environment has:
@@ -523,11 +525,19 @@ unaffected, because the org-wide project bypass skips FGA entirely, which is
 exactly why the gap has been invisible: the people who would notice cannot
 reproduce it.
 
-`org:skills:manage` is the softer half: the org tier's bounded implication grants
-it to any admin session, so the org skills toolbox works today *because of* the
-back-compat rule (see §5).
+`org:skills:manage` was the softer half: the org tier's bounded implication
+granted it to any admin session, so the org skills toolbox worked only *because
+of* the back-compat rule (see §5).
 
-### W2 — Retired Workflow objects are still provisioned
+**Reconciled.** In both environments: the `skill` resource type created with
+parent `project`; `org:skills:manage`, `project:skills:manage`, `skill:view`,
+`skill:run` and `skill:manage` created; `admin` given `org:skills:manage`; and
+`project-admin`'s `project:workflows:manage` replaced with
+`project:skills:manage`. FGA grants follow the role, so every existing
+project-admin assignment conferred the new permission immediately — Agent Skills
+went from unreachable to reachable without touching a single role assignment.
+
+### W2 — Retired Workflow objects are still provisioned — LEFT IN PLACE
 
 The `workflow` resource type, `workflow:view` / `workflow:run` /
 `workflow:manage`, `project:workflows:manage`, and the `workflow-viewer` /
@@ -537,11 +547,13 @@ deliberately reports them (`UNKNOWN … in WorkOS, absent from the catalog`) rat
 than deleting them, and its comment says exactly why the `workflow:` prefix is
 still in that check.
 
-### W3 — The two permissions this audit adds are not provisioned yet
+### W3 — The two permissions this audit adds — NOW PROVISIONED
 
 `org:projects:administer` (the project bypass, §F3) and `platform:settings:view`
-(the read half of the platform settings gate, §F2) are new in the catalog. Until
-`provision:authz --apply` runs:
+(the read half of the platform settings gate, §F2) are new in the catalog. Both
+now exist in both environments; `admin` holds the first, and both platform-org
+roles hold the second. Before that landed the fallbacks below applied, and they
+remain the reason the deploy order does not matter:
 
 - **`org:projects:administer`** is covered by the org-tier implication, so
   existing admins keep every project with no re-login. Nothing breaks. A CUSTOM
@@ -563,38 +575,56 @@ job should currently be failing on staging. Either it is failing unread, or
 Worth one look — a drift gate nobody reads is the same as no drift gate, and W1
 is precisely the class of thing it exists to catch.
 
-### What reconciling looks like
+### What was applied, and what it did not touch
 
-`bun run provision:authz --apply`, pointed at each environment in turn
-(`docs/deployment/workos-provisioning.md`). It creates the missing permissions,
-sets each role's attachment set from the catalog, and reports the Workflow
-leftovers without touching them. Two caveats:
+Applied to Staging (`environment_01KEF0YG238CSMNF731TEG010E`) and Production
+(`environment_01KEF0YGNYDFAFAS77EZEFQ839`) on 2026-08-25, and verified by
+re-reading every role afterwards:
 
-1. **The `skill` resource type is a dashboard step.** The Node SDK exposes no
-   CRUD for resource types (ADR-0038, "Consequences"), and a permission cannot be
-   created against a type that does not exist — so `skill:*` will keep failing
-   until `skill` (parent: `project`) is added by hand.
-2. **It is a live identity-provider change.** Production currently holds one
-   organization (GRID Platform, two members, both Platform Owner) and no tenant
-   organizations, so the blast radius is small today and grows with every tenant
-   onboarded. Sooner is cheaper.
+| | Staging | Production |
+|---|---|---|
+| `skill` resource type (parent `project`) | created | created |
+| `org:skills:manage`, `project:skills:manage`, `skill:view/run/manage` | created | created |
+| `org:projects:administer`, `platform:settings:view` | created | created |
+| `admin` += `org:skills:manage`, `org:projects:administer` | applied | applied |
+| `project-admin`: `project:workflows:manage` → `project:skills:manage` | applied | applied |
+| `project-editor`, `project-admin` descriptions (still said "workflows") | applied | applied |
+| `org-platform-owner`, `org-platform-support` += `platform:settings:view` | applied | applied |
+
+**Not touched, deliberately:** every existing role ASSIGNMENT, every user, every
+organization, and the Workflow leftovers (W2). No member gained or lost a role;
+what changed is what the roles they already hold confer.
+
+Two things learned doing it, both now guarded in the catalog spec:
+
+1. **The `skill` resource type is not reachable from the provisioning script.**
+   The Node SDK exposes no CRUD for resource types (ADR-0038, "Consequences"), so
+   `provision:authz --apply` could not have fixed W1 on its own — it would have
+   failed to create `skill:*` against a type that does not exist. It was created
+   through the WorkOS API directly.
+2. **WorkOS caps permission descriptions at 150 characters**, not just resource
+   type descriptions. `org:projects:administer` shipped at 208 and was rejected.
+   `catalog.spec.ts` now asserts the cap for permissions too, so the next one
+   fails in CI rather than half-way through a provisioning run.
 
 ## 7. What is left
 
 The nine code findings are fixed and covered by tests (`lib/authz/*.spec.ts`,
-including a first-ever spec for `decide.ts`). What remains is not code:
+including a first-ever spec for `decide.ts`), and W1–W3 are reconciled in both
+WorkOS environments. What remains:
 
-1. **Add the `skill` resource type** (parent `project`) in the WorkOS dashboard,
-   in both environments. Everything in W1 is blocked behind it.
-2. **Run `provision:authz --apply`** against staging, then production. This is
-   what makes Agent Skills reachable for project admins, and what lets a custom
-   admin role hold `org:projects:administer`.
-3. **Read the drift job** (W4), and consider whether production deserves a
-   scheduled check of its own now that a whole feature was found unreachable by
-   one.
-4. **Then** narrow — or retire — the bounded role implication (§5).
-5. **Delete the Workflow leftovers** (W2) once nothing in any environment holds
-   them. Optional; they are inert.
+1. **Read the drift job** (W4). It runs weekly in check mode against staging
+   only, and given W1 and W2 it should have been failing. Either nobody reads it
+   or its secret is unset — and a drift gate nobody reads is the same as no drift
+   gate. This is the one item that would have caught W1 a month earlier.
+2. **Consider a production drift check.** The workflow's comment explains why
+   production was left out, and that reasoning was sound when a drift meant a
+   stale description. It cost a whole feature this time.
+3. **Then** narrow — or retire — the bounded role implication (§5). It is safe to
+   do now that both environments agree with the catalog, and it is what finally
+   makes a restricted admin constructible by editing the Admin role.
+4. **Delete the Workflow leftovers** (W2) once nothing anywhere holds them.
+   Optional; they are inert, and the provisioner reports them every run.
 
 Not attempted here, and unchanged from the original audit: a purge worker for the
 `deletion_queue` does not exist anywhere in the repo, so the FGA resources of a

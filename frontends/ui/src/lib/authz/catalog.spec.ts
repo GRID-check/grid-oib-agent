@@ -93,10 +93,20 @@ describe('authorization catalog', () => {
     }
   })
 
-  it('WorkOS caps resource-type descriptions at 150 characters', () => {
-    // Learned from the API rejecting a longer one during provisioning.
+  it('WorkOS caps descriptions at 150 characters — resource types AND permissions', () => {
+    // Both learned the same way: the API rejects a longer one at provisioning
+    // time, which turns a catalog edit into a half-applied environment. The
+    // permission half was missing from this check until `org:projects:administer`
+    // shipped at 208 characters and `createPermission` refused it.
     for (const type of RESOURCE_TYPES) {
       expect(type.description.length, `${type.slug} description`).toBeLessThanOrEqual(150)
+    }
+    for (const permission of ALL_PERMISSION_SPECS) {
+      if (permission.system) continue // WorkOS owns the widgets:* copy
+      expect(
+        permission.description.length,
+        `${permission.slug} description`
+      ).toBeLessThanOrEqual(150)
     }
   })
 

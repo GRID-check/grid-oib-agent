@@ -174,8 +174,9 @@ export const ORG_PERMISSION_SPECS: readonly PermissionSpec[] = [
   {
     slug: 'org:projects:administer',
     name: 'Administer all projects',
+    // WorkOS caps this at 150 characters; the reasoning lives in ./permissions.
     description:
-      'Reach and administer every project in the organization without holding a per-project role. This IS the org-admin bypass; it is a permission so a custom role can hold it and Admin is not special-cased by name.',
+      'Reach and administer every project in the organization without a per-project role. The org-admin bypass, as a permission a custom role can hold.',
     tier: 'org',
   },
   {
