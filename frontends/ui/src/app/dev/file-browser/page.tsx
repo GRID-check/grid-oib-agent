@@ -237,9 +237,6 @@ function SearchHeader({ search }: { search: FileSearch }): JSX.Element {
         placeholder="Search the project — press Enter for semantic search…"
         searchLabel="Search files"
         resetLabel="Reset search"
-        canSearch={search.canSearch}
-        runLabel="Search"
-        isSearching={search.semantic.isSearching}
       />
     </div>
   )

@@ -67,9 +67,6 @@ function Harness({ projectId, ...paneProps }: HarnessProps) {
         placeholder={search.canSearch ? t('browser.semantic.searchPlaceholder') : t('browser.searchPlaceholder')}
         searchLabel={t('browser.searchLabel')}
         resetLabel={t('browser.resetSearch')}
-        canSearch={search.canSearch}
-        runLabel={t('browser.semantic.run')}
-        isSearching={search.semantic.isSearching}
       />
       <FileBrowserPane
         files={files}

@@ -85,7 +85,7 @@ export default function ProjectChromePreviewPage(): JSX.Element {
               {/* The real control, not a lookalike — the run button is part of
                   the width this row has to survive. */}
               <FileSearchField
-                className="basis-full sm:w-56 sm:basis-auto lg:w-64"
+                className="basis-full sm:w-64 sm:basis-auto lg:w-72"
                 value=""
                 onChange={() => undefined}
                 onSubmit={() => undefined}
@@ -93,9 +93,6 @@ export default function ProjectChromePreviewPage(): JSX.Element {
                 placeholder="Search files..."
                 searchLabel="Search files"
                 resetLabel="Reset search"
-                canSearch
-                runLabel="Search"
-                isSearching={false}
               />
               <Button type="button">Upload</Button>
             </div>

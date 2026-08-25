@@ -673,7 +673,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               on the listing — one search on the page, not a band under the one
               it duplicates. Its result banner stays over the hits, in the pane. */}
           <FileSearchField
-            className="basis-full sm:w-56 sm:basis-auto lg:w-64"
+            className="basis-full sm:w-64 sm:basis-auto lg:w-72"
             value={search.query}
             onChange={search.setQuery}
             onSubmit={search.run}
@@ -685,9 +685,10 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             placeholder={t('browser.searchPlaceholder')}
             searchLabel={t('browser.searchLabel')}
             resetLabel={t('browser.resetSearch')}
-            canSearch={search.canSearch}
-            runLabel={t('browser.semantic.run')}
-            isSearching={search.semantic.isSearching}
+            // No run button: the field reads as the plain filter it mostly is,
+            // the way History's does. Enter still commits the query to the
+            // semantic search, and the result banner reports the run from the
+            // first frame, so nothing about the progress goes unsaid.
           />
           <ProjectUppyUpload
             projectId={projectId}

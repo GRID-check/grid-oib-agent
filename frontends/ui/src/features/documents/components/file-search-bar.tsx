@@ -9,16 +9,18 @@ import { cn } from '@/lib/utils'
 interface FileSearchFieldProps {
   value: string
   onChange: (value: string) => void
-  /** Commit the query (Enter / the Search button) — runs the semantic search. */
+  /** Commit the query. Enter always does this; the run button is optional. */
   onSubmit: () => void
   onClear: () => void
   placeholder: string
   searchLabel: string
   resetLabel: string
-  /** Whether the explicit-run semantic search is available (shows the run button). */
-  canSearch: boolean
-  runLabel: string
-  isSearching: boolean
+  /**
+   * Draw a button that commits the query, and what to call it. Omit for a field
+   * that reads as a plain filter — Enter still submits, so this decides how
+   * VISIBLE the semantic run is, never whether it is reachable.
+   */
+  runButton?: { label: string; isSearching: boolean }
   /** Sizing for the form. Defaults to filling its row (the sticky band). */
   className?: string
 }
@@ -32,8 +34,11 @@ interface FileSearchBannerProps {
   bannerTestId: string
 }
 
-type FileSearchBarProps = FileSearchFieldProps &
+type FileSearchBarProps = Omit<FileSearchFieldProps, 'runButton'> &
   FileSearchBannerProps & {
+    /** Whether the explicit-run semantic search is available (shows the run button). */
+    canSearch: boolean
+    runLabel: string
     /** Whether semantic mode is showing its result banner. */
     semanticActive: boolean
   }
@@ -55,9 +60,7 @@ export function FileSearchField({
   placeholder,
   searchLabel,
   resetLabel,
-  canSearch,
-  runLabel,
-  isSearching,
+  runButton,
   className,
 }: FileSearchFieldProps) {
   return (
@@ -80,22 +83,22 @@ export function FileSearchField({
         inputClassName="pr-10 md:pr-9"
         clearClassName="right-1 size-9 pointer-coarse:size-11 md:right-1.5 md:size-6"
       />
-      {canSearch && (
+      {runButton && (
         <Button
           type="submit"
           size="sm"
           variant="secondary"
           className="shrink-0 gap-1.5"
-          disabled={value.trim() === '' || isSearching}
+          disabled={value.trim() === '' || runButton.isSearching}
         >
           <span className="flex size-3.5 shrink-0 items-center justify-center">
-            {isSearching ? (
-              <Spinner size="xs" label={runLabel} className="text-current" />
+            {runButton.isSearching ? (
+              <Spinner size="xs" label={runButton.label} className="text-current" />
             ) : (
               <Sparkles className="size-3.5" aria-hidden />
             )}
           </span>
-          {runLabel}
+          {runButton.label}
         </Button>
       )}
     </form>
@@ -147,7 +150,7 @@ export function FileSearchBanner({
  * Archiv library uses it; the Files browser does not any more (its field is in
  * the page header, so a band would be a second search on the same screen).
  */
-export function FileSearchBar({ semanticActive, ...props }: FileSearchBarProps) {
+export function FileSearchBar({ semanticActive, canSearch, runLabel, ...props }: FileSearchBarProps) {
   return (
     <>
       {/* 95% + `backdrop-blur` is a frosted sticky band, not a hand-derived
@@ -155,7 +158,10 @@ export function FileSearchBar({ semanticActive, ...props }: FileSearchBarProps) 
           `shrink-0` on both bands says the same thing the chip row now says:
           chrome above a listing never absorbs the listing's overflow. */}
       <div className="sticky top-0 z-10 shrink-0 border-b bg-background/95 px-4 py-2.5 backdrop-blur">
-        <FileSearchField {...props} />
+        <FileSearchField
+          {...props}
+          runButton={canSearch ? { label: runLabel, isSearching: props.isSearching } : undefined}
+        />
       </div>
 
       {semanticActive && <FileSearchBanner {...props} />}
