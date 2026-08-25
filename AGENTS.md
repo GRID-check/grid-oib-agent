@@ -202,7 +202,7 @@ setup: [`docs/contributing/release-notes.md`](docs/contributing/release-notes.md
 ## Authorization (RBAC)
 
 The access model is **permission-driven, never role-name driven** (ADR-0016,
-ADR-0038). Three things to know before touching it:
+ADR-0038). Four things to know before touching it:
 
 1. **`frontends/ui/src/lib/authz/catalog.ts` is the source of truth** for every
    resource type, permission and role. The app derives its permission types from
@@ -213,14 +213,35 @@ ADR-0038). Three things to know before touching it:
    `{ enforcedBy }` (the service authorizes; name the function), or
    `{ sessionOnly, why }`. `src/app/api/authz-coverage.spec.ts` fails when a
    handler escapes the factories entirely.
-3. **`lib/authz/decide.ts` is the single decision point** across the org,
-   platform, project and skill tiers. Every decision carries the named rule
-   that produced it, so bypasses (`org-admin-bypass`, `platform-membership`) are
-   visible rather than implicit.
+3. **`lib/authz/decide.ts` is the intended single decision point** across the
+   org, platform, project and skill tiers, and every decision it returns carries
+   the named rule that produced it (`org-admin-bypass`, `platform-membership`, …)
+   so a bypass is explicit. Adoption is deliberately incremental (ADR-0038 §6):
+   today the gates still call `hasPermission`, `requireProjectAccess` and
+   `requirePlatformPermission` directly, and `decide()` dispatches to those same
+   three so the two routes cannot diverge. Do not describe it as the only path
+   until it is.
+4. **Two bypasses exist and both are permissions, never role names.**
+   `org:projects:administer` reaches every project in one organization (held by
+   Admin; check it, never `role === 'admin'`), and platform access is membership
+   of the GRID Platform organization *plus* the specific `platform:*` permission
+   the surface needs — `platformApiRoute` does not compile without one, which is
+   what keeps `org-platform-support` read-only.
 
 Resource topology is `Organization → Project → Skill`; Organization is the
 immutable WorkOS root. Provisioning runbook:
 [`docs/deployment/workos-provisioning.md`](docs/deployment/workos-provisioning.md).
+
+**A catalog change is not shipped until `provision:authz --apply` has run.** The
+catalog is the source of truth for the code, not for WorkOS — the project tier
+reads its grants from WorkOS at request time, so a permission that exists only in
+the catalog silently denies everyone. (Org-tier claims are softer: the bounded
+role implication in `lib/authz/permissions.ts` covers the gap, which is why it
+must keep applying to sessions that already carry claims.) The weekly
+`WorkOS drift` workflow is check-mode and staging-only, so production drift is
+found by running the command against it by hand. Current state of both
+environments and what it costs users:
+[`docs/architecture/authorization-audit-2026-08.md`](docs/architecture/authorization-audit-2026-08.md).
 
 ## Tenant isolation is enforced in the database (obligation)
 

@@ -13,14 +13,17 @@ export const members: typeof en.members = {
   },
   roles: {
     'project-viewer': 'Betrachter',
+    'project-contributor': 'Mitwirkender',
     'project-editor': 'Bearbeiter',
     'project-admin': 'Administrator',
   },
   roleDescriptions: {
     'project-viewer':
-      'Kann Projektinhalte, Dateien und Unterhaltungen ansehen, aber nichts ändern.',
+      'Kann Projektinhalte, Dateien und Unterhaltungen lesen. Kann nichts ändern und den Recherche-Agenten nicht nutzen.',
+    'project-contributor':
+      'Kann außerdem den Recherche-Agenten in diesem Projekt nutzen, aber dessen Dokumente und Gedächtnis nicht ändern.',
     'project-editor':
-      'Kann außerdem Dokumente bearbeiten, Recherchen starten und das Projektprofil aktualisieren.',
+      'Kann außerdem Dokumente bearbeiten sowie Projektprofil und Gedächtnis aktualisieren.',
     'project-admin': 'Kann außerdem Projekteinstellungen, Mitglieder und Rollen verwalten.',
   },
   validation: {

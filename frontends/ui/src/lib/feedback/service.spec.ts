@@ -18,14 +18,14 @@ vi.mock('./repository', () => ({
 vi.mock('./digest', () => ({ getFeedbackDigest: vi.fn() }))
 
 vi.mock('@/lib/authz/platform', () => ({
-  requirePlatformOwner: vi.fn(),
+  requirePlatformPermission: vi.fn(),
   PlatformAccessDeniedError: class PlatformAccessDeniedError extends Error {},
 }))
 
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { BadRequestError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { PlatformAccessDeniedError, requirePlatformOwner } from '@/lib/authz/platform'
+import { PlatformAccessDeniedError, requirePlatformPermission } from '@/lib/authz/platform'
 import {
   deleteAnswerFeedbackForUser,
   getFeedbackHealth,
@@ -193,18 +193,18 @@ describe('getOwnConversationFeedback', () => {
 
 /**
  * The cross-tenant read. Every other query in this domain is scoped by
- * organizationId in SQL; this one is not scoped at all, so `requirePlatformOwner`
+ * organizationId in SQL; this one is not scoped at all, so `requirePlatformPermission`
  * IS its tenancy boundary — these two tests are the whole of what stops one
  * organization's feedback reaching another.
  */
 describe('getAnswerFeedbackHealth', () => {
   beforeEach(() => {
-    vi.mocked(requirePlatformOwner).mockReset()
+    vi.mocked(requirePlatformPermission).mockReset()
     vi.mocked(getFeedbackHealth).mockReset()
   })
 
   it('refuses anyone who is not a platform owner, and does not read first', async () => {
-    vi.mocked(requirePlatformOwner).mockRejectedValue(new PlatformAccessDeniedError())
+    vi.mocked(requirePlatformPermission).mockRejectedValue(new PlatformAccessDeniedError())
 
     await expect(getAnswerFeedbackHealth({} as never)).rejects.toBeInstanceOf(
       PlatformAccessDeniedError,
@@ -215,7 +215,7 @@ describe('getAnswerFeedbackHealth', () => {
   })
 
   it('reads for a platform owner', async () => {
-    vi.mocked(requirePlatformOwner).mockResolvedValue(undefined)
+    vi.mocked(requirePlatformPermission).mockResolvedValue(undefined)
     vi.mocked(getFeedbackHealth).mockResolvedValue({
       windowDays: 30,
       totals: { up: 4, down: 1 },
@@ -229,7 +229,7 @@ describe('getAnswerFeedbackHealth', () => {
     const health = await getAnswerFeedbackHealth({} as never)
 
     expect(health.totals).toEqual({ up: 4, down: 1 })
-    expect(requirePlatformOwner).toHaveBeenCalledOnce()
+    expect(requirePlatformPermission).toHaveBeenCalledOnce()
   })
 })
 
@@ -240,13 +240,13 @@ describe('getAnswerFeedbackHealth', () => {
  */
 describe('getAnswerFeedbackDigest', () => {
   beforeEach(() => {
-    vi.mocked(requirePlatformOwner).mockReset()
+    vi.mocked(requirePlatformPermission).mockReset()
     vi.mocked(getFeedbackHealth).mockReset()
     vi.mocked(getFeedbackDigest).mockReset()
   })
 
   it('refuses anyone who is not a platform owner, and neither reads nor summarises', async () => {
-    vi.mocked(requirePlatformOwner).mockRejectedValue(new PlatformAccessDeniedError())
+    vi.mocked(requirePlatformPermission).mockRejectedValue(new PlatformAccessDeniedError())
 
     await expect(getAnswerFeedbackDigest({} as never)).rejects.toBeInstanceOf(
       PlatformAccessDeniedError,
@@ -256,7 +256,7 @@ describe('getAnswerFeedbackDigest', () => {
   })
 
   it('summarises the SAME aggregate the page shows, and skips the drill-in rows', async () => {
-    vi.mocked(requirePlatformOwner).mockResolvedValue(undefined)
+    vi.mocked(requirePlatformPermission).mockResolvedValue(undefined)
     const health = { windowDays: 30, totals: { up: 9, down: 1 } } as never
     vi.mocked(getFeedbackHealth).mockResolvedValue(health)
     vi.mocked(getFeedbackDigest).mockResolvedValue({ digest: null, error: 'too_few_votes' })

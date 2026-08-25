@@ -1,8 +1,10 @@
-# Authorization / Permissions System — Audit (2026-08)
+# Authorization / Permissions System — Audit and Remediation (2026-08)
 
-> Full review of the access-control plane: the permission catalog, the four
-> tiers (`org`, `platform`, `project`, `skill`), the route-factory contract, the
-> project-membership roster, and the sharing layer's container precondition.
+> Full review of the access-control plane, **and the fixes that followed**: the
+> permission catalog, the four tiers (`org`, `platform`, `project`, `skill`), the
+> route-factory contract, the project-membership roster, the sharing layer's
+> container precondition — and the state of the two live WorkOS environments the
+> catalog is supposed to describe.
 > Complements [ADR-0016](../adr/0016-platform-tier-and-permission-registry.md),
 > [ADR-0038](../adr/0038-one-authorization-catalog-and-decision-point.md) and
 > [ADR-0041](../adr/0041-row-level-security-for-tenant-isolation.md), and sits next to
@@ -14,60 +16,51 @@
 > `lib/project-profile/profile-service.ts`, `lib/bim/model-service.ts`,
 > `lib/proxy/collection-authz.ts`, `lib/collection-scope-request.ts`,
 > every `src/app/api/**/route.ts` authz declaration,
-> `scripts/provision-workos-authz.ts`, and
-> `frontends/aiq_api/src/aiq_api/jobs/access.py`.
+> `scripts/provision-workos-authz.ts`,
+> `frontends/aiq_api/src/aiq_api/jobs/access.py`, and the **live WorkOS
+> Production and Staging environments** (read-only, via the WorkOS API).
 >
-> **This audit changes no authorization behaviour.** Every finding below was
-> confirmed against the code, and F2, F3 and F7 were additionally reproduced with
-> throw-away probe specs run against the real modules (removed again — the
-> reproductions are written out inline so they can be re-run).
->
-> Baseline at time of writing: `npx tsc --noEmit` clean; the authz suites
-> (`lib/authz/*`, `app/api/authz-coverage.spec.ts`, `lib/projects/members-service.spec.ts`)
-> 77/77 green, and the full frontend suite 7923 passed / 82 skipped (594 files).
+> §3 records each finding and the fix that landed. §6 records the WorkOS drift,
+> which is **not fixed by code** and is the remaining work.
 
 ## 1. Executive summary
 
-The project tier — the part that was asked about — **is the strongest part of
-the system and it works**. Tenancy is checked first and bypassed by nobody, the
-FGA round-trip fails closed, denials are 404 so no response is an existence
-oracle, the project listing is FGA-filtered rather than org-filtered, soft-deleted
-projects are unreachable for everyone including org admins, and the last-admin
-invariant holds on every role change. `apiRoute` does not compile without an
-`authz` declaration and `authz-coverage.spec.ts` catches anything that escapes the
-factories. Nothing in this audit is a cross-tenant leak.
+The project tier — the part that was asked about — was already the strongest
+part of the system, and the structural guarantees all held: tenancy is checked
+first and bypassed by nobody, the FGA round-trip fails closed, denials are 404 so
+no response is an existence oracle, the project listing is FGA-filtered, and
+soft-deleted projects are unreachable for everyone. **No cross-tenant leak was
+found, before or after.**
 
-What is wrong is **the gap between the access model the catalog advertises and
-the one the code enforces**. Three of the roles ADR-0038 shipped specifically to
-prove the extensibility contract do not behave as documented:
+What was wrong was the gap between the access model the catalog advertises and
+the one the code enforces. Nine findings, all now fixed in code:
 
-- **`project-contributor` does nothing** (F1). Its distinguishing permission,
-  `project:chat`, is defined in the catalog, exported from the registry, typed in
-  `ProjectPermission` — and **checked in zero places**. Every chat entry point
-  gates on `project:view`. So `project-viewer`, documented "Read-only on one
-  project", can start conversations and spend LLM budget; the role that was
-  supposed to draw that line cannot even be assigned from the UI.
-- **`org-platform-support` is not read-only** (F2). Every platform route is
-  gated by one binary — `requirePlatformOwner` — and Support passes it. It can
-  PUT the platform model defaults, DELETE base-corpus documents, and rewrite
-  retrieval settings. ADR-0038 lists "read-only platform staff … now
-  constructible without code changes" as a consequence; that is currently false.
-- **A restricted org admin is not constructible for projects** (F3). The
-  org-admin project bypass keys off the *role slug* `'admin'` in three separate
-  places, not off a permission. A custom role holding every `org:*` permission
-  gets no project access at all; a role that merely happens to be *named*
-  `admin` administers every project in the org while holding nothing.
+- **`project:chat` was defined and checked nowhere** (F1), so `project-viewer` —
+  documented read-only — could run the agent and spend LLM budget, and
+  `project-contributor` was unassignable and displayed as "Viewer".
+- **`org-platform-support` was not read-only** (F2). Every platform route was
+  gated on one binary that Support passed, giving a role documented as changing
+  nothing write access to model defaults, retrieval settings and the base corpus.
+- **The org-wide project bypass keyed off the role slug `admin`** (F3), so a
+  custom role holding every `org:*` permission reached no project, while any role
+  merely named `admin` administered all of them.
+- Plus a dead-but-untested decision point (F4), an unprovisioned skill tier (F5),
+  a half-migrated write-permission split (F6), a role-derivation bug (F7),
+  a non-transactional project creation (F8), and an under-reporting roster (F9).
 
-Underneath that, **`lib/authz/decide.ts` — which `AGENTS.md` calls "the single
-decision point" — has zero callers and no spec** (F4). ADR-0038 §6 is honest that
-it was additive and adoption incremental; adoption is still at zero. So the named
-rules that were supposed to make bypasses visible (`org-admin-bypass`,
-`platform-membership`) are never produced by anything, and the `skill` tier exists
-only inside that dead module (F5).
+**Then the same review against the live WorkOS environments found the larger
+problem** (§6): the catalog has shipped ahead of provisioning, in both Production
+and Staging. `project:skills:manage` does not exist there — WorkOS still holds
+the pre-rename `project:workflows:manage` — so **Agent Skills is unreachable
+today for any project admin who is not also an org admin**, and `org:skills:manage`
+does not exist as a permission at all. No code change fixes that; the catalog is
+the source of truth for the app, not for WorkOS.
 
-F1 and F2 are the two that change who can do what today. F3 is the one that
-makes the whole "permission-driven, never role-name driven" claim untrue at its
-most load-bearing point.
+That finding also killed a tenth change that was drafted here and reverted: the
+plan to make the bounded role implication yield to any session carrying claims.
+It is a sound idea in a reconciled environment and a silent permission removal in
+this one — every admin would have lost the org skills toolbox the day it shipped.
+Recorded in §5 so it is not re-proposed before §6 is done.
 
 ## 2. What is sound
 
@@ -129,12 +122,23 @@ Consequences, all live:
    auditing the org is shown a chat permission and a Contributor role that the
    app does not implement.
 
-**Fix shape.** Either enforce it — add `project:chat` to the three gates above
-(any-of with `project:view` for back-compat during rollout, since existing
-viewers would otherwise lose chat) and widen the role schema, roster mapping and
-`ProjectRole` union to carry Contributor — or delete the permission and the role
-from the catalog. What must not persist is the current state, where the org
-Access tab documents an enforcement that does not exist.
+**Fixed — enforced.** `lib/authz/chat.ts` holds the permission list
+(`['project:chat', 'project:edit']`, any-of) and both chat entry points now use
+it: creating a project-scoped conversation, and the collection scope the chat
+transport retrieves against. Listing conversations stays on `project:view` —
+reading is reading. The umbrella is accepted alongside so no editor or admin
+loses chat in an environment whose provisioning has not been replayed;
+`project-viewer` holds neither and is now genuinely read-only.
+
+Contributor became real in the same change: the members API schema, the form's
+role list, the `ProjectMemberRole` type and the German and English role copy all
+carry it. `ProjectRole` — the *derived* ladder — deliberately does not: it maps
+onto the viewer rung either way, and deriving it would cost a third concurrent
+FGA check on every project access to tell two identical answers apart. That
+split is now documented on both types.
+
+Note the deployment order: the permission must exist in WorkOS for
+`project-contributor` to be assignable there. See §6, W1.
 
 ### F2 — `org-platform-support` is not read-only; it holds full platform write
 
@@ -186,12 +190,23 @@ The same role is simultaneously **under**-powered: the cross-org path
 (`lib/authz/platform.ts:156`) only recognises `org-platform-owner`, so Support
 browsing a tenant organization gets nothing at all. Also confirmed by probe.
 
-**Fix shape.** `platformApiRoute` should take the `platform:*` permission the
-route needs (the way `apiRoute` takes `{ permission }`), and the claims path
-should check *that* permission rather than collapsing all four to
-`isPlatformOwner`. `isPlatformOwner` stays as the membership precondition. The
-cross-org path should resolve the membership's permissions instead of matching one
-role slug.
+**Fixed.** `platformApiRoute` no longer compiles without
+`{ permission: PLATFORM_PERMISSIONS.* }`, and all 30 platform handlers now
+declare one — reads take a `*:view` permission, writes take `*:manage`. The four
+service-level gates (`getAnswerFeedbackHealth`, `updatePlatformOwnedOrgSettings`,
+`setStorageQuota`, `mintWidgetToken`) take one too.
+
+`isPlatformOwner` split into `isPlatformStaff` (the precondition — used by the
+nav flag and the platform shell) and `platformPermissions` /
+`hasPlatformPermission` / `requirePlatformPermission` (the decision). The
+cross-org path now resolves the membership role's actual permission list from
+WorkOS instead of matching `org-platform-owner` by name, so Support works while
+browsing a tenant org — it previously got nothing there.
+
+A new permission, `platform:settings:view`, splits reading platform
+configuration from changing it; Support holds it, and a bounded platform-tier
+implication (`permissionsForPlatformRole`) covers sessions minted before it was
+provisioned.
 
 ### F3 — The org-admin project bypass is role-NAME driven, in three places
 
@@ -228,15 +243,20 @@ is every persona an enterprise buyer actually asks for. And a WorkOS role create
 with the slug `admin` for unrelated reasons silently acquires every project in the
 tenant.
 
-**Fix shape.** Introduce an explicit permission for the bypass — the honest name
-is something like `org:projects:administer` — hold it on the `admin` role in the
-catalog, and check `hasPermission(session, …)` at all three sites. Keep the
-`role === 'admin'` test as a bounded legacy implication exactly the way
-`ORG_ROLE_PERMISSIONS` already does it for org-tier claims
-(`lib/authz/permissions.ts:107-142`), so sessions minted before the rollout keep
-working. All three sites must change together — `project-membership.ts` mirrors
-`projects.ts` deliberately, and a divergence there means sharing offers
-invitations that resolve to nothing.
+**Fixed.** `org:projects:administer` is in the catalog, held by Admin, and
+checked with `hasPermission` at all three sites. The bounded implication carries
+existing admin sessions across with no re-login, because the catalog grants Admin
+the new permission.
+
+The third-party site needed more than a substitution: `canUserAccessProject` has
+a role SLUG and no claims, so a new module (`lib/authz/org-role-permissions.ts`)
+asks WorkOS what that role actually holds — cached per environment, falling back
+to the catalog, never to "yes". Without it the mirror would have refused to
+invite somebody a custom admin role legitimately grants access to, which is the
+exact divergence the module's header warns about.
+
+One half of this waits on provisioning: a CUSTOM role cannot hold a permission
+WorkOS does not have. See §6, W3.
 
 ### F4 — `lib/authz/decide.ts` has no callers and no spec
 
@@ -260,10 +280,19 @@ named rule, so the audit property ADR-0038 was written to deliver does not exist
 yet, and 298 lines of security-critical code — including the only implementation
 of the skill tier and the only `tenancy-mismatch` reporting — are untested.
 
-**Fix shape.** Either adopt it (start with the routes that already declare
-`{ enforcedBy }` for a single project permission — mechanical, and it makes the
-rule visible) or amend `AGENTS.md` to state the position ADR-0038 actually took.
-Either way `decide.ts` needs a spec before it takes its first caller.
+**Fixed — the doc, not the adoption.** `AGENTS.md` now states what ADR-0038
+actually decided: `decide.ts` is the *intended* single decision point, adoption
+is incremental, and it dispatches to the same three gates the code calls
+directly so the two cannot diverge. Wiring it into `apiRoute` was considered and
+rejected — `decide.ts` pulls the database and the WorkOS client into a module
+every route imports, which is precisely what splitting `platform-handler.ts` out
+was for, and the decision is discarded at that call site anyway.
+
+What did land is the part that was indefensible: `decide.spec.ts`, 21 tests
+covering all four tiers, the fail-closed paths, both denial shapes and every
+named rule. Two real bugs surfaced while writing it — the project tier reported
+`no-grant` for a tenancy mismatch, and it named the bypass off `session.role`.
+Both fixed.
 
 ### F5 — The `skill` tier is provisioned but has no roles and no resources
 
@@ -284,9 +313,15 @@ Either way `decide.ts` needs a spec before it takes its first caller.
 Currently inert only because of F4. It becomes live the moment `decide()` gets a
 caller.
 
-**Fix shape.** Add the skill tier to the catalog-spec agreement test, and either
-short-circuit `decideSkillTier` to the project fallback until skill resources are
-actually created, or create the resource in `createJob` alongside the project one.
+**Fixed.** `catalog.spec.ts`'s registry-agreement check now covers all four
+tiers, so `skill:*` can no longer drift alone. `decideSkillTier` skips the FGA
+call behind a named `SKILL_RESOURCES_PROVISIONED` constant (`false`), so a
+guaranteed-false round-trip and its warning line no longer run on every skill
+decision — the constant is where per-skill grants turn on, alongside creating the
+resource in `createJob`.
+
+§6 W1 found the larger version of this: the skill tier is not merely
+role-less, it is entirely absent from both live environments.
 
 ### F6 — The `project:edit` split is half-migrated
 
@@ -312,10 +347,13 @@ and a legacy `project:edit`-only role can do every document write except reindex
 Neither is a hole; both are the extensibility contract failing quietly for the
 next person who builds a custom role.
 
-**Fix shape.** Make all eight consistent with the any-of pattern already in use.
-The BIM and profile sites need a decision on *which* narrow permission they map
-to (`project:documents:write` is the natural fit for both) rather than a
-mechanical substitution.
+**Fixed.** All eight now use the any-of form. The profile writes map onto
+`project:memory:write` (`PROFILE_WRITE`) — the intake brief and the standards the
+agent reasons from are structured project knowledge, not files. BIM check
+confirmations and the `/v1` collection proxy map onto `project:documents:write`
+(`BIM_WRITE`, `PROJECT_UPLOAD`). `reindexProject` gained the umbrella it was
+missing. Each list carries the deprecated umbrella so pre-split roles keep
+working.
 
 ### F7 — `requireProjectAccess` mis-derives the role when the any-of list contains `project:manage`
 
@@ -347,8 +385,19 @@ The three live call sites in this shape are `members-service.ts:92,171,230`
 returned role — so this is **latent, not live**. It becomes live the first time a
 caller passes such a list and uses the result to render a capability.
 
-**Fix shape.** Compare against `accepted.includes('project:manage')`, matching the
-editor branch one line below.
+**Fixed, and further than proposed.** The derivation now reads the permissions
+the caller actually HOLDS — `accepted.filter((_, i) => granted[i])` — rather than
+the permissions that were asked about, so no fallback can compare against the
+wrong slug.
+
+Writing the test exposed a second inconsistency the original audit missed: the
+editor rung was keyed on `project:edit` alone, so `['project:documents:write',
+'project:edit']` returned `project-editor` for a narrow-write holder while
+`'project:memory:write'` returned `project-viewer` for one — two existing specs
+that contradicted each other. The rung is now "holds a write permission", which
+is what the first spec already documented as intended. Consequence: a
+narrow-write custom role is a collaborator rather than a reader on shared threads
+in a project whose corpus it can change.
 
 ### F8 — WorkOS FGA resources are created but never deleted, and creation is not transactional
 
@@ -364,10 +413,19 @@ after step 1 leaves a project row with no FGA resource and no admin. Because the
 only way in is then the org-admin bypass (F3), a non-admin creator loses the
 project they just made, and the app offers no repair path.
 
-**Fix shape.** Delete the resource in the purge worker. For creation, either
-compensate (delete the row when resource creation fails) or make the project row
-reconcilable — a nullable `workosResourceId` already exists
-(`findProjectWorkosResourceId`), so a repair job can find the orphans.
+**Half fixed.** `createProject` now compensates: any failure across the four
+non-transactional steps deletes the project row and rethrows, so a member who
+creates a project can no longer lose it to a WorkOS hiccup. Postgres is the side
+that undoes cleanly, and a leaked FGA resource with no row pointing at it is
+inert — project ids are UUIDs, so it can never be re-hit. If even the rollback
+fails, that is logged as an error rather than swallowed.
+
+**Not fixed:** deleting the FGA resource when a project is purged. Nothing in the
+repository consumes `deletion_queue` — there is no purge worker in the app or the
+Python backend — so there is no correct place to hang the cleanup. Soft delete
+must keep the resource (restore during the grace period depends on it). This is
+an unbuilt feature, not a defect in the permissions system, and it belongs to
+whoever builds the worker.
 
 ### F9 — The roster mapping does not see the new project permissions (minor)
 
@@ -376,6 +434,14 @@ reconcilable — a nullable `workosResourceId` already exists
 `project:documents:write` and `project:memory:write` but not the deprecated
 umbrella lists as **Viewer** in the project Settings roster. Same root cause as
 F6: the roster was not updated when the umbrella was split.
+
+**Fixed.** The ladder now probes every rung the catalog defines — `project:view`,
+`project:chat`, `project:edit`, `project:documents:write`,
+`project:memory:write`, `project:manage` — with a later match overwriting an
+earlier one, so each member reads as the strongest rung they reach. Six
+concurrent WorkOS list calls instead of three, on a screen loaded rarely and
+whose entire job is to report access accurately. Contributor and narrow-write
+roles both display correctly now.
 
 ## 4. Not defects
 
@@ -404,13 +470,133 @@ Checked and deliberately not raised:
   stream. That is a deliberate different model, documented in the route's
   `HAND_ROLLED` entry.
 
-## 5. Suggested order
+## 5. A tenth change, drafted and reverted
 
-1. **F2** — a role documented as read-only holds platform write today.
-2. **F1** — decide whether `project:chat` is enforced or removed; the org Access
-   tab currently advertises it either way.
-3. **F3** — the bypass that makes "permission-driven, never role-name driven"
-   true or false.
-4. **F4** — adopt `decide.ts` or correct `AGENTS.md`; give it a spec first.
-5. **F6 / F9** — finish the `project:edit` split, roster included.
-6. **F7 / F5 / F8** — latent correctness and lifecycle hygiene.
+Recorded so it is not re-proposed before §6 is done.
+
+`hasPermission`'s bounded role implication applies even to a session that
+already carries permission claims. That makes two things true that the model
+says are false: an operator cannot build a restricted admin by editing the
+Admin role (the catalog keeps granting what they removed), and a WorkOS role
+whose slug merely happens to be `admin` is handed the whole Admin bundle
+whatever it actually holds. The obvious fix — apply the implication only to a
+session with an empty claim list, which is the unambiguous pre-rollout signal —
+was written, tested green, and then reverted.
+
+It was reverted because §6 makes it a live regression. **Both environments hold
+an Admin role without `org:skills:manage`**; the permission does not exist in
+WorkOS at all. Every admin holding claims therefore reaches the org skills
+toolbox *only* through the implication, and the narrower rule would have taken it
+away the day it shipped. Turning every catalog/WorkOS gap into a silent
+permission removal is a worse failure than the one it fixes.
+
+The order is: reconcile §6, keep the drift job green, *then* narrow the
+implication — at which point it can be retired outright rather than narrowed.
+
+## 6. The WorkOS side — the catalog has shipped ahead of provisioning
+
+Read-only inspection of the live environments on 2026-08-25, via the WorkOS API:
+
+| | |
+|---|---|
+| Production | `environment_01KEF0YGNYDFAFAS77EZEFQ839` (client `client_01KEF0YGXCZ6QCJGGBWD7Z266J`, the `prod` Pulumi stack) |
+| Staging | `environment_01KEF0YG238CSMNF731TEG010E` (client `client_01KEF0YGNPX7S4SF952ZX46V1K`, the `dev` Pulumi stack) |
+
+**Both environments carry the same drift**, and none of it is fixable in code —
+the catalog is the source of truth for the app, not for WorkOS.
+
+### W1 — Agent Skills is unprovisioned, so project admins cannot reach it
+
+The rename from Workflows to Agent Skills landed in the catalog and never
+reached WorkOS. Neither environment has:
+
+- the permission `project:skills:manage` — both still hold the pre-rename
+  `project:workflows:manage`, and `project-admin` is granted *that*
+- the permission `org:skills:manage` — it exists in no environment at all
+- the `skill` resource type, or `skill:view` / `skill:run` / `skill:manage`
+
+The project tier reads its grants from WorkOS at request time and has no
+implication to fall back on, so **`project:skills:manage` is currently held by
+nobody**. Every skill-schedule gate — create, edit, delete, run — therefore
+answers 404 for a project admin who is not also an org admin. Org admins are
+unaffected, because the org-wide project bypass skips FGA entirely, which is
+exactly why the gap has been invisible: the people who would notice cannot
+reproduce it.
+
+`org:skills:manage` is the softer half: the org tier's bounded implication grants
+it to any admin session, so the org skills toolbox works today *because of* the
+back-compat rule (see §5).
+
+### W2 — Retired Workflow objects are still provisioned
+
+The `workflow` resource type, `workflow:view` / `workflow:run` /
+`workflow:manage`, `project:workflows:manage`, and the `workflow-viewer` /
+`workflow-operator` / `workflow-admin` roles all still exist in both
+environments. Nothing in the app references any of them. The provisioning script
+deliberately reports them (`UNKNOWN … in WorkOS, absent from the catalog`) rather
+than deleting them, and its comment says exactly why the `workflow:` prefix is
+still in that check.
+
+### W3 — The two permissions this audit adds are not provisioned yet
+
+`org:projects:administer` (the project bypass, §F3) and `platform:settings:view`
+(the read half of the platform settings gate, §F2) are new in the catalog. Until
+`provision:authz --apply` runs:
+
+- **`org:projects:administer`** is covered by the org-tier implication, so
+  existing admins keep every project with no re-login. Nothing breaks. A CUSTOM
+  admin role cannot hold it yet, which is the point of the fix, so that half
+  waits on provisioning.
+- **`platform:settings:view`** is covered by the platform-tier implication added
+  in the same change (`permissionsForPlatformRole`), so Platform Owner and
+  Platform Support both keep reading every platform screen. Support gains its
+  documented read-only posture immediately, because the deny half needs no
+  provisioning at all.
+
+### W4 — The drift job cannot see production, and staging drift is not being read
+
+`.github/workflows/workos-drift.yml` runs `provision:authz` in check mode weekly
+against **staging only**, by design (the comment explains: production's key would
+sit in CI for a job that reads nothing but configuration). Given W1 and W2, that
+job should currently be failing on staging. Either it is failing unread, or
+`WORKOS_API_KEY_STAGING` is unset and it is failing fast for a different reason.
+Worth one look — a drift gate nobody reads is the same as no drift gate, and W1
+is precisely the class of thing it exists to catch.
+
+### What reconciling looks like
+
+`bun run provision:authz --apply`, pointed at each environment in turn
+(`docs/deployment/workos-provisioning.md`). It creates the missing permissions,
+sets each role's attachment set from the catalog, and reports the Workflow
+leftovers without touching them. Two caveats:
+
+1. **The `skill` resource type is a dashboard step.** The Node SDK exposes no
+   CRUD for resource types (ADR-0038, "Consequences"), and a permission cannot be
+   created against a type that does not exist — so `skill:*` will keep failing
+   until `skill` (parent: `project`) is added by hand.
+2. **It is a live identity-provider change.** Production currently holds one
+   organization (GRID Platform, two members, both Platform Owner) and no tenant
+   organizations, so the blast radius is small today and grows with every tenant
+   onboarded. Sooner is cheaper.
+
+## 7. What is left
+
+The nine code findings are fixed and covered by tests (`lib/authz/*.spec.ts`,
+including a first-ever spec for `decide.ts`). What remains is not code:
+
+1. **Add the `skill` resource type** (parent `project`) in the WorkOS dashboard,
+   in both environments. Everything in W1 is blocked behind it.
+2. **Run `provision:authz --apply`** against staging, then production. This is
+   what makes Agent Skills reachable for project admins, and what lets a custom
+   admin role hold `org:projects:administer`.
+3. **Read the drift job** (W4), and consider whether production deserves a
+   scheduled check of its own now that a whole feature was found unreachable by
+   one.
+4. **Then** narrow — or retire — the bounded role implication (§5).
+5. **Delete the Workflow leftovers** (W2) once nothing in any environment holds
+   them. Optional; they are inert.
+
+Not attempted here, and unchanged from the original audit: a purge worker for the
+`deletion_queue` does not exist anywhere in the repo, so the FGA resources of a
+purged project still have nowhere to be cleaned up (F8's second half). The
+compensating half — a failed creation no longer strands a project — did land.

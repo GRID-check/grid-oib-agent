@@ -14,7 +14,16 @@ import { GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { s3Client, signingS3Client } from '@/lib/s3'
 import { resolveDocumentBucket } from '@/lib/storage/bucket'
-import { requireProjectAccess } from '@/lib/authz/projects'
+import { requireProjectAccess, type ProjectPermission } from '@/lib/authz/projects'
+
+/**
+ * Confirming or withdrawing a compliance check is a write to the model's own
+ * state, so it maps onto `project:documents:write` — the umbrella stays in the
+ * list for roles provisioned before the ADR-0038 split. Requiring the umbrella
+ * alone locked out every role built with the narrow permission the catalog now
+ * recommends.
+ */
+const BIM_WRITE: readonly ProjectPermission[] = ['project:documents:write', 'project:edit']
 import { requireResourceAccess } from '@/lib/sharing/access'
 import { isIfcModelsEnabled } from '@/lib/authz/feature-flags'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
@@ -334,7 +343,7 @@ export async function confirmAccessibleCheck(
   input: { ruleId: string; modelId: string; note: string | null }
 ): Promise<void> {
   assertIfcModelsEnabled(session)
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, BIM_WRITE)
   const model = await getAccessibleModel(session, input.modelId)
   // Without this the row is written with a `modelId` that is not in this
   // project's revision series: invisible to `attachConfirmations`, and
@@ -473,7 +482,7 @@ export async function withdrawAccessibleCheck(
   modelId: string
 ): Promise<void> {
   assertIfcModelsEnabled(session)
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, BIM_WRITE)
   const model = await getAccessibleModel(session, modelId)
   assertModelInProject(model, projectId)
   await deleteBimCheckConfirmation({

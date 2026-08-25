@@ -11,12 +11,16 @@ export const members = {
   },
   roles: {
     'project-viewer': 'Viewer',
+    'project-contributor': 'Contributor',
     'project-editor': 'Editor',
     'project-admin': 'Admin',
   },
   roleDescriptions: {
-    'project-viewer': 'Can view project content, files, and conversations, but not change anything.',
-    'project-editor': 'Can also edit documents, start research, and update the project profile.',
+    'project-viewer':
+      'Can read project content, files, and conversations. Cannot change anything or ask the research agent.',
+    'project-contributor':
+      'Can also ask the research agent in this project, but not change its documents or memory.',
+    'project-editor': 'Can also edit documents and update the project profile and memory.',
     'project-admin': 'Can also manage project settings, members, and roles.',
   },
   validation: {
@@ -37,8 +41,7 @@ export const members = {
     memberLabel: 'Member',
     searchPlaceholder: 'Search by name or email',
     suggestionsAria: 'Matching organization members',
-    noSuggestions:
-      'No organization members match. New teammates must join the organization first.',
+    noSuggestions: 'No organization members match. New teammates must join the organization first.',
     roleLabel: 'Role',
     submit: 'Add member',
     notFound:
@@ -62,8 +65,7 @@ export const members = {
     noAccess: 'No access',
     youBadge: 'You',
     emptyTitle: 'No members yet',
-    emptyDescription:
-      'Organization members you add will appear here with their project role.',
+    emptyDescription: 'Organization members you add will appear here with their project role.',
     noMatchTitle: 'No matching members',
     noMatchDescription: 'No one matches your search. Clear it to see the full roster.',
     clearSearch: 'Clear search',

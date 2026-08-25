@@ -28,7 +28,8 @@ import {
 import type { NewDocument } from '@/lib/db/schema'
 import { InsufficientStorageError, NotFoundError, UnprocessableError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
-import { requirePlatformOwner } from '@/lib/authz/platform'
+import { requirePlatformPermission } from '@/lib/authz/platform'
+import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 
 /** Key under `organizations.settings` holding the quota, in bytes. */
@@ -104,9 +105,7 @@ export async function getStorageOverview(session: AuthorizedSession): Promise<St
  * from the caller's session, which is exactly what a platform owner browsing
  * someone else's tenant does not have.
  */
-export async function getOrganizationStorage(
-  organizationId: string
-): Promise<StorageOverview> {
+export async function getOrganizationStorage(organizationId: string): Promise<StorageOverview> {
   const [usage, quotaBytes] = await Promise.all([
     aggregateStorageUsage(organizationId),
     getStorageQuotaBytes(organizationId),
@@ -189,7 +188,7 @@ export async function admitDocumentWithinQuota(values: NewDocument): Promise<voi
  * number and plans around it, only the operator sets it.
  *
  * Authorization is checked HERE, first, before anything else in this function
- * runs. `platformApiRoute`'s `requirePlatformOwner` also runs before the handler,
+ * runs. `platformApiRoute`'s own permission gate also runs before the handler,
  * and that is not a substitute: this function probes for the organization's
  * existence, writes the setting, and records an audit event, so a caller reaching
  * it another way would get an existence oracle over every organization id and a
@@ -197,7 +196,7 @@ export async function admitDocumentWithinQuota(values: NewDocument): Promise<voi
  * today's call graph; this one is a property of the function.
  *
  * It takes a `GridSession` because a platform owner browsing another org holds no
- * membership in it — `isPlatformOwner` covers that cross-org path.
+ * membership in it — `platformPermissions` covers that cross-org path.
  *
  * Refuses a quota below what the org already stores: accepting one strands the
  * tenant in a state no upload can fix while doing nothing about the bytes
@@ -211,7 +210,7 @@ export async function setStorageQuota(
 ): Promise<StorageOverview> {
   // Before the existence probe, not after it: `NotFoundError` vs `Forbidden` on a
   // guessed id is an enumeration oracle over every organization in the platform.
-  await requirePlatformOwner(session)
+  await requirePlatformPermission(session, PLATFORM_PERMISSIONS.organizationsManage)
 
   // Refuse an organization Grid has never heard of. `updateOrgSettings` upserts,
   // so without this a mistyped id in the URL silently creates a settings row and
@@ -237,10 +236,10 @@ export async function setStorageQuota(
       throw new UnprocessableError('Quota must be a positive number of bytes')
     }
     if (quotaBytes < usage.total.bytes) {
-      throw new UnprocessableError(
-        'Quota is below the storage this organization already uses',
-        { usedBytes: usage.total.bytes, requestedQuotaBytes: quotaBytes }
-      )
+      throw new UnprocessableError('Quota is below the storage this organization already uses', {
+        usedBytes: usage.total.bytes,
+        requestedQuotaBytes: quotaBytes,
+      })
     }
   }
 

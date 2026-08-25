@@ -176,7 +176,7 @@ environment-scoped role holds a `platform:*` permission.
 | Slug | Scope | Holds |
 |---|---|---|
 | `member` | environment | `org:projects:create` |
-| `admin` | environment | every `org:*` + six `widgets:*` |
+| `admin` | environment | every `org:*` (including `org:projects:administer`, the org-wide project bypass) + six `widgets:*` |
 | `org-auditor` | environment | `org:audit:view` |
 | `org-billing-admin` | environment | `org:budgets:manage` |
 | `org-compliance-officer` | environment | `org:compliance:manage`, `org:audit:view` |
@@ -187,12 +187,26 @@ environment-scoped role holds a `platform:*` permission.
 | `project-editor` | environment (Project) | + `project:edit`, `project:documents:write`, `project:memory:write` |
 | `project-admin` | environment (Project) | + `project:manage`, `project:members:manage`, `project:skills:manage` |
 | `org-platform-owner` | **GRID Platform org only** | all `platform:*` + five `widgets:*` |
-| `org-platform-support` | **GRID Platform org only** | `platform:organizations:view`, `platform:usage:view` |
+| `org-platform-support` | **GRID Platform org only** | `platform:organizations:view`, `platform:usage:view`, `platform:settings:view` — every read, no `*:manage`. `platformApiRoute` requires the specific permission per route, which is what makes "read-only" true rather than described. |
 
 The five fine-grained org personas exist to keep ADR-0016's extensibility
 contract honest: each holds a strict subset of Admin and works with no code
 change, which is the property that silently broke for `org:audit:view` and
 `org:archiv:manage`.
+
+**Reaching PROJECTS needs `org:projects:administer`.** The org-wide bypass used
+to key off the role slug `admin`, so a custom administrator role reached no
+project at all however many `org:*` permissions it held. It is a permission now —
+grant it to any role that should administer every project in its organization.
+Existing `admin` sessions keep it through the bounded catalog implication in
+`lib/authz/permissions.ts`, so nobody re-logs-in; a custom role needs it
+provisioned before it can hold it.
+
+**A catalog change is not live until `--apply` has run against the environment.**
+The project tier reads its grants from WorkOS at request time and has no
+fallback, so a project-tier permission that exists only in the catalog is held by
+nobody. The current gap in both environments, and what it costs users, is in
+[`docs/architecture/authorization-audit-2026-08.md`](../architecture/authorization-audit-2026-08.md) §6.
 
 ### 3. The platform organization + exclusive role
 

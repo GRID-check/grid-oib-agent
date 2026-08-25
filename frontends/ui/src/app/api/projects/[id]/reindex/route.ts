@@ -12,5 +12,5 @@ type Params = { id: string }
 
 export const POST = apiRoute<Params>(
   async ({ session, params }) => reindexProject(session, params.id),
-  { authz: { enforcedBy: 'reindexProject -> requireProjectAccess (project:documents:write)' } },
+  { authz: { enforcedBy: 'reindexProject -> requireProjectAccess (project:documents:write)' } }
 )

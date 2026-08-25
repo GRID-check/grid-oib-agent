@@ -15,7 +15,7 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
     /** Optional machine-readable details, serialized at the envelope top level. */
-    readonly details?: unknown,
+    readonly details?: unknown
   ) {
     super(message)
     this.name = new.target.name

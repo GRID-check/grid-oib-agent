@@ -96,13 +96,19 @@ describe('ProjectMembersForm', () => {
     await user.click(await screen.findByLabelText('Role'))
     let listbox = await screen.findByRole('listbox')
     expect(
-      within(listbox).getByText(/Can view project content, files, and conversations/i),
+      within(listbox).getByText(/Can read project content, files, and conversations/i)
     ).toBeDefined()
     expect(
-      within(listbox).getByText(/Can also edit documents, start research/i),
+      within(listbox).getByText(/Can also edit documents and update the project profile/i)
     ).toBeDefined()
     expect(
-      within(listbox).getByText(/Can also manage project settings, members, and roles/i),
+      within(listbox).getByText(/Can also manage project settings, members, and roles/i)
+    ).toBeDefined()
+    // Contributor is a real, offerable role — it was in the catalog and in the
+    // access reference while the API refused its slug, so it could never be
+    // picked here.
+    expect(
+      within(listbox).getByText(/Can also ask the research agent in this project/i)
     ).toBeDefined()
     await user.keyboard('{Escape}')
 
@@ -110,13 +116,13 @@ describe('ProjectMembersForm', () => {
     await user.click(screen.getByLabelText('Project role for Ada Lovelace'))
     listbox = await screen.findByRole('listbox')
     expect(
-      within(listbox).getByText(/Can view project content, files, and conversations/i),
+      within(listbox).getByText(/Can read project content, files, and conversations/i)
     ).toBeDefined()
     expect(
-      within(listbox).getByText(/Can also edit documents, start research/i),
+      within(listbox).getByText(/Can also edit documents and update the project profile/i)
     ).toBeDefined()
     expect(
-      within(listbox).getByText(/Can also manage project settings, members, and roles/i),
+      within(listbox).getByText(/Can also manage project settings, members, and roles/i)
     ).toBeDefined()
   })
 
@@ -155,7 +161,9 @@ describe('ProjectMembersForm', () => {
     await user.click(await screen.findByRole('option', { name: /No project access/i }))
 
     // The change must not be sent to the server yet — a confirm dialog gates it.
-    const postCallsBeforeConfirm = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')
+    const postCallsBeforeConfirm = fetchMock.mock.calls.filter(
+      ([, init]) => init?.method === 'POST'
+    )
     expect(postCallsBeforeConfirm.length).toBe(0)
     expect(await screen.findByText(/^Remove your own access\?$/)).toBeDefined()
     expect(screen.getByText(/You'll lose the ability to see or manage it/i)).toBeDefined()

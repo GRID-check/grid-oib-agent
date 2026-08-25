@@ -75,7 +75,10 @@ describe('collectFreeTextFields', () => {
       G1: 'Ein städtebaulich markanter Wohnbau am Fluss mit begrüntem Innenhof.',
     }
     expect(collectFreeTextFields(answers, definition)).toEqual([
-      { field: 'Projektbeschreibung & Entwurfsidee', value: 'Ein städtebaulich markanter Wohnbau am Fluss mit begrüntem Innenhof.' },
+      {
+        field: 'Projektbeschreibung & Entwurfsidee',
+        value: 'Ein städtebaulich markanter Wohnbau am Fluss mit begrüntem Innenhof.',
+      },
     ])
   })
 

@@ -30,7 +30,7 @@ type PatchSection = 'facts' | 'assumptions' | 'goals' | 'unknowns'
  */
 export function buildPatchPreviewRows(
   patch: ProjectProfilePatchOperation[],
-  profile: ProjectProfile | null,
+  profile: ProjectProfile | null
 ): PatchPreviewRow[] {
   const rows: PatchPreviewRow[] = []
 
@@ -51,7 +51,9 @@ export function buildPatchPreviewRows(
 
     const { section, key } = target
     const label =
-      section === 'goals' ? humanizeProfileKey(key) : labelForProfileKey(projectIntakeDefinitionV1, key)
+      section === 'goals'
+        ? humanizeProfileKey(key)
+        : labelForProfileKey(projectIntakeDefinitionV1, key)
     const after = op.op === 'remove' ? '—' : formatAfter(key, op.value)
     const before = formatBefore(profile, section, key)
     rows.push({ label, before, after })
@@ -61,7 +63,12 @@ export function buildPatchPreviewRows(
 }
 
 /** `/facts/<key>`, `/facts/<key>/value`, `/assumptions/...`, `/goals/<key>`, `/unknowns/-`. */
-function extractTarget(path: string): { section: Exclude<PatchSection, 'unknowns'>; key: string } | { section: 'unknowns'; key: string } | null {
+function extractTarget(
+  path: string
+):
+  | { section: Exclude<PatchSection, 'unknowns'>; key: string }
+  | { section: 'unknowns'; key: string }
+  | null {
   const parts = path.split('/')
   const section = parts[1]
 
@@ -71,7 +78,8 @@ function extractTarget(path: string): { section: Exclude<PatchSection, 'unknowns
   }
 
   if (section === 'facts' || section === 'assumptions') {
-    if (parts.length === 3 && parts[2] && parts[2] !== '-') return { section, key: decodeSegment(parts[2]) }
+    if (parts.length === 3 && parts[2] && parts[2] !== '-')
+      return { section, key: decodeSegment(parts[2]) }
     if (parts.length === 4 && parts[3] === 'value' && parts[2] && parts[2] !== '-') {
       return { section, key: decodeSegment(parts[2]) }
     }
@@ -79,7 +87,8 @@ function extractTarget(path: string): { section: Exclude<PatchSection, 'unknowns
   }
 
   if (section === 'goals') {
-    if (parts.length === 3 && parts[2] && parts[2] !== '-') return { section, key: decodeSegment(parts[2]) }
+    if (parts.length === 3 && parts[2] && parts[2] !== '-')
+      return { section, key: decodeSegment(parts[2]) }
     return null
   }
 
@@ -96,7 +105,11 @@ function formatAfter(key: string, raw: unknown): string {
   return formatValue(key, value)
 }
 
-function formatBefore(profile: ProjectProfile | null, section: Exclude<PatchSection, 'unknowns'>, key: string): string {
+function formatBefore(
+  profile: ProjectProfile | null,
+  section: Exclude<PatchSection, 'unknowns'>,
+  key: string
+): string {
   if (profile === null) return ''
   let raw: ProjectPrimitiveValue | undefined
   if (section === 'facts') raw = profile.facts[key]?.value

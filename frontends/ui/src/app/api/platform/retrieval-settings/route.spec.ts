@@ -23,13 +23,13 @@ const session = {
 vi.mock('@/lib/auth/session', () => ({ getGridSession: async () => session }))
 vi.mock('@/lib/auth/require-auth', () => ({ authzErrorResponse: vi.fn().mockReturnValue(null) }))
 
-const requirePlatformOwner = vi.fn().mockResolvedValue(undefined)
+const requirePlatformPermission = vi.fn().mockResolvedValue(undefined)
 const getPlatformOrganizationId = vi.fn().mockResolvedValue('org_platform')
 vi.mock('@/lib/authz/platform', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/authz/platform')>()
   return {
     ...original,
-    requirePlatformOwner: (s: unknown) => requirePlatformOwner(s),
+    requirePlatformPermission: (s: unknown) => requirePlatformPermission(s),
     getPlatformOrganizationId: () => getPlatformOrganizationId(),
   }
 })
@@ -58,7 +58,7 @@ const put = (body: unknown): Promise<Response> =>
 
 describe('/api/platform/retrieval-settings', () => {
   beforeEach(() => {
-    requirePlatformOwner.mockReset().mockResolvedValue(undefined)
+    requirePlatformPermission.mockReset().mockResolvedValue(undefined)
     getPlatformOrganizationId.mockReset().mockResolvedValue('org_platform')
     listPlatformRetrievalSettings.mockReset().mockResolvedValue([])
     savePlatformRetrievalSettings.mockReset().mockResolvedValue([])
@@ -66,10 +66,10 @@ describe('/api/platform/retrieval-settings', () => {
   })
 
   it('rejects a caller who is not the platform owner', async () => {
-    requirePlatformOwner.mockRejectedValue(new PlatformAccessDeniedError())
-    expect((await GET(new Request('http://localhost/api/platform/retrieval-settings'))).status).toBe(
-      403
-    )
+    requirePlatformPermission.mockRejectedValue(new PlatformAccessDeniedError())
+    expect(
+      (await GET(new Request('http://localhost/api/platform/retrieval-settings'))).status
+    ).toBe(403)
     expect((await put({ settings: {} })).status).toBe(403)
     expect(savePlatformRetrievalSettings).not.toHaveBeenCalled()
   })

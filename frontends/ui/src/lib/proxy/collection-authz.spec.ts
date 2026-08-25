@@ -34,7 +34,8 @@ const deps = (overrides: Partial<CollectionAuthzDeps> = {}): CollectionAuthzDeps
   ...overrides,
 })
 
-const errorBody = async (response: Response) => (await response.json()) as { error: { code: string } }
+const errorBody = async (response: Response) =>
+  (await response.json()) as { error: { code: string } }
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -48,13 +49,23 @@ describe('validateCollectionName', () => {
 
   it('rejects uploads to the base corpus (400 INVALID_COLLECTION)', async () => {
     vi.stubEnv('BASE_COLLECTION_NAME', 'base_corpus')
-    const response = await validateCollectionName(['collections', 'base_corpus'], session, {}, deps())
+    const response = await validateCollectionName(
+      ['collections', 'base_corpus'],
+      session,
+      {},
+      deps()
+    )
     expect(response?.status).toBe(400)
     expect((await errorBody(response as Response)).error.code).toBe('INVALID_COLLECTION')
   })
 
   it('rejects the default base corpus name when the env var is unset', async () => {
-    const response = await validateCollectionName(['collections', 'oib_knowledge'], session, {}, deps())
+    const response = await validateCollectionName(
+      ['collections', 'oib_knowledge'],
+      session,
+      {},
+      deps()
+    )
     expect(response?.status).toBe(400)
   })
 
@@ -73,15 +84,17 @@ describe('validateCollectionName', () => {
     expect(d.requireProjectAccess).not.toHaveBeenCalled()
   })
 
-  it('requires project:edit on the owning project and allows when granted', async () => {
+  it('requires a document write on the owning project and allows when granted', async () => {
     const d = deps()
     const response = await validateCollectionName(['collections', 'proj_abc'], session, {}, d)
     expect(response).toBeNull()
-    expect(d.requireProjectAccess).toHaveBeenCalledWith(
-      session as AuthorizedSession,
-      'proj-id-1',
+    // Any-of, not the bare umbrella: proxy collection routes are corpus writes,
+    // so the permission is `project:documents:write`, with the deprecated
+    // `project:edit` still accepted for roles provisioned before that split.
+    expect(d.requireProjectAccess).toHaveBeenCalledWith(session as AuthorizedSession, 'proj-id-1', [
+      'project:documents:write',
       'project:edit',
-    )
+    ])
   })
 
   it('maps a project access denial to 404 (no existence leak)', async () => {
@@ -92,10 +105,20 @@ describe('validateCollectionName', () => {
 
   it('accepts s_* collections that match the active conversation', async () => {
     expect(
-      await validateCollectionName(['collections', 's_conv-1'], session, { conversationId: 'conv-1' }, deps()),
+      await validateCollectionName(
+        ['collections', 's_conv-1'],
+        session,
+        { conversationId: 'conv-1' },
+        deps()
+      )
     ).toBeNull()
     expect(
-      await validateCollectionName(['collections', 's_conv-1'], session, { conversationId: 's_conv-1' }, deps()),
+      await validateCollectionName(
+        ['collections', 's_conv-1'],
+        session,
+        { conversationId: 's_conv-1' },
+        deps()
+      )
     ).toBeNull()
   })
 
@@ -104,7 +127,7 @@ describe('validateCollectionName', () => {
       ['collections', 's_conv-1'],
       session,
       { conversationId: 'conv-2' },
-      deps(),
+      deps()
     )
     expect(mismatched?.status).toBe(400)
 
@@ -134,16 +157,28 @@ describe('validateCollectionName', () => {
   } as unknown as GridSession
 
   it('accepts the caller-org Archiv collection for a manager', async () => {
-    expect(await validateCollectionName(['collections', 'archiv_org-1'], archivManager, {}, deps())).toBeNull()
+    expect(
+      await validateCollectionName(['collections', 'archiv_org-1'], archivManager, {}, deps())
+    ).toBeNull()
   })
 
   it('rejects the Archiv collection for a member without manage (403)', async () => {
-    const response = await validateCollectionName(['collections', 'archiv_org-1'], archivMember, {}, deps())
+    const response = await validateCollectionName(
+      ['collections', 'archiv_org-1'],
+      archivMember,
+      {},
+      deps()
+    )
     expect(response?.status).toBe(403)
   })
 
   it("rejects another org's Archiv collection (403)", async () => {
-    const response = await validateCollectionName(['collections', 'archiv_org-2'], archivManager, {}, deps())
+    const response = await validateCollectionName(
+      ['collections', 'archiv_org-2'],
+      archivManager,
+      {},
+      deps()
+    )
     expect(response?.status).toBe(403)
   })
 
@@ -171,7 +206,9 @@ describe('request context extraction', () => {
       projectId: 'p1',
       conversationId: 'conv-1',
     })
-    expect(parseBodyContext({ projectId: 42, conversationId: 'conv-1', session_id: 'ignored' })).toEqual({
+    expect(
+      parseBodyContext({ projectId: 42, conversationId: 'conv-1', session_id: 'ignored' })
+    ).toEqual({
       projectId: undefined,
       conversationId: 'conv-1',
     })

@@ -11,7 +11,7 @@
  * what should exist; any chunk whose owning document no longer has a row is an
  * orphan and is deleted from the vector store.
  *
- * Cross-org and destructive — caller authorization (requirePlatformOwner)
+ * Cross-org and destructive — caller authorization (requirePlatformPermission)
  * happens in the route; this module is data-only and must never be exposed to a
  * tenant session.
  */

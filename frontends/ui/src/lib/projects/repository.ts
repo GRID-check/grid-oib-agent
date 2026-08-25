@@ -26,7 +26,10 @@ export const PROJECT_LIST_LIMIT = 500
 
 export async function listProjectsInOrg(
   organizationId: string,
-  { limit = PROJECT_LIST_LIMIT, order = 'newest' }: { limit?: number; order?: 'newest' | 'oldest' } = {},
+  {
+    limit = PROJECT_LIST_LIMIT,
+    order = 'newest',
+  }: { limit?: number; order?: 'newest' | 'oldest' } = {}
 ): Promise<Project[]> {
   // The cap is the repository's guarantee, not the caller's suggestion — a
   // default a caller can pass straight through is not a bound at all.
@@ -38,7 +41,7 @@ export async function listProjectsInOrg(
       .from(projects)
       .where(and(eq(projects.organizationId, organizationId), isNull(projects.deletedAt)))
       .orderBy(order === 'oldest' ? asc(projects.createdAt) : desc(projects.createdAt))
-      .limit(boundedLimit),
+      .limit(boundedLimit)
   )
 }
 
@@ -49,7 +52,7 @@ export async function listProjectsInOrg(
 export async function findProjectInOrg(
   projectId: string,
   organizationId: string,
-  options: { includeDeleted?: boolean } = {},
+  options: { includeDeleted?: boolean } = {}
 ): Promise<Project | null> {
   const db = getDb()
   const conditions = [eq(projects.id, projectId), eq(projects.organizationId, organizationId)]
@@ -59,7 +62,7 @@ export async function findProjectInOrg(
       .select()
       .from(projects)
       .where(and(...conditions))
-      .limit(1),
+      .limit(1)
   )
   return row ?? null
 }
@@ -86,15 +89,17 @@ export async function findProjectInOrg(
  * than the bypass, which at least names itself.
  */
 export async function findProjectTenancy(
-  projectId: string,
+  projectId: string
 ): Promise<Pick<Project, 'organizationId' | 'deletedAt'> | null> {
   const db = getDb()
-  const [row] = await withPlatformAccess('project tenancy probe: resolve the owning org before authorizing', () =>
-    db
-      .select({ organizationId: projects.organizationId, deletedAt: projects.deletedAt })
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .limit(1),
+  const [row] = await withPlatformAccess(
+    'project tenancy probe: resolve the owning org before authorizing',
+    () =>
+      db
+        .select({ organizationId: projects.organizationId, deletedAt: projects.deletedAt })
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .limit(1)
   )
   return row ?? null
 }
@@ -107,7 +112,7 @@ export async function insertProject(values: {
 }): Promise<Project> {
   const db = getDb()
   const [row] = await withTenant({ organizationId: values.organizationId }, () =>
-    db.insert(projects).values(values).returning(),
+    db.insert(projects).values(values).returning()
   )
   return row
 }
@@ -115,21 +120,38 @@ export async function insertProject(values: {
 export async function setProjectWorkosResourceId(
   projectId: string,
   organizationId: string,
-  workosResourceId: string,
+  workosResourceId: string
 ): Promise<void> {
   const db = getDb()
   await withTenant({ organizationId }, () =>
     db
       .update(projects)
       .set({ workosResourceId })
-      .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId))),
+      .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId)))
+  )
+}
+
+/**
+ * Delete a project row outright, scoped to its organization.
+ *
+ * NOT the product's delete — that is {@link softDeleteProjectAndEnqueue}, which
+ * keeps the row (and its FGA grants) through the grace period. This is the
+ * compensating action for a project whose creation failed half-way, before
+ * anybody could have used it.
+ */
+export async function deleteProjectRow(projectId: string, organizationId: string): Promise<void> {
+  const db = getDb()
+  await withTenant({ organizationId }, () =>
+    db
+      .delete(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId)))
   )
 }
 
 export async function renameProjectInOrg(
   projectId: string,
   organizationId: string,
-  name: string,
+  name: string
 ): Promise<Project | null> {
   const db = getDb()
   const [row] = await withTenant({ organizationId }, () =>
@@ -137,9 +159,13 @@ export async function renameProjectInOrg(
       .update(projects)
       .set({ name })
       .where(
-        and(eq(projects.id, projectId), eq(projects.organizationId, organizationId), isNull(projects.deletedAt)),
+        and(
+          eq(projects.id, projectId),
+          eq(projects.organizationId, organizationId),
+          isNull(projects.deletedAt)
+        )
       )
-      .returning(),
+      .returning()
   )
   return row ?? null
 }
@@ -151,7 +177,7 @@ export async function renameProjectInOrg(
 export async function softDeleteProjectAndEnqueue(
   project: Pick<Project, 'id' | 'name' | 'organizationId' | 'collectionName'>,
   requestedBy: string,
-  purgeAfter: Date,
+  purgeAfter: Date
 ): Promise<void> {
   const db = getDb()
   const now = new Date()
@@ -170,7 +196,7 @@ export async function softDeleteProjectAndEnqueue(
           payload: { collectionName: project.collectionName },
         })
         .onConflictDoNothing()
-    }),
+    })
   )
 }
 
@@ -190,7 +216,7 @@ const profileColumns = {
 
 export async function findProjectProfileInOrg(
   projectId: string,
-  organizationId: string,
+  organizationId: string
 ): Promise<ProjectProfileState | null> {
   const db = getDb()
   const [row] = await withTenant({ organizationId }, () =>
@@ -198,9 +224,13 @@ export async function findProjectProfileInOrg(
       .select(profileColumns)
       .from(projects)
       .where(
-        and(eq(projects.id, projectId), eq(projects.organizationId, organizationId), isNull(projects.deletedAt)),
+        and(
+          eq(projects.id, projectId),
+          eq(projects.organizationId, organizationId),
+          isNull(projects.deletedAt)
+        )
       )
-      .limit(1),
+      .limit(1)
   )
   return row ?? null
 }
@@ -214,7 +244,7 @@ export async function updateProjectProfileIfVersion(
   projectId: string,
   organizationId: string,
   expectedVersion: number,
-  values: ProjectProfileState,
+  values: ProjectProfileState
 ): Promise<ProjectProfileState | null> {
   const db = getDb()
   const [row] = await withTenant({ organizationId }, () =>
@@ -226,10 +256,10 @@ export async function updateProjectProfileIfVersion(
           eq(projects.id, projectId),
           eq(projects.organizationId, organizationId),
           isNull(projects.deletedAt),
-          eq(projects.profileVersion, expectedVersion),
-        ),
+          eq(projects.profileVersion, expectedVersion)
+        )
       )
-      .returning(profileColumns),
+      .returning(profileColumns)
   )
   return row ?? null
 }
@@ -245,13 +275,13 @@ export async function setProjectProfileSummaryInOrg(
   projectId: string,
   organizationId: string,
   summary: string,
-  summaryLocale?: string,
+  summaryLocale?: string
 ): Promise<void> {
   const db = getDb()
   const scope = and(
     eq(projects.id, projectId),
     eq(projects.organizationId, organizationId),
-    isNull(projects.deletedAt),
+    isNull(projects.deletedAt)
   )
   await withTenant({ organizationId }, async () => {
     const [current] = await db
@@ -270,7 +300,7 @@ export async function setProjectProfileSummaryInOrg(
 /** The WorkOS FGA resource id backing a project, or null when unregistered. */
 export async function findProjectWorkosResourceId(
   projectId: string,
-  organizationId: string,
+  organizationId: string
 ): Promise<string | null> {
   const db = getDb()
   const [row] = await withTenant({ organizationId }, () =>
@@ -278,9 +308,13 @@ export async function findProjectWorkosResourceId(
       .select({ workosResourceId: projects.workosResourceId })
       .from(projects)
       .where(
-        and(eq(projects.id, projectId), eq(projects.organizationId, organizationId), isNull(projects.deletedAt)),
+        and(
+          eq(projects.id, projectId),
+          eq(projects.organizationId, organizationId),
+          isNull(projects.deletedAt)
+        )
       )
-      .limit(1),
+      .limit(1)
   )
   return row?.workosResourceId ?? null
 }
@@ -292,7 +326,10 @@ export async function findProjectWorkosResourceId(
  * whose Chroma/SeaweedFS data was already destroyed — a hollow, corrupt restore.
  * Returns false when there is nothing safe to restore.
  */
-export async function restoreProjectIfPending(projectId: string, organizationId: string): Promise<boolean> {
+export async function restoreProjectIfPending(
+  projectId: string,
+  organizationId: string
+): Promise<boolean> {
   const db = getDb()
   return withTenant({ organizationId }, () =>
     db.transaction(async (tx) => {
@@ -305,8 +342,8 @@ export async function restoreProjectIfPending(projectId: string, organizationId:
             eq(deletionQueue.entityId, projectId),
             eq(deletionQueue.organizationId, organizationId),
             eq(deletionQueue.status, 'pending'),
-            isNull(deletionQueue.claimedAt),
-          ),
+            isNull(deletionQueue.claimedAt)
+          )
         )
         .returning()
 
@@ -317,7 +354,7 @@ export async function restoreProjectIfPending(projectId: string, organizationId:
         .set({ deletedAt: null })
         .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId)))
       return true
-    }),
+    })
   )
 }
 
@@ -332,7 +369,7 @@ export async function restoreProjectIfPending(projectId: string, organizationId:
  */
 export async function findProjectPromptView(
   projectId: string,
-  organizationId: string | null | undefined,
+  organizationId: string | null | undefined
 ): Promise<string | null> {
   const db = getDb()
   const conditions = [eq(projects.id, projectId)]
@@ -345,7 +382,7 @@ export async function findProjectPromptView(
         .select({ profilePromptView: projects.profilePromptView })
         .from(projects)
         .where(and(...conditions))
-        .limit(1),
+        .limit(1)
   )
   return row?.profilePromptView ?? null
 }
@@ -353,7 +390,7 @@ export async function findProjectPromptView(
 /** The stored structured profile for a project. Same nullable-org rules as above. */
 export async function findProjectProfile(
   projectId: string,
-  organizationId: string | null | undefined,
+  organizationId: string | null | undefined
 ): Promise<Project['profile'] | null> {
   const db = getDb()
   const conditions = [eq(projects.id, projectId)]
@@ -366,7 +403,7 @@ export async function findProjectProfile(
         .select({ profile: projects.profile })
         .from(projects)
         .where(and(...conditions))
-        .limit(1),
+        .limit(1)
   )
   return row?.profile ?? null
 }
@@ -374,7 +411,7 @@ export async function findProjectProfile(
 /** A project's Qdrant/Chroma collection name, scoped to its organization. */
 export async function findProjectCollectionName(
   projectId: string,
-  organizationId: string,
+  organizationId: string
 ): Promise<string | null> {
   const db = getDb()
   const [row] = await withTenant({ organizationId }, () =>
@@ -382,7 +419,7 @@ export async function findProjectCollectionName(
       .select({ collectionName: projects.collectionName })
       .from(projects)
       .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId)))
-      .limit(1),
+      .limit(1)
   )
   return row?.collectionName ?? null
 }
@@ -390,15 +427,20 @@ export async function findProjectCollectionName(
 /** The project owning `collectionName` inside `organizationId`, or null. */
 export async function findProjectIdByCollectionName(
   collectionName: string,
-  organizationId: string,
+  organizationId: string
 ): Promise<string | null> {
   const db = getDb()
   const [row] = await withTenant({ organizationId }, () =>
     db
       .select({ id: projects.id })
       .from(projects)
-      .where(and(eq(projects.collectionName, collectionName), eq(projects.organizationId, organizationId)))
-      .limit(1),
+      .where(
+        and(
+          eq(projects.collectionName, collectionName),
+          eq(projects.organizationId, organizationId)
+        )
+      )
+      .limit(1)
   )
   return row?.id ?? null
 }

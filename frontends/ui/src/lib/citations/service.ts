@@ -1,6 +1,6 @@
 /**
  * Citation-health service: business logic over the citation-event repository.
- * Caller authorization (requirePlatformOwner) happens in the routes — this
+ * Caller authorization (requirePlatformPermission) happens in the routes — this
  * module is data-only, mirroring `lib/profiler/service.ts`.
  *
  * Turns the raw ledger into the one snapshot the platform dashboard renders:

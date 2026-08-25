@@ -6,10 +6,14 @@
 
 import { NextResponse } from 'next/server'
 import { platformApiRoute } from '@/lib/api/platform-handler'
+import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 import { listProfiledConversations } from '@/lib/profiler/service'
 
-export const GET = platformApiRoute(async ({ request }) => {
-  const query = new URL(request.url).searchParams.get('q')?.trim() || undefined
-  const result = await listProfiledConversations(query)
-  return NextResponse.json(result)
-})
+export const GET = platformApiRoute(
+  async ({ request }) => {
+    const query = new URL(request.url).searchParams.get('q')?.trim() || undefined
+    const result = await listProfiledConversations(query)
+    return NextResponse.json(result)
+  },
+  { permission: PLATFORM_PERMISSIONS.organizationsView }
+)

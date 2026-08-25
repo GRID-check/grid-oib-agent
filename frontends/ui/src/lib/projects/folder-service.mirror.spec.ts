@@ -23,8 +23,17 @@ vi.mock('@/lib/authz/projects', () => ({
 vi.mock('@/lib/db', () => ({ getDb: () => ({}) }))
 
 vi.mock('@/lib/db/schema', () => ({
-  projectFolders: { id: 'folders.id', projectId: 'folders.project_id', parentId: 'folders.parent_id', path: 'folders.path' },
-  documents: { id: 'documents.id', folderId: 'documents.folder_id', projectId: 'documents.project_id' },
+  projectFolders: {
+    id: 'folders.id',
+    projectId: 'folders.project_id',
+    parentId: 'folders.parent_id',
+    path: 'folders.path',
+  },
+  documents: {
+    id: 'documents.id',
+    folderId: 'documents.folder_id',
+    projectId: 'documents.project_id',
+  },
 }))
 
 vi.mock('@/lib/backend-proxy', () => ({
@@ -63,7 +72,7 @@ describe('mirrorFolderPathRewrite', () => {
 
     expect(fetchSpy).toHaveBeenCalledWith(
       'http://backend:8000/v1/collections/proj_abc/folder-paths',
-      expect.objectContaining({ method: 'PATCH' }),
+      expect.objectContaining({ method: 'PATCH' })
     )
     expect(body()).toEqual({ from_path: 'Brandschutz', to_path: 'Feuer' })
   })
@@ -99,7 +108,9 @@ describe('mirrorFolderPathRewrite', () => {
   it('swallows a backend failure — the folder rows are the durable truth', async () => {
     fetchSpy.mockRejectedValue(new Error('backend down'))
 
-    await expect(mirrorFolderPathRewrite('proj-1', 'org-1', 'Brandschutz', 'Feuer')).resolves.toBeUndefined()
+    await expect(
+      mirrorFolderPathRewrite('proj-1', 'org-1', 'Brandschutz', 'Feuer')
+    ).resolves.toBeUndefined()
   })
 
   it('url-encodes a collection name so the path cannot be split', async () => {
@@ -110,6 +121,8 @@ describe('mirrorFolderPathRewrite', () => {
 
     await mirrorFolderPathRewrite('proj-1', 'org-1', 'Brandschutz', 'Feuer')
 
-    expect(fetchSpy.mock.calls[0][0]).toBe('http://backend:8000/v1/collections/proj%20a%2Fb/folder-paths')
+    expect(fetchSpy.mock.calls[0][0]).toBe(
+      'http://backend:8000/v1/collections/proj%20a%2Fb/folder-paths'
+    )
   })
 })

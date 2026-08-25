@@ -172,6 +172,13 @@ export const ORG_PERMISSION_SPECS: readonly PermissionSpec[] = [
     tier: 'org',
   },
   {
+    slug: 'org:projects:administer',
+    name: 'Administer all projects',
+    description:
+      'Reach and administer every project in the organization without holding a per-project role. This IS the org-admin bypass; it is a permission so a custom role can hold it and Admin is not special-cased by name.',
+    tier: 'org',
+  },
+  {
     slug: 'org:members:manage',
     name: 'Manage people and roles',
     description:
@@ -215,6 +222,13 @@ export const PLATFORM_PERMISSION_SPECS: readonly PermissionSpec[] = [
     slug: 'platform:usage:view',
     name: 'View cross-org usage',
     description: 'Platform tier: cross-organization LLM usage, spend, and budget posture.',
+    tier: 'platform',
+  },
+  {
+    slug: 'platform:settings:view',
+    name: 'View platform settings',
+    description:
+      'Platform tier: read platform-wide settings, defaults, the base knowledge corpus and the skill catalog. The read half of platform:settings:manage.',
     tier: 'platform',
   },
   {
@@ -472,7 +486,7 @@ export const ROLES: readonly RoleSpec[] = [
       'Read-only platform staff: sees every organization and cross-org usage, changes nothing. Exclusive to the GRID Platform organization.',
     tier: 'platform',
     scope: 'platform-org',
-    permissions: ['platform:organizations:view', 'platform:usage:view'],
+    permissions: ['platform:organizations:view', 'platform:usage:view', 'platform:settings:view'],
   },
 
   // ---- Project tier ------------------------------------------------------
@@ -526,7 +540,6 @@ export const ROLES: readonly RoleSpec[] = [
       'project:skills:manage',
     ],
   },
-
 ]
 
 /** Look up a permission spec by slug. */

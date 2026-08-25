@@ -16,7 +16,7 @@ vi.mock('@/lib/authz/platform', () => {
   }
   return {
     PlatformAccessDeniedError,
-    requirePlatformOwner: vi.fn().mockImplementation(async () => {
+    requirePlatformPermission: vi.fn().mockImplementation(async () => {
       if (!isOwner.value) {
         throw new PlatformAccessDeniedError()
       }

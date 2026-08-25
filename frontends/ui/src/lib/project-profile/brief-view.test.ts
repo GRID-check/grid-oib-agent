@@ -4,7 +4,11 @@
 import { describe, expect, it } from 'vitest'
 
 import { buildProjectBriefView } from './brief-view'
-import { normalizeProfilePatchOperations, pruneResolvedAssumptions, pruneResolvedUnknowns } from './patch-engine'
+import {
+  normalizeProfilePatchOperations,
+  pruneResolvedAssumptions,
+  pruneResolvedUnknowns,
+} from './patch-engine'
 import type { ProjectProfile } from './types'
 
 const NOW = '2026-07-08T00:00:00.000Z'
@@ -65,7 +69,10 @@ describe('buildProjectBriefView', () => {
     expect(allKeys).not.toContain('bauwerk_name@bw1')
     const other = view.groups.find((g) => g.id === 'other')!
     expect(other.facts).toEqual([
-      expect.objectContaining({ label: 'Custom agent fact', value: 'brandschutzkonzept liegt vor' }),
+      expect.objectContaining({
+        label: 'Custom agent fact',
+        value: 'brandschutzkonzept liegt vor',
+      }),
     ])
   })
 
@@ -104,12 +111,23 @@ describe('buildProjectBriefView', () => {
 
 describe('normalizeProfilePatchOperations', () => {
   it('wraps a bare fact value with user_confirmed provenance', () => {
-    const [op] = normalizeProfilePatchOperations([{ op: 'add', path: '/facts/gebaeudeklasse', value: 'GK5' }], NOW)
-    expect(op.value).toEqual({ value: 'GK5', confidence: 'confirmed', source: 'user_confirmed', updatedAt: NOW })
+    const [op] = normalizeProfilePatchOperations(
+      [{ op: 'add', path: '/facts/gebaeudeklasse', value: 'GK5' }],
+      NOW
+    )
+    expect(op.value).toEqual({
+      value: 'GK5',
+      confidence: 'confirmed',
+      source: 'user_confirmed',
+      updatedAt: NOW,
+    })
   })
 
   it('wraps a bare assumption value as unconfirmed agent_suggested', () => {
-    const [op] = normalizeProfilePatchOperations([{ op: 'add', path: '/assumptions/widmung', value: 'bauland' }], NOW)
+    const [op] = normalizeProfilePatchOperations(
+      [{ op: 'add', path: '/assumptions/widmung', value: 'bauland' }],
+      NOW
+    )
     expect(op.value).toEqual({
       value: 'bauland',
       status: 'unconfirmed',
@@ -127,7 +145,7 @@ describe('normalizeProfilePatchOperations', () => {
         { op: 'replace', path: '/facts/widmung/value', value: 'freiland' },
         { op: 'add', path: '/unknowns/-', value: 'fluchtniveau' },
       ],
-      NOW,
+      NOW
     )
     expect(ops[0].value).toEqual(fact('bauland'))
     expect(ops[1]).toEqual({ op: 'remove', path: '/assumptions/widmung' })
@@ -148,7 +166,12 @@ describe('pruneResolvedUnknowns', () => {
   })
 
   it('returns the same object when nothing changes', () => {
-    const profile: ProjectProfile = { facts: {}, goals: {}, unknowns: ['fluchtniveau'], assumptions: {} }
+    const profile: ProjectProfile = {
+      facts: {},
+      goals: {},
+      unknowns: ['fluchtniveau'],
+      assumptions: {},
+    }
     expect(pruneResolvedUnknowns(profile)).toBe(profile)
   })
 })

@@ -75,7 +75,12 @@ export function salvageProjectProfile(raw: unknown): SalvageResult {
   const dropped: string[] = []
 
   const facts = salvageRecord<ProjectFact>(raw.facts, ProjectFactSchema, 'facts', dropped)
-  const assumptions = salvageRecord<ProjectAssumption>(raw.assumptions, ProjectAssumptionSchema, 'assumptions', dropped)
+  const assumptions = salvageRecord<ProjectAssumption>(
+    raw.assumptions,
+    ProjectAssumptionSchema,
+    'assumptions',
+    dropped
+  )
   const goals = salvageGoals(raw.goals, dropped)
   const unknowns = salvageUnknowns(raw.unknowns, dropped)
 
@@ -142,7 +147,7 @@ function salvageRecord<T>(
   raw: unknown,
   schema: { safeParse: (v: unknown) => { success: true; data: T } | { success: false } },
   section: string,
-  dropped: string[],
+  dropped: string[]
 ): Record<string, T> {
   const out: Record<string, T> = {}
   if (raw === undefined || raw === null) return out

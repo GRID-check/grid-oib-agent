@@ -18,6 +18,7 @@
 
 import { parseJsonBody } from '@/lib/api/handler'
 import { platformApiRoute } from '@/lib/api/platform-handler'
+import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 import { deletePlatformSkill, updatePlatformSkill } from '@/lib/skills/platform-service'
 import { patchPlatformSkillSchema } from '@/lib/skills/types'
 
@@ -27,9 +28,11 @@ export const PATCH = platformApiRoute<Params>(
   async ({ request, params }) => {
     const patch = await parseJsonBody(request, patchPlatformSkillSchema)
     return updatePlatformSkill(params.skillId, patch)
-  }
+  },
+  { permission: PLATFORM_PERMISSIONS.settingsManage }
 )
 
 export const DELETE = platformApiRoute<Params>(
-  async ({ params }) => deletePlatformSkill(params.skillId)
+  async ({ params }) => deletePlatformSkill(params.skillId),
+  { permission: PLATFORM_PERMISSIONS.settingsManage }
 )

@@ -25,7 +25,7 @@ export function buildProxyUrl(
   basePath: string,
   path: string[],
   searchParams?: URLSearchParams,
-  omitParams: string[] = [],
+  omitParams: string[] = []
 ): string {
   const url = new URL(`${getBackendUrl()}${basePath}/${path.join('/')}`)
   searchParams?.forEach((value, key) => {
@@ -52,7 +52,7 @@ export function buildProxyUrl(
 export async function resolveSessionAndBearer(
   req: Request,
   pathSegments: string[],
-  label: string,
+  label: string
 ): Promise<{ session: GridSession | null; authHeader: string | null }> {
   if (!isAuthRequired()) {
     return { session: null, authHeader: null }
@@ -68,11 +68,14 @@ export async function resolveSessionAndBearer(
   const rawQueryToken = new URL(req.url).searchParams.get('token')?.trim()
   const queryToken = allowQueryToken && rawQueryToken ? rawQueryToken : undefined
 
-  const headerToken = req.headers.get('Authorization') || (queryToken ? `Bearer ${queryToken}` : null)
+  const headerToken =
+    req.headers.get('Authorization') || (queryToken ? `Bearer ${queryToken}` : null)
   const authHeader = headerToken || (session.accessToken ? `Bearer ${session.accessToken}` : null)
 
   if (queryToken && !authHeader) {
-    console.warn(`[${label}] SSE stream using ?token= query fallback (WorkOS session cookie missing)`)
+    console.warn(
+      `[${label}] SSE stream using ?token= query fallback (WorkOS session cookie missing)`
+    )
   }
 
   return { session, authHeader }
