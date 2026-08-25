@@ -94,6 +94,39 @@ unmocked motion library) were both measured and both wrong. A cause that has not
 been measured is a guess, and a fix built on a guess is a bandage even when it
 happens to work.
 
+## Finish the task
+
+Reversible work does not get a permission checkpoint. Carry on to the end state
+the user described, then present the result.
+
+The distinction that matters is between *reporting* and *asking*. Reporting
+progress at a boundary is good: it lets the user redirect cheaply. Asking
+permission to continue is not, because the answer is almost always yes and the
+question costs a whole turn to get it.
+
+The case that produced this rule. A user asked for a document-role system,
+"end to end". Two slices in — the domain model green against a real PostgreSQL,
+the BFF layer green with twelve tests — the agent stopped and asked: carry on
+into the UI, or review the plan first? The user's reply was, in effect, keep
+going, and the instruction to treat the interruption itself as a failure.
+
+They were right to. Nothing about the next slice was irreversible or ambiguous:
+the plan had been stated and agreed two turns earlier, the work was on a branch,
+and every part of it was revertible. The pause bought no safety and spent a
+turn. Worse, it is the *shape* of diligence — checking in reads as careful — so
+it survives review while producing exactly the friction the user is paying an
+agent to remove.
+
+The tell is the question's own answer. Before asking "should I continue?",
+predict the reply. If the prediction is "yes", the question is a stall: proceed
+and report. Reserve the interruption for the cases where you genuinely cannot
+predict it, and there, say what you need rather than offering a menu — a menu is
+a way of making the user do the deciding you were asked to do.
+
+A related failure with the same root: stopping because the remaining work is
+large. Size is not ambiguity. A long task is finished by working through it, and
+"this is a lot, shall I?" is the same stall wearing a different hat.
+
 ## Ratchet every correction
 
 A **ratchet** turns one way and cannot slip back. A correction that changes only

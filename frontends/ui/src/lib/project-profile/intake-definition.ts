@@ -1,4 +1,8 @@
 import { applyProjectProfilePatch, emptyProjectProfile } from './patch-engine'
+// Type-only, and deliberately so: `document-roles` imports the condition
+// evaluator from this module as a VALUE. A type import is erased at compile
+// time, so the two files reference each other without a runtime cycle.
+import type { DocumentRole } from './document-roles'
 import type { ProjectPrimitiveValue, ProjectProfile, ProjectProfilePatchOperation } from './types'
 
 // ---------------------------------------------------------------------------
@@ -35,6 +39,7 @@ export type ProjectIntakeQuestionType =
   | 'number_tri'
   | 'yes_no_open'
   | 'upload'
+  | 'document_role'
   | 'info_placeholder'
 
 /** The three answer-modes a number_tri question persists. */
@@ -75,6 +80,13 @@ export interface ProjectIntakeQuestion {
   hint?: string
   /** Unit suffix for numeric questions (m, m², dB …). */
   unit?: string
+  /**
+   * For `document_role`: which slot this question fills. The binding is stored
+   * in `document_roles`, not in the answer map — a document is not an answer,
+   * and putting a file id in the profile would make the profile the second
+   * place a binding lives.
+   */
+  role?: DocumentRole
   placeholder?: string
   options?: ProjectIntakeOption[]
   /** AND-combined display conditions. */
@@ -346,8 +358,11 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
         },
         {
           id: 'B2_upl',
-          label: 'Bebauungsplan / Flächenwidmungsplan ablegen',
-          type: 'upload',
+          label: 'Bebauungsplan ablegen',
+          type: 'document_role',
+          role: 'bebauungsplan',
+          conditions: [{ param: 'B2', op: 'equals', value: 'ja' }],
+          why: 'Der Plan ist die Quelle für Bauklasse, Bebauungsweise, Dichte und Fluchtlinien — Piloti kann sich dann darauf beziehen.',
         },
         {
           id: 'B3_hoehe',
@@ -955,6 +970,25 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
         },
       ],
     },
+    // ------------------------------------------------------------------ I
+    //
+    // Placed BEFORE the summary, which is where the handover concept puts it
+    // last. Deliberate: Bestandspläne and the Bebauungsplan are INPUTS to the
+    // Modul B and C answers. Asking for geometry from memory and only then
+    // asking for the plan that contains it gets the order backwards. The
+    // module letter follows the concept so the two can be read side by side.
+    //
+    // It carries no questions. The slots are generated from the role registry
+    // (`document-roles.ts`) and rendered by the wizard, so adding a role is one
+    // entry there rather than a question here plus a component.
+    {
+      id: 'I',
+      title: 'Projektgrundlagen',
+      scope: 'projekt',
+      description:
+        'Alles, was schon existiert. Piloti nutzt diese Unterlagen als Grundlage für jede Antwort zu diesem Projekt — und sagt Ihnen, was noch fehlt.',
+      questions: [],
+    },
     // ------------------------------------------------------------------ H
     {
       id: 'H',
@@ -986,6 +1020,19 @@ export function answerKeyFor(questionId: string, bauwerkId?: string, zoneKey?: s
   if (bauwerkId) key += `@${bauwerkId}`
   if (zoneKey) key += `@${zoneKey}`
   return key
+}
+
+/**
+ * The building an answer key belongs to, or null for a project-scope one.
+ *
+ * The inverse of {@link answerKeyFor}, kept beside it so the two cannot drift
+ * about what the separator means. A document-role question needs this: a
+ * `bauwerk` role has to name its building, and the wizard only knows which
+ * building it is rendering through the key.
+ */
+export function bauwerkIdFromAnswerKey(answerKey: string): string | null {
+  const [, bauwerkId] = answerKey.split('@')
+  return bauwerkId ?? null
 }
 
 /** The sibling key under which a number_tri question stores its answer mode. */

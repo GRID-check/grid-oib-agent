@@ -14,6 +14,7 @@ import {
   isScopeInstanceValid,
 } from '@/lib/project-profile/document-roles'
 import type { DocumentRole, RoleConfidence, RoleSource } from '@/lib/project-profile/document-roles'
+import { invalidateProjectPromptViewCache } from '@/lib/project-profile/prompt-view'
 import {
   deleteBindings,
   documentBelongsToProject,
@@ -125,6 +126,12 @@ export async function declareDocumentRole(
     createdBy: session.userId,
   })
 
+  // The agent's project context carries the bindings, and it is cached for five
+  // minutes. Without this, a document declared now would not reach Piloti until
+  // the cache expired — and the user would be told the Bebauungsplan is missing
+  // in the same session they attached it.
+  await invalidateProjectPromptViewCache(input.projectId, session.organizationId)
+
   const after = await findBindingsForRole(input.projectId, role, scopeInstanceId)
   const binding = after.find((row) => row.documentId === input.documentId)
   if (!binding) {
@@ -143,4 +150,5 @@ export async function revokeDocumentRole(
   await requireProjectAccess(session, projectId, [...WRITE_PERMISSIONS])
   const removed = await deleteBindings(projectId, [bindingId])
   if (removed === 0) throw new NotFoundError('Document role binding not found.')
+  await invalidateProjectPromptViewCache(projectId, session.organizationId)
 }

@@ -12,6 +12,14 @@
 
 export const SCREENSHOT_TARGETS = [
   {
+    id: 'document-roles',
+    mobile: true,
+    path: '/dev/document-roles',
+    description:
+      'Declaring which file plays which part in a project: the wizard field for a single-holder role (Bebauungsplan, already filled), a many-holder role mid-set with one unconfirmed suggestion, and the Modul I checklist with per-building slots and the recommended ones lifted to the top.',
+    waitFor: 'text=Bebauungsplan ablegen',
+  },
+  {
     id: 'herleitung',
     mobile: true,
     path: '/dev/herleitung',

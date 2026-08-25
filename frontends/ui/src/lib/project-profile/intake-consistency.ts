@@ -162,7 +162,15 @@ export function collectStructuredContextFields(
   for (const stage of definition.stages) {
     if (stage.scope === 'bauwerk') continue
     for (const question of stage.questions) {
-      if (isFreeText(question) || question.type === 'info_placeholder' || question.type === 'upload') continue
+      if (
+        isFreeText(question) ||
+        question.type === 'info_placeholder' ||
+        question.type === 'upload' ||
+        // A role question carries no answer to be inconsistent with: the
+        // binding lives in `document_roles`, not in the profile.
+        question.type === 'document_role'
+      )
+        continue
       if (!evaluateIntakeCondition(question, answers)) continue
       const raw = answers[question.id]
       if (!isIntakeAnswerProvided(raw)) continue

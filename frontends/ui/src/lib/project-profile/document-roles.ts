@@ -128,11 +128,14 @@ export const DOCUMENT_ROLE_DEFINITIONS: readonly DocumentRoleDefinition[] = [
   },
   {
     role: 'bestandsplan',
-    label: 'Bestandspläne (Grundrisse, Schnitte, Ansichten)',
+    // Short, because this label is repeated with a building name after it, in
+    // the slot heading, the drop zone and the agent's context block. The list
+    // of drawing types belongs in the explanation, not in the name.
+    label: 'Bestandspläne',
     scope: 'bauwerk',
     cardinality: 'many',
     recommendedWhen: [{ param: 'C2', op: 'equals', value: 'bestand' }],
-    why: 'Ohne Bestandspläne bleibt der Vergleich von Bestand und Zielzustand eine Schätzung.',
+    why: 'Grundrisse, Schnitte und Ansichten. Ohne sie bleibt der Vergleich von Bestand und Zielzustand eine Schätzung.',
   },
   {
     role: 'foto_bestand',

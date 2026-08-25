@@ -1,4 +1,5 @@
 import { findProjectProfile, findProjectPromptView } from '@/lib/projects/repository'
+import { loadDocumentRolesPromptSection } from '@/lib/document-roles/prompt-loader'
 import { getCached, invalidateCached } from '@/lib/cache'
 import { buildProjectBriefView } from './brief-view'
 import { isValidBundeslandToken } from './intake-definition'
@@ -47,8 +48,17 @@ export async function loadProjectPromptView(
   if (!projectId) return null
 
   return getCached(promptViewCacheKey(projectId, organizationId), PROMPT_VIEW_CACHE_TTL_MS, async () => {
-    const promptView = (await findProjectPromptView(projectId, organizationId))?.trim()
-    return promptView || null
+    const [stored, documents] = await Promise.all([
+      findProjectPromptView(projectId, organizationId),
+      // Appended here rather than baked into the stored view, because a role
+      // binding changes without the profile changing. `buildProjectPromptView`
+      // runs at profile-save; a document declared afterwards would never reach
+      // a view built there. Declaring or revoking a role invalidates this cache
+      // (`lib/document-roles/service`), so the block cannot go stale either.
+      loadDocumentRolesPromptSection(projectId, organizationId),
+    ])
+    const combined = [stored?.trim(), documents].filter(Boolean).join('\n\n').trim()
+    return combined || null
   })
 }
 

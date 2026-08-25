@@ -33,8 +33,11 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
+import { DocumentRoleField } from './document-role-field'
+import { ProjektgrundlagenStep } from './projektgrundlagen-step'
 import {
   answerKeyFor,
+  bauwerkIdFromAnswerKey,
   answersFromProfile,
   buildIntakeProfile,
   bauwerkeFromAnswers,
@@ -329,6 +332,8 @@ export function ProjectIntakeWizard({
   const totalSteps = stages.length
   const stage: ProjectIntakeStage | null = stages[currentStep] ?? null
   const isReview = stage?.id === 'H'
+  /** Modul I renders document slots from the role registry, not questions. */
+  const isGrundlagen = stage?.id === 'I'
 
   const setAnswer = useCallback((key: string, value: ProjectPrimitiveValue) => {
     setAnswers((prev) => pruneStaleConditionalAnswers({ ...prev, [key]: value }, definition))
@@ -710,7 +715,9 @@ export function ProjectIntakeWizard({
               )}
             </div>
 
-            {isReview ? (
+            {isGrundlagen ? (
+              <ProjektgrundlagenStep projectId={projectId} answers={answers} bauwerke={bauwerke} />
+            ) : isReview ? (
               <div className="space-y-4">
                 <ReviewStep
                   definition={definition}
@@ -1025,7 +1032,7 @@ function reviewItemsFor(
 ): ReviewItem[] {
   const items: ReviewItem[] = []
   for (const q of questions) {
-    if (q.type === 'info_placeholder' || q.type === 'upload') continue
+    if (q.type === 'info_placeholder' || q.type === 'upload' || q.type === 'document_role') continue
     if (!q.writesTo) continue
     if (!evaluateIntakeCondition(q, answers, instanceId)) continue
     const key = keyOf(q)
@@ -1119,7 +1126,10 @@ function ReviewStep({
 
   const projektStages = definition.stages
     .map((stage, index) => ({ stage, index }))
-    .filter(({ stage }) => stage.scope !== 'bauwerk' && stage.id !== 'H')
+    // `H` is the summary itself. `I` holds document slots rather than answers,
+    // so it would render as an empty section here — the bindings live in
+    // `document_roles`, not in the answer map this summarises.
+    .filter(({ stage }) => stage.scope !== 'bauwerk' && stage.id !== 'H' && stage.id !== 'I')
   const bauwerkStages = definition.stages
     .map((stage, index) => ({ stage, index }))
     .filter(({ stage }) => stage.scope === 'bauwerk')
@@ -1310,6 +1320,22 @@ function QuestionField({
   }
   if (question.type === 'upload') {
     return <UploadField question={question} projectId={projectId} />
+  }
+  if (question.type === 'document_role') {
+    // A role question has no answer in the profile: the binding lives in
+    // `document_roles`. Without a role it has nothing to bind, so it renders
+    // as the plain pointer rather than a control that cannot work.
+    if (!question.role) return <UploadField question={question} projectId={projectId} />
+    return (
+      <div className="flex flex-col gap-2">
+        <QuestionHeader question={question} domId={domId} />
+        <DocumentRoleField
+          projectId={projectId}
+          role={question.role}
+          scopeInstanceId={bauwerkIdFromAnswerKey(answerKey)}
+        />
+      </div>
+    )
   }
 
   const header = (

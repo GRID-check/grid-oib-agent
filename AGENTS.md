@@ -48,6 +48,15 @@ Ratcheted means a second occurrence is caught by something other than a person
 noticing. Reach for it when a reviewer corrects you, when something surprises
 you, or when you correct yourself twice for one reason.
 
+**Finish the task.** Reversible work does not get a permission checkpoint. A
+natural boundary — a layer done, a slice green, a commit pushed — is a place to
+report progress, never a place to stop and ask whether to continue. Asking costs
+the user a turn to say "yes, keep going", and that turn is a correction: it
+means the plan was already agreed and you paused anyway. Carry on to the end
+state the user described, then present the result and let them redirect. Stop
+early only for something genuinely irreversible or genuinely ambiguous, and when
+you do, say what you need rather than offering a menu.
+
 **When something surprises you or breaks, read
 [`docs/contributing/gotchas.md`](docs/contributing/gotchas.md) before you start
 debugging it.** It is indexed by the symptom you arrive with, and every entry is
