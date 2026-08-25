@@ -64,6 +64,9 @@ export const chat: typeof en.chat = {
     showing: '{label} wird angezeigt',
   },
   composer: {
+    /** Shown when the reader holds project:view but not project:chat. */
+    noProjectChatPermission:
+      'Der Recherche-Agent steht Ihnen in diesem Projekt derzeit nicht zur Verfügung. Wenn Sie nur Lesezugriff haben, kann Ihnen eine Projektadministratorin oder ein Projektadministrator die Rolle „Mitwirkender“ erteilen.',
     placeholder: 'Fragen Sie Piloti zu diesem Projekt …',
     sources: 'Datengrundlage',
     sourcesAria: 'Datengrundlage – {enabled} von {total} Quellen aktiv. Öffnet die Datenquellen.',
@@ -165,6 +168,43 @@ export const chat: typeof en.chat = {
     // Derselbe Sachverhalt, wenn die Antwort gar keine Quellen nennt: der Satz
     // oben verspräche „die bis dahin gefundenen Belege“, die es nicht gibt.
     researchTruncatedWithoutSources: 'Recherche vorzeitig beendet, bevor Belege gefunden wurden',
+    // WOMIT sie endete — als kurzer Zusatz in Klammern hinter dem jeweils
+    // zutreffenden Satz oben. Dass vorzeitig Schluss war, ist der Sachverhalt;
+    // woran es lag, entscheidet, ob eine erneute Anfrage etwas bringt.
+    //
+    // Schlüssel ist wörtlich das stabile Token des Backends, damit die Zuordnung
+    // gegen den Erzeuger prüfbar bleibt. Ein Token ohne Eintrag wird gar nicht
+    // gerendert: `wall_clock` darf nie beim Leser ankommen.
+    truncationReason: {
+      wall_clock: 'Zeitgrenze erreicht',
+      // Ein Timeout von unten (Anbieter/Transport), nicht das eigene Budget des
+      // Laufs. Für den Leser ist beides dasselbe: die Recherche endete an einer
+      // Zeitgrenze. Getrennt gezählt wird es nur intern.
+      upstream_timeout: 'Zeitgrenze erreicht',
+      step_limit: 'Schrittgrenze erreicht',
+    },
+    // Wodurch diese gerettete Antwort schwächer ist als die eines sauberen
+    // Laufs. Gleiches Register wie oben — leise, sachlich, über die BELEGLAGE —
+    // aber jede Zeile nennt etwas, woran der Leser anknüpfen kann; deshalb
+    // stehen sie da und nicht im Abbruchsatz mit drin.
+    degradedReason: {
+      no_report_file:
+        'Kein Recherchebericht abgelegt — diese Antwort ist die einzige Aufzeichnung des Laufs',
+      no_valid_citations:
+        'Keine Quellenangabe hielt der Prüfung stand — bitte prüfen Sie die Angaben vor der Verwendung selbst',
+    },
+    // Die Gründe der Zitatprüfung, in der Sprache des Lesers. Das Backend nennt
+    // sie als Token (`url_not_in_registry`, …), und genau so standen sie bisher
+    // im Tooltip; ein nicht zugeordnetes Token entfällt jetzt, statt roh
+    // angezeigt zu werden.
+    citationsRemovedReason: {
+      url_not_in_registry: 'URL nicht unter den abgerufenen Quellen',
+      citation_key_not_in_registry: 'Dokument nicht unter den abgerufenen Quellen',
+      unverifiable: 'Kein prüfbares Ziel in der Quellenangabe',
+      duplicate: 'Doppelte Quellenangabe',
+      ungrounded: 'Antwort nicht auf eine Quellenangabe gestützt',
+      quote_unverified: 'Zitat nicht verifizierbar',
+    },
   },
   // Die Antwort aus Piloti herausbekommen — für Prüfvermerk, Mail, Einreichung.
   // Zwei Icon-Schaltflächen in der Metazeile der Antwort; die zweite gibt es nur,
@@ -299,7 +339,8 @@ export const chat: typeof en.chat = {
       sourcesLess: 'Weniger',
       // Steht in der Aufklappung, wo die Eingangswerte ohnehin geprüft werden:
       // gerechnet hat die Karte, zu prüfen sind die Werte.
-      computedNote: 'Das Ergebnis wird von dieser Karte aus den obigen Werten berechnet, nicht aus der Antwort übernommen.',
+      computedNote:
+        'Das Ergebnis wird von dieser Karte aus den obigen Werten berechnet, nicht aus der Antwort übernommen.',
     },
     // „Diagramm" und nicht „Grafik": das Wort steht über einer Zeichnung, die
     // ausdrücklich nichts misst. Die übrigen Worte teilt die Karte mit dem
@@ -368,8 +409,10 @@ export const chat: typeof en.chat = {
       basis: 'Grundlage',
       // Der Satz, der die Karte ehrlich hält: Die Reihenfolge ist gezeichnet,
       // die Länge nicht — die Fristen laufen ab verschiedenen Ereignissen.
-      notToScale: 'Die Reihenfolge ist maßstabslos dargestellt: Jede Frist läuft ab einem eigenen Ereignis.',
-      noDatesNote: 'Die Fristen stehen so, wie sie die Bestimmung formuliert. Diese Karte rechnet kein Datum aus.',
+      notToScale:
+        'Die Reihenfolge ist maßstabslos dargestellt: Jede Frist läuft ab einem eigenen Ereignis.',
+      noDatesNote:
+        'Die Fristen stehen so, wie sie die Bestimmung formuliert. Diese Karte rechnet kein Datum aus.',
     },
     // ── Auswirkung einer Änderung ───────────────────────────────────────
     changeImpact: {
@@ -616,8 +659,11 @@ export const chat: typeof en.chat = {
     // Rauschen. Ein nicht klassifizierbarer Schritt fällt auf die vorige
     // sinnvolle Phrase zurück, sonst auf `working` weiter oben.
     activity: {
-      understanding: 'Frage wird erfasst …',
-      planning: 'Vorgehen wird geplant …',
+      // Gleiche Wörter wie die Chips darunter (`stepName.understanding` =
+      // „Einordnung“, `stepName.routing` = „Rechercheweg“): Lesende sollen ein
+      // Vokabular lernen, nicht zwei für dieselbe Sache.
+      understanding: 'Frage wird eingeordnet …',
+      planning: 'Rechercheweg wird festgelegt …',
       searchingWeb: 'Web wird durchsucht …',
       searchingKnowledge: 'OIB-Wissen wird durchsucht …',
       searchingRis: 'RIS (österreichisches Recht) wird durchsucht …',
@@ -668,11 +714,16 @@ export const chat: typeof en.chat = {
         // Klassifikators ist Freitext in der Sprache des Modells und steht
         // deshalb nie hier — sie wird zitiert, zugeschrieben, in der
         // nachgeordneten Zeile `routing.line` weiter unten.
+        // Jede Zeile nennt, was die Lesenden davon haben, nicht was das System
+        // gerade aufsetzt: „wird vorbereitet“ beschreibt einen Vorgang im
+        // Inneren, „einschlägige Stellen werden gesucht“ eine Arbeitsweise, die
+        // Planende aus ihrem eigenen Alltag kennen. `meta` heißt hier wörtlich
+        // wie in der Herleitung (`routing.decision.meta`) — ein Weg, ein Wort.
         routing: {
-          meta: 'Gespräch — keine Recherche nötig',
+          meta: 'Direktantwort — keine Recherche nötig',
           outOfScope: 'Frage außerhalb des Fachgebiets',
-          shallow: 'Kurzrecherche wird vorbereitet',
-          deep: 'Tiefenrecherche wird vorbereitet',
+          shallow: 'Kurzrecherche: einschlägige Stellen werden gesucht',
+          deep: 'Tiefenrecherche: mehrere Quellen werden geprüft',
         },
         // `{query}` sind die eigenen Worte der Lesenden, zurückgespiegelt —
         // nie übersetzt, und vom Backend gekürzt, damit die Zeile passt.
@@ -687,7 +738,10 @@ export const chat: typeof en.chat = {
           remember: 'Notiz wird gespeichert …',
           card: 'Ergebniskarte wird erstellt …',
         },
-        citations: 'Belege werden geprüft …',
+        // Das Vertrauensversprechen des Produkts, laut ausgesprochen: geprüft
+        // wird nicht „irgendetwas an den Belegen“, sondern jede Fundstelle
+        // gegen das, was tatsächlich abgerufen wurde.
+        citations: 'Belege werden gegen die Quellen geprüft …',
         escalation: 'Kurzrecherche reicht nicht — Tiefenrecherche startet',
       },
     },
@@ -751,15 +805,13 @@ export const chat: typeof en.chat = {
     // Kompakter Inline-Hinweis auf einer unterbrochenen Antwort: eine stille
     // Wiederverbindung kann eine laufende Antwort verwerfen (Protokoll-
     // Robustheit, Punkt 4). Statt nur des stummen „Unterbrochen“-Chips.
-    interruptedNotice:
-      'Verbindung kurz unterbrochen — Antwort ging verloren. Bitte erneut senden.',
+    interruptedNotice: 'Verbindung kurz unterbrochen — Antwort ging verloren. Bitte erneut senden.',
     // Vorübergehender „Wird geprüft“-Zustand (FIX 3): angezeigt, solange der
     // Wiederherstellungs-Abruf nach einer Wiederverbindung läuft, damit ein
     // Zug, der nur unterbrochen AUSSIEHT, nicht sofort den „verloren“-Hinweis
     // zeigt, bevor bestätigt ist, dass die Antwort wirklich fehlt.
     recovering: 'Verbindung wird wiederhergestellt',
-    recoveringNotice:
-      'Verbindung wird wiederhergestellt — prüfe auf fertige Antwort …',
+    recoveringNotice: 'Verbindung wird wiederhergestellt — prüfe auf fertige Antwort …',
     done: 'Fertig',
     showThinking: 'Denkschritte anzeigen ({count})',
     showThinkingSteps: 'Denkschritte anzeigen ({count})',
@@ -769,8 +821,7 @@ export const chat: typeof en.chat = {
     // Modell hat zu Recht keine Zitate. Gezählt wird, was da ist; über das,
     // was nicht da ist, sagt die Zeile nichts.
     herleitungSummary: 'Herleitung · {count, plural, one {# Schritt} other {# Schritte}}',
-    herleitungSummaryWithSources:
-      '{summary} · {count, plural, one {# Quelle} other {# Quellen}}',
+    herleitungSummaryWithSources: '{summary} · {count, plural, one {# Quelle} other {# Quellen}}',
     // Der Zug hat noch keinen Schritt gemeldet — dann nennt die Zeile nur, was
     // sie ist, statt „0 Schritte“ zu zählen.
     herleitungSummaryNoSteps: 'Herleitung',
@@ -835,6 +886,47 @@ export const chat: typeof en.chat = {
       // Wenn kein Schritt zu benennen ist (das Budget war vor dem ersten
       // Werkzeug erschöpft): lieber weniger sagen als etwas erfinden.
       findingsTruncated: 'Recherche hier beendet: das Budget war aufgebraucht',
+      // ── Was die Antwort NICHT ist ───────────────────────────────────────
+      //
+      // Zwei Aufzeichnungen, die die Tiefenrecherche über ihre eigenen Grenzen
+      // führt — beide auf dem technischen Kanal, beide bislang unsichtbar: ein
+      // Lauf, der in die Zeit- oder Schrittgrenze lief, und eine Antwort, die
+      // erkennbar schwächer ausgeliefert wurde. Bis sie hier standen, sah eine
+      // nach zwei von zehn geplanten Suchen abgebrochene Antwort genauso aus
+      // wie eine vollständige.
+      //
+      // Formuliert als Aussagen, mit denen Planende etwas anfangen können, nie
+      // als die Telemetrie, aus der sie stammen. Die Aufzeichnung führt auch
+      // die Berichtslänge in Zeichen mit; dafür gibt es bewusst keine Zeile —
+      // eine Zeichenzahl benennt einen Mechanismus, sonst nichts.
+      limits: {
+        label: 'Einschränkungen',
+        deepCutoff: {
+          // Woran der Lauf endete. `other` deckt einen Grund ab, den dieser
+          // Build nicht kennt — DASS vorzeitig Schluss war, stimmt in jedem Fall.
+          time: 'Die Tiefenrecherche erreichte die Zeitgrenze.',
+          steps: 'Die Tiefenrecherche erreichte ihre Schrittgrenze.',
+          other: 'Die Tiefenrecherche wurde vorzeitig beendet.',
+          // …und ob etwas davon zu retten war. Diese Hälfte entscheidet, wie
+          // viel Gewicht die Antwort darüber tragen kann.
+          salvaged: 'Was bis dahin belegt war, ist in die Antwort eingegangen.',
+          nothing: 'Ergebnisse lagen zu diesem Zeitpunkt keine vor.',
+          // Wie weit sie kam. Nur genannt, wenn es etwas zu nennen gibt: null
+          // Quellen ist eine wahre Zahl, die sich wie ein Urteil liest — und
+          // `nothing` oben sagt bereits die ehrliche Fassung davon.
+          sources:
+            '{count, plural, one {# Quelle war bis dahin gesichtet} other {# Quellen waren bis dahin gesichtet}}.',
+          after: 'Abbruch nach {minutes, plural, one {# Minute} other {# Minuten}}.',
+        },
+        // Die Antwort ging schwächer raus als ein sauberer Lauf. Diese Zeilen
+        // sind der Hinweis, vor dem Verlassen darauf selbst nachzusehen.
+        degraded: {
+          noReport:
+            'Es wurde kein Recherchebericht abgelegt — die Antwort steht nur hier im Verlauf.',
+          noCitations:
+            'Keine Belegstelle hielt der Prüfung stand. Bitte schlagen Sie die Angaben vor der Verwendung selbst nach.',
+        },
+      },
       branchesTab: 'Folgewege',
       branchesSub: 'Wählen Sie eine Option — das Ergebnis wird für Ihre Wahl zusammengestellt.',
     },
@@ -918,8 +1010,7 @@ export const chat: typeof en.chat = {
     },
     connectionFailed: {
       title: 'Verbindung fehlgeschlagen',
-      message:
-        'Verbindung zum Server nicht möglich. Bitte überprüfen Sie Ihre Netzwerkverbindung.',
+      message: 'Verbindung zum Server nicht möglich. Bitte überprüfen Sie Ihre Netzwerkverbindung.',
     },
     connectionTimeout: {
       title: 'Zeitüberschreitung der Anfrage',
@@ -939,7 +1030,8 @@ export const chat: typeof en.chat = {
     },
     responseInterrupted: {
       title: 'Antwort unterbrochen',
-      message: 'Ihre vorherige Anfrage wurde nicht abgeschlossen. Bitte senden Sie Ihre Nachricht erneut.',
+      message:
+        'Ihre vorherige Anfrage wurde nicht abgeschlossen. Bitte senden Sie Ihre Nachricht erneut.',
     },
     workflowError: {
       title: 'Anfrage fehlgeschlagen',

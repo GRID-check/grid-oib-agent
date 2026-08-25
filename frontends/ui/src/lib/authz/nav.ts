@@ -8,7 +8,7 @@
 import 'server-only'
 import type { GridSession } from '@/lib/auth/types'
 import { isOrgAdmin } from './organizations'
-import { isPlatformOwner } from './platform'
+import { isPlatformStaff } from './platform'
 import { inboxIsReachable } from '@/lib/inbox/registry'
 import { FEATURE_FLAGS, isCollaborationEnabled, isFeatureEnabled } from './feature-flags'
 
@@ -64,7 +64,7 @@ export async function getNavFlags(session: GridSession | null): Promise<NavFlags
   return {
     canManageOrganization: isOrgAdmin(session),
     canViewOrganization: true,
-    canManagePlatform: await isPlatformOwner(session),
+    canManagePlatform: await isPlatformStaff(session),
     canAccessArchiv: isFeatureEnabled(session, FEATURE_FLAGS.orgArchiv),
     canCollaborate: collaboration,
     // Also gated on there BEING an organization. A break-glass session carries a

@@ -96,9 +96,9 @@ export const skills = {
     nameInvalid:
       'Skill names must be lowercase a-z/0-9 separated by single hyphens (no leading, trailing or consecutive hyphens).',
     descriptionLabel: 'Description',
-    descriptionPlaceholder: 'When should the agent use this skill?',
+    descriptionPlaceholder: 'The Gebäudeklasse every later OIB number hangs off.',
     descriptionHint:
-      'This is what the agent triggers on: it reads this sentence — never the instruction — and decides from it whether to load the skill. So say WHAT the skill does and WHEN it should apply, in the words your colleagues actually use.',
+      'One sentence. What the skill does, in the words your colleagues type. The agent reads only this line before deciding whether to load the rest.',
     descriptionRequired: 'A description is required.',
     descriptionTooLong: 'Descriptions are at most 1024 characters.',
     bodyLabel: 'Instruction',
@@ -166,6 +166,12 @@ export const skills = {
       noMatches: 'No card matches that search.',
       removeAria: 'Remove card type “{type}” from the preference',
     },
+    autoInvokeLabel: 'Agent may pick this',
+    autoInvokeHint:
+      'On: the agent sees the description every turn and may load the skill itself. Off: only a “/” invocation or a job attaches it.',
+    hiddenLabel: 'Keep off the live line',
+    hiddenHint:
+      'After it runs, stay off the running one-liner. Still named under the answer.',
     enabledLabel: 'Enabled',
     enabledHint:
       'Off: the skill disappears from the “/” menu and from what the agent can pick. Jobs that already use it keep running from their saved snapshot.',

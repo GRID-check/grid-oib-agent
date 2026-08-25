@@ -1,8 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useChatStore } from '@/features/chat/store'
 import type { FileItem } from '../components/project-file-workspace'
 import { useFilePreviewStore } from '../stores/file-preview-store'
-import { openFilePeek, resetFilePeekBinding } from './open-file-peek'
+import { dropFileSubject, openFilePeek, resetFilePeekBinding } from './open-file-peek'
+
+const toasted = vi.hoisted(() => ({ calls: [] as { message: string; undo?: () => void }[] }))
+vi.mock('sonner', () => ({
+  toast: (message: string, options?: { action?: { onClick: () => void } }) => {
+    toasted.calls.push({ message, undo: options?.action?.onClick })
+  },
+}))
 
 const FILE: FileItem = {
   id: 'doc-1',
@@ -78,5 +85,41 @@ describe('openFilePeek', () => {
     useFilePreviewStore.getState().open(FILE, 'peek')
     useFilePreviewStore.getState().hide()
     expect(useChatStore.getState().composerSubject?.resourceId).toBe('other')
+  })
+})
+
+describe('dropFileSubject — the one control here that ends things', () => {
+  beforeEach(() => {
+    toasted.calls = []
+    resetFilePeekBinding()
+    useFilePreviewStore.setState({ file: null, mode: 'modal', hidden: false, peekWidth: 320, context: {} })
+    useChatStore.setState({ composerSubject: null })
+  })
+
+  it('closes the viewer and drops the subject', () => {
+    openFilePeek({ file: FILE, source: 'projekt', projectId: 'p1' })
+
+    dropFileSubject({ cleared: 'cleared', undo: 'undo' })
+
+    expect(useFilePreviewStore.getState().file).toBeNull()
+    expect(useChatStore.getState().composerSubject).toBeNull()
+  })
+
+  it('offers an undo that puts BOTH halves back', () => {
+    openFilePeek({ file: FILE, source: 'projekt', projectId: 'p1' })
+    const subjectBefore = useChatStore.getState().composerSubject
+
+    dropFileSubject({ cleared: 'cleared', undo: 'undo' })
+    expect(toasted.calls).toHaveLength(1)
+    toasted.calls[0].undo?.()
+
+    // Both, because the ✕ ended both: a viewer that comes back without the
+    // retrieval focus (or the other way round) is half an undo, which is worse
+    // than none — the reader would believe they had their question back.
+    const preview = useFilePreviewStore.getState()
+    expect(preview.file?.id).toBe('doc-1')
+    expect(preview.mode).toBe('peek')
+    expect(preview.context.projectId).toBe('p1')
+    expect(useChatStore.getState().composerSubject).toEqual(subjectBefore)
   })
 })

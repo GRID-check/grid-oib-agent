@@ -72,6 +72,15 @@ export function installWeb(
                 env: [
                   { name: "HOST", value: "0.0.0.0" },
                   { name: "PORT", value: String(PORT.web) },
+                  {
+                    // Where the landing site's "Anmelden" link hands off
+                    // (/sign-in endpoint). Runtime, not baked: one web image
+                    // serves every stack — this is the same per-stack host
+                    // derivation the app tier gets for GRID_LANDING_URL,
+                    // pointed the other way.
+                    name: "PUBLIC_APP_URL",
+                    value: `https://${cfg.ingress.appDomain}`,
+                  },
                 ],
                 resources: toResourceRequirements(cfg.web.resources),
                 lifecycle: shutdown.lifecycle,

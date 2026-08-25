@@ -15,6 +15,28 @@ To upload, drag and drop files onto the upload zone or click to browse. Multiple
 
 The project Files workspace shows folders, the file grid, and the preview side by side on desktop. On small screens the panes stack — folders above the file grid — and selecting a file opens the preview as a full-screen overlay with a close button.
 
+### Folders
+
+The folder tree in the left pane is the project's filing system, and it supports the full set of operations — not just creating folders.
+
+- **Create** — `New folder` at the bottom of the tree adds a top-level folder; hovering a row reveals a `+` (`Add subfolder in {name}`) that nests one inside it. Both open an inline name field; Enter commits, Escape cancels.
+- **Rename** — the row's `⋯` menu → `Rename…` turns the row itself into an input, pre-filled with the current name. Enter commits, Escape cancels, and a name that did not change makes no request at all. If the rename fails the row stays in edit mode with your text intact, so nothing is retyped.
+- **Move** — `PATCH …/folders/{folderId}` accepts a new `parentId`; moving a folder into itself or into one of its own subfolders is refused rather than silently producing a loop.
+- **Delete** — the same menu's `Delete…`. **A folder is a label, and deleting the label never deletes the work.** The confirmation names where things go — *"Its 4 document(s) and 1 subfolder(s) are not deleted — they move to 'Brandschutz'"* — and the documents and child folders are re-filed into the deleted folder's parent (the project root when it had none) before the row is removed. The toast afterwards repeats the count: *"Folder deleted. 4 document(s) moved to 'Brandschutz'."*
+
+Renaming or moving a folder rewrites the stored path of everything beneath it in the same transaction, so a deeply nested document is never left pointing at a path that no longer exists.
+
+**Moving a document between folders** is in the document's own `⋯` menu, under `Move to folder`. Until now a file was filed once, at upload, and stayed there: a document dropped in the wrong folder — or uploaded before the folder existed — could not be re-filed at all. Each destination is listed by its full path (`Brandschutz / Fluchtwege`), because two branches of a tree can both hold a *Fluchtwege*; the folder the document is in now carries a check and cannot be picked; and **All Files** is a real destination, so a document can be taken back out of every folder. The move also re-files the document on the assistant's side, so what Piloti says about where a document lives follows it immediately (see ADR-0049).
+
+**The assistant knows your folders.** When you file a document, the folder travels
+with it into the knowledge base, so the agent can answer "welche Unterlagen habe
+ich in Brandschutz" from the actual filing rather than guessing from file names,
+and it can search inside one folder — including everything nested under it, so
+asking about `Brandschutz` also reads `Brandschutz/Fluchtwege`. Renaming or
+moving a folder updates what the assistant sees too; it may take one more
+question before a very recent rename shows up in its answers. Documents that were
+never filed simply have no folder, and the assistant says nothing about one.
+
 ### The file card grid
 
 Files render as cards in a responsive grid. Each card shows:
@@ -26,7 +48,17 @@ Files render as cards in a responsive grid. Each card shows:
 
 The last tile of the grid is a dashed **upload card** listing the actually accepted file types and the size limit; drag-and-drop anywhere on the workspace also works.
 
+The **detail view** (the list toggle) is a dense sortable table for a corpus past what a card grid can hold. It is fully keyboard-navigable: one tab stop into the list, then arrows to walk it and Home/End to jump to either end — and the tab stop stays on the row you walked to, so tabbing away and back does not return you to the top. Enter opens the row.
+
 A **search field** above the grid filters the current listing client-side by file name, ingestion tags, and the AI description. Top-level folders additionally appear as a quick-filter **chip row** above the grid (the same selection the sidebar folder tree drives — no separate navigation model).
+
+Semantic results arrive in whichever view you are in. In the detail view the ranking is preserved rather than being re-sorted by upload date: **Relevance** is the column the list opens sorted by (and can be sorted the other way), and each row carries the passage that matched with its page number in place of the document's summary.
+
+### When an upload is refused
+
+Files are validated before anything leaves the browser: type, individual size, the batch's total size, and duplicates (both within one selection and against what is already there). A rejection names the reason in the language the interface is in — the validator itself is a pure module and keeps an English fallback for callers with no dictionary, but nothing user-facing renders it any more.
+
+A partially rejected batch still uploads: the valid files go, and the panel says how many were skipped and why.
 
 ### Supported File Types
 
@@ -66,6 +98,8 @@ When you select files, the UI shows each file's status in real time:
 After upload, the `UploadOrchestrator` polls the job status every 5 seconds via `/api/documents/{id}/status` until the job reaches a terminal state or times out (max 420 attempts / ~35 minutes).
 
 On **page refresh**, the orchestrator resumes polling from persisted job state in localStorage, so in-progress uploads are not lost.
+
+A batch in which **everything succeeded** retires its panel a few seconds after it settles — success gets confirmed and then out of the way. A batch containing anything failed or canceled never retires on its own, because those rows carry an action. The countdown **holds** while the pointer is over the panel or keyboard focus is inside it, and starts again when you leave: an unattended panel gets out of the way, one being read does not.
 
 ---
 
@@ -179,7 +213,16 @@ mark = the Büroarchiv provenance signal used across the app):
   tags simply show none, and there is no "verified" marker — the Archiv has no
   review workflow.
 - **Search** — filters the listing client-side by file name, ingestion tags,
-  and the AI description, combinable with the category chips.
+  and the AI description, combinable with the category chips. Pressing Enter
+  runs the semantic search over the corpus instead. A semantic search that
+  cannot RUN (the index is unreachable, the request times out) says so and
+  offers to run the same query again — it is never reported as "no matches",
+  which is a claim about your own files that a search which never ran has no
+  business making.
+- **A document that failed to index** carries the reason on its card, and the
+  card's ⋯ menu offers **Retry indexing** for it — the same retry the preview
+  has, where the failure is actually read. It appears only for a document that
+  failed, and only for someone who may manage it.
 
 ---
 

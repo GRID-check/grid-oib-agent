@@ -358,7 +358,14 @@ const TABLE_WRITE_RE = /\.(insert|update)\(\s*documents\s*\)|update\s+"?document
  * services the scan already reads. It is here so the exemption is a decision
  * rather than an oversight.
  */
-const PASS_THROUGH_TABLE_WRITERS = ['src/lib/storage/repository.ts']
+const PASS_THROUGH_TABLE_WRITERS = [
+  'src/lib/storage/repository.ts',
+  // Re-parents documents when the folder holding them is deleted: it writes
+  // `folder_id` and `updated_at` and nothing else. It authors no status and no
+  // authorship, so the scan has nothing to find in it — and the day it writes
+  // either, this list is what has to be revisited rather than quietly widened.
+  'src/lib/projects/folder-service.ts',
+]
 
 function everySourceFile(dir: string, found: string[] = []): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {

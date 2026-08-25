@@ -1,6 +1,13 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { useChatStore } from '@/features/chat/store'
-import { isFilePeekVisible, useFilePreviewStore } from './file-preview-store'
+import {
+  FILE_PEEK_WIDTH_MAX,
+  FILE_PEEK_WIDTH_MIN,
+  FILE_PEEK_WIDTH_STORAGE_KEY,
+  isFilePeekVisible,
+  readStoredPeekWidth,
+  useFilePreviewStore,
+} from './file-preview-store'
 import type { FileItem } from '../components/project-file-workspace'
 
 const FILE: FileItem = {
@@ -30,6 +37,7 @@ describe('file-preview-store', () => {
       context: {},
     })
     useChatStore.setState({ composerSubject: null })
+    window.localStorage.clear()
   })
 
   it('peeks the same file without dropping it', () => {
@@ -88,5 +96,57 @@ describe('file-preview-store', () => {
     expect(isFilePeekVisible({ file: FILE, hidden: true, mode: 'peek' })).toBe(false)
     expect(isFilePeekVisible({ file: FILE, hidden: false, mode: 'modal' })).toBe(false)
     expect(isFilePeekVisible({ file: null, hidden: false, mode: 'peek' })).toBe(false)
+  })
+
+  describe('the peek width belongs to the reader, so it outlives the session', () => {
+    it('remembers a width the reader dragged to', () => {
+      useFilePreviewStore.getState().setPeekWidth(512)
+
+      expect(useFilePreviewStore.getState().peekWidth).toBe(512)
+      expect(window.localStorage.getItem(FILE_PEEK_WIDTH_STORAGE_KEY)).toBe('512')
+    })
+
+    it('adopts the remembered width on the next mount, and reports it back', () => {
+      window.localStorage.setItem(FILE_PEEK_WIDTH_STORAGE_KEY, '640')
+
+      // The caller needs the value returned, not just stored: it sizes the panel
+      // in the same commit, before anything renders at the default.
+      expect(useFilePreviewStore.getState().restorePeekWidth()).toBe(640)
+      expect(useFilePreviewStore.getState().peekWidth).toBe(640)
+    })
+
+    it('leaves the default alone when nothing is remembered', () => {
+      expect(useFilePreviewStore.getState().restorePeekWidth()).toBeNull()
+      expect(useFilePreviewStore.getState().peekWidth).toBe(320)
+    })
+
+    it('lets the pane past the old 560px ceiling', () => {
+      // The cap used to sit at 560, which is narrower than an A3 plan at any
+      // readable zoom: the seam hit a wall a third of the way across the window.
+      useFilePreviewStore.getState().setPeekWidth(700)
+
+      expect(useFilePreviewStore.getState().peekWidth).toBe(700)
+    })
+
+    it('clamps to the bounds, coming and going', () => {
+      useFilePreviewStore.getState().setPeekWidth(5000)
+      expect(useFilePreviewStore.getState().peekWidth).toBe(FILE_PEEK_WIDTH_MAX)
+
+      useFilePreviewStore.getState().setPeekWidth(10)
+      expect(useFilePreviewStore.getState().peekWidth).toBe(FILE_PEEK_WIDTH_MIN)
+
+      window.localStorage.setItem(FILE_PEEK_WIDTH_STORAGE_KEY, '5000')
+      expect(readStoredPeekWidth()).toBe(FILE_PEEK_WIDTH_MAX)
+    })
+
+    it('refuses a stored value that is not a usable width', () => {
+      window.localStorage.setItem(FILE_PEEK_WIDTH_STORAGE_KEY, 'wide-ish')
+      expect(readStoredPeekWidth()).toBeNull()
+
+      // `Number('')` is 0, which would restore as the minimum rather than as
+      // "nothing stored" — the pane would open narrow for no stated reason.
+      window.localStorage.setItem(FILE_PEEK_WIDTH_STORAGE_KEY, '')
+      expect(readStoredPeekWidth()).toBeNull()
+    })
   })
 })

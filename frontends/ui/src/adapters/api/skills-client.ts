@@ -262,8 +262,10 @@ export const setCuratedSkillEnabled = async (
  * module mirrors the JSON contract so the UI stays decoupled from the server's
  * internals, exactly as the toolbox types above do.
  *
- *   offer     Listed on every org's Skills tab, off until that org switches it
- *             on. The default, and what publishing meant before this existed.
+ *   offer     Listed on every org's Skills tab. A dashboard offer starts off
+ *             until that org switches it on. The default, and what publishing
+ *             meant before this existed. (Chat-usable FILE offers are a
+ *             different source and start on.)
  *   standard  Live for the whole fleet the moment it is published. Not listed,
  *             not switchable, not shadowable — ours to write and ours to
  *             withdraw.

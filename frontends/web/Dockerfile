@@ -12,17 +12,17 @@
 # the same WORKDIR layout) - dist/ is copied wholesale from the builder.
 #
 # Build-time args (baked into the static site; see astro.config.mjs):
-#   PUBLIC_APP_URL  - Where the app lives (nav "Anmelden" link). Default
-#                     https://app.dev.piloti.at (dev `latest` image).
 #   PUBLIC_SITE_URL - Canonical site URL for sitemap/OG metadata. Default
-#                     https://dev.piloti.at (dev `latest` image).
-#   Prod tags must be rebuilt with the prod overrides:
-#     --build-arg PUBLIC_APP_URL=https://app.piloti.at \
-#     --build-arg PUBLIC_SITE_URL=https://piloti.at
+#                     https://piloti.at (prod). Dev canonicalizing to prod is
+#                     deliberate: dev should not be indexed anyway.
+# The app host ("Anmelden" link) is NOT a build-time value: the nav links at
+# the relative /sign-in endpoint, which resolves PUBLIC_APP_URL from the
+# runtime environment - one image serves every stack.
 #
 # Runtime:
 #   docker run -p 4321:4321 \
 #     -e HOST=0.0.0.0 -e PORT=4321 \
+#     -e PUBLIC_APP_URL=https://app.piloti.at \
 #     ghcr.io/grid-check/grid-oib-web:latest
 #
 # =============================================================================
@@ -63,10 +63,8 @@ COPY . .
 # Defense-in-depth: remove any env files that may have leaked past .dockerignore
 RUN rm -f .env .env.local .env.*.local .env.development .env.production 2>/dev/null || true
 
-# Site URLs are baked into the prerendered HTML at build time.
-ARG PUBLIC_APP_URL=https://app.dev.piloti.at
-ARG PUBLIC_SITE_URL=https://dev.piloti.at
-ENV PUBLIC_APP_URL=$PUBLIC_APP_URL
+# Site metadata URLs are baked into the prerendered HTML at build time.
+ARG PUBLIC_SITE_URL=https://piloti.at
 ENV PUBLIC_SITE_URL=$PUBLIC_SITE_URL
 ENV ASTRO_TELEMETRY_DISABLED=1
 

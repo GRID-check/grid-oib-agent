@@ -571,3 +571,92 @@ def emit_research_truncated(
     if shape:
         payload["tools"] = list(shape)
     push_custom_step(f"{STATUS_STEP_PREFIX}{BUDGET_SLOT}", payload)
+
+
+#: Slot for the DEEP researcher's own budget record. Its own slot rather than
+#: :data:`BUDGET_SLOT` because a deep run is cut off by different things — a
+#: wall clock and a graph step limit, not a tool-call ceiling — and collapsing
+#: the two under one step name would make the frontend's name dedupe drop one.
+DEEP_BUDGET_SLOT = "budget:deep"
+
+#: Why a deep run stopped early. Stable tokens, not prose: they are counted.
+CUTOFF_WALL_CLOCK = "wall_clock"
+CUTOFF_STEP_LIMIT = "step_limit"
+#: A timeout that came from BELOW — a provider or transport call that timed out
+#: and escaped the graph — rather than from this run's own budget. Salvaged the
+#: same way, counted separately: reporting a 30-second provider timeout as a
+#: 2400-second budget overrun makes "how often do runs exhaust their budget?"
+#: unanswerable, and that question is the reason the budget is tunable.
+CUTOFF_UPSTREAM_TIMEOUT = "upstream_timeout"
+
+#: Ways a finished deep answer is weaker than a clean one. Also stable tokens.
+DEGRADED_NO_REPORT_FILE = "no_report_file"
+DEGRADED_NO_VALID_CITATIONS = "no_valid_citations"
+
+
+def emit_deep_research_cutoff(
+    *,
+    reason: str,
+    salvaged: bool,
+    source_count: int,
+    report_chars: int,
+    elapsed_seconds: float | None = None,
+) -> None:
+    """Record that a DEEP run was cut off, and whether anything survived it.
+
+    Technical channel, like :func:`emit_research_truncated`, and for the same
+    operator question: *how often does a deep run run out of clock or steps, and
+    when it does, do we still ship something?* Before this existed a cutoff was
+    an exception in a log and the run's whole output was discarded, so neither
+    half of that question could be answered.
+
+    Args:
+        reason: :data:`CUTOFF_WALL_CLOCK` or :data:`CUTOFF_STEP_LIMIT`.
+        salvaged: Whether a report was recovered from the partial run.
+        source_count: Sources the run had captured when it was cut off — the
+            number that decides whether salvage was even allowed.
+        report_chars: Length of the salvaged report; 0 when nothing survived.
+        elapsed_seconds: Wall-clock the run had spent, when known.
+    """
+    payload: dict[str, Any] = {
+        "kind": "status",
+        "channel": CHANNEL_TECHNICAL,
+        "slot": DEEP_BUDGET_SLOT,
+        "truncated": True,
+        "agent": "deep",
+        "reason": reason,
+        "salvaged": salvaged,
+        "source_count": source_count,
+        "report_chars": report_chars,
+    }
+    if elapsed_seconds is not None:
+        payload["elapsed_seconds"] = round(elapsed_seconds, 1)
+    push_custom_step(f"{STATUS_STEP_PREFIX}{DEEP_BUDGET_SLOT}", payload)
+
+
+def emit_answer_degraded(*, agent: str, reasons: list[str]) -> None:
+    """Record that an answer shipped in a known-weaker form than a clean run.
+
+    The two deep-research cases this exists for both used to be a bare
+    ``logger.warning`` beside a ``return``: the writer never persisted a report
+    (so the answer is a chat message wearing a report's clothes), and citation
+    verification found no valid citations at all (so nothing in the answer is
+    provably grounded). Both shipped looking exactly like a good answer.
+
+    Args:
+        agent: Which researcher degraded (``deep`` / ``shallow``).
+        reasons: Stable tokens, e.g. :data:`DEGRADED_NO_REPORT_FILE`.
+    """
+    if not reasons:
+        return
+    push_custom_step(
+        f"{STATUS_STEP_PREFIX}degraded",
+        {
+            "kind": "status",
+            "channel": CHANNEL_TECHNICAL,
+            "slot": "degraded",
+            "agent": agent,
+            "degraded": True,
+            "reasons": list(reasons),
+        },
+    )

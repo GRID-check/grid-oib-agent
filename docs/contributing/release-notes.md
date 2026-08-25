@@ -82,7 +82,10 @@ fixes:
    each new English sentence is translated into German once and cached in
    `releasenotes/translations/de.json`.
 3. The regenerated `frontends/web/src/data/changelog.json` is committed back to
-   `develop`.
+   `develop`. Publishing runs on pushes to `develop` only, and the push is
+   authenticated as the `RELEASE_PAT` owner when that secret is set (falling
+   back to `GITHUB_TOKEN`), because the branch ruleset requires changes to
+   arrive via pull request.
 4. That commit rebuilds the web image, the staging deploy rolls it out, and the
    note is on the site.
 
@@ -122,8 +125,11 @@ the web image is built from a bare working tree.
 ## Setup checklist (once, per repository)
 
 - [ ] Repository secret `OPENROUTER_API_KEY` — otherwise the German page shows English.
-- [ ] Branch protection on `develop` allows the publish workflow to push (allow
-      `github-actions[bot]`, or set a `RELEASE_NOTES_TOKEN` PAT secret).
+- [ ] Repository secret `RELEASE_PAT` — a fine-grained PAT with `contents: write`
+      on this repository, owned by an admin whose RepositoryRole bypass is listed
+      on the `develop` rulesets (the ruleset requires pull requests, and GitHub
+      refuses the Actions integration as a bypass actor). Without it the publish
+      push falls back to `GITHUB_TOKEN`.
 - [ ] A `no-release-note` label exists, for changes no user can observe.
 
 ## Commands

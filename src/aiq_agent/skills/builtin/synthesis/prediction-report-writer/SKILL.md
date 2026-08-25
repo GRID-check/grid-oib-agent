@@ -3,13 +3,7 @@ name: prediction-report-writer
 description: >
   Use this skill when the final answer strategy calls for a prediction, forecast, probability estimate, price target, expected value, threshold outcome, scenario outlook, or prediction-style research report. This skill takes priority over general long-form writing skills for forecasts, stock-price outlooks, probabilities, odds, price targets, expected values, and next-period value estimates, even when the requested answer is concise. Triggers: "prediction", "forecast", "probability", "odds", "confidence interval", "price target", "expected value", "will X happen", "stock price", "market outlook", "scenario analysis", "threshold", "single forecast", "predict". Outputs: A cited Markdown prediction report with a clear forecast, confidence interval or range, executive summary, supporting and opposing factors, uncertainties, recommendations or implications, methodology note, and sources.
 metadata:
-  # These are DeepAgents subagent skills: their instructions call `execute`,
-  # read and write `/shared/`, and return `ResearchNotes` — capabilities that
-  # exist only inside a deep-research job. `grid-agents: deep_researcher` is now
-  # the ONE thing keeping this skill out of a chat turn: it is the single
-  # availability gate, so removing it would offer the shallow chat agent a skill
-  # it cannot carry out. A skill declares WHO may use it and nothing else — when
-  # and how a run happens is a property of the job, not of the skill.
+  grid-catalog: curated
   grid-agents: deep_researcher
 ---
 

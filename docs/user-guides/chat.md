@@ -64,12 +64,15 @@ An empty shelf is empty. A question *about the content* of a file is research an
 ## Invoking a skill (`/name`)
 
 When Agent Skills are enabled (ADR-0046), typing `/` **as the first character
-of a message** opens a picker of the skills you can invoke here. ↑↓ choose,
-Enter inserts, Esc closes — the same keyboard contract as the `@` mention
-picker. Picking one inserts `/name ` and shows a chip naming the skill attached
-to this message, together with its description, so you can confirm you picked
-the right one before sending. Deleting the token removes the invocation; there
-is nothing else to undo.
+of a message** opens a picker of the skills you can invoke here: the playbooks
+your organization has switched on, and any skill you authored. Product methods
+the assistant always has — fire safety, building class, habitable rooms — are
+not in this list, because they load on their own. ↑↓ choose, Enter inserts,
+Esc closes — the same keyboard contract as the `@` mention picker. Picking one
+inserts `/name ` and shows a chip naming the skill attached to this message,
+together with its description, so you can confirm you picked the right one
+before sending. Deleting the token removes the invocation; there is nothing
+else to undo.
 
 The menu only opens at the start of a message. Slashes are ordinary punctuation
 in this field — `12/05`, `OIB-RL 2/3`, `und/oder` — and an invocation applies to
@@ -219,6 +222,58 @@ file"). Law, RIS and web citations never auto-open, and neither do answers
 that cite two or more project files — picking would be a guess. Dismissing
 the peek drops the retrieval focus; it does not come back on the next render
 of the same answer.
+
+**Sizing the peek.** The seam between the conversation and the file is a drag
+handle: pull it to give the document as much of the row as you want, between
+280px and 960px, and the chat column keeps its own floor (40% of the row), so on
+a smaller window that floor is what stops you first. The width you set is
+remembered — per browser, in `localStorage` (`grid.filePeek.width`) — so the next
+file opens at the width you read the last one at. Double-click the seam to put
+it back at its default. The seam is also keyboard operable (Tab to it, then the
+arrow keys). Drag it all the way shut and the peek is dismissed exactly as the
+**×** dismisses it: the viewer goes away, the composer keeps *Asking about …*,
+and **Show file** brings it back.
+
+**Dismissing it, and getting it back.** The **×**, **Escape** (pressed with
+focus inside the pane — the peek sits beside the conversation rather than over
+it, so Escape typed in the composer is the composer's) and dragging the seam
+shut all do the same thing: they *hide* the file without ending the question.
+The composer keeps saying what you are asking about, and focus moves to the
+**Show file** control that undoes it, so the next Tab is not a walk from the top
+of the page.
+
+Whichever way you put it away, a **tab stays on the edge it went out through** —
+click it and the document comes back at the width you had chosen. Nothing here
+is one-way: **Show file** in the composer does the same from the other side of
+the screen (and with the research panel across that half of the row, the panel
+steps aside, since the request was to see the file), and the **×** on the
+*Asking about …* bar — the one control that ends the question as well as the
+viewer — offers **Undo** in the confirmation that follows it.
+
+**Coming from Files.** *Piloti dazu fragen* carries the document with you: the
+viewer you were looking at stays on screen while the conversation loads, and
+hands over to the peek when it arrives. It never blinks out and leaves you
+looking at the file grid mid-move.
+
+**What is in the peek.** The document, and under it what Piloti made of it —
+the indexed summary, clamped to a few lines with the rest one click away. That
+is the answer to "does Piloti understand this file, and as what", which is the
+question worth asking before you ask it anything else; it used to live only in
+the enlarged view. A document with no summary yet shows only itself.
+
+**When the document is gone.** A colleague can delete a document while you are
+asking about it, and access can be withdrawn the same way — the API answers the
+same 404 for both, and no amount of retrying changes either. The preview says
+so plainly and offers the only move left: *stop asking about it*, which also
+clears the composer's subject (with an undo, like every other ending here).
+
+**When the file is not ready.** The peek exists because that document is what
+your next question is about, so it says when it cannot be one: a document still
+being indexed (or one whose indexing failed) carries a line under its name
+saying that Piloti cannot cite it. It clears itself the moment indexing
+finishes — the peek re-asks while the status can still change — so the strip is
+never stale. A failure will not clear itself, so that one carries **Details**,
+which opens the enlarged view where the ingestion error and its retry live.
 
 Clicking a source chip opens a preview of the source instead of doing nothing:
 

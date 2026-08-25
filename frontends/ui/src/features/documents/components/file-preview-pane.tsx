@@ -47,6 +47,7 @@ import { AuthorshipLine } from './authorship-line'
 import { AssignPopover } from './assign-popover'
 import { useRouter } from 'next/navigation'
 import { askAboutFile } from '../lib/ask-about-file'
+import { dropFileSubject } from '../lib/open-file-peek'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 
 interface FilePreviewPaneProps {
@@ -183,7 +184,8 @@ export function FilePreviewPane({
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [previewFailed, setPreviewFailed] = useState(false)
-  const [isReingesting, setIsReingesting] = useState(false)
+  /** The document is not there any more (or not the reader's) — see `loadPreview`. */
+  const [previewGone, setPreviewGone] = useState(false)
   const [isLargePreviewOpen, setIsLargePreviewOpen] = useState(false)
   // "Detailed information": per-page VLM descriptions of the document's visual
   // chunks (drawings/images/charts), lazily loaded on first expand. Secondary
@@ -226,21 +228,45 @@ export function FilePreviewPane({
 
   const loadPreview = useCallback(() => {
     setPreviewFailed(false)
+    setPreviewGone(false)
     if (!canPreview) {
       setPreviewUrl(null)
       return
     }
 
     setIsLoading(true)
+    // A local, not the state above: the branch that sets it and the branch that
+    // reads it are two links of the same promise chain, and a `useState` value
+    // does not change between them.
+    let gone = false
     fetch(`/api/documents/${file.id}/preview`)
-      .then((r) => (r.ok ? r.json() : null))
+      .then(async (r) => {
+        // A RETRY THAT CANNOT WORK IS A DEAD END WEARING A BUTTON.
+        //
+        // 404 here is not a hiccup: the service answers it for a document that
+        // has been deleted AND for one this reader may no longer open (see
+        // `getAccessibleDocument` — cross-tenant and no-access both surface as
+        // 404). Neither changes by asking again, and in a shared project both
+        // happen while somebody is mid-conversation about the file. Offering
+        // "Erneut versuchen" there is an invitation to press a button until
+        // they give up; what they need is to be told, and to be let out.
+        if (r.status === 404) {
+          gone = true
+          return null
+        }
+        return r.ok ? await r.json() : null
+      })
       .then((data) => {
         if (data?.url) {
           setPreviewUrl(data.url)
           // Absent for PDFs and for image formats the optimizer cannot process;
           // the renderer falls back to `url` unoptimized in both cases.
           setPreviewImageUrl(typeof data.imageUrl === 'string' ? data.imageUrl : null)
-        } else setPreviewFailed(true)
+        } else if (gone) {
+          setPreviewGone(true)
+        } else {
+          setPreviewFailed(true)
+        }
       })
       .catch(() => {
         setPreviewUrl(null)
@@ -288,24 +314,13 @@ export function FilePreviewPane({
    * this pane the same way any other change does: the workspace updates the
    * document it passes in.
    */
-  const actions = useDocumentActions({ document: file, scope })
+  const actions = useDocumentActions({ document: file, scope, onReingested })
 
-  // Re-dispatch a failed document to the ingest pipeline. On success the parent
-  // flips its local status to 'pending' (the endpoint returns the new status),
-  // so the existing status reconciliation takes over from there.
-  const handleReingest = useCallback(async () => {
-    setIsReingesting(true)
-    try {
-      const res = await fetch(`/api/documents/${file.id}/reingest`, { method: 'POST' })
-      if (!res.ok) throw new Error(`Reingest failed (${res.status})`)
-      const data = await res.json().catch(() => ({}))
-      onReingested?.(file.id, data.status ?? 'pending')
-    } catch {
-      toast.error(t('preview.retryIngestionError'))
-    } finally {
-      setIsReingesting(false)
-    }
-  }, [file.id, onReingested, t])
+  // Re-dispatch a failed document to the ingest pipeline. The request itself
+  // lives in `useDocumentActions` with rename/delete/download — one document
+  // operation belongs in one place, and the actions MENU offers the same retry
+  // now, on the card where the failure is actually read.
+  const handleReingest = useCallback(() => void actions.reingest(), [actions])
 
   const ext = fileExtensionLabel(file.filename)
 
@@ -479,18 +494,44 @@ export function FilePreviewPane({
           role="alert"
           className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b px-4 py-2"
         >
-          <p className="text-xs text-destructive">{t('preview.downloadFailed')}</p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-7 gap-1.5"
-            onClick={() => void actions.download()}
-            disabled={actions.isDownloading}
-          >
-            <RotateCcw className="size-3.5" aria-hidden />
-            {t('preview.tryAgain')}
-          </Button>
+          {/* THE SAME DEAD END, ONE LEVEL DOWN. A download of a document that
+              is not there any more fails for the reason the preview already
+              established, and offering "Erneut versuchen" for it is the same
+              button-until-you-give-up loop — so when the preview has already
+              said the document is gone, this says it too, and offers the way
+              out rather than the retry. */}
+          <p className="text-xs text-destructive">
+            {previewGone ? t('preview.gone') : t('preview.downloadFailed')}
+          </p>
+          {previewGone ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5"
+              onClick={() =>
+                dropFileSubject({
+                  cleared: t('preview.goneCleared'),
+                  undo: t('preview.goneUndo'),
+                })
+              }
+            >
+              <X className="size-3.5" aria-hidden />
+              {t('preview.goneAction')}
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5"
+              onClick={() => void actions.download()}
+              disabled={actions.isDownloading}
+            >
+              <RotateCcw className="size-3.5" aria-hidden />
+              {t('preview.tryAgain')}
+            </Button>
+          )}
         </div>
       )}
 
@@ -547,7 +588,18 @@ export function FilePreviewPane({
           className={cn(
             'flex min-w-0 justify-center overflow-hidden bg-gradient-to-b from-muted/25 to-muted/60',
             peeking
-              ? 'h-full min-h-0 flex-1 p-3'
+              // THE GROUND IS THE DOCUMENT'S, and the document sits centred on
+              // it. A drawing fitted to the width of a 320px pane is a quarter
+              // of its height and the well cannot make it bigger — width is the
+              // binding constraint, so the leftover vertical space exists
+              // whatever this element does. Top-aligned, the document read as
+              // having fallen to the top of a box. Handing the slack to the
+              // summary below was worse: that block's content is four lines
+              // whatever the pane's height, so the emptiness simply moved under
+              // it and changed colour. Centred on its own ground, with the
+              // summary as a footer band beneath, is the composition that reads
+              // as deliberate at every height.
+              ? 'h-full min-h-0 flex-1 items-center p-3'
               : 'h-[50dvh] min-h-[50dvh] shrink-0 p-5 @2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:p-7',
           )}
         >
@@ -566,7 +618,11 @@ export function FilePreviewPane({
                 src={previewUrl}
                 className={cn(
                   'h-full w-full rounded-lg border bg-background',
-                  peeking ? 'shadow-xs' : 'shadow-lg',
+                  // `shadow-sm` is the CARD step of the elevation ramp; `xs`
+                  // dresses chips and buttons, and under a document it did not
+                  // read as a page on a ground at all. `lg` is the modal step,
+                  // which is what the enlarged view is.
+                  peeking ? 'shadow-sm' : 'shadow-lg',
                 )}
                 title={actions.name}
               />
@@ -602,23 +658,99 @@ export function FilePreviewPane({
                   setPreviewImageUrl(null)
                   setPreviewFailed(true)
                 }}
-                className="h-fit w-auto max-h-full max-w-full rounded-lg border bg-background object-contain shadow-lg @2xl:max-h-none"
+                className={cn(
+                  'h-fit w-auto max-h-full max-w-full rounded-lg border bg-background object-contain @2xl:max-h-none',
+                  peeking ? 'shadow-sm' : 'shadow-lg',
+                )}
               />
             )
           ) : (
             <PageMock
-              caption={previewFailed ? t('preview.loadFailed') : t('preview.noInlinePreview')}
+              caption={
+                previewGone
+                  ? t('preview.gone')
+                  : previewFailed
+                    ? t('preview.loadFailed')
+                    : t('preview.noInlinePreview')
+              }
               action={
-                previewFailed && canPreview ? (
+                previewGone ? (
+                  // The only move left. The document is not coming back, and
+                  // the conversation is still pointed at it — so the way out is
+                  // to stop asking about it, which is also the one thing the
+                  // reader cannot do from inside a viewer that will not load.
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() =>
+                      dropFileSubject({
+                        cleared: t('preview.goneCleared'),
+                        undo: t('preview.goneUndo'),
+                      })
+                    }
+                  >
+                    <X className="size-3.5" aria-hidden />
+                    {t('preview.goneAction')}
+                  </Button>
+                ) : previewFailed && canPreview ? (
                   <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={loadPreview}>
                     <RotateCcw className="size-3.5" aria-hidden />
                     {t('preview.tryAgain')}
                   </Button>
-                ) : undefined
+                ) : (
+                  // "No inline preview for this file type" used to end there:
+                  // a sentence about a document, in the middle of the surface
+                  // that exists to show it, with nothing to do next. The
+                  // sentence already names the way out ("download it to view
+                  // the full document") — so the way out is here, rather than
+                  // an icon the reader has to go and find in the chrome.
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => void actions.download()}
+                    disabled={actions.isDownloading}
+                  >
+                    <Download className="size-3.5" aria-hidden />
+                    {t('preview.download')}
+                  </Button>
+                )
               }
             />
           )}
         </div>
+
+        {/* WHAT PILOTI MADE OF IT, in the peek.
+            The peek dropped the whole rail — properties, tags, the lot — which
+            is right: a 320px column beside a conversation is not where a
+            reader edits metadata. But it dropped the SUMMARY with it, and the
+            summary is the one line of that rail this surface is actually about:
+            the peek exists because this document is what the next question is
+            about, so "does Piloti understand it, and as what" is the question
+            the reader has, and the answer was two clicks away in the enlarged
+            view.
+            It also lands where there was nothing. A portrait plan fitted to a
+            320px pane is half its height, so the well below the drawing was
+            several hundred pixels of empty ground — the reader's eye had
+            nowhere to go and nothing to do. Capped and scrollable so a
+            twelve-line ingestion summary cannot take the document's place, and
+            absent entirely when there is no summary yet. */}
+        {peeking && file.summary && (
+          <section
+            aria-label={t('preview.indexed.title')}
+            className="border-base bg-surface-sunken scroll-fade-bottom max-h-[38%] shrink-0 overflow-y-auto overscroll-contain border-t px-3 py-2.5"
+          >
+            <SectionLabel as="p" icon={Sparkles} className="font-semibold tracking-[0.05em]">
+              {t('preview.indexed.title')}
+            </SectionLabel>
+            <div className="mt-1.5">
+              <IndexedSummary key={file.id} summary={file.summary} />
+            </div>
+          </section>
+        )}
 
         {/* Right: indexed-metadata panel (files-metadata-panel flag, FB-8).
             The AI summary that grounds the agent's answers, the ingestion-detected
@@ -802,10 +934,10 @@ export function FilePreviewPane({
                   variant="outline"
                   className="w-full gap-2"
                   onClick={handleReingest}
-                  disabled={isReingesting}
+                  disabled={actions.isReingesting}
                 >
                   <RotateCcw className="size-4" aria-hidden />
-                  {isReingesting ? t('preview.retryingIngestion') : t('preview.retryIngestion')}
+                  {actions.isReingesting ? t('preview.retryingIngestion') : t('preview.retryIngestion')}
                 </Button>
               )}
             </div>

@@ -10,7 +10,21 @@
  */
 
 import 'server-only'
-import { requireProjectAccess } from '@/lib/authz/projects'
+import { requireProjectAccess, type ProjectPermission } from '@/lib/authz/projects'
+
+/**
+ * Writing the project profile — the intake brief and the standards the agent
+ * reasons from — is a write to the project's structured KNOWLEDGE, so it maps
+ * onto `project:memory:write` rather than the document permission.
+ *
+ * The deprecated umbrella stays in the any-of list for the reason ADR-0038 gave
+ * it: the built-in Editor and Admin roles hold both, and a custom role
+ * provisioned before the split holds only the umbrella. Requiring the umbrella
+ * ALONE — which is what these four call sites used to do — was the mirror-image
+ * fault: a role built the way the catalog now recommends could not save the
+ * project brief at all.
+ */
+const PROFILE_WRITE: readonly ProjectPermission[] = ['project:memory:write', 'project:edit']
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { BadRequestError, ConflictError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -60,7 +74,7 @@ const GENERATE_SUMMARY_TIMEOUT_MS = 35_000
 
 export async function getProjectProfile(
   session: AuthorizedSession,
-  projectId: string,
+  projectId: string
 ): Promise<ProjectProfileState> {
   await requireProjectAccess(session, projectId, 'project:view')
   const state = await findProjectProfileInOrg(projectId, session.organizationId)
@@ -83,9 +97,9 @@ export async function saveProjectProfile(
   session: AuthorizedSession,
   projectId: string,
   profile: ProjectProfile,
-  expectedVersion?: number,
+  expectedVersion?: number
 ): Promise<ProjectProfileState> {
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, PROFILE_WRITE)
   const current = await findProjectProfileInOrg(projectId, session.organizationId)
   if (!current) throw new NotFoundError()
   if (expectedVersion !== undefined && current.profileVersion !== expectedVersion) {
@@ -114,9 +128,9 @@ export interface PatchedProjectProfile extends ProjectProfileState {
 export async function patchProjectProfile(
   session: AuthorizedSession,
   projectId: string,
-  operations: ProjectProfilePatchOperation[],
+  operations: ProjectProfilePatchOperation[]
 ): Promise<PatchedProjectProfile> {
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, PROFILE_WRITE)
   const current = await findProjectProfileInOrg(projectId, session.organizationId)
   if (!current) throw new NotFoundError()
 
@@ -130,7 +144,7 @@ export async function patchProjectProfile(
     profile = pruneResolvedUnknowns(applyProjectProfilePatch(current.profile, normalized))
   } catch (error) {
     throw new BadRequestError(
-      error instanceof Error ? error.message : 'Invalid project profile patch.',
+      error instanceof Error ? error.message : 'Invalid project profile patch.'
     )
   }
 
@@ -166,27 +180,32 @@ async function persistProfile(
      * edits keep preserving it (regenerating on every chat patch would churn).
      */
     resetSummary?: boolean
-  },
+  }
 ): Promise<ProjectProfileState> {
   // Single choke point for BOTH the wizard save and agent patches: a confirmed
   // fact always retires an unconfirmed assumption under the same key (e.g. the
   // migration-backfilled `bundesland=wien` default once the user answers the
   // location question).
   const profile = pruneResolvedAssumptions(rawProfile)
-  const updated = await updateProjectProfileIfVersion(projectId, organizationId, current.profileVersion, {
-    profile,
-    profileVersion: current.profileVersion + 1,
-    profilePromptView: buildProjectPromptView(profile),
-    profileDisplay: buildProjectProfileDisplay(
+  const updated = await updateProjectProfileIfVersion(
+    projectId,
+    organizationId,
+    current.profileVersion,
+    {
       profile,
-      options?.resetSummary ? '' : current.profileDisplay?.summary ?? '',
-      // The locale travels with the summary: a wizard full-replace resets both
-      // (the new prose will record its own locale when regenerated); a patch
-      // preserves both so a chat edit never drops the language provenance.
-      options?.resetSummary ? undefined : current.profileDisplay?.summaryLocale,
-    ),
-    profileUpdatedAt: new Date(),
-  })
+      profileVersion: current.profileVersion + 1,
+      profilePromptView: buildProjectPromptView(profile),
+      profileDisplay: buildProjectProfileDisplay(
+        profile,
+        options?.resetSummary ? '' : (current.profileDisplay?.summary ?? ''),
+        // The locale travels with the summary: a wizard full-replace resets both
+        // (the new prose will record its own locale when regenerated); a patch
+        // preserves both so a chat edit never drops the language provenance.
+        options?.resetSummary ? undefined : current.profileDisplay?.summaryLocale
+      ),
+      profileUpdatedAt: new Date(),
+    }
+  )
   if (!updated) throw new ConflictError('Conflict: profile was modified by another request')
 
   // Drop BOTH profile-derived caches (prompt-view AND bundesland): a location
@@ -200,7 +219,7 @@ async function persistProfile(
 /** The static intake questionnaire definition (gated on project visibility). */
 export async function getProjectIntakeDefinition(
   session: AuthorizedSession,
-  projectId: string,
+  projectId: string
 ): Promise<ProjectIntakeDefinition> {
   await requireProjectAccess(session, projectId, 'project:view')
   return projectIntakeDefinitionV1
@@ -219,7 +238,9 @@ function toAiFinding(raw: BackendConsistencyFinding): AiConsistencyFinding | nul
   if (!message) return null
   const severity: AiConsistencyFinding['severity'] =
     raw.severity === 'inconsistency' ? 'inconsistency' : 'warning'
-  const fields = Array.isArray(raw.fields) ? raw.fields.filter((f): f is string => typeof f === 'string') : []
+  const fields = Array.isArray(raw.fields)
+    ? raw.fields.filter((f): f is string => typeof f === 'string')
+    : []
   return { kind: 'ai', fields, severity, message }
 }
 
@@ -239,19 +260,26 @@ function toAiFinding(raw: BackendConsistencyFinding): AiConsistencyFinding | nul
 export async function checkProjectConsistency(
   session: AuthorizedSession,
   projectId: string,
-  input: { freeText: ConsistencyCheckField[]; structured?: ConsistencyCheckField[]; locale?: string },
+  input: {
+    freeText: ConsistencyCheckField[]
+    structured?: ConsistencyCheckField[]
+    locale?: string
+  }
 ): Promise<{ findings: AiConsistencyFinding[] | null; error?: string }> {
   // Only editors can save the wizard, and this check is part of that save flow —
-  // align it with generateProjectSummary (also 'project:edit') rather than the
+  // align it with generateProjectSummary (also PROFILE_WRITE) rather than the
   // broader 'project:view'.
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, PROFILE_WRITE)
 
   try {
     const backendRes = await fetch(`${getBackendUrl()}/v1/consistency-check`, {
       method: 'POST',
       // Forward the org id so the backend can resolve this org's BYOK LLM
       // credential (falls back to the platform env chain when unset).
-      headers: { 'Content-Type': 'application/json', 'x-grid-organization-id': session.organizationId },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-grid-organization-id': session.organizationId,
+      },
       body: JSON.stringify({
         free_text: input.freeText,
         structured: input.structured ?? [],
@@ -300,9 +328,9 @@ export async function checkProjectConsistency(
 export async function generateProjectSummary(
   session: AuthorizedSession,
   projectId: string,
-  options?: { locale?: string },
+  options?: { locale?: string }
 ): Promise<{ summary: string; error?: string }> {
-  await requireProjectAccess(session, projectId, 'project:edit')
+  await requireProjectAccess(session, projectId, PROFILE_WRITE)
 
   const state = await findProjectProfileInOrg(projectId, session.organizationId)
   if (!state) throw new NotFoundError()
@@ -323,7 +351,10 @@ export async function generateProjectSummary(
       method: 'POST',
       // Forward the org id so the backend can resolve this org's BYOK LLM
       // credential (falls back to the platform env chain when unset).
-      headers: { 'Content-Type': 'application/json', 'x-grid-organization-id': session.organizationId },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-grid-organization-id': session.organizationId,
+      },
       body: JSON.stringify({ profile_text: profileText, locale }),
       // Bound the call so an unreachable backend rejects promptly (as a
       // TimeoutError) instead of hanging into a Cloudflare 504.

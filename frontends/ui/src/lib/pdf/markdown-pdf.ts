@@ -22,14 +22,9 @@
 import 'server-only'
 import React from 'react'
 import { renderToStream } from '@react-pdf/renderer'
-import { AI_GENERATOR_NAME, type AiProvenanceMarking } from '@/lib/ai-provenance'
-import {
-  MarkdownPDF,
-  type PdfHeader,
-  type PdfMetadata,
-  type PdfNotice,
-  type PdfSection,
-} from './ReactPdfDocument'
+import type { AiProvenanceMarking } from '@/lib/ai-provenance'
+import { ReportPDF } from './ReactPdfDocument'
+import type { DocumentFact } from '@/lib/answer-export/answer-document'
 
 /** The MIME type a browser needs to show the bytes inline. */
 export const PDF_MEDIA_TYPE = 'application/pdf'
@@ -131,77 +126,53 @@ export class MarkdownTooLongError extends Error {
 
 export interface MarkdownPdfOptions {
   /**
-   * What is printed where a ```mermaid fence stands — see
-   * `MarkdownPDFProps.diagramPlaceholder` in `ReactPdfDocument.tsx` for why it is required and why
-   * it cannot have a default.
+   * What is printed where a ```mermaid fence stands.
    *
-   * It is the reason `options` itself is required rather than defaulted: the
-   * cost of a caller forgetting is a filed compliance document that prints
-   * mermaid source where the same answer shows a drawing on screen, and a
-   * default that could be forgotten is what let that ship in the first place.
+   * Required, and the only string on this type that is. A mermaid fence is not
+   * a listing — its text is instructions for drawing something, not the
+   * something — and it is the one token type where this renderer and the chat
+   * DISAGREE about what the same markdown means. A default is what a caller
+   * forgets, and what a caller forgets here is a filed compliance document
+   * printing `flowchart TD` where the answer showed a picture.
    */
   diagramPlaceholder: string
-  /** The document's own title, for the Info dictionary and the window chrome. */
+  /** The document's own name; falls back to the prose's leading heading. */
   title?: string
+  /** Printed on the cover, under the title. */
+  projectName?: string
   /**
-   * A statement about the document, printed on page one. The caller supplies
-   * the words — see {@link PdfNotice}.
-   */
-  notice?: PdfNotice
-  /**
-   * The block that identifies the document and its subject, printed under the
-   * notice — never above it. Absent by default: an export of prose a person
-   * read on screen has no project to name and no run to point at, and a header
-   * with one row saying today's date is chrome.
-   */
-  header?: PdfHeader
-  /**
-   * Matter appended after the markdown, each under its own heading. Absent by
-   * default; an empty array renders nothing, so a caller with no cards to show
-   * never prints a heading standing over nothing.
-   */
-  sections?: PdfSection[]
-  /**
-   * The machine-readable marking, when the content was generated and not
-   * reviewed by a human.
+   * Facts the caller knows and the prose does not — Standort, Bundesland,
+   * Gebäudeklasse — appended after project and date.
    *
-   * Absent — the default — writes no marking at all, which is what keeps the
-   * marking meaningful: `POST /api/generate-pdf` exports a report a person read
-   * on screen and chose to download, and stamping that one too would make the
-   * stamp mean nothing. The same argument `DocxOptions.aiProvenance` makes.
+   * Bundesland is why this exists: a compliance statement without it is not
+   * checkable, because it names the Bauordnung the document was checked
+   * against.
+   */
+  facts?: DocumentFact[]
+  /** ISO-8601. Anything unparseable is treated as absent, never as now. */
+  createdAt?: string
+  /**
+   * The run's Grid cards, rendered as the document's findings section — which
+   * is where „Rechtsgrundlagen" now comes from. Passed through verbatim as the
+   * stored jsonb; `lib/answer-export/cards.ts` walks them defensively, so a
+   * card type this build has never seen still exports.
+   */
+  cards?: unknown
+  /** The reader's language; defaults to the app default. */
+  locale?: string
+  /**
+   * The AI marking — printed on the cover AND written to the Info dictionary's
+   * Keywords, both or neither.
    *
-   * The STRING, and not the `AiProvenance` it is built from, because this
-   * renderer is no longer the thing that decides what the marking says.
-   * `fileGeneratedDocument` decides that once for every producer and checks the
-   * finished bytes carry it (`generatedDocumentMarking`), so a renderer that
-   * formatted its own would be a second answer to a question with one — and the
-   * one the seam checks against is the seam's. Same reason
-   * `renderDiagramPdf` takes its footer line rather than a dictionary.
+   * Opt-in, because a stamp on every PDF is a stamp that means nothing: a
+   * person exporting prose they have read and chosen to download is not the
+   * case this marks. A document Piloti filed into a project is, because it
+   * leaves the product with no byline to carry it.
    */
   marking?: AiProvenanceMarking
 }
 
-/**
- * The Info-dictionary fields for one rendering.
- *
- * `subject` carries the notice's HEADLINE rather than a description of the
- * report, and that is a compromise worth naming: react-pdf exposes no custom
- * property (see `@/lib/ai-provenance`), so the marking has to live in fields
- * that were meant for something else. `Subject` is the field a person actually
- * sees in a viewer's document-properties panel, so putting „KI-generiert —
- * nicht geprüft" there means the marking survives even for a reader who never
- * scrolls to page one — and it is only ever set when there IS a notice, so an
- * ordinary export's Subject is not overwritten with something it did not say.
- */
-function metadataFor(options: MarkdownPdfOptions): PdfMetadata | undefined {
-  const { title, notice, marking } = options
-  if (!title && !notice && !marking) return undefined
-  return {
-    title,
-    subject: notice?.title,
-    ...(marking ? { keywords: marking, creator: AI_GENERATOR_NAME } : {}),
-  }
-}
+
 
 /**
  * What `renderToStream` will accept.
@@ -241,24 +212,20 @@ export async function renderMarkdownPdf(
     throw new MarkdownTooLongError(markdown.length)
   }
 
-  const element = React.createElement(MarkdownPDF, {
-    markdown,
-    diagramPlaceholder: options.diagramPlaceholder,
-    notice: options.notice,
-    header: options.header,
-    sections: options.sections,
-    metadata: metadataFor(options),
+  const element = React.createElement(ReportPDF, {
+    request: {
+      markdown,
+      title: options.title,
+      projectName: options.projectName,
+      facts: options.facts,
+      createdAt: options.createdAt,
+      cards: options.cards,
+      locale: options.locale,
+      diagramPlaceholder: options.diagramPlaceholder,
+      aiProvenance: options.marking,
+    },
   })
 
-  // THE one cast in this module, and the boundary it sits on: react-pdf types
-  // its renderers as taking an element whose props ARE `DocumentProps`, but
-  // every real caller passes a component that RETURNS a `<Document>` — the
-  // library's own README does the same. The two prop types share no member, so
-  // TS rejects a direct assertion and `unknown` is the only route. It is safe
-  // for exactly one reason, checked here rather than assumed: `MarkdownPDF`
-  // renders `<Document>` as its root (see `ReactPdfDocument.tsx`), which is
-  // what the renderer requires — and it is what the specs render for real
-  // rather than trusting.
   const stream = await renderToStream(element as unknown as PdfDocumentElement)
   const chunks: Buffer[] = []
   for await (const chunk of stream) chunks.push(Buffer.from(chunk as Uint8Array))

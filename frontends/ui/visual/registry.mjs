@@ -65,6 +65,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="app-rail-preview"]',
   },
   {
+    id: 'app-rail-wide',
+    path: '/dev/app-rail?variant=wide',
+    description:
+      "The rail at 400px — a width no design review had ever seen, because until now no reader could ask for one: the edge showed a resize cursor and only toggled. It is a real drag handle now, so every width between 200px and 420px is a state the product ships in, and the two that carry layout risk are the ends. Here the nav labels stop truncating and the footer tile spreads; the seam, the group rhythm and the footer's bottom edge are the same ones the 236px shot pins.",
+    waitFor: '[data-testid="app-rail-preview"]',
+  },
+  {
     id: 'app-shell-scopes',
     path: '/dev/app-shell-scopes',
     description:
@@ -353,6 +360,46 @@ export const SCREENSHOT_TARGETS = [
     description:
       'What a person is told before and after Piloti writes a file into their project. The `starting` banner carries ONE quiet line naming the destination — Projekt › Berichte — and it sits there rather than in a modal because this is the only moment the run can still be stopped; a confirmation asked afterwards is answered yes every time. The second panel is the same line under the escalation narration, the case where the classifier started the run and „the user asked for a report" is not even true. The last two panels are the rule for the outcome: with a filed document the banner names the real filename and offers a second action that goes somewhere else than „Bericht anzeigen" (the research panel) — into the project, through the same /files?doc= deep link every other document surface uses; with nothing filed and nothing ever promised (a chat outside a project, a run older than the feature) it says nothing at all, because a banner must never claim a file that does not exist. The fifth panel is the one absence that is NOT silent: the disclosure was on screen, the filing was attempted for a resolved project and it failed, so one muted line takes the promise back — same size, same ink, same success variant, no red, no icon and no reason, because a refused quota and a revoked permission are one fact to the reader: the document is not there.',
     waitFor: '[data-testid="research-filing-preview"]',
+    id: 'file-browser-search-failed',
+    path: '/dev/file-browser?variant=search-failed',
+    description:
+      'A semantic search that could not RUN, held apart from one that ran and found nothing. The hook fails open to an empty hit list so the pane cannot crash, and reports which of the two happened — but nothing read that flag, so a backend timeout rendered as "Keine semantischen Treffer für …": the surface told the reader something about their own corpus that the app had no way of knowing, and offered them a reset for it. The retry re-runs the SAME query, because they had already typed it once.',
+    waitFor: '[data-testid="file-browser-search-failed"]',
+  },
+  {
+    id: 'document-actions-move',
+    path: '/dev/document-actions?variant=move',
+    description:
+      'Where a document can be re-filed to. Folders were create-only for the FILE as well as for themselves: `documents.folder_id` was written at upload and had no second writer, so a document dropped in the wrong folder stayed there. Each destination is named by its whole path (two projects can both have a \u201cFluchtwege\u201d), the folder it is in now carries a check and is not offerable, and the project root is a real destination rather than the absence of one. The submenu trigger also gets shadcn\u2019s own `gap-2` and `[&_svg]` rules back \u2014 they were dropped when this file was vendored, so its icon sat flush against its label while every ordinary row beside it was spaced.',
+    waitFor: '[data-slot="dropdown-menu-sub-content"]',
+  },
+  {
+    id: 'document-actions-moved',
+    path: '/dev/document-actions?variant=moved',
+    description:
+      'The same submenu with a destination actually picked, printing what reached `onMoved`. It exists because jsdom never delivers a synthetic click to a submenu item \u2014 the unit test can assert what the menu OFFERS but not that choosing works, so this is where the selection itself is verified, in a real browser, against a shimmed PATCH.',
+    waitFor: '[data-testid="document-moved-result"]',
+  },
+  {
+    id: 'file-browser-search-list',
+    path: '/dev/file-browser?variant=search-list',
+    description:
+      'A semantic search answered in the DETAIL view. The card/list toggle was read only on the un-searched branch, so pressing Enter threw a reader who had deliberately chosen the list back into cards, and clearing the query threw them back again. The ranking comes with it: relevance is the column the list opens sorted by \u2014 its own default is newest-first, which would have silently discarded the order the backend ranked \u2014 and every row carries the passage that matched, with its page, in the slot the summary usually holds.',
+    waitFor: '[data-testid="file-list-relevance"]',
+  },
+  {
+    id: 'file-browser-folder-menu',
+    path: '/dev/file-browser?variant=folder-menu',
+    description:
+      'A folder row\u2019s own \u22ef menu. Folders were create-only: a name typed wrong stayed wrong, and a folder made by mistake stayed in the tree forever. Rename and Delete now sit on the folder itself, one hover away, with the destructive one carrying its own colour \u2014 and the trigger stays lit while its menu is up, so the control that opened it does not vanish underneath the reader.',
+    waitFor: '[role="menuitem"]',
+  },
+  {
+    id: 'file-browser-folder-rename',
+    path: '/dev/file-browser?variant=folder-rename',
+    description:
+      'Renaming a folder happens in the row itself \u2014 same indent, same width, pre-filled with the current name. The reader is looking at the name they want to change, so a dialog would take it off screen to ask about it. Enter commits, Escape cancels, an unchanged name makes no request at all, and a failed save leaves the field open with the typed text intact.',
+    waitFor: '[data-testid="folder-rename-input-f-brand"]',
   },
   {
     id: 'archiv-library',
@@ -925,6 +972,41 @@ export const SCREENSHOT_TARGETS = [
     description:
       'The same split reached the way Ask Piloti reaches it. `FilePreviewBridge` is mounted by the PROJECT layout, so on this journey it mounts in Files with the split OFF and its file panel collapsed, and only opens once chat is reached. That transition shipped broken: the pane rendered in peek mode inside a zero-width panel parked off the right edge, while every other check \u2014 mode, mount count, and the hand-rolled file-chat-dock mockup \u2014 stayed green. Held apart from `file-ask-split`, which mounts with the peek already open and therefore cannot see it.',
     waitFor: '[data-testid="file-preview-host"][data-mode="peek"]',
+  },
+  {
+    id: 'file-ask-split-wide',
+    path: '/dev/file-ask-split/chat?variant=wide',
+    description:
+      'The file peek opened wide — a remembered width of 720px, which the 1200px capture viewport trims to about 578px because the chat column keeps its own 40% floor. That trim is half the evidence: the two constraints meet without either column collapsing. The other half is that this state exists at all — the seam fought the drag after about twenty pixels and the ceiling stood at 560px, so nobody could reach it. Held beside `file-ask-split` (the 320px default) because the ratio is what needs reviewing: what the transcript does with the width it is left, and whether the peek toolbar still reads at the far end of the range.',
+    waitFor: '[data-testid="file-ask-split-preview"]',
+  },
+  {
+    id: 'file-ask-split-indexing',
+    path: '/dev/file-ask-split/chat?variant=indexing',
+    description:
+      'The peek on a document that is still being read. Its status rides in the peek toolbar — the modal has carried it under the name since the day it was built, while the peek, the one surface that exists because this file is what the next question is about, showed a file the agent cannot cite yet as identical to one it can. Silent for a ready document, so the chrome stays quiet; here it is the answer to "why did the answer not use my file". Also the shot that holds the toolbar band: 48px, held 10px off the top, on the same line as the chat pills across the seam.',
+    waitFor: '[data-testid="file-ask-split-preview"]',
+  },
+  {
+    id: 'file-ask-split-failed',
+    path: '/dev/file-ask-split/chat?variant=failed',
+    description:
+      "The peek on a document whose indexing failed — the one state here that will not resolve itself, and therefore the one that carries a way out rather than only the bad news. Destructive tint (the indexing strip stays on the quiet ground, since that one settles on its own), and a Details control that opens the enlarged view where the ingestion error and its retry live. Held as its own shot because 'we told you and left you there' is exactly the state a screenshot review would otherwise never see.",
+    waitFor: '[data-testid="file-ask-split-preview"]',
+  },
+  {
+    id: 'file-ask-split-gone',
+    path: '/dev/file-ask-split/chat?variant=gone',
+    description:
+      'The document is not there any more — deleted by a colleague, or no longer this reader\u2019s to open; the service answers 404 for both. The pane used to offer "Erneut versuchen" here, a button that could be pressed until the reader gave up, because nothing distinguished a permanent 404 from a hiccup. It now says what happened and offers the one move left: stop asking about it, which is also the only thing that cannot be done from inside a viewer that will not load.',
+    waitFor: '[data-testid="file-ask-split-preview"]',
+  },
+  {
+    id: 'file-ask-split-dismissed',
+    path: '/dev/file-ask-split/chat?variant=hidden',
+    description:
+      'The peek put away — and the tab it left on the edge it went out through. Dragging the seam shut, Escape and the ✕ all land here, and until this shot existed the state had no picture at all: the chat simply reclaimed the row and the only way back was a control in the composer that belongs to the question rather than to the viewer. The tab reopens the document at the width the reader had chosen. It is the state that proves no gesture on this surface is one-way.',
+    waitFor: '[data-testid="file-ask-split-preview"]',
   },
   {
     id: 'projects-home',

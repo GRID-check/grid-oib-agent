@@ -40,7 +40,37 @@ name: Deploy (staging)
 #   5. Add repo secret PULUMI_ACCESS_TOKEN (gate previews + the apply).
 # The "Preflight" step below verifies step 2/4 happened and fails with
 # instructions if not.
+#
+# PRODUCTION (`deploy-prod` job below). A merged develop→prod promotion PR
+# pushes the `prod` branch, which previews + applies the SAME program against
+# stack matthiasbigl/grid-oib/prod — completing the flow diagrammed in
+# docs/deployment/cd.md. One-time requirements:
+#   * GitHub environment `production` exists with REQUIRED REVIEWERS
+#     (Settings → Environments). The environment gate IS the human approval;
+#     until it exists the job runs unreviewed.
+#   * Repo secret PULUMI_ACCESS_TOKEN reachable there (the same secret the
+#     staging job uses; no environment-scoped secret needed).
+#   * Images must ALREADY exist in GHCR: prod consumes the imageTag PINNED in
+#     its committed Pulumi.prod.yaml, so unlike staging this job sets NO config,
+#     resolves NO per-service refs and verifies NO rollback tag — the preview
+#     applies exactly what the stack file records. That pinned line IS the
+#     promotion mechanism: every develop→prod promotion PR bumps
+#     grid-oib:imageTag to the new develop-tip sha (publish-images builds all
+#     services as sha-<full sha> on every develop push). CI computes nothing
+#     dynamically here — prod merge shas never have GHCR images; only develop
+#     tips do. (Publish Images never runs for `prod`, so there is nothing else
+#     to pin tags.)
+# There is deliberately NO Publish Images chaining and NO template preflight:
+# the prod stack is expected fully configured, and a broken one fails closed
+# at `pulumi preview`. CI does not run on `prod` pushes either (ci.yml targets
+# develop/release only), so green-CI enforcement belongs in prod BRANCH
+# PROTECTION (require the promotion PR's checks) plus the environment
+# reviewers — not in a poll like staging's. Manual workflow_dispatch with
+# target=prod (or both) also runs this job, behind the same reviewer gate —
+# usable as a manual prod re-apply.
 on:
+  push:
+    branches: [prod]
   workflow_run:
     workflows: ["Publish Images"]
     types: [completed]
@@ -56,23 +86,31 @@ on:
           an older image.
         required: false
         type: string
+      target:
+        description: 'Which stacks to deploy'
+        type: choice
+        options: [staging, prod, both]
+        default: staging
 
 permissions:
   contents: read
   actions: read # poll CI / Security workflow conclusions for the gate step
   packages: read # verify the rollback tag exists for all three images (dispatch)
 
-concurrency:
-  group: deploy-dev
-  cancel-in-progress: false
-
+# Concurrency is PER JOB now (`deploy-dev` / `deploy-prod` below): a
+# production apply must not queue behind a staging publish or vice versa.
+# Within each stack, updates still run strictly one at a time.
 jobs:
   deploy:
     name: Pulumi up (dev)
-    # Only when the image build actually succeeded (skip on failed/cancelled).
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    # Only when the image build actually succeeded (skip on failed/cancelled),
+    # or on a manual dispatch whose target is staging/both.
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'staging' || inputs.target == 'both')) }}
     runs-on: ubuntu-latest
     environment: staging
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
     env:
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
       # The image tag the cluster is pinned to for this run: normally the
@@ -431,6 +469,86 @@ jobs:
           pulumi config set grid-oib:backendImage "$BACKEND_IMAGE_REF"
           pulumi config set grid-oib:frontendImage "$FRONTEND_IMAGE_REF"
           pulumi config set grid-oib:webImage "$WEB_IMAGE_REF"
+          pulumi up --yes
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+
+  # Mirrors the staging job above (same runner, checkout action/version,
+  # toolchain setup, working directories, secret mechanism, plan gates and
+  # error handling) against the fully-configured prod stack. All staging-only
+  # machinery is absent ON PURPOSE — see the header comment: no dispatch
+  # guard, no image-tag validation or pinning (the committed stack config owns
+  # the image refs), no CI/Security poll, no template preflight.
+  deploy-prod:
+    name: Pulumi up (prod)
+    # Direct events only: pushes to `prod` (branch filter on the push trigger)
+    # and manual dispatches with target=prod/both. NEVER on the workflow_run
+    # chain from Publish Images — that is staging's trigger and would otherwise
+    # queue a prod apply on every merge to develop.
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.target == 'prod' || inputs.target == 'both')) }}
+    runs-on: ubuntu-latest
+    # Required-reviewer protection comes from this GitHub environment.
+    environment: production
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    steps:
+      # Pushes land on refs/heads/prod, so the default checkout IS the
+      # promoted commit (dispatch checks out whatever ref it ran from).
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: deploy/pulumi/package-lock.json
+
+      - name: Install program deps
+        working-directory: deploy/pulumi
+        run: npm ci
+
+      - name: Install policy-pack deps
+        working-directory: deploy/pulumi/policy
+        run: npm ci
+
+      - name: Typecheck (cluster-free gate)
+        working-directory: deploy/pulumi
+        run: npx tsc --noEmit && (cd policy && npx tsc --noEmit)
+
+      - name: Install Pulumi
+        run: |
+          # Installer downloaded to a file first, not piped into a shell —
+          # same rationale as the staging job's step above.
+          curl -fsSL https://get.pulumi.com -o "$RUNNER_TEMP/install-pulumi.sh"
+          sh "$RUNNER_TEMP/install-pulumi.sh" --version latest
+
+      # The same two independent plan gates as staging (CRD schema validation +
+      # mandatory CrossGuard policies), but against the prod stack and with NO
+      # config overrides: what is previewed is exactly what the stack pins.
+      - name: Validate plan (CRD schemas + policy pack)
+        working-directory: deploy/pulumi
+        run: |
+          export PATH="$HOME/.pulumi/bin:$PATH"
+          pulumi stack select matthiasbigl/grid-oib/prod
+          # `--json` puts the plan on stdout, but policy-pack violations are NOT
+          # part of it — re-run in text mode on failure so the violating rule is
+          # visible in the log (the failed plan itself is cached server-side).
+          if ! pulumi preview --policy-pack ./policy --json > .plan.json; then
+            echo "::error::pulumi preview failed — re-running in text mode to surface the reason"
+            pulumi preview --policy-pack ./policy || true
+            echo "::error::captured JSON plan follows"
+            cat .plan.json
+            exit 1
+          fi
+          node scripts/validate-crs.mjs .plan.json
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+
+      - name: Pulumi up
+        working-directory: deploy/pulumi
+        run: |
+          export PATH="$HOME/.pulumi/bin:$PATH"
+          pulumi stack select matthiasbigl/grid-oib/prod
           pulumi up --yes
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}

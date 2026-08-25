@@ -74,14 +74,82 @@ describe('requireProjectAccess', () => {
 
   const authzKeys = () => store.getKeys.filter((k) => k.startsWith('authz:check:'))
 
-  it('org admins bypass FGA entirely (differential: no WorkOS check calls)', async () => {
-    const result = await requireProjectAccess(
-      session({ role: 'admin' }),
-      PROJECT_ID,
-      'project:edit'
-    )
-    expect(result).toEqual({ role: 'project-admin' })
-    expect(check).not.toHaveBeenCalled()
+  describe('the org-wide project bypass is a PERMISSION, not a role name', () => {
+    it('a legacy admin session still bypasses FGA entirely (no WorkOS calls)', async () => {
+      // `hasPermission`'s bounded catalog implication: the session carries the
+      // role slug and no claims, and the catalog says Admin holds
+      // `org:projects:administer`. Nobody has to re-log-in for the fix.
+      const result = await requireProjectAccess(
+        session({ role: 'admin' }),
+        PROJECT_ID,
+        'project:edit'
+      )
+      expect(result).toEqual({ role: 'project-admin' })
+      expect(check).not.toHaveBeenCalled()
+    })
+
+    it('a session holding the permission bypasses, whatever its role is called', async () => {
+      const result = await requireProjectAccess(
+        session({ role: 'custom-owner', permissions: ['org:projects:administer'] }),
+        PROJECT_ID,
+        'project:manage'
+      )
+      expect(result).toEqual({ role: 'project-admin' })
+      expect(check).not.toHaveBeenCalled()
+    })
+
+    it('a role that is not admin and holds nothing gets no bypass', async () => {
+      check.mockResolvedValue({ authorized: false })
+      await expect(
+        requireProjectAccess(
+          session({ role: 'org-auditor', permissions: ['org:audit:view'] }),
+          PROJECT_ID,
+          'project:manage'
+        )
+      ).rejects.toThrow('Not found')
+    })
+
+    it('a custom role with every OTHER org permission gets no bypass', async () => {
+      // The mirror-image fault: the extensibility contract broke the moment a
+      // persona needed to reach projects. It now works — by holding the
+      // permission, which is the point — and does NOT come for free.
+      check.mockResolvedValue({ authorized: false })
+      await expect(
+        requireProjectAccess(
+          session({
+            role: 'org-owner-custom',
+            permissions: [
+              'org:settings:manage',
+              'org:models:manage',
+              'org:budgets:manage',
+              'org:compliance:manage',
+              'org:audit:view',
+              'org:archiv:manage',
+              'org:skills:manage',
+              'org:projects:create',
+              'org:members:manage',
+            ],
+          }),
+          PROJECT_ID,
+          'project:view'
+        )
+      ).rejects.toThrow('Not found')
+    })
+  })
+
+  describe('the derived role reads what the caller HOLDS', () => {
+    it('an admin asked via an any-of list is not demoted to editor', async () => {
+      // `['project:members:manage', 'project:manage']` is how the members service
+      // asks. The skipped `project:manage` check used to fall back to comparing
+      // against `accepted[0]` — a different slug — so a real project admin came
+      // back as an editor.
+      check.mockImplementation(({ permissionSlug }: { permissionSlug: string }) =>
+        Promise.resolve({ authorized: permissionSlug === 'project:manage' })
+      )
+      await expect(
+        requireProjectAccess(session(), PROJECT_ID, ['project:members:manage', 'project:manage'])
+      ).resolves.toEqual({ role: 'project-admin' })
+    })
   })
 
   it('project:edit makes two FGA round-trips (edit + manage) when uncached', async () => {
@@ -209,9 +277,16 @@ describe('requireProjectAccess', () => {
     check.mockImplementation(({ permissionSlug }: { permissionSlug: string }) =>
       Promise.resolve({ authorized: permissionSlug === 'project:memory:write' })
     )
+    // Editor, not viewer. This expectation used to read `project-viewer`, which
+    // contradicted the any-of case above ("a holder of only the narrow write
+    // permission reads as an editor") — the ladder was keyed on the umbrella
+    // `project:edit` alone, so a narrow-write role fell to the reader rung and
+    // became a mere viewer on every shared thread in a project whose memory it
+    // can rewrite. The rung is "holds a write permission"; which one is not the
+    // ladder's business.
     await expect(
       requireProjectAccess(session(), PROJECT_ID, 'project:memory:write')
-    ).resolves.toEqual({ role: 'project-viewer' })
+    ).resolves.toEqual({ role: 'project-editor' })
     // The same session must NOT get document writes from a memory grant.
     await expect(
       requireProjectAccess(session(), PROJECT_ID, 'project:documents:write')

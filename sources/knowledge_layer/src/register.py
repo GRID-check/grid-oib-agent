@@ -53,7 +53,10 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "If the user named a file and asked what it says, pass `file_name=` that "
     "exact indexed name (from the inventory or the user). Narrow with "
     "`doc_class=` (Dokumentart key, e.g. oib_richtlinie) or `title_contains=` "
-    "when you already know the class or a title fragment.\n"
+    "when you already know the class or a title fragment. Pass `folder=` (the "
+    "path the inventory prints after 'Ordner:', e.g. Brandschutz/Fluchtwege) "
+    "when the user scoped the question to a folder — it also covers everything "
+    "filed beneath that folder.\n"
     "WHEN NOT TO CALL — to put a file on screen (the user asked to SEE or "
     "BROWSE files, no legal question): that is `surface_documents`. After "
     "you cite a project or Büroarchiv file, do not also call "
@@ -65,7 +68,8 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "`file_name`; take it from the inventory or the user. Do not pass a raw "
     "`filters` object unless you need `content_type`.\n"
     "RETURNS — numbered passages with Source, Citation (copy this key "
-    "verbatim), Dokumentart, page, and the passage. Cite only those keys. "
+    "verbatim), Dokumentart, Ordner (the folder the file is filed in, when it "
+    "has one), page, and the passage. Cite only those keys. "
     "An empty result tells you how to retry (narrower query, `file_name`, "
     "`title_contains`); it is not permission to invent a citation."
 )
@@ -835,6 +839,75 @@ def _hit_display_title(chunk, resolved: dict[tuple[str, str], str]) -> str | Non
     return None
 
 
+def _resolve_folder_paths(chunks) -> dict[tuple[str, str], str]:
+    """Resolve the stored ``folder_path`` for each hit's document (batched).
+
+    Mirrors :func:`_resolve_doc_classes` and :func:`_resolve_display_titles`: the
+    document_metadata store is the source of truth for where a document is
+    FILED, and the folder is deliberately NOT baked into the chunk vectors
+    (ADR-0049) — a folder rename moves the path, and a value baked into every
+    chunk would have to be rewritten chunk by chunk or go stale. Reading it here,
+    once per collection, is what makes a rename take effect with no re-ingest.
+    Fail-open: any store error yields an empty/partial map, which reads as
+    "filed at the root".
+    """
+    resolved: dict[tuple[str, str], str] = {}
+    try:
+        from aiq_agent.knowledge.factory import get_document_folder_paths
+    except Exception:
+        return resolved
+
+    by_collection: dict[str, list[str]] = {}
+    seen: set[tuple[str, str]] = set()
+    for chunk in chunks:
+        collection = (chunk.metadata or {}).get("collection")
+        file_name = chunk.file_name
+        if not collection or not file_name:
+            continue
+        key = (collection, file_name)
+        if key in seen:
+            continue
+        seen.add(key)
+        by_collection.setdefault(collection, []).append(file_name)
+
+    for collection, file_names in by_collection.items():
+        try:
+            stored_map = get_document_folder_paths(collection, file_names)
+        except Exception:
+            stored_map = {}
+        for file_name, stored in stored_map.items():
+            if stored:
+                resolved[(collection, file_name)] = stored
+    return resolved
+
+
+def _hit_folder_path(chunk, resolved: dict[tuple[str, str], str]) -> str | None:
+    """Folder path for a single hit, or ``None`` when it sits at the root."""
+    collection = (chunk.metadata or {}).get("collection")
+    if collection and chunk.file_name:
+        return resolved.get((collection, chunk.file_name))
+    return None
+
+
+def _folder_matches(stored: str | None, requested: str) -> bool:
+    """True when a hit is filed in ``requested`` OR anywhere beneath it.
+
+    The subtree is the point of a materialised path: asking for ``Brandschutz``
+    must also return ``Brandschutz/Fluchtwege``, and must NOT return
+    ``Brandschutzkonzepte`` — which is exactly what the ``/`` boundary below
+    enforces. Comparison is case-insensitive because the agent retypes the
+    folder name from the inventory, and slashes are trimmed so ``/Brandschutz/``
+    and ``Brandschutz`` are the same request.
+    """
+    have = (stored or "").strip().strip("/").casefold()
+    want = (requested or "").strip().strip("/").casefold()
+    if not want:
+        return True
+    if not have:
+        return False
+    return have == want or have.startswith(f"{want}/")
+
+
 def _file_name_matches(chunk_name: str | None, requested: str) -> bool:
     """True when a hit is the file the agent named.
 
@@ -854,6 +927,7 @@ def _apply_agent_filters(
     doc_class: str | None,
     title_contains: str | None,
     file_name: str | None = None,
+    folder: str | None = None,
 ) -> list:
     """Narrow a merged candidate list by the agent-supplied filters.
 
@@ -862,10 +936,15 @@ def _apply_agent_filters(
     resolution as the Dokumentart line (:func:`_hit_doc_class`), so a platform-owner
     reclassification takes effect without re-ingest. ``title_contains`` matches the
     raw file name OR the resolved display title, case-insensitively. ``file_name``
-    matches the indexed name only — the agent already has a name.
+    matches the indexed name only — the agent already has a name. ``folder``
+    keeps only documents filed in that project folder OR anywhere under it
+    (ADR-0049), resolved from the same store for the same reason: a folder
+    rename applies immediately, with nothing re-ingested.
     """
     resolved_classes = _resolve_doc_classes(chunks) if doc_class else {}
     resolved_titles = _resolve_display_titles(chunks) if title_contains else {}
+    requested_folder = (folder or "").strip().strip("/") or None
+    resolved_folders = _resolve_folder_paths(chunks) if requested_folder else {}
     needle = title_contains.casefold() if title_contains else None
     requested_name = (file_name or "").strip() or None
     kept = []
@@ -873,6 +952,8 @@ def _apply_agent_filters(
         if doc_class and _hit_doc_class(chunk, resolved_classes) != doc_class:
             continue
         if requested_name and not _file_name_matches(chunk.file_name, requested_name):
+            continue
+        if requested_folder and not _folder_matches(_hit_folder_path(chunk, resolved_folders), requested_folder):
             continue
         if needle:
             haystacks = [chunk.file_name or ""]
@@ -891,6 +972,7 @@ def _empty_search_message(
     file_name: str | None = None,
     doc_class: str | None = None,
     title_contains: str | None = None,
+    folder: str | None = None,
 ) -> str:
     """Steer a miss toward a more specific next call, not a invented citation."""
     bits = [f"query={query!r}"]
@@ -900,12 +982,20 @@ def _empty_search_message(
         bits.append(f"doc_class={doc_class!r}")
     if title_contains:
         bits.append(f"title_contains={title_contains!r}")
+    if folder:
+        bits.append(f"folder={folder!r}")
     return (
         "No passage matched " + ", ".join(bits) + ". "
         "Retry once with a shorter topic query"
         + (", a different `file_name` from the inventory" if file_name else ", or `file_name=` an exact inventory name")
         + ", or `title_contains=` a fragment. "
-        "Do not invent a citation. This tool does not open files — that is `surface_documents`."
+        + (
+            f"Nothing is filed under {folder!r}, or nothing there matched — drop `folder=` "
+            "to search the whole shelf, or take the exact folder from the inventory. "
+            if folder
+            else ""
+        )
+        + "Do not invent a citation. This tool does not open files — that is `surface_documents`."
     )
 
 
@@ -1048,6 +1138,10 @@ def _format_results(retrieval_result, query: str) -> str:
     # derived default). This becomes the citation chip label so the answer never
     # surfaces a raw corpus filename like "oib-rl_2_ausgabe_mai_2023.pdf".
     resolved_titles = _resolve_display_titles(retrieval_result.chunks)
+    # Where each document is filed (ADR-0049) — one batched read per collection,
+    # same shape as the two above. The model needs it to say "der Plan im Ordner
+    # Brandschutz" rather than only naming the file.
+    resolved_folders = _resolve_folder_paths(retrieval_result.chunks)
     # Names this result set holds on more than one shelf; only these are qualified.
     ambiguous = _ambiguous_file_names(retrieval_result.chunks)
 
@@ -1088,6 +1182,13 @@ def _format_results(retrieval_result, query: str) -> str:
         # when unknown — the reader must see the absence, not a default.
         if shelf is not None:
             lines.append(f"Shelf: {shelf}")
+        # WHERE the user filed this document (ADR-0049). Resolved from the
+        # metadata store, not from chunk metadata, so a folder rename shows up
+        # here immediately. Omitted for a document at the shelf's root — an
+        # absent line is "no folder", never a default one.
+        folder_path = _hit_folder_path(chunk, resolved_folders)
+        if folder_path:
+            lines.append(f"Ordner: {folder_path}")
         # Explicit per-document classification ("Dokumentart"). Emit the machine
         # doc_class key first (the citation parser reads it) followed by the
         # German label so the LLM is told the document's role in the norm
@@ -1212,6 +1313,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         doc_class: str | None = None,
         title_contains: str | None = None,
         file_name: str | None = None,
+        folder: str | None = None,
     ) -> str:
         """Read and cite passages from the ingested knowledge base.
 
@@ -1226,6 +1328,11 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 without re-ingest.
             title_contains (str | None): Case-insensitive substring of the
                 file name OR display title.
+            folder (str | None): Project folder path to read within, exactly as
+                the inventory prints it after "Ordner:" (e.g.
+                "Brandschutz/Fluchtwege"). Includes everything filed beneath it,
+                so "Brandschutz" also reads "Brandschutz/Fluchtwege". Never
+                invent a folder.
             filters (dict | None): Rare. Metadata filter on the base
                 collection only (e.g. {"content_type": "text"}). Session and
                 project collections are never filtered.
@@ -1236,6 +1343,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         query = (query or "").strip()
         file_name = (file_name or "").strip() or None
         title_contains = (title_contains or "").strip() or None
+        folder = (folder or "").strip().strip("/") or None
         if not query:
             return (
                 "Provide a `query` that names the fact or passage you need "
@@ -1263,7 +1371,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         effective_max_per_document = get_retrieval_setting("knowledge.max_chunks_per_document", max_per_document)
 
         # Over-fetch when agentic filters will drop candidates post-merge.
-        narrowed = bool(doc_class or title_contains or file_name)
+        narrowed = bool(doc_class or title_contains or file_name or folder)
         candidate_k = effective_top_k * _AGENT_FILTER_OVERFETCH if narrowed else effective_top_k
         if rerank_llm_obj is not None or cross_encoder is not None:
             candidate_k = max(candidate_k, config.rerank_candidates)
@@ -1375,12 +1483,13 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # Agentic narrowing, then trim to the effective top_k.
             # `file_name=` is a FILTER, not a preference: the agent named a
             # file, so other hits would be a silent bait-and-switch.
-            if doc_class or title_contains or file_name:
+            if doc_class or title_contains or file_name or folder:
                 kept = _apply_agent_filters(
                     merged.chunks,
                     doc_class=doc_class,
                     title_contains=title_contains,
                     file_name=file_name,
+                    folder=folder,
                 )
                 merged = merged.model_copy(update={"chunks": kept})
 
@@ -1436,8 +1545,10 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # reads the question against the text (the reranker's 0-10 rubric), not a
             # threshold on a distance.
             floor_pct = get_retrieval_setting("knowledge.relevance_floor_pct", 0)
+            dropped_by_floor = 0
             if floor_pct > 0:
                 floor = floor_pct / 100.0
+                before_floor = len(merged.chunks)
                 kept = [chunk for chunk in merged.chunks if chunk.score >= floor]
                 if len(kept) != len(merged.chunks):
                     best = max((chunk.score for chunk in merged.chunks), default=0.0)
@@ -1448,7 +1559,35 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                         len(merged.chunks),
                         best,
                     )
+                    dropped_by_floor = before_floor - len(kept)
                 merged = merged.model_copy(update={"chunks": kept})
+
+            # The picking, as a first-class observation (ADR-0044): one
+            # `retrieve.knowledge_search` span carrying query, collections,
+            # budgets and the picked chunk ids/files/scores — metadata only,
+            # never chunk text. Emitted BEFORE the empty-result return so a
+            # search that found nothing is visible as its own fact rather
+            # than indistinguishable from a turn that never searched.
+            from aiq_agent.observability.retrieval_trace import build_retrieval_input
+            from aiq_agent.observability.retrieval_trace import build_retrieval_output
+            from aiq_agent.observability.retrieval_trace import emit_retrieval_span
+
+            try:
+                emit_retrieval_span(
+                    tool_name="knowledge_search",
+                    search_input=build_retrieval_input(
+                        query=query,
+                        retrieval_query=retrieval_query,
+                        collections=target_collections,
+                        candidate_k=candidate_k,
+                        top_k=effective_top_k,
+                        reranked=rerank_llm_obj is not None or cross_encoder is not None,
+                        dropped_by_floor=dropped_by_floor,
+                    ),
+                    picks=build_retrieval_output(chunks=merged.chunks),
+                )
+            except Exception:  # noqa: BLE001 - tracing must never break the search path
+                logger.debug("Retrieval pick span failed", exc_info=True)
 
             # After the floor, not before: the floor is the only thing that can empty a
             # non-empty result set, and this message is the vocabulary for saying so.
@@ -1458,6 +1597,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     file_name=file_name,
                     doc_class=doc_class,
                     title_contains=title_contains,
+                    folder=folder,
                 )
 
             # Format for LLM. _format_results does the (now batched, 1-3 query)

@@ -1,0 +1,13 @@
+---
+fixes:
+  - >
+    Document uploads work again in setups where the file storage runs inside
+    the private network. A recent tightening rejected uploads whose storage
+    address resolves to an internal one, leaving new documents stuck in
+    processing; those uploads now go through as before.
+security:
+  - >
+    Upload targets are validated more strictly before the system contacts
+    them: both where a document is read from and where its preview image is
+    written must point at the configured file storage. Requests naming any
+    other destination are refused outright.

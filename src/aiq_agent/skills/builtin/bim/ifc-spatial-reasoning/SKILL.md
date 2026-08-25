@@ -1,23 +1,11 @@
 ---
 name: ifc-spatial-reasoning
 description: >
-  Vor dem ersten ifc_measure- oder ifc_query-Aufruf laden: welches Werkzeug
-  zuständig ist, wie eine Frage über viele Bauteile in EINEN Aufruf passt, und
-  woran man merkt, dass eine Zahl etwas anderes misst als das Gefragte. Auslöser
-  sind die Formulierungen selbst — „wie hoch ist", „wie groß ist", „wie breit",
-  „wie viele", „reicht", „ist … ausreichend", „passt", „erfüllt", „laut Modell",
-  „im IFC", „stimmt das so im Plan" — und ihre Gegenstände: Raumhöhe,
-  Raumfläche, Brüstung, lichte Durchgangsbreite, Abstand, Dachüberstand,
-  Himmelsrichtung, Lichteinfall, Lichteintrittsfläche, Fluchtweg,
-  Brandabschnitt, thermische Hülle, Raumbuch, Geschoßhöhen, was an was grenzt
-  und was über was liegt. Auch wenn das Maß nur der Zwischenschritt zu einer
-  OIB-Beurteilung ist: gemessen wird hier, geurteilt aus der Bestimmung. Und
-  erst recht in der Mehrzahl — „die Räume", „der Keller", „alle Fenster", „jedes
-  Geschoß" —, weil ein einzeln gemessener Raum über die übrigen nichts aussagt.
-  Nicht für reine Rechtsfragen ohne Modellbezug.
+  Am Modell messen mit ifc_measure oder ifc_query, bevor eine OIB-Zahl
+  behauptet wird.
 metadata:
   grid-agents: shallow_researcher,deep_researcher
-  grid-cards: ifc_viewer,ifc_element,ifc_schedule
+  grid-cards: ifc_viewer,ifc_element,ifc_schedule,ifc_compliance,ifc_diff
 ---
 
 # Am Modell messen, nicht am Plan raten
@@ -298,17 +286,32 @@ bleibt, mit dem, was es beheben würde.
 
 ## 8. Gemessenes sichtbar machen
 
-Jede Antwort endet mit einer `Bezug:`-Zeile — genau die GlobalIds, aus denen die
-Zahl gebildet wurde. Das ist die Vorlage für die Karte: eine `ifc_viewer`-Karte
-mit **diesen** Ids unter `global_ids` zeigt der Architektin das gemessene
-Bauteil im Modell, statt es zu beschreiben. Ein `survey` wird so zur markierten
-Raumgruppe mit dem Ausreißer darin.
+Eine Zahl aus dem Modell als Satz zeigt nichts, das man anschauen könnte. Die
+Karte ist der Default, nicht ein Extra.
 
-Zwei Regeln dazu:
+Jede Antwort endet mit einer `Bezug:`-Zeile, genau die GlobalIds, aus denen die
+Zahl gebildet wurde.
 
-- Ids **nie erfinden** und nie aus dem Gedächtnis ergänzen — nur die aus
-  `Bezug:` oder aus einer Werkzeugantwort. Eine falsche Id markiert das falsche
-  Bauteil und sieht dabei genauso richtig aus wie eine echte.
-- `status` folgt der **Bestimmung**, nicht der Messung. Solange kein Grenzwert
-  angewandt wurde, ist er `info`. Ein rotes `fail` an einem Bauteil ist ein
-  Befund, und ein Befund braucht eine Klausel dahinter.
+- Eine Menge (Wände eines Geschoßes, Türen, die eine Breite reißen) →
+  `ifc_viewer`. Eine Highlight-Gruppe pro Bedeutung (`fail` / `warning` /
+  `info`). `storey` isoliert ein Geschoß. In der Gruppe: `match` (dieselben
+  Filter wie die Abfrage) für eine Menge, `global_ids` nur für die wenigen
+  Bauteile, die der Satz namentlich nennt. Genau eines von beiden.
+- Ein Bauteil, um das die ganze Antwort kreist → `ifc_element`.
+- Ein Raumbuch → `ifc_schedule`.
+- Ein Prüflauf → `ifc_compliance`, nur Ids aus den `Regel <id>:`-Zeilen dieses
+  Zuges.
+- Ein Vergleich zweier Stände → `ifc_diff`.
+- Nur anschauen oder öffnen, und es gibt mehrere Modelle → `ifc_model_picker`.
+  Überschrift, keine Dateinamen zum Abtippen.
+
+`model_file` ist der Dateiname, den das Werkzeug gemeldet hat (`Modell: …`),
+nie eine UUID.
+
+Ids **nie erfinden**. Jede GlobalId und jede Regel-Id kommt aus einer Zeile,
+die `ifc_query` oder `ifc_measure` in THIS turn geliefert hat. Eine erfundene
+Id markiert das falsche Bauteil und sieht dabei aus wie eine echte.
+
+`status` folgt der **Bestimmung**, nicht der Messung. Solange kein Grenzwert
+angewandt wurde, ist er `info`. Ein rotes `fail` ist ein Befund, und ein
+Befund braucht eine Klausel dahinter.

@@ -94,19 +94,28 @@ def llm_provider() -> LLMProvider:
 @pytest.fixture
 def graph() -> MagicMock:
     """A stand-in for the compiled DeepAgents graph that returns a report."""
+    final_state = {
+        "messages": [AIMessage(content="Deep research answer")],
+        "files": {
+            "/shared/output.md": {
+                "content": "1,10 m. Ab 12 m Absturzhöhe [1].\n\n## Sources\n[1] OIB: https://example.test/oib",
+                "encoding": "utf-8",
+            }
+        },
+    }
+
     compiled = MagicMock()
     compiled.with_config = MagicMock(return_value=compiled)
-    compiled.ainvoke = AsyncMock(
-        return_value={
-            "messages": [AIMessage(content="Deep research answer")],
-            "files": {
-                "/shared/output.md": {
-                    "content": "1,10 m. Ab 12 m Absturzhöhe [1].\n\n## Sources\n[1] OIB: https://example.test/oib",
-                    "encoding": "utf-8",
-                }
-            },
-        }
-    )
+
+    def _astream(*_args, **_kwargs):
+        # run() streams the graph (stream_mode="values") so a cut-off run has a
+        # last known state to salvage; one chunk is one full graph state.
+        async def _generate():
+            yield final_state
+
+        return _generate()
+
+    compiled.astream = MagicMock(side_effect=_astream)
     return compiled
 
 

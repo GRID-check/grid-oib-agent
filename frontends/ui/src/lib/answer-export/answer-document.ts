@@ -40,8 +40,14 @@ export interface AnswerDocumentInput {
   question?: string | null
   /** The answer's prose, as markdown. */
   answer: string
-  /** When the answer was written — never "now". */
-  createdAt: Date
+  /**
+   * When the answer was written — never "now", and absent rather than guessed.
+   * A caller that does not know the instant (an export assembled from a report
+   * the client is holding, rather than from a stored message) must leave this
+   * out: the honesty rule above applies to the date more than to anything else,
+   * because a wrong date on a project document is the error nobody catches.
+   */
+  createdAt?: Date | null
   /** `metadata.citations`, in the stored wire shape. */
   citations?: unknown
   /** `metadata.cards`, in the stored card shape. */
@@ -56,6 +62,8 @@ export interface AnswerDocumentInput {
    * documents that need it.
    */
   agentAuthored?: boolean
+  /** Printed instead of a mermaid fence's source — see `markdownToBlocks`. */
+  diagramPlaceholder?: string
 }
 
 /**
@@ -70,10 +78,27 @@ export interface AnswerDocumentInput {
  * Unconditional on the answer's content: the claim is about who wrote the
  * document, which is true of a document with nothing in it too.
  */
-const agentNotice = (t: Translator): DocBlock => ({
-  kind: 'table',
-  rows: [[[{ text: `${t('aiNotice.title')}\n`, bold: true }, { text: t('aiNotice.body') }]]],
+/**
+ * The marking's WORDS, once, for every format that has to print them.
+ *
+ * Formats disagree about how to draw it — the Word export makes it a
+ * single-cell table so the border can carry it, the PDF draws it on the cover
+ * above the facts — but they must not disagree about what it SAYS. Two copies
+ * of „KI-generiert — nicht geprüft" is two things to keep in step, and the
+ * failure mode is a document marked for one audience in one format only.
+ */
+export const aiNoticeText = (t: Translator): { title: string; body: string } => ({
+  title: t('aiNotice.title'),
+  body: t('aiNotice.body'),
 })
+
+export const agentNotice = (t: Translator): DocBlock => {
+  const { title, body } = aiNoticeText(t)
+  return {
+    kind: 'table',
+    rows: [[[{ text: `${title}\n`, bold: true }, { text: body }]]],
+  }
+}
 
 /**
  * A reference-list entry as one paragraph.
@@ -83,7 +108,7 @@ const agentNotice = (t: Translator): DocBlock => ({
  * citation reads the locator first and the URL only if the locator is not
  * enough.
  */
-const referenceParagraph = (entry: ReferenceEntry): DocBlock => {
+export const referenceParagraph = (entry: ReferenceEntry): DocBlock => {
   const runs: DocRun[] = [{ text: `[${entry.number}] `, bold: true }, { text: entry.label }]
   if (entry.page) runs.push({ text: `, ${entry.page}` })
   if (entry.note) runs.push({ text: ` — ${entry.note}`, italic: true })
@@ -119,31 +144,90 @@ const confidenceBlocks = (confidence: AnswerConfidence, t: Translator): DocBlock
 }
 
 /**
- * Build the document for one answer.
+ * One header fact: the small `Label: value` line under the document's title.
+ *
+ * Kept as data rather than pre-rendered into a paragraph because the two
+ * exporters put the header in different PLACES. Word wants it inline, as the
+ * first lines of the body — that is what a reader edits. The PDF puts it on a
+ * cover, in a ruled label/value column, where a `Projekt: …` paragraph would
+ * look like body text that escaped upward.
+ */
+export interface DocumentFact {
+  label: string
+  value: string
+  /** Transcribed, not read — see `CoverFact.mono`. Ignored by the Word path. */
+  mono?: boolean
+}
+
+/**
+ * An answer, split into the parts a document is assembled from.
+ *
+ * The split exists so a second output format can present the header its own way
+ * without re-deriving the header FACTS — which is where the honesty rule at the
+ * top of this file lives, and therefore the one part that must not be written
+ * twice.
+ */
+export interface AnswerSections {
+  /** The document's own name; already fallen back, so never empty. */
+  title: string
+  /** Project and date, in reading order. Empty when the answer stated neither. */
+  facts: DocumentFact[]
+  /**
+   * The AI marking, when this document was machine-authored — empty otherwise.
+   *
+   * Its own field rather than the head of `body`, because WHERE it goes is the
+   * one thing about it that is not negotiable and each format answers it
+   * differently: the PDF puts it above the cover facts, the Word export makes
+   * it the first block on page one. A renderer that received it inside `body`
+   * could place the cover between the title and the warning, which is the one
+   * position it must never be in.
+   *
+   * Text rather than a rendered block, so the two formats cannot disagree about
+   * what it SAYS while still drawing it differently — `agentNotice` builds the
+   * Word table from it, the PDF cover draws it above the facts.
+   */
+  notice: { title: string; body: string } | null
+  /** Everything below the header: question, answer, findings, sources. */
+  body: DocBlock[]
+}
+
+/**
+ * Assemble one answer into title, header facts and body.
  *
  * The prose's own written sources section is lifted out before the answer is
  * rendered, and used as the reference list only when no structured citations
  * were stored — otherwise the document would state the answer's sources twice,
  * in two lists with no guarantee of agreeing.
  */
-export function buildAnswerDocument(
+export function buildAnswerSections(
   input: AnswerDocumentInput,
   t: Translator,
   locale: Locale
-): DocBlock[] {
+): AnswerSections {
   const { body, references: written } = splitProse(input.answer ?? '')
   const stored = referencesFromStored(input.citations, t)
   const references = stored.length > 0 ? stored : written
 
   const title = input.conversationTitle?.trim() || t('documentTitle')
-  const date = new Intl.DateTimeFormat(locale, { dateStyle: 'long' }).format(input.createdAt)
 
-  const notice: DocBlock[] = input.agentAuthored ? [agentNotice(t)] : []
+  // The marking is its own section, not a fact and not the first body block.
+  // A fact is a neutral label/value the header lays out in a row; „KI-generiert
+  // — nicht geprüft" is a warning, and the format decides how to present one.
+  // Putting it in `body` would let a renderer place the cover between it and
+  // the title, which is the one position it must never be in.
+  const notice = input.agentAuthored ? aiNoticeText(t) : null
 
-  const header: (DocBlock | null)[] = [
-    { kind: 'heading', level: 1, text: title },
-    input.projectName?.trim() ? labelled(t('project'), input.projectName.trim()) : null,
-    labelled(t('createdAt'), date),
+  const projectName = input.projectName?.trim()
+  const facts: DocumentFact[] = [
+    ...(projectName ? [{ label: t('project'), value: projectName }] : []),
+    ...(input.createdAt
+      ? [
+          {
+            label: t('createdAt'),
+            value: new Intl.DateTimeFormat(locale, { dateStyle: 'long' }).format(input.createdAt),
+          },
+        ]
+      : []),
   ]
 
   const question = input.question?.trim()
@@ -154,7 +238,7 @@ export function buildAnswerDocument(
       ]
     : []
 
-  const prose = markdownToBlocks(body)
+  const prose = markdownToBlocks(body, { diagramPlaceholder: input.diagramPlaceholder })
   const answerSection: (DocBlock | null)[] =
     prose.length > 0 ? [{ kind: 'heading', level: 2, text: t('answer') }, ...prose] : []
 
@@ -169,13 +253,39 @@ export function buildAnswerDocument(
       ? [{ kind: 'heading', level: 2, text: t('sources') }, ...references.map(referenceParagraph)]
       : []
 
+  return {
+    title,
+    facts,
+    notice,
+    body: compact([
+      ...questionSection,
+      ...answerSection,
+      ...confidence,
+      ...cardSection,
+      ...sourceSection,
+    ]),
+  }
+}
+
+/**
+ * Build the document for one answer, as one flat block list.
+ *
+ * The header is folded back in at the top — a heading and one `Label: value`
+ * paragraph per fact — which is the shape Word wants and the shape every
+ * existing caller of this function already renders.
+ */
+export function buildAnswerDocument(
+  input: AnswerDocumentInput,
+  t: Translator,
+  locale: Locale
+): DocBlock[] {
+  const { title, facts, notice, body } = buildAnswerSections(input, t, locale)
   return compact([
-    ...notice,
-    ...header,
-    ...questionSection,
-    ...answerSection,
-    ...confidence,
-    ...cardSection,
-    ...sourceSection,
+    // Before the title: the marking is what the document IS, and a reader who
+    // reads one line of page one has to meet it.
+    ...(notice ? [agentNotice(t)] : []),
+    { kind: 'heading', level: 1, text: title },
+    ...facts.map((fact) => labelled(fact.label, fact.value)),
+    ...body,
   ])
 }

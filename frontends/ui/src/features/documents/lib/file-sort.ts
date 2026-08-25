@@ -9,8 +9,13 @@
 import type { FileItem } from '../components/project-file-workspace'
 import { documentDisplayName } from '@/lib/documents/display-name'
 
-/** Columns the detail view can order by. */
-export type FileSortKey = 'name' | 'status' | 'size' | 'added'
+/**
+ * Columns the detail view can order by.
+ *
+ * `relevance` only exists for a semantic result set — a ranked list, where
+ * ordering by anything else silently throws the ranking away.
+ */
+export type FileSortKey = 'name' | 'status' | 'size' | 'added' | 'relevance'
 
 export type SortDirection = 'asc' | 'desc'
 
@@ -40,6 +45,16 @@ const STATUS_RANK: Record<string, number> = {
 
 const statusRank = (status: string | null): number => STATUS_RANK[(status ?? '').toLowerCase()] ?? 4
 
+/**
+ * A listing row MAY carry semantic match evidence (`SemanticHit`), and only the
+ * score participates in ordering. Typed as an optional member rather than cast
+ * at the read site, so a plain `FileItem[]` is still assignable.
+ */
+export type ScoredFile = FileItem & { score?: number }
+
+/** Unranked rows sort BELOW every ranked one rather than above them. */
+const scoreOf = (file: ScoredFile): number => file.score ?? -1
+
 const timeOf = (iso: string): number => {
   const value = new Date(iso).getTime()
   return Number.isNaN(value) ? 0 : value
@@ -55,6 +70,9 @@ export function defaultDirectionFor(key: FileSortKey): SortDirection {
   return key === 'name' ? 'asc' : 'desc'
 }
 
+/** The order a semantic result set arrives in, and the one it should keep. */
+export const RELEVANCE_SORT: FileSort = { key: 'relevance', direction: 'desc' }
+
 /** Toggle a sort: same column flips direction, a new column takes its default. */
 export function nextSort(current: FileSort, key: FileSortKey): FileSort {
   if (current.key !== key) return { key, direction: defaultDirectionFor(key) }
@@ -69,11 +87,11 @@ export function nextSort(current: FileSort, key: FileSortKey): FileSort {
  * it. Ties always fall back to the filename so the order is total: a sort with
  * ties resolved arbitrarily reshuffles rows under the cursor on every refresh.
  */
-export function sortFiles(files: readonly FileItem[], sort: FileSort, locale?: string): FileItem[] {
+export function sortFiles<T extends ScoredFile>(files: readonly T[], sort: FileSort, locale?: string): T[] {
   const collator = new Intl.Collator(locale, { numeric: true, sensitivity: 'base' })
   const sign = sort.direction === 'asc' ? 1 : -1
 
-  const compare = (a: FileItem, b: FileItem): number => {
+  const compare = (a: T, b: T): number => {
     switch (sort.key) {
       case 'name':
         // Sort by what the column SHOWS. Ordering a list by a name the reader
@@ -85,6 +103,8 @@ export function sortFiles(files: readonly FileItem[], sort: FileSort, locale?: s
         return (a.fileSize ?? 0) - (b.fileSize ?? 0)
       case 'added':
         return timeOf(a.createdAt) - timeOf(b.createdAt)
+      case 'relevance':
+        return scoreOf(a) - scoreOf(b)
     }
   }
 

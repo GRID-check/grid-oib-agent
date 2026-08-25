@@ -16,13 +16,14 @@ npm run dev        # http://localhost:4321
 
 | Variable          | Default              | Purpose                                            |
 |-------------------|----------------------|----------------------------------------------------|
-| `PUBLIC_APP_URL`  | `https://app.piloti.at` | Base URL of the app. The nav's "Anmelden" link uses `SIGN_IN_URL` (`src/consts.ts`), which appends `/?sign-in` — the app's root bounces logged-out visitors back to this site, so the bare URL is a loop. Public, baked at build. |
-| `PUBLIC_SITE_URL` | `http://localhost:4321` | Canonical site URL for OG/sitemap metadata (public) |
+| `PUBLIC_APP_URL`  | `https://app.piloti.at` | Base URL of the app. Read at **runtime** by the `/sign-in` endpoint, which 302s to `/?sign-in` there — the app's root bounces logged-out visitors back to this site, so the bare URL would be a loop. Injected per stack by the Kubernetes deployment; one image serves every host. |
+| `PUBLIC_SITE_URL` | `https://piloti.at` | Canonical site URL for OG/sitemap metadata (public). Baked at build. Prod default is deliberate: dev canonicalizing to prod is harmless — dev should not be indexed anyway. |
 | `HOST` / `PORT`   | `0.0.0.0` / `4321`   | Node adapter listen address (runtime)              |
 
-Both `PUBLIC_*` variables are read at **build time** (they end up in the
-prerendered HTML), so changing them requires a rebuild - the Docker build
-accepts them as build args (see `Dockerfile`).
+Only `PUBLIC_SITE_URL` is read at **build time** (it ends up in the prerendered
+HTML); the Docker build accepts it as a build arg (see `Dockerfile`).
+`PUBLIC_APP_URL` must stay a runtime value — baking an app host into the
+static HTML is how the production landing page once linked at the dev app.
 
 ## Blog
 
@@ -146,8 +147,6 @@ curl -s localhost:4321/keystatic | grep -q 'renderer-url' && echo OK || echo BRO
 ## Docker
 
 ```bash
-docker build -t grid-oib-web:latest . \
-  --build-arg PUBLIC_APP_URL=https://app.dev.piloti.at \
-  --build-arg PUBLIC_SITE_URL=https://dev.piloti.at
-docker run -p 4321:4321 grid-oib-web:latest
+docker build -t grid-oib-web:latest .
+docker run -p 4321:4321 -e PUBLIC_APP_URL=https://app.dev.piloti.at grid-oib-web:latest
 ```

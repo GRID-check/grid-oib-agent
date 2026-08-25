@@ -2,7 +2,13 @@
 
 import { useMemo, useState } from 'react'
 import type { FolderItem } from './project-file-workspace'
-import { Folder, FolderOpen, Plus } from 'lucide-react'
+import { Folder, FolderOpen, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { InputGroup, InputGroupAddon } from '@/components/ui/input-group'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -15,6 +21,16 @@ interface FolderTreePaneProps {
   selectedFolderId: string | null
   onSelectFolder: (id: string | null) => void
   onCreateFolder: (name: string, parentId?: string) => Promise<boolean>
+  /**
+   * Rename. Resolves false when the name was rejected, and the row stays open
+   * with what was typed still in it — the same contract as the create above.
+   */
+  onRenameFolder?: (folderId: string, name: string) => Promise<boolean>
+  /**
+   * Delete. The documents inside are re-filed into the parent, never deleted;
+   * the workspace's confirm says so before this is called.
+   */
+  onDeleteFolder?: (folderId: string) => Promise<boolean>
   isLoading: boolean
 }
 
@@ -24,16 +40,30 @@ interface FolderTreePaneProps {
 // on the implicitly-selected folder.
 type CreateTarget = string | null | undefined
 
+/**
+ * The per-row controls. Hidden until the row is hovered or the control itself
+ * is focused, and ALWAYS present on a coarse pointer, where there is no hover
+ * to reveal them with.
+ */
+const folderRowActionClass =
+  'flex size-7 shrink-0 items-center justify-center rounded-sm transition-opacity duration-snap ease-out hover:bg-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:size-11 motion-reduce:transition-none md:opacity-0 md:group-hover:opacity-100 data-[state=open]:opacity-100'
+
 export function FolderTreePane({
   folders,
   selectedFolderId,
   onSelectFolder,
   onCreateFolder,
+  onRenameFolder,
+  onDeleteFolder,
   isLoading,
 }: FolderTreePaneProps) {
   const t = useTranslations('files')
   const [createTarget, setCreateTarget] = useState<CreateTarget>(undefined)
   const [newFolderName, setNewFolderName] = useState('')
+  /** The folder whose name is being edited in place, and the text so far. */
+  const [renameTarget, setRenameTarget] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [isRenaming, setIsRenaming] = useState(false)
   // In-flight signal for the create request. While true the input row stays
   // visible but disabled with a spinner; on failure we keep the row open with
   // the typed name intact so the user doesn't have to retype it.
@@ -54,6 +84,37 @@ export function FolderTreePane({
     setNewFolderName('')
   }
 
+  const startRename = (folder: FolderItem) => {
+    setRenameValue(folder.name)
+    setRenameTarget(folder.id)
+  }
+
+  const cancelRename = () => {
+    if (isRenaming) return
+    setRenameTarget(null)
+    setRenameValue('')
+  }
+
+  const commitRename = async (folder: FolderItem) => {
+    const name = renameValue.trim()
+    if (!name || isRenaming || !onRenameFolder) return
+    // Nothing typed but the same name: treat it as a cancel rather than a
+    // request, so Enter on an untouched field is not a round trip.
+    if (name === folder.name) {
+      setRenameTarget(null)
+      return
+    }
+    setIsRenaming(true)
+    const ok = await onRenameFolder(folder.id, name)
+    setIsRenaming(false)
+    // On failure the row stays open with the typed name intact — the same
+    // contract the create row has, and the reason neither loses your typing.
+    if (ok) {
+      setRenameTarget(null)
+      setRenameValue('')
+    }
+  }
+
   const handleCreate = async () => {
     const name = newFolderName.trim()
     if (!name || isCreating) return
@@ -71,14 +132,39 @@ export function FolderTreePane({
     // open with the entered name (the workspace surfaces the error toast).
   }
 
+  /**
+   * The two in-tree name fields — create and rename — share this.
+   *
+   * `rounded-md` is the point: `Input` is `rounded-xl`, which on a 32px-tall
+   * box reads as a pill sitting between rows that are all `rounded-md`, so the
+   * field looked like it belonged to a different surface than the row it stands
+   * in for. `pl-8` clears the leading folder icon, which stays with the row so
+   * an editing row still reads as a folder rather than as a stray text box.
+   */
+  const nameFieldClass = 'h-8 rounded-md pl-8 pr-8'
+
+  /**
+   * The indent of a name field, against the indent of the row it replaces.
+   *
+   * A row puts its icon at exactly its `paddingLeft`; a field puts its icon
+   * inside a 1px border and its own addon offset, so reusing the row's padding
+   * pushed the icon ~10px right and the row visibly jumped sideways the moment
+   * it became editable. Dropping the shared 8px and letting the border + `left-2`
+   * addon make it back up lands the icon within a pixel of where it was.
+   */
+  const nameFieldIndent = (depth: number) => ({ paddingLeft: `${depth * 14}px` })
+
   const rowClass = (active: boolean) =>
     `group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors duration-snap ease-out pointer-coarse:min-h-11 pointer-coarse:py-2 motion-reduce:transition-none ${
       active ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
     }`
 
   const renderCreateInput = (depth: number) => (
-    <div key={`create-${createTarget ?? 'root'}`} className="px-1 pt-1" style={{ paddingLeft: `${8 + depth * 14}px` }}>
+    <div key={`create-${createTarget ?? 'root'}`} className="pr-2 pt-1" style={nameFieldIndent(depth)}>
       <InputGroup>
+        <InputGroupAddon align="start" className="left-2">
+          <Folder aria-hidden />
+        </InputGroupAddon>
         <Input
           autoFocus
           value={newFolderName}
@@ -94,7 +180,7 @@ export function FolderTreePane({
           placeholder={t('folders.namePlaceholder')}
           aria-label={t('folders.newFolderName')}
           aria-busy={isCreating}
-          className="h-8 pr-8"
+          className={nameFieldClass}
         />
         {isCreating && (
           <InputGroupAddon align="end">
@@ -110,7 +196,39 @@ export function FolderTreePane({
       const children = getChildren(folder.id)
       const active = selectedFolderId === folder.id
       const Icon = active ? FolderOpen : Folder
+      const editing = renameTarget === folder.id
       return [
+        editing ? (
+          // In place, not in a dialog: the reader is looking at the name they
+          // want to change, and a modal would take it off screen to ask about
+          // it. Same row, same indent, same width as the folder it replaces.
+          <div key={folder.id} className="flex items-center gap-1 py-0.5 pr-2" style={nameFieldIndent(depth)}>
+            <InputGroup className="h-8">
+              <InputGroupAddon align="start" className="left-2">
+                <Folder aria-hidden />
+              </InputGroupAddon>
+              <Input
+                autoFocus
+                value={renameValue}
+                disabled={isRenaming}
+                onChange={(event) => setRenameValue(event.target.value)}
+                onBlur={() => void commitRename(folder)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void commitRename(folder)
+                  if (event.key === 'Escape') cancelRename()
+                }}
+                aria-label={t('folders.renameLabel', { name: folder.name })}
+                className={`${nameFieldClass} text-sm`}
+                data-testid={`folder-rename-input-${folder.id}`}
+              />
+              {isRenaming && (
+                <InputGroupAddon align="end">
+                  <Spinner size="sm" label={t('folders.renaming')} />
+                </InputGroupAddon>
+              )}
+            </InputGroup>
+          </div>
+        ) : (
         <div
           key={folder.id}
           className={rowClass(active)}
@@ -128,11 +246,45 @@ export function FolderTreePane({
             onClick={() => startCreate(folder.id)}
             aria-label={t('folders.addSubfolderIn', { name: folder.name })}
             title={t('folders.addSubfolder')}
-            className="flex size-7 shrink-0 items-center justify-center rounded-sm transition-opacity duration-snap ease-out hover:bg-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:size-11 motion-reduce:transition-none md:opacity-0 md:group-hover:opacity-100"
+            className={folderRowActionClass}
           >
             <Plus className="size-3.5" aria-hidden />
           </button>
-        </div>,
+          {(onRenameFolder || onDeleteFolder) && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={t('folders.actionsFor', { name: folder.name })}
+                  title={t('folders.actions')}
+                  className={folderRowActionClass}
+                  data-testid={`folder-actions-${folder.id}`}
+                >
+                  <MoreHorizontal className="size-3.5" aria-hidden />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                {onRenameFolder && (
+                  <DropdownMenuItem onSelect={() => startRename(folder)}>
+                    <Pencil className="size-4" aria-hidden />
+                    {t('folders.rename')}
+                  </DropdownMenuItem>
+                )}
+                {onDeleteFolder && (
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={() => void onDeleteFolder(folder.id)}
+                    data-testid={`folder-delete-${folder.id}`}
+                  >
+                    <Trash2 className="size-4" aria-hidden />
+                    {t('folders.delete')}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+        ),
         ...(createTarget === folder.id ? [renderCreateInput(depth + 1)] : []),
         ...(children.length > 0 ? renderFolderTree(children, depth + 1) : []),
       ]

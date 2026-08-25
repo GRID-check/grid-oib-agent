@@ -3362,6 +3362,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # Tags ride along in the same upsert (may be None).
                         from aiq_agent.knowledge import register_summary
                         from aiq_agent.knowledge import set_document_doc_class
+                        from aiq_agent.knowledge import set_document_folder_path
 
                         register_summary(collection_name, file_name, summary, tags=tags)
 
@@ -3370,6 +3371,16 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # only stamp the guess when none was stored.
                         if stored_doc_class is None:
                             set_document_doc_class(collection_name, file_name, doc_class)
+
+                        # The folder the BFF filed this document in, carried on
+                        # the job config from `POST /v1/ingest` (ADR-0049). It is
+                        # the materialised PATH, not a folder id, and it lands on
+                        # the metadata row rather than in the chunk vectors —
+                        # which is what lets a later rename re-file the document
+                        # with no re-ingest. Absent config means "project root".
+                        folder_path = (config.get("folder_path") or "").strip() or None
+                        if folder_path:
+                            set_document_folder_path(collection_name, file_name, folder_path)
 
                         # Also store in local FileInfo for backwards compatibility
                         file_id = config.get("file_id")

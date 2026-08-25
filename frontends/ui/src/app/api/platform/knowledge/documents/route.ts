@@ -8,24 +8,28 @@
 
 import { NextResponse } from 'next/server'
 import { platformApiRoute } from '@/lib/api/platform-handler'
+import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 import { uploadKnowledgeBaseDocument } from '@/lib/knowledge/service'
 
-export const POST = platformApiRoute(async ({ request }) => {
-  const form = await request.formData().catch(() => null)
-  const file = form?.get('file')
-  if (!(file instanceof File)) {
-    return NextResponse.json(
-      { error: 'A PDF or ZIP file is required', code: 'BAD_REQUEST' },
-      { status: 400 }
-    )
-  }
-  const docClassField = form?.get('doc_class')
-  const docClass =
-    typeof docClassField === 'string' && docClassField.trim() ? docClassField.trim() : undefined
+export const POST = platformApiRoute(
+  async ({ request }) => {
+    const form = await request.formData().catch(() => null)
+    const file = form?.get('file')
+    if (!(file instanceof File)) {
+      return NextResponse.json(
+        { error: 'A PDF or ZIP file is required', code: 'BAD_REQUEST' },
+        { status: 400 }
+      )
+    }
+    const docClassField = form?.get('doc_class')
+    const docClass =
+      typeof docClassField === 'string' && docClassField.trim() ? docClassField.trim() : undefined
 
-  const result = await uploadKnowledgeBaseDocument(file, { docClass })
-  // Ingestion is backgrounded: 'pending' (accepted) and 'success' are OK;
-  // only a terminal 'failed'/'timeout' maps to a gateway error the UI surfaces.
-  const ok = result.status === 'pending' || result.status === 'success'
-  return NextResponse.json(result, { status: ok ? 200 : 502 })
-})
+    const result = await uploadKnowledgeBaseDocument(file, { docClass })
+    // Ingestion is backgrounded: 'pending' (accepted) and 'success' are OK;
+    // only a terminal 'failed'/'timeout' maps to a gateway error the UI surfaces.
+    const ok = result.status === 'pending' || result.status === 'success'
+    return NextResponse.json(result, { status: ok ? 200 : 502 })
+  },
+  { permission: PLATFORM_PERMISSIONS.settingsManage }
+)

@@ -182,6 +182,17 @@ const renderBlock = (block: DocBlock): string => {
         .join('')
     case 'table':
       return renderTable(block)
+    case 'rule':
+      // An empty paragraph carrying a bottom border, not a `<w:p>` full of
+      // em-dashes: a border is a paragraph PROPERTY, so the reader can delete
+      // the break, move it or restyle it, and it stays a rule the width of the
+      // text column at whatever page size they later choose.
+      return renderParagraph(
+        [],
+        undefined,
+        '<w:pBdr><w:bottom w:val="single" w:sz="6" w:space="4" w:color="BFBFBF"/></w:pBdr>' +
+          '<w:spacing w:before="120" w:after="180"/>'
+      )
   }
 }
 

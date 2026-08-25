@@ -87,6 +87,11 @@ export const files: typeof en.files = {
     expandPreview: 'Große Vorschau öffnen',
     loadFailed:
       'Die Vorschau konnte nicht geladen werden. Sie können die Datei unten trotzdem herunterladen.',
+    gone:
+      'Dieses Dokument ist nicht mehr verfügbar. Es wurde möglicherweise gelöscht, oder Sie haben keinen Zugriff mehr darauf.',
+    goneAction: 'Nicht mehr danach fragen',
+    goneCleared: 'Frage bezieht sich nicht mehr auf diese Datei.',
+    goneUndo: 'Rückgängig',
     tryAgain: 'Erneut versuchen',
     noInlinePreview:
       'Für diesen Dateityp gibt es keine Inline-Vorschau. Laden Sie sie herunter, um das vollständige Dokument anzusehen.',
@@ -139,6 +144,10 @@ export const files: typeof en.files = {
     retryIngestionError:
       'Die Verarbeitung konnte nicht erneut gestartet werden. Bitte versuchen Sie es erneut.',
     dialogLabel: 'Dateivorschau: {name}',
+    resizePeek: 'Breite der Dateivorschau ändern',
+    peekIndexingHint: 'Piloti kann diese Datei erst nach der Indizierung zitieren.',
+    peekFailedHint: 'Indizierung fehlgeschlagen — Piloti kann diese Datei nicht zitieren.',
+    peekFailedAction: 'Details',
   },
   browser: {
     folderEmptyTitle: 'Dieser Ordner ist leer',
@@ -162,6 +171,11 @@ export const files: typeof en.files = {
       banner: 'Semantische Suche: {count} Treffer für „{query}“',
       searching: 'Ihre Dateien werden nach „{query}“ durchsucht …',
       noResults: 'Keine semantischen Treffer für „{query}“',
+      failed: 'Die Suche konnte nicht ausgeführt werden',
+      failedDescription:
+        'Auf dem Weg zum Index ist etwas schiefgegangen. Ihre Dateien sind unverändert — versuchen Sie dieselbe Suche erneut oder kehren Sie zu allen Dateien zurück.',
+      retry: 'Erneut versuchen',
+      failedBanner: 'Semantische Suche nach „{query}“ konnte nicht ausgeführt werden',
       noResultsDescription:
         'Nichts in diesem Projekt entsprach dem Sinn Ihrer Anfrage. Versuchen Sie eine andere Formulierung oder löschen Sie die Suche, um alle Dateien zu durchsuchen.',
       page: 'Seite {page}',
@@ -169,6 +183,12 @@ export const files: typeof en.files = {
     },
   },
   folders: {
+    rename: 'Umbenennen …',
+    renameLabel: 'Ordner „{name}“ umbenennen',
+    renaming: 'Wird umbenannt …',
+    delete: 'Löschen …',
+    actions: 'Ordneraktionen',
+    actionsFor: 'Aktionen für Ordner „{name}“',
     heading: 'Ordner',
     namePlaceholder: 'Ordnername',
     newFolderName: 'Name des neuen Ordners',
@@ -179,6 +199,12 @@ export const files: typeof en.files = {
     newFolder: 'Neuer Ordner',
   },
   workspace: {
+    renameFolderError: 'Der Ordner konnte nicht umbenannt werden. Bitte versuchen Sie es erneut.',
+    deleteFolderError: 'Der Ordner konnte nicht gelöscht werden. Bitte versuchen Sie es erneut.',
+    deleteFolderConfirm: 'Ordner „{name}“ löschen?',
+    deleteFolderConfirmWithContents: 'Ordner „{name}“ löschen?\n\nDie {documents} Dokument(e) und {folders} Unterordner werden nicht gelöscht — sie werden nach „{parent}“ verschoben.',
+    deleteFolderDone: '„{name}“ gelöscht.',
+    deleteFolderMoved: 'Ordner gelöscht. {count} Dokument(e) nach „{parent}“ verschoben.',
     corpusSubtitle: 'Projektwissen – diese Dokumente untermauern Pilotis Antworten',
     uploadDocuments: 'Dokumente hochladen',
     uploadProblem: 'Upload-Problem',
@@ -199,6 +225,7 @@ export const files: typeof en.files = {
   // Detailansicht des Explorers – Spaltenüberschriften der sortierbaren Liste.
   list: {
     columns: {
+      relevance: 'Relevanz',
       name: 'Name',
       status: 'Status',
       pages: 'Seiten',
@@ -207,6 +234,12 @@ export const files: typeof en.files = {
     },
   },
   actions: {
+    reingest: 'Erneut einlesen',
+    move: 'In Ordner verschieben',
+    moved: '„{name}“ nach {folder} verschoben',
+    moveError: 'Das Dokument konnte nicht verschoben werden. Bitte versuchen Sie es erneut.',
+    reingesting: 'Wird erneut gestartet …',
+    reingestError: 'Die Verarbeitung konnte nicht erneut gestartet werden. Bitte versuchen Sie es erneut.',
     label: 'Dateiaktionen für „{name}“',
     menuLabel: 'Dateiaktionen',
     download: 'Herunterladen',
@@ -247,6 +280,17 @@ export const files: typeof en.files = {
     upload: 'Hochladen',
   },
   errors: {
+    validation: {
+      duplicateInBatch: '„{name}“ ist mehrfach in dieser Auswahl',
+      duplicateExisting: '„{name}“ wurde bereits hinzugefügt',
+      invalidType: '„{name}“ ist kein unterstützter Dateityp. Zulässig: {accepted}',
+      fileTooLarge: '„{name}“ hat {size} — das Limit liegt bei {limit}',
+      totalSizeExceeded: 'Das ergäbe {total}; frei sind nur {available} von {limit}',
+      totalSizeExceededFirst: '{total} überschreiten das Limit von {limit}',
+      maxFilesExceeded: 'Das wären {total} Dateien; es passen nur noch {available} ({limit} maximal)',
+      maxFilesExceededFirst: '{total} Dateien überschreiten das Limit von {limit}',
+      several: '{count} Dateien haben Probleme',
+    },
     someUploadsFailed:
       '{failed} von {total} Dokumenten konnten nicht hochgeladen werden. Erster Grund: {reason}',
     uploadingSkipped:
@@ -308,6 +352,8 @@ export const files: typeof en.files = {
     loadingPeople: 'Personen werden geladen…',
     noPeople: 'Noch niemand in diesem Projekt',
     peopleLoadError: 'Personen konnten nicht geladen werden',
+    assignError: '„{name}“ konnte nicht als zuständig eingetragen werden',
+    unassignError: '„{name}“ konnte nicht entfernt werden',
     tryAgain: 'Erneut versuchen',
   },
 }

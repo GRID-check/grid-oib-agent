@@ -14,7 +14,9 @@ from pydantic import BaseModel
 from pydantic import Field
 
 from aiq_agent.knowledge import get_available_documents_async
+from aiq_agent.knowledge import rewrite_document_folder_paths
 from aiq_agent.knowledge import set_document_display_title
+from aiq_agent.knowledge import set_document_folder_path
 from aiq_agent.knowledge import update_document_tags
 from aiq_agent.knowledge.base import BaseIngestor
 from aiq_agent.knowledge.document_classification import ALLOWED_TAGS
@@ -34,13 +36,14 @@ BATCH_STATUS_MAX_IDS = 200
 
 
 def _merge_summaries(files: list[FileInfo], summaries: list[AvailableDocument]) -> list[FileInfo]:
-    """Attach persisted per-document summaries and tags onto the file list.
+    """Attach persisted per-document summaries, tags and folder onto the file list.
 
     DocumentMetadataStore (SQL, keyed by ``(collection, filename)``) is the source of
-    truth for both the one-sentence summary and the controlled ingestion tags;
-    ``list_files`` only knows what the vector store holds. The join key is the
+    truth for the one-sentence summary, the controlled ingestion tags and the
+    ``folder_path`` the document is filed under (ADR-0049); ``list_files`` only
+    knows what the vector store holds. The join key is the
     filename, unique within the summaries table, so a straight lookup is safe.
-    A file without a stored summary/tags is left untouched; already-populated
+    A file without a stored summary/tags/folder is left untouched; already-populated
     values are never overwritten.
     """
     if not summaries:
@@ -54,6 +57,8 @@ def _merge_summaries(files: list[FileInfo], summaries: list[AvailableDocument]) 
             file.summary = doc.summary
         if not file.tags and doc.tags:
             file.tags = doc.tags
+        if file.folder_path is None and doc.folder_path:
+            file.folder_path = doc.folder_path
     return files
 
 
@@ -317,6 +322,109 @@ def add_document_routes(router: APIRouter):
             "collection_name": collection_name,
             "file_name": file_name,
             "display_title": new_title,
+        }
+
+    class UpdateFolderPathRequest(BaseModel):
+        folder_path: str | None = Field(
+            default=None,
+            description=(
+                "The document's new folder path, e.g. 'Brandschutz/Fluchtwege'. "
+                "Null or blank files it at the project root."
+            ),
+        )
+
+    @router.patch(
+        "/v1/collections/{collection_name}/documents/{file_name}/folder-path",
+        tags=["documents"],
+        summary="Re-file ONE document into another folder",
+    )
+    async def update_document_folder_path_route(
+        collection_name: str,
+        file_name: str,
+        request: UpdateFolderPathRequest,
+        ingestor: BaseIngestor = Depends(_require_ingestor),
+    ) -> dict[str, str | None]:
+        """Set one document's ``folder_path`` — the per-document half of ADR-0049.
+
+        The subtree mirror below moves a FOLDER and everything under it; this
+        moves a DOCUMENT between folders that both already exist. Both are
+        needed and neither substitutes for the other: a document leaving
+        ``Brandschutz`` for ``Statik`` shares no path prefix with its former
+        neighbours, so a prefix rewrite cannot express it.
+
+        Same shape as the display-title mirror: UPDATE-only, nothing
+        re-ingested, and the metadata row's summary is the anchor — a document
+        that was never summarized has nothing to carry a folder, which is a 404
+        the BFF treats as non-fatal because its own ``documents.folder_id`` is
+        the durable record of where the file lives.
+
+        Follows the documents-router auth model: end-user access is enforced at
+        the BFF, which has already checked ``project:documents:write`` on the
+        project that owns this collection.
+        """
+        new_path = (request.folder_path or "").strip() or None
+
+        updated = set_document_folder_path(collection_name, file_name, new_path)
+        if not updated:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No summary found for '{file_name}' in collection '{collection_name}'",
+            )
+
+        return {
+            "collection_name": collection_name,
+            "file_name": file_name,
+            "folder_path": new_path,
+        }
+
+    class RewriteFolderPathRequest(BaseModel):
+        from_path: str = Field(
+            ...,
+            min_length=1,
+            description="The folder path as it was before the rename/move/delete, e.g. 'Brandschutz/Fluchtwege'.",
+        )
+        to_path: str | None = Field(
+            default=None,
+            description="The folder path it became. Null or blank re-files the subtree at the project root.",
+        )
+
+    @router.patch(
+        "/v1/collections/{collection_name}/folder-paths",
+        tags=["documents"],
+        summary="Re-file every document under a folder path (rename / move / delete mirror)",
+    )
+    async def rewrite_folder_paths_route(
+        collection_name: str,
+        request: RewriteFolderPathRequest,
+        ingestor: BaseIngestor = Depends(_require_ingestor),
+    ) -> dict[str, Any]:
+        """Mirror a project-folder rename, move or delete onto document metadata.
+
+        The sibling of the display-title mirror
+        (``PATCH .../documents/{f}/display-title``): same store, same
+        no-re-ingest property, one call instead of one per document. The BFF's
+        ``project_folders.path`` is MATERIALISED, so renaming or re-parenting a
+        folder rewrites the whole subtree there in a single prefix replace; this
+        endpoint is that same operation applied to the backend's
+        ``document_metadata.folder_path``.
+
+        - ``from_path`` matches the folder itself AND everything under
+          ``from_path/`` — a folder called ``Plan`` never drags ``Plangrundlagen``
+          along.
+        - ``to_path`` null/blank re-files the subtree at the project root, which
+          is what a folder DELETE does to its direct children.
+        - Nothing filed under the path is not an error: ``{"updated": 0}``.
+
+        Follows the documents-router auth model: end-user access is enforced at
+        the BFF, which has already checked ``project:documents:write`` on the
+        project that owns this collection before it addresses this route.
+        """
+        updated = rewrite_document_folder_paths(collection_name, request.from_path, request.to_path)
+        return {
+            "collection_name": collection_name,
+            "from_path": request.from_path,
+            "to_path": (request.to_path or "").strip() or None,
+            "updated": updated,
         }
 
     @router.delete(

@@ -4,7 +4,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   createSkillSchema,
+  isAutoInvokeSkill,
   isHiddenSkill,
+  METADATA_AUTO_INVOKE,
   METADATA_CARDS,
   METADATA_HIDDEN,
   patchSkillSchema,
@@ -138,6 +140,21 @@ describe('isHiddenSkill (grid-hidden)', () => {
     expect(isHiddenSkill({})).toBe(false)
     for (const token of ['false', '0', 'no', '', 'maybe']) {
       expect(isHiddenSkill({ [METADATA_HIDDEN]: token })).toBe(false)
+    }
+  })
+})
+
+describe('isAutoInvokeSkill (grid-auto-invoke)', () => {
+  it('reads absent and truthy tokens as on (the default)', () => {
+    expect(isAutoInvokeSkill({})).toBe(true)
+    for (const token of ['true', '1', 'yes', 'TRUE', '', 'maybe']) {
+      expect(isAutoInvokeSkill({ [METADATA_AUTO_INVOKE]: token })).toBe(true)
+    }
+  })
+
+  it('reads the falsy tokens as off', () => {
+    for (const token of ['false', '0', 'no', 'FALSE', '  No  ']) {
+      expect(isAutoInvokeSkill({ [METADATA_AUTO_INVOKE]: token })).toBe(false)
     }
   })
 })

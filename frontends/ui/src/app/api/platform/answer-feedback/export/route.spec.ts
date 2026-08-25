@@ -18,7 +18,7 @@ vi.mock('@/lib/authz/platform', () => {
   class PlatformAccessDeniedError extends Error {}
   return {
     PlatformAccessDeniedError,
-    requirePlatformOwner: vi.fn().mockImplementation(async () => {
+    requirePlatformPermission: vi.fn().mockImplementation(async () => {
       if (!isOwner.value) throw new PlatformAccessDeniedError()
     }),
   }
@@ -26,8 +26,8 @@ vi.mock('@/lib/authz/platform', () => {
 
 vi.mock('@/lib/feedback/service', () => ({
   getAnswerFeedbackHealth: vi.fn().mockImplementation(async (session: unknown) => {
-    const { requirePlatformOwner } = await import('@/lib/authz/platform')
-    await requirePlatformOwner(session as never)
+    const { requirePlatformPermission } = await import('@/lib/authz/platform')
+    await requirePlatformPermission(session as never, 'platform:organizations:view')
     return {
       turns: [
         {

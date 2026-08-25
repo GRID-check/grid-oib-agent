@@ -342,6 +342,7 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     { name: "GRID_PLATFORM_OWNER_EMAILS", value: cfg.auth.platformOwnerEmails },
     { name: "GRID_PLATFORM_ORG_EXTERNAL_ID", value: cfg.auth.platformOrgExternalId },
     { name: "GRID_DISABLE_SELF_SERVE_ORGS", value: String(cfg.auth.disableSelfServeOrgs) },
+    { name: "GRID_AUDIT_LOGS_ENABLED", value: String(cfg.auth.auditLogsEnabled) },
     { name: "GRID_ENFORCE_FEATURE_FLAGS", value: String(cfg.auth.enforceFeatureFlags) },
     // Shared cache + WS rate limiting (needed for >1 replica correctness).
     // Authenticated: the URL carries the password, so it comes from the Secret.

@@ -102,11 +102,63 @@ describe('SkillEditorDialog — create', () => {
     expect(payload.body).toBe('Act as a fire-safety reviewer.')
     expect(payload.clonedFrom).toBeUndefined()
     // A new skill writes NO reserved metadata at all: both agents is the
-    // default (so no `grid-agents`), no card preference, and nothing about
-    // time or output — a skill does not know when it runs.
+    // default (so no `grid-agents`), auto-invoke is on (so no
+    // `grid-auto-invoke`), hidden is off (so no `grid-hidden`), no card
+    // preference, and nothing about time or output — a skill does not know
+    // when a job runs.
     expect(payload.metadata).toEqual({})
     expect(payload.enabled).toBe(true)
     expect(toast.success).toHaveBeenCalledWith('Skill created.')
+  })
+
+  test('turning auto-invoke off writes grid-auto-invoke false and nothing else', async () => {
+    createSkillMock.mockResolvedValue(orgSkill)
+    render(<SkillEditorDialog {...dialogProps} skill={null} />)
+
+    expect(screen.getByRole('switch', { name: 'Agent may pick this' })).toBeChecked()
+    fireEvent.click(screen.getByRole('switch', { name: 'Agent may pick this' }))
+
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: 'einreichcheck' } })
+    fireEvent.change(screen.getByLabelText(/^Description/), {
+      target: { value: 'Was diesem Bauansuchen noch fehlt.' },
+    })
+    fireEvent.change(screen.getByLabelText(/^Instruction/), {
+      target: { value: 'Walk the missing Unterlagen.' },
+    })
+
+    const saveButton = screen.getByRole('button', { name: 'Save skill' })
+    await waitFor(() => expect(saveButton).toBeEnabled())
+    fireEvent.click(saveButton)
+
+    await waitFor(() => expect(createSkillMock).toHaveBeenCalledTimes(1))
+    expect(createSkillMock.mock.calls[0][0].metadata).toEqual({
+      'grid-auto-invoke': 'false',
+    })
+  })
+
+  test('turning hidden on writes grid-hidden true', async () => {
+    createSkillMock.mockResolvedValue(orgSkill)
+    render(<SkillEditorDialog {...dialogProps} skill={null} />)
+
+    expect(screen.getByRole('switch', { name: 'Keep off the live line' })).not.toBeChecked()
+    fireEvent.click(screen.getByRole('switch', { name: 'Keep off the live line' }))
+
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: 'house-voice' } })
+    fireEvent.change(screen.getByLabelText(/^Description/), {
+      target: { value: 'How a Piloti answer is built.' },
+    })
+    fireEvent.change(screen.getByLabelText(/^Instruction/), {
+      target: { value: 'Answer first, caveats after.' },
+    })
+
+    const saveButton = screen.getByRole('button', { name: 'Save skill' })
+    await waitFor(() => expect(saveButton).toBeEnabled())
+    fireEvent.click(saveButton)
+
+    await waitFor(() => expect(createSkillMock).toHaveBeenCalledTimes(1))
+    expect(createSkillMock.mock.calls[0][0].metadata).toEqual({
+      'grid-hidden': 'true',
+    })
   })
 
   test('offers nothing about time or output — that belongs to a job', async () => {
@@ -302,6 +354,38 @@ describe('SkillEditorDialog — edit', () => {
       'grid-agents': 'voice-ana',
     })
     expect(toast.success).toHaveBeenCalledWith('Skill saved.')
+  })
+
+  test('prefills auto-invoke off and hidden on from reserved metadata', async () => {
+    updateSkillMock.mockResolvedValue(orgSkill)
+    render(
+      <SkillEditorDialog
+        {...dialogProps}
+        skill={{
+          ...orgSkill,
+          metadata: {
+            ...orgSkill.metadata,
+            'grid-auto-invoke': 'false',
+            'grid-hidden': 'true',
+          },
+        }}
+      />,
+    )
+
+    expect(screen.getByRole('switch', { name: 'Agent may pick this' })).not.toBeChecked()
+    expect(screen.getByRole('switch', { name: 'Keep off the live line' })).toBeChecked()
+
+    const saveButton = screen.getByRole('button', { name: 'Save skill' })
+    await waitFor(() => expect(saveButton).toBeEnabled())
+    fireEvent.click(saveButton)
+
+    await waitFor(() => expect(updateSkillMock).toHaveBeenCalledTimes(1))
+    expect(updateSkillMock.mock.calls[0][1].metadata).toEqual({
+      'grid-execution': 'deep-research',
+      'grid-agents': 'voice-ana',
+      'grid-auto-invoke': 'false',
+      'grid-hidden': 'true',
+    })
   })
 
   test('prefills the card chips and drops the key when the last one is removed', async () => {

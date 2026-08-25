@@ -48,7 +48,7 @@ CLASSIFY_MAX_INPUT_CHARS = 4000
 # The LLM is instructed to choose from these two closed vocabularies, and a
 # deterministic post-filter drops anything outside them — so a hallucinated tag
 # can never reach storage. Keep these lists in sync with the taxonomy documented
-# on FB-8 in feedback_backlog.md.
+# on FB-8 in docs/audit/feedback-backlog.md.
 
 # 1–2 of these describe what the document *is*. Ordered + immutable so the
 # prompt renders deterministically and callers cannot mutate the vocabulary.

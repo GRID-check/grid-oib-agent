@@ -102,9 +102,10 @@ function toCurated(row: {
  *   - published `delivery: 'offer'` rows of `platform_skills`, written in
  *     Platform → Skills. We author a skill there, every organization can switch
  *     it on, and the body stays ours.
- *   - builtin FILES that opt in with `grid-catalog: curated`. None ship today;
- *     the door exists so a builtin can become org-facing without becoming a
- *     database row first.
+ *   - builtin FILES that opt in with `grid-catalog: curated`. The architect
+ *     job playbooks (`einreichcheck`, `bestand`) ship this way: listed on the
+ *     Skills tab, on until the org turns them off. A dashboard offer still
+ *     starts off.
  *
  * STANDARD — the fleet's own equipment, and NOT an offer:
  *   - published `delivery: 'standard'` rows. Every organization runs them, none
@@ -146,7 +147,14 @@ async function livePlatformSkills(): Promise<LivePlatformSkills> {
   for (const file of listPlatformSkills()) {
     if (isCuratedPlatformSkill(file.metadata)) offers.set(file.name, file)
   }
-  for (const row of offerRows) offers.set(row.name, toCurated(row))
+  // A dashboard row never replaces a shipped FILE of the same name. The write
+  // boundary refuses that create, but the other direction is a deploy: a new
+  // SKILL.md matching a row published months ago. The file is product code;
+  // the row is dashboard copy. Product wins, same as standard vs machinery.
+  for (const row of offerRows) {
+    if (findPlatformSkill(row.name)) continue
+    offers.set(row.name, toCurated(row))
+  }
 
   const standard = new Map<string, CuratedSkill>()
   for (const row of standardRows) {
@@ -167,8 +175,8 @@ async function curatedOffers(): Promise<CuratedSkill[]> {
  * `id` stays null even for a `platform_skills` row: that id belongs to the
  * platform catalogue, and handing it to a tenant would invite a PATCH against
  * `/api/skills/{id}` — an org editing the fleet's copy. The switch addresses an
- * offer by NAME instead. `enabled` is the org's own decision, and its default
- * is OFF: the platform publishes, the organization chooses.
+ * offer by NAME instead. `enabled` is the org's own decision. File playbooks
+ * a chat turn can run start on; dashboard offers start off.
  */
 function platformToListItem(platform: CuratedSkill, enabled: boolean): SkillListItem {
   return {
@@ -191,14 +199,27 @@ function platformToListItem(platform: CuratedSkill, enabled: boolean): SkillList
 /**
  * Whether a curated skill is switched on for an org.
  *
- * No row means no decision, and no decision means OFF — a curated skill is an
- * offer, not an installation.
+ * A stored row is the decision. No row is the default, and the default
+ * depends on what the offer IS:
+ *
+ *   - a builtin FILE that a chat turn can run starts ON. Those are reviewed
+ *     playbooks we ship; leaving them off until someone finds the Skills tab
+ *     means they never run.
+ *   - a dashboard offer, or a file aimed only at deep research, starts OFF.
  */
+function fileOfferDefaultsOn(name: string): boolean {
+  const file = findPlatformSkill(name)
+  if (!file || !isCuratedPlatformSkill(file.metadata)) return false
+  return skillTargetsAgent(file.metadata, CHAT_SKILL_AGENT)
+}
+
 function isActivated(
   activations: { skillName: string; enabled: boolean }[],
   name: string,
 ): boolean {
-  return activations.find((activation) => activation.skillName === name)?.enabled ?? false
+  const row = activations.find((activation) => activation.skillName === name)
+  if (row) return row.enabled
+  return fileOfferDefaultsOn(name)
 }
 
 function orgToListItem(skill: Skill): SkillListItem {
@@ -221,20 +242,18 @@ function orgToListItem(skill: Skill): SkillListItem {
  * to it. Any member may read.
  *
  * The pipeline's MACHINERY is deliberately not here, though it used to be —
- * all five builtins were merged in as equal rows, each with a "clone" button.
+ * every builtin was merged in as an equal row, each with a "clone" button.
  * Nobody installs one, nobody can edit one, and none of them is an
- * organization's decision: every builtin shipping today declares
- * `grid-agents: deep_researcher`, so none can even be invoked from chat. They
- * are how deep research analyses figures and writes its report. Listing five of
- * those in front of an org with two skills of its own made the page look mostly
- * like ours, and the only action they offered produced a frozen copy of an
- * instruction the org never wrote and would never maintain. They still resolve,
- * unchanged, for every run (`resolveSkillsForAgent`).
+ * organization's decision. Genre methods (Brandschutz, Gebäudeklasse) still
+ * resolve for every chat turn; they are not listed because they load on their
+ * own. Listing them in front of an org with two skills of its own made the
+ * page look mostly like ours, and the only action they offered produced a
+ * frozen copy of an instruction the org never wrote and would never maintain.
  *
  * What IS here is anything the platform OFFERS organizations, carrying the org's
- * own on/off decision. An offer arrives switched off, and the org turns it on.
- * That is what replaces clone — no copy, no drift, and an improvement we ship
- * reaches every org that wants it.
+ * own on/off decision. A chat-usable FILE offer starts on; a dashboard offer
+ * or a deep-research-only file starts off. That is what replaces clone — no
+ * copy, no drift, and an improvement we ship reaches every org that wants it.
  *
  * The platform's STANDARD skills are not here either, and that is the point of
  * them. They resolve for every organization on every run
@@ -322,15 +341,16 @@ export type InvocableSkill = {
  * Disabled skills are excluded. Any org member may list — invoking a skill is
  * using the product, not administering it; authoring stays `org:skills:manage`.
  *
- * The platform's STANDARD skills are excluded too (`resolveSelectableSkills`).
- * They resolve for this org and the model has them in its catalogue, but the
- * organization does not administer them, so putting one in a `/` menu would be
- * handing somebody a name they cannot look up, edit or switch off. Note the
+ * The platform's STANDARD skills and the pipeline MACHINERY are excluded too
+ * (`resolveSelectableSkills`). They resolve for this org and the model has them
+ * in its catalogue, but they are not something a person picks: standard is
+ * fleet policy, machinery loads on its own. Putting either in a `/` menu would
+ * hand somebody a name they cannot look up, edit or switch off. Note the
  * consequence: this list is also what `SkillsUsedDisclosure` reads for
- * descriptions, so if a standard skill is activated the disclosure names it with
- * no description rather than hiding it. That is deliberate — the disclosure
- * reports what shaped the answer, and a product built on traceable sourcing must
- * not have a class of instruction it declines to admit ran.
+ * descriptions, so if a standard or machinery skill is activated the disclosure
+ * names it with no description rather than hiding it. That is deliberate — the
+ * disclosure reports what shaped the answer, and a product built on traceable
+ * sourcing must not have a class of instruction it declines to admit ran.
  */
 export async function listInvocableSkills(
   session: AuthorizedSession,
@@ -574,7 +594,8 @@ export type ResolvedSkill = {
  * them belongs on the wire. `resolveSkillsForAgent` is what a RUN gets — every
  * skill, standard included, because that is the set the agent may actually load.
  * `resolveSelectableSkills` is what a PERSON gets — the same set minus the
- * standard skills, because those are not theirs to pick, attach or see.
+ * standard skills and the pipeline machinery, because those are not theirs to
+ * pick, attach or see.
  */
 async function resolveAll(
   organizationId: string,
@@ -677,22 +698,34 @@ export async function resolveSkillsForAgent(
 /**
  * The resolved set a PERSON in this organization may act on.
  *
- * Everything `resolveSkillsForAgent` returns, minus the platform's standard
- * skills. They run for this org — they are in the agent's catalogue on every
- * turn — but they are not the org's to invoke by name or to attach to a job, and
- * listing them in a picker would be offering a handle on something the org
- * cannot see, cannot edit and cannot switch off.
+ * Everything `resolveSkillsForAgent` returns, minus fleet policy and pipeline
+ * machinery. Those run for this org — they are in the agent's catalogue — but
+ * they are not the org's to invoke by name or to attach to a job. Listing them
+ * in a picker would offer a handle on something the org cannot see, cannot
+ * edit and cannot switch off.
  *
- * Filtering by NAME rather than by origin is deliberate: `origin: 'platform'`
- * is also carried by the machinery and by offers the org took up, and both of
- * those are legitimately pickable.
+ * Offers the org took up stay. An org row that shadows machinery stays too:
+ * that copy is theirs. The file itself is not.
  */
+function isBuiltinMachinery(name: string): boolean {
+  const file = findPlatformSkill(name)
+  return Boolean(file && !isCuratedPlatformSkill(file.metadata))
+}
+
 export async function resolveSelectableSkills(
   organizationId: string,
   agent?: string,
 ): Promise<{ skills: ResolvedSkill[] }> {
   const { skills, standardNames } = await resolveAll(organizationId, agent)
-  return { skills: skills.filter((skill) => !standardNames.has(skill.name)) }
+  return {
+    skills: skills.filter(
+      (skill) =>
+        !standardNames.has(skill.name) &&
+        // An org row that shadows machinery is still theirs to pick. The file
+        // itself is not: it is always on, and it has no switch.
+        (skill.origin !== 'platform' || !isBuiltinMachinery(skill.name)),
+    ),
+  }
 }
 
 /**
@@ -711,8 +744,9 @@ export async function resolveSelectableSkills(
  *
  * The builtins that truly cannot run in a chat turn declare
  * `grid-agents: deep_researcher`, which is the mechanism for precisely that.
- * `platform-skills.spec.ts` pins that they all still do, because it is now the
- * only thing keeping them out of the composer's `/` menu.
+ * `platform-skills.spec.ts` pins that they all still do. Machinery is kept out
+ * of the `/` menu separately; `grid-agents` is what keeps a deep-only *offer*
+ * out of chat.
  *
  * Kept deliberately close to the Python in shape as well as behaviour: the two
  * are a contract pair, and `service.spec.ts` pins them against the same cases.

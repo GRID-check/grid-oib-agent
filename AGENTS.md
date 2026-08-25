@@ -1,8 +1,10 @@
 # Grid Agent Contributor Guide
 
-This repo is the Grid-branded AI-Q agent worktree. It contains a Next.js UI, a Python backend using the NeMo Agent Toolkit, and a custom OIB knowledge source.
+Grid is an OIB building-regulation assistant: a Next.js UI and BFF
+(`frontends/ui`), a Python agent on the NeMo Agent Toolkit (`src/aiq_agent`),
+and a custom OIB knowledge source.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the branch/commit/PR-title conventions, local validation steps, the CI merge gate, and secret-scanning + doc-link hygiene.
+## Start here
 
 ## Working style: prefer visuals
 
@@ -406,120 +408,144 @@ RAG document knowledge has **three tiers**, all sharing one pipeline (SeaweedFS 
 Updating documentation is **not optional and not a follow-up** — it is part of the same change that alters behavior. When you (human or agent) do any of the following, you MUST update the relevant docs in the SAME change, before it is considered done:
 
 | You changed… | Update… |
+| Question | Go to |
 |---|---|
-| Architecture, a data flow, a subsystem, or a cross-cutting mechanism | `docs/architecture/backend-deep-dive.md` (and the specific subsystem doc) |
-| A significant/hard-to-reverse decision (new subsystem, transport, storage, provider model, security boundary) | add an **ADR** under `docs/adr/` (copy `0000-template.md`, next number) |
-| An env var, config key, or default | this file's Environment-variables table + `docs/deployment/environment-variables.md` |
-| An API route, WS message, or tool contract | `docs/api/*` |
-| A DB schema / migration | `docs/database/*` |
-| User-facing behavior | the relevant `docs/user-guides/*` |
-| Setup, containers, or the run/verify flow | `README.md` + the Quick-start / Verification sections here |
-| A shareable-resource / inbox / mentions substrate leak you lifted or found | `docs/architecture/adding-a-shareable-resource-type.md` §1 (move paid debt here) and §3 (new leaks) |
+| Set up, branch, commit, get a PR merged | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| Everything written down, by the question you arrived with | [`docs/README.md`](docs/README.md) |
+| How the system works | [`docs/architecture/system-overview.md`](docs/architecture/system-overview.md) |
+| Why it is like that | [`docs/adr/`](docs/adr/) |
+| How we work, in detail | [`docs/contributing/README.md`](docs/contributing/README.md) |
 
-Rules of thumb: prefer updating an existing doc over adding a new one; delete docs that a change makes wrong rather than leaving them stale; keep the `docs/architecture/` deep-dives and the ADR log as the source of truth. If a change is significant enough to explain in a PR, it is significant enough to document in the repo.
+This file is what you must **act on** while working. Project knowledge you want
+to add here has no home yet: give it one under
+[`docs/contributing/`](docs/contributing/README.md) and leave a one-line pointer.
 
-## Git workflow (branching & commits)
+## Working style
 
-- **One feature, one branch.** Each distinct feature/fix gets its **own branch cut
-  from `develop`** (e.g. `feature/rich-ui-cards`, `fix/research-403`). Do **not**
-  keep piling unrelated work onto an existing feature branch that already has an
-  open PR — that makes the PR unreviewable and couples unrelated changes.
-- **Merge target is `develop`.** Open the PR against `develop`; `develop` is the
-  integration branch. Only release promotes `develop` onward.
-- If new work genuinely depends on an unmerged branch, **stack** the new branch on
-  it (branch from that tip) and note the dependency in the PR — but prefer branching
-  from `develop` whenever the work is independent.
-- **Conventional Commits** (`type(scope): summary`), imperative, small and
-  independently revertible — one logical change per commit. Reference the ADR/issue
-  when relevant. Substrate lifts that a feature depends on belong **in the
-  same branch**, each as their own commit, *before* the feature starts
-  depending on the repaired primitive. Do not fold a registry entry and a
-  substrate refactor into one commit, and do not leave the lift for a
-  follow-up (see Conventions: correlated substrate debt).
-- Never commit secrets. Branch before committing if you're on `develop`/`main`.
+**Value driven.** Before touching anything, answer what the user expects to be
+true when this is done. The request is evidence about that expectation, not the
+expectation itself: a spec or handover package is someone's guess at how to
+reach the outcome. When the requested change would not produce it, say so before
+writing the code, and say what would. Name the gap and let the user decide which
+one they are paying for. This neither widens a task because you spotted
+something adjacent, nor narrows it to the comfortable part.
 
-## Conventions
+**Prefer visuals.** For architecture, data flow, deployment topology or
+sequence, render an Excalidraw diagram (`create_view`) rather than prose alone:
+layered left to right, aligned, orthogonal arrows that miss the boxes, short
+legend. Offer one proactively in design discussions.
 
-- Python: ruff, line length 120, Python 3.11.
-- New tools use `@register_function` and a `FunctionBaseConfig` subclass.
-- Secrets live in environment variables only.
-- Capability doctrine: feature flags are **product decisions**, environment
-  variables are **real infrastructure dependencies**, a **capability** is
-  DERIVED from a dependency (never a second flag), and a feature's
-  **availability = flag AND capability**. Example: image upload = the
-  `image-upload` flag AND `vlm_available` (derived from the VLM key) — do not
-  add a redundant env opt-in for something the dependency already implies.
-- **Raw `sql<T>` results are not runtime-validated — coerce at the repository
-  boundary.** Drizzle only decodes column values for direct column references;
-  a raw `sql<Date>\`max(...)\`` / `sql<number>\`count(...)\`` fragment is a
-  *compile-time assertion only*, so `tsc` and the LSP see no error even when the
-  driver returns a string. Convert on the way out of the repository (e.g.
-  `new Date(row.x)`, `Number(row.x)`) — never trust the annotation downstream.
-  A missing coercion here caused the profiler `toISOString is not a function`
-  crash; the fix and the `totalDurationMsRaw` sibling are the reference pattern.
-- **`any` is not a type we accept — in production code or in tests.**
-  `@typescript-eslint/no-explicit-any` is an **error** (not a warning) in
-  `frontends/ui/eslint.config.mjs`, and the suite is clean. Reach for the real
-  type, a `Partial<T>`/`Pick<T, …>` of it, `unknown`, or a deliberate
-  `as unknown as T` at a single documented boundary. For spec fixtures use
-  `@/test-utils/store-fixtures` (`DeepPartial<TState>` + `asStoreState` for
-  zustand selector mocks — the fixture stays partial but every field is still
-  checked against the real store) and `@/test-utils/db-fixtures`
-  (`makeProject` / `makeDocument` / `makeMemoryItem` for whole repository rows,
-  `asDb` for the one drizzle query-builder-stub boundary).
-  `any` in a test double is how fixtures silently drift from the code they
-  stand in for. `no-console` allows `warn`/`error`/`debug`; `console.debug` is
-  the dev-only diagnostic channel and its call sites are `NODE_ENV`-gated.
-- **A general-purpose helper belongs in a shared module, not in the feature
-  that happened to need it first (obligation).** Before writing a text
-  transform, a formatter, a date/number helper or any other utility that is not
-  *about* your feature's domain, **search for an existing one** — and if you
-  write a new one, put it where the next caller will find it (`lib/text/`,
-  `lib/utils/`, `lib/format.ts`, `features/<x>/lib/` only when it really is
-  domain logic). A private copy in a feature file is a fork: the copies drift,
-  and the drift is invisible because each looks locally correct.
-  The case that produced this rule: German transliteration (`ä`→`ae`, `ß`→`ss`)
-  existed in `MarkdownRenderer.tsx` and in `norm-entry-editor.tsx`, and a third
-  was being written into `lib/bim/bcf.ts` — where its absence had been shipping
-  `Beispielstraße` as the filename `Beispielstra-e`. All three now call
-  `lib/text/latinize.ts`.
-  Sharing is not the same as merging: keep the pieces that genuinely differ
-  separate and say why. `latinize` splits into `transliterateGerman` and
-  `foldDiacritics` precisely because the Markdown anchors must NOT gain
-  diacritic folding (their ids are already published in links), and
-  `bucket.ts`, `MentionPicker` and `passage-highlight` each document why they
-  keep their own fold. **Document the non-adopters** — an unexplained holdout
-  reads as an oversight and gets "fixed" later.
-- Documentation obligations above apply to every change — treat stale docs as a bug.
-- **Fix errors you find — never dismiss them as "pre-existing."** If, while
-  working, you identify a bug, a failing/broken test, or wrong behavior — even
-  one that pre-dates your change — fix it. "It was already broken" is not a
-  reason to leave it broken. If a fix is genuinely out of scope, flag it loudly
-  and explicitly (in the PR/log), never silently wave it away.
-- **Correlated substrate debt is in the change that tripped over it
-  (obligation).** YAGNI forbids unused *features*, not known defects on the
-  path you are walking. If implementing B requires A to be generic and A's own
-  audit says it is not — a visibility write that silently no-ops, mentions
-  typed to one consumer, a cleanup that only knows one type — you lift A in
-  this change, as its own atomic commits, rather than special-casing B or
-  filing the lift as "later." Strategic debt is *unrelated* work, or
-  *expansion* of a working primitive. It is not shipping a second consumer
-  onto a substrate that will silently mislabel, never clean up, or lie in the
-  audit trail. The test: would you have to work around it, switch on your
-  type, or leave a descriptor field unread? Then it is correlated. The
-  register and the rule:
-  [`docs/architecture/adding-a-shareable-resource-type.md`](docs/architecture/adding-a-shareable-resource-type.md).
-  The case that produced this wording: files becoming the second shareable
-  resource (ADR-0032 Phase 3) while ten documented leaks were still
-  conversation-shaped — see
-  [`docs/superpowers/specs/2026-08-13-file-native-ownership-design.md`](docs/superpowers/specs/2026-08-13-file-native-ownership-design.md).
-- **Question necessity, then simplify — "the best part is no part."** START every
-  task by asking why the thing must exist at all and whether existing machinery
-  already covers it — the cheapest code is the code you don't write. FINISH every
-  task with a skeptical review that tries to DELETE: remove parts, collapse
-  layers, reuse instead of add, cut complexity — while keeping the feature set
-  intact (reduce complexity, never features). Reducing complexity is part of
-  "done," not a follow-up. When work is finished, a senior-skeptic review pass
-  (its own sub-agent) that challenges necessity and hunts deletions is expected.
-- Git workflow above (feature-branch-per-feature, Conventional Commits, PR to
-  `develop`) applies to every change.
+**Fix causes, not symptoms.** Establish what a measurement is *of* before
+optimising it. A change that improves a number without changing what produced it
+is a bandage, and it removes the signal pointing at the real fault. Verify the
+cause by measuring it: an unmeasured cause is a guess, and a fix built on a
+guess is a bandage even when it works. When the fast fix and the correct fix
+disagree, take the correct one, or say plainly that you are deferring it and
+why.
+
+**Ratchet every correction.** A ratchet turns one way. Fix the output, then
+close the layer that let it through, preferring the layer that holds while
+people are tired: a database CHECK constraint asks nobody to remember anything.
+Ratcheted means a second occurrence is caught by something other than a person
+noticing. Reach for it when a reviewer corrects you, when something surprises
+you, or when you correct yourself twice for one reason.
+
+**When something surprises you or breaks, read
+[`docs/contributing/gotchas.md`](docs/contributing/gotchas.md) before you start
+debugging it.** It is indexed by the symptom you arrive with, and every entry is
+an afternoon somebody already spent. Add yours the moment a failure costs you
+more than a few minutes, while you still remember the string you searched for.
+That register is the other half of the ratchet: a correction with nowhere to
+land is not ratcheted.
+
+The cases that produced each rule:
+[`docs/contributing/working-style.md`](docs/contributing/working-style.md).
+Which layer to close: [`docs/contributing/correction-ratchet.md`](docs/contributing/correction-ratchet.md).
+
+## Obligations
+
+| When you | You must | What fails you |
+|---|---|---|
+| Add an `app/api` route | Declare `authz` on the factory from `@/lib/api/handler` | `apiRoute` does not compile; `authz-coverage.spec.ts` |
+| Add a permission | Add it to `lib/authz/catalog.ts` first, then `bun run provision:authz --apply` against every environment | WorkOS drifts from the code. A project-tier permission that exists only in the catalog is held by **nobody** |
+| Decide access | Check a permission, never a role slug. `lib/authz/decide.ts` is the intended single decision point; adoption is incremental (ADR-0038 §6) and the gates still call `hasPermission` / `requireProjectAccess` / `requirePlatformPermission` directly | Bypasses become implicit. A role-name check breaks every custom role |
+| Create a table | `SELECT grid_secure_table('<table>','<tenancy predicate>');` in the same migration | `rls-coverage.spec.ts`, by name |
+| Read tenant rows | Take context from `getGridSession()`, or state it (`withTenant`, `withPlatformAccess`, `withOptionalTenant`) | `internalApiRoute` does not compile |
+| Write an endpoint | Route stays a thin adapter, service owns logic and authorization, repository owns the SQL and bounds every list | Review. `publicApiRoute` needs an ADR |
+| Add a card type | Classify it in `CARD_INTERACTIVITY` (`frontends/ui/src/features/grid-cards/card-decision.ts`) | `task fe:types` |
+| Store a card's answer | Put it on `ChatMessage.cardInteractions` via `useCardDecision` | A reload re-applies the patch; neither endpoint is idempotent |
+| Add an environment variable | Add its row to [`docs/deployment/environment-variables.md`](docs/deployment/environment-variables.md) in the same change | Review |
+| Change what a customer can notice | `task release:note -- <slug>` | The **Release note** CI job |
+| Change behaviour a doc describes | Update the doc in the same commit | Review. Stale docs are a bug |
+| Ship a user-visible surface | `/dev/<name>` preview route, a registry target, committed PNGs from `task fe:screenshots` | `visual-coverage` |
+| Touch the tenant boundary | `task db:test:rls`, which `task verify` does not include | A required merge check |
+| Run `pytest` directly | Set `PYTHONPATH=src`, which `Taskfile.yml` otherwise sets for you | Silently validating another worktree's code |
+
+`task verify` is the local gate: host-native, defined once in `Taskfile.yml`. CI
+calls the same definitions but schedules them differently, so a local pass is
+strong evidence rather than a guarantee. `task verify:fast` skips two production
+builds, `fe:build` and `web:build`. `task --list` is the current command list.
+Spec type errors fail the production build, because the UI tsconfig includes
+tests.
+
+## Five rules that need more than a row
+
+**Authorization checks a permission, never a role name.** Both bypasses are
+permissions: `org:projects:administer` reaches every project in one organization,
+and platform access is membership of the GRID Platform organization *plus* the
+specific `platform:*` permission the surface needs. `session.role === 'admin'`
+looks equivalent and is not — it denies a custom role holding every `org:*`
+permission, and grants any role that merely shares the name.
+
+**Stepping up is not authorization.** Row-level security guards application
+bugs, the missing `WHERE` and the widened join. Anything that runs arbitrary SQL
+as `grid_app_rw` can name any tenant, so every platform-scope caller keeps its
+own check.
+
+**The project profile has one editor, the intake wizard.** Settings shows it
+read-only and links to the wizard. Its facts are interdependent, so edits belong
+in the guided flow rather than a second form.
+
+**One coarse `SourceKind` drives all rendering** (`baurecht | buero | projekt |
+web`), defined in `src/aiq_agent/common/source_kinds.py`, mirrored in
+`frontends/ui/src/features/chat/lib/source-kinds.ts`. The fine `norm_registry` lanes are a
+sub-label within a kind. `doc_class` is human-set and beats every filename guess.
+
+**Correlated substrate debt belongs in the change that tripped over it.** YAGNI
+forbids unused features, not known defects on the path you are walking. If B
+needs A to be generic and A is not, lift A here as its own commits. The test:
+would you work around it, switch on your type, or leave a descriptor field
+unread? Then it is correlated.
+[`docs/architecture/adding-a-shareable-resource-type.md`](docs/architecture/adding-a-shareable-resource-type.md)
+holds the register.
+
+## Scope
+
+Fix errors you meet, including ones that pre-date your change. "It was already
+broken" leaves it broken; when a fix is genuinely out of scope, say so loudly in
+the PR.
+
+Question necessity first, then simplify. The best part is no part: ask whether
+existing machinery already covers it, and finish with a pass that tries to
+delete. Reduce complexity, never features. That pass is part of done.
+
+## Reference
+
+- Code conventions, the `any` ban, coercing raw `sql<T>`, where a shared helper
+  belongs, capability doctrine:
+  [`docs/contributing/code-conventions.md`](docs/contributing/code-conventions.md).
+  Python is ruff, line length 120, 3.11; new tools use `@register_function` with
+  a `FunctionBaseConfig` subclass.
+- Verification, CI sharding, the security stack, visual evidence:
+  [`docs/contributing/testing-and-verification.md`](docs/contributing/testing-and-verification.md).
+- Branching, Conventional Commits, PR titles: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+  Substrate lifts go in the same branch, each its own commit, before the feature
+  depends on the repaired primitive.
+- Skills: `skills/` is the one source. `apm.yml` lists it and the pinned
+  third-party ones, and `task agents:setup` publishes the set into every
+  harness target. `.claude/` and `.agents/` are generated and gitignored.
+  [`docs/contributing/agent-skills.md`](docs/contributing/agent-skills.md).
+- `configs/` model names are the boot fallback only. The live default is
+  admin-controlled (Platform → Models); moving the fleet is a save in the admin
+  UI, never a YAML edit.
+  [`docs/architecture/org-model-configuration.md`](docs/architecture/org-model-configuration.md).

@@ -74,6 +74,8 @@ interface MainLayoutProps {
    * switch itself on for callers that have not opted in (spec NF-7/NF-8).
    */
   canCollaborate?: boolean
+  /** Whether the reader may chat in this project (`project:chat`). */
+  canChatInProject?: boolean
 }
 
 /**
@@ -89,6 +91,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
   showAnswerFeedback = true,
   showResearchInHistory = false,
   canCollaborate = false,
+  canChatInProject = true,
   projectCollection = null,
   projectName = null,
 }) => {
@@ -196,9 +199,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
     () =>
       currentUserId
         ? conversations
-            .filter(
-              (c) => c.userId === currentUserId && conversationMatchesProject(c, projectId)
-            )
+            .filter((c) => c.userId === currentUserId && conversationMatchesProject(c, projectId))
             // The store keeps creation order; sort newest-first so date groups
             // and rows in the sessions panel come out most-recently-updated first.
             .slice()
@@ -271,7 +272,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
               still reach the messages beneath. */}
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 top-0 z-10 h-24 bg-gradient-to-b from-background from-[3.25rem] to-transparent"
+            className="from-background pointer-events-none absolute inset-x-0 top-0 z-10 h-24 bg-gradient-to-b from-[3.25rem] to-transparent"
           />
 
           {/* Floating toolbar — overlays the top of the chat plane as pills
@@ -292,25 +293,22 @@ export const MainLayout: FC<MainLayoutProps> = ({
             currentUserId={currentUserId}
           />
 
-          {isMobile &&
-            peekedFile &&
-            previewMode !== 'modal' &&
-            previewMode !== 'expanded' && (
-              <button
-                type="button"
-                onClick={expandFile}
-                // Floating over the transcript: the alpha is what `backdrop-blur`
-                // blurs, and the `supports-` step is the no-blur fallback.
-                className="border-base bg-card/70 absolute left-3 right-3 top-14 z-20 flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left shadow-xs backdrop-blur supports-[backdrop-filter]:bg-card/60"
-              >
-                <span className="min-w-0 flex-1 truncate text-xs font-medium tracking-[-0.01em]">
-                  {documentDisplayName(peekedFile)}
-                </span>
-                <span className="text-muted-foreground shrink-0 text-xs">
-                  {previewHidden ? tFiles('assignment.showFile') : tFiles('assignment.expandFile')}
-                </span>
-              </button>
-            )}
+          {isMobile && peekedFile && previewMode !== 'modal' && previewMode !== 'expanded' && (
+            <button
+              type="button"
+              onClick={expandFile}
+              // Floating over the transcript: the alpha is what `backdrop-blur`
+              // blurs, and the `supports-` step is the no-blur fallback.
+              className="border-base bg-card/70 shadow-xs supports-[backdrop-filter]:bg-card/60 absolute left-3 right-3 top-14 z-20 flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left backdrop-blur"
+            >
+              <span className="min-w-0 flex-1 truncate text-xs font-medium tracking-[-0.01em]">
+                {documentDisplayName(peekedFile)}
+              </span>
+              <span className="text-muted-foreground shrink-0 text-xs">
+                {previewHidden ? tFiles('assignment.showFile') : tFiles('assignment.expandFile')}
+              </span>
+            </button>
+          )}
 
           {/* Chat Area - Scrollable, extends behind the floating composer AND
               the floating toolbar */}
@@ -339,6 +337,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
               // behind it). False — the default — is byte-for-byte today's
               // composer (spec NF-8).
               canCollaborate={canCollaborate}
+              canChatInProject={canChatInProject}
             />
           </div>
         </div>

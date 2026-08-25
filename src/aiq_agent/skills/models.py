@@ -42,14 +42,20 @@ MAX_COMPATIBILITY_CHARS = 500
 #: name list (absent = all agents). ``grid-cards`` is a comma-separated list of
 #: preferred Grid output card types.
 #:
-#: A skill says nothing about WHEN or HOW it runs. ``grid-execution`` and
-#: ``grid-schedulable`` used to live here; scheduling is a property of a JOB
-#: now (a prompt on a timer, with a skill optionally attached), so the output
-#: kind is the job's ``output`` column and there is no schedulability marker at
-#: all. Both keys are simply unreserved: a stored org row or an old SKILL.md
-#: still carrying one keeps it as an ordinary free-form metadata entry, and
-#: nothing reads it.
-GRID_METADATA_KEYS = frozenset({"grid-agents", "grid-cards", "grid-title", "grid-hidden"})
+#: A skill says nothing about WHEN a JOB runs or WHAT it produces.
+#: ``grid-execution`` and ``grid-schedulable`` used to live here; scheduling is
+#: a property of a JOB now (a prompt on a timer, with a skill optionally
+#: attached), so the output kind is the job's ``output`` column and there is no
+#: schedulability marker at all. Both keys are simply unreserved: a stored org
+#: row or an old SKILL.md still carrying one keeps it as an ordinary free-form
+#: metadata entry, and nothing reads it.
+#:
+#: ``grid-auto-invoke`` is a different question: whether the model may pick
+#: this skill from the L1 catalog unprompted. Slash invocation and jobs still
+#: attach it when the flag is off. Absent means on, matching today's behaviour.
+GRID_METADATA_KEYS = frozenset(
+    {"grid-agents", "grid-cards", "grid-title", "grid-hidden", "grid-auto-invoke", "grid-catalog"}
+)
 
 #: ``grid-cards`` — the card types a skill would LIKE its answers rendered as.
 #:
@@ -105,11 +111,27 @@ MAX_TITLE_CHARS = 60
 #: row and it takes effect with no deploy.
 GRID_HIDDEN_KEY = "grid-hidden"
 
+#: ``grid-auto-invoke`` — whether the model may pick this skill from L1.
+#:
+#: On (the default, and the absent key): the one-line description sits in the
+#: catalog the model reads every turn, and it may call ``use_skill`` unprompted.
+#: Off: the skill is still resolved, still in the ``/`` picker, still attachable
+#: to a job, still loadable when forced. It is merely invisible to the model
+#: until a person or a job names it.
+#:
+#: This is not scheduling. A skill still says nothing about when a job fires.
+#: It is catalog membership, the same object as the author's "Agent may pick
+#: this" switch.
+GRID_AUTO_INVOKE_KEY = "grid-auto-invoke"
+
 #: Case-insensitive truthy tokens that mark a skill hidden. Anything else —
 #: including the recognised falsy tokens, an empty string, and any unrecognised
 #: word — reads as visible, because visible is the safe default: forgetting the
 #: flag under-suppresses (a line too many) rather than swallowing a skill's
 #: activation from the live line without anyone asking.
+#:
+#: Auto-invoke reuses the same token set with the opposite default: absent
+#: means on, and only a recognised falsy token stores the opt-out.
 _HIDDEN_TRUE = frozenset({"true", "1", "yes"})
 _HIDDEN_FALSE = frozenset({"false", "0", "no"})
 
@@ -329,6 +351,49 @@ def _validate_grid_hidden(value: str, *, strict: bool) -> str | None:
     return None
 
 
+def _validate_grid_auto_invoke(value: str, *, strict: bool) -> str | None:
+    """Validate ``grid-auto-invoke``; return canonical ``"false"`` or ``None``.
+
+    On is the default, so a truthy token and an empty string drop the key —
+    storing ``"true"`` would be a second spelling of "nothing" for every reader
+    to special-case. A recognised falsy token stores ``"false"``, because that
+    is the opt-out: absent already means on.
+
+    Same two tolerances as :func:`_validate_grid_hidden`. A garbage flag on a
+    reviewed SKILL.md is an authoring error; on an org row it costs the flag
+    (and so reads as on) rather than the skill.
+    """
+    token = value.strip().lower()
+    if token in _HIDDEN_FALSE:
+        return "false"
+    if token in _HIDDEN_TRUE or not token:
+        return None
+    if strict:
+        raise SkillValidationError(
+            f"Skill metadata {GRID_AUTO_INVOKE_KEY} must be a boolean-ish value "
+            f"(one of {sorted(_HIDDEN_TRUE | _HIDDEN_FALSE)}); got {value!r}"
+        )
+    logger.warning("Dropping unrecognised %s value %r", GRID_AUTO_INVOKE_KEY, value)
+    return None
+
+
+def _stringify_metadata_value(key: str, value: Any) -> str:
+    """GRID metadata is strings. YAML and JSON both have native booleans.
+
+    An unquoted ``grid-hidden: true`` is a YAML bool. Rejecting it used to take
+    down every builtin when one file used that spelling. Coerce, then validate.
+    Integers follow for the same reason (``grid-hidden: 1``). Nested types stay
+    an error — those are not a spelling of a flag.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return value
+    if isinstance(value, int):
+        return str(value)
+    raise SkillValidationError(f"Skill metadata key {key!r} must map a string to a string")
+
+
 def _validate_metadata(metadata: Any, *, strict: bool = True) -> dict[str, str]:
     if metadata is None:
         return {}
@@ -336,8 +401,9 @@ def _validate_metadata(metadata: Any, *, strict: bool = True) -> dict[str, str]:
         raise SkillValidationError("Skill 'metadata' must be a mapping of strings")
     validated: dict[str, str] = {}
     for key, value in metadata.items():
-        if not isinstance(key, str) or not isinstance(value, str):
+        if not isinstance(key, str):
             raise SkillValidationError(f"Skill metadata key {key!r} must map a string to a string")
+        value = _stringify_metadata_value(key, value)
         if key == GRID_CARDS_KEY:
             cards = _validate_grid_cards(value, strict=strict)
             if cards is None:
@@ -355,6 +421,12 @@ def _validate_metadata(metadata: Any, *, strict: bool = True) -> dict[str, str]:
             if hidden is None:
                 continue
             validated[key] = hidden
+            continue
+        if key == GRID_AUTO_INVOKE_KEY:
+            auto_invoke = _validate_grid_auto_invoke(value, strict=strict)
+            if auto_invoke is None:
+                continue
+            validated[key] = auto_invoke
             continue
         validated[key] = value
     return validated
@@ -400,6 +472,22 @@ def skill_hidden(metadata: dict[str, str]) -> bool:
     absent or unrecognised value reads as visible — the fail-open default.
     """
     return metadata.get(GRID_HIDDEN_KEY, "").strip().lower() in _HIDDEN_TRUE
+
+
+def skill_auto_invoke(metadata: dict[str, str]) -> bool:
+    """Whether the model may pick this skill from the L1 catalog unprompted.
+
+    Absent or unrecognised reads as on: that is today's behaviour, and
+    forgetting the flag must not silently hide a skill from every turn. Only a
+    recognised falsy token opts out. Slash invocation, jobs, and a forced
+    standard skill still attach it either way — see :data:`GRID_AUTO_INVOKE_KEY`.
+    """
+    token = metadata.get(GRID_AUTO_INVOKE_KEY, "").strip().lower()
+    if not token:
+        return True
+    if token in _HIDDEN_FALSE:
+        return False
+    return True
 
 
 def build_skill_from_payload(

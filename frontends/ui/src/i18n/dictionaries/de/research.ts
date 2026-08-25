@@ -240,6 +240,8 @@ export const research: typeof en.research = {
   },
 
   inputArea: {
+    subjectCleared: 'Frage bezieht sich nicht mehr auf diese Datei.',
+    subjectClearedUndo: 'Rückgängig',
     aiDisclosure:
       'Piloti ist ein KI-System — Antworten können falsch sein; prüfen Sie sie anhand der zitierten Richtlinie.',
     placeholderDefault: 'Datenquellen prüfen und eine Recherchefrage stellen...',

@@ -1,8 +1,9 @@
 /**
  * Rendering a skill back into the SKILL.md document it is.
  *
- * The editor is a form — name, description, body, two switches — which is the
- * right way to author one, but it leaves the actual artefact invisible. A skill
+ * The editor is a form — name, description, body, the reserved-metadata
+ * switches — which is the right way to author one, but it leaves the actual
+ * artefact invisible. A skill
  * IS a SKILL.md file: YAML frontmatter carrying `name`, `description` and
  * `metadata`, followed by the Markdown instructions
  * (https://agentskills.io/specification). Being able to see that document is

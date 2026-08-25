@@ -116,10 +116,11 @@ _INTERACTION_TOOL_BASENAMES = frozenset({"remember", "emit_card", "describe_card
 # is decomposed in exactly one place rather than two that can disagree.
 _tool_basename = tool_basename
 
-# File-discovery tools that are NOT data-source registry entries, but still
-# mix shelves if they stay bound on a listing/meta turn (the IFC models in
-# "was hast du im Archiv" never came from available_documents).
-_FILE_DISCOVERY_BASENAMES = frozenset({"surface_documents", "ifc_query", "ifc_measure"})
+# Bound on research turns, dropped on meta. File-discovery tools mix shelves
+# on a listing turn (the IFC models in "was hast du im Archiv" never came from
+# available_documents). The staged Soll-Ist pipeline is the same kind of
+# thing: a full 10-25-call run, not a greeting.
+_RESEARCH_ONLY_BASENAMES = frozenset({"surface_documents", "ifc_query", "ifc_measure", "compliance_check"})
 
 # Cap on both tool-search caches (query → selection, selection → bound LLM).
 # A shared agent serves many requests, so each map is dropped WHOLE at the cap
@@ -130,17 +131,20 @@ _MAX_CACHED_BINDINGS = 32
 
 
 def _is_search_tool(tool_name: str) -> bool:
-    """True if a tool is a data-source/search tool (dropped on meta turns).
+    """True if a tool is dropped on meta turns (search, file-discovery, Soll-Ist).
 
-    A tool counts as a search tool iff it resolves to a configured data source
+    A tool counts as search iff it resolves to a configured data source
     via :func:`get_source_id_for_tool` AND is not one of the known interaction
     tools. The interaction allowlist wins, so a `remember`/`emit_card` tool
     whose qualified name prefix-matches a data-source group ref is never
     mistakenly treated as search and dropped from a conversational turn.
+    File-discovery tools and ``compliance_check`` are not in the data-source
+    registry but they still do not belong on a greeting, so they are dropped
+    the same way.
     """
     if _tool_basename(tool_name) in _INTERACTION_TOOL_BASENAMES:
         return False
-    if _tool_basename(tool_name) in _FILE_DISCOVERY_BASENAMES:
+    if _tool_basename(tool_name) in _RESEARCH_ONLY_BASENAMES:
         return True
     return get_source_id_for_tool(tool_name) is not None
 

@@ -10,10 +10,17 @@ import {
   PROJECT_PERMISSION_SPECS,
   RESOURCE_TYPES,
   ROLES,
+  SKILL_PERMISSION_SPECS,
   findPermissionSpec,
   findRoleSpec,
+  type PermissionTier,
 } from './catalog'
-import { ORG_PERMISSIONS, PLATFORM_PERMISSIONS, PROJECT_PERMISSIONS } from './permissions'
+import {
+  ORG_PERMISSIONS,
+  PLATFORM_PERMISSIONS,
+  PROJECT_PERMISSIONS,
+  SKILL_PERMISSIONS,
+} from './permissions'
 
 /**
  * The catalog is provisioned into WorkOS by `scripts/provision-workos-authz.ts`
@@ -86,18 +93,51 @@ describe('authorization catalog', () => {
     }
   })
 
-  it('WorkOS caps resource-type descriptions at 150 characters', () => {
-    // Learned from the API rejecting a longer one during provisioning.
+  it('WorkOS caps descriptions at 150 characters — resource types AND permissions', () => {
+    // Both learned the same way: the API rejects a longer one at provisioning
+    // time, which turns a catalog edit into a half-applied environment. The
+    // permission half was missing from this check until `org:projects:administer`
+    // shipped at 208 characters and `createPermission` refused it.
     for (const type of RESOURCE_TYPES) {
       expect(type.description.length, `${type.slug} description`).toBeLessThanOrEqual(150)
     }
+    for (const permission of ALL_PERMISSION_SPECS) {
+      if (permission.system) continue // WorkOS owns the widgets:* copy
+      expect(
+        permission.description.length,
+        `${permission.slug} description`
+      ).toBeLessThanOrEqual(150)
+    }
+  })
+
+  it('every permission/role tier maps to a declared resource type', () => {
+    // The provisioner attaches permissions and roles via `resourceTypeSlugFor`
+    // (platform → organization, otherwise the tier itself). A tier without a
+    // RESOURCE_TYPES entry still compiles — it just silently prints a topology
+    // that omits where its permissions live. The skill type went missing
+    // exactly this way: skills had permissions and roles while the printed
+    // topology stopped at Project.
+    const typeSlugs = new Set(RESOURCE_TYPES.map((type) => type.slug))
+    const resourceTypeFor = (tier: PermissionTier): string =>
+      tier === 'platform' || tier === 'org' ? 'organization' : tier
+    const unattached = [
+      ...new Set([
+        ...ALL_PERMISSION_SPECS.map((permission) => resourceTypeFor(permission.tier)),
+        ...ROLES.map((role) => resourceTypeFor(role.tier)),
+      ]),
+    ].filter((slug) => !typeSlugs.has(slug))
+    expect(unattached).toEqual([])
   })
 
   it('the registry constants and the catalog agree on every slug', () => {
+    // All FOUR tiers. The skill tier used to be omitted from both halves of this
+    // check, so `skill:*` was the one part of the catalog that could drift from
+    // the registry — and from WorkOS — without anything failing.
     const registrySlugs: string[] = [
       ...Object.values(ORG_PERMISSIONS),
       ...Object.values(PLATFORM_PERMISSIONS),
       ...Object.values(PROJECT_PERMISSIONS),
+      ...Object.values(SKILL_PERMISSIONS),
     ]
     for (const slug of registrySlugs) {
       expect(findPermissionSpec(slug), `${slug} must exist in the catalog`).toBeDefined()
@@ -109,12 +149,44 @@ describe('authorization catalog', () => {
       ...ORG_PERMISSION_SPECS,
       ...PLATFORM_PERMISSION_SPECS,
       ...PROJECT_PERMISSION_SPECS,
+      ...SKILL_PERMISSION_SPECS,
     ]
       .filter((permission) => !registry.has(permission.slug))
       .map((permission) => permission.slug)
     expect(unexposed).toEqual([])
   })
 
+  it('Admin holds the org-wide project bypass, so existing admins keep every project', () => {
+    // The bypass moved from the role slug `admin` to the permission
+    // `org:projects:administer`. `hasPermission`'s bounded implication reads
+    // THIS list, so if Admin ever stopped holding it every org admin would
+    // silently lose access to every project they do not have a project role on.
+    expect(findRoleSpec('admin')?.permissions).toContain('org:projects:administer')
+  })
+
+  it('no role below Admin holds the project bypass', () => {
+    const holders = ROLES.filter(
+      (role) => role.tier === 'org' && role.permissions.includes('org:projects:administer')
+    ).map((role) => role.slug)
+    expect(holders).toEqual(['admin'])
+  })
+
+  it('read-only platform staff hold no platform write permission', () => {
+    // The catalog half of the fix for a role that was documented as changing
+    // nothing and could PUT the platform model defaults. The enforcement half is
+    // `requirePlatformPermission`; this keeps the grant honest.
+    const support = findRoleSpec('org-platform-support')
+    expect(support).toBeDefined()
+    expect(support!.permissions.filter((slug) => slug.endsWith(':manage'))).toEqual([])
+  })
+
+  it('every project role is assignable through the members API', () => {
+    // A role in the catalog that the API refuses is a role that exists only on
+    // paper — which is what `project-contributor` was.
+    const assignable = ['project-viewer', 'project-contributor', 'project-editor', 'project-admin']
+    const projectRoles = ROLES.filter((role) => role.tier === 'project').map((role) => role.slug)
+    expect(projectRoles.sort()).toEqual([...assignable].sort())
+  })
 
   /**
    * `project:documents:generate` is required IN ADDITION to

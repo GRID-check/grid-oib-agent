@@ -17,6 +17,12 @@ interface ProjectProfilePatchCardProps {
   messageId?: string
   /** Stable identity of this card within that message (`cardKey`). */
   cardKey: string
+  /**
+   * Whether this surface requires the answer to be persisted. With no owning
+   * message the card then shows WHAT is proposed and offers nothing — see
+   * `GridCards.decisionsMustPersist`.
+   */
+  decisionsMustPersist?: boolean
 }
 
 /**
@@ -35,9 +41,12 @@ export function ProjectProfilePatchCard({
   projectId,
   messageId,
   cardKey,
+  decisionsMustPersist,
 }: ProjectProfilePatchCardProps) {
   const t = useTranslations('chat')
-  const { decision, decide } = useCardDecision(messageId, cardKey)
+  const { decision, decide, canDecide } = useCardDecision(messageId, cardKey, {
+    mustPersist: decisionsMustPersist,
+  })
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   // The before/after rows are DERIVED from the patch + current profile — never
@@ -145,22 +154,29 @@ export function ProjectProfilePatchCard({
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <div className="flex items-center gap-2">
-        {!projectId && (
-          <p className="text-xs text-muted-foreground">{t('profilePatchCard.noProject')}</p>
-        )}
-        <Button
-          type="button"
-          size="sm"
-          onClick={handleAccept}
-          disabled={!projectId || isSubmitting}
-        >
-          {isSubmitting ? t('profilePatchCard.applying') : t('profilePatchCard.accept')}
-        </Button>
-        <Button type="button" variant="outline" size="sm" onClick={handleReject}>
-          {t('profilePatchCard.reject')}
-        </Button>
-      </div>
+      {/* NOTHING TO PRESS when the answer could not be kept (`canDecide`): the
+          proposed before/after still reads, because that is the substance of the
+          card, but Accept would write the brief and then forget it had — and the
+          next reader of this proposal would be offered the same write again. The
+          question is put where the answer has a home, which is the thread. */}
+      {canDecide && (
+        <div className="flex items-center gap-2">
+          {!projectId && (
+            <p className="text-xs text-muted-foreground">{t('profilePatchCard.noProject')}</p>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleAccept}
+            disabled={!projectId || isSubmitting}
+          >
+            {isSubmitting ? t('profilePatchCard.applying') : t('profilePatchCard.accept')}
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={handleReject}>
+            {t('profilePatchCard.reject')}
+          </Button>
+        </div>
+      )}
     </ProposalShell>
   )
 }

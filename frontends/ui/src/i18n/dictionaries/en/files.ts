@@ -84,6 +84,15 @@ export const files = {
     closePreview: 'Close preview',
     expandPreview: 'Open large preview',
     loadFailed: "Preview couldn't be loaded. You can still download the file below.",
+    /**
+     * Not a failure to retry: the service answers 404 both for a deleted
+     * document and for one this reader may no longer open, and neither changes
+     * by asking again. Said plainly, with the only move that is left.
+     */
+    gone: 'This document is no longer available. It may have been deleted, or you may no longer have access to it.',
+    goneAction: 'Stop asking about it',
+    goneCleared: 'No longer asking about that file.',
+    goneUndo: 'Undo',
     tryAgain: 'Try again',
     noInlinePreview:
       'No inline preview for this file type. Download it to view the full document.',
@@ -136,6 +145,23 @@ export const files = {
     retryingIngestion: 'Retrying…',
     retryIngestionError: "Ingestion couldn't be restarted. Please try again.",
     dialogLabel: 'File preview: {name}',
+    /**
+     * The seam between the conversation and the file. It is a tab stop (the
+     * panel library makes every separator one), so it needs a name — an
+     * unlabelled separator is announced as nothing at all.
+     */
+    resizePeek: 'Resize file preview',
+    /**
+     * The CONSEQUENCE of the status badge beside them in the chat peek. The
+     * badge already says what the state is ("Processing", "Failed"); repeating
+     * that in the sentence would spend the one line on the half the reader can
+     * already see. What it cannot see is what the state costs: the answer it is
+     * about to ask for will not use this file.
+     */
+    peekIndexingHint: 'Piloti cannot cite this file until it is indexed.',
+    peekFailedHint: 'Indexing failed — Piloti cannot cite this file.',
+    /** The way out of that: the enlarged view carries the error and the retry. */
+    peekFailedAction: 'Details',
   },
   browser: {
     folderEmptyTitle: 'This folder is empty',
@@ -158,6 +184,18 @@ export const files = {
       banner: 'Semantic search: {count, plural, one {# result} other {# results}} for “{query}”',
       searching: 'Searching your files for “{query}”…',
       noResults: 'No semantic matches for “{query}”',
+      /**
+       * A search that could not RUN, held apart from one that ran and found
+       * nothing. The hook fails open to an empty result set — which is right,
+       * it must not crash the pane — and the pane used to render that as "no
+       * matches", telling the reader something about their own corpus that the
+       * app had no way of knowing.
+       */
+      failed: 'The search could not be run',
+      failedDescription:
+        'Something went wrong on the way to the index. Your files are untouched — try the same search again, or go back to all of them.',
+      retry: 'Try again',
+      failedBanner: 'Semantic search for “{query}” could not be run',
       noResultsDescription:
         'Nothing in this project matched the meaning of your query. Try different wording, or clear the search to browse every file.',
       page: 'Page {page}',
@@ -165,6 +203,12 @@ export const files = {
     },
   },
   folders: {
+    rename: 'Rename…',
+    renameLabel: 'Rename folder “{name}”',
+    renaming: 'Renaming…',
+    delete: 'Delete…',
+    actions: 'Folder actions',
+    actionsFor: 'Actions for folder “{name}”',
     heading: 'Folders',
     namePlaceholder: 'Folder name',
     newFolderName: 'New folder name',
@@ -175,6 +219,12 @@ export const files = {
     newFolder: 'New folder',
   },
   workspace: {
+    renameFolderError: 'The folder could not be renamed. Please try again.',
+    deleteFolderError: 'The folder could not be deleted. Please try again.',
+    deleteFolderConfirm: 'Delete the folder “{name}”?',
+    deleteFolderConfirmWithContents: 'Delete the folder “{name}”?\n\nIts {documents} document(s) and {folders} subfolder(s) are not deleted — they move to “{parent}”.',
+    deleteFolderDone: '“{name}” deleted.',
+    deleteFolderMoved: 'Folder deleted. {count} document(s) moved to “{parent}”.',
     corpusSubtitle: 'Project knowledge — these documents ground Piloti’s answers',
     uploadDocuments: 'Upload documents',
     uploadProblem: 'Upload problem',
@@ -195,6 +245,7 @@ export const files = {
   // Explorer detail view — column headings for the sortable listing.
   list: {
     columns: {
+      relevance: 'Relevance',
       name: 'Name',
       status: 'Status',
       pages: 'Pages',
@@ -204,6 +255,12 @@ export const files = {
   },
   // The overflow menu every document surface carries.
   actions: {
+    reingest: 'Retry indexing',
+    move: 'Move to folder',
+    moved: '“{name}” moved to {folder}',
+    moveError: 'The document could not be moved. Please try again.',
+    reingesting: 'Retrying…',
+    reingestError: 'Indexing could not be restarted. Please try again.',
     label: 'File actions for “{name}”',
     menuLabel: 'File actions',
     download: 'Download',
@@ -244,6 +301,17 @@ export const files = {
     upload: 'Upload',
   },
   errors: {
+    validation: {
+      duplicateInBatch: '“{name}” is in this selection more than once',
+      duplicateExisting: '“{name}” has already been added',
+      invalidType: '“{name}” is not a supported file type. Accepted: {accepted}',
+      fileTooLarge: '“{name}” is {size} — the limit is {limit}',
+      totalSizeExceeded: 'That would come to {total}; only {available} of the {limit} limit is free',
+      totalSizeExceededFirst: '{total} is over the {limit} limit',
+      maxFilesExceeded: 'That would be {total} files; only {available} more fit ({limit} maximum)',
+      maxFilesExceededFirst: '{total} files is over the limit of {limit}',
+      several: '{count} files have issues',
+    },
     someUploadsFailed: '{failed} of {total} documents could not be uploaded. First reason: {reason}',
     uploadingSkipped: 'Uploading {uploading} {fileLabel}, skipped {skipped} ({summary})',
     cannotRetryServerFile: 'Cannot retry server-loaded files. Please upload the file again.',
@@ -306,6 +374,8 @@ export const files = {
     loadingPeople: 'Loading people…',
     noPeople: 'No one in this project yet',
     peopleLoadError: 'Could not load people',
+    assignError: '“{name}” could not be made responsible',
+    unassignError: '“{name}” could not be removed',
     tryAgain: 'Try again',
   },
 }

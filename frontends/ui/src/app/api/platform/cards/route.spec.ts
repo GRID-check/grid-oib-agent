@@ -16,7 +16,7 @@ vi.mock('@/lib/authz/platform', () => {
   }
   return {
     PlatformAccessDeniedError,
-    requirePlatformOwner: vi.fn().mockImplementation(async () => {
+    requirePlatformPermission: vi.fn().mockImplementation(async () => {
       if (!isOwner.value) {
         throw new PlatformAccessDeniedError()
       }
@@ -33,8 +33,20 @@ const catalog = {
       emittedBy: 'agent',
       interaction: 'presentational',
       fields: [
-        { name: 'title', type: 'string', required: true, description: '', constraints: ['non-empty'] },
-        { name: 'items', type: '[ChecklistItem]', required: true, description: '', constraints: [] },
+        {
+          name: 'title',
+          type: 'string',
+          required: true,
+          description: '',
+          constraints: ['non-empty'],
+        },
+        {
+          name: 'items',
+          type: '[ChecklistItem]',
+          required: true,
+          description: '',
+          constraints: [],
+        },
       ],
       example: null,
     },
@@ -94,7 +106,9 @@ describe('GET /api/platform/cards', () => {
   it('relays a backend outage as 502 rather than an empty catalog', async () => {
     isOwner.value = true
     const { UpstreamError } = await import('@/lib/api/errors')
-    vi.mocked(getCardCatalog).mockRejectedValueOnce(new UpstreamError('Card catalog backend unreachable'))
+    vi.mocked(getCardCatalog).mockRejectedValueOnce(
+      new UpstreamError('Card catalog backend unreachable')
+    )
     const res = await GET(request())
     // An empty list would read as "Grid has no cards", which is the one answer
     // this endpoint must never give.

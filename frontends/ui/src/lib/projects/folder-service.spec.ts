@@ -9,6 +9,13 @@ vi.mock('@/lib/db', () => ({
 
 vi.mock('@/lib/db/schema', () => ({
   projectFolders: { projectId: 'project_id', parentId: 'parent_id', name: 'name' },
+  // `documents` and `projects` are reached transitively — this module re-parents
+  // documents when a folder goes, and `@/lib/projects/repository` reads projects.
+  // A mock that names only the table the spec asserts on leaves the others
+  // undefined at import time, which fails as a module error rather than as an
+  // assertion.
+  documents: { folderId: 'folder_id', projectId: 'project_id', id: 'id' },
+  projects: { id: 'id', organizationId: 'organization_id', deletedAt: 'deleted_at' },
 }))
 
 vi.mock('@/lib/authz/projects', () => ({

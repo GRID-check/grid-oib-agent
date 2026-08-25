@@ -76,6 +76,7 @@ import {
   setDocumentIngestJob,
   markDocumentIngestFailed,
   findDocumentInOrg,
+  findFolderPathInProject,
   listProjectDocuments,
   deleteProjectDocument,
   setDocumentDisplayName,
@@ -795,6 +796,82 @@ describe('reingestDocument', () => {
     expect(result.jobId).toBeNull()
     expect(markDocumentIngestFailed).toHaveBeenCalledWith('doc-99', 'org-1', INGEST_DISPATCH_FAILED_MESSAGE)
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The folder the user filed the document in has to reach the backend, or the
+ * agent never learns it (ADR-0049).
+ *
+ * `uploadDocument` already resolves the path to build the storage key, so the
+ * failure mode is not "we cannot know it" — it is "we knew it and did not say
+ * it". Re-ingest is the same call again and has to re-supply the same value, or
+ * retrying a failed document silently un-files it.
+ *
+ * The backend twin asserting the same `folder_path` key is
+ * `frontends/aiq_api/tests/test_ingest_folder_path.py`.
+ */
+describe('the folder a document is filed in reaches the ingest dispatch', () => {
+  const ingestBody = (): Record<string, unknown> => {
+    const call = mockFetch.mock.calls.find(([url]) => String(url).endsWith('/v1/ingest'))
+    if (!call) throw new Error('no /v1/ingest call was made')
+    return JSON.parse((call[1] as { body: string }).body) as Record<string, unknown>
+  }
+
+  beforeEach(() => {
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 'job-1' }) })
+  })
+
+  it('sends the folder path an upload was filed into', async () => {
+    vi.mocked(findFolderPathInProject).mockResolvedValue('Brandschutz/Fluchtwege')
+
+    await uploadDocument(session, { ...makeInput(), folderId: 'folder-1' }, new Request('http://x'))
+
+    expect(ingestBody().folder_path).toBe('Brandschutz/Fluchtwege')
+  })
+
+  it('sends null for an upload at the project root', async () => {
+    vi.mocked(findFolderPathInProject).mockResolvedValue(null)
+
+    await uploadDocument(session, makeInput(), new Request('http://x'))
+
+    expect(ingestBody().folder_path).toBeNull()
+  })
+
+  it('re-supplies the folder path when a failed document is re-ingested', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({
+        id: 'doc-99',
+        status: 'failed',
+        storageKey: 'org/org-1/project/proj-1/doc/doc-99/plan.pdf',
+        projectId: 'proj-1',
+        folderId: 'folder-1',
+      }),
+    )
+    vi.mocked(findFolderPathInProject).mockResolvedValue('Brandschutz')
+
+    await reingestDocument(session, 'doc-99')
+
+    expect(ingestBody().folder_path).toBe('Brandschutz')
+  })
+
+  it('sends null on re-ingest for a document that was never filed', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({
+        id: 'doc-99',
+        status: 'failed',
+        storageKey: 'org/org-1/project/proj-1/doc/doc-99/plan.pdf',
+        projectId: 'proj-1',
+        folderId: null,
+      }),
+    )
+
+    await reingestDocument(session, 'doc-99')
+
+    expect(ingestBody().folder_path).toBeNull()
+    // No folder id, no lookup: an Archiv or session document has no folder tree
+    // to resolve against at all.
+    expect(findFolderPathInProject).not.toHaveBeenCalled()
   })
 })
 

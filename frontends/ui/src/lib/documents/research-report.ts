@@ -42,8 +42,7 @@ import { getLocale, getTranslations } from '@/i18n/server'
 import type { Locale } from '@/i18n/config'
 import type { Translator } from '@/i18n/translate'
 import { PDF_MEDIA_TYPE, renderMarkdownPdf } from '@/lib/pdf/markdown-pdf'
-import type { PdfFactRow } from '@/lib/pdf/ReactPdfDocument'
-import { legalBasisSection } from '@/lib/pdf/legal-basis'
+import type { DocumentFact } from '@/lib/answer-export/answer-document'
 import { AI_GENERATOR_NAME } from '@/lib/ai-provenance'
 import { buildProjectBriefView } from '@/lib/project-profile/brief-view'
 import { findProjectInOrg } from '@/lib/projects/repository'
@@ -193,8 +192,8 @@ function coverRows(
   runId: string,
   t: Translator,
   locale: Locale
-): PdfFactRow[] {
-  const rows: PdfFactRow[] = []
+): DocumentFact[] {
+  const rows: DocumentFact[] = []
   if (projectName?.trim()) rows.push({ label: t('project'), value: projectName.trim() })
 
   const brief = buildProjectBriefView(profile ?? {})
@@ -338,39 +337,32 @@ export async function fileResearchReport(
         // `flowchart TD` in a grey box. Same dictionary, same locale as every
         // other word on the page.
         diagramPlaceholder: t('diagramPlaceholder'),
-        notice: { title: t('aiNotice.title'), body: t('aiNotice.body') },
-        // The title moves OUT of the markdown and onto the cover block, so the
-        // document's own name and the facts identifying it are one thing rather
-        // than a heading followed by two loose paragraphs. The notice is still
-        // rendered above it — that order lives in `MarkdownPDF` and not in this
-        // call, so no caller can reorder the marking away.
-        header: {
-          title: documentTitle,
-          rows: coverRows(
-            projectName,
-            profile,
-            // The instant the report is filed. Unlike a saved answer — which
-            // has its own older `createdAt` and must not be re-dated by a
-            // download — this document comes into existence now, and the run
-            // that produced it finished moments ago.
-            new Date(),
-            runId,
-            t,
-            locale
-          ),
-        },
-        // Appended AFTER the markdown, deliberately. The writer agent's report
-        // ends with its own „Quellen" section — `citation_verification
-        // .sanitize_report` normalises the heading, strips body URLs, drops
-        // shortened and unsafe ones and renumbers what survives — and that
-        // section is the report's text, not this export's. Cutting the
-        // markdown open to slot a section in front of it would mean a second
-        // parser for a shape the backend already owns, and a re-serialised
-        // source list that has lost the `[KB]`/`[Web]`/`[RIS]` origin tokens
-        // the sanitizer put there. So the citations the answer was BUILT on go
-        // at the back, as the apparatus they are, and the sources it cites
-        // stay exactly where the sanitizer left them.
-        sections: legalBasisSection(cards, t),
+        // The cover carries the WHOLE fact list, so `projectName` and
+        // `createdAt` are deliberately not passed: `reportSections` would derive
+        // its own project and date rows from them and this list already has
+        // both, in the order a Deckblatt reads — Projekt, Standort, Bundesland,
+        // Gebäudeklasse, dann Datum. Bundesland is the one that makes the sheet
+        // checkable: it names the Bauordnung the report was checked against.
+        facts: coverRows(
+          projectName,
+          profile,
+          // The instant the report is filed. Unlike a saved answer — which has
+          // its own older `createdAt` and must not be re-dated by a download —
+          // this document comes into existence now, and the run that produced
+          // it finished moments ago.
+          new Date(),
+          runId,
+          t,
+          locale
+        ),
+        // The run's cards become the document's findings section, which is
+        // where „Rechtsgrundlagen" now comes from. This used to be a
+        // PDF-specific `legalBasisSection`; `lib/answer-export/cards.ts` already
+        // renders every card type for the Word export, `legal_basis` included,
+        // so the two documents an architect puts side by side are built from
+        // one walker rather than two that can disagree.
+        cards,
+        locale,
         // Handed down by the seam and handed straight back below, so the
         // marking in the file's `Keywords` and the marking
         // `fileGeneratedDocument` verifies are the same string by construction.

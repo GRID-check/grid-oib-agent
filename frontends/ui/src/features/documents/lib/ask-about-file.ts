@@ -27,6 +27,10 @@ export function askAboutFile(options: {
   } else {
     preview.open(options.file, 'peek', { projectId: options.projectId, scope: 'files' })
   }
+  // The mode above is the DESTINATION's, and the destination does not exist
+  // yet — this call is followed by a `navigate`. Until the chat is on screen
+  // the pane holds what it was showing; see `handoff` in the store.
+  preview.beginHandoff()
 
   const subject = {
     resourceType: 'document' as const,

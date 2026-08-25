@@ -703,51 +703,15 @@ class TestTheDescriptionDescribesTheRealTool:
         neighbours = {
             "knowledge_search",
             "project_profile_patch",
-            # The card surface this tool now hands its rows to. That every
-            # `ifc_*` name here is a real card type is pinned separately, by
-            # `test_the_cards_the_description_names_actually_exist`.
-            "emit_card",
-            "ifc_viewer",
-            "ifc_element",
-            "ifc_compliance",
-            "ifc_schedule",
-            "ifc_diff",
-            "ifc_model_picker",
-            # A field of `IfcHighlight`, not of this tool. Pinned as a real one
-            # by `test_the_highlight_selectors_it_names_are_real_fields`.
-            "global_ids",
         }
         named = set(re.findall(r"[a-z][a-z0-9]*_[a-z0-9_]+", description))
 
         assert sorted(named - set(parameters) - neighbours) == []
 
-    def test_the_cards_the_description_names_actually_exist(self):
-        # The description tells the agent to emit these by name. A card renamed
-        # on the Python side would leave the tool instructing the model to call
-        # `emit_card` with a type the union rejects — the failure lands as a
-        # silently dropped card, which looks like the model choosing not to
-        # emit one.
-        import re
-
-        from aiq_agent.cards.models import GridCard
-
+    def test_card_presentation_is_deferred_to_the_skill(self):
         description, _ = self._description_and_parameters()
-        real = {getattr(card.model_fields["type"].annotation, "__args__", ("?",))[0] for card in GridCard.__args__}
-        named = set(re.findall(r"`(ifc_[a-z]+)`", description))
-
-        assert named, "the invariant is vacuous if the description names no cards"
-        assert sorted(named - real) == []
-
-    def test_the_highlight_selectors_it_names_are_real_fields(self):
-        # The description tells the agent which of the two to reach for. A
-        # renamed field would leave it teaching a key the card rejects, and a
-        # rejected card is dropped silently.
-        from aiq_agent.cards.models import IfcHighlight
-
-        description, _ = self._description_and_parameters()
-        assert {"global_ids", "match"} <= set(IfcHighlight.model_fields)
-        assert "'match'" in description
-        assert "'global_ids'" in description
+        assert "ifc-spatial-reasoning" in description
+        assert "emit_card" not in description
 
     def test_it_prefers_a_filter_over_a_transcribed_id_list(self):
         # The reason the field exists: an id list can only carry what fits in

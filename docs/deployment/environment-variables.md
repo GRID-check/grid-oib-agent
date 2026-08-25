@@ -218,6 +218,7 @@ The one-off tag-backfill script runs **outside** the NAT runtime, so it builds a
 | `NEXT_PUBLIC_BACKEND_URL` | No | `http://localhost:8000` | Public-facing backend URL. Fallback if `BACKEND_URL` is not set. |
 | `PORT` | No | `3000` | Node.js gateway listen port. |
 | `FRONTEND_PORT` | No | `3000` | Docker host port mapping for the frontend container. |
+| `GRID_PROJECT_KNOWLEDGE_PAGE_ENABLED` | No | `false` | Fallback that shows the project-level Knowledge page (nav section plus the `/knowledge` route) when `GRID_ENFORCE_FEATURE_FLAGS` is off. With enforcement on, the per-org `project-knowledge-page` WorkOS flag decides instead. The platform owner's base-knowledge manager is independent of this. Frontend service. |
 
 ---
 
@@ -226,6 +227,7 @@ The one-off tag-backfill script runs **outside** the NAT runtime, so it builds a
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `GRID_ADMIN_TOKEN` | No | `change-me-in-production` | Bearer token for admin-protected endpoints. Change in production. |
+| `GRID_AUDIT_LOGS_ENABLED` | No | `false` | Gates WorkOS-native audit-trail emission (`recordAuditEvent` in `frontends/ui/src/lib/audit/service.ts`). Unset or anything but `true` suppresses every emit silently; `'true'` enables. Frontend service; on Kubernetes it is set from the Pulumi stack key `grid-oib:auditLogsEnabled` (see `deploy/pulumi/README.md`), not by hand. The audit viewer portal link is unaffected. |
 
 ---
 
@@ -273,6 +275,7 @@ The scheduler also reuses `GRID_APP_DATABASE_URL`, `FRONTEND_INTERNAL_URL`, and 
 | `APP_ENV` | No | `development` | Application environment. Set to `production` in release Docker build. |
 | `LOG_LEVEL` | No | `INFO` | Logging level: DEBUG, INFO, WARNING, ERROR. |
 | `PYTHONWARNINGS` | No | `ignore` | Python warnings filter. |
+| `PROJECT_PURGE_GRACE_DAYS` | No | see `docs/architecture/deletion-pipeline.md` | Grace period before soft-deleted projects are hard-purged (ADR-0011). |
 
 ---
 
@@ -329,6 +332,7 @@ they stay unset and no producer exports.
 |----------|----------|---------|-------------|
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | No | unset | OTLP/HTTP collector endpoint. Python tiers get the FULL path (`http://otel-collector:4318/v1/traces` — the NAT exporter posts as-is); the frontend gets the BASE URL (JS exporter appends `/v1/traces` per spec). Unset → frontend instrumentation no-ops. |
 | `OTEL_SERVICE_NAME` | No | per-tier | `service.name` resource: `grid-ui` / `grid-aiq-agent` / `grid-agent-worker`. |
+| `GRID_TRACE_IDENTITY_ATTRIBUTES` | No | unset (off) | When `true`, stamps `langfuse.user.id`, `langfuse.session.id` and the organization onto every span (`src/aiq_agent/observability/langfuse_trace_attributes.py`), which is what turns anonymous spans into traces attributable to a user and a tenant. Keyed off the Langfuse tier (ADR-0044) rather than observability generally, and Kubernetes-only. Off by default because it is a privacy posture rather than a performance knob: ADR-0029 accepted that traces carry user content on the grounds that access is gated to platform operators, and making every span attributable to a named individual is a further step that should arrive with the product decision needing it. The processor runs ahead of NAT's redaction processor, so these attributes stay redactable. Session grouping and input/output need no flag: NAT already emits `session.id` and OpenInference `input.value`/`output.value`. Backend (aiq-agent) and agent-worker services. |
 
 The Aspire ingestion key is NOT an env var on producers — it lives in the
 Kubernetes Secret `aspire-dashboard-secrets`, referenced only by the collector and the
@@ -362,6 +366,9 @@ pod spec is readable by anything with `get pod` in the namespace.
 | `OPENROUTER_API_KEY` | No | — | Frontend container: authenticates the OpenRouter model-catalog fetch for the org model-config picker/validation (catalog also works unauthenticated). Same key the backend uses for LLM calls. |
 | `OPENROUTER_BASE_URL` | No | `https://openrouter.ai/api/v1` | Override the catalog endpoint (tests / self-hosted gateways). |
 | `GRID_BUDGET_EUR_PER_USD` | No | `0.86` | Euros per 1 USD used to compare EUR budget limits against the USD costs OpenRouter reports (ADR-0015). |
+| `GRID_BYOK_SECRET_BACKEND` | No | `vault` when `WORKOS_API_KEY` is set, else `local` | BYOK key store (ADR-0022). `vault` uses WorkOS Vault; `local` encrypts with AES-256-GCM under `GRID_BYOK_LOCAL_KEK`. Frontend service. |
+| `GRID_BYOK_LOCAL_KEK` | Required when `GRID_BYOK_SECRET_BACKEND=local` | — | 32-byte base64 key-encryption key (`openssl rand -base64 32`) for the `local` BYOK backend. Frontend service. |
+| `GRID_BYOK_ALLOW_PRIVATE_BASE_URLS` | No | `false` | `true` lets org admins point BYOK base URLs at private-network hosts, for self-hosted OpenAI-compatible gateways. Frontend service. |
 
 Org budget defaults (until an admin sets explicit limits): €10/day and
 €100/month — constants in `frontends/ui/src/lib/budgets/service.ts`, not env
@@ -373,7 +380,7 @@ vars. See `docs/architecture/usage-budgets.md`.
 |----------|----------|---------|-------------|
 | `GRID_PLATFORM_OWNER_EMAILS` | No | — | Break-glass bootstrap: comma-separated emails treated as platform owner even without the WorkOS platform-org membership. For first-run in a fresh environment; keep empty in steady state. |
 | `GRID_PLATFORM_ORG_EXTERNAL_ID` | No | `grid-platform` | External id of the GRID Platform organization in WorkOS. |
-| `GRID_LANDING_URL` | No | — | Base URL of the public landing site (Astro microservice, `frontends/web`) that replaces the retired in-app marketing page. The signed-out root redirect (`/`) points here — but only when `REQUIRE_AUTH=true` (the redirect lives inside the `isAuthRequired()` branch of `frontends/ui/src/app/page.tsx`; with auth off, `/` always goes to `/app/projects`). Unset falls back to the WorkOS sign-in URL. Set by the Kubernetes deployment from `ingress.webDomain`. **`/?sign-in` bypasses this bounce and goes to WorkOS** — the landing site's sign-in button must use it (`SIGN_IN_URL` in `frontends/web/src/consts.ts`), or the button returns the visitor to the landing site and the app has no reachable entry point. |
+| `GRID_LANDING_URL` | No | — | Base URL of the public landing site (Astro microservice, `frontends/web`) that replaces the retired in-app marketing page. The signed-out root redirect (`/`) points here — but only when `REQUIRE_AUTH=true` (the redirect lives inside the `isAuthRequired()` branch of `frontends/ui/src/app/page.tsx`; with auth off, `/` always goes to `/app/projects`). Unset falls back to the WorkOS sign-in URL. Set by the Kubernetes deployment from `ingress.webDomain`. **`/?sign-in` bypasses this bounce and goes to WorkOS** — the landing site's sign-in link hands off through it (the `/sign-in` endpoint on the landing site redirects here), or the button would return the visitor to the landing site and the app has no reachable entry point. |
 | `GRID_DISABLE_SELF_SERVE_ORGS` | No | `false` | `true` makes the platform invite-only: fresh users can no longer self-create organizations (403 `self-serve-disabled`). |
 | `GRID_ENFORCE_FEATURE_FLAGS` | No | `false` | `true` enforces WorkOS feature flags (`runtime-model-config`, `deep-research` — registry: `lib/authz/feature-flags.ts`). Turn on only after the flags exist in WorkOS and orgs are targeted; sessions without the JWT `feature_flags` claim then fail closed until re-login. |
 
@@ -388,3 +395,15 @@ Tune the per-project FGA authorization path (`lib/authz/projects.ts`), the WorkO
 | `BIM_MAX_IFC_BYTES` | No | `262144000` (250 MB) | **Three** limits in one number, so they cannot disagree about the same file: the upload ceiling for a `.ifc`, the largest file the BFF will extract, and — via `next.config.ts` — the server's request-body ceiling (`proxyClientMaxBodySize`, `serverActions.bodySizeLimit`), which is `max(FILE_UPLOAD_MAX_SIZE_MB, BIM_MAX_IFC_BYTES)`. That last one matters: when the transport limit followed the 100 MB document figure instead, a 149 MB model passed both validators and was then cut off in front of the handler, so `request.formData()` threw `TypeError: Failed to parse body as FormData` — an unhandled 500 naming neither the file nor a size. Deliberately independent of `FILE_UPLOAD_MAX_SIZE_MB` (100 MB), which is sized for documents; an Einreichung model is routinely 50–500 MB. Parsing runs in the Node process and allocates several times the file's own size, so raise this only alongside moving extraction out of the request process (ADR-0045). The batch total-size limit is also lifted to this value for a batch that carries a model, so one legal model cannot fail a limit it could never satisfy. |
 | `BIM_ELEMENT_LIMIT` | No | `200000` | Cap on `bim_elements` rows written per model. The summary's counts and totals stay EXACT above the cap (they are computed while walking, before it applies); only the per-element rows stop, and `summary.truncatedAt` records it so every surface says so out loud. |
 | `BIM_SPATIAL_MAX_MODEL_BYTES` | No | derived (see note) | Largest model the `ifc_measure` **geometry** engine will read into memory on the `aiq-agent` tier. Unset, it is derived at import from the memory the container actually has — cgroup v2 (`/sys/fs/cgroup/memory.max`), then v1, then the host — as `half the limit ÷ 20`, clamped to 16 MB–512 MB. The 20 is the LOW end of IfcOpenShell's measured resident footprint, which runs **20×–143× the file size** and tracks geometric complexity rather than bytes (2.3 MB of sample house occupies 47 MB; a 151 MB Revit export peaked at 5.3 GB). Two consequences worth stating: `os.sysconf` is deliberately not the first source, because inside a limited pod it reports the HOST's RAM and would size a 2 GB pod's ceiling for a 128 GB node — an OOM kill that takes the conversation with it and logs nothing useful; and the gate is **necessary, not sufficient** — a file under the ceiling may still be too complex, while one over it certainly is. Set this explicitly on a dedicated worker sized for large models. A refused model is reported to the user as a fact about the **file** (`ModelTooLargeError`), never as a service outage, and `ifc_query` keeps answering metadata questions about it because that path reads the extracted index and never the bytes. |
+
+## Landing Site (web tier, Kubernetes/Pulumi-injected)
+
+The Astro landing service (`frontends/web`) carries no secrets; its only
+deployment knob is where sign-in hands off. One image serves every stack —
+the app host is resolved at request time, never baked into the prerendered
+HTML (a baked host is how prod once linked at the dev app).
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `PUBLIC_APP_URL` | No | `https://app.piloti.at` | Base URL of the app the landing site's "Anmelden" link hands off to (`GET /sign-in` 302s to `/?sign-in` there). Read at **runtime** by the `/sign-in` endpoint; injected by the Kubernetes deployment from `ingress.appDomain`. Unset falls back to prod, matching `GRID_LANDING_URL`'s fail-safe rule on the app side. |
+| `PUBLIC_SITE_URL` | No | `https://piloti.at` | Canonical site URL for OG/sitemap metadata, baked at build time (`astro.config.mjs`). Prod default on purpose: dev canonicalizing to prod is harmless — dev should not be indexed anyway. |

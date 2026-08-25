@@ -1,0 +1,32 @@
+---
+improvements:
+  - >
+    The file preview beside a chat now says when Piloti cannot use the document
+    yet: a file still being indexed, or one whose indexing failed, carries that
+    line under its name instead of looking like a file that is ready. It clears
+    itself when indexing finishes, and a failure links to the detail view.
+  - >
+    Nothing you do to the preview is one-way any more. Close it with the ✕, with
+    Escape, or by dragging the seam shut, and a tab stays on the edge it went
+    out through — click it and the document comes back at the width you chose.
+    Show file does the same from the composer, and now works while the research
+    panel is open. Ending the question with the ✕ offers an undo.
+  - >
+    Asking Piloti about a file from Dateien no longer blinks: the viewer you
+    were looking at stays on screen while the chat loads and hands over to the
+    preview beside it, instead of vanishing at the click and leaving you on the
+    file grid until the conversation arrives.
+  - >
+    A document that has been deleted — or that you no longer have access to —
+    now says so in the preview instead of offering a retry that could never
+    work, and lets you stop asking about it in one click. The enlarged preview
+    also keeps the keyboard inside it, as a dialog should.
+  - >
+    The preview shows what Piloti made of the document — the indexed summary,
+    under the document itself — instead of only in the enlarged view. A file
+    with no inline preview now offers its download where the message says so.
+  - >
+    The preview arrives and enlarges with motion instead of appearing in one
+    frame, its header sits on the same line as the chat's own, the document is
+    raised on its ground, and the seam between them is a single hairline that
+    answers to the pointer. Double-click it to put the width back.

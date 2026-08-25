@@ -1,10 +1,9 @@
 """NAT register function for the OIB compliance-check agent.
 
-This function is NOT yet wired into any workflow config under ``configs/`` --
-see README.md for the exact YAML snippet + the pending ``pyproject.toml``
-entry-point addition needed to complete integration.
+Registered as ``compliance_check`` and listed on ``shallow_research_agent``
+so a chat turn can doorbell the staged Soll-Ist pipeline. See README.md.
 
-Configuration example in YAML (see README.md for the full annotated version):
+Configuration example in YAML:
     functions:
       compliance_check:
         _type: compliance_check_agent
@@ -18,6 +17,7 @@ Configuration example in YAML (see README.md for the full annotated version):
 import logging
 
 from langchain_core.messages import AIMessage
+from pydantic import BaseModel
 from pydantic import Field
 from pydantic import field_validator
 
@@ -41,6 +41,20 @@ from .agent import ComplianceCheckAgent
 from .agent import build_request_from_state
 from .models import ALL_RICHTLINIEN
 from .models import ComplianceCheckAgentState
+
+
+class ComplianceCheckInput(BaseModel):
+    """Chat-tool input for the staged OIB Soll-Ist pipeline."""
+
+    focus: str = Field(
+        default="",
+        description="Optional focus (one Richtlinie, one Frage). Empty runs OIB 1-6 against this project.",
+    )
+    richtlinien: list[int] | None = Field(
+        default=None,
+        description="OIB Richtlinie numbers 1-6. Omit for all six.",
+    )
+
 
 logger = logging.getLogger(__name__)
 
@@ -94,14 +108,7 @@ async def compliance_check_agent(config: ComplianceCheckAgentConfig, builder: Bu
     )
 
     provider = LLMProvider()
-    # TODO(compliance): AgentGroup (aiq_agent.common.model_overrides) has no
-    # dedicated entry for this pipeline yet. Reusing DEEP_RESEARCH for now so
-    # per-org runtime model overrides at least apply to *something* sane;
-    # once this agent is wired into a workflow config, add a one-line
-    # `COMPLIANCE_CHECK = "compliance_check"` member to AgentGroup (and the
-    # matching entry in frontends/ui/src/lib/model-config/agent-groups.ts)
-    # and switch this to the dedicated group.
-    provider.set_default(llm, group=AgentGroup.DEEP_RESEARCH)
+    provider.set_default(llm, group=AgentGroup.COMPLIANCE_CHECK)
 
     verbose = is_verbose(config.verbose)
     callbacks = [VerboseTraceCallback()] if verbose else []
@@ -143,11 +150,39 @@ async def compliance_check_agent(config: ComplianceCheckAgentConfig, builder: Bu
             logger.exception("Error in compliance-check pipeline execution.")
             raise
 
+    async def _as_tool(inp: ComplianceCheckInput) -> str:
+        from langchain_core.messages import HumanMessage as ToolHumanMessage
+
+        from aiq_agent.knowledge.scoping import get_collection_scope_from_context
+        from aiq_agent.project_context import get_project_context_from_context
+
+        ctx = get_project_context_from_context() or ""
+        collection = None
+        try:
+            scope = get_collection_scope_from_context() or []
+            names: list[str] = []
+            for item in scope:
+                name = getattr(item, "collection", item)
+                names.append(str(name))
+            collection = next((name for name in names if name.startswith("proj_")), None)
+        except Exception:
+            collection = None
+        state = ComplianceCheckAgentState(
+            messages=[ToolHumanMessage(content=inp.focus or "Pruefe die OIB-Konformitaet dieses Vorhabens.")],
+            project_context=ctx,
+            richtlinien=inp.richtlinien,
+            collection_name=collection,
+        )
+        out = await _run(state)
+        last = out.messages[-1]
+        content = getattr(last, "content", last)
+        return content if isinstance(content, str) else str(content)
+
     yield FunctionInfo.from_fn(
-        _run,
+        _as_tool,
         description=(
-            "Deterministic, staged OIB compliance-check pipeline (Soll-Ist-Abgleich). Derives "
-            "applicable requirements per Richtlinie, checks project-document evidence, and returns "
-            "a German Markdown compliance report with a risk-ranked gap list and open questions."
+            "Staged OIB Soll-Ist against this project. Use when the user asks for a full "
+            "Richtlinien check, Konformitaetspruefung, or a risk-ranked gap list. Not for a "
+            "single-clause question. Returns German Markdown."
         ),
     )

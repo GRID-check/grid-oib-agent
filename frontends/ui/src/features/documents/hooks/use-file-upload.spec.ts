@@ -294,7 +294,13 @@ describe('useFileUpload', () => {
         validFiles: [],
         batchErrors: [],
         fileErrors: [
-          { file: pngFile, code: 'INVALID_TYPE', message: 'blocked', reason: 'image-vlm-unavailable' },
+          {
+            file: pngFile,
+            code: 'INVALID_TYPE',
+            message: 'blocked',
+            reason: 'image-vlm-unavailable',
+            params: { name: 'photo.png', accepted: '.pdf' },
+          },
         ],
         summary: 'blocked',
       })

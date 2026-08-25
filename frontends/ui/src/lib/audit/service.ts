@@ -21,6 +21,13 @@
  * That trade inverts on exactly one class of event, so there are two emitters:
  * `recordAuditEvent` (never throws, the default every existing call site keeps)
  * and `recordAuditEventOrThrow` (opt-in, see its own note).
+ *
+ * Emission itself is deployment-gated by `GRID_AUDIT_LOGS_ENABLED`
+ * ({@link auditLogsEnabled}, default OFF): a deployment opts in explicitly,
+ * because an audit trail only means something when its operator knows it is
+ * being written where they expect. Suppressed events are silent by design —
+ * the emitter's non-throwing contract extends to not logging every suppressed
+ * emit on a hot path.
  */
 
 import 'server-only'
@@ -128,6 +135,16 @@ function requestContext(request?: Request): { location: string; userAgent?: stri
 }
 
 /**
+ * Deployment-level emission switch for the audit trail. Default OFF: unset or
+ * anything but the literal `true` (case/whitespace-insensitive) suppresses
+ * every emit, exactly like an infrastructure dependency that is not wired up.
+ * On Kubernetes set via the Pulumi stack key `grid-oib:auditLogsEnabled`.
+ */
+export function auditLogsEnabled(): boolean {
+  return (process.env.GRID_AUDIT_LOGS_ENABLED ?? '').trim().toLowerCase() === 'true'
+}
+
+/**
  * Nulls out, and ALWAYS an object — never `undefined`.
  *
  * WorkOS generates the validator from what `createSchema` registers, and
@@ -213,6 +230,7 @@ async function emit(input: AuditEventInput): Promise<void> {
 
 /** Emit one WorkOS Audit Log event. Never throws. */
 export async function recordAuditEvent(input: AuditEventInput): Promise<void> {
+  if (!auditLogsEnabled()) return
   try {
     await emit(input)
   } catch (error) {
@@ -238,6 +256,23 @@ export async function recordAuditEvent(input: AuditEventInput): Promise<void> {
  * not be kept.
  */
 export async function recordAuditEventOrThrow(input: AuditEventInput): Promise<void> {
+  // The deployment gate applies to BOTH emitters, and this one has to say why.
+  //
+  // `GRID_AUDIT_LOGS_ENABLED` defaults off, and this emitter is the one whose
+  // caller treats a failure as fatal — `fileGeneratedDocument` unfiles the
+  // document it just wrote. Reaching WorkOS anyway on a deployment that has
+  // turned audit logs off would therefore not produce a trail; it would make
+  // every filing fail, and fail by deleting the thing the user asked for.
+  //
+  // So a disabled deployment files without a trail. That is a product decision
+  // rather than an oversight: an audit record is not a precondition for Piloti
+  // writing a document. What the `OrThrow` contract still buys, and why it is
+  // not collapsed into `recordAuditEvent`, is the case where audit IS on and
+  // the emit is REJECTED — an unregistered action, target type or metadata key.
+  // That is the failure that once left this feature silently not working at
+  // all, and there it must still take the document back rather than leave a row
+  // whose provenance nothing recorded.
+  if (!auditLogsEnabled()) return
   try {
     await emit(input)
   } catch (error) {

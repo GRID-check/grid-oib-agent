@@ -164,3 +164,45 @@ describe('dispatchDocument', () => {
     )
   })
 })
+
+/**
+ * The wire join for folders (ADR-0049).
+ *
+ * The BFF owns `project_folders`; the Python backend has no such table and files
+ * each document under the materialised PATH instead. `POST /v1/ingest` is the
+ * only call that runs when a document first appears, so this body is where the
+ * folder crosses — and a field that one side spells and the other does not is
+ * exactly the failure two green suites do not catch.
+ *
+ * The backend twin is `frontends/aiq_api/tests/test_ingest_folder_path.py`,
+ * which asserts the same `folder_path` key reaches the ingest job config.
+ */
+describe('the ingest dispatch sends the document folder path', () => {
+  const bodyOf = (call: number): Record<string, unknown> =>
+    JSON.parse(fetchSpy.mock.calls[call][1].body as string) as Record<string, unknown>
+
+  it('sends the folder path the document was filed under', async () => {
+    await dispatchDocument({ ...input('plan.pdf'), folderPath: 'Brandschutz/Fluchtwege' })
+
+    expect(bodyOf(0).folder_path).toBe('Brandschutz/Fluchtwege')
+  })
+
+  it('sends null for a document at the project root', async () => {
+    // Explicitly null rather than omitted: the backend reads absent and null the
+    // same way, and stating it keeps the body shape stable across shelves.
+    await dispatchDocument(input('plan.pdf'))
+
+    expect(bodyOf(0).folder_path).toBeNull()
+  })
+
+  it('carries the folder onto the digest an IFC model produces', async () => {
+    // The model is parsed and its Markdown digest is what gets ingested. The
+    // digest is the same document to the user, so it belongs in the same folder.
+    await dispatchDocument({ ...input('haus.ifc'), folderPath: 'Modelle' })
+
+    const [{ dispatchDigest }] = vi.mocked(runBimExtraction).mock.calls[0]
+    await dispatchDigest('org/org-1/project/proj-1/doc/doc-1/_bim/digest.md')
+
+    expect(bodyOf(0).folder_path).toBe('Modelle')
+  })
+})

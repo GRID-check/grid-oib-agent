@@ -1,0 +1,34 @@
+---
+features:
+  - >
+    A deep research run that reaches its time or step limit now hands you what
+    it did find, clearly marked as incomplete, instead of failing with an error
+    and losing the work. The answer says that the research stopped early and
+    why, so you can decide whether to ask again or use what is there.
+  - >
+    You can preview the report as a PDF before you download it, in a panel you
+    can drag as wide as you need. What you see is the document you get.
+improvements:
+  - >
+    The exported report is now presented as a Piloti document, with a cover
+    page, a running header and page numbers, and it includes the answer cards
+    that until now existed only on screen.
+  - >
+    A note that research was cut off, or that an answer came out weaker than
+    usual, now stays with the answer when you reopen the conversation later.
+    Previously that caveat was visible only while the run was live, so a
+    partial answer read as a complete one the next morning.
+fixes:
+  - >
+    Less-than-or-equal and greater-than-or-equal signs printed as stray letters
+    in exported PDFs. A limit written as at most forty metres appeared with the
+    comparator replaced by an unrelated character, while the number beside it
+    stayed correct.
+  - >
+    Sources from the building-regulations knowledge base were not marked as
+    cited in the sources panel during a deep research run, so a report citing
+    several Richtlinien appeared to rest on far fewer sources than it did.
+  - >
+    A source could be shown as cited before it had been checked, and stayed
+    marked that way even when the check later removed it from the answer. The
+    panel now reports only what survived verification.

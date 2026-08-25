@@ -84,36 +84,46 @@ export function AssignPopover({
     })
   }, [people, query])
 
-  const post = async (targetUserId: string) => {
+  /**
+   * The write that failed, kept so the retry can be the SAME action.
+   *
+   * Both writes used to `return` on a non-ok response and had no `catch` at
+   * all: a refused assignment did exactly nothing on screen — no error, no
+   * change, no clue — while the READ path beside it reported its failure and
+   * offered a retry. Silence in a popover whose whole job is to say who is
+   * responsible reads as success, and going offline turned the click into an
+   * unhandled rejection on top.
+   */
+  const [failedWrite, setFailedWrite] = useState<{
+    kind: 'assign' | 'unassign'
+    userId: string
+    name: string
+  } | null>(null)
+
+  const write = async (kind: 'assign' | 'unassign', targetUserId: string, name: string) => {
     setBusy(true)
+    setFailedWrite(null)
+    const path = `/api/assignments/document/${encodeURIComponent(documentId)}`
     try {
-      const res = await fetch(`/api/assignments/document/${documentId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: targetUserId }),
-      })
-      if (!res.ok) return
+      const res =
+        kind === 'assign'
+          ? await fetch(path, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: targetUserId }),
+            })
+          : await fetch(`${path}?userId=${encodeURIComponent(targetUserId)}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error(`assignment ${res.status}`)
       const body = (await res.json()) as { assignees?: FileAssignee[] }
       onChanged(body.assignees ?? [])
+    } catch {
+      setFailedWrite({ kind, userId: targetUserId, name })
     } finally {
       setBusy(false)
     }
   }
 
-  const remove = async (targetUserId: string) => {
-    setBusy(true)
-    try {
-      const res = await fetch(
-        `/api/assignments/document/${documentId}?userId=${encodeURIComponent(targetUserId)}`,
-        { method: 'DELETE' },
-      )
-      if (!res.ok) return
-      const body = (await res.json()) as { assignees?: FileAssignee[] }
-      onChanged(body.assignees ?? [])
-    } finally {
-      setBusy(false)
-    }
-  }
+  const displayName = (person: FileAssignee): string => person.name || person.email || person.userId
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -144,7 +154,7 @@ export function AssignPopover({
                     className="size-7"
                     disabled={busy}
                     aria-label={`${label} · ${t('assignment.unassigned')}`}
-                    onClick={() => void remove(person.userId)}
+                    onClick={() => void write('unassign', person.userId, label)}
                   >
                     <X className="size-3.5" aria-hidden />
                   </Button>
@@ -153,9 +163,35 @@ export function AssignPopover({
             )
           })}
         {!pickOnly && actorId && !alreadyMine && (
-          <Button type="button" variant="outline" size="sm" className="w-full" disabled={busy} onClick={() => void post(actorId)}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full"
+            disabled={busy}
+            onClick={() => void write('assign', actorId, t('assignment.assignToMe'))}
+          >
             {t('assignment.assignToMe')}
           </Button>
+        )}
+        {failedWrite && (
+          <div className="space-y-1.5" data-testid="assign-write-error">
+            <FieldError>
+              {t(failedWrite.kind === 'assign' ? 'assignment.assignError' : 'assignment.unassignError', {
+                name: failedWrite.name,
+              })}
+            </FieldError>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7"
+              disabled={busy}
+              onClick={() => void write(failedWrite.kind, failedWrite.userId, failedWrite.name)}
+            >
+              {t('assignment.tryAgain')}
+            </Button>
+          </div>
         )}
         <SearchField
           type="text"
@@ -205,7 +241,7 @@ export function AssignPopover({
                         setOpen(false)
                         return
                       }
-                      void post(person.userId)
+                      void write('assign', person.userId, displayName(person))
                     }}
                   >
                     <ItemContent>

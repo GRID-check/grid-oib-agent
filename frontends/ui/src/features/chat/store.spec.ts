@@ -1633,6 +1633,45 @@ describe('useChatStore', () => {
       expect(messages?.[0].answerConfidence).toBe('high')
     })
 
+    test('addAgentResponse carries the cut-off cause, not just the flag', () => {
+      // The join an independent check found missing: the store copied
+      // `researchTruncated` and stopped, so the props ChatArea passes for the
+      // cause and the degradations were `undefined` on every turn. Renderer,
+      // schema, sanitizer and dictionaries were all correct and all
+      // unreachable — the answer could say THAT research stopped, never why.
+      setupConversation()
+
+      useChatStore
+        .getState()
+        .addAgentResponse('Die Antwort.', false, undefined, undefined, undefined, {
+          researchTruncated: true,
+          truncationReason: 'wall_clock',
+          degradedReasons: ['no_valid_citations'],
+        })
+
+      const messages = useChatStore.getState().currentConversation?.messages
+      expect(messages?.[0].researchTruncated).toBe(true)
+      expect(messages?.[0].truncationReason).toBe('wall_clock')
+      expect(messages?.[0].degradedReasons).toEqual(['no_valid_citations'])
+    })
+
+    test('addAgentResponse copies a degradation on a run that was NOT truncated', () => {
+      // Independent facts. Gating the degradations on the flag would drop the
+      // case a reader most needs: a run that finished inside its budget and
+      // still produced nothing verifiable.
+      setupConversation()
+
+      useChatStore
+        .getState()
+        .addAgentResponse('Die Antwort.', false, undefined, undefined, undefined, {
+          degradedReasons: ['no_report_file'],
+        })
+
+      const messages = useChatStore.getState().currentConversation?.messages
+      expect(messages?.[0].degradedReasons).toEqual(['no_report_file'])
+      expect(messages?.[0].researchTruncated).toBeUndefined()
+    })
+
     test('addAgentResponse leaves answerConfidence undefined when not provided', () => {
       setupConversation()
 

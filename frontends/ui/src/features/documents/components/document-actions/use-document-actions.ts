@@ -34,6 +34,10 @@ export type DocumentScope = 'files' | 'archiv'
 /** The least a surface has to know about a document to act on it. */
 export interface ActionableDocument extends NamedDocument {
   id: string
+  /** Only read to decide whether a re-ingest is worth offering. */
+  status?: string | null
+  /** Where it is filed now, so a move can mark the current folder. */
+  folderId?: string | null
 }
 
 export interface UseDocumentActionsOptions {
@@ -45,9 +49,13 @@ export interface UseDocumentActionsOptions {
    * is on screen before any refetch.
    */
   onRenamed?: (documentId: string, displayName: string | null) => void
+  /** The document was sent back through ingestion; carries the new status. */
+  onReingested?: (documentId: string, status: string) => void
   /** The document is gone. Surfaces drop it from their list and close anything
    * that was showing it. */
   onDeleted?: (documentId: string) => void
+  /** The document was re-filed; `null` means the project root. */
+  onMoved?: (documentId: string, folderId: string | null) => void
 }
 
 export interface DocumentActions {
@@ -58,12 +66,18 @@ export interface DocumentActions {
   isRenaming: boolean
   isDeleting: boolean
   isDownloading: boolean
+  isReingesting: boolean
   /** The last download attempt failed; cleared when a new one starts. */
   downloadFailed: boolean
   /** `null` restores the file's own name. Resolves false when nothing changed. */
   rename: (displayName: string | null) => Promise<boolean>
   remove: () => Promise<boolean>
   download: () => Promise<void>
+  /** Send a failed document back through ingestion; resolves the new status. */
+  reingest: () => Promise<string | null>
+  isMoving: boolean
+  /** Re-file into another folder; `null` is the project root. */
+  move: (folderId: string | null, folderName: string) => Promise<boolean>
 }
 
 export function useDocumentActions({
@@ -71,11 +85,15 @@ export function useDocumentActions({
   scope,
   onRenamed,
   onDeleted,
+  onReingested,
+  onMoved,
 }: UseDocumentActionsOptions): DocumentActions {
   const t = useTranslations(scope)
   const [isRenaming, setIsRenaming] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
+  const [isReingesting, setIsReingesting] = useState(false)
+  const [isMoving, setIsMoving] = useState(false)
   const [downloadFailed, setDownloadFailed] = useState(false)
 
   const name = documentDisplayName(document)
@@ -158,15 +176,75 @@ export function useDocumentActions({
     }
   }, [document.id, name])
 
+  /**
+   * Send a failed document back through ingestion.
+   *
+   * Here, with rename/delete/download, rather than inline in the preview pane
+   * where it started: a failed document's card SAYS why it failed and, until
+   * this moved, could do nothing about it — the only retry in the product was
+   * two clicks inside a viewer the reader had no reason to open, since the card
+   * had already told them the bad news. An operation on a document belongs with
+   * the operations on a document, so every surface that shows the failure can
+   * offer the way out of it.
+   */
+  const reingest = useCallback(async (): Promise<string | null> => {
+    setIsReingesting(true)
+    try {
+      const res = await fetch(`/api/documents/${document.id}/reingest`, { method: 'POST' })
+      if (!res.ok) throw new Error(`Reingest failed (${res.status})`)
+      const data = await res.json().catch(() => ({}))
+      const status = typeof data?.status === 'string' ? data.status : 'pending'
+      onReingested?.(document.id, status)
+      return status
+    } catch {
+      toast.error(t('actions.reingestError'))
+      return null
+    } finally {
+      setIsReingesting(false)
+    }
+  }, [document.id, onReingested, t])
+
+  /**
+   * Re-file the document. `folderName` is only for the words — the toast has to
+   * say WHERE it went, or "Moved" is a claim the reader cannot check without
+   * going to look.
+   */
+  const move = useCallback(
+    async (folderId: string | null, folderName: string): Promise<boolean> => {
+      setIsMoving(true)
+      try {
+        const res = await fetch(`/api/documents/${document.id}/folder`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folderId }),
+        })
+        if (!res.ok) throw new Error(`Move failed (${res.status})`)
+        onMoved?.(document.id, folderId)
+        toast.success(t('actions.moved', { name, folder: folderName }))
+        return true
+      } catch {
+        toast.error(t('actions.moveError'))
+        return false
+      } finally {
+        setIsMoving(false)
+      }
+    },
+    [document.id, name, onMoved, t]
+  )
+
   return {
     name,
     isRenamed,
     isRenaming,
     isDeleting,
     isDownloading,
+    isReingesting,
+    isMoving,
     downloadFailed,
     rename,
     remove,
     download,
+    reingest,
+    move,
   }
 }

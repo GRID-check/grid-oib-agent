@@ -77,7 +77,6 @@ function getHeader(init: RequestInit | undefined, name: string): string | undefi
   return headers[name]
 }
 
-
 describe('/api/v1/[...path]', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -91,7 +90,11 @@ describe('/api/v1/[...path]', () => {
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 'proj_proj-1', 's_conv-1'],
-        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 'proj_proj-1', shelf: 'project' }, { collection: 's_conv-1', shelf: 'session' }],
+        scopedCollections: [
+          { collection: 'oib_knowledge', shelf: 'base' },
+          { collection: 'proj_proj-1', shelf: 'project' },
+          { collection: 's_conv-1', shelf: 'session' },
+        ],
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: 'conv-1',
@@ -121,7 +124,11 @@ describe('/api/v1/[...path]', () => {
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 'proj_proj-1', 's_conv-1'],
-        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 'proj_proj-1', shelf: 'project' }, { collection: 's_conv-1', shelf: 'session' }],
+        scopedCollections: [
+          { collection: 'oib_knowledge', shelf: 'base' },
+          { collection: 'proj_proj-1', shelf: 'project' },
+          { collection: 's_conv-1', shelf: 'session' },
+        ],
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: 'conv-1',
@@ -155,7 +162,10 @@ describe('/api/v1/[...path]', () => {
       mockRequireProjectAccess.mockResolvedValue({ role: 'project-editor' })
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 'proj_proj-1'],
-        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 'proj_proj-1', shelf: 'project' }],
+        scopedCollections: [
+          { collection: 'oib_knowledge', shelf: 'base' },
+          { collection: 'proj_proj-1', shelf: 'project' },
+        ],
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: undefined,
@@ -169,14 +179,11 @@ describe('/api/v1/[...path]', () => {
           controller.close()
         },
       })
-      const req = new Request(
-        'http://localhost:3000/api/v1/collections/proj_proj-1/documents',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'multipart/form-data; boundary=----boundary' },
-          body: stream,
-        }
-      )
+      const req = new Request('http://localhost:3000/api/v1/collections/proj_proj-1/documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'multipart/form-data; boundary=----boundary' },
+        body: stream,
+      })
       const res = await POST(req, makeParams(['collections', 'proj_proj-1', 'documents']))
 
       expect(res.status).toBe(200)
@@ -193,7 +200,10 @@ describe('/api/v1/[...path]', () => {
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 'proj_proj-1'],
-        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 'proj_proj-1', shelf: 'project' }],
+        scopedCollections: [
+          { collection: 'oib_knowledge', shelf: 'base' },
+          { collection: 'proj_proj-1', shelf: 'project' },
+        ],
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: undefined,
@@ -201,10 +211,9 @@ describe('/api/v1/[...path]', () => {
       })
       const fetchMock = mockFetch()
 
-      const req = new Request(
-        'http://localhost:3000/api/v1/documents/doc-1?projectId=proj-1',
-        { method: 'DELETE' }
-      )
+      const req = new Request('http://localhost:3000/api/v1/documents/doc-1?projectId=proj-1', {
+        method: 'DELETE',
+      })
       const res = await DELETE(req, makeParams(['documents', 'doc-1']))
 
       expect(res.status).toBe(200)
@@ -223,7 +232,10 @@ describe('/api/v1/[...path]', () => {
       process.env.REQUIRE_AUTH = 'false'
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 's_conv-1'],
-        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 's_conv-1', shelf: 'session' }],
+        scopedCollections: [
+          { collection: 'oib_knowledge', shelf: 'base' },
+          { collection: 's_conv-1', shelf: 'session' },
+        ],
         headerValue: 'anon-scope',
         projectId: undefined,
         conversationId: 'conv-1',
@@ -231,9 +243,7 @@ describe('/api/v1/[...path]', () => {
       })
       const fetchMock = mockFetch()
 
-      const req = new Request(
-        'http://localhost:3000/api/v1/agents?conversationId=conv-1'
-      )
+      const req = new Request('http://localhost:3000/api/v1/agents?conversationId=conv-1')
       const res = await GET(req, makeParams(['agents']))
 
       expect(res.status).toBe(200)
@@ -244,14 +254,17 @@ describe('/api/v1/[...path]', () => {
   })
 
   describe('collection name validation', () => {
-    it('allows upload to proj_<id> with project:edit membership', async () => {
+    it('allows upload to proj_<id> with a project document-write membership', async () => {
       process.env.REQUIRE_AUTH = 'true'
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
       mockDbProjectLookup([{ id: 'proj-1' }])
       mockRequireProjectAccess.mockResolvedValue({ role: 'project-editor' })
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 'proj_proj-1'],
-        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 'proj_proj-1', shelf: 'project' }],
+        scopedCollections: [
+          { collection: 'oib_knowledge', shelf: 'base' },
+          { collection: 'proj_proj-1', shelf: 'project' },
+        ],
         headerValue: 'encoded-scope',
         projectId: 'proj-1',
         conversationId: undefined,
@@ -259,40 +272,40 @@ describe('/api/v1/[...path]', () => {
       })
       const fetchMock = mockFetch()
 
-      const req = new Request(
-        'http://localhost:3000/api/v1/collections/proj_proj-1/documents',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ projectId: 'proj-1' }),
-        }
-      )
+      const req = new Request('http://localhost:3000/api/v1/collections/proj_proj-1/documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: 'proj-1' }),
+      })
       const res = await POST(req, makeParams(['collections', 'proj_proj-1', 'documents']))
 
       expect(res.status).toBe(200)
-      expect(mockRequireProjectAccess).toHaveBeenCalledWith(baseSession, 'proj-1', 'project:edit')
+      expect(mockRequireProjectAccess).toHaveBeenCalledWith(baseSession, 'proj-1', [
+        'project:documents:write',
+        'project:edit',
+      ])
       expect(fetchMock).toHaveBeenCalledTimes(1)
     })
 
-    it('rejects upload to proj_<id> without project:edit membership', async () => {
+    it('rejects upload to proj_<id> without a project document-write membership', async () => {
       process.env.REQUIRE_AUTH = 'true'
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
       mockDbProjectLookup([{ id: 'proj-1' }])
       mockRequireProjectAccess.mockRejectedValue(new Error('Not found'))
       const fetchMock = mockFetch()
 
-      const req = new Request(
-        'http://localhost:3000/api/v1/collections/proj_proj-1/documents',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ projectId: 'proj-1' }),
-        }
-      )
+      const req = new Request('http://localhost:3000/api/v1/collections/proj_proj-1/documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: 'proj-1' }),
+      })
       const res = await POST(req, makeParams(['collections', 'proj_proj-1', 'documents']))
 
       expect(res.status).toBe(404)
-      expect(mockRequireProjectAccess).toHaveBeenCalledWith(baseSession, 'proj-1', 'project:edit')
+      expect(mockRequireProjectAccess).toHaveBeenCalledWith(baseSession, 'proj-1', [
+        'project:documents:write',
+        'project:edit',
+      ])
       expect(fetchMock).not.toHaveBeenCalled()
     })
 
@@ -301,7 +314,10 @@ describe('/api/v1/[...path]', () => {
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
         scope: ['oib_knowledge', 's_conv-1'],
-        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }, { collection: 's_conv-1', shelf: 'session' }],
+        scopedCollections: [
+          { collection: 'oib_knowledge', shelf: 'base' },
+          { collection: 's_conv-1', shelf: 'session' },
+        ],
         headerValue: 'encoded-scope',
         projectId: undefined,
         conversationId: 'conv-1',
@@ -309,14 +325,11 @@ describe('/api/v1/[...path]', () => {
       })
       const fetchMock = mockFetch()
 
-      const req = new Request(
-        'http://localhost:3000/api/v1/collections/s_conv-1/documents',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ conversationId: 'conv-1' }),
-        }
-      )
+      const req = new Request('http://localhost:3000/api/v1/collections/s_conv-1/documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId: 'conv-1' }),
+      })
       const res = await POST(req, makeParams(['collections', 's_conv-1', 'documents']))
 
       expect(res.status).toBe(200)
@@ -336,14 +349,11 @@ describe('/api/v1/[...path]', () => {
       })
       const fetchMock = mockFetch()
 
-      const req = new Request(
-        'http://localhost:3000/api/v1/collections/s_conv-1/documents',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        }
-      )
+      const req = new Request('http://localhost:3000/api/v1/collections/s_conv-1/documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
       const res = await POST(req, makeParams(['collections', 's_conv-1', 'documents']))
 
       expect(res.status).toBe(400)
@@ -355,14 +365,11 @@ describe('/api/v1/[...path]', () => {
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
       const fetchMock = mockFetch()
 
-      const req = new Request(
-        'http://localhost:3000/api/v1/collections/oib_knowledge/documents',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        }
-      )
+      const req = new Request('http://localhost:3000/api/v1/collections/oib_knowledge/documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
       const res = await POST(req, makeParams(['collections', 'oib_knowledge', 'documents']))
 
       expect(res.status).toBe(400)
@@ -374,14 +381,11 @@ describe('/api/v1/[...path]', () => {
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
       const fetchMock = mockFetch()
 
-      const req = new Request(
-        'http://localhost:3000/api/v1/collections/random-name/documents',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        }
-      )
+      const req = new Request('http://localhost:3000/api/v1/collections/random-name/documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
       const res = await POST(req, makeParams(['collections', 'random-name', 'documents']))
 
       expect(res.status).toBe(400)

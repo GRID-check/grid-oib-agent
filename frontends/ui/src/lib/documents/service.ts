@@ -237,6 +237,15 @@ export async function dispatchIngest(
    * keeps its old behaviour.
    */
   storageBucket: string | null = null,
+  /**
+   * The materialised project-folder path this document is filed under
+   * (`Brandschutz/Fluchtwege`), or `null` for the project root / a shelf with no
+   * folders. Sent as `folder_path` so the backend can stamp it on the
+   * document's metadata row — see ADR-0049. It is the PATH, not the folder id:
+   * the backend has no `project_folders` table to join against, the path is what
+   * a person reads, and a prefix match over it is the folder's whole subtree.
+   */
+  folderPath: string | null = null,
 ): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' }> {
   const bucket = resolveDocumentBucket(storageBucket)
   // The backend fetches the file itself, from inside the Docker network —
@@ -275,6 +284,7 @@ export async function dispatchIngest(
         collection: collectionName,
         document_id: documentId,
         thumbnail_upload_url: thumbnailUploadUrl,
+        folder_path: folderPath,
       }),
       signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
     })
@@ -689,6 +699,10 @@ export async function uploadDocument(
     storageKey,
     storageBucket,
     collectionName,
+    // Already resolved above for the storage key — the same path is what the
+    // backend files the document under (ADR-0049), so the agent's inventory and
+    // `knowledge_search folder=` see the folder from the first ingest onward.
+    folderPath,
   })
 
   // Data-provenance event: who brought which file into which project.
@@ -719,6 +733,13 @@ export interface BeginModelExtractionInput {
   storageKey: string
   storageBucket: string | null
   collectionName: string
+  /**
+   * Materialised folder path the document is filed under, or `null`/absent for
+   * the project root. Travels to the backend as `folder_path` (ADR-0049) so
+   * surfacing and retrieval can see the filing; the Archiv and session shelves
+   * have no folders and simply omit it.
+   */
+  folderPath?: string | null
 }
 
 /**
@@ -805,6 +826,7 @@ export async function dispatchDocument(input: DispatchDocumentInput): Promise<Di
     input.storageKey,
     input.organizationId,
     input.storageBucket,
+    input.folderPath ?? null,
   )
 }
 
@@ -847,6 +869,7 @@ export async function beginModelExtraction(
         digestStorageKey,
         input.organizationId,
         input.storageBucket,
+        input.folderPath ?? null,
       ),
   })
     .then(async (outcome) => {
@@ -870,6 +893,23 @@ export async function beginModelExtraction(
     })
 
   return { jobId: null, status: 'processing' }
+}
+
+/**
+ * The folder path a stored document is filed under, or `null` when it sits at
+ * the project root (or on a shelf that has no folders at all).
+ *
+ * Re-ingest and re-index re-run the SAME dispatch the upload did, so they have
+ * to re-supply the same `folder_path` — a re-ingest that omitted it would
+ * silently un-file a document the user had filed, and only the agent would
+ * notice.
+ */
+async function resolveDocumentFolderPath(
+  doc: Pick<Document, 'folderId' | 'projectId'>,
+  organizationId: string,
+): Promise<string | null> {
+  if (!doc.folderId || !doc.projectId) return null
+  return await findFolderPathInProject(doc.folderId, doc.projectId, organizationId)
 }
 
 export interface ReingestDocumentResult {
@@ -915,6 +955,7 @@ export async function reingestDocument(
     storageKey: doc.storageKey,
     storageBucket: doc.storageBucket,
     collectionName: doc.collectionName,
+    folderPath: await resolveDocumentFolderPath(doc, session.organizationId),
   })
   return { id: doc.id, status, jobId }
 }
@@ -956,7 +997,7 @@ export async function reindexProject(
   session: AuthorizedSession,
   projectId: string,
 ): Promise<ReindexProjectResult> {
-  await requireProjectAccess(session, projectId, 'project:documents:write')
+  await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
 
   // `'user'` explicitly, not "everything": a machine-authored document must not
   // be indexed (see `dispatchDocument`), and reaching the dispatcher's refusal
@@ -1008,6 +1049,7 @@ export async function reindexProject(
       storageKey: doc.storageKey,
       storageBucket: doc.storageBucket,
       collectionName: doc.collectionName,
+      folderPath: await resolveDocumentFolderPath(doc, session.organizationId),
     })
     result.queued += 1
   }

@@ -624,6 +624,7 @@ functions:
       - ifc_query
       - ifc_measure
       - ask_user
+      - compliance_check
     verbose: true
     max_llm_turns: 10
     # A CEILING, NOT A QUOTA — and the number is the floor of the longest chain
@@ -796,6 +797,17 @@ functions:
     #       # then latches. Not a precedent for listing unverified models.
     #       - meta/muse-spark-1.1
 
+  # Filesystem skills for deep research. Researcher workers load OIB/BIM
+  # methods with read_file from /skills/; the writer loads synthesis the same
+  # way. Curated offers are hidden on this mount and reach a run through the
+  # BFF payload instead. The NVIDIA `research` collection stays off: it needs
+  # a sandbox this config does not run.
+  deep_research_skills:
+    _type: deep_research_skills
+    agents:
+      researcher-agent: [oib, bim]
+      writer-agent: [synthesis]
+
   deep_research_agent:
     _type: deep_research_agent
     enable_citation_verification: true
@@ -804,6 +816,7 @@ functions:
     researcher_llm: deep_researcher_llm
     planner_llm: deep_planner_llm
     writer_llm: deep_orchestrator_llm
+    skills: deep_research_skills
     # Explicit tool list (mirrors shallow_research_agent) so deep research
     # workers get the same OIB knowledge base + RIS access, plus remember and
     # emit_card. Deep uses advanced_web_search_tool (the deep-tuned Tavily

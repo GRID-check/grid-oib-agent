@@ -217,12 +217,12 @@ export const projects = {
       hint: 'Store the document in the Files tab',
     },
     derived: {
-      badge: 'worked out automatically',
+      badge: 'from the brief',
     },
     classification: {
-      title: 'What Piloti works out from this',
+      title: 'What this brief is for',
       description:
-        'Once your entries are complete, Piloti shows the building class here, which OIB directives and other rules apply to your project, and which points are still open — and takes the project profile as its working basis.',
+        'The building class is confirmed here when you know it. If it is still open, Piloti asks in chat before an answer that hangs on it. The brief is the working basis for which rules apply and which points are still open.',
     },
     consistency: {
       checking: 'Checking your answers…',

@@ -7,7 +7,7 @@
  * rolls the peek: a literal `<aside>` with its own header markup, and
  * `FilePreviewPane` dropped inside it. It is a picture of the intended result,
  * so it stays green no matter what `FilePreviewHost` / `FilePreviewSplit` /
- * `useFileAskSplit` actually do. The pane has always rendered; what broke is the
+ * `useFilePeekBesideChat` actually do. The pane has always rendered; what broke is the
  * SPLIT AROUND IT, and nothing in `/dev` ever exercised that.
  *
  * This route mounts `FilePreviewBridge` — the same component the project layout
@@ -16,7 +16,7 @@
  * shell's `<main>` down to the pane are all under test.
  *
  * ── The `/chat` in the path is load-bearing ──────────────────────────────────
- * `useFileAskSplit()` gates on `usePathname()?.includes('/chat')`, so a preview
+ * `useFilePeekBesideChat()` gates on `usePathname()?.includes('/chat')`, so a preview
  * at `/dev/file-ask-split` would render the collapsed (no-split) branch and look
  * "fine" while proving nothing. The route is therefore nested one level so its
  * URL contains `/chat`, exactly as `/app/projects/[id]/chat` does.
@@ -45,6 +45,22 @@
  *   - `hidden`   — same file, peek dismissed: chat must reclaim the full row.
  *   - `arrive`   — mounts with NO file, exactly as `/files` does, then the
  *                  button opens the peek. This is the Ask Piloti path.
+ *   - `indexing` — the same peek on a document that is still being read. The
+ *                  status the modal has always carried under the name, on the
+ *                  one surface whose entire reason is "this is what you are
+ *                  asking about" — where a file the agent cannot cite yet used
+ *                  to look exactly like one it can.
+ *   - `gone`     — the document is not there any more (deleted, or no longer
+ *                  this reader's). A retry cannot fix that, so the pane says so
+ *                  and offers the only move left.
+ *   - `failed`   — indexing failed. The one state on this surface that does not
+ *                  resolve itself, so it is the one that carries a way out.
+ *   - `wide`     — the peek at a width the reader dragged it to and the split
+ *                  remembered. Until the seam was fixed this state was
+ *                  unreachable: the drag fought back after ~20px and the old
+ *                  560px cap stood well short of it. It is the state the
+ *                  document is actually read in, so the two columns' behaviour
+ *                  at that ratio needs evidence.
  */
 
 import { useEffect } from 'react'
@@ -52,21 +68,25 @@ import { useSearchParams } from 'next/navigation'
 import { I18nProvider } from '@/i18n'
 import { FilePreviewBridge } from '@/features/documents/components/file-preview-host'
 import { MainLayout } from '@/features/layout/components/MainLayout'
-import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
+import {
+  FILE_PEEK_WIDTH_STORAGE_KEY,
+  useFilePreviewStore,
+} from '@/features/documents/stores/file-preview-store'
+import { FLOOR_PLAN_DATA_URI } from '../../_fixtures/floor-plan'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
 
 const FILE: FileItem = {
   id: 'doc-brandschutz',
-  filename: 'Brandschutzplan_EG.pdf',
+  filename: 'Grundriss_EG_Baufeld_D12.svg',
   displayName: null,
   fileSize: 2_458_112,
-  contentType: 'application/pdf',
+  contentType: 'image/svg+xml',
   status: 'ready',
   folderId: null,
   createdAt: '2026-04-02T09:00:00.000Z',
   errorMessage: null,
   summary:
-    'Brandschutzkonzept Erdgeschoss, Fluchtwege und Feuerwiderstand der tragenden Wände.',
+    'Grundriss des Erdgeschosses, Baufeld D12, Maßstab 1:100. Zeigt vier Nutzungseinheiten (Foyer, Büro 01, Technik, Lager) mit Flächenangaben, die beiden voneinander unabhängigen Fluchtwege und die Feuerwiderstandsklasse REI 90 der tragenden Wände. Stand 04/2026.',
   pageCount: 12,
   chunkCount: 48,
   contentTypes: ['text', 'drawing'],
@@ -74,6 +94,38 @@ const FILE: FileItem = {
 }
 
 const CONTEXT = { projectId: 'proj-1', projectName: 'Seestadt Baufeld', scope: 'files' } as const
+
+/**
+ * The preview endpoint, answered locally.
+ *
+ * `/dev` has no backend, so `/api/documents/:id/preview` 403s and every shot of
+ * this route was taken against the pane's FAILURE state — a grey box where the
+ * drawing should be. The seams this route exists to review (the ground under
+ * the document, the card's shadow, what the well does as the pane is dragged
+ * from 280px to 960px) cannot be judged against an error message. Module scope
+ * for the same reason as the storage seeds below: the pane fetches in an effect
+ * that runs before this page's own would.
+ */
+if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+  const realFetch = window.fetch.bind(window)
+  window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    // `?variant=gone` answers the preview the way the service answers for a
+    // document that has been deleted — or one this reader may no longer open.
+    if (url.includes('/preview') && new URLSearchParams(window.location.search).get('variant') === 'gone') {
+      return Promise.resolve(new Response(null, { status: 404 }))
+    }
+    if (url.includes('/preview')) {
+      return Promise.resolve(
+        new Response(JSON.stringify({ url: FLOOR_PLAN_DATA_URI }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+    }
+    return realFetch(input as RequestInfo, init)
+  }) as typeof window.fetch
+}
 
 // Module scope, not an effect — `FilePreviewSplit` sizes its file panel in a
 // `useLayoutEffect` that runs BEFORE this page's own effects would, so a seed
@@ -84,8 +136,28 @@ const CONTEXT = { projectId: 'proj-1', projectName: 'Seestadt Baufeld', scope: '
 // real journey, where the split is mounted cold and only flips later.
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   const seed = new URLSearchParams(window.location.search).get('variant') ?? 'default'
+  // The remembered width is read from storage by the split's own layout effect,
+  // so seeding it here is seeding the same input a returning reader arrives
+  // with. Cleared for every other variant, or a `wide` run would leave the
+  // default shot wide on the next capture.
+  try {
+    if (seed === 'wide') window.localStorage.setItem(FILE_PEEK_WIDTH_STORAGE_KEY, '720')
+    else window.localStorage.removeItem(FILE_PEEK_WIDTH_STORAGE_KEY)
+  } catch {
+    // Storage unavailable — the preview still renders, at the default width.
+  }
   if (seed !== 'arrive') {
-    useFilePreviewStore.setState({ file: FILE, mode: 'peek', hidden: seed === 'hidden', context: CONTEXT })
+    useFilePreviewStore.setState({
+      file:
+        seed === 'indexing'
+          ? { ...FILE, status: 'processing' }
+          : seed === 'failed'
+            ? { ...FILE, status: 'failed', errorMessage: 'Seite 3: Text-Layer konnte nicht gelesen werden.' }
+            : FILE,
+      mode: 'peek',
+      hidden: seed === 'hidden',
+      context: CONTEXT,
+    })
   } else {
     useFilePreviewStore.setState({ file: null, mode: 'modal', hidden: false, context: CONTEXT })
   }

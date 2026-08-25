@@ -445,6 +445,20 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, displayName } : f)))
   }, [])
 
+  /**
+   * A move is durable the moment the PATCH returns, so the corpus is updated
+   * from the answer rather than refetched — same reasoning as the rename above.
+   *
+   * The consequence worth noticing: if the reader is INSIDE a folder and moves
+   * a document out of it, the row leaves the listing under their cursor. That
+   * is the correct outcome (the filter says which folder they are looking at),
+   * and the toast names where it went, so the disappearance is explained rather
+   * than merely observed.
+   */
+  const handleMoved = useCallback((fileId: string, folderId: string | null) => {
+    setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, folderId } : f)))
+  }, [])
+
   const handleSelectFile = useCallback(
     (id: string | null) => {
       if (id === null) {
@@ -542,6 +556,82 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     [projectId, t]
   )
 
+  const handleRenameFolder = useCallback(
+    async (folderId: string, name: string) => {
+      const res = await fetch(`/api/projects/${projectId}/folders/${folderId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (!res.ok) {
+        toast.error(t('workspace.renameFolderError'))
+        return false
+      }
+      const data = await res.json()
+      // The rename rewrites the paths of everything underneath it, so the tree
+      // is re-read rather than patched in place: a folder three levels down
+      // carries the new prefix, and guessing that here would be a second
+      // implementation of the server's rule.
+      await loadFolders()
+      setFolders((prev) => prev.map((f) => (f.id === folderId ? { ...f, ...data.folder } : f)))
+      return true
+    },
+    [projectId, t, loadFolders]
+  )
+
+  const handleDeleteFolder = useCallback(
+    async (folderId: string) => {
+      const folder = folders.find((f) => f.id === folderId)
+      if (!folder) return false
+      const inside = files.filter((f) => f.folderId === folderId).length
+      const nested = folders.filter((f) => f.parentId === folderId).length
+      const parentName = folder.parentId
+        ? (folders.find((f) => f.id === folder.parentId)?.name ?? t('folders.allFiles'))
+        : t('folders.allFiles')
+
+      // NAME WHAT HAPPENS TO THE WORK. A folder is a label somebody put on a
+      // set of documents, and the one question in this reader's head is "does
+      // this delete my files?" — so the confirm answers it, with the count and
+      // with where they will be, instead of the generic "this cannot be
+      // undone" that would be both frightening and false.
+      const confirmed = window.confirm(
+        inside > 0 || nested > 0
+          ? t('workspace.deleteFolderConfirmWithContents', {
+              name: folder.name,
+              documents: String(inside),
+              folders: String(nested),
+              parent: parentName,
+            })
+          : t('workspace.deleteFolderConfirm', { name: folder.name })
+      )
+      if (!confirmed) return false
+
+      const res = await fetch(`/api/projects/${projectId}/folders/${folderId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        toast.error(t('workspace.deleteFolderError'))
+        return false
+      }
+      const moved = (await res.json().catch(() => ({}))) as {
+        documentsMoved?: number
+        foldersMoved?: number
+      }
+      // The selection cannot stay on a folder that no longer exists — it would
+      // filter the grid to nothing and read as an empty project.
+      if (selectedFolderId === folderId) setSelectedFolderId(folder.parentId ?? null)
+      await Promise.all([loadFolders(), loadFiles(true)])
+      toast.success(
+        moved.documentsMoved
+          ? t('workspace.deleteFolderMoved', {
+              count: String(moved.documentsMoved),
+              parent: parentName,
+            })
+          : t('workspace.deleteFolderDone', { name: folder.name })
+      )
+      return true
+    },
+    [projectId, t, folders, files, selectedFolderId, loadFolders, loadFiles]
+  )
+
   return (
     <div className="relative flex h-full flex-col" {...dragHandlers} data-testid="workspace-dropzone">
       {/* Drag-and-drop overlay — mirrors the chat FileUploadZone affordance. */}
@@ -637,6 +727,8 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
                 selectedFolderId={selectedFolderId}
                 onSelectFolder={setSelectedFolderId}
                 onCreateFolder={handleCreateFolder}
+                onRenameFolder={handleRenameFolder}
+                onDeleteFolder={handleDeleteFolder}
                 isLoading={isLoadingFolders}
               />
             )}
@@ -661,8 +753,10 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
                 <DocumentActionsMenu
                   document={file}
                   scope="files"
+                  folders={folders}
                   onRenamed={handleRenamed}
                   onDeleted={handleDeleted}
+                  onMoved={handleMoved}
                 />
               )}
               {...(view !== 'tree'

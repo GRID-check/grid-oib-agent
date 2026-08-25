@@ -75,6 +75,34 @@ def output_markdown_file(markdown: str | None = None) -> dict:
     }
 
 
+def streaming_graph_mock(*chunks, error: BaseException | None = None, hang: bool = False) -> MagicMock:
+    """A mock compiled graph that STREAMS, the way run() now drives it.
+
+    run() calls ``astream(state, config=..., stream_mode="values", ...)`` rather
+    than ``ainvoke`` so a cut-off run still has the last graph state to salvage.
+    The mock yields ``chunks`` in order (each one a full graph state, as
+    ``stream_mode="values"`` produces), then optionally raises ``error`` or hangs
+    forever so the wall-clock guard can fire. Call args land on ``.astream``, so
+    config/durability assertions read from there.
+    """
+    graph = MagicMock()
+    graph.with_config = MagicMock(return_value=graph)
+
+    def _astream(*_args, **_kwargs):
+        async def _generate():
+            for chunk in chunks:
+                yield chunk
+            if error is not None:
+                raise error
+            if hang:
+                await asyncio.sleep(3600)
+
+        return _generate()
+
+    graph.astream = MagicMock(side_effect=_astream)
+    return graph
+
+
 @pytest.fixture(autouse=True)
 def mock_research_summarization_middleware():
     """Avoid requiring a concrete BaseChatModel for researcher runnable construction tests."""
@@ -183,15 +211,12 @@ class TestDeepResearcherAgent:
     @pytest.fixture
     def mock_create_deep_agent(self):
         """Create a mock for create_deep_agent (deepagents)."""
-        mock_agent = MagicMock()
-        mock_agent.with_config = MagicMock(return_value=mock_agent)
-        mock_agent.ainvoke = AsyncMock(
-            return_value={
+        return streaming_graph_mock(
+            {
                 "messages": [AIMessage(content="Deep research answer")],
                 "files": output_markdown_file(),
             }
         )
-        return mock_agent
 
     def test_init_with_defaults(self, mock_llm_provider, real_tool, mock_create_deep_agent):
         """Test DeepResearcherAgent initialization with defaults."""
@@ -552,7 +577,8 @@ class TestDeepResearcherAgent:
             assert _COMMON_MIDDLEWARE_CLASSES <= {m.__class__.__name__ for m in kwargs["middleware"]}
             assert any(m.__class__.__name__ == "ToolVisibilityMiddleware" for m in kwargs["middleware"])
             assert "Mandatory skill use" in researcher_kwargs["system_prompt"]
-            assert "MUST read that skill's `SKILL.md`" in researcher_kwargs["system_prompt"]
+            assert "The body is the method" in researcher_kwargs["system_prompt"]
+            assert "read that skill's `SKILL.md`" in researcher_kwargs["system_prompt"]
             assert "data-table-analysis" not in researcher_kwargs["system_prompt"]
             assert "/shared/plan.json" in researcher_kwargs["system_prompt"]
             assert "read_file" in researcher_kwargs["system_prompt"]
@@ -1521,16 +1547,12 @@ class TestDeepResearcherAgent:
 
     @pytest.mark.asyncio
     async def test_run_enforces_wall_clock_budget(self, mock_llm_provider, real_tool):
-        """A run past max_run_seconds fails with a clear budget error instead of hanging."""
-        import asyncio
+        """A run past max_run_seconds fails with a clear budget error instead of hanging.
 
-        mock_agent = MagicMock()
-
-        async def never_finishes(*args, **kwargs):
-            await asyncio.sleep(3600)
-
-        mock_agent.ainvoke = never_finishes
-        mock_agent.with_config = MagicMock(return_value=mock_agent)
+        The graph never emits a single state chunk here, so there is nothing to
+        salvage and the budget error is still raised, not softened.
+        """
+        mock_agent = streaming_graph_mock(hang=True)
         with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent):
             from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
 
@@ -1578,8 +1600,8 @@ class TestDeepResearcherAgent:
             with seeded_session_registry(SourceEntry(url="https://example.com")):
                 await agent.run(state)
 
-            # Callbacks should have been passed to ainvoke
-            call_kwargs = mock_create_deep_agent.ainvoke.call_args
+            # Callbacks should have been passed to the streamed invocation
+            call_kwargs = mock_create_deep_agent.astream.call_args
             assert call_kwargs is not None
 
     @pytest.mark.asyncio
@@ -1601,7 +1623,7 @@ class TestDeepResearcherAgent:
             with seeded_session_registry(SourceEntry(url="https://example.com")):
                 await agent.run(state)
 
-            call = mock_create_deep_agent.ainvoke.call_args
+            call = mock_create_deep_agent.astream.call_args
             assert call.kwargs["config"]["configurable"] == {"thread_id": "job-durable-1"}
             assert call.kwargs["durability"] == "async"
 
@@ -1609,7 +1631,7 @@ class TestDeepResearcherAgent:
     async def test_run_omits_thread_id_and_durability_when_no_checkpointer(
         self, mock_llm_provider, real_tool, mock_create_deep_agent
     ):
-        """Default (no checkpointer) behavior is unchanged: no configurable/durability kwargs reach ainvoke."""
+        """Default (no checkpointer) behavior is unchanged: no configurable/durability kwargs reach the graph."""
         with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_create_deep_agent):
             from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
 
@@ -1618,16 +1640,14 @@ class TestDeepResearcherAgent:
             with seeded_session_registry(SourceEntry(url="https://example.com")):
                 await agent.run(state)
 
-            call = mock_create_deep_agent.ainvoke.call_args
+            call = mock_create_deep_agent.astream.call_args
             assert call.kwargs.get("config") is None
             assert "durability" not in call.kwargs
 
     @pytest.mark.asyncio
     async def test_run_handles_error(self, mock_llm_provider, real_tool):
         """Test run() handles errors gracefully."""
-        mock_agent = MagicMock()
-        mock_agent.with_config = MagicMock(return_value=mock_agent)
-        mock_agent.ainvoke = AsyncMock(side_effect=Exception("Agent error"))
+        mock_agent = streaming_graph_mock(error=Exception("Agent error"))
 
         with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent):
             from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
@@ -1641,14 +1661,12 @@ class TestDeepResearcherAgent:
 
             with pytest.raises(Exception, match="Agent error"):
                 await agent.run(state)
-            assert mock_agent.ainvoke.await_count == 1
+            assert mock_agent.astream.call_count == 1
 
     @pytest.mark.asyncio
     async def test_run_empty_result_messages(self, mock_llm_provider, real_tool):
         """Test run() handles empty result messages."""
-        mock_agent = MagicMock()
-        mock_agent.with_config = MagicMock(return_value=mock_agent)
-        mock_agent.ainvoke = AsyncMock(return_value={"messages": [], "files": output_markdown_file()})
+        mock_agent = streaming_graph_mock({"messages": [], "files": output_markdown_file()})
 
         with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent):
             from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
@@ -1675,10 +1693,8 @@ class TestDeepResearcherAgent:
             AIMessage(content="Raw orchestrator handoff."),
         ]
 
-        mock_agent = MagicMock()
-        mock_agent.with_config = MagicMock(return_value=mock_agent)
-        mock_agent.ainvoke = AsyncMock(
-            return_value={
+        mock_agent = streaming_graph_mock(
+            {
                 "messages": result_messages,
                 "files": output_markdown_file("Writer markdown [1].\n\n## Sources\n[1] Example: https://example.com"),
             }
@@ -1759,10 +1775,8 @@ class TestDeepResearcherAgent:
     @pytest.mark.asyncio
     async def test_run_falls_back_to_last_message_when_no_report_file(self, mock_llm_provider, real_tool):
         """No /shared/output.md → fall back to the agent's last message, not a hard job failure."""
-        mock_agent = MagicMock()
-        mock_agent.with_config = MagicMock(return_value=mock_agent)
-        mock_agent.ainvoke = AsyncMock(
-            return_value={
+        mock_agent = streaming_graph_mock(
+            {
                 "messages": [
                     HumanMessage(content="q"),
                     AIMessage(content="Here is what I found, though I did not persist a report file."),
@@ -1788,11 +1802,39 @@ class TestDeepResearcherAgent:
         assert "did not persist a report file" in result.messages[-1].content
 
     @pytest.mark.asyncio
+    async def test_missing_report_file_marks_the_answer_degraded(self, mock_llm_provider, real_tool):
+        """The message-instead-of-report fallback is announced, not only logged."""
+        mock_agent = streaming_graph_mock(
+            {
+                "messages": [
+                    HumanMessage(content="q"),
+                    AIMessage(content="Here is what I found, though I did not persist a report file."),
+                ],
+                "files": {},
+            }
+        )
+
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent):
+            from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+            agent = DeepResearcherAgent(
+                llm_provider=mock_llm_provider,
+                tools=[real_tool],
+                enable_citation_verification=False,
+            )
+
+            state = DeepResearchAgentState(messages=[HumanMessage(content="q")])
+            result = await agent.run(state)
+
+        assert result.degraded_reasons == ["no_report_file"]
+        # The reader of the answer alone is told, too.
+        assert result.messages[-1].content.startswith("> **Hinweis:**")
+        assert "did not persist a report file" in result.messages[-1].content
+
+    @pytest.mark.asyncio
     async def test_run_raises_when_no_report_and_no_message(self, mock_llm_provider, real_tool):
         """No report file AND no usable message → still a hard failure (nothing to return)."""
-        mock_agent = MagicMock()
-        mock_agent.with_config = MagicMock(return_value=mock_agent)
-        mock_agent.ainvoke = AsyncMock(return_value={"messages": [], "files": {}})
+        mock_agent = streaming_graph_mock({"messages": [], "files": {}})
 
         with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent):
             from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
@@ -1805,6 +1847,148 @@ class TestDeepResearcherAgent:
 
             state = DeepResearchAgentState(messages=[HumanMessage(content="q")])
             with pytest.raises(ValueError, match="did not produce a final Markdown answer"):
+                await agent.run(state)
+
+
+class TestDeepResearchCutoffSalvage:
+    """A cut-off run ships what it has, marked — or fails loudly with nothing."""
+
+    #: Long enough to clear MIN_SALVAGE_REPORT_CHARS: a real partial report.
+    PARTIAL_REPORT = (
+        "## Zwischenstand\n\n"
+        "Die Recherche hat die wesentlichen Anforderungen bereits erfasst und haelt "
+        "die bisher gesicherten Feststellungen samt Quellenlage fest, bevor die "
+        "verbleibenden Teilfragen bearbeitet werden konnten [1].\n\n"
+        "## Sources\n[1] Example: https://example.com"
+    )
+
+    #: Below the bar: a stub under a truncation banner still reads as an answer.
+    STUB_REPORT = "Zu kurz [1].\n\n## Sources\n[1] Example: https://example.com"
+
+    @pytest.fixture
+    def mock_llm(self):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        return llm
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        provider = LLMProvider()
+        provider.set_default(mock_llm)
+        provider.configure(LLMRole.ORCHESTRATOR, mock_llm)
+        provider.configure(LLMRole.ROUTER, mock_llm)
+        provider.configure(LLMRole.PLANNER, mock_llm)
+        provider.configure(LLMRole.RESEARCHER, mock_llm)
+        provider.configure(LLMRole.REPORT_WRITER, mock_llm)
+        return provider
+
+    @pytest.fixture
+    def real_tool(self):
+        return web_search_tool
+
+    @staticmethod
+    def _partial_state(report: str) -> dict:
+        """The last graph state a cut-off run streamed: a report is already on disk."""
+        return {
+            "messages": [AIMessage(content="orchestrator handoff")],
+            "files": output_markdown_file(report),
+        }
+
+    @pytest.mark.asyncio
+    async def test_wall_clock_cutoff_salvages_the_partial_report(self, mock_llm_provider, real_tool):
+        """Partial state with a written report → a MARKED answer, not a failed job."""
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        mock_agent = streaming_graph_mock(self._partial_state(self.PARTIAL_REPORT), hang=True)
+
+        with (
+            patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent),
+            patch("aiq_agent.agents.deep_researcher.agent.emit_deep_research_cutoff") as emit,
+        ):
+            agent = DeepResearcherAgent(
+                llm_provider=mock_llm_provider,
+                tools=[real_tool],
+                max_run_seconds=1,
+            )
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Test query")])
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                result = await agent.run(state)
+
+        assert result.research_truncated is True
+        assert result.truncation_reason == "wall_clock"
+
+        answer = result.messages[-1].content
+        # The report itself says it is partial, so an exported PDF says it too.
+        assert answer.startswith("> **Hinweis:**")
+        assert "Zeitlimit" in answer
+        assert "Zwischenstand" in answer
+
+        assert emit.call_args.kwargs["reason"] == "wall_clock"
+        assert emit.call_args.kwargs["salvaged"] is True
+        assert emit.call_args.kwargs["source_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_cutoff_with_too_short_a_report_raises(self, mock_llm_provider, real_tool):
+        """Below MIN_SALVAGE_REPORT_CHARS there is nothing worth shipping — fail loudly."""
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        mock_agent = streaming_graph_mock(self._partial_state(self.STUB_REPORT), hang=True)
+
+        with (
+            patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent),
+            patch("aiq_agent.agents.deep_researcher.agent.emit_deep_research_cutoff") as emit,
+        ):
+            agent = DeepResearcherAgent(
+                llm_provider=mock_llm_provider,
+                tools=[real_tool],
+                max_run_seconds=1,
+            )
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Test query")])
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                with pytest.raises(TimeoutError, match="wall-clock budget"):
+                    await agent.run(state)
+
+        assert emit.call_args.kwargs["salvaged"] is False
+
+    @pytest.mark.asyncio
+    async def test_step_limit_cutoff_salvages_the_partial_report(self, mock_llm_provider, real_tool):
+        """A GraphRecursionError is the same story as the clock, told with a different token."""
+        from langgraph.errors import GraphRecursionError
+
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        mock_agent = streaming_graph_mock(
+            self._partial_state(self.PARTIAL_REPORT),
+            error=GraphRecursionError("Recursion limit of 150 reached"),
+        )
+
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent):
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Test query")])
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                result = await agent.run(state)
+
+        assert result.research_truncated is True
+        assert result.truncation_reason == "step_limit"
+
+        answer = result.messages[-1].content
+        assert answer.startswith("> **Hinweis:**")
+        assert "Schritt-Limit" in answer
+
+    @pytest.mark.asyncio
+    async def test_step_limit_cutoff_without_partial_state_raises(self, mock_llm_provider, real_tool):
+        """No streamed state at all → the recursion error itself, unswallowed."""
+        from langgraph.errors import GraphRecursionError
+
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        mock_agent = streaming_graph_mock(error=GraphRecursionError("Recursion limit of 150 reached"))
+
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent):
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Test query")])
+            with pytest.raises(GraphRecursionError):
                 await agent.run(state)
 
 
@@ -1914,10 +2098,8 @@ class TestPerRunIsolation:
     @pytest.mark.asyncio
     async def test_second_run_does_not_reuse_first_run_sources(self, mock_llm_provider):
         """A reused prebuilt agent starts each standalone run with an empty registry."""
-        mock_agent = MagicMock()
-        mock_agent.with_config = MagicMock(return_value=mock_agent)
-        mock_agent.ainvoke = AsyncMock(
-            return_value={
+        mock_agent = streaming_graph_mock(
+            {
                 "messages": [AIMessage(content="done")],
                 "files": output_markdown_file(),
             }
@@ -2040,10 +2222,8 @@ class TestFinalMarkdownExtraction:
         failure, not a citation failure — and is diagnosed before citation
         verification (the seeded source registry would otherwise let a citation
         pass run first)."""
-        mock_agent = MagicMock()
-        mock_agent.with_config = MagicMock(return_value=mock_agent)
-        mock_agent.ainvoke = AsyncMock(
-            return_value={
+        mock_agent = streaming_graph_mock(
+            {
                 # No report file AND no usable message → genuine writer failure
                 # (a present message would instead degrade to it; covered
                 # separately by test_run_falls_back_to_last_message_*).
@@ -2102,9 +2282,7 @@ class TestDeepResearcherCitationVerification:
             "files": output_markdown_file(report),
         }
 
-        mock_agent = MagicMock()
-        mock_agent.with_config = MagicMock(return_value=mock_agent)
-        mock_agent.ainvoke = AsyncMock(return_value=deep_result)
+        mock_agent = streaming_graph_mock(deep_result)
 
         with patch(
             "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
@@ -2141,8 +2319,50 @@ class TestDeepResearcherCitationVerification:
                 state = DeepResearchAgentState(messages=[HumanMessage(content="What is CUDA?")])
                 result = await agent.run(state)
 
-        assert result.messages[-1].content == sanitized_report
+        # The report itself is preserved verbatim; it now arrives under the
+        # honesty banner that says nothing in it is provably grounded.
+        assert result.messages[-1].content.endswith(sanitized_report)
         assert "Citation verification found no valid citations" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_no_valid_citations_marks_the_answer_degraded(self, mock_llm_provider, real_tool):
+        """Zero valid citations is surfaced on the state, not only in the log."""
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        report = "CUDA findings here [1].\n\n## Sources\n[1] CUDA Docs: https://docs.nvidia.com/cuda/"
+        deep_result = {
+            "messages": [AIMessage(content="done")],
+            "files": output_markdown_file(report),
+        }
+        mock_agent = streaming_graph_mock(deep_result)
+
+        with patch(
+            "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+
+            with (
+                seeded_session_registry(
+                    SourceEntry(url="https://docs.nvidia.com/cuda/", title="CUDA Docs", tool_name="web_search")
+                ),
+                patch(
+                    "aiq_agent.agents.deep_researcher.agent.verify_citations",
+                    return_value=MagicMock(
+                        verified_report=report,
+                        removed_citations=[],
+                        valid_citations=[],
+                    ),
+                ),
+            ):
+                state = DeepResearchAgentState(messages=[HumanMessage(content="What is CUDA?")])
+                result = await agent.run(state)
+
+        assert result.degraded_reasons == ["no_valid_citations"]
+        # Not a cutoff: only the degradation is announced.
+        assert result.research_truncated is None
+        assert result.messages[-1].content.startswith("> **Hinweis:**")
+        assert "eingeschränkt belastbar" in result.messages[-1].content
 
     @pytest.mark.asyncio
     async def test_run_fails_when_registry_is_empty_despite_report(self, mock_llm_provider, real_tool):
@@ -2155,9 +2375,7 @@ class TestDeepResearcherCitationVerification:
             "messages": [AIMessage(content="done")],
             "files": output_markdown_file(report),
         }
-        mock_agent = MagicMock()
-        mock_agent.with_config = MagicMock(return_value=mock_agent)
-        mock_agent.ainvoke = AsyncMock(return_value=deep_result)
+        mock_agent = streaming_graph_mock(deep_result)
 
         with patch(
             "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
@@ -2175,9 +2393,7 @@ class TestDeepResearcherCitationVerification:
         from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
         from aiq_agent.common.citation_verification import EmptySourceRegistryError
 
-        mock_agent = MagicMock()
-        mock_agent.with_config = MagicMock(return_value=mock_agent)
-        mock_agent.ainvoke = AsyncMock(return_value={"messages": [], "files": {}})
+        mock_agent = streaming_graph_mock({"messages": [], "files": {}})
 
         with patch(
             "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
@@ -2201,9 +2417,7 @@ class TestDeepResearcherCitationVerification:
             "messages": [AIMessage(content="done")],
             "files": output_markdown_file(raw_answer),
         }
-        mock_agent = MagicMock()
-        mock_agent.with_config = MagicMock(return_value=mock_agent)
-        mock_agent.ainvoke = AsyncMock(return_value=deep_result)
+        mock_agent = streaming_graph_mock(deep_result)
 
         with patch(
             "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
@@ -2246,9 +2460,7 @@ class TestDeepResearcherCitationVerification:
             "messages": [AIMessage(content="done")],
             "files": output_markdown_file(report),
         }
-        mock_agent = MagicMock()
-        mock_agent.with_config = MagicMock(return_value=mock_agent)
-        mock_agent.ainvoke = AsyncMock(return_value=deep_result)
+        mock_agent = streaming_graph_mock(deep_result)
 
         with patch(
             "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
@@ -2297,9 +2509,7 @@ class TestDeepResearcherCitationVerification:
             "messages": [AIMessage(content="done")],
             "files": output_markdown_file(report),
         }
-        mock_agent = MagicMock()
-        mock_agent.with_config = MagicMock(return_value=mock_agent)
-        mock_agent.ainvoke = AsyncMock(return_value=deep_result)
+        mock_agent = streaming_graph_mock(deep_result)
 
         with patch(
             "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
@@ -2364,10 +2574,8 @@ class TestDeepResearcherQuoteVerification:
     async def _run(self, mock_llm_provider, real_tool, markdown):
         from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
 
-        mock_agent = MagicMock()
-        mock_agent.with_config = MagicMock(return_value=mock_agent)
-        mock_agent.ainvoke = AsyncMock(
-            return_value={"messages": [AIMessage(content="handoff")], "files": output_markdown_file(markdown)}
+        mock_agent = streaming_graph_mock(
+            {"messages": [AIMessage(content="handoff")], "files": output_markdown_file(markdown)}
         )
         with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent):
             agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
@@ -2396,3 +2604,561 @@ class TestDeepResearcherQuoteVerification:
         result = await self._run(mock_llm_provider, real_tool, markdown)
         output = result.messages[-1].content
         assert "[nicht wörtlich in der Quelle belegt]" not in output
+
+
+class TestSessionRegistryBinding:
+    """The live citation stream needs a registry to read; the chat path owns its own.
+
+    In a Dask worker nothing binds a session registry, so every knowledge-base
+    and OIB citation failed the "was this actually retrieved?" check and was
+    never marked as cited -- a run citing four Richtlinien and one web page
+    showed the web page alone. The run binds its own registry so the check has
+    something true to read, and must NOT bind over the chat entrypoint's, which
+    deliberately spans turns.
+    """
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        provider = LLMProvider()
+        provider.set_default(mock_llm)
+        for role in (
+            LLMRole.ORCHESTRATOR,
+            LLMRole.ROUTER,
+            LLMRole.PLANNER,
+            LLMRole.RESEARCHER,
+            LLMRole.REPORT_WRITER,
+        ):
+            provider.configure(role, mock_llm)
+        return provider
+
+    @pytest.fixture
+    def real_tool(self):
+        return web_search_tool
+
+    async def _run_capturing_registry(self, agent):
+        """Run the agent, returning what get_session_registry() saw mid-run."""
+        from aiq_agent.common.citation_verification import get_session_registry
+
+        seen = []
+        graph = streaming_graph_mock({"messages": [], "files": output_markdown_file()})
+        original = graph.astream.side_effect
+
+        def _spy(*args, **kwargs):
+            seen.append(get_session_registry())
+            return original(*args, **kwargs)
+
+        graph.astream = MagicMock(side_effect=_spy)
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=graph):
+            await agent.run(DeepResearchAgentState(messages=[HumanMessage(content="Q")]))
+        return seen[0]
+
+    @pytest.mark.asyncio
+    async def test_binds_the_runs_registry_when_nothing_is_bound(self, mock_llm_provider, real_tool):
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+        from aiq_agent.common.citation_verification import get_session_registry
+
+        # Citation verification off: this run captures no sources (the graph is a
+        # mock), and an unverifiable report is correctly a hard failure -- which
+        # is a different behaviour than the one under test here.
+        agent = DeepResearcherAgent(
+            llm_provider=mock_llm_provider, tools=[real_tool], enable_citation_verification=False
+        )
+        during = await self._run_capturing_registry(agent)
+
+        assert during is not None, "the worker run bound no registry, so citations cannot be recognised"
+        # Reset afterwards: a Dask worker is reused, and a leaked registry would
+        # hand the next job a previous question's sources.
+        assert get_session_registry() is None
+
+    @pytest.mark.asyncio
+    async def test_leaves_an_existing_session_registry_alone(self, mock_llm_provider, real_tool):
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+        from aiq_agent.common.citation_verification import get_session_registry
+
+        agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        with seeded_session_registry(SourceEntry(url="https://conversation.example")):
+            conversation = get_session_registry()
+            during = await self._run_capturing_registry(agent)
+            # The conversation's registry spans TURNS; narrowing it to this one
+            # run would lose cross-turn source continuity.
+            assert during is conversation
+            assert get_session_registry() is conversation
+
+
+class TestDeepReportConfidence:
+    """The writer's `[CONFIDENCE:...]` self-assessment: stripped, capped, surfaced.
+
+    Deep answers shipped without the confidence chip every shallow answer wears,
+    so the product's "is this trustworthy?" affordance was simply missing on the
+    longest reports it writes. These tests pin the three things that must hold:
+    the marker never reaches a reader, the level never exceeds what the run can
+    back up, and a malformed marker costs nothing but the chip.
+    """
+
+    #: A knowledge-base passage the fixtures below cite, so citation verification
+    #: and quote verification both have something real to check against.
+    _KB_ENTRY = SourceEntry(
+        citation_key="OIB-330.pdf, p.12",
+        source_type="knowledge_layer",
+        tool_name="knowledge_search",
+        chunk_text="Die lichte Durchgangshoehe von Treppen muss mindestens 2,10 m betragen.",
+    )
+
+    #: Long enough to clear MIN_SALVAGE_REPORT_CHARS on the cutoff path.
+    _BODY = (
+        "## Ergebnis\n\n"
+        "Die lichte Durchgangshoehe von Treppen betraegt mindestens 2,10 m und ist "
+        "damit fuer die geplante Nutzung ausreichend bemessen; die uebrigen "
+        "Anforderungen an Steigungsverhaeltnis und Handlauf bleiben davon "
+        "unberuehrt [1].\n\n"
+        "## Sources\n[1] OIB-330.pdf, p.12"
+    )
+
+    @pytest.fixture
+    def mock_llm(self):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        return llm
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        provider = LLMProvider()
+        provider.set_default(mock_llm)
+        provider.configure(LLMRole.ORCHESTRATOR, mock_llm)
+        provider.configure(LLMRole.PLANNER, mock_llm)
+        provider.configure(LLMRole.RESEARCHER, mock_llm)
+        provider.configure(LLMRole.REPORT_WRITER, mock_llm)
+        return provider
+
+    @pytest.fixture
+    def real_tool(self):
+        return web_search_tool
+
+    @staticmethod
+    def _report(marker: str | None = None, body: str | None = None) -> str:
+        """A written report, optionally ending in a confidence marker line."""
+        text = body if body is not None else TestDeepReportConfidence._BODY
+        return f"{text}\n{marker}" if marker else text
+
+    async def _run(self, mock_llm_provider, real_tool, markdown, *, callbacks=None, cutoff=False):
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        mock_agent = streaming_graph_mock(
+            {"messages": [AIMessage(content="handoff")], "files": output_markdown_file(markdown)},
+            hang=cutoff,
+        )
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent):
+            agent = DeepResearcherAgent(
+                llm_provider=mock_llm_provider,
+                tools=[real_tool],
+                callbacks=list(callbacks or []),
+                max_run_seconds=1 if cutoff else 0,
+            )
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
+            with seeded_session_registry(self._KB_ENTRY):
+                return await agent.run(state)
+
+    @pytest.mark.asyncio
+    async def test_grounded_report_surfaces_the_writers_own_level(self, mock_llm_provider, real_tool):
+        """Verified citations and no fabricated quote → the self-report stands."""
+        result = await self._run(
+            mock_llm_provider,
+            real_tool,
+            self._report("[CONFIDENCE:high | OIB-330 woertlich belegt]"),
+        )
+
+        assert result.answer_confidence == "high"
+        assert result.answer_confidence_reason == "OIB-330 woertlich belegt"
+        assert result.answer_confidence_capped_reason is None
+
+    @pytest.mark.asyncio
+    async def test_marker_never_survives_into_the_returned_report(self, mock_llm_provider, real_tool):
+        """The control token must not reach the reader, the socket, or the PDF."""
+
+        class _Emitter:
+            """The narrowest stand-in for the streaming callback: it only emits."""
+
+            def __init__(self) -> None:
+                self.emitted: list[str] = []
+
+            def emit_final_report(self, report: str) -> None:
+                self.emitted.append(report)
+
+        emitter = _Emitter()
+        result = await self._run(
+            mock_llm_provider,
+            real_tool,
+            self._report("[CONFIDENCE:medium | Nur eine Quelle]"),
+            callbacks=[emitter],
+        )
+
+        answer = result.messages[-1].content
+        assert "CONFIDENCE" not in answer
+        assert "Nur eine Quelle" not in answer
+        # The report itself is otherwise untouched.
+        assert "2,10 m" in answer
+        # And the re-emitted report the frontend overwrites with is just as clean.
+        assert emitter.emitted and "CONFIDENCE" not in emitter.emitted[-1]
+
+    @pytest.mark.asyncio
+    async def test_cutoff_run_cannot_ship_high_confidence(self, mock_llm_provider, real_tool):
+        """A run that never finished gathering evidence is capped below "high"."""
+        result = await self._run(
+            mock_llm_provider,
+            real_tool,
+            self._report("[CONFIDENCE:high | Alles belegt]"),
+            cutoff=True,
+        )
+
+        assert result.research_truncated is True
+        assert result.answer_confidence == "medium"
+        # Truncation speaks through its own channel; it invents no cap token.
+        assert result.answer_confidence_capped_reason is None
+        assert "CONFIDENCE" not in result.messages[-1].content
+
+    @pytest.mark.asyncio
+    async def test_cutoff_does_not_raise_a_modest_self_report(self, mock_llm_provider, real_tool):
+        """The ceiling only clamps down: "low" stays "low" on a salvaged run."""
+        result = await self._run(
+            mock_llm_provider,
+            real_tool,
+            self._report("[CONFIDENCE:low | Recherche unvollstaendig]"),
+            cutoff=True,
+        )
+
+        assert result.answer_confidence == "low"
+
+    @pytest.mark.asyncio
+    async def test_malformed_marker_degrades_to_no_confidence(self, mock_llm_provider, real_tool):
+        """An invented level yields no chip — and is still stripped from the report."""
+        result = await self._run(
+            mock_llm_provider,
+            real_tool,
+            self._report("[CONFIDENCE:absolut sicher | Bauchgefuehl]"),
+        )
+
+        assert result.answer_confidence is None
+        assert result.answer_confidence_reason is None
+        assert result.answer_confidence_capped_reason is None
+        answer = result.messages[-1].content
+        assert "CONFIDENCE" not in answer
+        assert "Bauchgefuehl" not in answer
+        # Fail-open: the report still ships.
+        assert "2,10 m" in answer
+
+    @pytest.mark.asyncio
+    async def test_missing_marker_leaves_the_answer_unassessed(self, mock_llm_provider, real_tool):
+        """No marker is "not assessed", never a level — and never a failed run."""
+        result = await self._run(mock_llm_provider, real_tool, self._report())
+
+        assert result.answer_confidence is None
+        assert result.answer_confidence_reason is None
+        assert "2,10 m" in result.messages[-1].content
+
+    @pytest.mark.asyncio
+    async def test_ungrounded_report_is_capped_to_low(self, mock_llm_provider, real_tool):
+        """Nothing survived verification → "low", named as ungrounded."""
+        body = "## Ergebnis\n\nDie Hoehe ist ausreichend bemessen.\n\n## Sources\n[1] Kein Nachweis"
+        result = await self._run(mock_llm_provider, real_tool, self._report("[CONFIDENCE:high]", body=body))
+
+        assert result.degraded_reasons == ["no_valid_citations"]
+        assert result.answer_confidence == "low"
+        assert result.answer_confidence_capped_reason == "ungrounded"
+
+    @pytest.mark.asyncio
+    async def test_fabricated_quote_caps_the_whole_answer(self, mock_llm_provider, real_tool):
+        """One quote that is not in the source drops the report to "low"."""
+        body = (
+            'Laut Richtlinie gilt „Treppen muessen eine Loeschanlage haben" [1].\n\n## Sources\n[1] OIB-330.pdf, p.12'
+        )
+        result = await self._run(mock_llm_provider, real_tool, self._report("[CONFIDENCE:high]", body=body))
+
+        assert result.answer_confidence == "low"
+        assert result.answer_confidence_capped_reason == "quote_unverified"
+
+    @pytest.mark.asyncio
+    async def test_citation_health_ledger_records_the_cap_and_no_fallback(self, mock_llm_provider, real_tool):
+        """The ledger finally gets a cap reason — and deep's explicit "never falls back"."""
+        body = "## Ergebnis\n\nDie Hoehe ist ausreichend bemessen.\n\n## Sources\n[1] Kein Nachweis"
+        with patch("aiq_agent.agents.deep_researcher.agent.citation_events.record_turn") as record_turn:
+            await self._run(mock_llm_provider, real_tool, self._report("[CONFIDENCE:high]", body=body))
+
+        kwargs = record_turn.call_args.kwargs
+        assert kwargs["agent"] == "deep"
+        assert kwargs["confidence_capped_reason"] == "ungrounded"
+        assert kwargs["fallback_used"] is False
+
+
+class TestCallbackRegistryHandover:
+    """The live citation stream is handed the registry, not left to find one.
+
+    The callback resolves a registry in three tiers: one handed to it, then the
+    session contextvar, then its own mirror. Tier 2 works and is what production
+    ran on -- but a contextvar does not survive every thread hop LangChain's
+    callback machinery can make, and when it is lost the symptom is not an
+    error: it is a Richtlinie the run genuinely retrieved, silently reported as
+    uncited. Tier 1 is the one that cannot be lost, so it has to be wired.
+    """
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        provider = LLMProvider()
+        provider.set_default(mock_llm)
+        for role in (
+            LLMRole.ORCHESTRATOR,
+            LLMRole.ROUTER,
+            LLMRole.PLANNER,
+            LLMRole.RESEARCHER,
+            LLMRole.REPORT_WRITER,
+        ):
+            provider.configure(role, mock_llm)
+        return provider
+
+    @pytest.fixture
+    def real_tool(self):
+        return web_search_tool
+
+    def test_a_callback_that_can_hold_a_registry_is_given_one(self, mock_llm_provider, real_tool):
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        received = []
+
+        class RegistryHolder:
+            def set_source_registry(self, source_registry):
+                received.append(source_registry)
+
+        agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], callbacks=[RegistryHolder()])
+        with patch(
+            "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+            return_value=streaming_graph_mock({"messages": [], "files": output_markdown_file()}),
+        ):
+            artifacts = agent._prepare_run(DeepResearchAgentState(messages=[HumanMessage(content="Q")]))
+
+        assert len(received) == 1, "the run built a registry and handed it to nobody"
+        # The ACCESSOR, not the registry object: the middleware swaps in a
+        # session-scoped registry mid-run, and a callback holding the first one
+        # would judge the report against a registry the run stopped using.
+        assert callable(received[0])
+        assert received[0]() is artifacts.source_registry_middleware.active_registry()
+
+    def test_each_run_hands_over_its_own_registry(self, mock_llm_provider, real_tool):
+        """Two runs of one agent must not share a registry (ADR-0018)."""
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        received = []
+
+        class RegistryHolder:
+            def set_source_registry(self, source_registry):
+                received.append(source_registry)
+
+        agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], callbacks=[RegistryHolder()])
+        state = DeepResearchAgentState(messages=[HumanMessage(content="Q")])
+        with patch(
+            "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+            return_value=streaming_graph_mock({"messages": [], "files": output_markdown_file()}),
+        ):
+            first = agent._prepare_run(state)
+            second = agent._prepare_run(state)
+
+        assert len(received) == 2
+        assert received[0]() is first.source_registry_middleware.active_registry()
+        assert received[1]() is second.source_registry_middleware.active_registry()
+        assert received[0]() is not received[1]()
+
+    def test_a_callback_without_the_seam_is_left_alone(self, mock_llm_provider, real_tool):
+        """Most callbacks are trace sinks; handing them a registry must not crash."""
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        plain = MagicMock(spec=[])  # no attributes at all
+        agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], callbacks=[plain])
+        with patch(
+            "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
+            return_value=streaming_graph_mock({"messages": [], "files": output_markdown_file()}),
+        ):
+            agent._prepare_run(DeepResearchAgentState(messages=[HumanMessage(content="Q")]))
+
+
+class TestReportSinkCannotUnmakeTheAnswer:
+    """A display that throws must not destroy the answer it was handed.
+
+    ``emit_final_report`` runs inside ``_finalize``, and ``_finalize_cutoff``
+    reads a raised ``_finalize`` as "nothing to salvage" — so an unguarded sink
+    could throw away a verified report that existed and then log the false
+    sentence "nothing salvageable" about it. Delivering the answer outranks
+    echoing it: a sink that fails costs its own echo and nothing else.
+    """
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        provider = LLMProvider()
+        provider.set_default(mock_llm)
+        for role in (
+            LLMRole.ORCHESTRATOR,
+            LLMRole.ROUTER,
+            LLMRole.PLANNER,
+            LLMRole.RESEARCHER,
+            LLMRole.REPORT_WRITER,
+        ):
+            provider.configure(role, mock_llm)
+        return provider
+
+    @pytest.fixture
+    def real_tool(self):
+        return web_search_tool
+
+    @pytest.mark.asyncio
+    async def test_a_raising_sink_still_returns_the_report(self, mock_llm_provider, real_tool):
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+
+        class ExplodingSink:
+            def emit_final_report(self, report, cards=None):
+                raise RuntimeError("the display is down")
+
+        report = "Brandabschnitte sind zu begrenzen [1].\n\n## Sources\n[1] Example: https://example.com"
+        graph = streaming_graph_mock(
+            {"messages": [AIMessage(content="handoff")], "files": output_markdown_file(report)}
+        )
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=graph):
+            agent = DeepResearcherAgent(
+                llm_provider=mock_llm_provider,
+                tools=[real_tool],
+                callbacks=[ExplodingSink()],
+            )
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                result = await agent.run(DeepResearchAgentState(messages=[HumanMessage(content="Q")]))
+
+        # The answer survives the display failing: run() RETURNED (rather than
+        # raising into the "nothing salvageable" path) and the verified report
+        # is on the message it replaced.
+        assert result is not None
+        assert result.messages, "a failing echo destroyed the answer"
+        assert "Brandabschnitte" in str(result.messages[-1].content)
+
+
+class TestSalvageBarExcludesOurOwnBanner:
+    """The bar measures the REPORT, not the banner we prepended to it.
+
+    ``MIN_SALVAGE_REPORT_CHARS`` exists so a stub is not shipped as an answer.
+    The honesty banner is ~135 characters the agent wrote ABOUT the run, so
+    counting it would let a stub clear the bar purely because it had been
+    labelled as a stub — the label buying the thing it labels a pass.
+
+    Unpinned until now: an independent check reverted this to
+    ``len(text.strip())`` and the whole backend suite stayed green, because the
+    existing fixture's stub was short enough to fail either way. Any body of
+    65-199 characters shipped as a report with nothing noticing, which is the
+    window this fixes.
+    """
+
+    def test_a_banner_does_not_buy_a_stub_a_pass(self):
+        from aiq_agent.agents.deep_researcher.agent import _HONESTY_BANNER_PREFIX
+        from aiq_agent.agents.deep_researcher.agent import MIN_SALVAGE_REPORT_CHARS
+        from aiq_agent.agents.deep_researcher.agent import _salvaged_report_length
+
+        # A body inside the dangerous window: too short to be an answer, long
+        # enough that the banner would carry it over the bar.
+        body = "Die Recherche fand nur einen Hinweis auf GK4."
+        assert len(body) < MIN_SALVAGE_REPORT_CHARS
+        banner = f"{_HONESTY_BANNER_PREFIX} Die Recherche wurde vorzeitig beendet (Zeitgrenze erreicht)."
+        banner_text = f"{banner}\n\n{body}"
+
+        # The naive measure would pass it; the real one must not.
+        assert _salvaged_report_length(banner_text) == len(body)
+        assert _salvaged_report_length(banner_text) < MIN_SALVAGE_REPORT_CHARS
+
+    def test_the_window_is_real(self):
+        """A banner+body that the naive measure WOULD have cleared."""
+        from aiq_agent.agents.deep_researcher.agent import _HONESTY_BANNER_PREFIX
+        from aiq_agent.agents.deep_researcher.agent import MIN_SALVAGE_REPORT_CHARS
+        from aiq_agent.agents.deep_researcher.agent import _salvaged_report_length
+
+        body = "x" * (MIN_SALVAGE_REPORT_CHARS - 30)
+        banner = f"{_HONESTY_BANNER_PREFIX} " + ("y" * 120)
+        combined = f"{banner}\n\n{body}"
+        # Naive: over the bar. Correct: under it.
+        assert len(combined.strip()) >= MIN_SALVAGE_REPORT_CHARS
+        assert _salvaged_report_length(combined) < MIN_SALVAGE_REPORT_CHARS
+
+    def test_an_unbannered_report_is_measured_whole(self):
+        from aiq_agent.agents.deep_researcher.agent import _salvaged_report_length
+
+        report = "Brandabschnitte sind zu begrenzen. " * 10
+        assert _salvaged_report_length(report) == len(report.strip())
+
+
+class TestUpstreamTimeoutIsNotTheBudget:
+    """A provider hiccup must not be counted as a budget overrun.
+
+    ``asyncio.wait_for`` raises ``TimeoutError``, and so does any provider or
+    transport call that times out inside the graph -- indistinguishably, since
+    ``asyncio.TimeoutError`` IS ``TimeoutError``. Blaming the budget for both
+    made an operator counting overruns count a 30-second hiccup as a
+    2400-second one: worse than no metric, because it reads as evidence for
+    raising a budget that was never reached.
+
+    Both are salvaged identically. They are only NAMED apart.
+    """
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        provider = LLMProvider()
+        provider.set_default(mock_llm)
+        for role in (
+            LLMRole.ORCHESTRATOR,
+            LLMRole.ROUTER,
+            LLMRole.PLANNER,
+            LLMRole.RESEARCHER,
+            LLMRole.REPORT_WRITER,
+        ):
+            provider.configure(role, mock_llm)
+        return provider
+
+    @pytest.fixture
+    def real_tool(self):
+        return web_search_tool
+
+    @pytest.mark.asyncio
+    async def test_an_inner_timeout_is_named_upstream_not_wall_clock(self, mock_llm_provider, real_tool):
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+        from aiq_agent.common.turn_status import CUTOFF_UPSTREAM_TIMEOUT
+
+        # Raised from INSIDE the graph, immediately -- nowhere near the budget.
+        graph = streaming_graph_mock(error=TimeoutError("provider read timed out"))
+        seen: dict[str, object] = {}
+
+        def _capture(*, reason, **kwargs):
+            seen["reason"] = reason
+
+        with (
+            patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=graph),
+            patch("aiq_agent.agents.deep_researcher.agent.emit_deep_research_cutoff", _capture),
+        ):
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], max_run_seconds=2400)
+            with pytest.raises(TimeoutError, match="upstream timeout"):
+                await agent.run(DeepResearchAgentState(messages=[HumanMessage(content="Q")]))
+
+        assert seen["reason"] == CUTOFF_UPSTREAM_TIMEOUT, (
+            "a provider timeout was counted as a wall-clock budget overrun"
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_real_budget_is_still_named_wall_clock(self, mock_llm_provider, real_tool):
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+        from aiq_agent.common.turn_status import CUTOFF_WALL_CLOCK
+
+        graph = streaming_graph_mock(hang=True)
+        seen: dict[str, object] = {}
+
+        def _capture(*, reason, **kwargs):
+            seen["reason"] = reason
+
+        with (
+            patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=graph),
+            patch("aiq_agent.agents.deep_researcher.agent.emit_deep_research_cutoff", _capture),
+        ):
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], max_run_seconds=1)
+            with pytest.raises(TimeoutError, match="wall-clock budget"):
+                await agent.run(DeepResearchAgentState(messages=[HumanMessage(content="Q")]))
+
+        assert seen["reason"] == CUTOFF_WALL_CLOCK

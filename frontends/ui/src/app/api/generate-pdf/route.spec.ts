@@ -87,8 +87,14 @@ describe('POST /api/generate-pdf', () => {
     const response = await post({ markdown: '# Bericht\n\nEin Absatz.' })
     const pdf = await readPdf(new Uint8Array(await response.arrayBuffer()))
 
+    // No AI marking: `Keywords` is where it lives, and this export carries none.
     expect(pdf.info.Keywords).toBeUndefined()
-    expect(pdf.info.Creator).toBe('react-pdf')
+    // `Creator` is no longer the tell. Every document the product prints is
+    // branded now — `BlocksDocument` sets author, creator and producer to
+    // `Piloti` whether or not the content is machine-authored — so this asserts
+    // the branding rather than the marking, and the marking is asserted where it
+    // actually lives, one line up.
+    expect(pdf.info.Creator).toBe('Piloti')
   })
 
   it('rejects a body with no markdown instead of serving a blank page', async () => {

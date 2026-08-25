@@ -70,6 +70,21 @@ interface GridCardsProps {
    * persisted decision and re-open cards the user has already answered.
    */
   indices?: readonly number[]
+  /**
+   * Whether an interactive card here MUST be able to persist its decision.
+   *
+   * Default (false) keeps the old behaviour: with no `messageId` the card still
+   * takes an answer and remembers it for this mount only — right for the
+   * `/dev/cards` gallery and previews, where nothing could be persisted and
+   * nothing is at stake.
+   *
+   * A surface that renders REAL cards passes true, and then an interactive card
+   * with no owning message draws itself without its actions rather than taking
+   * an answer it will drop. The deep-research report tab is that surface: its
+   * cards come from a job output, and the message that carries them
+   * (`card-owner.ts`) is not always loaded.
+   */
+  decisionsMustPersist?: boolean
 }
 
 interface GridCardItemProps {
@@ -81,6 +96,8 @@ interface GridCardItemProps {
   projectId?: string | null
   /** The message these cards belong to (see {@link GridCardsProps.messageId}). */
   messageId?: string
+  /** See {@link GridCardsProps.decisionsMustPersist}. */
+  decisionsMustPersist?: boolean
 }
 
 /**
@@ -92,7 +109,13 @@ interface GridCardItemProps {
  * card has no position in a list to be inferred from, and its identity must
  * still be the one the persisted decisions were keyed under.
  */
-export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, messageId }) => {
+export const GridCardItem: FC<GridCardItemProps> = ({
+  card,
+  index,
+  projectId,
+  messageId,
+  decisionsMustPersist,
+}) => {
   // Doubles as the React key and as the identity an interactive card's
   // persisted decision is stored under, so the two cannot drift apart.
   const key = cardKey(card, index)
@@ -550,6 +573,7 @@ export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, me
           projectId={projectId}
           messageId={messageId}
           cardKey={key}
+          decisionsMustPersist={decisionsMustPersist}
         />
       </FadeIn>
     )
@@ -664,6 +688,7 @@ export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, me
           confidence={card.confidence}
           messageId={messageId}
           cardKey={key}
+          decisionsMustPersist={decisionsMustPersist}
         />
       </FadeIn>
     )
@@ -681,7 +706,13 @@ export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, me
  * acoustic_check, fire_compartment, thermal_envelope, energy_performance,
  * elevator_requirement, parking_requirement).
  */
-export const GridCards: FC<GridCardsProps> = ({ cards, projectId, messageId, indices }) => {
+export const GridCards: FC<GridCardsProps> = ({
+  cards,
+  projectId,
+  messageId,
+  indices,
+  decisionsMustPersist,
+}) => {
   // A subset renders under its ORIGINAL indices, never renumbered — see
   // `GridCardsProps.indices`.
   const positions = indices ?? cards.map((_, index) => index)
@@ -705,6 +736,7 @@ export const GridCards: FC<GridCardsProps> = ({ cards, projectId, messageId, ind
               index={index}
               projectId={projectId}
               messageId={messageId}
+              decisionsMustPersist={decisionsMustPersist}
             />
           )
         })}

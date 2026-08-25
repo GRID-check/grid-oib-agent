@@ -25,6 +25,12 @@ export const archiv = {
       banner: 'Semantic search: {count, plural, one {# result} other {# results}} for “{query}”',
       searching: 'Searching the Archiv for “{query}”…',
       noResults: 'No semantic matches for “{query}”',
+      /** A search that could not RUN — see the same pair in `files`. */
+      failed: 'The search could not be run',
+      failedDescription:
+        'Something went wrong on the way to the index. The Archiv is untouched — try the same search again, or go back to all documents.',
+      retry: 'Try again',
+      failedBanner: 'Semantic search for “{query}” could not be run',
       noResultsDescription:
         'Nothing in the Archiv matched the meaning of your query. Try different wording, or clear the search to browse every document.',
     },
@@ -52,6 +58,9 @@ export const archiv = {
   },
   actions: {
     label: 'File actions for “{name}”',
+    reingest: 'Retry indexing',
+    reingesting: 'Retrying…',
+    reingestError: 'Indexing could not be restarted. Please try again.',
     menuLabel: 'File actions',
     download: 'Download',
     rename: 'Rename…',

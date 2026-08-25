@@ -134,7 +134,13 @@ import { SourceCard } from './SourceCard'
 import { SectionLabel } from '@/components/ui/section-label'
 import { BranchOptions } from './BranchOptions'
 import { citationChips } from './citations'
-import { researchTruncation } from '../../lib/turn-events'
+import {
+  answerDegradations,
+  deepResearchCutoff,
+  researchTruncation,
+  type AnswerDegradation,
+  type DeepResearchCutoff,
+} from '../../lib/turn-events'
 import { stepNameLabel } from '../../lib/executed-steps'
 import type { ChoicePrompt } from './citations'
 
@@ -234,6 +240,22 @@ type FindingsData = {
    * as a reader-facing noun. Same ladder the executed-step chips use.
    */
   truncation?: { before: string; step?: string; after: string; mono: boolean }
+  /**
+   * What the answer is NOT, stated plainly: research that ran out of clock or
+   * steps, and evidence that did not hold up. Rendered under its own eyebrow
+   * below the truncation line, because these are qualifications on the answer
+   * rather than more detail about the evidence.
+   *
+   * A line is `warn` when it says the answer is weaker than it looks — a report
+   * that was never filed, a citation set that verified to nothing. Those want to
+   * be noticed. A research run that stopped early is a fact about the process
+   * and keeps the muted register the lines above it use.
+   *
+   * Absent when there is nothing to qualify. There is deliberately no "all
+   * clear" variant: the backend emits these records only when they are true, so
+   * presence IS the fact and a "no limits" row would be a constant.
+   */
+  limits?: { label: string; lines: Array<{ text: string; warn: boolean }> }
   /** Top (target) handles — one per incoming column, or a single centre. */
   targets: HandleSpec[]
   /**
@@ -379,6 +401,22 @@ const FindingsFlowNode: FC<NodeProps<Node<FindingsData>>> = ({ data }) => (
         )}
         {data.truncation.after}
       </p>
+    )}
+    {data.limits && (
+      <div className="mt-1.5 border-t border-base pt-1.5">
+        <Eyebrow>{data.limits.label}</Eyebrow>
+        {data.limits.lines.map((line) => (
+          <p
+            key={line.text}
+            className={cn(
+              'mt-0.5 text-xs leading-relaxed',
+              line.warn ? 'text-warning' : 'text-muted-foreground'
+            )}
+          >
+            {line.text}
+          </p>
+        ))}
+      </div>
     )}
     <Handle id={data.source.id} type="source" position={Position.Bottom} style={{ ...H, left: data.source.left }} />
   </div>
@@ -595,6 +633,74 @@ function edge(
   }
 }
 
+/** Copy for the caveat lines, all under one dictionary group. */
+const LIMIT = 'thinking.node.limits.'
+
+/**
+ * A cut-off deep run needs at least this much clock behind it before the panel
+ * names a duration. Below a minute the sentence would read "stopped after 0
+ * minutes", which is a true number that says nothing — and the cause line
+ * ("reached its time limit") already carries the fact that matters.
+ */
+const MIN_REPORTED_MINUTES = 1
+
+/**
+ * The assessment node's caveat lines, in the reader's own nouns.
+ *
+ * Every one of these is derived from a technical-channel record, so this is the
+ * one place in the trace that turns telemetry into a statement — and the
+ * translation is deliberately lossy. `report_chars` never appears: a character
+ * count is the textbook case of a fact that only names a mechanism, and the
+ * reader already learns what it would have told them from whether the findings
+ * reached the answer at all. What DOES survive is what an architect can act on:
+ * the research stopped early, this much of it was usable, nothing was verified.
+ *
+ * A cutoff yields at most two lines — the cause and its consequence in one
+ * sentence pair, then what had been gathered by then — so the block stays
+ * readable when a turn was both cut off and degraded.
+ */
+function limitations(
+  cutoff: DeepResearchCutoff | null,
+  degradations: AnswerDegradation[],
+  t: Translator
+): Array<{ text: string; warn: boolean }> {
+  const lines: Array<{ text: string; warn: boolean }> = []
+
+  if (cutoff) {
+    // An unknown reason token still gets a line: THAT the run stopped early is
+    // the part the reader needs, and it is true whatever ended it.
+    const cause =
+      cutoff.reason === 'wall_clock' ? 'time' : cutoff.reason === 'step_limit' ? 'steps' : 'other'
+    const outcome = cutoff.salvaged ? 'salvaged' : 'nothing'
+    lines.push({
+      text: `${t(`${LIMIT}deepCutoff.${cause}`)} ${t(`${LIMIT}deepCutoff.${outcome}`)}`,
+      warn: false,
+    })
+
+    // What had been gathered when the clock ran out. Zero sources is left
+    // unsaid rather than counted — "0 Quellen" is a true number that reads as a
+    // failure, and `nothing` above has already said the honest version of it.
+    const context: string[] = []
+    if (cutoff.sourceCount) {
+      context.push(t(`${LIMIT}deepCutoff.sources`, { count: cutoff.sourceCount }))
+    }
+    // FLOORED, not rounded: "it stopped after 1 minute" is a claim, and 41
+    // seconds rounded up would make the panel overstate the run by half.
+    const minutes = Math.floor((cutoff.elapsedSeconds ?? 0) / 60)
+    if (minutes >= MIN_REPORTED_MINUTES) {
+      context.push(t(`${LIMIT}deepCutoff.after`, { minutes }))
+    }
+    if (context.length > 0) lines.push({ text: context.join(' '), warn: false })
+  }
+
+  for (const reason of degradations) {
+    const key = reason === 'no_report_file' ? 'noReport' : 'noCitations'
+    lines.push({ text: t(`${LIMIT}degraded.${key}`), warn: true })
+  }
+
+  return lines
+}
+
 export interface BuiltGraph {
   nodes: Node[]
   edges: Edge[]
@@ -642,12 +748,23 @@ export function buildGraph(
   // search is over is worse than one arriving a moment later.
   const truncation = props.live ? null : researchTruncation(props.steps)
   /**
+   * The two records a DEEP run keeps about its own limits: it ran out of clock
+   * or steps, and the answer shipped in a known-weaker form. Same live gate as
+   * the truncation above and for the same reason — both are verdicts on a turn
+   * that is over, and a verdict that arrives while the turn is still running
+   * would be a claim about an answer that does not exist yet.
+   */
+  const cutoff = props.live ? null : deepResearchCutoff(props.steps)
+  const degradations = props.live ? [] : answerDegradations(props.steps)
+  const limitLines = limitations(cutoff, degradations, t)
+  /**
    * A truncated turn EARNS the assessment node even with no verdict and no
    * sources — which is exactly the case worth getting right, because a turn
    * that was cut off before it found anything is otherwise a graph that just
-   * stops, with nothing anywhere saying why.
+   * stops, with nothing anywhere saying why. A cut-off or degraded deep run is
+   * the same case, arrived at down a different road.
    */
-  const hasFindings = hasVerdict || pendingFindings || Boolean(truncation)
+  const hasFindings = hasVerdict || pendingFindings || Boolean(truncation) || limitLines.length > 0
 
   const columnIds = columns.map((_, i) => `col-${i}`)
   const columnX = (i: number) => fanX + i * (colW + gap)
@@ -737,6 +854,8 @@ export function buildGraph(
             ? t('thinking.node.findingsHits', { lanes: hitLanes.join(', ') })
             : undefined,
         truncation: truncationLine,
+        limits:
+          limitLines.length > 0 ? { label: t(`${LIMIT}label`), lines: limitLines } : undefined,
         targets: convergeTargets,
         source: CENTRE_OUT,
       }

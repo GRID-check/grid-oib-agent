@@ -504,6 +504,85 @@ tree renders recursively). The prior "can't nest" symptom was **UX only** — th
 was no per-folder affordance. **Fix**: `folder-tree-pane.tsx` now shows an "add
 subfolder" `+` on each folder row and makes root creation explicit.
 
+`folder-service.ts` carries the full set: `createProjectFolder`,
+`updateProjectFolder` (rename and/or move) and `deleteProjectFolder`, behind
+`POST`/`PATCH`/`DELETE` on `/api/projects/{id}/folders[/{folderId}]`. Two
+invariants are load-bearing:
+
+- **`path` is materialised**, so a rename or a move has to rewrite every
+  descendant row. `rewriteDescendantPaths` does it as one prefix-replace
+  statement per subtree inside the caller's transaction (the descendants share
+  the old prefix by construction), with `LIKE` metacharacters escaped so a
+  folder called `100 % Plans` cannot match half the project. A move into the
+  folder's own subtree is rejected up front — with a materialised path a cycle
+  is invisible until something walks it.
+- **`documents.folder_id` is `ON DELETE CASCADE`** (see the deletion pipeline),
+  so deleting a folder row would take its documents with it. `deleteProjectFolder`
+  re-files the documents *and* re-parents the child folders into the deleted
+  folder's own parent **inside the transaction, before the delete**, and returns
+  `{ documentsMoved, foldersMoved }` so the surface can say where the files
+  went. `folder-service.mutations.spec.ts` pins that ordering — deleting a label
+  must never delete the work filed under it.
+
+#### Folders on the Python side (ADR-0049)
+
+Folders used to exist ONLY in the BFF/UI: ingestion, retrieval and the
+document-surfacing tools had no idea they were there, so the agent could not say
+"die drei Dokumente in Brandschutz" and a search could not be scoped to a folder.
+
+The folder now crosses as the **materialised PATH** (`Brandschutz/Fluchtwege`),
+denormalised onto **`document_metadata.folder_path`** — one nullable column added
+through the same `_OPTIONAL_COLUMNS` backfill that added `tags`, `doc_class` and
+`display_title`. It is deliberately NOT a `folder_id` (the backend has no
+`project_folders` table to join) and deliberately NOT stamped into chunk
+metadata: a path moves, and a value baked into every chunk of every document in a
+subtree either has to be rewritten chunk by chunk or goes confidently stale. The
+row is the authority, exactly as it already is for `doc_class` and
+`display_title`, which is what makes a folder rename apply with **nothing
+re-ingested**.
+
+Three crossings:
+
+| When | Where | What travels |
+|---|---|---|
+| Upload / re-ingest / re-index | `POST /v1/ingest` body → job config → `set_document_folder_path` | `folder_path` (null at the project root) |
+| Folder rename / move / delete | `PATCH /v1/collections/{c}/folder-paths` | `{ from_path, to_path }` — one prefix rewrite for the whole subtree |
+| Reads | `AvailableDocument.folder_path`, `FileInfo.folder_path` | the path |
+
+`mirrorFolderPathRewrite` (`folder-service.ts`) makes the second call after the
+folder transaction commits, best-effort, following the display-title mirror's
+precedent: the BFF's rows are the durable truth, a backend that is down must not
+fail a rename, and the bounded consequence is that the agent keeps the old path
+until the next rewrite or re-ingest. One call rather than one per document — a
+per-document PATCH would make a rename O(subtree) independently-failing requests,
+i.e. a half-renamed folder. A delete is the same primitive: re-filing
+`Brandschutz/Alt`'s contents at `Brandschutz` is the prefix rewrite
+`Brandschutz/Alt` → `Brandschutz`. The match boundary is `/` on both sides, so
+`Brandschutz` never carries `Brandschutzkonzepte`, and LIKE metacharacters are
+escaped (`escapeLikePattern` / `_escape_like`) so `100 % Plans` cannot match half
+the project.
+
+**Surfacing.** `render_inventory_block` prints `(Ordner: Pfad/Unterpfad)` on each
+filed file and explains the convention only when some file in the turn actually
+has a folder; `surface_documents` states it in the briefing the agent writes
+prose from ("Opened … (Projekt, Ordner Brandschutz/Fluchtwege)"). A file at the
+root gets no `Ordner` at all — absence must read as absence, not as a folder the
+user never made.
+
+**Retrieval.** `knowledge_search` takes `folder=`, applied post-merge alongside
+`doc_class` / `title_contains` / `file_name` so it works uniformly across the
+base, session and project layers, and it covers the **subtree**: `Brandschutz`
+also reads `Brandschutz/Fluchtwege`. `_format_results` emits an `Ordner:` line
+per hit so a cited passage can say where its document lives. The store read
+(`_resolve_folder_paths`) is one batched query per in-scope collection and fails
+open to an empty map — which means "at the root", so a `folder=`-scoped search
+whose store is unreachable returns nothing and tells the model to retry, rather
+than shelf-wide results labelled as the folder's.
+
+Not carried: the `document_grid` card schema has no folder field, so the card the
+user sees still shows file + shelf + snippet. The agent's prose around it carries
+the folder.
+
 ### Collection scoping (multitenancy)
 
 Every backend call carries a base64url `X-Grid-Collection-Scope` header =
@@ -548,9 +627,11 @@ queries (what's actually retrievable), and a **SQL `document_metadata`
 side-table** (`DocumentMetadataStore`,
 `src/aiq_agent/knowledge/document_metadata_store.py` + `factory.py
 get_available_documents_async`; formerly the `document_metadata` table / `SummaryStore`,
-renamed because it now holds summary + tags + `doc_class` + `display_title`) that
+renamed because it now holds summary + tags + `doc_class` + `display_title` +
+`folder_path`) that
 is the **sole source** of the `available_documents` list (file name + summary,
-optionally tags, doc_class, the user-facing `display_title`, plus the
+optionally tags, doc_class, the user-facing `display_title`, the ADR-0049
+`folder_path`, plus the
 `collection` and ADR-0047 `shelf` stamped at aggregation) rendered into
 agent prompts and shown in the Data Sources panel. A document could
 previously end up fully ingested and retrievable via `knowledge_search` yet
@@ -1476,12 +1557,11 @@ yet).
 ## 8d. Agent skills (ADR-0046)
 
 Reusable instruction packages (`SKILL.md`, agentskills.io contract) that
-extend a research turn's procedure. Selection is **user-driven** — a
-`skills` array in the chat envelope or `force_skills` on
-`/v1/internal/skills/submit` names the skills that must apply, exactly
-mirroring how `data_sources` work; the model never picks its own. Delivery
-is **progressive disclosure**: L1 is a one-line-per-skill catalog in the
-system prompt (`## Verfügbare Skills` + a forced-skills block), L2 is the
+extend a research turn's procedure. A user can force a skill (`/name`, a
+job, `force_skills` on submit). The model may also pick from the L1 catalog
+unless the skill sets `grid-auto-invoke: false`. Delivery is **progressive
+disclosure**: L1 is a one-line-per-skill catalog in the
+system prompt (`## Available skills` + a forced-skills block), L2 is the
 full body, loaded only when the model calls the `use_skill` tool. Per-run
 `SkillRuntime` (ADR-0018 — never cached on the shared agent) tracks forced
 vs. invoked names for `skills_activated` on the terminal frame.
@@ -1493,10 +1573,12 @@ fail-open and cached in the shared cache
 (`GRID_SKILLS_CACHE_TTL_SECONDS`, default 60). `shallow_research_agent`
 config gate: `skills_enabled` (default true) + `skill_allowlist` (empty =
 all). Research turns only — meta turns keep the interaction-only tool
-partition. The deep researcher intentionally stays on the deepagents-native
-skill-sources mechanism (`DeepResearchSkillsConfig`, `SkillsMiddleware` +
-`FilesystemBackend`); `force_skills` never crosses to it. Full design and
-tests: `docs/architecture/agent-skills.md`.
+partition (remember, emit_card, describe_card). Deep research loads
+machinery from the filesystem (`DeepResearchSkillsConfig` mounts `oib`/`bim`
+on the researcher and `synthesis` on the writer; curated dirs 404) and
+loads house voice, offers and org skills through `use_skill`
+(`resolve_served_skills`). Full design and tests:
+`docs/architecture/agent-skills.md`.
 
 ## 9. Known issues / open items
 
@@ -1672,19 +1754,13 @@ tests: `docs/architecture/agent-skills.md`.
 
 ## 10. Verification workflow
 
-The host's `npm install` hangs, so verify in containers:
+`task verify` is the local gate: host-native, defined once in the root
+`Taskfile.yml`. CI calls the same definitions but schedules them differently, so
+a local pass is strong evidence rather than a guarantee. `task verify:fast`
+skips two production builds, `fe:build` and `web:build`. Full command list, the
+checks that sit outside `verify`, and the traps `task --list` does not carry:
+`docs/contributing/testing-and-verification.md`.
 
-- **Frontend typecheck (fast, no NGC auth):**
-  ```
-  cd frontends/ui
-  docker build -q -f Dockerfile.typecheck -t grid-tsc .   # deps layer caches
-  docker run --rm grid-tsc                                 # runs tsc --noEmit
-  ```
-  Note: tsconfig includes test files, so spec type errors block the production
-  `next build`.
-- **Backend:** `.venv/Scripts/python.exe -m py_compile <files>` and
-  `.venv/Scripts/ruff.exe check <files>` (uv hangs on cross-filesystem sync here).
-- **Full stack / runtime:** the `.devcontainer` (VS Code, `deploy/Dockerfile`
-  target `dev-builder`, NGC auth required) or `docker compose … up -d --build`.
-  Runtime-behavioural changes (deep-research cards, agent refactor, research 403)
-  must be verified here before merge.
+Runtime-behavioural changes (deep-research cards, agent refactor, research 403)
+still need a running stack before merge: the `.devcontainer` (VS Code,
+`deploy/Dockerfile` target `dev-builder`) or `docker compose … up -d --build`.

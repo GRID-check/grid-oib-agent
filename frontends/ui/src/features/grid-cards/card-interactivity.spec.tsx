@@ -118,6 +118,21 @@ describe('interactive card wiring', () => {
       expect(setCardDecision.mock.calls[0][1]).toBe(`${type}-2`)
     })
 
+    /**
+     * A surface that requires persistence gets NO decision when nothing owns
+     * the card. The deep-research report tab is that surface: its cards come
+     * from a job output, and the message carrying them is not always loaded
+     * (`card-owner.ts`). Falling back to mount-local state there would take an
+     * answer, fire the non-idempotent write behind it, and forget both — so the
+     * action must not be on screen at all.
+     */
+    it(`offers no way to settle ${type} when the decision could not be kept`, () => {
+      render(<GridCards cards={[testCase.card]} projectId="proj-1" decisionsMustPersist />)
+
+      expect(screen.queryByRole('button', { name: testCase.action })).toBeNull()
+      expect(setCardDecision).not.toHaveBeenCalled()
+    })
+
     it(`keys ${type} on its original index in the fallback block`, async () => {
       const user = userEvent.setup()
       const filler: GridCard = { type: 'summary', title: 'Platzhalter', content: 'x' } as GridCard

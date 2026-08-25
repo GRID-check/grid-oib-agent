@@ -1,0 +1,8 @@
+---
+improvements:
+  - >
+    The navigation rail can be resized. Drag its right edge to give the project
+    navigation as much or as little room as you want, and the width you choose
+    is the width it opens at next time. Dragging it all the way in still folds
+    it to the icon column, and a click on the edge still folds and unfolds it.
+    The edge always showed a resize cursor; now it does what the cursor said.

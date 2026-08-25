@@ -3,13 +3,7 @@ name: forecast-analysis
 description: >
   Use this skill during research for lightweight forecast evidence analysis: base-rate checks, prediction-market anchors, scenario ranges, directional factor summaries, implied probabilities, and monitoring indicators. Triggers: "forecast", "prediction", "probability", "odds", "base rate", "scenario", "Polymarket", "prediction market", "will happen", "market-implied", "confidence interval", "price target", "expected value". Outputs: forecast evidence notes or compact forecast inputs returned in your ResearchNotes for writer synthesis.
 metadata:
-  # These are DeepAgents subagent skills: their instructions call `execute`,
-  # read and write `/shared/`, and return `ResearchNotes` — capabilities that
-  # exist only inside a deep-research job. `grid-agents: deep_researcher` is now
-  # the ONE thing keeping this skill out of a chat turn: it is the single
-  # availability gate, so removing it would offer the shallow chat agent a skill
-  # it cannot carry out. A skill declares WHO may use it and nothing else — when
-  # and how a run happens is a property of the job, not of the skill.
+  grid-catalog: curated
   grid-agents: deep_researcher
 ---
 

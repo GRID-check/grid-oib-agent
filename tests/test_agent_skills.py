@@ -1,4 +1,4 @@
-"""Repo-local agent skills under .agents/skills must pass the skill validator.
+"""Repo-local agent skills under skills/ must pass the skill validator.
 
 This guards the maintainer skill set in CI's pytest job, in addition to the
 pre-commit hook, since the skills-eval workflow is scoped to skills/ only.
@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SKILLS_ROOT = REPO_ROOT / ".agents" / "skills"
+SKILLS_ROOT = REPO_ROOT / "skills"
 VALIDATOR = REPO_ROOT / "scripts" / "validate_skills.py"
 
 
@@ -32,7 +32,7 @@ def _load_validator():
 
 
 def test_agent_skills_are_valid():
-    """Assert every skill bundle under .agents/skills passes structural validation."""
+    """Assert every skill bundle under skills/ passes structural validation."""
     validator = _load_validator()
     report = validator.validate_roots([SKILLS_ROOT])
     assert report.skills_checked >= 1, f"no skills found under {SKILLS_ROOT}"

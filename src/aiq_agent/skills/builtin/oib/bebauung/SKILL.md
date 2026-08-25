@@ -1,46 +1,46 @@
 ---
 name: bebauung
 description: >
-  Site planning and urban-development rules. Load when the question involves
-  Abstand, Bauwich, Abstandsfläche, Grundgrenze, Fluchtlinie, Baulinie,
-  Baufluchtlinie, Bebauungsplan, Flächenwidmung or Widmung, Bebauungsgrad,
-  Bebauungsdichte, Geschoßflächenzahl or GFZ, Grundflächenzahl,
-  Bruttogeschoßfläche, Gebäudehöhe, Traufenhöhe, Stellplatzverpflichtung, or
-  Stellplatzregulativ.
+  Bauwich, Widmung und GFZ. Land und Gemeinde, nicht OIB.
 metadata:
   grid-agents: shallow_researcher,deep_researcher
   grid-cards: setback_plan,density_check,building_section,parking_requirement,legal_basis
 ---
 
-# Answering a site-planning question
+# Eine Frage zum Grundstück beantworten
 
-## This is not in the OIB Richtlinien
+## Das steht nicht in den OIB-Richtlinien
 
-That is the defining property of this genre and the most common wrong turn.
-Setbacks, heights, density, Widmung and parking are **Landes- und
-Gemeinderecht**: the Bauordnung of the Land, the Bebauungsplan, the
-Flächenwidmungsplan, the Stellplatzregulativ. The OIB Richtlinien do not govern
-them.
+Abstände, Höhen, Dichte, Widmung und Stellplätze sind Landes- und Gemeinderecht:
+Bauordnung, Bebauungsplan, Flächenwidmungsplan, Stellplatzregulativ. Die
+OIB-Richtlinien regeln sie nicht.
 
-Two consequences follow. First, the answer depends on the Bundesland, always. If
-the project context sets it, answer for that Land and say which one. If it does
-not, that is the question to ask — there is no Austria-wide answer here. Second,
-what the Bebauungsplan says for this particular Grundstück is not something you
-know. You can say which rule applies and what it customarily fixes; you cannot
-say what has been fixed for this plot. Say where to look it up rather than
-producing a plausible number.
+Zwei Folgen. Erstens hängt die Antwort immer am Bundesland. Steht es im
+Projektkontext, darunter antworten und es nennen. Fehlt es, das ist die Frage.
+Es gibt hier keine österreichweite Zahl. Zweitens weißt du nicht, was der
+Bebauungsplan *dieses* Grundstücks festsetzt. Du kannst sagen, welche Regel
+greift und was sie üblicherweise festlegt. Du kannst nicht sagen, was hier
+festgelegt wurde. Sag, wo nachzusehen ist, statt eine plausible Zahl zu
+erfinden.
 
-## Which card for what
+Hol die Bestimmung über RIS. Eine erinnerte Wiener Formel auf ein anderes Land
+gelegt ist falsch und sieht richtig aus.
 
-- Plot, building footprint and setbacks per side → `setback_plan`.
-- Bebauungsgrad, GFZ, areas against their limits → `density_check`.
-- A height check across the storeys, Fluchtniveau → `building_section`.
-- Required against available parking → `parking_requirement`, with the
-  Bemessungsgrundlage in the `basis` field: without it the number cannot be
-  checked.
+## Die Normenkette gehört in die Antwort
 
-## The chain of norms belongs in the answer
+Wo eine Frage Landesrecht und eine OIB-Richtlinie zugleich berührt, sag,
+welche Ebene welchen Teil trägt. Was bindet und was nur auslegt, *ist* in
+diesem Genre die Information.
 
-Where a question touches both Landesrecht and an OIB Richtlinie, say which level
-governs which part. The reader has to be able to tell what binds from what
-interprets — in this genre that distinction *is* the information.
+## Welches Bild
+
+Grundstück, Fußabdruck, Abstände je Seite → `setback_plan`.
+Bebauungsgrad, GFZ, Flächen gegen die Grenze → `density_check`.
+Eine Höhenprüfung über die Geschoße, Fluchtniveau → `building_section`.
+Stellplätze gefordert gegen vorhanden → `parking_requirement`, mit der
+Bemessungsgrundlage im Feld `basis`: ohne sie ist die Zahl nicht prüfbar.
+
+## Done
+
+Land und Instrument sind genannt. Jede Zahl hat eine Fundstelle oder steht
+ausdrücklich als unbekannt, weil der Plan dieses Grundstücks fehlt.

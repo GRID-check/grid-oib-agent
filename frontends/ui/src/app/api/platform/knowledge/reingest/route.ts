@@ -12,14 +12,18 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { parseJsonBody } from '@/lib/api/handler'
 import { platformApiRoute } from '@/lib/api/platform-handler'
+import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 import { reingestKnowledgeBaseDocuments } from '@/lib/knowledge/service'
 
 const bodySchema = z.object({
   fileNames: z.array(z.string()).min(1),
 })
 
-export const POST = platformApiRoute(async ({ request }) => {
-  const { fileNames } = await parseJsonBody(request, bodySchema)
-  const result = await reingestKnowledgeBaseDocuments(fileNames)
-  return NextResponse.json(result)
-})
+export const POST = platformApiRoute(
+  async ({ request }) => {
+    const { fileNames } = await parseJsonBody(request, bodySchema)
+    const result = await reingestKnowledgeBaseDocuments(fileNames)
+    return NextResponse.json(result)
+  },
+  { permission: PLATFORM_PERMISSIONS.settingsManage }
+)

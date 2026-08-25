@@ -25,7 +25,8 @@
     "ci:local": "task -d ../.. fe:verify",
     "ci:quick": "task -d ../.. verify:fast",
     "prepare": "husky",
-    "provision:authz": "tsx scripts/provision-workos-authz.ts"
+    "provision:authz": "tsx scripts/provision-workos-authz.ts",
+    "provision:workos-env": "tsx scripts/provision-workos-environment.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1077.0",
@@ -38,6 +39,7 @@
     "@ifc-lite/geometry": "^2.13.1",
     "@ifc-lite/parser": "^3.15.0",
     "@ifc-lite/renderer": "^1.41.1",
+    "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/api-logs": "^0.221.0",
     "@opentelemetry/exporter-logs-otlp-http": "^0.221.0",
     "@opentelemetry/resources": "^2.10.0",

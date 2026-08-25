@@ -294,12 +294,13 @@ def catalog_resolver(monkeypatch: pytest.MonkeyPatch) -> SkillResolver:
 
 
 def test_curated_builtin_is_not_always_on(catalog_resolver: SkillResolver) -> None:
-    """An offer is off until an org takes it up — and the filesystem cannot say so.
+    """An offer is not in always_on — the filesystem cannot say who took it up.
 
     The baseline this resolver starts from is the builtin directory, and the BFF
     payload can only ADD to it. A curated skill left in that baseline would
-    therefore be on for every tenant no matter what any of them decided, which
-    is precisely the bug this split exists to prevent.
+    therefore be on for every tenant no matter what any of them decided. Chat
+    FILE offers may default ON, but that decision arrives through the org
+    payload, never through this baseline.
     """
     assert {s.name for s in catalog_resolver.always_on} == {"calc", "report"}
     assert "fire-check" in {s.name for s in catalog_resolver.builtin}
@@ -353,7 +354,13 @@ def test_served_skills_leave_the_builtin_FILES_where_they_are(monkeypatch: pytes
     with mock.patch.object(
         SkillResolver,
         "_fetch_org_skills",
-        return_value=[_row("piloti-voice", metadata={"grid-agents": "shallow_researcher,deep_researcher"})],
+        return_value=[
+            _row("piloti-voice", metadata={"grid-agents": "shallow_researcher,deep_researcher"}),
+            # The BFF also re-sends machinery, stamped origin=org. The mount
+            # already has the file; serving it here would put execute-skills
+            # in front of the writer.
+            _row("brandschutz", metadata={"grid-agents": "shallow_researcher,deep_researcher"}),
+        ],
     ):
         served = resolve_served_skills("deep_researcher", "org-1")
     assert [s.name for s in served] == ["piloti-voice"]

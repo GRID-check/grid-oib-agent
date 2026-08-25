@@ -15,11 +15,19 @@
  * point; the marketing site just points at it.
  */
 
-import { getSignInUrl } from '@workos-inc/authkit-nextjs'
 import { redirect } from 'next/navigation'
 import { isAuthRequired } from '@/lib/auth/auth-required'
 import { getGridSession } from '@/lib/auth/session'
 import { runWithTenantSlot } from '@/lib/db/tenant-context'
+
+/**
+ * The sign-in entry route. getSignInUrl() must NOT be called here: it writes
+ * the PKCE cookie via cookies().set(), which Next.js forbids during Server
+ * Component rendering (only Server Functions and Route Handlers may set
+ * cookies) — calling it inside this render threw on every /?sign-in visit.
+ * The Route Handler runs where cookie mutation is legal and forwards to WorkOS.
+ */
+const SIGN_IN_ROUTE = '/api/auth/signin'
 
 interface HomePageProps {
   searchParams: Promise<{ 'sign-in'?: string | string[] }>
@@ -33,7 +41,7 @@ export default async function HomePage({ searchParams }: HomePageProps): Promise
         // Resolve before redirect() — it throws to unwind the render.
         const wantsSignIn = 'sign-in' in (await searchParams)
         const landingUrl = process.env.GRID_LANDING_URL
-        redirect(wantsSignIn || !landingUrl ? await getSignInUrl() : landingUrl)
+        redirect(wantsSignIn || !landingUrl ? SIGN_IN_ROUTE : landingUrl)
       }
     }
     redirect('/app/projects')

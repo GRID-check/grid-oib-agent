@@ -89,7 +89,7 @@ const PROFILE = {
 }
 
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { readPdf } from '@/test-utils/read-pdf'
+import { normalizePdfText, readPdf } from '@/test-utils/read-pdf'
 import { MAX_MARKDOWN_PDF_CHARS, MarkdownTooLongError } from '@/lib/pdf/markdown-pdf'
 import { aiProvenanceMarking } from '@/lib/ai-provenance'
 import type { GeneratedRenderContext } from './generated'
@@ -219,11 +219,15 @@ describe('fileResearchReport', () => {
     // the marking the service verifies cannot be two different answers.
     expect(rendering.marking).toBe(RUN_MARKING)
 
-    // The translator is stubbed as `t:<key>`, so this asserts the exact i18n
-    // keys the .docx export already uses reached the page — a renderer that
-    // wrote its own second copy of the sentence would not contain these.
-    expect(pdf.text).toContain('t:aiNotice.title')
-    expect(pdf.text).toContain('t:aiNotice.body')
+    // Real German, not this spec's `t:<key>` stub. The stub covers
+    // `getTranslations`, which `research-report.ts` uses for the labels it
+    // supplies; the DOCUMENT resolves the reader's own dictionary inside
+    // `lib/pdf/report-document.ts`. Asserting the sentence itself is the
+    // stronger claim anyway — it is what the reader sees, and it is the exact
+    // string `answerExport.aiNotice` gives the .docx, so a renderer that wrote
+    // its own second copy would not match.
+    expect(pdf.text).toContain(normalizePdfText('KI-generiert — nicht geprüft'))
+    expect(pdf.text).toContain(normalizePdfText('ein Mensch hat es nicht geprüft'))
 
     expect(pdf.info.Keywords).toBe(
       'AIGenerated=true; AIGenerator=Piloti; AIHumanReviewed=false; AIRunId=run_7'
@@ -242,22 +246,45 @@ describe('fileResearchReport', () => {
    * — a fact sheet whose date sits between the project and its address is a
    * different document from the one this file describes.
    */
-  it('opens with the marking, then the title, then the identifying facts', async () => {
+  it('opens with the title, then the marking, then the identifying facts', async () => {
+    // The order changed when the report moved onto the product's own document
+    // (cover sheet, running header, page footer) instead of a bare page. The
+    // title is now the cover BAND — a heading, not a claim about the building —
+    // and the marking is the first thing in the cover body.
+    //
+    // The rule this test exists for is unchanged and still holds: the marking
+    // comes before every FACT and before the report itself, so nothing the
+    // document asserts is read before the warning about how much to trust it.
     await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: REPORT })
     const pdf = await readPdf((await runRenderer()).bytes)
 
-    expect(pdf.text).toBe(
-      't:aiNotice.title t:aiNotice.body ' +
-        'Brandschutz Straßenhäuser ' +
-        't:project Haus Anna ' +
-        't:reportCover.location Simmeringer Hauptstraße 24, 1110 Wien ' +
-        't:reportCover.bundesland Wien ' +
-        't:fields.gebaeudeklasse GK4 ' +
-        't:createdAt 20. August 2026 ' +
-        't:reportCover.author Piloti ' +
-        't:reportCover.analysisId run_7 ' +
-        'Der Bericht beginnt hier.'
-    )
+    // Real German, not the `t:` stub: the document is built by
+    // `lib/pdf/report-document.ts`, which resolves the reader's own dictionary
+    // rather than taking this spec's translator.
+    const marking = 'KI-generiert — nicht geprüft'
+    expect(pdf.text).toContain(normalizePdfText(marking))
+
+    const at = (needle: string) => pdf.text.indexOf(normalizePdfText(needle))
+    expect(at(marking)).toBeGreaterThan(-1)
+    // Before every identifying fact …
+    for (const fact of ['Haus Anna', 'Simmeringer Hauptstraße 24, 1110 Wien', 'Wien', 'GK4', 'run_7']) {
+      expect(at(marking), `marking precedes ${fact}`).toBeLessThan(at(fact))
+    }
+    // … and before the report's own words.
+    expect(at(marking)).toBeLessThan(at('Der Bericht beginnt hier.'))
+
+    // Every fact still reaches the cover. Bundesland is the load-bearing one:
+    // it names the Bauordnung the report was checked against.
+    for (const fact of [
+      'Haus Anna',
+      'Simmeringer Hauptstraße 24, 1110 Wien',
+      'Wien',
+      'GK4',
+      '20. August 2026',
+      'run_7',
+    ]) {
+      expect(pdf.text, `cover carries ${fact}`).toContain(normalizePdfText(fact))
+    }
     expect(pdf.info.Title).toBe('Brandschutz Straßenhäuser')
   })
 
@@ -315,15 +342,16 @@ describe('fileResearchReport', () => {
     await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: REPORT })
     const pdf = await readPdf((await runRenderer()).bytes)
 
-    expect(pdf.text).toBe(
-      't:aiNotice.title t:aiNotice.body ' +
-        'Brandschutz Straßenhäuser ' +
-        't:project Haus Anna ' +
-        't:createdAt 20. August 2026 ' +
-        't:reportCover.author Piloti ' +
-        't:reportCover.analysisId run_7 ' +
-        'Der Bericht beginnt hier.'
-    )
+    // The absence is the claim, so it is asserted as an absence rather than by
+    // pinning the whole page: an exact-match assertion on a document that now
+    // has a cover, a running header and a page footer breaks on chrome and says
+    // nothing about the fact that matters.
+    for (const label of ['t:reportCover.location', 't:reportCover.bundesland', 't:fields.gebaeudeklasse']) {
+      expect(pdf.text, `${label} has no value, so it prints no line`).not.toContain(label)
+    }
+    expect(pdf.text).toContain('t:project Haus Anna')
+    expect(pdf.text).toContain('t:reportCover.analysisId run_7')
+    expect(pdf.text).toContain('Der Bericht beginnt hier.')
   })
 
   /**
@@ -338,7 +366,7 @@ describe('fileResearchReport', () => {
     const pdf = await readPdf(rendering.bytes)
 
     expect(rendering.contentType).toBe('application/pdf')
-    expect(pdf.text).toContain('t:aiNotice.title')
+    expect(pdf.text).toContain(normalizePdfText('KI-generiert — nicht geprüft'))
     expect(pdf.text).toContain('t:project Haus Anna')
     expect(pdf.text).toContain('t:reportCover.analysisId run_7')
     expect(pdf.text).not.toContain('t:reportCover.bundesland')
@@ -353,8 +381,10 @@ describe('fileResearchReport', () => {
     await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: '' })
     const pdf = await readPdf((await runRenderer()).bytes)
 
-    expect(pdf.pageCount).toBe(1)
-    expect(pdf.text).toContain('t:aiNotice.title')
+    // Two pages, and that is the document now: a cover sheet and the body. It
+    // used to be one because the report was rendered onto a bare page.
+    expect(pdf.pageCount).toBe(2)
+    expect(pdf.text).toContain(normalizePdfText('KI-generiert — nicht geprüft'))
     expect(pdf.text).toContain('t:documentTitle')
     expect(pdf.text).toContain('t:reportCover.analysisId run_7')
   })
@@ -384,14 +414,18 @@ describe('fileResearchReport', () => {
       })
       const pdf = await readPdf((await runRenderer()).bytes)
 
+      // develop's card walker names these in the reader's own German — the same
+      // walker and the same words the .docx export uses, which is the point: two
+      // documents an architect puts side by side share one vocabulary.
       expect(pdf.text).toContain(
-        't:legalBasis t:cardTypes.legal_basis ' +
-          't:fields.law OIB-Richtlinie 2 t:fields.article § 3 ' +
-          't:fields.original_text Fluchtwege sind so auszubilden, dass sie im Brandfall sicher benützbar sind.'
+        normalizePdfText(
+          'Rechtsgrundlage Gesetz / Richtlinie OIB-Richtlinie 2 Paragraf § 3 ' +
+            'Originalwortlaut Fluchtwege sind so auszubilden, dass sie im Brandfall sicher benützbar sind.'
+        )
       )
       // After the report's own words, never in front of them.
       expect(pdf.text.indexOf('Der Bericht beginnt hier.')).toBeLessThan(
-        pdf.text.indexOf('t:legalBasis')
+        pdf.text.indexOf('Rechtsgrundlage')
       )
     })
 
@@ -414,9 +448,21 @@ describe('fileResearchReport', () => {
       })
       const pdf = await readPdf((await runRenderer()).bytes)
 
+      // ONE Quellen section, still carrying the sanitizer's origin tokens.
+      //
+      // Where it sits changed: `splitProse` lifts the report's own written
+      // sources out of the prose and renders them as the document's reference
+      // list, so they end the document rather than sitting mid-body with the
+      // cards appended after. The thing this test was written to protect is
+      // unchanged and is what is asserted — the section is not duplicated, and
+      // the `[OIB]` / `[KB]` / `[Web]` / `[RIS]` tokens the backend's
+      // `citation_verification.sanitize_report` put there survive the round
+      // trip, which is what a second hand-rolled parser would have lost.
       expect(pdf.text.match(/Quellen/g)).toHaveLength(1)
-      expect(pdf.text).toContain('[1] [OIB] OIB-Richtlinie 2, Ausgabe Mai 2023')
-      expect(pdf.text.indexOf('Quellen')).toBeLessThan(pdf.text.indexOf('t:legalBasis'))
+      expect(pdf.text).toContain(normalizePdfText('Quellen 1 [OIB] OIB-Richtlinie 2, Ausgabe Mai 2023'))
+      expect(pdf.text.indexOf('Der Bericht beginnt hier.')).toBeLessThan(
+        pdf.text.indexOf('Quellen')
+      )
     })
 
     /**

@@ -115,7 +115,7 @@ const listBlocks = (token: Tokens.List): DocBlock[] => {
   return blocks
 }
 
-const blockFrom = (token: Token): DocBlock[] => {
+const blockFrom = (token: Token, options: MarkdownToBlocksOptions = {}): DocBlock[] => {
   switch (token.type) {
     case 'space':
       return []
@@ -135,7 +135,7 @@ const blockFrom = (token: Token): DocBlock[] => {
     case 'list':
       return listBlocks(token as Tokens.List)
     case 'blockquote':
-      return (token as Tokens.Blockquote).tokens.flatMap(blockFrom).map((block) =>
+      return (token as Tokens.Blockquote).tokens.flatMap((child) => blockFrom(child, options)).map((block) =>
         block.kind === 'paragraph' ? { ...block, style: 'quote' as const } : block
       )
     case 'code': {
@@ -158,6 +158,15 @@ const blockFrom = (token: Token): DocBlock[] => {
        * drawn here, not as content the answer meant to state.
        */
       if (isDiagramFence(code.lang)) {
+        if (options.diagramPlaceholder) {
+          return [
+            {
+              kind: 'paragraph',
+              runs: [{ text: options.diagramPlaceholder, italic: true }],
+              style: 'meta',
+            },
+          ]
+        }
         return [
           { kind: 'paragraph', runs: [{ text: diagramLabel(code.lang), italic: true }], style: 'meta' },
           { kind: 'paragraph', runs: [{ text: code.text, mono: true }] },
@@ -178,7 +187,10 @@ const blockFrom = (token: Token): DocBlock[] => {
       ]
     }
     case 'hr':
-      return []
+      // A `---` an author typed is a section break they meant, so it becomes a
+      // real rule rather than nothing: dropping it joins two parts of an answer
+      // the author deliberately kept apart.
+      return [{ kind: 'rule' }]
     default: {
       const raw = ((token as InlineHost).text ?? (token as InlineHost).raw ?? '').trim()
       return raw ? [{ kind: 'paragraph', runs: [{ text: raw }] }] : []
@@ -219,7 +231,26 @@ export const diagramLabel = (lang: string | undefined): string =>
   `Diagramm (${(lang ?? '').trim().toLowerCase()}) — hier als Quelltext, im Original als Zeichnung.`
 
 /** Lex markdown into document blocks. Empty input yields no blocks, not an empty one. */
-export function markdownToBlocks(markdown: string): DocBlock[] {
+export interface MarkdownToBlocksOptions {
+  /**
+   * Print this INSTEAD of a diagram fence's source.
+   *
+   * The default — a label plus the source, see the `code` branch — is right for
+   * a Word export: whoever holds only that file is exactly the person who might
+   * regenerate the drawing from it. It is wrong for a document that goes to a
+   * Behörde, where `flowchart TD / A[Bauanzeige] --> B{…}` is noise on a
+   * compliance sheet, and the honest line is one saying the answer in Piloti
+   * shows it as a picture.
+   *
+   * So the format decides, rather than this function deciding for both.
+   */
+  diagramPlaceholder?: string
+}
+
+export function markdownToBlocks(
+  markdown: string,
+  options: MarkdownToBlocksOptions = {}
+): DocBlock[] {
   if (!markdown.trim()) return []
-  return marked.lexer(markdown).flatMap(blockFrom)
+  return marked.lexer(markdown).flatMap((token) => blockFrom(token, options))
 }

@@ -690,6 +690,17 @@ const buildAgentResponseMessage = (
       ? { citationsRemoved: opts.transparency.citationsRemoved }
       : {}),
     ...(opts.transparency?.researchTruncated ? { researchTruncated: true as const } : {}),
+    // The CAUSE and the degradations ride alongside the flag, and are copied
+    // independently of it: a run can be degraded without being truncated, and
+    // gating them on the flag drops exactly the case the reader most needs.
+    // Without these two lines the props ChatArea passes are always undefined,
+    // so the live turn says THAT research stopped and never why.
+    ...(opts.transparency?.truncationReason
+      ? { truncationReason: opts.transparency.truncationReason }
+      : {}),
+    ...(opts.transparency?.degradedReasons?.length
+      ? { degradedReasons: opts.transparency.degradedReasons }
+      : {}),
     ...(opts.transparency?.skillsHidden && opts.transparency.skillsHidden.length > 0
       ? { skillsHidden: opts.transparency.skillsHidden }
       : {}),
@@ -1545,6 +1556,10 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
           : {}),
         ...(transparency?.citationsRemoved ? { citationsRemoved: transparency.citationsRemoved } : {}),
         ...(transparency?.researchTruncated ? { researchTruncated: true as const } : {}),
+        ...(transparency?.truncationReason ? { truncationReason: transparency.truncationReason } : {}),
+        ...(transparency?.degradedReasons?.length
+          ? { degradedReasons: transparency.degradedReasons }
+          : {}),
         ...(transparency?.skillsHidden && transparency.skillsHidden.length > 0
           ? { skillsHidden: transparency.skillsHidden }
           : {}),

@@ -1,6 +1,7 @@
 import { animate, inView, scrollInfo, type AnimationPlaybackControls } from 'motion'
 import { landingScript } from '../i18n/ui'
 import { initReveals } from './reveal'
+import { initRoi } from './roi'
 import { initSheetIndex } from './sheet-index'
 
 const L = document.documentElement.lang.startsWith('en') ? landingScript.en : landingScript.de
@@ -9,20 +10,33 @@ const TYPE = 1900
 const RATE = 1.18
 const LOOP = 13600
 
-const KEYS = [
-  { t: 0, x: 180, y: 60, z: 0.98 },
-  { t: 1500, x: 180, y: 60, z: 0.98 },
-  { t: 2100, x: 240, y: 140, z: 0.94 },
-  { t: 2700, x: 300, y: 220, z: 0.92 },
-  { t: 3300, x: 320, y: 320, z: 0.9 },
-  { t: 3900, x: 300, y: 230, z: 0.76 },
-  { t: 4000, x: 300, y: 230, z: 0.76 },
-  { t: 5300, x: 930, y: 255, z: 0.92 },
-  { t: 6200, x: 935, y: 330, z: 0.9 },
-  { t: 7000, x: 1000, y: 540, z: 0.86 },
-  { t: 7800, x: 1000, y: 540, z: 0.86 },
-  { t: 9300, x: 560, y: 300, z: 0.42 },
-  { t: 11000, x: 560, y: 300, z: 0.42 },
+/**
+ * The chain's storyboard: which subjects are in frame at each moment, by the
+ * `data-shot` names authored on the mock.
+ *
+ * Coordinates are deliberately absent. The previous version pinned the camera
+ * to hand-tuned x/y/z, which framed a card only as long as nothing about it
+ * changed — a longer German string, a different panel width, and the shot cut
+ * through the middle of a card. Naming the subject and measuring it means the
+ * camera always frames whole elements, in any locale, at any size.
+ */
+const SHOTS: { t: number; on: string[]; tight?: string }[] = [
+  { t: 0, on: ['q', 's1'], tight: 'q' },
+  { t: 1500, on: ['q', 's1'], tight: 'q' },
+  { t: 2200, on: ['q', 's1'] },
+  { t: 2900, on: ['q', 's1', 's2'] },
+  { t: 3500, on: ['s1', 's2', 's3'] },
+  { t: 4300, on: ['s1', 's2', 's3'] },
+  // `tight` is the subject a phone frames instead of the group. It matters where
+  // the group looks ahead to something that has not arrived yet: framing the
+  // empty place the decision card is about to occupy shows a phone nothing.
+  { t: 4900, on: ['s1', 's2', 's3', 'dec'], tight: 's3' },
+  { t: 5600, on: ['dec'] },
+  { t: 6600, on: ['dec'] },
+  { t: 7300, on: ['dec', 'impl'], tight: 'dec' },
+  { t: 8200, on: ['impl'] },
+  { t: 9400, on: ['all'], tight: 'impl' },
+  { t: 11000, on: ['all'], tight: 'impl' },
 ]
 
 const BEATS = [
@@ -138,10 +152,11 @@ function initAura() {
     ctx.fill()
 
     ctx.lineWidth = 1
+    // Two rings, not three, and drawn faint: the aura is instrumentation over a
+    // photograph, and instrumentation that shouts stops looking like precision.
     const rings: [number, number, number][] = [
-      [104, 0.06, 0.22],
-      [162, -0.04, 0.17],
-      [224, 0.028, 0.12],
+      [116, 0.05, 0.13],
+      [206, -0.03, 0.085],
     ]
     rings.forEach(([r, spd, al], i) => {
       ctx.save()
@@ -157,28 +172,42 @@ function initAura() {
     ctx.setLineDash([])
 
     ctx.font = `${(9.5 * Math.max(1, sc * 0.75)).toFixed(1)}px 'IBM Plex Mono', monospace`
+    ctx.letterSpacing = '0.08em'
     NODES.forEach((n, i) => {
       const ang = n.a + ts * n.v
       const nx = hx + Math.cos(ang) * n.r * sc
       const ny = hy + Math.sin(ang) * n.r * sc * 0.86
       const glow = 0.5 + 0.5 * Math.sin(ts * 1.1 + i)
-      ctx.strokeStyle = `rgba(94,110,70,${(0.09 + 0.09 * glow).toFixed(3)})`
+      // A leader line is drawn to the nodes that say something, and only
+      // suggested for the rest, so the eye follows the labels.
+      const named = Boolean(n.label)
+      ctx.strokeStyle = `rgba(94,110,70,${((named ? 0.07 : 0.035) + (named ? 0.07 : 0.03) * glow).toFixed(3)})`
       ctx.lineWidth = 1
       ctx.beginPath()
       ctx.moveTo(hx, hy)
       ctx.lineTo(nx, ny)
       ctx.stroke()
-      ctx.fillStyle = `rgba(88,104,64,${(0.45 + 0.45 * glow).toFixed(3)})`
+      ctx.fillStyle = `rgba(88,104,64,${((named ? 0.4 : 0.22) + 0.35 * glow).toFixed(3)})`
       ctx.beginPath()
-      ctx.arc(nx, ny, (1.6 + 0.9 * glow) * Math.max(1, sc * 0.8), 0, Math.PI * 2)
+      ctx.arc(nx, ny, (named ? 1.7 : 1.1 + 0.6 * glow) * Math.max(1, sc * 0.8), 0, Math.PI * 2)
       ctx.fill()
-      if (n.label) {
+      // A label belongs to its node, so it takes whichever side of the node has
+      // room for it. Written blindly to the right, the ones on a phone ran off
+      // the canvas and were read as a column of broken words down the edge.
+      const EDGE = 12
+      if (n.label && nx > EDGE && nx < w - EDGE) {
         const lines = Array.isArray(n.label) ? n.label : [n.label]
         const lh = 11.5 * Math.max(1, sc * 0.75)
+        const textW = Math.max(...lines.map((ln) => ctx.measureText(ln).width))
+        const right = nx + 7 * sc
+        const flip = right + textW > w - EDGE && nx - 7 * sc - textW > EDGE
+        ctx.textAlign = flip ? 'right' : 'left'
+        const lx = flip ? nx - 7 * sc : Math.min(right, Math.max(EDGE, w - EDGE - textW))
         lines.forEach((ln, li) => {
-          ctx.fillStyle = `rgba(88,104,64,${((li === 0 ? 0.35 : 0.24) + 0.35 * glow).toFixed(3)})`
-          ctx.fillText(ln, nx + 7 * sc, ny - 5 * sc + li * lh)
+          ctx.fillStyle = `rgba(78,92,56,${((li === 0 ? 0.44 : 0.3) + 0.3 * glow).toFixed(3)})`
+          ctx.fillText(ln, lx, ny - 5 * sc + li * lh)
         })
+        ctx.textAlign = 'left'
       }
     })
 
@@ -664,8 +693,13 @@ function initPins() {
   setTimeout(measureStory, 700)
 }
 
-function camAt(ms: number) {
-  const K = KEYS
+type Cam = { t: number; x: number; y: number; z: number }
+
+/**
+ * Catmull-Rom through the measured frames, clamped to the segment so an
+ * overshoot can never swing the camera off the diagram.
+ */
+function camAt(K: Cam[], ms: number) {
   const n = K.length
   if (ms <= K[0].t) return K[0]
   if (ms >= K[n - 1].t) return K[n - 1]
@@ -688,7 +722,7 @@ function camAt(ms: number) {
     const v = cr(p0, p1, p2, p3, u)
     return Math.max(Math.min(p1, p2), Math.min(Math.max(p1, p2), v))
   }
-  return { x: axis(a.x, b.x, c.x, d.x), y: axis(a.y, b.y, c.y, d.y), z: axis(a.z, b.z, c.z, d.z) }
+  return { t: ms, x: axis(a.x, b.x, c.x, d.x), y: axis(a.y, b.y, c.y, d.y), z: axis(a.z, b.z, c.z, d.z) }
 }
 
 function initChain() {
@@ -734,9 +768,91 @@ function initChain() {
     camEl.style.transform = `translate3d(${tx.toFixed(2)}px,${ty.toFixed(2)}px,0) scale(${c.z.toFixed(4)})`
   }
 
+  type Box = { x: number; y: number; w: number; h: number }
+
+  /**
+   * Turn the storyboard into camera frames for the size the mock actually has.
+   *
+   * Each shot is the bounding box of its subjects plus a margin, scaled to fit
+   * the stage and never magnified past 1: the mock is drawn at its true size,
+   * so anything above 1 would only soften it. The bottom inset is larger
+   * because the status line sits over the frame.
+   */
+  const INSET = { top: 22, right: 24, bottom: 48, left: 24 }
+  const TIGHT_INSET = { top: 14, right: 12, bottom: 40, left: 12 }
+  const MARGIN = 14
+
+  const boxOf = (els: HTMLElement[]): Box | null => {
+    if (!els.length) return null
+    let x0 = Infinity
+    let y0 = Infinity
+    let x1 = -Infinity
+    let y1 = -Infinity
+    for (const el of els) {
+      x0 = Math.min(x0, el.offsetLeft)
+      y0 = Math.min(y0, el.offsetTop)
+      x1 = Math.max(x1, el.offsetLeft + el.offsetWidth)
+      y1 = Math.max(y1, el.offsetTop + el.offsetHeight)
+    }
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+  }
+
+  const shotEls = (name: string) =>
+    Array.from(
+      camEl.querySelectorAll<HTMLElement>(name === 'all' ? '[data-shot]' : `[data-shot="${name}"]`)
+    )
+
+  const buildCam = (): Cam[] => {
+    const r = stage.getBoundingClientRect()
+    const vw = r.width || 700
+    const vh = r.height || 430
+    const world = boxOf(shotEls('all')) ?? { x: 0, y: 0, w: 1160, h: 670 }
+    // A phone cannot hold two subjects side by side at a readable size, so it
+    // follows the newest one instead of pulling back to a composition shot.
+    const narrow = vw < 560
+
+    const inset = narrow ? TIGHT_INSET : INSET
+    const margin = narrow ? 8 : MARGIN
+
+    return SHOTS.map((shot) => {
+      const names = narrow ? [shot.tight ?? shot.on[shot.on.length - 1]] : shot.on
+      let els = names.flatMap(shotEls)
+      // On a phone even one subject can be too wide to read: a source row is a
+      // chip plus its card. Frame the card — the part that carries the words —
+      // and let the chip sit outside the shot.
+      if (narrow && els.length > 1) {
+        els = [els.reduce((a, b) => (a.offsetWidth * a.offsetHeight >= b.offsetWidth * b.offsetHeight ? a : b))]
+      }
+      const box = boxOf(els) ?? world
+      const bw = box.w + margin * 2
+      const bh = box.h + margin * 2
+      const z = Math.min(1, (vw - inset.left - inset.right) / bw, (vh - inset.top - inset.bottom) / bh)
+
+      // Centre the subject in the *inset* frame, not the raw rectangle.
+      let x = box.x + box.w / 2 - (inset.left - inset.right) / 2 / z
+      let y = box.y + box.h / 2 - (inset.top - inset.bottom) / 2 / z
+
+      // The subject is centred rather than clamped to the diagram's bounds. A
+      // clamp pinned the opening shot's bubble into the corner of the frame,
+      // which reads as a mistake; empty space around a close-up does not, and
+      // the frame's edges fade anyway.
+      return { t: shot.t, x, y, z }
+    })
+  }
+
+  // Every element is measured with its step-gating off, so a card that has not
+  // appeared yet still reports the size it will have — the camera is already
+  // framing the place it arrives in.
+  let cam = buildCam()
+  // Card heights depend on how the copy wraps, which depends on the webfont:
+  // measured before it lands, a card can be a line taller than the frame allows.
+  document.fonts?.ready.then(() => {
+    cam = buildCam()
+  })
+
   if (reduced) {
     setStep(10)
-    setCam(KEYS[KEYS.length - 1])
+    setCam(cam[cam.length - 1])
     statusEl.textContent = L.beats[10]
     if (replayBtn) replayBtn.hidden = true
     return
@@ -751,11 +867,11 @@ function initChain() {
     if (raw < TYPE) {
       if (statusEl.textContent !== L.typing) statusEl.textContent = L.typing
       setStep(0)
-      setCam(KEYS[0])
+      setCam(cam[0])
       return
     }
     const ms = raw - TYPE
-    setCam(camAt(ms))
+    setCam(camAt(cam, ms))
     let bi = 0
     for (let i = 0; i < BEATS.length; i++) if (ms >= BEATS[i].t) bi = i
     setStep(BEATS[bi].step)
@@ -794,6 +910,16 @@ function initChain() {
     controls.time = 0
     controls.play()
   })
+
+  // The frames are a function of the mock's size, so they are re-solved when it
+  // changes rather than being stretched out of shape.
+  let resizeTimer = 0
+  window.addEventListener('resize', () => {
+    window.clearTimeout(resizeTimer)
+    resizeTimer = window.setTimeout(() => {
+      cam = buildCam()
+    }, 150)
+  })
 }
 
 initHeroCta()
@@ -802,3 +928,4 @@ initPins()
 initReveals()
 initSheetIndex()
 initChain()
+initRoi()
