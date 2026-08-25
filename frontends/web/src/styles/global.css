@@ -8,6 +8,21 @@
   font-display: swap;
   src: url('/fonts/archivo-var-latin.woff2') format('woff2');
 }
+/*
+ * Instrument Serif (SIL OFL 1.1, fontsource.org/fonts/instrument-serif).
+ *
+ * One weight, display only — which is the point. It cannot be misused for
+ * running text, so it stays where it belongs: on the sentences the site says in
+ * its own voice. Everything the site *measures* stays in the grotesque and the
+ * mono.
+ */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/instrument-serif-400-latin.woff2') format('woff2');
+}
 @font-face {
   font-family: Inter;
   font-style: normal;
@@ -86,6 +101,8 @@
 
   --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-display: 'Helvetica Neue', Archivo, Helvetica, sans-serif;
+  /* The voice. Used for what the site says, never for what it counts. */
+  --font-voice: 'Instrument Serif', 'Iowan Old Style', 'Times New Roman', serif;
   --font-logo: Poppins, 'Helvetica Neue', Archivo, sans-serif;
   --font-mono: 'IBM Plex Mono', monospace;
 
@@ -125,6 +142,35 @@
   --text-h4--line-height: 1.14;
   --text-h4--letter-spacing: -0.024em;
   --text-h4--font-weight: 600;
+
+  /* The voice scale. A serif of this contrast reads a size smaller than the
+     grotesque at the same measure and needs less negative tracking, so these are
+     not the display sizes with a different family bolted on — they are drawn for
+     the face that uses them. One weight, because the face has one. */
+  --text-v-display: clamp(2.75rem, 5.9vw, 5.75rem);
+  --text-v-display--line-height: 1;
+  --text-v-display--letter-spacing: -0.012em;
+  --text-v-display--font-weight: 400;
+
+  --text-v1: clamp(2.625rem, 6.2vw, 5.25rem);
+  --text-v1--line-height: 1.02;
+  --text-v1--letter-spacing: -0.012em;
+  --text-v1--font-weight: 400;
+
+  --text-v2: clamp(2.125rem, 4.8vw, 3.875rem);
+  --text-v2--line-height: 1.06;
+  --text-v2--letter-spacing: -0.008em;
+  --text-v2--font-weight: 400;
+
+  --text-v3: clamp(1.9375rem, 4.1vw, 3.375rem);
+  --text-v3--line-height: 1.08;
+  --text-v3--letter-spacing: -0.006em;
+  --text-v3--font-weight: 400;
+
+  --text-v4: clamp(1.625rem, 3.1vw, 2.875rem);
+  --text-v4--line-height: 1.12;
+  --text-v4--letter-spacing: -0.004em;
+  --text-v4--font-weight: 400;
 
   --tracking-label: 0.17em;
   --tracking-logo: 0.2em;
