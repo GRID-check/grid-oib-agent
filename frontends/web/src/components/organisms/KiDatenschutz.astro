@@ -1,5 +1,6 @@
 ---
 import SectionTag from '../atoms/SectionTag.astro'
+import AppMock from '../molecules/AppMock.astro'
 import { ui, type Locale } from '../../i18n/ui'
 
 interface Props {
@@ -7,15 +8,6 @@ interface Props {
 }
 const { locale = 'de' } = Astro.props
 const t = ui[locale]
-const r = t.ki.receipt
-
-// Colour never travels alone here: every source carries its class as a word as
-// well as a tint, which is the rule the product's provenance signals follow.
-const kinds: Record<string, string> = {
-  law: 'bg-chip-law text-chip-law-ink',
-  project: 'bg-chip-project text-chip-project-ink',
-  office: 'bg-chip-office text-chip-office-ink',
-}
 ---
 
 <section
@@ -24,89 +16,45 @@ const kinds: Record<string, string> = {
   class="mx-auto box-border max-w-[85rem] px-4 py-24 sm:px-10"
 >
   <div class="box-border rounded-panel bg-tint px-6 py-16 sheet-light sm:px-16 sm:py-20">
-    <!-- Two columns rather than a third heading-over-cards block: the statement
-         holds its position on the left while the three answers scroll past it. -->
-    <div class="grid grid-cols-[6fr_7fr] gap-x-16 gap-y-10 max-lg:grid-cols-1">
-      <div id="datenschutz" data-reveal class="lg:sticky lg:top-28 lg:self-start">
+    <!-- The claim and its three supports on the left; the product answering on
+         the right. This section's case is that everything here can be checked,
+         and it was the one section on the page with nothing to check — a turn
+         from the app, with its markers and its sources, argues it better than
+         another paragraph would. -->
+    <div class="grid grid-cols-[5fr_7fr] items-start gap-x-14 gap-y-12 max-lg:grid-cols-1">
+      <div id="datenschutz" data-reveal>
         <SectionTag no="05" class="mb-5 text-accent-900/80">{t.ki.tag}</SectionTag>
-        <h2 class="m-0 mb-10 font-voice text-v4 text-panel" style="text-wrap: balance">
+        <h2 class="m-0 mb-9 font-voice text-v4 text-panel" style="text-wrap: balance">
           {t.ki.title}
         </h2>
 
-        <!-- The claim on the left says everything can be checked; this is the
-             thing you check with. One answer with its apparatus still attached —
-             what it rests on, which class each source belongs to, and the
-             assumptions it was made under. The section had been the only one on
-             the page with nothing to look at, which for a section about
-             verifiability was the wrong thing to be. -->
-        <figure class="m-0 rounded-card bg-paper p-6 shadow-card ring-1 ring-panel/10 sm:p-7">
-          <figcaption class="m-0 mb-4 flex items-baseline justify-between gap-4">
-            <span class="font-mono text-2xs uppercase tracking-label text-accent-600">
-              {r.tag}
-            </span>
-            <span class="font-mono text-2xs uppercase tracking-widest text-ink-ghost">
-              {r.fictional}
-            </span>
-          </figcaption>
-
-          <p class="m-0 text-lg leading-snug text-panel" style="text-wrap: pretty">
-            {r.claim}
-          </p>
-
-          <p
-            class="m-0 mb-3 mt-6 border-t border-ink/12 pt-5 font-mono text-2xs uppercase tracking-widest text-ink-faint"
-          >
-            {r.sourcesLabel}
-          </p>
-          <ul class="m-0 list-none space-y-2 p-0">
-            {
-              r.sources.map((src) => (
-                <li class="grid grid-cols-[7.25rem_1fr] items-center gap-3">
-                  <span
-                    class={`inline-flex justify-center rounded-md px-2 py-1 font-mono text-2xs font-medium uppercase tracking-wider ${kinds[src.kind]}`}
+        <ol class="m-0 list-none p-0">
+          {
+            t.ki.cards.map((c, i) => (
+              <li class="grid grid-cols-[auto_1fr] gap-x-4 border-t border-panel/15 py-5 first:border-t-0 first:pt-0 last:pb-0 sm:gap-x-5">
+                <span class="mt-0.5 font-mono text-2xs uppercase tracking-widest text-accent-600">
+                  {`0${i + 1}`}
+                </span>
+                <div>
+                  <h3 class="m-0 font-display text-base font-semibold tracking-tight text-panel">
+                    {c.title}
+                  </h3>
+                  <p
+                    class="m-0 mt-1.5 text-sm leading-relaxed text-accent-900/75"
+                    style="text-wrap: pretty"
                   >
-                    {src.label}
-                  </span>
-                  <span class="font-mono text-2xs text-ink-soft">{src.ref}</span>
-                </li>
-              ))
-            }
-          </ul>
-
-          <p
-            class="m-0 mt-5 flex items-baseline gap-3 border-t border-ink/12 pt-4 font-mono text-2xs text-ink-faint"
-          >
-            <span class="uppercase tracking-widest text-ink-ghost">{r.assumptionLabel}</span>
-            <span>{r.assumption}</span>
-          </p>
-        </figure>
+                    {c.body}
+                  </p>
+                </div>
+              </li>
+            ))
+          }
+        </ol>
       </div>
 
-      <ol class="m-0 list-none p-0">
-        {
-          t.ki.cards.map((c, i) => (
-            <li
-              data-reveal
-              class="grid grid-cols-[auto_1fr] gap-x-5 border-t border-panel/15 py-7 first:border-t-0 first:pt-0 sm:gap-x-8"
-            >
-              <span class="font-mono text-2xs uppercase tracking-widest text-accent-600">
-                {`0${i + 1}`}
-              </span>
-              <div>
-                <h3 class="m-0 font-display text-xl font-semibold tracking-tight text-panel">
-                  {c.title}
-                </h3>
-                <p
-                  class="m-0 mt-3 max-w-2xl text-base leading-relaxed text-accent-900/75"
-                  style="text-wrap: pretty"
-                >
-                  {c.body}
-                </p>
-              </div>
-            </li>
-          ))
-        }
-      </ol>
+      <div data-reveal class="min-w-0">
+        <AppMock locale={locale} />
+      </div>
     </div>
   </div>
 </section>

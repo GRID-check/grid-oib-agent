@@ -90,12 +90,35 @@
   --color-paper-dim: #fafaf8;
   --color-hairline: #dcdfd8;
   --color-ok: #17914d;
-  --color-chip-law: #e3eafb;
+  /* Provenance signals — the one place this brand allows colour, taken from the
+     product's own tokens (frontends/ui/src/styles/tokens.css) so a mock of the
+     app is not a drawing of the app in different paint. */
+  --color-src-law: #2359d3;
+  --color-src-law-tint: #e6edfb;
+  --color-src-law-ink: #1c47ab;
+  --color-src-project: #17914d;
+  --color-src-project-tint: #e0f1e6;
+  --color-src-project-ink: #0f7a3d;
+  --color-src-office: #c08c28;
+  --color-src-office-tint: #f8eed6;
+  --color-src-office-ink: #96690e;
+  --color-src-auto-tint: #ebebe8;
+  --color-src-auto-ink: #5b5b57;
+
+  /* App surfaces, likewise from the product. */
+  --color-app-bg: #f6f6f4;
+  --color-app-sunken: #f1f1ef;
+  --color-app-muted: #f2f2f0;
+  --color-app-accent: #ececea;
+  --color-app-input: #fafaf8;
+  --color-app-border: #e4e4e1;
+
+  --color-chip-law: #e6edfb;
   --color-chip-law-ink: #1c47ab;
-  --color-chip-project: #e7f0e0;
-  --color-chip-project-ink: #3f6b50;
-  --color-chip-office: #f6ecc9;
-  --color-chip-office-ink: #7a5a1c;
+  --color-chip-project: #e0f1e6;
+  --color-chip-project-ink: #0f7a3d;
+  --color-chip-office: #f8eed6;
+  --color-chip-office-ink: #96690e;
   --color-on-dark: #b9c2a4;
   --color-on-dark-strong: #eef2e4;
   --color-on-dark-label: #a4b47a;

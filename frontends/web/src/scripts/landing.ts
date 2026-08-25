@@ -1,6 +1,7 @@
 import { animate, inView, scrollInfo, type AnimationPlaybackControls } from 'motion'
 import { landingScript } from '../i18n/ui'
 import { initReveals } from './reveal'
+import { initAppMock } from './app-mock'
 import { initRoi } from './roi'
 import { initSheetIndex } from './sheet-index'
 
@@ -928,4 +929,5 @@ initPins()
 initReveals()
 initSheetIndex()
 initChain()
+initAppMock()
 initRoi()

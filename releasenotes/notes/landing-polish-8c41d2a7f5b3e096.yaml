@@ -28,3 +28,8 @@ improvements:
     The data-and-transparency section now shows what it is claiming: one answer
     with its apparatus still attached — what it rests on, which class each
     source belongs to, and the assumptions it was made under.
+  - >
+    The data-and-transparency section now shows the product answering. Pick one
+    of three questions and the panel answers it the way Piloti does — the ruling
+    first, then the reasoning, with every claim carrying the source it rests on;
+    touch a citation and the source it belongs to lights up.
