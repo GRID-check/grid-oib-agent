@@ -1,60 +1,16 @@
-import { animate, inView, scrollInfo, type AnimationPlaybackControls } from 'motion'
+import { gsap } from 'gsap'
+import { DrawSVGPlugin } from 'gsap/DrawSVGPlugin'
+import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { landingScript } from '../i18n/ui'
+
+gsap.registerPlugin(DrawSVGPlugin, ScrollTrigger)
 import { initReveals } from './reveal'
+import { initChain } from './chain'
 import { initRoi } from './roi'
 import { initSheetIndex } from './sheet-index'
 
 const L = document.documentElement.lang.startsWith('en') ? landingScript.en : landingScript.de
 
-const TYPE = 1900
-const RATE = 1.18
-const LOOP = 13600
-
-/**
- * The chain's storyboard: which subjects are in frame at each moment, by the
- * `data-shot` names authored on the mock.
- *
- * Coordinates are deliberately absent. The previous version pinned the camera
- * to hand-tuned x/y/z, which framed a card only as long as nothing about it
- * changed — a longer German string, a different panel width, and the shot cut
- * through the middle of a card. Naming the subject and measuring it means the
- * camera always frames whole elements, in any locale, at any size.
- */
-const SHOTS: { t: number; on: string[]; tight?: string }[] = [
-  { t: 0, on: ['q', 's1'], tight: 'q' },
-  { t: 1500, on: ['q', 's1'], tight: 'q' },
-  { t: 2200, on: ['q', 's1'] },
-  { t: 2900, on: ['q', 's1', 's2'] },
-  { t: 3500, on: ['s1', 's2', 's3'] },
-  { t: 4300, on: ['s1', 's2', 's3'] },
-  // `tight` is the subject a phone frames instead of the group. It matters where
-  // the group looks ahead to something that has not arrived yet: framing the
-  // empty place the decision card is about to occupy shows a phone nothing.
-  { t: 4900, on: ['s1', 's2', 's3', 'dec'], tight: 's3' },
-  { t: 5600, on: ['dec'] },
-  { t: 6600, on: ['dec'] },
-  { t: 7300, on: ['dec', 'impl'], tight: 'dec' },
-  { t: 8200, on: ['impl'] },
-  { t: 9400, on: ['all'], tight: 'impl' },
-  { t: 11000, on: ['all'], tight: 'impl' },
-]
-
-const BEATS = [
-  { t: 0, step: 0 },
-  { t: 400, step: 1 },
-  { t: 1500, step: 2 },
-  { t: 2700, step: 3 },
-  { t: 3300, step: 4 },
-  { t: 3900, step: 5 },
-  { t: 4000, step: 6 },
-  { t: 5300, step: 7 },
-  { t: 6150, step: 8 },
-  { t: 6950, step: 9 },
-  { t: 9300, step: 10 },
-]
-
-const clamp = (v: number) => Math.max(0, Math.min(1, v))
-const easeOut = (t: number) => 1 - Math.pow(1 - t, 3)
 
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
@@ -62,15 +18,27 @@ function initHeroCta() {
   const cta = document.querySelector<HTMLElement>('[data-hero-cta]')
   if (!cta) return
   const wrap = document.querySelector<HTMLElement>('[data-hero-wrap]')
-  if (wrap && !reduced) wrap.style.height = '200vh'
-  const apply = (scrollY: number) => {
-    const on = scrollY > window.innerHeight * 0.12
-    cta.style.opacity = on ? '0' : '1'
-    cta.style.transform = on ? 'translateY(-10px)' : 'translateY(0)'
-    cta.style.pointerEvents = on ? 'none' : 'auto'
-  }
-  apply(window.scrollY)
-  scrollInfo(({ y }) => apply(y.current))
+  // Without motion the hero is a single screen and the closing line simply
+  // stays put: the yield below is scrubbed against scroll position, which is
+  // the kind of scroll-linked movement `prefers-reduced-motion` asks us to drop.
+  if (reduced) return
+  if (wrap) wrap.style.height = '200vh'
+  // The closing line and its buttons yield as soon as the page starts moving —
+  // scrubbed, so it tracks the scroll rather than snapping at a threshold.
+  gsap.to(cta, {
+    opacity: 0,
+    y: -10,
+    ease: 'none',
+    scrollTrigger: {
+      trigger: wrap ?? cta,
+      start: 'top top',
+      end: () => `+=${window.innerHeight * 0.12}`,
+      scrub: true,
+      onUpdate: (self) => {
+        cta.style.pointerEvents = self.progress > 0.6 ? 'none' : 'auto'
+      },
+    },
+  })
 }
 
 function initAura() {
@@ -84,6 +52,8 @@ function initAura() {
   const IW = 1376
   const IH = 768
   const HEAD: [number, number] = [700, 196]
+  /** How far out of the halo a line has to start before it is drawn at all. */
+  const BEAM_START = 0.2
   let sc = 1
   let ox = 0
   let oy = 0
@@ -181,16 +151,37 @@ function initAura() {
       // A leader line is drawn to the nodes that say something, and only
       // suggested for the rest, so the eye follows the labels.
       const named = Boolean(n.label)
-      ctx.strokeStyle = `rgba(94,110,70,${((named ? 0.07 : 0.035) + (named ? 0.07 : 0.03) * glow).toFixed(3)})`
-      ctx.lineWidth = 1
+      // The line gathers as it travels out — but it also has to START further
+      // out. A gradient that begins at zero still converges on the same pixel as
+      // the other eleven, and twelve nearly-invisible strokes stacked on one
+      // point add up to a visible one: the fan was tied in a knot at her head.
+      // So each ray begins clear of the halo and there is nothing at the centre
+      // to accumulate.
+      const START = BEAM_START
+      const sx = hx + (nx - hx) * START
+      const sy = hy + (ny - hy) * START
+      const a = (named ? 0.1 : 0.05) + (named ? 0.09 : 0.04) * glow
+      const ray = ctx.createLinearGradient(sx, sy, nx, ny)
+      ray.addColorStop(0, 'rgba(94,110,70,0)')
+      ray.addColorStop(0.5, `rgba(94,110,70,${(a * 0.4).toFixed(3)})`)
+      ray.addColorStop(1, `rgba(94,110,70,${a.toFixed(3)})`)
+      ctx.strokeStyle = ray
+      ctx.lineWidth = 1.2
       ctx.beginPath()
-      ctx.moveTo(hx, hy)
+      ctx.moveTo(sx, sy)
       ctx.lineTo(nx, ny)
       ctx.stroke()
+      // The node sits ON the photograph rather than in it: a soft drop shadow
+      // is what gives a 2px dot enough presence to survive a busy background.
+      ctx.save()
+      ctx.shadowColor = 'rgba(34,39,26,0.45)'
+      ctx.shadowBlur = 5 * Math.max(1, sc * 0.8)
+      ctx.shadowOffsetY = 1
       ctx.fillStyle = `rgba(88,104,64,${((named ? 0.4 : 0.22) + 0.35 * glow).toFixed(3)})`
       ctx.beginPath()
       ctx.arc(nx, ny, (named ? 1.7 : 1.1 + 0.6 * glow) * Math.max(1, sc * 0.8), 0, Math.PI * 2)
       ctx.fill()
+      ctx.restore()
       // A label belongs to its node, so it takes whichever side of the node has
       // room for it. Written blindly to the right, the ones on a phone ran off
       // the canvas and were read as a column of broken words down the edge.
@@ -203,10 +194,18 @@ function initAura() {
         const flip = right + textW > w - EDGE && nx - 7 * sc - textW > EDGE
         ctx.textAlign = flip ? 'right' : 'left'
         const lx = flip ? nx - 7 * sc : Math.min(right, Math.max(EDGE, w - EDGE - textW))
+        // A halo in the paper's own colour, not a shadow: the labels cross hair,
+        // sleeve and drawing in one pass, and this is what keeps 9px mono legible
+        // over all three without putting a box behind it.
+        ctx.save()
+        ctx.shadowColor = 'rgba(247,247,243,0.95)'
+        ctx.shadowBlur = 7 * Math.max(1, sc * 0.7)
         lines.forEach((ln, li) => {
           ctx.fillStyle = `rgba(78,92,56,${((li === 0 ? 0.44 : 0.3) + 0.3 * glow).toFixed(3)})`
           ctx.fillText(ln, lx, ny - 5 * sc + li * lh)
+          ctx.fillText(ln, lx, ny - 5 * sc + li * lh)
         })
+        ctx.restore()
         ctx.textAlign = 'left'
       }
     })
@@ -217,17 +216,31 @@ function initAura() {
       const grow = Math.min(1, cyc / 0.55)
       const fade = cyc > 0.78 ? 1 - (cyc - 0.78) / 0.22 : 1
       if (fade <= 0) return
-      ctx.strokeStyle = `rgba(94,110,70,${(0.28 * fade).toFixed(3)})`
-      ctx.lineWidth = 1
+      // These are the ones that were tying the knot: five beams drawn from the
+      // exact centre at 0.28 alpha, stacked on the same pixel. They leave from
+      // the same clear radius the leader lines do, and fade in over it.
+      const bsx = hx + (bx - hx) * BEAM_START
+      const bsy = hy + (by - hy) * BEAM_START
+      const ex = hx + (bx - hx) * Math.max(BEAM_START, grow)
+      const ey = hy + (by - hy) * Math.max(BEAM_START, grow)
+      const beam = ctx.createLinearGradient(bsx, bsy, ex, ey)
+      beam.addColorStop(0, 'rgba(94,110,70,0)')
+      beam.addColorStop(1, `rgba(94,110,70,${(0.3 * fade).toFixed(3)})`)
+      ctx.strokeStyle = beam
+      ctx.lineWidth = 1.2
       ctx.beginPath()
-      ctx.moveTo(hx, hy)
-      ctx.lineTo(hx + (bx - hx) * grow, hy + (by - hy) * grow)
+      ctx.moveTo(bsx, bsy)
+      ctx.lineTo(ex, ey)
       ctx.stroke()
       if (grow >= 1) {
+        ctx.save()
+        ctx.shadowColor = 'rgba(34,39,26,0.4)'
+        ctx.shadowBlur = 6 * Math.max(1, sc * 0.8)
         ctx.fillStyle = `rgba(88,104,64,${(0.6 * fade).toFixed(3)})`
         ctx.beginPath()
         ctx.arc(bx, by, 2.4 * Math.max(1, sc * 0.8), 0, Math.PI * 2)
         ctx.fill()
+        ctx.restore()
         ctx.strokeStyle = `rgba(94,110,70,${(0.42 * fade).toFixed(3)})`
         ctx.beginPath()
         ctx.arc(bx, by, (5 + 7 * (1 - fade)) * Math.max(1, sc * 0.8), 0, Math.PI * 2)
@@ -245,33 +258,16 @@ function initAura() {
     ctx.restore()
   }
 
-  let loop: AnimationPlaybackControls | null = null
-  let onScreen = false
-  const sync = () => {
-    if (onScreen && !document.hidden) {
-      if (!loop) {
-        loop = animate(0, 1, {
-          duration: 60,
-          repeat: Infinity,
-          ease: 'linear',
-          onUpdate: () => draw(performance.now()),
-        })
-      } else {
-        loop.play()
-      }
-    } else {
-      loop?.pause()
-    }
-  }
-  inView(cv, () => {
-    onScreen = true
-    sync()
-    return () => {
-      onScreen = false
-      sync()
-    }
+  // GSAP's ticker is the render loop: one rAF for the whole page, and the
+  // browser parks it with the tab, so the canvas costs nothing off-screen
+  // without a visibilitychange handler of its own.
+  const tick = () => draw(performance.now())
+  ScrollTrigger.create({
+    trigger: cv,
+    start: 'top bottom',
+    end: 'bottom top',
+    onToggle: (self) => (self.isActive ? gsap.ticker.add(tick) : gsap.ticker.remove(tick)),
   })
-  document.addEventListener('visibilitychange', sync)
 }
 
 interface Frag {
@@ -512,7 +508,7 @@ function initPins() {
     }
   )
 
-  let lineEls: { el: SVGLineElement; len: number }[] | null = null
+  let lineEls: SVGLineElement[] | null = null
   let mode: 'ring' | 'net' = 'ring'
 
   const measureStory = () => {
@@ -565,9 +561,8 @@ function initPins() {
         const l = document.createElementNS(NS, 'line')
         l.setAttribute('stroke', '#a4b47a')
         l.setAttribute('stroke-width', '1.5')
-        l.style.opacity = '0'
         linksSvg.appendChild(l)
-        return { el: l, len: 0 }
+        return l
       })
     }
     if (linksSvg) linksSvg.setAttribute('viewBox', `0 0 ${W} ${H}`)
@@ -576,43 +571,47 @@ function initPins() {
       // Fragments that were left out get a zero-length line, which draws nothing.
       const x = f.fits ? f.hx + f.tx : hub.x
       const y = f.fits ? f.hy + f.ty : hub.y
-      l.el.setAttribute('x1', String(hub.x))
-      l.el.setAttribute('y1', String(hub.y))
-      l.el.setAttribute('x2', String(x))
-      l.el.setAttribute('y2', String(y))
-      l.len = Math.hypot(x - hub.x, y - hub.y)
-      l.el.style.strokeDasharray = String(l.len)
+      l.setAttribute('x1', String(hub.x))
+      l.setAttribute('y1', String(hub.y))
+      l.setAttribute('x2', String(x))
+      l.setAttribute('y2', String(y))
     })
   }
 
-  const setStatic = () => {
-    fragEls.forEach((f) => {
-      f.el.style.opacity = '1'
-      f.el.style.transform = `translate(${f.tx}px,${f.ty}px)`
-    })
-    lineEls?.forEach((l) => {
-      l.el.style.strokeDashoffset = '0'
-      l.el.style.opacity = '0.45'
-    })
-    if (hProblem) hProblem.style.opacity = '0'
-    if (hSolution) hSolution.style.opacity = '1'
-    if (solutionCard) {
-      solutionCard.style.opacity = '1'
-      solutionCard.style.transform = 'translate(-50%,-50%) scale(1)'
-    }
+  /**
+   * The story, as one scrubbed timeline.
+   *
+   * This used to be a scroll handler that recomputed every fragment's transform
+   * on each frame: two easing windows per card worked out by hand, a transform
+   * string assembled with template literals, and the connecting lines drawn by
+   * setting strokeDashoffset against a length measured earlier. The arithmetic
+   * was correct and completely opaque — the choreography lived in expressions
+   * like `0.03 + (i / n) * 0.27` and could only be read by simulating it.
+   *
+   * A timeline says the same thing as a score: this fragment drifts in here, the
+   * net pulls it into place there. GSAP owns the interpolation, DrawSVGPlugin
+   * owns the lines, and ScrollTrigger owns the scrubbing, so the only thing
+   * still written here is the order of events.
+   */
+  const setNavHidden = (hide: boolean) => {
+    if (!nav || hide === navHidden) return
+    navHidden = hide
+    gsap.to(nav, { y: hide ? '-110%' : '0%', opacity: hide ? 0 : 1, duration: 0.5, ease: 'power2.out' })
+    nav.toggleAttribute('inert', hide)
+    if (hide) nav.setAttribute('aria-hidden', 'true')
+    else nav.removeAttribute('aria-hidden')
   }
+  let navHidden = false
 
-  if (reduced) {
-    measureStory()
-    setStatic()
-    return
-  }
-
-  sticky.style.position = 'sticky'
-  sticky.style.top = '0'
-  sticky.style.boxSizing = 'border-box'
-
-  const sizePins = () => {
+  /**
+   * @param runway Whether the wrapper carries the scroll distance the scrubbed
+   * timeline plays across. Without motion there is no scrubbing, so the section
+   * is one screen: nobody should have to scroll four of them past a still image.
+   */
+  const sizePins = (runway = true) => {
+    sticky.style.position = 'sticky'
+    sticky.style.top = '0'
+    sticky.style.boxSizing = 'border-box'
     sticky.style.height = 'auto'
     sticky.style.overflow = 'visible'
     if (sticky.scrollHeight <= window.innerHeight) {
@@ -622,303 +621,116 @@ function initPins() {
     measureStory()
     // The scroll runway is the beat list's length: the ring adds the fan-out
     // and the connecting lines, the grid does not, so it needs less scrolling.
-    wrap.style.height = mode === 'ring' ? '440vh' : '300vh'
+    wrap.style.height = runway ? (mode === 'ring' ? '440vh' : '300vh') : ''
   }
 
-  let navHidden = false
-  const setNavHidden = (hide: boolean) => {
-    if (!nav || hide === navHidden) return
-    navHidden = hide
-    animate(
-      nav,
-      { y: hide ? '-110%' : '0%', opacity: hide ? 0 : 1 },
-      { duration: 0.5, ease: 'easeOut' }
-    )
-    nav.toggleAttribute('inert', hide)
-    if (hide) nav.setAttribute('aria-hidden', 'true')
-    else nav.removeAttribute('aria-hidden')
-  }
+  const mm = gsap.matchMedia()
 
-  const update = (p: number, hide: boolean) => {
-    setNavHidden(hide)
-    const n = fragEls.length
-    fragEls.forEach((f, i) => {
-      const inStart = 0.03 + (i / n) * 0.27
-      const eIn = easeOut(clamp((p - inStart) / 0.16))
-      const orgStart = 0.5 + (i / n) * 0.16
-      const eOrg = easeOut(clamp((p - orgStart) / 0.24))
-      // drift in → lie scattered → get pulled onto the net
-      const tx = f.dx * 4 * (1 - eIn) + f.sx + (f.tx - f.sx) * eOrg
-      const ty = f.dy * 4 * (1 - eIn) + f.sy + (f.ty - f.sy) * eOrg
-      const sc = (0.85 + 0.15 * eIn) * (1 - 0.16 * eOrg)
-      const rot = f.rot * (1 - eOrg)
-      f.el.style.opacity = String(eIn)
-      f.el.style.transform = `translate(${tx}px,${ty}px) rotate(${rot}deg) scale(${sc})`
-    })
-    if (hProblem) {
-      const out = easeOut(clamp((p - 0.42) / 0.1))
-      hProblem.style.opacity = String(1 - out)
-      hProblem.style.transform = `translateY(${-26 * out}px)`
-    }
-    if (hSolution) {
-      const sIn = easeOut(clamp((p - 0.52) / 0.1))
-      hSolution.style.opacity = String(sIn)
-      hSolution.style.transform = `translateX(-50%) translateY(${18 * (1 - sIn)}px)`
-    }
-    if (solutionCard) {
-      const ce = easeOut(clamp((p - 0.56) / 0.14))
-      solutionCard.style.opacity = String(ce)
-      solutionCard.style.transform = `translate(-50%,-50%) scale(${0.8 + 0.2 * ce})`
-    }
-    if (lineEls) {
-      const lp = clamp((p - 0.68) / 0.26)
-      lineEls.forEach((l, i) => {
-        const se = easeOut(clamp((lp - i * 0.045) / 0.55))
-        l.el.style.strokeDashoffset = String(l.len * (1 - se))
-        l.el.style.opacity = String(0.45 * se)
-      })
-    }
-  }
-
-  sizePins()
-  window.addEventListener('resize', sizePins)
-  scrollInfo(
-    ({ y }) => {
-      const r = wrap.getBoundingClientRect()
-      const vh = window.innerHeight
-      update(y.progress, r.top < vh * 0.4 && r.bottom > vh * 0.5)
-    },
-    { target: wrap, offset: ['start start', 'end end'] }
-  )
-  setTimeout(measureStory, 700)
-}
-
-type Cam = { t: number; x: number; y: number; z: number }
-
-/**
- * Catmull-Rom through the measured frames, clamped to the segment so an
- * overshoot can never swing the camera off the diagram.
- */
-function camAt(K: Cam[], ms: number) {
-  const n = K.length
-  if (ms <= K[0].t) return K[0]
-  if (ms >= K[n - 1].t) return K[n - 1]
-  let i = 0
-  while (i < n - 2 && ms > K[i + 1].t) i++
-  const a = K[Math.max(0, i - 1)]
-  const b = K[i]
-  const c = K[i + 1]
-  const d = K[Math.min(n - 1, i + 2)]
-  const u = (ms - b.t) / Math.max(1, c.t - b.t)
-  const cr = (p0: number, p1: number, p2: number, p3: number, t: number) => {
-    const t2 = t * t
-    const t3 = t2 * t
-    return (
-      0.5 *
-      (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3)
-    )
-  }
-  const axis = (p0: number, p1: number, p2: number, p3: number) => {
-    const v = cr(p0, p1, p2, p3, u)
-    return Math.max(Math.min(p1, p2), Math.min(Math.max(p1, p2), v))
-  }
-  return { t: ms, x: axis(a.x, b.x, c.x, d.x), y: axis(a.y, b.y, c.y, d.y), z: axis(a.z, b.z, c.z, d.z) }
-}
-
-function initChain() {
-  const anchor = document.querySelector<HTMLElement>('[data-chat-anchor]')
-  const stage = anchor?.querySelector<HTMLElement>('[data-stage]')
-  const camEl = anchor?.querySelector<HTMLElement>('[data-cam]')
-  const qEl = anchor?.querySelector<HTMLElement>('[data-q-text]')
-  const caretEl = anchor?.querySelector<HTMLElement>('[data-q-caret]')
-  const statusEl = anchor?.querySelector<HTMLElement>('[data-status]')
-  const replayBtn = anchor?.querySelector<HTMLButtonElement>('[data-replay]')
-  if (!anchor || !stage || !camEl || !qEl || !statusEl) return
-
-  const gated = Array.from(
-    anchor.querySelectorAll<HTMLElement | SVGGElement>('[data-step-gte], [data-step-eq]')
-  )
-  const opts = ['a', 'b', 'c'].map((k) => anchor.querySelector<HTMLElement>(`[data-opt="${k}"]`))
-
-  const setStep = (step: number) => {
-    gated.forEach((el) => {
-      const gte = el.getAttribute('data-step-gte')
-      const eq = el.getAttribute('data-step-eq')
-      const on = gte != null ? step >= Number(gte) : step === Number(eq)
-      el.toggleAttribute('data-active', on)
-    })
-    opts.forEach((el, i) => {
-      if (!el) return
-      const key = 'abc'[i]
-      if (key === 'b') {
-        el.toggleAttribute('data-picked', step >= 8)
-        el.removeAttribute('data-dimmed')
-      } else {
-        el.toggleAttribute('data-dimmed', step >= 8)
-      }
-    })
-  }
-
-  const setCam = (c: { x: number; y: number; z: number }) => {
-    const r = stage.getBoundingClientRect()
-    const vw = r.width || 700
-    const vh = r.height || 430
-    const tx = vw / 2 - c.x * c.z
-    const ty = vh / 2 - c.y * c.z
-    camEl.style.transform = `translate3d(${tx.toFixed(2)}px,${ty.toFixed(2)}px,0) scale(${c.z.toFixed(4)})`
-  }
-
-  type Box = { x: number; y: number; w: number; h: number }
-
-  /**
-   * Turn the storyboard into camera frames for the size the mock actually has.
-   *
-   * Each shot is the bounding box of its subjects plus a margin, scaled to fit
-   * the stage and never magnified past 1: the mock is drawn at its true size,
-   * so anything above 1 would only soften it. The bottom inset is larger
-   * because the status line sits over the frame.
-   */
-  const INSET = { top: 22, right: 24, bottom: 48, left: 24 }
-  const TIGHT_INSET = { top: 14, right: 12, bottom: 40, left: 12 }
-  const MARGIN = 14
-
-  const boxOf = (els: HTMLElement[]): Box | null => {
-    if (!els.length) return null
-    let x0 = Infinity
-    let y0 = Infinity
-    let x1 = -Infinity
-    let y1 = -Infinity
-    for (const el of els) {
-      x0 = Math.min(x0, el.offsetLeft)
-      y0 = Math.min(y0, el.offsetTop)
-      x1 = Math.max(x1, el.offsetLeft + el.offsetWidth)
-      y1 = Math.max(y1, el.offsetTop + el.offsetHeight)
-    }
-    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
-  }
-
-  const shotEls = (name: string) =>
-    Array.from(
-      camEl.querySelectorAll<HTMLElement>(name === 'all' ? '[data-shot]' : `[data-shot="${name}"]`)
-    )
-
-  const buildCam = (): Cam[] => {
-    const r = stage.getBoundingClientRect()
-    const vw = r.width || 700
-    const vh = r.height || 430
-    const world = boxOf(shotEls('all')) ?? { x: 0, y: 0, w: 1160, h: 670 }
-    // A phone cannot hold two subjects side by side at a readable size, so it
-    // follows the newest one instead of pulling back to a composition shot.
-    const narrow = vw < 560
-
-    const inset = narrow ? TIGHT_INSET : INSET
-    const margin = narrow ? 8 : MARGIN
-
-    return SHOTS.map((shot) => {
-      const names = narrow ? [shot.tight ?? shot.on[shot.on.length - 1]] : shot.on
-      let els = names.flatMap(shotEls)
-      // On a phone even one subject can be too wide to read: a source row is a
-      // chip plus its card. Frame the card — the part that carries the words —
-      // and let the chip sit outside the shot.
-      if (narrow && els.length > 1) {
-        els = [els.reduce((a, b) => (a.offsetWidth * a.offsetHeight >= b.offsetWidth * b.offsetHeight ? a : b))]
-      }
-      const box = boxOf(els) ?? world
-      const bw = box.w + margin * 2
-      const bh = box.h + margin * 2
-      const z = Math.min(1, (vw - inset.left - inset.right) / bw, (vh - inset.top - inset.bottom) / bh)
-
-      // Centre the subject in the *inset* frame, not the raw rectangle.
-      let x = box.x + box.w / 2 - (inset.left - inset.right) / 2 / z
-      let y = box.y + box.h / 2 - (inset.top - inset.bottom) / 2 / z
-
-      // The subject is centred rather than clamped to the diagram's bounds. A
-      // clamp pinned the opening shot's bubble into the corner of the frame,
-      // which reads as a mistake; empty space around a close-up does not, and
-      // the frame's edges fade anyway.
-      return { t: shot.t, x, y, z }
-    })
-  }
-
-  // Every element is measured with its step-gating off, so a card that has not
-  // appeared yet still reports the size it will have — the camera is already
-  // framing the place it arrives in.
-  let cam = buildCam()
-  // Card heights depend on how the copy wraps, which depends on the webfont:
-  // measured before it lands, a card can be a line taller than the frame allows.
-  document.fonts?.ready.then(() => {
-    cam = buildCam()
+  mm.add('(prefers-reduced-motion: reduce)', () => {
+    sizePins(false)
+    fragEls.forEach((f) => gsap.set(f.el, { opacity: 1, x: f.tx, y: f.ty, rotation: 0, scale: 0.84 }))
+    if (lineEls) gsap.set(lineEls, { opacity: 0.45, drawSVG: '100%' })
+    gsap.set([hProblem].filter(Boolean), { opacity: 0 })
+    gsap.set([hSolution].filter(Boolean), { opacity: 1, xPercent: -50, y: 0 })
+    gsap.set([solutionCard].filter(Boolean), { opacity: 1, xPercent: -50, yPercent: -50, scale: 1 })
   })
 
-  if (reduced) {
-    setStep(10)
-    setCam(cam[cam.length - 1])
-    statusEl.textContent = L.beats[10]
-    if (replayBtn) replayBtn.hidden = true
-    return
-  }
+  mm.add('(prefers-reduced-motion: no-preference)', () => {
+    let ctx: gsap.Context | null = null
 
-  const applyFrame = (raw: number) => {
-    const p = Math.min(1, raw / (TYPE - 350))
-    const n = Math.round(L.question.length * p)
-    const txt = L.question.slice(0, n)
-    if (qEl.textContent !== txt) qEl.textContent = txt
-    if (caretEl) caretEl.style.display = p < 1 ? 'inline-block' : 'none'
-    if (raw < TYPE) {
-      if (statusEl.textContent !== L.typing) statusEl.textContent = L.typing
-      setStep(0)
-      setCam(cam[0])
-      return
+    const build = () => {
+      ctx?.revert()
+      ctx = gsap.context(() => {
+        sizePins()
+        const n = fragEls.length || 1
+        const tl = gsap.timeline({
+          defaults: { ease: 'power2.out' },
+          scrollTrigger: {
+            trigger: wrap,
+            start: 'top top',
+            end: 'bottom bottom',
+            scrub: 0.4,
+            onToggle: (self) => setNavHidden(self.isActive),
+          },
+        })
+
+        fragEls.forEach((f, i) => {
+          if (!f.fits) return
+          // Drift in from where it was scattered, lie there a while, then get
+          // pulled onto the net.
+          tl.fromTo(
+            f.el,
+            { opacity: 0, x: f.sx + f.dx * 4, y: f.sy + f.dy * 4, rotation: f.rot, scale: 0.85 },
+            { opacity: 1, x: f.sx, y: f.sy, scale: 1, duration: 0.16 },
+            0.03 + (i / n) * 0.27
+          ).to(
+            f.el,
+            { x: f.tx, y: f.ty, rotation: 0, scale: 0.84, duration: 0.24 },
+            0.5 + (i / n) * 0.16
+          )
+        })
+
+        if (hProblem) tl.to(hProblem, { opacity: 0, y: -26, duration: 0.1 }, 0.42)
+        if (hSolution) {
+          tl.fromTo(
+            hSolution,
+            { opacity: 0, xPercent: -50, y: 18 },
+            { opacity: 1, y: 0, duration: 0.1 },
+            0.52
+          )
+        }
+        if (solutionCard) {
+          tl.fromTo(
+            solutionCard,
+            { opacity: 0, xPercent: -50, yPercent: -50, scale: 0.8 },
+            { opacity: 1, scale: 1, duration: 0.14 },
+            0.56
+          )
+        }
+        if (lineEls?.length) {
+          tl.fromTo(
+            lineEls,
+            { drawSVG: 0, opacity: 0 },
+            { drawSVG: '100%', opacity: 0.45, duration: 0.26, stagger: 0.045 },
+            0.68
+          )
+        }
+      }, wrap)
     }
-    const ms = raw - TYPE
-    setCam(camAt(cam, ms))
-    let bi = 0
-    for (let i = 0; i < BEATS.length; i++) if (ms >= BEATS[i].t) bi = i
-    setStep(BEATS[bi].step)
-    const label = L.beats[bi]
-    if (statusEl.textContent !== label) statusEl.textContent = label
-  }
 
-  const controls = animate(0, LOOP, {
-    duration: LOOP / RATE / 1000,
-    ease: 'linear',
-    repeat: Infinity,
-    autoplay: false,
-    onUpdate: applyFrame,
-  })
+    build()
+    let t = 0
+    let live = true
+    const onResize = () => {
+      window.clearTimeout(t)
+      t = window.setTimeout(build, 200)
+    }
+    window.addEventListener('resize', onResize)
+    // A promise cannot be cancelled the way a timeout can, so the flag is what
+    // stops a late-resolving `fonts.ready` from building a timeline and a
+    // ScrollTrigger into a branch that matchMedia has already torn down.
+    document.fonts?.ready.then(() => {
+      if (live) build()
+    })
 
-  let onScreen = false
-  const sync = () => {
-    if (onScreen && !document.hidden) controls.play()
-    else controls.pause()
-  }
-  inView(
-    anchor,
-    () => {
-      onScreen = true
-      sync()
-      return () => {
-        onScreen = false
-        sync()
+    return () => {
+      live = false
+      window.clearTimeout(t)
+      window.removeEventListener('resize', onResize)
+      ctx?.revert()
+      ctx = null
+      // The transform and the opacity belong to GSAP and come back with the
+      // revert; `inert` and `aria-hidden` were set by hand and do not. Turning
+      // on reduced motion while the story held the navigation hidden used to
+      // leave a bar that looks perfectly normal and cannot be reached by
+      // keyboard or screen reader.
+      if (nav) {
+        navHidden = false
+        nav.removeAttribute('inert')
+        nav.removeAttribute('aria-hidden')
+        gsap.set(nav, { y: '0%', opacity: 1 })
       }
-    },
-    { amount: 0.35 }
-  )
-  document.addEventListener('visibilitychange', sync)
-
-  replayBtn?.addEventListener('click', () => {
-    controls.time = 0
-    controls.play()
-  })
-
-  // The frames are a function of the mock's size, so they are re-solved when it
-  // changes rather than being stretched out of shape.
-  let resizeTimer = 0
-  window.addEventListener('resize', () => {
-    window.clearTimeout(resizeTimer)
-    resizeTimer = window.setTimeout(() => {
-      cam = buildCam()
-    }, 150)
+    }
   })
 }
 
