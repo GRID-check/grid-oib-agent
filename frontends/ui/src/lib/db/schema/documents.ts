@@ -288,8 +288,19 @@ export const documents = pgTable('documents', {
    * It is TERMINAL, and the load-bearing consequence lives in
    * `@/lib/documents/reconcile-status`: `stored` must stay out of
    * `IN_FLIGHT_STATUSES`, or every read of the row polls a backend that has
-   * never heard of it and then overwrites the status from a collection file
-   * list that will never contain it.
+   * never heard of it and then reconciles its status from a collection file
+   * list that holds nothing of ITS — but may well hold that same filename
+   * belonging to a document a person uploaded. `generatedFilename` builds an
+   * agent row's name from a title the model wrote, into the project's own
+   * `collectionName`, so the collision is reachable by the model rather than
+   * merely accidental (`lib/documents/service.ts`'s `joinHitsToFiles` and
+   * `lib/platform/vector-reconcile.ts` both turn on the same fact). The wrong
+   * answer there is not "no answer" — it is another document's.
+   *
+   * Which is why keeping `stored` out of the set is the cheap half of the rule
+   * and not the whole of it: a status value cannot carry an authorship
+   * invariant. The join itself is gated, by `authoredBy`, at its one entry point
+   * (`@/lib/documents/collection-file-ref`).
    *
    * Plain `text` with no CHECK, so a new state is a TypeScript change rather
    * than a migration — the same arrangement `scope` has, and the reason 0063

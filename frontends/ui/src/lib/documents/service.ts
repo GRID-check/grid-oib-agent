@@ -41,6 +41,7 @@ import { purgeResourceCollaboration } from '@/lib/collaboration/cleanup'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document, DocumentAuthor } from '@/lib/db/schema'
 import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
+import { collectionDocumentsUrl, collectionFileRef, collectionFileUrl } from './collection-file-ref'
 import {
   deleteProjectDocument,
   findDocumentInOrg,
@@ -969,17 +970,26 @@ export async function reindexProject(
       return
     }
 
+    // Belt to the query's braces. The listing above already asks for `'user'`
+    // only, so this is never null in practice — but the delete below is the
+    // destructive half of this function, and "the caller filtered correctly" is
+    // the assumption every one of these leaks was built on. A row that somehow
+    // arrives here machine-authored is skipped, not reported failed: it was
+    // never eligible, exactly as the `'user'` filter above says.
+    const ref = collectionFileRef(doc)
+    if (!ref) {
+      result.skipped += 1
+      return
+    }
+
     // The bucket the object is ACTUALLY in — see `reingestDocument` for why
     // defaulting this breaks per-organization documents in two directions.
-    const response = await fetch(
-      `${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents`,
-      {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_ids: [doc.filename] }),
-        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-      },
-    )
+    const response = await fetch(collectionDocumentsUrl(getBackendUrl(), ref), {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_ids: [ref.filename] }),
+      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+    })
     if (!response.ok) {
       throw new Error(`chunk delete returned ${response.status}`)
     }
@@ -1037,19 +1047,22 @@ export async function updateDocumentTags(
     })
   }
 
+  // The same gate as the read paths, on a WRITE. There is no backend summary row
+  // for a document a machine wrote (never ingested), so the honest answer is the
+  // 404 the backend itself gives for a non-colliding agent row — and the gate is
+  // what makes the COLLIDING one answer the same way instead of overwriting the
+  // controlled tags of the human document sharing the filename.
+  const ref = collectionFileRef(doc)
+  if (!ref) throw new NotFoundError()
+
   let res: Response
   try {
-    res = await fetch(
-      `${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents/${encodeURIComponent(
-        doc.filename,
-      )}/tags`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tags }),
-        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-      },
-    )
+    res = await fetch(collectionFileUrl(getBackendUrl(), ref, '/tags'), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tags }),
+      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+    })
   } catch {
     // Includes a TimeoutError abort — treat a hung backend like any other
     // transport failure rather than letting the request hang.
@@ -1123,21 +1136,26 @@ export async function renameDocument(
   // the rename immediately, with no re-ingest (the retrieval layer prefers a
   // stored `display_title` over the derived filename default). Best-effort by
   // design — see the note above.
-  try {
-    await fetch(
-      `${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents/${encodeURIComponent(
-        doc.filename,
-      )}/display-title`,
-      {
+  //
+  // Gated on authorship like every other `(collection, filename)` call: a
+  // machine-authored row has no metadata row over there to mirror onto, and on a
+  // filename collision this PATCH would retitle the HUMAN document's citation
+  // chips — renaming one file would silently rename another. Skipping costs
+  // nothing that is not already accepted here: the mirror is best-effort, and
+  // the durable rename is the row written above.
+  const mirrorRef = collectionFileRef(doc)
+  if (mirrorRef) {
+    try {
+      await fetch(collectionFileUrl(getBackendUrl(), mirrorRef, '/display-title'), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ display_title: displayName }),
         signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-      },
-    )
-  } catch {
-    // ignore — the durable rename is the row above; the chip catches up on the
-    // next rename or the next re-ingestion.
+      })
+    } catch {
+      // ignore — the durable rename is the row above; the chip catches up on the
+      // next rename or the next re-ingestion.
+    }
   }
 
   // Data-provenance event: who called which file what. Both names are
@@ -1192,15 +1210,28 @@ export async function deleteDocument(
   // Best-effort: remove the ingested chunks so a deleted document stops showing
   // up in retrieval. A backend hiccup must not block the durable SeaweedFS + DB
   // cleanup below, so failures here are swallowed.
-  try {
-    await fetch(`${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_ids: [doc.filename] }),
-      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-    })
-  } catch {
-    // ignore — chunks may linger until the next collection reconcile/purge
+  //
+  // No ref → no chunks to purge, and this is where that mattered most. A
+  // machine-authored row was never dispatched to `/v1/ingest`, so `file_ids:
+  // [doc.filename]` names nothing of its own — and on the filename collision
+  // `generatedFilename` makes reachable, it names a HUMAN document's chunks and
+  // deletes them. That document keeps `status: 'completed'`, keeps its green
+  // „zitierbar“ badge and its Ask affordance, and answers nothing from then on:
+  // a silent, unlogged, unrecoverable content loss triggered by deleting an
+  // unrelated file. The purge is skipped rather than made conditional on the
+  // collision, because for an agent row it is ALWAYS wrong, collision or not.
+  const purgeRef = collectionFileRef(doc)
+  if (purgeRef) {
+    try {
+      await fetch(collectionDocumentsUrl(getBackendUrl(), purgeRef), {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_ids: [purgeRef.filename] }),
+        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+      })
+    } catch {
+      // ignore — chunks may linger until the next collection reconcile/purge
+    }
   }
 
   if (doc.storageKey) {
@@ -1264,14 +1295,20 @@ export async function getDocumentVisualDetails(
 ): Promise<{ id: string; details: DocumentVisualDetail[] }> {
   const doc = await getAccessibleDocument(session, documentId, 'read')
 
+  // A machine-authored row has no visual chunks — nothing it wrote was ever
+  // ingested, so no page of it was ever described by the VLM. Asking anyway
+  // returns, on a filename collision, ANOTHER document's extracted page text
+  // rendered inside this row's detail panel. The empty list is the truth here,
+  // and it is the same thing this function already answers for a backend that
+  // has never heard of the file.
+  const ref = collectionFileRef(doc)
+  if (!ref) return { id: doc.id, details: [] }
+
   let res: Response
   try {
-    res = await fetch(
-      `${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents/${encodeURIComponent(
-        doc.filename,
-      )}/visual-details`,
-      { signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS) },
-    )
+    res = await fetch(collectionFileUrl(getBackendUrl(), ref, '/visual-details'), {
+      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+    })
   } catch {
     return { id: doc.id, details: [] }
   }

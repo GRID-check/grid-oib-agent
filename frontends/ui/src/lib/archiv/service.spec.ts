@@ -133,6 +133,7 @@ describe('listArchiv', () => {
         filename: 'a.pdf',
         status: 'completed',
         collectionName: 'archiv_org-1',
+        authoredBy: 'user',
         errorMessage: null,
         metadata: { ingestJobId: 'secret' },
         summary: 's',

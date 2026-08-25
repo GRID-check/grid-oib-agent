@@ -87,6 +87,9 @@ import {
   deleteDocument,
   renameDocument,
   getDocumentStatus,
+  getDocumentVisualDetails,
+  updateDocumentTags,
+  reindexProject,
   searchProjectDocuments,
   joinHitsToFiles,
   deriveSearchTopK,
@@ -1007,5 +1010,200 @@ describe('getDocumentStatus', () => {
     const status = await getDocumentStatus(session, 'doc-1')
 
     expect(status).toHaveProperty('displayName', null)
+  })
+})
+
+/**
+ * Every `(collectionName, filename)` call this service makes, exercised against
+ * the collision `generatedFilename` puts within the model's reach.
+ *
+ * The scenario is one project. A person uploaded
+ * `brandschutz-gutachten-2026-08-20.pdf`; the same day Piloti filed a report
+ * whose own H1 slugged to the same stem, into the SAME project collection,
+ * because that is where a filed report goes. Two rows, one name over there, and
+ * the backend has an entry for only the human one — nothing machine-authored is
+ * ever dispatched to `/v1/ingest`.
+ *
+ * Both rows are addressed here by id, so nothing about these cases depends on
+ * the collision being *detected*: the agent row must make no
+ * `(collection, filename)` call AT ALL, because it owns nothing under that pair
+ * whether or not somebody else does.
+ */
+describe('the authorship gate on the (collection, filename) join', () => {
+  const collidingName = 'brandschutz-gutachten-2026-08-20.pdf'
+
+  const humanDoc = makeDocument({ filename: collidingName })
+
+  // `authoredBy: 'agent'` obliges the other three provenance columns —
+  // `documents_authorship_requires_provenance` (migration 0063) rejects the row
+  // otherwise, so a fixture that set only `authoredBy` would describe a row the
+  // database cannot hold.
+  const agentDoc = makeDocument({
+    id: 'doc-agent',
+    filename: collidingName,
+    authoredBy: 'agent',
+    authoredByProducer: 'deep_research',
+    authoredByRef: 'run-7',
+    authoredByRefKind: 'agent_run',
+    status: 'stored',
+    storageKey: 'org/org-1/project/proj-1/doc/doc-agent/' + collidingName,
+  })
+
+  /** Backend calls that name a document — the ones a filename identity reaches. */
+  const documentCalls = () =>
+    mockFetch.mock.calls.filter(([url]) => String(url).includes('/v1/collections/'))
+
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) })
+  })
+
+  describe('deleteDocument', () => {
+    it("does not purge chunks for a machine-authored row — they are somebody else's", async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(agentDoc)
+
+      await deleteDocument(session, 'doc-agent', new Request('http://x'))
+
+      // The DELETE was unconditional. For an agent row it is always wrong (the
+      // row owns no chunks), and on this collision it removed the HUMAN
+      // Gutachten's chunks while that document kept `status: 'completed'`, its
+      // green „zitierbar“ badge and its Ask affordance — and answered nothing
+      // from then on.
+      expect(documentCalls()).toHaveLength(0)
+      // The delete itself still completes: the row and the object are this
+      // function's durable job and neither depends on the backend.
+      expect(deleteProjectDocument).toHaveBeenCalledWith('doc-agent', 'org-1', 'proj-1')
+      expect(recordAuditEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'document.deleted' }),
+      )
+    })
+
+    it('still purges chunks for the human document that owns the same filename', async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(humanDoc)
+
+      await deleteDocument(session, 'doc-1', new Request('http://x'))
+
+      const [url, init] = documentCalls()[0] ?? []
+      expect(String(url)).toBe('http://backend:8000/v1/collections/proj_abc/documents')
+      expect((init as RequestInit)?.method).toBe('DELETE')
+      expect(JSON.parse(String((init as RequestInit)?.body))).toEqual({ file_ids: [collidingName] })
+    })
+  })
+
+  describe('getDocumentVisualDetails', () => {
+    it('returns no page text for a machine-authored row, and asks for none', async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(agentDoc)
+
+      // Per-page VLM text is fetched by (collection, filename); unGated, this
+      // panel showed another document's extracted drawings.
+      await expect(getDocumentVisualDetails(session, 'doc-agent')).resolves.toEqual({
+        id: 'doc-agent',
+        details: [],
+      })
+      expect(documentCalls()).toHaveLength(0)
+    })
+
+    it('still fetches page text for the human document with the same filename', async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(humanDoc)
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ details: [{ page: 3, content_type: 'drawing', text: 'Schnitt A-A' }] }),
+      })
+
+      const result = await getDocumentVisualDetails(session, 'doc-1')
+
+      expect(result.details).toEqual([
+        { page: 3, contentType: 'drawing', drawingType: '', scale: '', text: 'Schnitt A-A' },
+      ])
+      expect(String(documentCalls()[0]?.[0])).toBe(
+        `http://backend:8000/v1/collections/proj_abc/documents/${collidingName}/visual-details`,
+      )
+    })
+  })
+
+  describe('updateDocumentTags', () => {
+    it('404s a machine-authored row instead of retagging the colliding document', async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(agentDoc)
+
+      // 404 is what the backend itself answers for a NON-colliding agent row
+      // (no summary row was ever written for it). The gate makes the colliding
+      // one answer the same way rather than PATCHing the human document's
+      // controlled OIB tags.
+      await expect(updateDocumentTags(session, 'doc-agent', ['Gutachten'])).rejects.toBeInstanceOf(
+        NotFoundError,
+      )
+      expect(documentCalls()).toHaveLength(0)
+    })
+
+    it('still retags the human document with the same filename', async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(humanDoc)
+      mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ tags: ['Gutachten'] }) })
+
+      await expect(updateDocumentTags(session, 'doc-1', ['Gutachten'])).resolves.toEqual({
+        id: 'doc-1',
+        tags: ['Gutachten'],
+      })
+      expect(String(documentCalls()[0]?.[0])).toBe(
+        `http://backend:8000/v1/collections/proj_abc/documents/${collidingName}/tags`,
+      )
+    })
+  })
+
+  describe('renameDocument', () => {
+    it('renames a machine-authored row without retitling the colliding document', async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(agentDoc)
+
+      await renameDocument(session, 'doc-agent', 'Piloti-Bericht.pdf', new Request('http://x'))
+
+      // The durable rename is the row, and it happens.
+      expect(setDocumentDisplayName).toHaveBeenCalledWith('doc-agent', 'org-1', 'Piloti-Bericht.pdf')
+      // The best-effort mirror does not: it would have renamed the human
+      // Gutachten's citation chips to „Piloti-Bericht.pdf“.
+      expect(documentCalls()).toHaveLength(0)
+    })
+
+    it('still mirrors the rename for the human document with the same filename', async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(humanDoc)
+
+      await renameDocument(session, 'doc-1', 'Einreichplan.pdf', new Request('http://x'))
+
+      expect(String(documentCalls()[0]?.[0])).toBe(
+        `http://backend:8000/v1/collections/proj_abc/documents/${collidingName}/display-title`,
+      )
+    })
+  })
+
+  describe('reindexProject', () => {
+    it('skips a machine-authored row rather than deleting the colliding chunks', async () => {
+      // Belt to the `'user'` filter the listing already applies: a row that
+      // reaches the rebuild loop machine-authored is counted as never-eligible,
+      // and — the point — its chunk DELETE is never issued. The delete is the
+      // destructive half of this function and runs BEFORE the dispatcher's own
+      // refusal would.
+      vi.mocked(listProjectDocuments).mockResolvedValue([
+        {
+          id: 'doc-agent',
+          filename: collidingName,
+          displayName: null,
+          fileSize: 1024,
+          contentType: 'application/pdf',
+          status: 'stored',
+          authoredBy: 'agent',
+          collectionName: 'proj_abc',
+          folderId: null,
+          createdAt: new Date('2026-08-20T00:00:00Z'),
+          updatedAt: new Date('2026-08-20T00:00:00Z'),
+          errorMessage: null,
+          metadata: null,
+        },
+      ])
+      vi.mocked(findDocumentInOrg).mockResolvedValue(agentDoc)
+
+      const result = await reindexProject(session, 'proj-1')
+
+      expect(result).toEqual({ projectId: 'proj-1', queued: 0, skipped: 1, failed: [] })
+      expect(documentCalls()).toHaveLength(0)
+    })
   })
 })
