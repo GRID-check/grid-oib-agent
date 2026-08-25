@@ -40,6 +40,9 @@ vi.mock('@/lib/project-profile/prompt-view', () => ({
 vi.mock('@/lib/documents/research-report', () => ({
   fileResearchReport: vi.fn(),
 }))
+vi.mock('@/lib/projects/repository', () => ({
+  findProjectIdByCollectionName: vi.fn(),
+}))
 
 import { GET, POST } from './route'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
@@ -47,6 +50,7 @@ import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectBundesland } from '@/lib/project-profile/prompt-view'
 import { fileResearchReport } from '@/lib/documents/research-report'
+import { findProjectIdByCollectionName } from '@/lib/projects/repository'
 
 const originalRequireAuth = process.env.REQUIRE_AUTH
 const originalInternalToken = process.env.GRID_INTERNAL_API_TOKEN
@@ -438,7 +442,15 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       headers: { 'Content-Type': 'application/json' },
     })
 
-  const REPORT_BODY = { job_id: 'job-1', has_report: true, report: '# Bericht\n\nText.' }
+  // `project_collection` is on every real report body: the backend records the
+  // commissioning project on `job_access` at submit time and returns it here.
+  // It — not the request's project — is what decides where the report is filed.
+  const REPORT_BODY = {
+    job_id: 'job-1',
+    has_report: true,
+    report: '# Bericht\n\nText.',
+    project_collection: 'proj_abc',
+  }
 
   beforeEach(() => {
     process.env.REQUIRE_AUTH = 'true'
@@ -451,6 +463,7 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       projectCollectionName: 'proj_abc',
       conversationId: undefined,
     })
+    vi.mocked(findProjectIdByCollectionName).mockResolvedValue('proj-1')
     vi.mocked(fileResearchReport).mockResolvedValue({
       documentId: 'doc-1',
       filename: 'bericht-2026-08-20.pdf',
@@ -489,6 +502,72 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       filename: 'bericht-2026-08-20.pdf',
       alreadyFiled: false,
     })
+  })
+
+  // ---------------------------------------------------------------------
+  // WHERE it lands: a property of the run, not of the request that reads it
+  // ---------------------------------------------------------------------
+
+  it('files into the project the RUN names, not the one the request asks for', async () => {
+    // The reader has a different project open, or reopened an old run from
+    // history. The cover sheet names the Bundesland, which says which
+    // Bauordnung the report was checked against, so filing it under the
+    // reader's current project produces a compliance document asserting the
+    // wrong law.
+    vi.mocked(buildCollectionScopeFromRequest).mockResolvedValue({
+      headerValue: 'scope',
+      scope: ['proj_wien'],
+      scopedCollections: [{ collection: 'proj_wien', shelf: 'project' }],
+      projectId: 'proj-the-reader-is-looking-at',
+      projectCollectionName: 'proj_wien',
+      conversationId: undefined,
+    })
+    vi.mocked(findProjectIdByCollectionName).mockResolvedValue('proj-the-run-belongs-to')
+
+    await GET(
+      getRequest('https://grid.example/api/jobs/async/job/job-1/report?projectId=proj-the-reader-is-looking-at'),
+      streamParams(['job', 'job-1', 'report'])
+    )
+
+    expect(findProjectIdByCollectionName).toHaveBeenCalledWith('proj_abc', 'org-1')
+    expect(fileResearchReport).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'proj-the-run-belongs-to' })
+    )
+  })
+
+  it('files nothing for a run that was never commissioned in a project', async () => {
+    // A run started from a chat outside any project. Its banner promised no
+    // filing, and the old behaviour filed it into whatever project the reader's
+    // stored `active_project_id` happened to name — silently, with no
+    // disclosure ever having been shown.
+    fetchSpy.mockResolvedValue(
+      reportResponse({ job_id: 'job-1', has_report: true, report: '# Bericht' })
+    )
+
+    const res = await GET(
+      getRequest('https://grid.example/api/jobs/async/job/job-1/report?projectId=proj-1'),
+      streamParams(['job', 'job-1', 'report'])
+    )
+
+    expect(fileResearchReport).not.toHaveBeenCalled()
+    const body = await res.json()
+    expect(body.filed).toBeUndefined()
+    // Not a broken promise either: none was made.
+    expect(body.filingFailed).toBeUndefined()
+  })
+
+  it('files nothing when the run\u2019s collection belongs to no project in this organization', async () => {
+    // The cross-tenant version of the same bug: a real collection name that
+    // this organization does not own must not fall back to anywhere.
+    vi.mocked(findProjectIdByCollectionName).mockResolvedValue(null)
+
+    const res = await GET(
+      getRequest('https://grid.example/api/jobs/async/job/job-1/report?projectId=proj-1'),
+      streamParams(['job', 'job-1', 'report'])
+    )
+
+    expect(fileResearchReport).not.toHaveBeenCalled()
+    expect((await res.json()).filed).toBeUndefined()
   })
 
   it('passes the run’s cards through, so the filed PDF can render Rechtsgrundlagen', async () => {

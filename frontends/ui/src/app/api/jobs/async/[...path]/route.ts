@@ -55,6 +55,7 @@ import { parseBodyContext, parseQueryContext } from '@/lib/proxy/collection-auth
 import { buildProxyUrl, resolveSessionAndBearer } from '@/lib/proxy/proxy-request'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 import { fileResearchReport } from '@/lib/documents/research-report'
+import { findProjectIdByCollectionName } from '@/lib/projects/repository'
 
 /**
  * Per-org runtime model overrides ({agentGroup: openrouterModelId}) plus the
@@ -186,6 +187,21 @@ function readReportMarkdown(data: unknown): string | null {
 }
 
 /**
+ * The collection of the project this run was COMMISSIONED in, off the same body.
+ *
+ * The backend records it on `job_access` at submit time, from the request that
+ * started the run, and returns it beside the report. It is the only statement
+ * about the destination that the reader of the report cannot influence.
+ */
+function readCommissioningCollection(data: unknown): string | null {
+  if (typeof data !== 'object' || data === null) return null
+  const body = data as { project_collection?: unknown }
+  return typeof body.project_collection === 'string' && body.project_collection
+    ? body.project_collection
+    : null
+}
+
+/**
  * The run's cards off the same body, for the filed PDF's „Rechtsgrundlagen".
  *
  * Only shape is checked, not card identity: the backend already validated these
@@ -242,13 +258,34 @@ async function fileReportIfCommissioned(
   const report = readReportMarkdown(data)
   if (!report) return null
 
+  // WHERE the report goes is a property of the RUN, never of the request that
+  // reads it. `projectId` above is whatever the reader's request named, and
+  // `buildCollectionScopeFromRequest` fills a missing one in from their stored
+  // `active_project_id` — so a run started in a project-less chat (whose banner
+  // therefore promised no filing at all) would be filed into whatever project
+  // that reader last had open, and an old run reopened while a different
+  // project is active would be filed there. Both file a report researched under
+  // one Bauordnung carrying a cover sheet that names another one, marked
+  // „KI-generiert" and shaped for an Einreichung.
+  //
+  // So the destination is DERIVED from the run's own `job_access` row and the
+  // request's project is not consulted. A run with no commissioning project
+  // files nothing: that is the honest reading of „no promise was made", not a
+  // licence to pick one.
+  const commissioned = readCommissioningCollection(data)
+  if (!commissioned) return null
+  const commissionedProjectId = await findProjectIdByCollectionName(commissioned, session.organizationId)
+  // The collection is real but names no project THIS organization owns. Filing
+  // anywhere on that basis would be the cross-tenant version of the bug above.
+  if (!commissionedProjectId) return null
+
   try {
     // Narrowed the way every other proxy-layer call to a session-taking service
     // narrows it (`collection-scope-request.ts`): the organization is what makes
     // a session authorized, and it has just been checked.
     const filed = await fileResearchReport({
       session: session as AuthorizedSession,
-      projectId,
+      projectId: commissionedProjectId,
       runId,
       report,
       cards: readReportCards(data),
