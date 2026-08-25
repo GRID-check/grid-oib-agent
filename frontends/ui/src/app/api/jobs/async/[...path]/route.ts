@@ -346,7 +346,11 @@ export const GET = tenantSlotRoute(async function GET(
     const authHeaders = buildAuthHeaders(authHeader)
     traceRequest('WorkOS access token present:', !!authHeaders.Authorization)
 
-    const { headerValue, projectId } = await buildCollectionScopeFromRequest(
+    // Only the scope header. The reader's project used to be destructured here
+    // and handed to `fileReportIfCommissioned`; that it is now unused is the
+    // check on the claim that a report's destination comes from the run — the
+    // linter fails the build if it is ever consulted again without being read.
+    const { headerValue } = await buildCollectionScopeFromRequest(
       session,
       parseQueryContext(searchParams)
     )
