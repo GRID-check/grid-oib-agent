@@ -132,9 +132,9 @@ delete. Reduce complexity, never features. That pass is part of done.
 - Branching, Conventional Commits, PR titles: [`CONTRIBUTING.md`](CONTRIBUTING.md).
   Substrate lifts go in the same branch, each its own commit, before the feature
   depends on the repaired primitive.
-- Skills: `.claude/` is generated and gitignored. Repo-authored ones live in
-  `.agents/skills/` and `skills/`; third-party ones are pinned in `apm.yml`.
-  `task agents:setup` rebuilds both halves.
+- Skills: `skills/` is the one source. `apm.yml` lists it and the pinned
+  third-party ones, and `task agents:setup` publishes the set into every
+  harness target. `.claude/` and `.agents/` are generated and gitignored.
   [`docs/contributing/agent-skills.md`](docs/contributing/agent-skills.md).
 - `configs/` model names are the boot fallback only. The live default is
   admin-controlled (Platform → Models); moving the fleet is a save in the admin

@@ -1,39 +1,35 @@
 # Agent skills
 
-`.claude/` is **generated and gitignored**. Nothing in it is source. `task
-agents:setup` rebuilds it, and `task setup` already runs that.
+`skills/` is the single source. Everything else is generated.
 
-Skills come from two places, with different rules.
+Every skill this repo authors lives in [`../../skills/`](../../skills/), listed
+in [`../../apm.yml`](../../apm.yml) as a local path beside the pinned
+third-party ones. apm publishes the whole set into each harness directory named
+in that manifest's `targets`, so `.claude/` and `.agents/` are **generated and
+gitignored** and nothing in them is source.
 
-## Repo-authored
+```bash
+task agents:setup   # publish every skill in apm.yml to every target
+task agents:audit   # drift against the lock, plus a hidden-Unicode scan
+task agents:update  # refresh the third-party pins, then review the diff
+```
 
-Source of truth on disk, tracked in git:
+Adding a harness is one line in `targets`. Adding a skill is a directory in
+`skills/` and one line in `dependencies.apm`. There is no copy step to keep in
+sync, which is the point: an earlier version of this had a script symlinking
+one directory into another, and before that, ten committed files that *looked*
+like symlinks and were plain text containing a path (git mode `100644`, not
+`120000`). None of them resolved, so none of those skills had ever loaded for
+anyone. Publishing from one source removes the category.
 
-| Location | Audience |
-|---|---|
-| `.agents/skills/` | Maintainers working **on** this repo (`aiq-add-tool`, `aiq-release-qa`, `aiq-definition-of-done`, …) |
-| `skills/` | Consumers calling a running AI-Q server (`aiq-deploy`, `aiq-research`) |
-
-See [`../../.agents/skills/README.md`](../../.agents/skills/README.md) for which
-is which. Edit these in place. `task agents:link` symlinks them into
-`.claude/skills/` so Claude Code can see them.
-
-That link step replaced eight files committed as *text containing a path* rather
-than as real symlinks (git mode `100644`, not `120000`), so none of them
-resolved and none of those skills ever loaded. Generating the links removes the
-category of bug rather than repairing eight files.
+`skills/` holds two audiences, maintainer and API-consumer, side by side. See
+[`../../skills/README.md`](../../skills/README.md) for which is which and how to
+add one.
 
 ## Installed
 
-Third-party skills are dependencies: declared in
-[`../../apm.yml`](../../apm.yml), pinned to a commit, locked in
+Third-party skills sit in the same manifest, pinned to a commit and locked in
 `apm.lock.yaml`, fetched by [apm](https://github.com/microsoft/apm).
-
-```bash
-task agents:setup   # apm install --frozen, then link the repo-authored ones
-task agents:audit   # drift against the lock, plus a hidden-Unicode scan
-task agents:update  # refresh the pins, then review the diff before committing
-```
 
 | Skill | Fires | Why |
 |---|---|---|
@@ -69,7 +65,9 @@ them. `AGENTS.md` and this directory are written under the rule. Nobody has
 decided whether the rest should follow, and a punctuation sweep of existing docs
 is not worth a diff on its own.
 
-**apm 0.28 resolves targets inconsistently.** `install` detects `claude` from
-`.claude/` and `CLAUDE.md`; the `audit` replay also resolves `agents` from
-`.agents/`, then reports files `install` never wrote as drift. `apm.yml` pins
-`targets` so both agree.
+**apm 0.28 resolves targets inconsistently, and names them inconsistently.**
+Autodetection in `install` and in the `audit` replay disagree, which reported
+files `install` never wrote as drift, so `apm.yml` pins `targets` rather than
+relying on detection. The name for the shared `.agents/skills/` path is
+`agent-skills` in a manifest, while the CLI's `--target` help also lists
+`agents`, which a manifest rejects.

@@ -7,20 +7,36 @@
 #   task agents:setup   install from this file
 #   task agents:audit   drift and hidden-Unicode scan
 #
-# `targets` is pinned rather than auto-detected because apm 0.28 resolves it
-# differently in `install` (claude, from .claude/ and CLAUDE.md) and in the
-# `audit` replay (also agents, from .agents/), so audit reported permanent
-# drift against files install never wrote. Add a harness here when the repo
-# gains one.
+# One source, many harnesses. `skills/` holds every skill this repo authors;
+# apm deploys them, alongside the third-party ones, into each harness path
+# below. Those paths (.claude/, .agents/) are generated and gitignored.
+#
+# Add a harness here and its directory starts getting the same set. Pinned
+# rather than auto-detected because apm 0.28 resolves targets differently in
+# `install` and in the `audit` replay, so autodetection reported permanent
+# drift against files install never wrote.
 name: grid-oib-agent
 version: 1.0.0
 description: Agent skills for working on the Grid OIB agent repository
 
 targets:
-  - claude
+  - claude        # .claude/skills/
+  - agent-skills  # .agents/skills/, the shared Agent Skills path
 
 dependencies:
   apm:
+    # This repo's own skills. Local paths, so editing one and re-running
+    # `task agents:setup` republishes it to every target.
+    - ./skills/aiq-add-data-source
+    - ./skills/aiq-add-tool
+    - ./skills/aiq-customize-prompts-models
+    - ./skills/aiq-definition-of-done
+    - ./skills/aiq-deploy
+    - ./skills/aiq-maintain-ci
+    - ./skills/aiq-prepare-pr
+    - ./skills/aiq-release-qa
+    - ./skills/aiq-research
+
     # Writing documents an agent consumes: skills, AGENTS.md, CLAUDE.md.
     # Pinned to a commit; an unpinned ref drifts silently under `apm install`.
     - mattpocock/skills/skills/productivity/writing-for-agents#6654f6b60cd9d5be8b54c6fafe44346dabeb3b76

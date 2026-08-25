@@ -107,10 +107,11 @@ tasks:
 
   # ── agent skills (apm) ──────────────────────────────────────────────────────
   #
-  # `.claude/` is GENERATED and gitignored. Two halves rebuild it: apm deploys
-  # the third-party skills pinned in `apm.yml`, and the link script symlinks the
-  # repo-authored ones out of `.agents/skills/` and `skills/`, which are tracked.
-  # Nothing under `.claude/` is source, so nothing there is worth committing.
+  # `skills/` is the single source: this repo's own skills live there, declared
+  # in `apm.yml` as local paths beside the pinned third-party ones. apm
+  # publishes the whole set into every target in that manifest, so `.claude/`
+  # and `.agents/` are GENERATED and gitignored. Adding a harness is one line
+  # in `apm.yml`, not a new copy step here.
   #
   # Run through `uvx` rather than a global install: uv is already required for
   # the backend venv, and this way the CLI version is pinned in one line here
@@ -119,22 +120,9 @@ tasks:
   # which is what makes this reproducible in CI.
 
   agents:setup:
-    desc: Rebuild .claude/ — install the pinned third-party skills, link the repo's own
-    cmds:
-      - task: agents:install
-      - task: agents:link
-
-  agents:install:
-    desc: Install the pinned third-party agent skills from apm.yml
+    desc: Publish every skill in apm.yml into the harness directories it targets
     cmds:
       - uvx --from apm-cli=={{.APM_VERSION}} apm install --frozen
-
-  agents:link:
-    desc: Symlink the repo-authored skills into the generated .claude/skills/
-    cmds:
-      # `--no-project` because the script is stdlib-only and must work on a
-      # fresh clone, before `uv sync` has built `.venv`.
-      - uv run --no-project python scripts/link_agent_skills.py
 
   agents:audit:
     desc: Scan installed agent skills for drift and hidden Unicode

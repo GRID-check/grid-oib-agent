@@ -40,7 +40,7 @@ noticing is still the only defence, the ratchet has not clicked.
 |---|---|---|
 | The behaviour was never pinned down | Written spec, or an up-front question instead of a guess | The task's own brief; `AskUserQuestion` when the readings diverge materially |
 | Domain context was missing | Repository documentation or an ADR | `docs/architecture/`, `docs/adr/` |
-| The same implementation error, again | An instruction, a skill, or a lint rule | `AGENTS.md`, `.agents/skills/`, ruff and eslint config |
+| The same implementation error, again | An instruction, a skill, or a lint rule | `AGENTS.md`, `skills/`, ruff and eslint config |
 | A regression nobody caught | A deterministic gate | A test in the suite `task verify` runs |
 | The environment, not the code | The environment contract | `Taskfile.yml`, `.devcontainer/`, `deploy/compose/` |
 | An unsafe decision was reachable at all | A boundary that refuses it | A database CHECK or foreign key, an RLS policy, a permission rule |
