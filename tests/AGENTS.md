@@ -3,7 +3,7 @@
 pytest over `src/aiq_agent`, mirroring its package layout. This is the suite
 `task be:test` runs and the one carrying CI's 65% coverage gate.
 
-Read [`../AGENTS.md`](../AGENTS.md) too. This file is only what is true here.
+Additive to the root [`../AGENTS.md`](../AGENTS.md), not a replacement: this file is only what is true here.
 
 ## Commands
 
@@ -35,7 +35,7 @@ trap in the repo.
 | Fix a bug | Add the test that fails without your fix | Review. A fix with no test is a fix that comes back |
 | Assert on an LLM call | Assert the contract — tools bound, prompt block present, bounds respected — never the prose | The test passes until the model changes its wording, then fails for no reason |
 | Test tenant behaviour | Remember this suite does not exercise row-level security; `task db:test:rls` does, and `task verify` does not run it | A tenancy bug that only RLS would catch |
-| Add a suite under `sources/` | Know that no CI job runs it — see [`sources/AGENTS.md`](../sources/AGENTS.md) | Nothing. That is the problem |
+| Add a suite under `sources/` | Run `pytest sources -q` yourself and paste the output — no CI job runs it ([`sources/AGENTS.md`](../sources/AGENTS.md)) | Nothing. That is the problem |
 
 ## Reference
 

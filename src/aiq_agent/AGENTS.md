@@ -5,7 +5,7 @@ card surface, the post-answer stages, and the knowledge layer. Stateless per
 turn — conversation state lives in Postgres and reaches this process in headers
 (ADR-0003, ADR-0013).
 
-Read [`../../AGENTS.md`](../../AGENTS.md) too. This file is only what is true here.
+Additive to the root [`../../AGENTS.md`](../../AGENTS.md), not a replacement: this file is only what is true here.
 
 ## Commands
 

@@ -4,7 +4,7 @@ The Piloti landing page, blog and changelog: an Astro service, German and
 English, with Keystatic as the CMS the platform owner writes in. Deployed as
 its own container; it shares nothing with the product UI but the brand.
 
-Read [`../../AGENTS.md`](../../AGENTS.md) too. This file is only what is true here.
+Additive to the root [`../../AGENTS.md`](../../AGENTS.md), not a replacement: this file is only what is true here.
 
 ## Commands
 

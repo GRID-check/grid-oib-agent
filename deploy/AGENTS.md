@@ -4,7 +4,7 @@ Three deployment paths off one image set: Docker Compose (`compose/`, plus a
 Coolify variant), Helm charts (`helm/`), and the Pulumi TypeScript program
 (`pulumi/`) that is the Kubernetes source of truth.
 
-Read [`../AGENTS.md`](../AGENTS.md) too. This file is only what is true here.
+Additive to the root [`../AGENTS.md`](../AGENTS.md), not a replacement: this file is only what is true here.
 
 ## Commands
 
@@ -24,8 +24,7 @@ once left a fresh clone failing `task verify` at `infra:types`.
 |---|---|---|
 | Change a manifest | Add or update a case in `index*.spec.ts` | `typecheck` proves the program is well-typed and nothing about the manifests. Every SeaweedFS bug in this repo's history was a string: a renamed flag, a Service missing the gRPC port `weed shell` needs, a probe pointed at an endpoint that answers 423 |
 | Add a service | Add it to Compose **and** Pulumi, or say in the PR why only one | The paths silently diverge and the difference is found in production |
-| Add an environment variable | Its row in [`docs/deployment/environment-variables.md`](../docs/deployment/environment-variables.md), in the same change | Review, and an operator with no way to know what it does |
-| Edit `Pulumi.<stack>.yaml` | Leave the encrypted secrets alone and do not reorder keys above them | They are encrypted by the stack's Pulumi-Cloud key and deliberately committed. detect-secrets' filter here is line-scoped, so inserting a key above them shifts every line and breaks the next unlucky PR |
+| Edit `Pulumi.<stack>.yaml` | Append new keys **below** the encrypted secrets block, leaving those lines untouched | They are encrypted by the stack's Pulumi-Cloud key and deliberately committed. detect-secrets' filter here is line-scoped, so inserting a key above them shifts every line and breaks the next unlucky PR |
 | Add a replica | Check the tier actually scales — the chat/web tier is single-replica pending the ingest-status + reaper-lock follow-up | Conversation affinity (ADR-0028) is what makes the agent tier scale; the web tier does not have it yet |
 
 ## Reference

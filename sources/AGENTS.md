@@ -4,7 +4,7 @@ NAT data-source packages: web search, scholarly search, prediction markets, the
 RIS legal adapter, and the knowledge layer. Each is its own uv workspace member
 with its own `pyproject.toml` and tests, installed into the shared venv.
 
-Read [`../AGENTS.md`](../AGENTS.md) too. This file is only what is true here.
+Additive to the root [`../AGENTS.md`](../AGENTS.md), not a replacement: this file is only what is true here.
 
 ## The gap you need to know about
 

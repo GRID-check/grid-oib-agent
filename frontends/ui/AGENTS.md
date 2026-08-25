@@ -15,7 +15,7 @@ the WebSocket proxy (`server.js`). This is also where tenancy, authorization and
 the database live — the Python agent is stateless and trusts what this tier
 sends it.
 
-Read [`../../AGENTS.md`](../../AGENTS.md) too. This file is only what is true here.
+Additive to the root [`../../AGENTS.md`](../../AGENTS.md), not a replacement: this file is only what is true here.
 
 ## Commands
 

@@ -6,7 +6,7 @@ reverse is the bar: a new service or datastore, an external dependency, the
 auth/tenancy/security model, a data-model change, a cross-cutting pattern, or
 anything that changes a public contract.
 
-Read [`../../AGENTS.md`](../../AGENTS.md) too. This file is only what is true here.
+Additive to the root [`../../AGENTS.md`](../../AGENTS.md), not a replacement: this file is only what is true here.
 
 ## Writing one
 

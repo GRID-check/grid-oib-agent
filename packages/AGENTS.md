@@ -5,7 +5,7 @@ Two implementations of the same spatial surface over IFC: `ifc-spatial`
 IfcOpenShell). The agent reaches them through
 `aiq_agent/knowledge/ifc_spatial_client.py` (ADR-0045).
 
-Read [`../AGENTS.md`](../AGENTS.md) too. This file is only what is true here.
+Additive to the root [`../AGENTS.md`](../AGENTS.md), not a replacement: this file is only what is true here.
 
 ## The gap you need to know about
 
@@ -34,7 +34,7 @@ the correlated substrate lift, and it belongs in the same branch.
 |---|---|---|
 | Change an operator | Keep the two implementations' answer contracts identical | The agent gets a different number depending on which engine answered, with nothing to detect it |
 | Return a measurement | Carry the provenance: GlobalIds, the operator expression, an absolute tolerance | A measurement without provenance is a number the agent cannot defend, and it is not a citable source |
-| Add a geometry dependency | Check the version floor comment in `ifc-spatial-py/pyproject.toml` first | `shapely` 2.1 is required by the *test suite's* cross-checks, not by the operators — do not "simplify" that pin away |
+| Add a geometry dependency | Check the version floor comment in `ifc-spatial-py/pyproject.toml` first | The `shapely>=2.1` floor is there for the *test suite's* GEOS cross-checks, not for the operators. Leave it where it is |
 | Edit `ifc-spatial` | Keep the MPL-2.0 headers and `NOTICE` intact | It is separately licensed from the rest of the repo |
 
 ## Reference

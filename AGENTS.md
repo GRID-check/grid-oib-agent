@@ -18,16 +18,8 @@ task verify             # the merge gate. Run it before you call anything done
 ```
 
 `task setup` needs `uv`, `bun` and Node on the PATH; it installs everything
-else, is idempotent, and takes a few minutes on a cold clone. `bun` is the
-installer and script runner for the UI, never the runtime — see
-[`gotchas.md`](docs/contributing/gotchas.md) before you reach for `--bun`.
-
-Two things `task setup` does not do, both of which fail later and confusingly:
-it does not install the git hooks (`pre-commit install`, above), and it does not
-give you `task db:test:rls`, which needs PostgreSQL server binaries and is a
-required merge check whenever you touch the tenant boundary.
-
-`task --list` is the current command list and beats any list written down here.
+else, is idempotent, and takes a few minutes on a cold clone. `task --list` is
+the live command list and beats any list written down here.
 
 ## Start here
 
@@ -48,7 +40,7 @@ to add here has no home yet: give it one under
 This file is the part that is true everywhere. Each service carries its own
 `AGENTS.md` with the part that is true only there — the onboarding guide for
 that one thing. **Read the guide for the area you are about to touch before you
-touch it**, and read this one as well; they are additive, not alternatives.
+touch it**. They are additive: this file still applies.
 
 | You are working in | Read |
 |---|---|
@@ -62,9 +54,8 @@ touch it**, and read this one as well; they are additive, not alternatives.
 | `tests/` — the backend suite | [`tests/AGENTS.md`](tests/AGENTS.md) |
 | `docs/adr/` — writing or superseding a decision | [`docs/adr/AGENTS.md`](docs/adr/AGENTS.md) |
 
-Open it yourself, and treat anything your harness loaded on its own as a bonus.
-Claude Code reaches a nested guide only after it has already read a file in that
-directory, and some harnesses never do. One read settles it.
+Open it yourself. Harnesses differ in whether they load it for you, and Claude
+reaches one only after it has already opened a file in that directory.
 
 Why these files are shaped the way they are, and what breaks when they are not:
 [`docs/contributing/agent-onboarding-files.md`](docs/contributing/agent-onboarding-files.md).
@@ -118,6 +109,19 @@ means the plan was already agreed and you paused anyway. Carry on to the end
 state the user described, then present the result and let them redirect. Stop
 early only for something genuinely irreversible or genuinely ambiguous, and when
 you do, say what you need rather than offering a menu.
+
+**Ask first only for a one-way door.** That list is short, and everything on it
+has a safe form that is the default — run the writing form when the user asked
+for it in this session:
+
+| Run it freely | Ask first |
+|---|---|
+| `task fe:provision:authz` and its siblings, which check | the same task with `-- --apply`, which writes the catalog into WorkOS |
+| `npm run preview` in `deploy/pulumi` | `npm run up`, which mutates the cluster |
+| writing a migration file | `bun run db:migrate` or `migrate:storage` against a database you did not create |
+| a commit, a branch, a push to your own branch | a force-push, or any history rewrite on a branch someone else may have checked out |
+
+Everything else is reversible, so it does not get a checkpoint.
 
 **When something surprises you or breaks, read
 [`docs/contributing/gotchas.md`](docs/contributing/gotchas.md) before you start
@@ -184,12 +188,10 @@ delete. Reduce complexity, never features. That pass is part of done.
 - Code conventions, the `any` ban, coercing raw `sql<T>`, where a shared helper
   belongs, capability doctrine:
   [`docs/contributing/code-conventions.md`](docs/contributing/code-conventions.md).
-- Patterns this codebase applies and what enforces each one (atomic design,
-  guard scripts, generated artifacts, per-turn `ContextVar` registries):
+- Patterns in use and what enforces each:
   [`docs/architecture/patterns-in-use.md`](docs/architecture/patterns-in-use.md).
 - Verification, CI sharding, the security stack, visual evidence:
   [`docs/contributing/testing-and-verification.md`](docs/contributing/testing-and-verification.md).
-- Branching, Conventional Commits, PR titles: [`CONTRIBUTING.md`](CONTRIBUTING.md).
 - Skills: `skills/` is the one source, `.claude/` and `.agents/` are generated.
   [`docs/contributing/agent-skills.md`](docs/contributing/agent-skills.md).
 - `configs/` model names are the boot fallback only. The live default is

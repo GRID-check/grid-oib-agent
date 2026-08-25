@@ -4,7 +4,7 @@ The backend's FastAPI front end, loaded by NAT as a front-end plugin
 (`_type: aiq_api`): REST routes, the async job API with SSE streaming, and
 `/v1/ingest`. A uv workspace member, installed into the same venv as the agent.
 
-Read [`../../AGENTS.md`](../../AGENTS.md) too. This file is only what is true here.
+Additive to the root [`../../AGENTS.md`](../../AGENTS.md), not a replacement: this file is only what is true here.
 
 ## Commands
 
@@ -22,7 +22,6 @@ task be:verify        # lint + core suite + this suite, as CI runs them
 | Add a job phase | Emit it through `jobs/phase_events.py` so the SSE stream and the event store agree | The UI's progress display and the stored history diverge, and only one of them is replayable |
 | Store job payloads | Go through `jobs/payload_crypto.py` | Job payloads carry tenant content into a shared store |
 | Change job execution | Respect `GRID_JOB_EXECUTION=db\|dask` — both paths must work (ADR-0021) | The default is `dask`; a change tested only on the db path ships broken for everyone |
-| Add an environment variable | Add its row to [`docs/deployment/environment-variables.md`](../../docs/deployment/environment-variables.md) | Review |
 
 ## Rules that need more than a row
 
@@ -33,7 +32,7 @@ access belongs in the BFF, not here.
 
 **Job workers are claimed in the database, not assigned.** `jobs/queue.py` and
 `jobs/worker.py` implement the claim; the reaper and the checkpoint retention
-sweep assume it. Do not add a second scheduler beside it.
+sweep assume it. New work joins by claiming through the same queue.
 
 ## Reference
 

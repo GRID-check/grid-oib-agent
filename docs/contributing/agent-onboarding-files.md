@@ -77,10 +77,27 @@ installed by `task agents:setup`. The three levers that matter most here:
   what an agent cannot find by looking: the unwritten convention, the reason
   behind a choice, the gotcha no config confesses.
 - **Say what to do, not what to avoid.** A prohibition makes the forbidden thing
-  more available, not less.
+  more available, not less. "Append new keys below the encrypted block" beats
+  "do not reorder keys above them", and a ban earns its place only as a hard
+  guardrail stated alongside the positive target.
+- **A rule lives in exactly one file.** "Add an environment variable" reaches
+  every scope, so it is a root obligation and appears in no service guide. A
+  copy in a second guide is one more place to forget when the rule changes.
+- **Every obligation names something checkable.** "Run `pytest sources -q` and
+  paste the output" is an obligation; "know that no CI job runs it" is a
+  feeling. The third column exists to answer *what fails you*, and "Nothing.
+  That is the problem" is a legitimate and useful answer.
 
 Keep each file short enough to stay read. Adherence falls off well before a file
 gets long, and the root one competes with the actual task for the same window.
+**Treat 200 lines as the root guide's ceiling** — Claude Code's own guidance —
+and pay for a new rule by deleting a stale or duplicated one rather than by
+growing the file. The service guides run 30–95 lines and have room.
+
+One thing belongs at the root and nowhere else: **the list of one-way doors.**
+"Finish the task" tells an agent not to stop for permission on reversible work,
+which is only safe if the irreversible set is written down. It is a table in
+`AGENTS.md`, and each row names the safe form beside the writing one.
 
 ## Keeping them honest
 
