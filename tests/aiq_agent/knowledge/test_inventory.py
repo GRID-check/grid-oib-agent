@@ -11,8 +11,10 @@ from __future__ import annotations
 
 from aiq_agent.common.source_kinds import Shelf
 from aiq_agent.knowledge.inventory import allocate_inventory
+from aiq_agent.knowledge.inventory import allocate_inventory_detailed
 from aiq_agent.knowledge.inventory import document_identity
 from aiq_agent.knowledge.inventory import render_inventory_block
+from aiq_agent.knowledge.inventory import set_inventory_drops
 from aiq_agent.knowledge.inventory import shelf_hint_from_query
 from aiq_agent.knowledge.inventory import stamp_document
 from aiq_agent.knowledge.schema import AvailableDocument
@@ -289,3 +291,75 @@ class TestScopedCollectionRoundTrip:
         text = render_inventory_block([], in_scope_shelves=[e.shelf for e in entries if e.shelf])
         assert "### Büroarchiv" in text
         assert "empty" in text.lower()
+
+
+class TestTruncationIsAnnouncedToTheModel:
+    """A capped shelf must say so IN THE BLOCK, not only in the operator's log.
+
+    The block instructs the model to "answer ONLY from that shelf's group. If
+    the group is empty, say so" — and a shelf-listing question is routed to
+    ``meta``, which strips every search tool, so the block is the only source
+    the answer can come from. A shelf that silently loses its alphabetical tail
+    therefore produces a confidently complete-looking wrong answer with no
+    fallback available.
+    """
+
+    def teardown_method(self):
+        set_inventory_drops(None)
+
+    def test_reports_what_the_cap_dropped_per_shelf(self):
+        docs = [_doc(f"archiv-{i:02d}.pdf", collection="archiv_org", shelf="archiv") for i in range(10)]
+        docs += [_doc(f"proj-{i:02d}.pdf", collection="proj_1", shelf="project") for i in range(4)]
+        kept, dropped = allocate_inventory_detailed(docs, max_documents=6)
+
+        assert len(kept) == 6
+        # Per shelf, not a single global number: the model has to know WHICH
+        # answer is incomplete, and a global count cannot say.
+        assert dropped[Shelf.ARCHIV] + dropped[Shelf.PROJECT] == 8
+        assert dropped[Shelf.ARCHIV] > 0
+
+    def test_no_drops_reported_when_nothing_was_cut(self):
+        docs = [_doc("a.pdf", collection="proj_1", shelf="project")]
+        kept, dropped = allocate_inventory_detailed(docs, max_documents=50)
+        assert len(kept) == 1
+        assert all(count == 0 for count in dropped.values())
+
+    def test_uncapped_allocation_reports_nothing(self):
+        docs = [_doc(f"a{i}.pdf", collection="proj_1", shelf="project") for i in range(3)]
+        _, dropped = allocate_inventory_detailed(docs, max_documents=0)
+        assert dropped == {}
+
+    def test_the_block_tells_the_model_the_shelf_is_incomplete(self):
+        docs = [_doc(f"archiv-{i:02d}.pdf", collection="archiv_org", shelf="archiv") for i in range(10)]
+        kept, dropped = allocate_inventory_detailed(docs, max_documents=4)
+        set_inventory_drops(dropped)
+
+        rendered = render_inventory_block(kept)
+        assert "6 weitere Datei(en)" in rendered
+        assert "unvollst" in rendered
+
+    def test_a_complete_shelf_carries_no_notice(self):
+        docs = [_doc("only.pdf", collection="proj_1", shelf="project")]
+        kept, dropped = allocate_inventory_detailed(docs, max_documents=50)
+        set_inventory_drops(dropped)
+
+        rendered = render_inventory_block(kept)
+        assert "weitere Datei" not in rendered
+
+    def test_the_notice_lands_in_the_truncated_shelf_section(self):
+        docs = [_doc(f"archiv-{i:02d}.pdf", collection="archiv_org", shelf="archiv") for i in range(10)]
+        docs += [_doc("proj.pdf", collection="proj_1", shelf="project")]
+        kept, dropped = allocate_inventory_detailed(docs, max_documents=5)
+        set_inventory_drops(dropped)
+
+        rendered = render_inventory_block(kept)
+        archiv_section = rendered.split("### ")[1]
+        # The notice belongs to the shelf that lost files, not to the block.
+        assert "Büroarchiv" in archiv_section
+        assert "weitere Datei(en)" in archiv_section
+
+    def test_a_stale_count_from_a_previous_turn_cannot_leak(self):
+        set_inventory_drops({Shelf.ARCHIV: 99})
+        set_inventory_drops(None)
+        rendered = render_inventory_block([_doc("a.pdf", collection="proj_1", shelf="project")])
+        assert "99" not in rendered
