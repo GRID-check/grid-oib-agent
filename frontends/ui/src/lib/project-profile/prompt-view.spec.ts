@@ -39,9 +39,13 @@ vi.mock('@/lib/db/schema', () => ({
 const rowsByOrg = new Map<string, { profile: unknown; profilePromptView: string }>()
 vi.mock('@/lib/projects/repository', () => ({
   findProjectPromptView: async (_projectId: string, organizationId: string | null | undefined) =>
-    rowsByOrg.get(organizationId ?? 'anon')?.profilePromptView ?? (dbRows[0] as { profilePromptView?: string })?.profilePromptView ?? null,
+    rowsByOrg.get(organizationId ?? 'anon')?.profilePromptView ??
+    (dbRows[0] as { profilePromptView?: string })?.profilePromptView ??
+    null,
   findProjectProfile: async (_projectId: string, organizationId: string | null | undefined) =>
-    rowsByOrg.get(organizationId ?? 'anon')?.profile ?? (dbRows[0] as { profile?: unknown })?.profile ?? null,
+    rowsByOrg.get(organizationId ?? 'anon')?.profile ??
+    (dbRows[0] as { profile?: unknown })?.profile ??
+    null,
 }))
 
 import { setCacheStore, type CacheStore } from '@/lib/cache'
@@ -77,7 +81,12 @@ class TestStore implements CacheStore {
 
 const rowFor = (bundesland: string, promptView: string) => [
   {
-    profile: { facts: { bundesland: { value: bundesland } }, goals: {}, unknowns: [], assumptions: {} },
+    profile: {
+      facts: { bundesland: { value: bundesland } },
+      goals: {},
+      unknowns: [],
+      assumptions: {},
+    },
     profilePromptView: promptView,
   },
 ]
@@ -160,11 +169,21 @@ describe('project profile cache is partitioned by tenant', () => {
     // straight out of the cache — no query, no tenant scope, no row-level
     // security in the path at all.
     rowsByOrg.set('org-a', {
-      profile: { facts: { bundesland: { value: 'wien' } }, goals: {}, unknowns: [], assumptions: {} },
+      profile: {
+        facts: { bundesland: { value: 'wien' } },
+        goals: {},
+        unknowns: [],
+        assumptions: {},
+      },
       profilePromptView: 'ORG A CONTEXT',
     })
     rowsByOrg.set('org-b', {
-      profile: { facts: { bundesland: { value: 'tirol' } }, goals: {}, unknowns: [], assumptions: {} },
+      profile: {
+        facts: { bundesland: { value: 'tirol' } },
+        goals: {},
+        unknowns: [],
+        assumptions: {},
+      },
       profilePromptView: 'ORG B CONTEXT',
     })
 
@@ -177,11 +196,21 @@ describe('project profile cache is partitioned by tenant', () => {
 
   it('does not serve an anonymous caller the context cached for a tenant', async () => {
     rowsByOrg.set('org-a', {
-      profile: { facts: { bundesland: { value: 'wien' } }, goals: {}, unknowns: [], assumptions: {} },
+      profile: {
+        facts: { bundesland: { value: 'wien' } },
+        goals: {},
+        unknowns: [],
+        assumptions: {},
+      },
       profilePromptView: 'ORG A CONTEXT',
     })
     rowsByOrg.set('anon', {
-      profile: { facts: { bundesland: { value: 'tirol' } }, goals: {}, unknowns: [], assumptions: {} },
+      profile: {
+        facts: { bundesland: { value: 'tirol' } },
+        goals: {},
+        unknowns: [],
+        assumptions: {},
+      },
       profilePromptView: 'ANON CONTEXT',
     })
 
@@ -194,11 +223,21 @@ describe('project profile cache is partitioned by tenant', () => {
     // populated `anon`. Dropping only one leaves the other serving what the
     // write just replaced.
     rowsByOrg.set('org-a', {
-      profile: { facts: { bundesland: { value: 'wien' } }, goals: {}, unknowns: [], assumptions: {} },
+      profile: {
+        facts: { bundesland: { value: 'wien' } },
+        goals: {},
+        unknowns: [],
+        assumptions: {},
+      },
       profilePromptView: 'BEFORE',
     })
     rowsByOrg.set('anon', {
-      profile: { facts: { bundesland: { value: 'wien' } }, goals: {}, unknowns: [], assumptions: {} },
+      profile: {
+        facts: { bundesland: { value: 'wien' } },
+        goals: {},
+        unknowns: [],
+        assumptions: {},
+      },
       profilePromptView: 'BEFORE',
     })
     await loadProjectPromptView('proj-1', 'org-a')

@@ -20,7 +20,7 @@ export function emptyProjectProfile(): ProjectProfile {
 
 export function applyProjectProfilePatch(
   profile: ProjectProfile,
-  patch: ProjectProfilePatchOperation[],
+  patch: ProjectProfilePatchOperation[]
 ): ProjectProfile {
   const next = structuredClone(ProjectProfileSchema.parse(profile))
 
@@ -33,7 +33,10 @@ export function applyProjectProfilePatch(
   return ProjectProfileSchema.parse(next)
 }
 
-function applyPatchOperation(profile: ProjectProfile, operation: ProjectProfilePatchOperation): void {
+function applyPatchOperation(
+  profile: ProjectProfile,
+  operation: ProjectProfilePatchOperation
+): void {
   const parts = operation.path.split('/').slice(1).map(decodeJsonPointerSegment)
   parts.forEach((part) => assertSafePointerSegment(part, operation.path))
   const key = parts.at(-1)
@@ -78,7 +81,11 @@ function applyPatchOperation(profile: ProjectProfile, operation: ProjectProfileP
   parent[key] = operation.value
 }
 
-function applyArrayOperation(parent: unknown[], key: string, operation: ProjectProfilePatchOperation): void {
+function applyArrayOperation(
+  parent: unknown[],
+  key: string,
+  operation: ProjectProfilePatchOperation
+): void {
   if (operation.op === 'add' && key === '-') {
     parent.push(operation.value)
     return
@@ -113,14 +120,14 @@ function applyArrayOperation(parent: unknown[], key: string, operation: ProjectP
  */
 export function isPatchAlreadyApplied(
   profile: ProjectProfile,
-  patch: ProjectProfilePatchOperation[],
+  patch: ProjectProfilePatchOperation[]
 ): boolean {
   const settle = (value: ProjectProfile) => pruneResolvedAssumptions(pruneResolvedUnknowns(value))
   return equalIgnoringInstants(
     settle(applyProjectProfilePatch(profile, patch)),
     // Through the same engine with no operations, so both sides are compared in
     // the schema's canonical shape rather than raw jsonb against parsed output.
-    settle(applyProjectProfilePatch(profile, [])),
+    settle(applyProjectProfilePatch(profile, []))
   )
 }
 
@@ -135,7 +142,9 @@ function equalIgnoringInstants(a: unknown, b: unknown): boolean {
   }
   if (isPlainObject(a) && isPlainObject(b)) {
     const keysOf = (value: Record<string, unknown>) =>
-      Object.keys(value).filter((key) => key !== 'updatedAt').sort()
+      Object.keys(value)
+        .filter((key) => key !== 'updatedAt')
+        .sort()
     const keys = keysOf(a)
     const otherKeys = keysOf(b)
     return (
@@ -164,7 +173,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  */
 export function normalizeProfilePatchOperations(
   patch: ProjectProfilePatchOperation[],
-  now: string = new Date().toISOString(),
+  now: string = new Date().toISOString()
 ): ProjectProfilePatchOperation[] {
   return patch.map((operation) => {
     if (operation.op === 'remove') return operation
@@ -173,7 +182,12 @@ export function normalizeProfilePatchOperations(
     if (factKey && isBareValue(operation.value)) {
       return {
         ...operation,
-        value: { value: operation.value, confidence: 'confirmed', source: 'user_confirmed', updatedAt: now },
+        value: {
+          value: operation.value,
+          confidence: 'confirmed',
+          source: 'user_confirmed',
+          updatedAt: now,
+        },
       }
     }
 
@@ -181,7 +195,13 @@ export function normalizeProfilePatchOperations(
     if (assumptionKey && isBareValue(operation.value)) {
       return {
         ...operation,
-        value: { value: operation.value, status: 'unconfirmed', reason: '', source: 'agent_suggested', updatedAt: now },
+        value: {
+          value: operation.value,
+          status: 'unconfirmed',
+          reason: '',
+          source: 'agent_suggested',
+          updatedAt: now,
+        },
       }
     }
 

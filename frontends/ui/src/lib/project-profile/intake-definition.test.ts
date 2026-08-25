@@ -57,7 +57,9 @@ describe('buildIntakeProfile', () => {
   })
 
   it('lets an explicit A1 answer override the seeded project name', () => {
-    const profile = buildIntakeProfile({ A1: 'Renamed Project' }, definition, { projectName: 'Seed' })
+    const profile = buildIntakeProfile({ A1: 'Renamed Project' }, definition, {
+      projectName: 'Seed',
+    })
     expect(profile.facts.project_name?.value).toBe('Renamed Project')
   })
 
@@ -81,7 +83,7 @@ describe('buildIntakeProfile', () => {
 
     const withDetails = buildIntakeProfile(
       { A2_country: 'de', standort_details: 'Bayern, Deutschland' },
-      definition,
+      definition
     )
     expect(withDetails.facts.standort_details?.value).toBe('Bayern, Deutschland')
     expect(withDetails.facts.bundesland?.value).toBe('ausserhalb_oesterreichs')
@@ -93,22 +95,19 @@ describe('buildIntakeProfile', () => {
 
     const confirmed = buildIntakeProfile(
       { ...base, 'C2@bw1': 3, [modeKeyFor('C2@bw1')]: 'wert' },
-      definition,
+      definition
     )
     expect(confirmed.facts['geschosse_oberirdisch@bw1']?.value).toBe(3)
 
     const estimated = buildIntakeProfile(
       { ...base, 'C2@bw1': 4, [modeKeyFor('C2@bw1')]: 'geschaetzt' },
-      definition,
+      definition
     )
     expect(estimated.facts['geschosse_oberirdisch@bw1']).toBeUndefined()
     expect(estimated.assumptions['geschosse_oberirdisch@bw1']?.value).toBe(4)
     expect(estimated.assumptions['geschosse_oberirdisch@bw1']?.status).toBe('unconfirmed')
 
-    const open = buildIntakeProfile(
-      { ...base, [modeKeyFor('C2@bw1')]: 'offen' },
-      definition,
-    )
+    const open = buildIntakeProfile({ ...base, [modeKeyFor('C2@bw1')]: 'offen' }, definition)
     expect(open.unknowns).toContain('geschosse_oberirdisch@bw1')
   })
 
@@ -121,7 +120,7 @@ describe('buildIntakeProfile', () => {
     const profile = buildIntakeProfile(
       { A2_country: 'at', A2_land: 'wien', A2_adr: 'Test', A5: ['neubau'] },
       definition,
-      { projectName: 'Test' },
+      { projectName: 'Test' }
     )
     expect(profile.facts.country?.value).toBe('at')
     expect(profile.facts.bundesland?.value).toBe('wien')
@@ -131,7 +130,7 @@ describe('buildIntakeProfile', () => {
     const profile = buildIntakeProfile(
       { A2_country: 'de', standort_details: 'Bayern, Deutschland' },
       definition,
-      { projectName: 'Test' },
+      { projectName: 'Test' }
     )
     expect(profile.facts.bundesland?.value).toBe('ausserhalb_oesterreichs')
     expect(profile.facts.standort_details?.value).toBe('Bayern, Deutschland')
@@ -223,7 +222,9 @@ describe('labelForProfileKey', () => {
   })
 
   it('resolves a scoped key by its base', () => {
-    expect(labelForProfileKey(definition, 'geschosse_oberirdisch@bw1')).toBe('Anzahl oberirdischer Geschoße')
+    expect(labelForProfileKey(definition, 'geschosse_oberirdisch@bw1')).toBe(
+      'Anzahl oberirdischer Geschoße'
+    )
   })
 
   it('falls back to a title-cased humanization for genuinely unknown keys', () => {
@@ -280,7 +281,7 @@ describe('validateProfilePatchVocabulary', () => {
         confidence: 'confirmed',
         source: 'user_confirmed',
         updatedAt: '2026-07-08T00:00:00.000Z',
-      }),
+      })
     ).toThrow(/Bauwerkstyp/)
   })
 
@@ -293,7 +294,9 @@ describe('validateProfilePatchVocabulary', () => {
   })
 
   it('rejects a multi-select value outside the options', () => {
-    expect(() => validate('add', '/facts/vorhabensart', ['neubau', 'nope'])).toThrow(/Art des Vorhabens/)
+    expect(() => validate('add', '/facts/vorhabensart', ['neubau', 'nope'])).toThrow(
+      /Art des Vorhabens/
+    )
   })
 })
 
@@ -302,7 +305,7 @@ describe('pruneStaleConditionalAnswers', () => {
     // A6 (Baujahr) applies only for existing-building work. Pure Neubau → prune it.
     const pruned = pruneStaleConditionalAnswers(
       { A5: ['neubau'], A6: 1962, [modeKeyFor('A6')]: 'wert' },
-      definition,
+      definition
     )
     expect(pruned.A6).toBeUndefined()
     expect(pruned[modeKeyFor('A6')]).toBeUndefined()
@@ -319,7 +322,7 @@ describe('pruneStaleConditionalAnswers', () => {
     // C2@bw1 depends on C1@bw1 === 'gebaeude'. Flip the building type → prune C2.
     const pruned = pruneStaleConditionalAnswers(
       { 'C1@bw1': 'klein', 'C2@bw1': 3, [modeKeyFor('C2@bw1')]: 'wert' },
-      definition,
+      definition
     )
     expect(pruned['C2@bw1']).toBeUndefined()
     expect(pruned['C1@bw1']).toBe('klein')
@@ -449,7 +452,7 @@ describe('BUNDESLAND_TOKENS / isValidBundeslandToken', () => {
         'vorarlberg',
         'burgenland',
         'ausserhalb_oesterreichs',
-      ]),
+      ])
     )
   })
 

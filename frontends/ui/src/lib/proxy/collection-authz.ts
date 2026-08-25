@@ -16,7 +16,10 @@
  */
 
 import { findProjectIdByCollectionName } from '@/lib/projects/repository'
-import { requireProjectAccess } from '@/lib/authz/projects'
+import { requireProjectAccess, type ProjectPermission } from '@/lib/authz/projects'
+
+/** Writes into a project's corpus, accepting the pre-split umbrella too. */
+const PROJECT_UPLOAD: readonly ProjectPermission[] = ['project:documents:write', 'project:edit']
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { archivCollectionName } from '@/lib/archiv/collection'
 import { sessionCollectionName } from '@/lib/collection-scope'
@@ -41,7 +44,9 @@ export function parseQueryContext(searchParams: URLSearchParams): ProxyRequestCo
  * Extract the request context from a parsed JSON body. Accepts the backend's
  * `session_id` alias for the conversation id.
  */
-export function parseBodyContext(parsedBody: Record<string, unknown> | undefined): ProxyRequestContext {
+export function parseBodyContext(
+  parsedBody: Record<string, unknown> | undefined
+): ProxyRequestContext {
   return {
     projectId: typeof parsedBody?.projectId === 'string' ? parsedBody.projectId : undefined,
     conversationId:
@@ -56,7 +61,7 @@ export function parseBodyContext(parsedBody: Record<string, unknown> | undefined
 /** Resolve the request context, preferring body fields over query parameters. */
 export function resolveRequestContext(
   searchParams: URLSearchParams,
-  parsedBody?: Record<string, unknown>,
+  parsedBody?: Record<string, unknown>
 ): ProxyRequestContext {
   const queryContext = parseQueryContext(searchParams)
 
@@ -84,14 +89,19 @@ export interface CollectionAuthzDeps {
   /** Find the project id owning `collectionName` inside `organizationId`, or null. */
   findProjectIdByCollection(collectionName: string, organizationId: string): Promise<string | null>
   /** Throws (NotFoundError) when the session lacks the permission on the project. */
-  requireProjectAccess(session: AuthorizedSession, projectId: string, permission: 'project:edit'): Promise<unknown>
+  requireProjectAccess(
+    session: AuthorizedSession,
+    projectId: string,
+    permission: readonly ProjectPermission[]
+  ): Promise<unknown>
 }
 
 const defaultDeps: CollectionAuthzDeps = {
   async findProjectIdByCollection(collectionName, organizationId) {
     return findProjectIdByCollectionName(collectionName, organizationId)
   },
-  requireProjectAccess: (session, projectId, permission) => requireProjectAccess(session, projectId, permission),
+  requireProjectAccess: (session, projectId, permission) =>
+    requireProjectAccess(session, projectId, permission),
 }
 
 /**
@@ -104,7 +114,7 @@ export async function validateCollectionName(
   path: string[],
   session: GridSession | null,
   context: ProxyRequestContext,
-  deps: CollectionAuthzDeps = defaultDeps,
+  deps: CollectionAuthzDeps = defaultDeps
 ): Promise<Response | null> {
   if (path.length < 2 || path[0] !== 'collections') {
     return null
@@ -128,7 +138,10 @@ export async function validateCollectionName(
         return handleAuthzError(new Error('Not found'))
       }
 
-      await deps.requireProjectAccess(session as AuthorizedSession, projectId, 'project:edit')
+      // Proxy collection routes cover writes (upload/delete) into the project
+      // corpus, so the permission is the document one; the umbrella stays
+      // accepted for roles provisioned before the ADR-0038 split.
+      await deps.requireProjectAccess(session as AuthorizedSession, projectId, PROJECT_UPLOAD)
     } catch (error) {
       return handleAuthzError(error)
     }
@@ -143,15 +156,25 @@ export async function validateCollectionName(
     if (!session?.organizationId) {
       return handleAuthzError(new Error('Forbidden'))
     }
-    if (collectionName !== archivCollectionName(session.organizationId) || !canManageArchiv(session)) {
+    if (
+      collectionName !== archivCollectionName(session.organizationId) ||
+      !canManageArchiv(session)
+    ) {
       return handleAuthzError(new Error('Forbidden'))
     }
     return null
   }
 
   if (collectionName.startsWith('s_')) {
-    if (!context.conversationId || sessionCollectionName(context.conversationId) !== collectionName) {
-      return errorEnvelope(400, 'INVALID_COLLECTION', 'Collection does not match active conversation')
+    if (
+      !context.conversationId ||
+      sessionCollectionName(context.conversationId) !== collectionName
+    ) {
+      return errorEnvelope(
+        400,
+        'INVALID_COLLECTION',
+        'Collection does not match active conversation'
+      )
     }
     return null
   }

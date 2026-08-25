@@ -1,0 +1,34 @@
+fixes:
+  - >
+    Project roles now mean what the access reference says they mean. The
+    Contributor role can be assigned — it could not be before — and the
+    permission that defines it, using the research agent in a project, is now
+    actually enforced. A Viewer reads a project's documents and conversations
+    and can no longer start research runs against it.
+  - >
+    A Viewer opening a project's chat now sees the composer locked with the
+    reason, instead of typing a question and watching it fail on send. The
+    member roster reports the role each person really holds, instead of
+    rounding narrower roles down to "Viewer".
+  - >
+    Read-only platform staff are now read-only. The Platform Support role
+    passed every platform gate, including the ones behind changing model
+    defaults, retrieval settings and the shared knowledge base. Each platform
+    screen now requires the specific permission it needs, so Support can see
+    all of them and change none of them.
+  - >
+    Platform Support also works while viewing a tenant organization, which it
+    previously could not.
+  - >
+    Organization-wide access to every project is now a permission an
+    administrator role holds, rather than a role called "Admin". A custom
+    administrator role built for your organization reaches projects like the
+    built-in one does, and a role that merely shares the name no longer
+    inherits access it was never granted.
+  - >
+    Scheduled agent skills are reachable again for project admins. The
+    permission behind them was renamed without the identity provider being
+    updated, so only organization admins could create or run them.
+  - >
+    A project whose creation failed part-way is no longer left behind
+    unreachable by the person who created it.

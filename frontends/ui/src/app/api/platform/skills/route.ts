@@ -18,12 +18,13 @@
 
 import { parseJsonBody } from '@/lib/api/handler'
 import { platformApiRoute } from '@/lib/api/platform-handler'
+import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 import { createPlatformSkill, listPlatformSkills } from '@/lib/skills/platform-service'
 import { createPlatformSkillSchema } from '@/lib/skills/types'
 
-export const GET = platformApiRoute(
-  async () => listPlatformSkills()
-)
+export const GET = platformApiRoute(async () => listPlatformSkills(), {
+  permission: PLATFORM_PERMISSIONS.settingsView,
+})
 
 export const POST = platformApiRoute(
   async ({ request, session }) => {
@@ -32,5 +33,6 @@ export const POST = platformApiRoute(
       userId: session.userId,
       email: session.email ?? null,
     })
-  }
+  },
+  { permission: PLATFORM_PERMISSIONS.settingsManage }
 )

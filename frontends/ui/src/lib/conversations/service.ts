@@ -26,6 +26,7 @@
 
 import 'server-only'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { CHAT_PERMISSIONS } from '@/lib/authz/chat'
 import { FEATURE_FLAGS, isCollaborationEnabled } from '@/lib/authz/feature-flags'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { ConflictError, ForbiddenError, NotFoundError, UpstreamError } from '@/lib/api/errors'
@@ -183,7 +184,7 @@ export interface ListConversationsFilter {
  */
 export async function listConversations(
   session: AuthorizedSession,
-  filter: ListConversationsFilter = {},
+  filter: ListConversationsFilter = {}
 ): Promise<Conversation[]> {
   if (filter.projectId) {
     await requireProjectAccess(session, filter.projectId, 'project:view')
@@ -202,7 +203,7 @@ export async function listConversations(
  */
 export async function getConversation(
   session: AuthorizedSession,
-  conversationId: string,
+  conversationId: string
 ): Promise<ConversationWithAccess> {
   const access = await requireResourceAccess(session, 'conversation', conversationId, 'viewer')
 
@@ -217,7 +218,9 @@ export async function getConversation(
   // Derived only for a shared thread, and only on open. A solo thread is always
   // `ask` by definition — one author — so it pays for no aggregate.
   const engagement = shared
-    ? await resolveEngagement(conversationId, session.organizationId, conversation.engagement, { withSuggestion: true })
+    ? await resolveEngagement(conversationId, session.organizationId, conversation.engagement, {
+        withSuggestion: true,
+      })
     : { mode: 'ask' as const, stored: conversation.engagement, suggestion: null }
 
   return {
@@ -246,7 +249,7 @@ export async function getConversation(
 export async function updateConversationEngagement(
   session: AuthorizedSession,
   conversationId: string,
-  mode: ConversationEngagement,
+  mode: ConversationEngagement
 ): Promise<ConversationWithAccess> {
   await requireResourceAccess(session, 'conversation', conversationId, 'collaborator')
   await setEngagement(conversationId, session.organizationId, mode)
@@ -255,8 +258,15 @@ export async function updateConversationEngagement(
 
 /**
  * Create a conversation. When the caller links it to a project, they must be
- * able to see that project — otherwise any org member could attach
- * conversations to (and probe the existence of) arbitrary project ids.
+ * able to CHAT in that project — otherwise any org member could attach
+ * conversations to (and probe the existence of) arbitrary project ids, and a
+ * `project-viewer`, documented "read-only on one project", could open threads
+ * and spend the tenant's LLM budget.
+ *
+ * `project:chat` is checked any-of with `project:edit`, the same back-compat
+ * idiom the ADR-0038 write split uses: the built-in Editor and Admin roles hold
+ * both, so a tenant whose WorkOS provisioning has not been replayed since
+ * `project:chat` shipped does not lose chat the day this deploys.
  *
  * Visibility is NOT set here: the column defaults to `private`, which is the
  * conversation descriptor's `defaultVisibility` (spec MG-2, ADR-0032). Sharing
@@ -264,10 +274,10 @@ export async function updateConversationEngagement(
  */
 export async function createConversation(
   session: AuthorizedSession,
-  input: CreateConversationInput,
+  input: CreateConversationInput
 ): Promise<Conversation> {
   if (input.projectId) {
-    await requireProjectAccess(session, input.projectId, 'project:view')
+    await requireProjectAccess(session, input.projectId, CHAT_PERMISSIONS)
   }
 
   const inserted = await insertConversation({
@@ -296,11 +306,15 @@ export async function createConversation(
 export async function updateConversationTitle(
   session: AuthorizedSession,
   conversationId: string,
-  title: string,
+  title: string
 ): Promise<Conversation> {
   await requireResourceAccess(session, 'conversation', conversationId, 'owner')
 
-  const conversation = await updateConversationTitleInOrg(conversationId, session.organizationId, title)
+  const conversation = await updateConversationTitleInOrg(
+    conversationId,
+    session.organizationId,
+    title
+  )
   if (!conversation) throw new NotFoundError()
   return conversation
 }
@@ -325,7 +339,7 @@ export async function updateConversationTitle(
 export async function generateConversationTitle(
   session: AuthorizedSession,
   conversationId: string,
-  input: { messages: ConversationTitleMessageInput[]; locale?: string },
+  input: { messages: ConversationTitleMessageInput[]; locale?: string }
 ): Promise<GenerateConversationTitleResult> {
   await requireResourceAccess(session, 'conversation', conversationId, 'owner')
 
@@ -342,7 +356,10 @@ export async function generateConversationTitle(
       method: 'POST',
       // Forward the org id so the backend can resolve this org's BYOK LLM
       // credential (falls back to the platform env chain when unset).
-      headers: { 'Content-Type': 'application/json', 'x-grid-organization-id': session.organizationId },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-grid-organization-id': session.organizationId,
+      },
       body: JSON.stringify({
         messages,
         allowed_tags: CONVERSATION_TAG_KEYS,
@@ -419,7 +436,7 @@ export async function generateConversationTitle(
  */
 async function authorizeConversationDelete(
   session: AuthorizedSession,
-  conversationId: string,
+  conversationId: string
 ): Promise<void> {
   try {
     await requireResourceAccess(session, 'conversation', conversationId, 'owner')
@@ -455,7 +472,7 @@ async function authorizeConversationDelete(
  */
 export async function assertConversationAcceptsUploads(
   conversationId: string,
-  organizationId: string,
+  organizationId: string
 ): Promise<void> {
   const tenancy = await findConversationTenancy(conversationId)
   if (!tenancy || tenancy.organizationId !== organizationId) throw new NotFoundError()
@@ -487,7 +504,10 @@ export async function assertConversationAcceptsUploads(
  * failure in the middle stops before the rows, and the marked conversation plus
  * its retained document rows are what a retry runs on.
  */
-export async function deleteConversation(session: AuthorizedSession, conversationId: string): Promise<void> {
+export async function deleteConversation(
+  session: AuthorizedSession,
+  conversationId: string
+): Promise<void> {
   await authorizeConversationDelete(session, conversationId)
 
   // Announce the deletion BEFORE erasing anything.
@@ -519,9 +539,11 @@ export async function deleteConversation(session: AuthorizedSession, conversatio
     console.error(
       `[conversations] session document cleanup incomplete for ${conversationId} — ` +
         `${purge.retained} row(s) retained for retry:`,
-      purge.failures.join('; '),
+      purge.failures.join('; ')
     )
-    throw new UpstreamError('Deleting the chat’s attachments failed; the chat was kept so it can be retried.')
+    throw new UpstreamError(
+      'Deleting the chat’s attachments failed; the chat was kept so it can be retried.'
+    )
   }
 
   await deleteConversationInOrg(conversationId, session.organizationId)
@@ -544,7 +566,7 @@ export async function deleteConversation(session: AuthorizedSession, conversatio
  */
 export async function listConversationMessages(
   session: AuthorizedSession,
-  conversationId: string,
+  conversationId: string
 ): Promise<Message[]> {
   await requireResourceAccess(session, 'conversation', conversationId, 'viewer')
 
@@ -587,7 +609,7 @@ export async function updateMessageDetail(
     promptState?: unknown
     /** What a post-answer stage computed for this turn (post-answer-stages §4.3). */
     stages?: unknown
-  },
+  }
 ): Promise<Message> {
   // Answering a card, or recording what an answer rested on, is contributing to
   // the thread rather than reading it.
@@ -708,7 +730,11 @@ interface PreparedMessage {
  * NULL for assistant/system/tool rows — the agent wrote those — and on the
  * internal path, which has no session and only ever persists the agent's turn.
  */
-function buildMessageRow(conversationId: string, prepared: PreparedMessage, authorUserId: string | null) {
+function buildMessageRow(
+  conversationId: string,
+  prepared: PreparedMessage,
+  authorUserId: string | null
+) {
   const { input } = prepared
   // `addressees` is the SERVER's ruling on who a message was for, and only the
   // server may ever write it (spec MN-2). Stripped from the client's metadata
@@ -717,7 +743,11 @@ function buildMessageRow(conversationId: string, prepared: PreparedMessage, auth
   // row or on the internal path — so a client-supplied value used to survive on
   // exactly those rows, and `storedAddressees` would then read it back as
   // authoritative on a replay.
-  const { addressees: _clientRuling, prompt: clientPrompt, ...clientMetadata } = input.metadata ?? {}
+  const {
+    addressees: _clientRuling,
+    prompt: clientPrompt,
+    ...clientMetadata
+  } = input.metadata ?? {}
   // A human-in-the-loop prompt's own shape (ADR-0037). Whitelisted and bounded like
   // every other client-supplied jsonb payload — the option list in particular is an
   // array from a browser.
@@ -747,7 +777,10 @@ function storedAddressees(row: Message | null): AddresseeSet | null {
   if (!stored || typeof stored !== 'object') return null
   const candidate = stored as Partial<AddresseeSet>
   if (typeof candidate.agent !== 'boolean' || !Array.isArray(candidate.users)) return null
-  return { agent: candidate.agent, users: candidate.users.filter((id): id is string => typeof id === 'string') }
+  return {
+    agent: candidate.agent,
+    users: candidate.users.filter((id): id is string => typeof id === 'string'),
+  }
 }
 
 /**
@@ -762,7 +795,7 @@ async function prepareMessage(
   session: AuthorizedSession,
   conversationId: string,
   input: CreateMessageInput,
-  context: { shared: boolean; engagement: () => Promise<EngagementState> },
+  context: { shared: boolean; engagement: () => Promise<EngagementState> }
 ): Promise<PreparedMessage> {
   if (input.role !== 'user') {
     return { input, addressees: null, createdRequests: 0 }
@@ -845,9 +878,14 @@ async function prepareMessage(
 export async function createConversationMessages(
   session: AuthorizedSession,
   conversationId: string,
-  inputs: CreateMessageInput[],
+  inputs: CreateMessageInput[]
 ): Promise<PersistedMessage[]> {
-  const access = await requireResourceAccess(session, 'conversation', conversationId, 'collaborator')
+  const access = await requireResourceAccess(
+    session,
+    'conversation',
+    conversationId,
+    'collaborator'
+  )
 
   // Shared-ness decides two things: whether anything fans out at all, and whether
   // a plain message can possibly be a remark rather than a question for Piloti
@@ -871,7 +909,9 @@ export async function createConversationMessages(
     prepared.push(await prepareMessage(session, conversationId, input, { shared, engagement }))
   }
 
-  const rows = await insertMessages(prepared.map((entry) => buildMessageRow(conversationId, entry, session.userId)))
+  const rows = await insertMessages(
+    prepared.map((entry) => buildMessageRow(conversationId, entry, session.userId))
+  )
 
   const rulingById = new Map(prepared.map((entry) => [entry.input.id, entry]))
   const persisted: PersistedMessage[] = rows.map((row) => {
@@ -915,7 +955,9 @@ export async function createConversationMessages(
     rows: persisted,
     // Only a message the agent is addressed on opens a turn — a message that
     // hands off to a human starts nothing at all (spec MN-7).
-    turnStartedFor: humanMessages.filter((message) => message.addressees.agent).map((message) => message.id),
+    turnStartedFor: humanMessages
+      .filter((message) => message.addressees.agent)
+      .map((message) => message.id),
     emitAmbient: true,
   })
 
@@ -976,7 +1018,9 @@ async function fanOutMessageActivity(input: FanOutInput): Promise<void> {
       input.shared ??
       isShared(
         input.visibility,
-        input.visibility === 'private' ? await countGrantsForResource('conversation', conversationId) : 0,
+        input.visibility === 'private'
+          ? await countGrantsForResource('conversation', conversationId)
+          : 0
       )
     if (!shared) return
 
@@ -1020,7 +1064,8 @@ async function fanOutMessageActivity(input: FanOutInput): Promise<void> {
     // activity row rendered "3 new messages in Untitled conversation" — and this
     // is the commonest row type there is, so ten of them were ten identical
     // lines. One read, shared by every recipient's row.
-    const subject = input.title ?? (await findConversationInOrg(conversationId, organizationId))?.title ?? null
+    const subject =
+      input.title ?? (await findConversationInOrg(conversationId, organizationId))?.title ?? null
 
     await emitInboxItems(
       participants.map((recipientUserId) => ({
@@ -1032,7 +1077,7 @@ async function fanOutMessageActivity(input: FanOutInput): Promise<void> {
         actorUserId,
         payload: subject ? { subject } : {},
         groupKey: inboxGroupKey('conversation.activity', 'conversation', conversationId),
-      })),
+      }))
     )
   } catch (error) {
     console.warn('[conversations] participant fan-out failed (non-fatal):', error)
@@ -1058,7 +1103,7 @@ async function fanOutMessageActivity(input: FanOutInput): Promise<void> {
 export async function markConversationRead(
   session: AuthorizedSession,
   conversationId: string,
-  input: { lastReadMessageId?: string | null } = {},
+  input: { lastReadMessageId?: string | null } = {}
 ): Promise<ConversationRead> {
   await requireResourceAccess(session, 'conversation', conversationId, 'viewer')
 
@@ -1102,7 +1147,7 @@ export async function markConversationRead(
 export async function persistInternalConversationMessages(
   organizationId: string,
   conversationId: string,
-  inputs: CreateMessageInput[],
+  inputs: CreateMessageInput[]
 ): Promise<Message[]> {
   const conversation = await findConversationInOrg(conversationId, organizationId)
   if (!conversation) throw new NotFoundError()
@@ -1122,9 +1167,9 @@ export async function persistInternalConversationMessages(
           addressees: null,
           createdRequests: 0,
         },
-        null,
-      ),
-    ),
+        null
+      )
+    )
   )
 
   await fanOutMessageActivity({

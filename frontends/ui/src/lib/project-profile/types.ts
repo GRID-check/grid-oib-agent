@@ -1,6 +1,12 @@
 import { z } from 'zod'
 
-export const ProjectPrimitiveValueSchema = z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.null()])
+export const ProjectPrimitiveValueSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.array(z.string()),
+  z.null(),
+])
 
 export const ProjectFactSchema = z.object({
   value: ProjectPrimitiveValueSchema,
@@ -44,7 +50,9 @@ export const safePatchPath = /^\/(facts|goals|unknowns|assumptions)(\/.*)?$/
 
 export const ProjectProfilePatchOperationSchema = z.object({
   op: z.enum(['add', 'replace', 'remove']),
-  path: z.string().refine((path) => safePatchPath.test(path), 'Unsafe project profile patch path')
+  path: z
+    .string()
+    .refine((path) => safePatchPath.test(path), 'Unsafe project profile patch path')
     .refine((path) => !path.split('/').includes('..'), 'Path must not contain .. segments'),
   value: z.unknown().optional(),
 })

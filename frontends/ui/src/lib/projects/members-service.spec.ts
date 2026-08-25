@@ -75,8 +75,8 @@ describe('setProjectMemberRole — last-admin guard', () => {
         session,
         'p1',
         { organizationMembershipId: 'om_admin', roleSlug: 'project-editor' },
-        request,
-      ),
+        request
+      )
     ).rejects.toBeInstanceOf(ConflictError)
 
     // The guard runs before any mutation.
@@ -92,8 +92,8 @@ describe('setProjectMemberRole — last-admin guard', () => {
         session,
         'p1',
         { organizationMembershipId: 'om_admin', roleSlug: '' },
-        request,
-      ),
+        request
+      )
     ).rejects.toBeInstanceOf(ConflictError)
     expect(removeRoleAssignment).not.toHaveBeenCalled()
   })
@@ -105,7 +105,7 @@ describe('setProjectMemberRole — last-admin guard', () => {
       session,
       'p1',
       { organizationMembershipId: 'om_admin', roleSlug: '' },
-      request,
+      request
     ).catch((error: unknown) => {
       expect(error).toBeInstanceOf(ConflictError)
       expect((error as ConflictError).details).toEqual({ reason: 'last-admin' })
@@ -121,8 +121,8 @@ describe('setProjectMemberRole — last-admin guard', () => {
         session,
         'p1',
         { organizationMembershipId: 'om_admin', roleSlug: 'project-editor' },
-        request,
-      ),
+        request
+      )
     ).resolves.toBeUndefined()
 
     expect(removeRoleAssignment).toHaveBeenCalledTimes(1)
@@ -137,8 +137,8 @@ describe('setProjectMemberRole — last-admin guard', () => {
         session,
         'p1',
         { organizationMembershipId: 'om_admin', roleSlug: 'project-admin' },
-        request,
-      ),
+        request
+      )
     ).resolves.toBeUndefined()
     expect(assignRole).toHaveBeenCalledTimes(1)
   })
@@ -151,8 +151,8 @@ describe('setProjectMemberRole — last-admin guard', () => {
         session,
         'p1',
         { organizationMembershipId: 'om_editor', roleSlug: 'project-viewer' },
-        request,
-      ),
+        request
+      )
     ).resolves.toBeUndefined()
   })
 })
@@ -162,7 +162,7 @@ describe('removeProjectRoleAssignment — last-admin guard', () => {
     stubAssignments([admin('ra_1', 'om_admin')])
 
     await expect(
-      removeProjectRoleAssignment(session, 'p1', 'ra_1', request),
+      removeProjectRoleAssignment(session, 'p1', 'ra_1', request)
     ).rejects.toBeInstanceOf(ConflictError)
     expect(removeRoleAssignment).not.toHaveBeenCalled()
   })
@@ -171,7 +171,7 @@ describe('removeProjectRoleAssignment — last-admin guard', () => {
     stubAssignments([admin('ra_1', 'om_admin'), admin('ra_2', 'om_admin2')])
 
     await expect(
-      removeProjectRoleAssignment(session, 'p1', 'ra_1', request),
+      removeProjectRoleAssignment(session, 'p1', 'ra_1', request)
     ).resolves.toBeUndefined()
     expect(removeRoleAssignment).toHaveBeenCalledTimes(1)
   })

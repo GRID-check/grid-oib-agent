@@ -19,6 +19,8 @@ export interface ProjectChatClientProps {
    * rather than defaulting on.
    */
   canCollaborate?: boolean
+  /** Whether the reader holds `project:chat` on this project. */
+  canChatInProject?: boolean
   /** Whether report source lines show origin badges (WorkOS `source-origin-badges`). */
   showSourceBadges: boolean
   /** Whether shallow answers show the confidence chip (WorkOS `chat-confidence-chip`). */
@@ -45,6 +47,7 @@ const ProjectChatContent = ({
   projectCollection,
   projectName,
   canCollaborate = false,
+  canChatInProject = true,
 }: ProjectChatClientProps): ReactNode => {
   const { isAuthenticated, signIn } = useAuth()
   const setProjectId = useChatStore((s) => s.setProjectId)
@@ -136,7 +139,7 @@ const ProjectChatContent = ({
             title: filePrefill,
             shelf: 'project',
           }
-        : undefined,
+        : undefined
     )
 
     if (pathname) {
@@ -210,6 +213,7 @@ const ProjectChatContent = ({
       projectCollection={projectCollection}
       projectName={projectName}
       canCollaborate={canCollaborate}
+      canChatInProject={canChatInProject}
     />
   )
 }

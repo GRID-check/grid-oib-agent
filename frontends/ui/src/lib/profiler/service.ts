@@ -1,6 +1,6 @@
 /**
  * Agent profiler service (ADR-0017): business logic over the profiler
- * repository. Caller authorization (requirePlatformOwner) happens in the
+ * repository. Caller authorization (requirePlatformPermission) happens in the
  * routes — this module is data-only, mirrors `lib/budgets/service.ts`.
  */
 

@@ -18,7 +18,7 @@ vi.mock('@/lib/authz/platform', () => {
   class PlatformAccessDeniedError extends Error {}
   return {
     PlatformAccessDeniedError,
-    requirePlatformOwner: vi.fn().mockImplementation(async () => {
+    requirePlatformPermission: vi.fn().mockImplementation(async () => {
       if (!isOwner.value) throw new PlatformAccessDeniedError()
     }),
   }
@@ -28,8 +28,8 @@ vi.mock('@/lib/feedback/service', () => ({
   getAnswerFeedbackDigest: vi.fn().mockImplementation(async (session: unknown) => {
     // The real service gates before it reads; mirrored here so the 403 test is
     // testing the route's translation of a refusal, not a mock that never refuses.
-    const { requirePlatformOwner } = await import('@/lib/authz/platform')
-    await requirePlatformOwner(session as never)
+    const { requirePlatformPermission } = await import('@/lib/authz/platform')
+    await requirePlatformPermission(session as never, 'platform:organizations:view')
     return { digest: { headline: 'Fine.' }, error: null }
   }),
 }))

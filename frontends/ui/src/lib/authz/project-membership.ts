@@ -9,15 +9,20 @@
  * the fine-grained check are resolved explicitly.
  *
  * The two must agree, or sharing would either offer invitations that resolve to
- * nothing or refuse ones that would have worked. In particular the **org-admin
- * bypass is mirrored deliberately**: `requireProjectAccess` grants org admins
- * every project in their organization, so an org admin is reachable here too.
+ * nothing or refuse ones that would have worked. In particular the **org-wide
+ * project bypass is mirrored deliberately**: `requireProjectAccess` grants
+ * anyone holding `org:projects:administer` every project in their organization,
+ * so such a subject is reachable here too — resolved through
+ * `./org-role-permissions`, which asks WorkOS what the role holds instead of
+ * matching its name.
  */
 
 import 'server-only'
 import { getCached } from '@/lib/cache'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { getWorkOS } from '@/lib/workos/client'
+import { orgRoleHoldsPermission } from './org-role-permissions'
+import { ORG_PERMISSIONS } from './permissions'
 
 /** Matches the membership cache TTL in `@/lib/auth/session`. */
 const MEMBERSHIP_TTL_MS = 10 * 60 * 1000
@@ -99,8 +104,15 @@ export async function canUserAccessProject(
   const membership = await resolveSubjectMembership(session.organizationId, targetUserId)
   if (!membership) return false
 
-  // Mirror requireProjectAccess: org admins reach every project in their org.
-  if (membership.role === 'admin') return true
+  // Mirror requireProjectAccess exactly: the org-wide project bypass is a
+  // PERMISSION, not the role slug `admin`. The subject has no session here, so
+  // their role's permission list is resolved from WorkOS (cached, catalog
+  // fallback) rather than guessed from its name — otherwise a custom org role
+  // holding `org:projects:administer` would reach every project while this
+  // refused to invite them to any of them.
+  if (await orgRoleHoldsPermission(membership.role, ORG_PERMISSIONS.projectsAdminister)) {
+    return true
+  }
 
   try {
     const result = await getWorkOS().authorization.check({
