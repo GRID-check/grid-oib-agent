@@ -1,0 +1,18 @@
+fixes:
+  - >
+    Using the research agent inside a project now requires the chat permission
+    on every path, not only when starting a new conversation. A member with
+    read-only access to a project could continue an existing conversation in
+    it, which still ran the agent and still spent the organization's budget.
+  - >
+    Replying to a colleague in a shared conversation is unaffected. The
+    restriction applies to messages addressed to the agent, not to taking part
+    in the conversation.
+  - >
+    The Platform area no longer appears for members of the platform
+    organization who hold no platform permissions; it opened and then refused
+    every screen inside it.
+  - >
+    Inviting a colleague to a project no longer fails for administrators whose
+    organization-wide access came from a role the identity provider had not yet
+    been updated for.

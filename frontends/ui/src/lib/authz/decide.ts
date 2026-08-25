@@ -212,7 +212,14 @@ async function decideProjectTier(
       // trail needs to know which one happened. One extra tenancy probe, only on
       // the denial path, so the allow path is unchanged.
       const tenancy = await findProjectTenancy(resource.id)
-      const mismatched = !tenancy || tenancy.organizationId !== authorized.organizationId
+      // A soft-deleted project is unreachable for everyone, including the org
+      // admins who bypass FGA — so labelling that denial `no-grant` is as
+      // untruthful as the label this branch was written to fix. It is the
+      // resource being gone, not a missing grant.
+      const mismatched =
+        !tenancy ||
+        tenancy.organizationId !== authorized.organizationId ||
+        Boolean(tenancy.deletedAt)
       return deny(permission, 'project', mismatched ? 'tenancy-mismatch' : 'no-grant', resource)
     }
     throw error

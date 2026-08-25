@@ -73,7 +73,7 @@ export const chat = {
   composer: {
     /** Shown when the reader holds project:view but not project:chat. */
     noProjectChatPermission:
-      'You have read access to this project. Ask a project admin for the Contributor role to use the research agent here.',
+      'The research agent is unavailable in this project for you right now. If you have read-only access, a project admin can grant you the Contributor role.',
     placeholder: 'Ask Piloti about this project …',
     sources: 'Data basis',
     sourcesAria: 'Data basis — {enabled} of {total} sources enabled. Opens the data sources panel.',

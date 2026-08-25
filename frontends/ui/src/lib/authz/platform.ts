@@ -159,7 +159,19 @@ async function platformMembershipPermissions(
       // What the role HOLDS, asked of WorkOS (cached, catalog fallback) — not
       // inferred from its slug. `org-platform-support` is a platform-org role
       // like any other; matching one hardcoded name is what hid it here.
-      permissions = await organizationRolePermissions(platformOrgId, roleSlug)
+      //
+      // Filtered to `platform:*`, exactly as the fast path filters the JWT
+      // claims. Without it, ANY non-empty permission list made the membership
+      // read as platform staff: a plain `member` of the GRID Platform
+      // organization holds `org:projects:create`, which is not nothing, so
+      // `isPlatformStaff` said yes and opened a Platform nav entry and shell
+      // whose every subsection then answered 403.
+      const held = await organizationRolePermissions(platformOrgId, roleSlug)
+      permissions = new Set(
+        [...held].filter((permission) =>
+          (ALL_PLATFORM_PERMISSION_SLUGS as readonly string[]).includes(permission)
+        )
+      )
     }
   } catch {
     permissions = null // fail closed

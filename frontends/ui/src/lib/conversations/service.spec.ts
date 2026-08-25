@@ -141,7 +141,7 @@ function stubConversation(
     visibility: ResourceVisibility
     createdBy: string
     deletedAt: Date | null
-  }> = {},
+  }> = {}
 ): void {
   const tenancy = {
     organizationId: 'org_1',
@@ -211,7 +211,11 @@ beforeEach(() => {
   vi.mocked(findConversationRead).mockResolvedValue(null)
   vi.mocked(resolveParticipants).mockResolvedValue([])
   vi.mocked(emitInboxItems).mockResolvedValue(0)
-  vi.mocked(resolveRequestsOnReply).mockResolvedValue({ answered: 0, askedBack: 0, askerUserIds: [] })
+  vi.mocked(resolveRequestsOnReply).mockResolvedValue({
+    answered: 0,
+    askedBack: 0,
+    askerUserIds: [],
+  })
   vi.mocked(findMessageInConversation).mockResolvedValue(null)
   vi.mocked(insertMessages).mockImplementation(async (rows) => rows as Message[])
 })
@@ -284,13 +288,17 @@ describe('listing conversations', () => {
     await listConversations(session, { projectId: PROJECT_ID })
 
     expect(requireProjectAccess).toHaveBeenCalledWith(session, PROJECT_ID, 'project:view')
-    expect(listVisibleConversations).toHaveBeenCalledWith('org_1', 'user_me', { projectId: PROJECT_ID })
+    expect(listVisibleConversations).toHaveBeenCalledWith('org_1', 'user_me', {
+      projectId: PROJECT_ID,
+    })
   })
 
   it('never reaches the repository for a project the caller cannot see', async () => {
     stubContainer('denied')
 
-    await expect(listConversations(session, { projectId: PROJECT_ID })).rejects.toThrow(NotFoundError)
+    await expect(listConversations(session, { projectId: PROJECT_ID })).rejects.toThrow(
+      NotFoundError
+    )
     expect(listVisibleConversations).not.toHaveBeenCalled()
   })
 
@@ -298,7 +306,9 @@ describe('listing conversations', () => {
     await listConversations(session)
 
     expect(requireProjectAccess).not.toHaveBeenCalled()
-    expect(listVisibleConversations).toHaveBeenCalledWith('org_1', 'user_me', { projectId: undefined })
+    expect(listVisibleConversations).toHaveBeenCalledWith('org_1', 'user_me', {
+      projectId: undefined,
+    })
   })
 })
 
@@ -315,12 +325,14 @@ describe('creating a conversation on an id that already exists', () => {
     expect(conversation.id).toBe(CONVERSATION_ID)
   })
 
-  it("never hands back a thread the caller cannot contribute to", async () => {
+  it('never hands back a thread the caller cannot contribute to', async () => {
     // The response carries a title and a project id. A colliding id that is not
     // the caller's to reach must not leak either of them.
     stubConversation({ visibility: 'private', createdBy: 'user_other' })
 
-    await expect(createConversation(session, { id: CONVERSATION_ID })).rejects.toThrow(NotFoundError)
+    await expect(createConversation(session, { id: CONVERSATION_ID })).rejects.toThrow(
+      NotFoundError
+    )
     expect(findConversationInOrg).not.toHaveBeenCalled()
   })
 })
@@ -331,7 +343,9 @@ describe('writing requires more than reading', () => {
     vi.mocked(findGrantForSubject).mockResolvedValue({ role: 'viewer' } as never)
 
     await expect(getConversation(session, CONVERSATION_ID)).resolves.toBeDefined()
-    await expect(updateConversationTitle(session, CONVERSATION_ID, 'Neu')).rejects.toThrow(NotFoundError)
+    await expect(updateConversationTitle(session, CONVERSATION_ID, 'Neu')).rejects.toThrow(
+      NotFoundError
+    )
     expect(updateConversationTitleInOrg).not.toHaveBeenCalled()
   })
 
@@ -340,7 +354,9 @@ describe('writing requires more than reading', () => {
     vi.mocked(findGrantForSubject).mockResolvedValue({ role: 'viewer' } as never)
 
     await expect(
-      createConversationMessages(session, CONVERSATION_ID, [{ id: 'msg_1', role: 'user', content: 'hi' }]),
+      createConversationMessages(session, CONVERSATION_ID, [
+        { id: 'msg_1', role: 'user', content: 'hi' },
+      ])
     ).rejects.toThrow(NotFoundError)
     expect(insertMessages).not.toHaveBeenCalled()
   })
@@ -379,7 +395,12 @@ describe('discarding a chat that holds attachments', () => {
   beforeEach(() => {
     stubConversation({ createdBy: 'user_me' })
     vi.mocked(markConversationDeleting).mockResolvedValue({ id: CONVERSATION_ID } as never)
-    vi.mocked(purgeSessionDocuments).mockResolvedValue({ ok: true, purged: 0, retained: 0, failures: [] })
+    vi.mocked(purgeSessionDocuments).mockResolvedValue({
+      ok: true,
+      purged: 0,
+      retained: 0,
+      failures: [],
+    })
   })
 
   it('marks the conversation as deleting BEFORE it erases anything', async () => {
@@ -494,7 +515,11 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
    * never for it.
    */
   it('sends a plain message to the chat, not to Piloti, in a mention-mode thread', async () => {
-    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'mention', stored: 'mention', suggestion: null })
+    vi.mocked(resolveEngagementFor).mockResolvedValue({
+      mode: 'mention',
+      stored: 'mention',
+      suggestion: null,
+    })
 
     const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
       { id: 'msg_1', role: 'user', content: 'Danke Anna, dann nehmen wir 1,20 m.' },
@@ -504,7 +529,11 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
   })
 
   it('still answers a plain message in an ask-mode thread — the default is unchanged', async () => {
-    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'ask', stored: null, suggestion: null })
+    vi.mocked(resolveEngagementFor).mockResolvedValue({
+      mode: 'ask',
+      stored: null,
+      suggestion: null,
+    })
 
     const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
       { id: 'msg_1', role: 'user', content: 'Und wie sieht es im EG aus?' },
@@ -518,7 +547,11 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
     // thread explicitly waiting on Anna never pays for the mode lookup and can
     // never be overridden by an `ask` mode into waking the agent.
     vi.mocked(threadIsAwaitingHuman).mockResolvedValue(true)
-    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'ask', stored: 'ask', suggestion: null })
+    vi.mocked(resolveEngagementFor).mockResolvedValue({
+      mode: 'ask',
+      stored: 'ask',
+      suggestion: null,
+    })
 
     const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
       { id: 'msg_1', role: 'user', content: 'Kein Stress, wann du dazu kommst.' },
@@ -533,7 +566,11 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
   it('resolves the mode at most once for a batch, however many messages it carries', async () => {
     // The ruling and the settle-the-flip step both need the mode. Resolving it
     // twice was a duplicate query on every plain message in every shared thread.
-    vi.mocked(resolveEngagementFor).mockResolvedValue({ mode: 'mention', stored: null, suggestion: null })
+    vi.mocked(resolveEngagementFor).mockResolvedValue({
+      mode: 'mention',
+      stored: null,
+      suggestion: null,
+    })
 
     await createConversationMessages(session, CONVERSATION_ID, [
       { id: 'msg_1', role: 'user', content: 'Erstens…' },
@@ -599,13 +636,18 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
     vi.mocked(resolveParticipants).mockResolvedValue(['user_me', 'user_anna'])
 
     const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
-      { id: 'msg_1', role: 'user', content: '@Anna richtig?', mentions: [{ targetId: 'user_anna' }] },
+      {
+        id: 'msg_1',
+        role: 'user',
+        content: '@Anna richtig?',
+        mentions: [{ targetId: 'user_anna' }],
+      },
     ])
 
     expect(persisted.addressees).toEqual({ agent: false, users: ['user_anna'] })
     expect(persisted.createdRequests).toBe(1)
     expect(applyMessageMentions).toHaveBeenCalledWith(
-      expect.objectContaining({ resourceId: CONVERSATION_ID, anchorId: 'msg_1' }),
+      expect.objectContaining({ resourceId: CONVERSATION_ID, anchorId: 'msg_1' })
     )
     // MN-7: nothing is started, so no turn event claims one is running.
     const turnEvents = vi
@@ -616,11 +658,16 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
 
   it('re-uses the ruling a replayed message id already stored, without asking again', async () => {
     vi.mocked(findMessageInConversation).mockResolvedValue(
-      messageRow({ metadata: { addressees: { agent: false, users: ['user_anna'] } } }),
+      messageRow({ metadata: { addressees: { agent: false, users: ['user_anna'] } } })
     )
 
     const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
-      { id: 'msg_1', role: 'user', content: '@Anna richtig?', mentions: [{ targetId: 'user_anna' }] },
+      {
+        id: 'msg_1',
+        role: 'user',
+        content: '@Anna richtig?',
+        mentions: [{ targetId: 'user_anna' }],
+      },
     ])
 
     expect(applyMessageMentions).not.toHaveBeenCalled()
@@ -647,13 +694,18 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
     // The message that used to produce two contradictory notifications: Anna,
     // who was asked, replies by asking Matthias something.
     await createConversationMessages(session, CONVERSATION_ID, [
-      { id: 'msg_1', role: 'user', content: '@Anna welche Halle meinst du?', mentions: [{ targetId: 'user_anna' }] },
+      {
+        id: 'msg_1',
+        role: 'user',
+        content: '@Anna welche Halle meinst du?',
+        mentions: [{ targetId: 'user_anna' }],
+      },
     ])
 
     // Whatever the ruling addressed is what resolution is judged against — the
     // routing decision is made once, server-side, and never re-derived from text.
     expect(resolveRequestsOnReply).toHaveBeenCalledWith(
-      expect.objectContaining({ addressedUserIds: ['user_anna'] }),
+      expect.objectContaining({ addressedUserIds: ['user_anna'] })
     )
   })
 
@@ -690,7 +742,9 @@ describe('participant fan-out (spec CC-9, CC-20, NF-8)', () => {
       { id: 'msg_2', role: 'assistant', content: 'Antwort' },
     ])
 
-    const events = vi.mocked(publishToUsers).mock.calls.map(([recipients, event]) => ({ recipients, event }))
+    const events = vi
+      .mocked(publishToUsers)
+      .mock.calls.map(([recipients, event]) => ({ recipients, event }))
     expect(events).toEqual([
       {
         recipients: ['user_me', 'user_anna'],
@@ -747,7 +801,7 @@ describe('participant fan-out (spec CC-9, CC-20, NF-8)', () => {
     expect(emissions.every((item) => item.type === 'conversation.activity')).toBe(true)
     // The group key carries no anchor, which is what makes twenty messages one row.
     expect(new Set(emissions.map((item) => item.groupKey))).toEqual(
-      new Set(['conversation.activity:conversation:conv_1']),
+      new Set(['conversation.activity:conversation:conv_1'])
     )
     // The actor is stamped so `emitInboxItems` can drop the self-notification.
     expect(emissions.every((item) => item.actorUserId === 'user_me')).toBe(true)
@@ -783,7 +837,7 @@ describe('participant fan-out (spec CC-9, CC-20, NF-8)', () => {
   })
 })
 
-describe('the addressee ruling is the SERVER\'s, and only the server\'s (spec MN-2)', () => {
+describe("the addressee ruling is the SERVER's, and only the server's (spec MN-2)", () => {
   it('strips a client-supplied `addressees` from metadata on a NON-user row', async () => {
     // The server writes its ruling only when it HAS one, and it has none for an
     // assistant/system/tool row — so a client-supplied value used to survive
@@ -811,7 +865,7 @@ describe('the addressee ruling is the SERVER\'s, and only the server\'s (spec MN
     expect(metadata.messageType).toBe('agent_response')
   })
 
-  it('overwrites a client-supplied ruling on a USER row with the server\'s own', async () => {
+  it("overwrites a client-supplied ruling on a USER row with the server's own", async () => {
     stubConversation({ visibility: 'project', createdBy: session.userId })
     vi.mocked(applyMessageMentions).mockResolvedValue({
       addressees: { agent: false, users: ['user_anna'] },
@@ -848,7 +902,12 @@ describe('the collaboration flag is off (spec NF-8, NF-7)', () => {
     stubConversation({ visibility: 'project', createdBy: 'user_me' })
 
     const failure = await createConversationMessages(session, CONVERSATION_ID, [
-      { id: 'msg_1', role: 'user', content: '@Anna richtig?', mentions: [{ targetId: 'user_anna' }] },
+      {
+        id: 'msg_1',
+        role: 'user',
+        content: '@Anna richtig?',
+        mentions: [{ targetId: 'user_anna' }],
+      },
     ]).catch((error: unknown) => error)
 
     expect((failure as ForbiddenError).status).toBe(403)
@@ -900,7 +959,9 @@ describe('read state (spec CC-18, IB-9)', () => {
       updatedAt: new Date('2026-07-02T12:00:00Z'),
     })
 
-    const mark = await markConversationRead(session, CONVERSATION_ID, { lastReadMessageId: 'msg_9' })
+    const mark = await markConversationRead(session, CONVERSATION_ID, {
+      lastReadMessageId: 'msg_9',
+    })
 
     expect(upsertConversationRead).toHaveBeenCalledWith({
       conversationId: CONVERSATION_ID,
@@ -961,7 +1022,7 @@ describe('a stage writes its output onto the message row (post-answer-stages §4
     vi.mocked(findGrantForSubject).mockResolvedValue({ role: 'viewer' } as never)
 
     await expect(
-      updateMessageDetail(session, CONVERSATION_ID, MESSAGE_ID, { stages }),
+      updateMessageDetail(session, CONVERSATION_ID, MESSAGE_ID, { stages })
     ).rejects.toThrow(NotFoundError)
     expect(mergeMessageMetadata).not.toHaveBeenCalled()
   })
@@ -973,12 +1034,9 @@ describe('a stage writes its output onto the message row (post-answer-stages §4
 
     await updateMessageDetail(session, CONVERSATION_ID, MESSAGE_ID, { stages })
 
-    expect(mergeMessageMetadata).toHaveBeenCalledWith(
-      CONVERSATION_ID,
-      MESSAGE_ID,
-      { stages },
-      ['stages'],
-    )
+    expect(mergeMessageMetadata).toHaveBeenCalledWith(CONVERSATION_ID, MESSAGE_ID, { stages }, [
+      'stages',
+    ])
   })
 
   it('bounds what the client sent before it reaches the column', async () => {
@@ -986,7 +1044,9 @@ describe('a stage writes its output onto the message row (post-answer-stages §4
 
     await updateMessageDetail(session, CONVERSATION_ID, MESSAGE_ID, {
       stages: {
-        followUps: { items: [{ question: 'x'.repeat(2000) }, ...Array(9).fill({ question: 'Noch?' })] },
+        followUps: {
+          items: [{ question: 'x'.repeat(2000) }, ...Array(9).fill({ question: 'Noch?' })],
+        },
         aStageFromTheFuture: { anything: 'unbounded' },
       },
     })
@@ -1012,7 +1072,9 @@ describe('a stage writes its output onto the message row (post-answer-stages §4
 })
 
 describe('generating a conversation title — severity of a handled failure', () => {
-  const titleInput = { messages: [{ role: 'user' as const, content: 'Brandschutz im Stiegenhaus?' }] }
+  const titleInput = {
+    messages: [{ role: 'user' as const, content: 'Brandschutz im Stiegenhaus?' }],
+  }
 
   function backendReturns(body: unknown, ok = true, status = 200): void {
     vi.stubGlobal(
@@ -1022,7 +1084,7 @@ describe('generating a conversation title — severity of a handled failure', ()
         status,
         json: async () => body,
         text: async () => JSON.stringify(body),
-      })),
+      }))
     )
   }
 
@@ -1049,7 +1111,7 @@ describe('generating a conversation title — severity of a handled failure', ()
     expect(error).not.toHaveBeenCalled()
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('[GenerateConversationTitle]'),
-      'llm_response_malformed',
+      'llm_response_malformed'
     )
     // An empty title must never clobber the provisional first-message name.
     expect(updateConversationMetaInOrg).not.toHaveBeenCalled()
@@ -1134,5 +1196,109 @@ describe("the backend's own persist path speaks a different dialect", () => {
     // one dialect.
     expect(row.metadata).not.toHaveProperty('sources')
     expect(row.metadata).not.toHaveProperty('answer_confidence')
+  })
+})
+
+describe('project:chat gates the AGENT, not the conversation (the message-write hole)', () => {
+  /**
+   * The gap an adversarial pass found after `project:chat` shipped: gating
+   * `createConversation` stopped a Viewer STARTING a project thread and did
+   * nothing about the ones they already owned.
+   *
+   * `requireResourceAccess` gates the container on `project:view` — correctly, a
+   * Viewer reads the project's threads — and `resolveResourceAccess` grants the
+   * creator `owner`, which satisfies the `collaborator` gate on message writes.
+   * So a project Viewer could open agent turns in their own project thread
+   * indefinitely and spend the tenant's LLM budget doing it.
+   */
+  /**
+   * A project VIEWER: passes the container gate (`project:view`, which
+   * `resolveResourceAccess` applies) and fails the agent gate. Mocking a blanket
+   * rejection would fail the container check first and never reach the code
+   * under test.
+   */
+  const asViewer = (): void => {
+    vi.mocked(requireProjectAccess).mockImplementation(async (_s, _id, permission) => {
+      const accepted = Array.isArray(permission) ? permission : [permission]
+      if (accepted.includes('project:view')) return { role: 'project-viewer' as ProjectRole }
+      throw new NotFoundError()
+    })
+  }
+
+  beforeEach(() => {
+    stubConversation({ createdBy: 'user_me', visibility: 'project' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-viewer' })
+  })
+
+  it('refuses a message addressed to the agent when the project denies project:chat', async () => {
+    asViewer()
+
+    await expect(
+      createConversationMessages(session, CONVERSATION_ID, [
+        { id: 'msg_1', role: 'user', content: 'Und wie sieht es im EG aus?' },
+      ])
+    ).rejects.toThrow(/research agent/i)
+
+    // 403, not the 404 `requireProjectAccess` throws: the caller is looking at a
+    // thread inside this project, so its existence is not a secret from them and
+    // a 404 would only read as "your message vanished".
+    await expect(
+      createConversationMessages(session, CONVERSATION_ID, [
+        { id: 'msg_2', role: 'user', content: 'Nochmal bitte.' },
+      ])
+    ).rejects.toBeInstanceOf(ForbiddenError)
+  })
+
+  it('checks project:chat, not project:view', async () => {
+    await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: 'Und wie sieht es im EG aus?' },
+    ])
+
+    expect(requireProjectAccess).toHaveBeenCalledWith(session, PROJECT_ID, [
+      'project:chat',
+      'project:edit',
+    ])
+  })
+
+  it('persists NOTHING when the turn is refused', async () => {
+    asViewer()
+
+    await expect(
+      createConversationMessages(session, CONVERSATION_ID, [
+        { id: 'msg_1', role: 'user', content: 'Und wie sieht es im EG aus?' },
+      ])
+    ).rejects.toThrow()
+
+    expect(insertMessages).not.toHaveBeenCalled()
+  })
+
+  it('still lets a Viewer reply to a COLLEAGUE — the gate is on the agent alone', async () => {
+    // Contributing to a conversation is not what project:chat governs; spending
+    // a turn is. A blanket block on message writes would have taken a reader out
+    // of every shared thread in the project.
+    vi.mocked(resolveEngagementFor).mockResolvedValue({
+      mode: 'mention',
+      stored: 'mention',
+      suggestion: null,
+    })
+    asViewer()
+
+    const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: 'Danke Anna, dann nehmen wir 1,20 m.' },
+    ])
+
+    expect(persisted.addressees).toEqual({ agent: false, users: [] })
+    expect(insertMessages).toHaveBeenCalled()
+  })
+
+  it('does not consult the project at all for a thread outside one', async () => {
+    stubConversation({ createdBy: 'user_me', visibility: 'private', projectId: null })
+    vi.mocked(requireProjectAccess).mockClear()
+
+    await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: 'Allgemeine Frage.' },
+    ])
+
+    expect(requireProjectAccess).not.toHaveBeenCalled()
   })
 })

@@ -126,10 +126,26 @@ Consequences, all live:
    auditing the org is shown a chat permission and a Contributor role that the
    app does not implement.
 
-**Fixed — enforced.** `lib/authz/chat.ts` holds the permission list
-(`['project:chat', 'project:edit']`, any-of) and both chat entry points now use
-it: creating a project-scoped conversation, and the collection scope the chat
-transport retrieves against. Listing conversations stays on `project:view` —
+**Fixed — enforced, in two passes.** `lib/authz/chat.ts` holds the permission
+list (`['project:chat', 'project:edit']`, any-of).
+
+The first pass gated two entry points: creating a project-scoped conversation,
+and the collection scope the chat transport retrieves against. **It described
+those as "both", and there were three.** An adversarial review found the third:
+`createConversationMessages` requires only conversation-`collaborator`,
+`resolveResourceAccess` gates the container on `project:view` (correctly — a
+Viewer reads the project's threads) and grants the creator `owner`. So a project
+Viewer holding a thread stamped with the project could open agent turns in it
+indefinitely and spend the tenant's LLM budget. Gating creation stopped new
+threads and left every existing one open.
+
+The second pass gates messages the server's ruling actually addressed **to the
+agent**, checked before `insertMessages` so a refused turn leaves no row. It is
+deliberately narrower than blocking the write: a Viewer may still reply to a
+colleague in a shared thread, because contributing to a conversation is not what
+`project:chat` governs — spending a turn is. The denial is 403, not
+`requireProjectAccess`'s 404: the caller is looking at a thread inside the
+project, so its existence is not a secret from them. Listing conversations stays on `project:view` —
 reading is reading. The umbrella is accepted alongside so no editor or admin
 loses chat in an environment whose provisioning has not been replayed;
 `project-viewer` holds neither and is now genuinely read-only.
@@ -259,8 +275,18 @@ is every persona an enterprise buyer actually asks for. And a WorkOS role create
 with the slug `admin` for unrelated reasons silently acquires every project in the
 tenant.
 
-**Fixed.** `org:projects:administer` is in the catalog, held by Admin, and
-checked with `hasPermission` at all three sites. The bounded implication carries
+**Half fixed, and the half that did not land is F3's own second
+reproduction.** `org:projects:administer` is in the catalog, held by Admin, and
+checked with `hasPermission` at all three sites — so the first failure is gone: a
+custom role holding the permission now reaches every project.
+
+The second is not. `hasPermission` falls back to the catalog implication for the
+slug `admin`, and the catalog grants Admin the new permission, so **a WorkOS role
+created with the slug `admin` still acquires every project in the tenant while
+holding nothing** — F3's stated live consequence, unchanged. That is the
+implication working as designed (§5), not an oversight in the fix, but this
+section said "Fixed" without saying which half. Retiring the implication is what
+closes it, and §5 says why that waits. The bounded implication carries
 existing admin sessions across with no re-login, because the catalog grants Admin
 the new permission.
 
@@ -411,9 +437,17 @@ editor rung was keyed on `project:edit` alone, so `['project:documents:write',
 'project:edit']` returned `project-editor` for a narrow-write holder while
 `'project:memory:write'` returned `project-viewer` for one — two existing specs
 that contradicted each other. The rung is now "holds a write permission", which
-is what the first spec already documented as intended. Consequence: a
-narrow-write custom role is a collaborator rather than a reader on shared threads
-in a project whose corpus it can change.
+is what the first spec already documented as intended. Stated consequence at the time: a narrow-write custom
+role becomes a collaborator rather than a reader on shared threads.
+
+**That consequence does not occur, and claiming it was wrong.** `held` is built
+only from the permissions in the `accepted` list, and both consumers of the
+derived role — `lib/sharing/access.ts` and the project settings page — pass the
+single permission `'project:view'`. So `held ⊆ {'project:view'}` there and the
+new rung can never fire. Every call site that DOES name a narrow write discards
+the returned role. The fix is correct and remains entirely unobservable in
+production, exactly as the bug was. It was also announced as a behaviour change
+in the pull request, which it is not.
 
 ### F8 — WorkOS FGA resources are created but never deleted, and creation is not transactional
 
@@ -623,7 +657,72 @@ Two things learned doing it, both now guarded in the catalog spec:
    `catalog.spec.ts` now asserts the cap for permissions too, so the next one
    fails in CI rather than half-way through a provisioning run.
 
-## 7. What is left
+## 7. What the adversarial pass refuted
+
+The fixes in §3 were reviewed by an agent briefed to REFUTE them rather than
+confirm them, with each claim stated as a target and each verdict required to
+carry a failing input. It broke four of ten claims outright and overstated two
+more. That round is why §F1, §F3 and §F7 above now read differently, and it is
+recorded here rather than quietly folded in, because the shape of what it found
+is the useful part: **every miss was a claim I had verified in one direction and
+not the other.**
+
+| # | Claim | Verdict |
+|---|---|---|
+| R1 | `project:chat` gates every path that invokes the agent | **Refuted.** It gated creation and retrieval, not continuation. Fixed; see §F1 |
+| R2 | Reading stays on `project:view`, writing is gated | **Refuted.** Continuing a thread was neither. Fixed |
+| R3 | The bypass is permission-driven and no admin loses access | **Overstated.** Half of F3 landed; see §F3 |
+| R4 | `org-role-permissions.ts` is fail-closed and mirrors `hasPermission` | **Refuted.** It hard-denied when WorkOS knew the slug but not the permission — a silent removal, the shape §5 rejects. Fixed |
+| R5 | The corrected role derivation has an observable consequence | **Overstated.** Correct, but unreachable; see §F7 |
+| R6 | Every platform route declares the right permission | **Upheld** for read/write mapping, but see the gaps below |
+| R7 | The composer cannot deny someone who may chat | **Refuted.** `requireProjectAccess` collapses transport failure into the denial, so a WorkOS outage locks an Editor out. Behaviour kept fail-closed; the comment that claimed otherwise and the copy that blamed the reader's role are corrected |
+| R8 | `isPlatformStaff` means "holds a `platform:*` permission" | **Refuted.** The cross-org path stored the role's permissions unfiltered, so a plain `member` of the platform org read as staff. Fixed |
+| R9 | The full suite passing means the fixes are covered | **Refuted.** Six had no failing-test-on-revert. Fixed |
+| R10 | No cross-tenant leak; tenancy untouched | **Upheld** |
+
+### What R9 cost, and what closed it
+
+Six fixes could have been reverted with the suite still green: the
+`createConversation` chat gate, every platform route's declared permission, the
+`listProjects` bypass (its existing test used `role: 'admin'`, which passes under
+both the old rule and the new one), and three modules with no spec at all —
+`org-role-permissions.ts`, `project-membership.ts`, `chat.ts`.
+
+Now closed, and each new test was checked by reverting its fix and watching it
+fail: `org-role-permissions.spec.ts` (12 tests), the message-write gate in
+`conversations/service.spec.ts` (5), the permission-not-slug case in
+`projects/service.spec.ts`, and `platform-permission-coverage.spec.ts`, which
+pins the permission every platform route declares — swapping `settingsManage`
+for `settingsView` on `PUT /platform/model-defaults`, handing every platform
+write to the read-only role, was a green change before it existed.
+
+### Known gaps, not fixed here
+
+- **`platform:usage:view` is checked by zero routes.** The cross-org spend data
+  lives in `platform/overview`, gated `platform:organizations:view`. A custom
+  platform role granted only the usage permission the catalog advertises reaches
+  nothing — F3's extensibility failure, reproduced at the platform tier. Not
+  fixed because changing the overview gate is a product decision about what
+  Support sees, not a bug fix.
+- **Two reads gated `platform:organizations:view` return tenant CONTENT**, not
+  directory data: answer-feedback streams cross-tenant questions and answers,
+  and the profiler returns any tenant's turn timeline. Support holds that
+  permission. Not a regression — Support passed the old binary gate too — but
+  "Support can read everything" is literally true and nobody has decided whether
+  it should include tenant chat content.
+- **`CHAT_PERMISSIONS` omits `project:manage` and both narrow writes.** No
+  built-in role is affected (all hold `project:edit`), but it leaves the
+  deprecated umbrella as the only non-`project:chat` route to chat.
+- **`POST /api/conversations/{id}/generate-title`** calls the LLM gated only on
+  conversation ownership — no project gate, no budget check. Small, and outside
+  this branch's scope, but it is LLM spend outside every project gate.
+- **`getCached('authz:env-role-permissions', …)` carries no environment
+  discriminator.** Two deployments pointing at different WorkOS environments
+  while sharing one cache would serve each other's role map. A configuration
+  hazard rather than a live bug; the organization-scoped key is already per-org.
+
+## 8. What is left
+
 
 The nine code findings are fixed and covered by tests (`lib/authz/*.spec.ts`,
 including a first-ever spec for `decide.ts`), and W1–W3 are reconciled in both

@@ -909,6 +909,39 @@ export async function createConversationMessages(
     prepared.push(await prepareMessage(session, conversationId, input, { shared, engagement }))
   }
 
+  // Addressing the agent inside a project requires `project:chat` — the gate on
+  // CREATING a project thread is not enough on its own.
+  //
+  // The hole this closes: `requireResourceAccess` above gates the container on
+  // `project:view` (correctly — a Viewer reads the project's threads), and
+  // `resolveResourceAccess` grants the creator `owner`. So a project Viewer
+  // holding a thread stamped with this project — one created before the create
+  // gate shipped, or one they own for any other reason — satisfied
+  // `collaborator` and could open agent turns in it indefinitely. Gating the
+  // creation path alone stopped new threads and left every existing one open.
+  //
+  // Deliberately narrower than "block the write": it fires only on messages the
+  // ruling actually addressed to the agent, so a Viewer can still reply to a
+  // colleague in a shared thread. Contributing to a conversation is not the
+  // thing `project:chat` governs; spending a turn is.
+  //
+  // Checked BEFORE `insertMessages`, so a refused turn leaves no row behind.
+  const addressesAgent = prepared.some((entry) => entry.addressees?.agent === true)
+  if (addressesAgent && access.container.projectId) {
+    try {
+      await requireProjectAccess(session, access.container.projectId, CHAT_PERMISSIONS)
+    } catch {
+      // `requireProjectAccess` denies with 404 so a response never confirms a
+      // project's existence. That reasoning does not apply here: the caller is
+      // demonstrably looking at a thread inside this project, so the project is
+      // not a secret from them and a 404 would only read as "your message
+      // vanished". 403 is the honest answer.
+      throw new ForbiddenError(
+        'You do not have permission to use the research agent in this project.'
+      )
+    }
+  }
+
   const rows = await insertMessages(
     prepared.map((entry) => buildMessageRow(conversationId, entry, session.userId))
   )

@@ -49,9 +49,21 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
     // here because the authz modules are `server-only`, and prop-drilled the way
     // `canCollaborate` already is.
     //
-    // Defaults to TRUE and is only ever set false by a definite denial: a
-    // lookup failure must not lock the composer for somebody who can chat. The
-    // server is the enforcement; this is the affordance.
+    // Defaults to TRUE, and FAILS CLOSED from there — which is the opposite of
+    // what this comment used to claim, so state it plainly:
+    // `requireProjectAccess` collapses a transport failure into the same
+    // `NotFoundError` it uses for a denial (`checkResourcePermission` catches
+    // the SDK error and returns false; `projects.spec.ts` pins that as "fails
+    // CLOSED when the FGA call itself errors"). A `catch` here therefore cannot
+    // tell "you may not chat" from "WorkOS is down", so during an outage an
+    // Editor sees a locked composer.
+    //
+    // Kept fail-closed on purpose — the safe direction for an authorization
+    // affordance — but the copy it drives must not assert a cause it cannot
+    // know, which is why the notice says what to do rather than accusing the
+    // reader of lacking a role. Distinguishing the two needs a signal out of
+    // `requireProjectAccess` that does not exist yet; until then the honest
+    // thing is to say so here.
     let canChatInProject = true
     try {
       const session = await getGridSession()

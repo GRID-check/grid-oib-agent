@@ -20,11 +20,17 @@
  * permission list in one call, and every organization role likewise, so this is
  * one cached lookup per environment — not one per subject.
  *
- * **Falls back to the catalog, never to "yes".** If WorkOS cannot be reached the
- * answer degrades to what `lib/authz/catalog.ts` says the role holds, which is
- * what the provisioner puts there. An unknown role slug resolves to the empty
- * set, so a custom role the catalog has never heard of denies rather than
- * defaults — the same fail-closed posture as `./resource-check`.
+ * **Unions WorkOS with the catalog, and never defaults to "yes".** WorkOS is
+ * consulted first; every miss — the call failed, the slug is unknown, or the
+ * slug is known and does not list the permission — falls back to what
+ * `lib/authz/catalog.ts` says the role holds. That union is deliberate and
+ * mirrors `hasPermission`: the catalog routinely ships ahead of provisioning,
+ * and answering the same question two different ways for a session and for a
+ * third party is precisely the divergence this module exists to prevent.
+ *
+ * A role slug NEITHER side knows resolves to the empty set, so a custom role
+ * nobody has heard of denies rather than defaults — the same fail-closed
+ * posture as `./resource-check`.
  */
 
 import 'server-only'
@@ -71,11 +77,18 @@ export async function orgRoleHoldsPermission(
   if (!roleSlug) return false
   try {
     const map = await environmentRolePermissionMap()
-    const held = map[roleSlug]
-    if (held) return held.includes(permission)
-    // WorkOS answered and does not know this slug — fall through to the catalog
-    // rather than deny outright, so a role that exists only in the catalog
-    // (mid-provisioning) still resolves.
+    if (map[roleSlug]?.includes(permission)) return true
+    // Falls through to the catalog on every miss, not only on an unknown slug.
+    //
+    // Returning `map[roleSlug].includes(permission)` directly was wrong in the
+    // one case that matters: WorkOS knows the role but not the permission —
+    // which is exactly what a catalog that has shipped ahead of provisioning
+    // looks like. `hasPermission` unions the two for a SESSION (that union is
+    // what keeps a lagging environment usable), so answering the same question
+    // about a THIRD PARTY with a hard deny made the two disagree in the very
+    // situation this module's header says it exists to prevent: an org admin
+    // reaching every project through `requireProjectAccess` while
+    // `canUserAccessProject` refused to let anyone invite them to one.
   } catch (error) {
     console.warn(`[authz] environment role lookup failed for ${roleSlug}:`, error)
   }
@@ -94,8 +107,8 @@ export async function organizationRoleHoldsPermission(
   if (!roleSlug) return false
   try {
     const map = await organizationRolePermissionMap(organizationId)
-    const held = map[roleSlug]
-    if (held) return held.includes(permission)
+    if (map[roleSlug]?.includes(permission)) return true
+    // Same union as above, for the same reason.
   } catch (error) {
     console.warn(`[authz] organization role lookup failed for ${roleSlug}:`, error)
   }
@@ -117,7 +130,9 @@ export async function organizationRolePermissions(
   try {
     const map = await organizationRolePermissionMap(organizationId)
     const held = map[roleSlug]
-    if (held) return new Set(held)
+    // Union, not replace: the catalog covers what provisioning has not caught
+    // up to, and WorkOS covers the custom roles the catalog has never heard of.
+    if (held) return new Set([...held, ...permissionsForPlatformRole(roleSlug)])
   } catch (error) {
     console.warn(`[authz] organization role lookup failed for ${roleSlug}:`, error)
   }
