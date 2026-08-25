@@ -51,6 +51,8 @@ function initAura() {
   const IW = 1376
   const IH = 768
   const HEAD: [number, number] = [700, 196]
+  /** How far out of the halo a line has to start before it is drawn at all. */
+  const BEAM_START = 0.34
   let sc = 1
   let ox = 0
   let oy = 0
@@ -148,24 +150,37 @@ function initAura() {
       // A leader line is drawn to the nodes that say something, and only
       // suggested for the rest, so the eye follows the labels.
       const named = Boolean(n.label)
-      // The line leaves her head as nothing and gathers as it travels out. A
-      // stroke of one flat alpha reads as a spoke pinned to the face; a stroke
-      // that arrives out of the halo reads as something being drawn from it.
+      // The line gathers as it travels out — but it also has to START further
+      // out. A gradient that begins at zero still converges on the same pixel as
+      // the other eleven, and twelve nearly-invisible strokes stacked on one
+      // point add up to a visible one: the fan was tied in a knot at her head.
+      // So each ray begins clear of the halo and there is nothing at the centre
+      // to accumulate.
+      const START = BEAM_START
+      const sx = hx + (nx - hx) * START
+      const sy = hy + (ny - hy) * START
       const a = (named ? 0.1 : 0.05) + (named ? 0.09 : 0.04) * glow
-      const ray = ctx.createLinearGradient(hx, hy, nx, ny)
+      const ray = ctx.createLinearGradient(sx, sy, nx, ny)
       ray.addColorStop(0, 'rgba(94,110,70,0)')
-      ray.addColorStop(0.45, `rgba(94,110,70,${(a * 0.3).toFixed(3)})`)
+      ray.addColorStop(0.5, `rgba(94,110,70,${(a * 0.4).toFixed(3)})`)
       ray.addColorStop(1, `rgba(94,110,70,${a.toFixed(3)})`)
       ctx.strokeStyle = ray
       ctx.lineWidth = 1
       ctx.beginPath()
-      ctx.moveTo(hx, hy)
+      ctx.moveTo(sx, sy)
       ctx.lineTo(nx, ny)
       ctx.stroke()
+      // The node sits ON the photograph rather than in it: a soft drop shadow
+      // is what gives a 2px dot enough presence to survive a busy background.
+      ctx.save()
+      ctx.shadowColor = 'rgba(34,39,26,0.45)'
+      ctx.shadowBlur = 5 * Math.max(1, sc * 0.8)
+      ctx.shadowOffsetY = 1
       ctx.fillStyle = `rgba(88,104,64,${((named ? 0.4 : 0.22) + 0.35 * glow).toFixed(3)})`
       ctx.beginPath()
       ctx.arc(nx, ny, (named ? 1.7 : 1.1 + 0.6 * glow) * Math.max(1, sc * 0.8), 0, Math.PI * 2)
       ctx.fill()
+      ctx.restore()
       // A label belongs to its node, so it takes whichever side of the node has
       // room for it. Written blindly to the right, the ones on a phone ran off
       // the canvas and were read as a column of broken words down the edge.
@@ -178,10 +193,18 @@ function initAura() {
         const flip = right + textW > w - EDGE && nx - 7 * sc - textW > EDGE
         ctx.textAlign = flip ? 'right' : 'left'
         const lx = flip ? nx - 7 * sc : Math.min(right, Math.max(EDGE, w - EDGE - textW))
+        // A halo in the paper's own colour, not a shadow: the labels cross hair,
+        // sleeve and drawing in one pass, and this is what keeps 9px mono legible
+        // over all three without putting a box behind it.
+        ctx.save()
+        ctx.shadowColor = 'rgba(247,247,243,0.95)'
+        ctx.shadowBlur = 7 * Math.max(1, sc * 0.7)
         lines.forEach((ln, li) => {
           ctx.fillStyle = `rgba(78,92,56,${((li === 0 ? 0.44 : 0.3) + 0.3 * glow).toFixed(3)})`
           ctx.fillText(ln, lx, ny - 5 * sc + li * lh)
+          ctx.fillText(ln, lx, ny - 5 * sc + li * lh)
         })
+        ctx.restore()
         ctx.textAlign = 'left'
       }
     })
@@ -192,17 +215,31 @@ function initAura() {
       const grow = Math.min(1, cyc / 0.55)
       const fade = cyc > 0.78 ? 1 - (cyc - 0.78) / 0.22 : 1
       if (fade <= 0) return
-      ctx.strokeStyle = `rgba(94,110,70,${(0.28 * fade).toFixed(3)})`
+      // These are the ones that were tying the knot: five beams drawn from the
+      // exact centre at 0.28 alpha, stacked on the same pixel. They leave from
+      // the same clear radius the leader lines do, and fade in over it.
+      const bsx = hx + (bx - hx) * BEAM_START
+      const bsy = hy + (by - hy) * BEAM_START
+      const ex = hx + (bx - hx) * Math.max(BEAM_START, grow)
+      const ey = hy + (by - hy) * Math.max(BEAM_START, grow)
+      const beam = ctx.createLinearGradient(bsx, bsy, ex, ey)
+      beam.addColorStop(0, 'rgba(94,110,70,0)')
+      beam.addColorStop(1, `rgba(94,110,70,${(0.3 * fade).toFixed(3)})`)
+      ctx.strokeStyle = beam
       ctx.lineWidth = 1
       ctx.beginPath()
-      ctx.moveTo(hx, hy)
-      ctx.lineTo(hx + (bx - hx) * grow, hy + (by - hy) * grow)
+      ctx.moveTo(bsx, bsy)
+      ctx.lineTo(ex, ey)
       ctx.stroke()
       if (grow >= 1) {
+        ctx.save()
+        ctx.shadowColor = 'rgba(34,39,26,0.4)'
+        ctx.shadowBlur = 6 * Math.max(1, sc * 0.8)
         ctx.fillStyle = `rgba(88,104,64,${(0.6 * fade).toFixed(3)})`
         ctx.beginPath()
         ctx.arc(bx, by, 2.4 * Math.max(1, sc * 0.8), 0, Math.PI * 2)
         ctx.fill()
+        ctx.restore()
         ctx.strokeStyle = `rgba(94,110,70,${(0.42 * fade).toFixed(3)})`
         ctx.beginPath()
         ctx.arc(bx, by, (5 + 7 * (1 - fade)) * Math.max(1, sc * 0.8), 0, Math.PI * 2)
