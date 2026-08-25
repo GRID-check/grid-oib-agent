@@ -4,10 +4,13 @@ Canonical entry point for developing on Grid. The deep references live elsewhere
 and are linked below; this file ties them together so the workflow is discoverable
 from one place.
 
-- Full engineering guide (architecture, subsystems, env vars): [AGENTS.md](AGENTS.md)
+- Everything written down about this project, grouped by the question you
+  arrived with: [docs/README.md](docs/README.md)
+- How the system works: [docs/architecture/system-overview.md](docs/architecture/system-overview.md)
+- How we work, in detail: [docs/contributing/README.md](docs/contributing/README.md)
+- What an agent must act on while working: [AGENTS.md](AGENTS.md)
 - The bar every change must clear before it is "done":
   [definition-of-done skill](.claude/skills/definition-of-done/SKILL.md)
-- System design overview: [docs/architecture/overview.md](docs/architecture/overview.md)
 
 ## Setup (run once)
 
@@ -58,8 +61,7 @@ Write it for the architect using Piloti: plain sentences, no issue numbers, no
 file or component names. A PR that genuinely changes nothing a user can observe
 carries the `no-release-note` label instead.
 
-Rules and rationale: [AGENTS.md](AGENTS.md) ("Release notes are mandatory") and
-[docs/contributing/release-notes.md](docs/contributing/release-notes.md).
+Full playbook: [docs/contributing/release-notes.md](docs/contributing/release-notes.md).
 
 ## Local validation
 
@@ -105,8 +107,9 @@ just the commits.
 - Security scanning runs in
   [`.github/workflows/security.yml`](.github/workflows/security.yml): Semgrep
   (SAST), OSV-Scanner (dependency CVEs), pip-audit / npm audit, and gitleaks —
-  fully in-CI, no paid licence. See the "Security & static analysis" section of
-  [AGENTS.md](AGENTS.md) for the rationale.
+  fully in-CI, no paid licence. What each tool blocks on, and the two
+  non-obvious things about the trivy job:
+  [docs/contributing/testing-and-verification.md](docs/contributing/testing-and-verification.md).
 - Dependency-update PRs are opened by Dependabot
   ([`.github/dependabot.yml`](.github/dependabot.yml)).
 

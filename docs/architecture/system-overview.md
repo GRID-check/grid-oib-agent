@@ -290,9 +290,9 @@ frontend start). → `docs/database/`.
 - **Tenancy.** `organization_id` on every `grid_app` row; collection scope +
   `requireProjectAccess` on every backend request; org-scoped memory never
   crosses organizations.
-- **Verification / CI.** Host `npm` is unreliable, so the frontend is
-  typechecked + tested in a throwaway Docker image; the backend via the project
-  venv (`py_compile` / `ruff` / `pytest`). → `docs/contributing/testing-and-verification.md`.
+- **Verification / CI.** `task verify` is the merge gate, host-native, defined
+  once in the root `Taskfile.yml` and run unchanged by CI.
+  → `docs/contributing/testing-and-verification.md`.
 
 ---
 
