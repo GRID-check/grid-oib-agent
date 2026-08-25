@@ -47,6 +47,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { useTranslations, type Translator } from '@/i18n'
 import { SchematicCard, statusColor } from '../schematics/kit'
 import { cn } from '@/lib/utils'
+import { CARD_LIST_ROW, CARD_ROW_BACK_LINK } from './card-rows'
 import type { ConditionBranchData, NormReferenceData } from '../schematics/types'
 
 interface ConditionTreeCardProps {
@@ -159,7 +160,7 @@ const BranchNode: FC<BranchNodeProps> = ({
             // only in the tint and the chip.
             aria-current={active ? 'true' : undefined}
             className={cn(
-              'group flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left',
+              CARD_LIST_ROW,
               'transition-colors duration-quick ease-out motion-reduce:transition-none',
               'focus-visible:ring-ring/60 focus-visible:outline-none focus-visible:ring-2',
               active ? 'hover:bg-transparent' : open ? 'bg-muted/60' : 'hover:bg-muted/50',
@@ -259,7 +260,7 @@ const BranchNode: FC<BranchNodeProps> = ({
                       type="button"
                       onClick={onBackToActive}
                       className={cn(
-                        'shrink-0 rounded font-medium text-primary underline underline-offset-2',
+                        CARD_ROW_BACK_LINK,
                         'transition-opacity duration-quick ease-out motion-reduce:transition-none',
                         'hover:opacity-80',
                         'focus-visible:ring-ring/60 focus-visible:outline-none focus-visible:ring-2',

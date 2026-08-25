@@ -1,0 +1,28 @@
+---
+improvements:
+  - >
+    Piloti is built for a phone now, not merely resized for one. The numbers and
+    sources in an answer, the mentions in a shared thread, the steps of a card
+    and the outline of a report are all sized for a fingertip, so checking where
+    a requirement came from no longer takes three attempts on site.
+  - >
+    Your phone's keyboard finally knows what each field is for: the key that
+    sends a message says "send", the one that runs a search says "search", and
+    a search box stops capitalising and autocorrecting what you type — so
+    looking for a file by its exact name finds it.
+fixes:
+  - >
+    Copying your own message and removing an attached source were impossible on
+    a touch device. Both controls only appeared when a mouse hovered over them,
+    which a phone cannot do, so they were invisible on every tablet and phone.
+  - >
+    The file list in a project and in the Archiv no longer has to be dragged
+    sideways to read a document's name. Long filenames now shorten to fit the
+    screen instead of stretching the list past the edge of it.
+  - >
+    Renaming a conversation, a file or a building in the project wizard no
+    longer zooms an iPhone into the page and leaves it there.
+  - >
+    The controls for zooming a cited PDF stayed off the right-hand edge of a
+    phone screen, so reading a passage meant scrolling the page sideways to
+    find them. They now wrap onto a second line when the screen is narrow.

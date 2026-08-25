@@ -1421,6 +1421,19 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               placeholder={getPlaceholder()}
               disabled={disabled}
               rows={1}
+              // The action key on a phone keyboard, told what it actually does.
+              // `handleKeyDown` above sends on a plain Enter and only inserts a
+              // newline on Shift+Enter — but a `<textarea>` defaults its soft-key
+              // to the return glyph, so the most consequential key in the product
+              // was drawn as "start a new line" and wired to "send this to the
+              // agent". `enterKeyHint="send"` makes the label agree with the
+              // handler. It changes no behaviour on any device; it stops the
+              // phone from misdescribing the behaviour there already is.
+              //
+              // Deliberately NOT paired with autocorrect/autocapitalize off the
+              // way the search fields are: this field takes German prose, and
+              // there the phone's help is help.
+              enterKeyHint="send"
               aria-label={
                 isResponseMode ? t('inputArea.responseInput') : t('inputArea.chatMessageInput')
               }

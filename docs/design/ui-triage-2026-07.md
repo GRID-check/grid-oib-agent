@@ -130,6 +130,52 @@ documented `text-xl` title-size question becomes a single knob.
   running prose (the WCAG 2.2 inline exception), a 24×24 source chip that meets
   the AA minimum, and one chip-internal icon button capped at 36px by its chip.
   Guarded by `src/components/ui/touch-target.spec.ts`.
+
+  **Corrected by the pass below.** "All deliberate" did not survive re-measuring.
+  The Herleitung's source row — the control the whole surface exists to offer —
+  was 290×19 because a `p-0` override on the shared chip stripped away the
+  padding that had been its target, and it was not on anybody's exception list.
+  More to the point, the audit that produced this entry measured SIZE, so it
+  could only find defects that are about size; the reachability and layout
+  failures below were invisible to it.
+- **[done] M · The three mobile failures a size audit cannot see** — a second
+  pass over the customer-facing surfaces (chat, projects, Archiv, Postfach,
+  files; not Plattform) at 390×844, with `visual/touch-audit.mjs` — the harness
+  that pass produced, and the reason the numbers here are measured rather than
+  read off the markup.
+
+  1. **Reachable at all.** `opacity-0 group-hover:opacity-100` is the whole
+     affordance of a reveal, and a touch device cannot generate a hover. Copying
+     your own message and deleting an attached source were mounted, focusable and
+     permanently invisible on a phone. `project-memory-panel` already had the
+     escape (`pointer-coarse:opacity-100`); two sites had never adopted it.
+  2. **Laid out at all.** The Files/Archiv list rendered its Name column 437px
+     wide inside a 308px wrapper: `truncate` cannot fire under `table-layout:
+     auto`, because auto layout sizes a column to its content's minimum and a
+     filename does not wrap. The Table primitive's `overflow-x-auto` caught the
+     overflow, so nothing looked broken — the reader simply had to drag the list
+     sideways to read a filename. `table-fixed` is the fix. The PDF viewer's
+     toolbar was the same shape of bug at page level (445px inside 390).
+  3. **The keyboard.** `enterKeyHint` appeared nowhere in `src/`. The composer's
+     return key was drawn as a newline and wired to send; search fields ran a
+     semantic search off a key labelled "go". Three raw `<input>`s were under
+     16px, which makes iOS Safari zoom the page in on focus and never zoom back
+     out — including the field that renames the conversation you are reading.
+     Search fields also inherited the phone's autocapitalize and autocorrect,
+     which edit a query on its way into a matcher.
+
+  Plus the bespoke controls in `features/` that the primitive-level pass could
+  not reach: citation markers, mention pills, card disclosures, the four
+  card list rows (now one `CARD_LIST_ROW`), the report outline, sort headers,
+  file chips. Inline markers in prose grow but stay under 44 on purpose — 44px
+  catchments on two adjacent citations overlap, and the later one in the DOM
+  takes every tap meant for the earlier, which is worse than a small target.
+  See the note in `CitationMarker.tsx`.
+
+  Ratcheted by `src/components/ui/mobile-affordances.spec.ts` (hover reveals need
+  a touch escape; hand-written fields need the 16px floor; the shared molecules
+  declare their `enterKeyHint`) and by `task fe:touch-audit`, which is the
+  measurement half and is deliberately not in `verify`.
 - **[done] M · Mobile drawer focus trap** — `app-sidebar.tsx` cycles Tab and
   Shift-Tab inside the panel, restores focus to the opener on close, closes on
   Escape and locks background scroll. (Noted here because the line above claimed

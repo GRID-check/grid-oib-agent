@@ -147,7 +147,12 @@ export function UploadTray({ files, onRetry, onCancel, onCancelAll, onDismiss }:
           type="button"
           onClick={() => setIsExpanded((open) => !open)}
           aria-expanded={isExpanded}
-          className="min-w-0 flex-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          // The row is 53px tall and this control was 33 of them: the tray's own
+          // `py-2.5` sits OUTSIDE the button, so the strip a reader obviously
+          // aims at — the whole band — was dead along its top and bottom edges.
+          // `-my-2.5 py-2.5` cancels to the same margin box, so nothing moves;
+          // the button simply stops leaving its own padding on the table.
+          className="min-w-0 flex-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:-my-2.5 pointer-coarse:py-2.5"
         >
           {/* Polite, not assertive: the phase changes two or three times per
               batch and each one is worth hearing, but the byte counter beneath

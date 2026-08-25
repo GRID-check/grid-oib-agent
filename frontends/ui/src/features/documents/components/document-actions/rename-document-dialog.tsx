@@ -147,6 +147,19 @@ export function RenameDocumentDialog({
                 // is the part every renaming UI that gets this wrong shares.
                 autoFocus
                 onFocus={(event) => event.currentTarget.select()}
+                // `autoFocus` means the soft keyboard is already up when the
+                // dialog opens, so its action key is the fastest way to finish —
+                // and this is a one-field form, so Enter submits it. "Done"
+                // rather than the return glyph says that.
+                //
+                // A filename is a string, not a sentence: autocapitalize would
+                // title-case the stem the reader deliberately kept lowercase, and
+                // autocorrect rewrites the German compound nouns and abbreviations
+                // these files are named with.
+                enterKeyHint="done"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
                 disabled={pending}
                 aria-invalid={error !== null}
                 aria-describedby={error ? 'document-rename-error' : 'document-rename-hint'}

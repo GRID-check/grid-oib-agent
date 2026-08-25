@@ -53,6 +53,10 @@ export const SCREENSHOT_TARGETS = [
   },
   {
     id: 'pdf-passage',
+    // The viewer's toolbar used to run off the right edge of a phone and take
+    // the page's horizontal scroll with it; it wraps now, and this is the shot
+    // that says so.
+    mobile: true,
     path: '/dev/pdf-passage',
     description:
       'Cited passage lit up inside the in-app PDF viewer, over a real one-page Bescheid rendered by pdf.js. Left pane freezes the arrival pulse mid-swell, right pane shows the resting mark. The quoted passage spans two printed lines and is cited without the line-break hyphen, so both the de-hyphenation and the per-line rectangle merge are visible.',
@@ -368,6 +372,11 @@ export const SCREENSHOT_TARGETS = [
   },
   {
     id: 'file-browser-search-list',
+    // The list view is where a filename has to survive a narrow column, and it
+    // is where it did not: the Name column laid out 437px inside a 308px wrapper
+    // until `table-fixed` made `truncate` mean something. Captured at mobile so
+    // the next regression has a picture to disagree with.
+    mobile: true,
     path: '/dev/file-browser?variant=search-list',
     description:
       'A semantic search answered in the DETAIL view. The card/list toggle was read only on the un-searched branch, so pressing Enter threw a reader who had deliberately chosen the list back into cards, and clearing the query threw them back again. The ranking comes with it: relevance is the column the list opens sorted by \u2014 its own default is newest-first, which would have silently discarded the order the backend ranked \u2014 and every row carries the passage that matched, with its page, in the slot the summary usually holds.',

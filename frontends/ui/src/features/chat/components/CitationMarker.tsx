@@ -95,6 +95,26 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
               // sentence and has to track whatever size that sentence is set at.
               // The -0.15em lift is optical superscript alignment.
               'relative -top-[0.15em] text-[0.68em] font-semibold leading-[1.45] tabular-nums',
+              // WHERE A FINGER DRIVES IT, THE PILL IS THE TARGET — AND `touch-target`
+              // IS THE WRONG TOOL HERE, uniquely. That utility centres a
+              // `max(100%, 44px)` catchment on the control, which is right for a
+              // control with room around it and wrong for one that sits in running
+              // prose beside its own kind: two markers on "…REI 90 1, 2 …" are ~17px
+              // apart centre to centre, so 44px catchments would overlap almost
+              // entirely and the later one in the DOM would take every tap meant for
+              // the earlier. A reader tapping citation 1 would be shown citation 2 —
+              // worse than a small target, because it is confidently wrong.
+              //
+              // So this one grows instead of overhanging, and it grows on both axes:
+              // more padding, a slightly larger em, and a min-height that reaches
+              // past the digit's own line box. Adjacent pills stay disjoint boxes, so
+              // whichever one you press is the one that answers. Measured 22x26
+              // rather than 44 — the floor is not reachable inline without stealing
+              // a neighbour's taps, and this is the largest honest target the
+              // sentence has room for. Everything the desktop pill was tuned for
+              // (see the width note below) is untouched: none of this applies to a
+              // mouse.
+              'pointer-coarse:min-h-[26px] pointer-coarse:justify-center pointer-coarse:px-[7px] pointer-coarse:text-[0.78em]',
               // `transform` joins the transition list and `active:scale-95` matches
               // the Button primitive exactly. A citation marker is one of the most
               // pressed things in a read answer, and it was one of the raw

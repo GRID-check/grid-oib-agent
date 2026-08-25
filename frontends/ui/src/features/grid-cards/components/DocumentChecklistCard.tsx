@@ -46,6 +46,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { useTranslations, type Translator } from '@/i18n'
 import { SchematicCard, statusColor } from '../schematics/kit'
 import { cn } from '@/lib/utils'
+import { CARD_LIST_ROW } from './card-rows'
 import type { DocumentStatus, NormReferenceData, RequiredDocumentData } from '../schematics/types'
 
 interface DocumentChecklistCardProps {
@@ -126,7 +127,7 @@ const Row: FC<RowProps> = ({ item, open, onToggle, t }) => {
         <CollapsibleTrigger
           aria-label={t('cards.documentChecklist.itemAria', { label: item.label })}
           className={cn(
-            'group flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left',
+            CARD_LIST_ROW,
             'transition-colors duration-quick ease-out motion-reduce:transition-none',
             'focus-visible:ring-ring/60 focus-visible:outline-none focus-visible:ring-2',
             open ? 'bg-muted/60' : 'hover:bg-muted/50'
