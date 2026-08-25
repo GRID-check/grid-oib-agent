@@ -19,10 +19,13 @@
  * SOMEBODY ELSE'S document — reading their summary onto its own card, or
  * deleting their chunks when it is deleted.
  *
- * Five instances of that have now been found, one at a time:
+ * Instances of that were found one at a time until this module existed:
  * `reindexProject`, `findStorageKeyByCollectionAndFilename`, `joinHitsToFiles`,
- * the metadata-enrichment pass in `reconcile-status`, and `deleteDocument`'s
- * chunk purge. Four of those five sites ALREADY HAD `authoredBy` in hand —
+ * the metadata-enrichment pass in `reconcile-status`, `deleteDocument`'s chunk
+ * purge, and then — once somebody enumerated instead of waiting for the next
+ * report — `updateDocumentTags`, `renameDocument`'s display-title mirror,
+ * `getDocumentVisualDetails`, the Archiv's own delete, and the session-document
+ * cleanup sweep. Ten. Most of those sites ALREADY HAD `authoredBy` in hand —
  * `getAccessibleDocument` returns the full `Document` row and `DocumentListRow`
  * has carried the column as required since migration 0063. Making the column
  * available is what had been tried; it is not what was missing. What was
@@ -41,7 +44,14 @@
  *
  * - It cannot forbid string concatenation. Nothing in TypeScript stops a future
  *   caller from writing the `/v1/collections/${c}/documents/${f}` template by
- *   hand. The gate is reached by reaching for it; it is not a wall.
+ *   hand. The gate is reached by reaching for it; it is not a wall. Two callers
+ *   had already written that template before this module existed — the Archiv
+ *   delete and the session-document purge — and neither was on the list above
+ *   until somebody grepped for the template rather than for the helper. They
+ *   were safe only because `fileGeneratedDocument` sets no `scope`, so its rows
+ *   default to `project` and never appear in an `archiv` or `session` query.
+ *   Safety that rests on a column default is worth writing down, not relying
+ *   on; both go through the constructor now.
  * - It gates on `authoredBy !== 'user'`, which encodes TODAY's invariant
  *   ("machine-authored ⇒ never indexed ⇒ owns no backend state"). A future
  *   producer that is machine-authored AND indexed — which `DocumentListRow`'s

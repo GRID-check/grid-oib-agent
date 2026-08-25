@@ -342,6 +342,37 @@ describe('authorship on documents', () => {
     expect(backfill).toBeGreaterThan(guard)
   })
 
+  it('backfills the same producer\u2192kind table the filing path reads', () => {
+    // 0066's header rests the whole change on these two tables agreeing:
+    // "a wrong `authored_by_ref_kind` is worse than a missing column, because
+    // it is a false statement in the record this whole change exists to make
+    // truthful". Nothing compared them. Changing the SQL's `diagram_svg` to
+    // `agent_run` left this file green, and applying that migration to a
+    // database holding a pre-0066 diagram row wrote `agent_run` onto a chat
+    // answer's artifact id — reachable on real data, because 0065 ships before
+    // 0066 and diagram rows can already exist when it runs.
+    const backfill = MIGRATION_0066.slice(MIGRATION_0066.indexOf('CASE "authored_by_producer"'))
+    const mapped = Object.fromEntries(
+      [...backfill.slice(0, backfill.indexOf('END')).matchAll(/WHEN '(\w+)' THEN '(\w+)'/g)].map(
+        ([, producer, kind]) => [producer, kind]
+      )
+    )
+    expect(mapped).toEqual(GENERATED_DOCUMENT_PRODUCER_REF_KINDS)
+  })
+
+  it('refuses exactly the producers it cannot backfill, and no others', () => {
+    // The guard's allow-list and the CASE's arms are one list written twice. A
+    // producer added to the guard but not to the CASE passes the refusal, gets
+    // a NULL kind, and then dies at `VALIDATE CONSTRAINT` — turning a designed
+    // exception that names the producer into a bare constraint violation, which
+    // is the opposite of "a migration that cannot know an answer must stop and
+    // say so".
+    const guard = MIGRATION_0066.slice(0, MIGRATION_0066.indexOf('RAISE EXCEPTION'))
+    const allowList = /NOT IN \(([^)]*)\)/.exec(guard)?.[1] ?? ''
+    const guarded = [...allowList.matchAll(/'(\w+)'/g)].map(([, producer]) => producer).sort()
+    expect(guarded).toEqual(Object.keys(GENERATED_DOCUMENT_PRODUCER_REF_KINDS).sort())
+  })
+
   it('gives every producer a reference kind, so none can be filed unresolvable', () => {
     // The map in `generated.ts` is what the filing path reads, and this is the
     // half of it a spec can hold: a producer with no entry cannot be filed at

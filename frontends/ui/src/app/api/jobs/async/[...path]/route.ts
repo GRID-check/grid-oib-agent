@@ -248,12 +248,19 @@ async function fileReportIfCommissioned(
   req: Request,
   path: string[],
   session: GridSession | null,
-  projectId: string | undefined,
   data: unknown
 ): Promise<ReportFilingOutcome | null> {
   if (path.length !== 3 || path[0] !== 'job' || path[2] !== 'report') return null
   const runId = path[1]
-  if (!session?.organizationId || !projectId) return null
+  // The reader's project is deliberately NOT a parameter of this function. It
+  // used to be, as a precondition — `|| !projectId` — which survived the change
+  // that moved the destination onto the run and quietly kept the old coupling:
+  // a run commissioned in a project, opened from a context that resolved no
+  // project of its own, was never filed, and the response carried neither
+  // `filed` nor `filingFailed`, so a reader who had been promised „wird
+  // abgelegt" was told nothing at all. Taking the argument away is what stops
+  // that being re-introduced by someone reading the precondition as a guard.
+  if (!session?.organizationId) return null
 
   const report = readReportMarkdown(data)
   if (!report) return null
@@ -392,7 +399,7 @@ export const GET = tenantSlotRoute(async function GET(
     // This is where a run's completion is observed on the BFF: the client asks
     // for the finished report, and until now the answer was read once, rendered
     // into a chat message and thrown away with the run's file system.
-    const filing = await fileReportIfCommissioned(req, path, session, projectId, data)
+    const filing = await fileReportIfCommissioned(req, path, session, data)
 
     // Three shapes, and the third is the point: `filed` when it landed,
     // `filingFailed` when a promise was made and broken, and the untouched body

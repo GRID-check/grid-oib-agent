@@ -628,17 +628,13 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
     expect(JSON.stringify(body)).not.toContain('quota exceeded')
   })
 
-  it('claims no failure when no promise was made — outside a project', async () => {
-    // No project is not a broken promise; the starting banner prints the
-    // disclosure only when there is a project to file into.
-    vi.mocked(buildCollectionScopeFromRequest).mockResolvedValue({
-      headerValue: 'scope',
-      scope: [],
-      scopedCollections: [],
-      projectId: undefined,
-      projectCollectionName: undefined,
-      conversationId: undefined,
-    })
+  it('claims no failure when no promise was made — a run with no project', async () => {
+    // No project on the RUN is not a broken promise: the starting banner prints
+    // the disclosure only when there was a project to file into. What the
+    // READER has open is not this question and must not answer it.
+    fetchSpy.mockResolvedValue(
+      reportResponse({ job_id: 'job-1', has_report: true, report: '# Bericht' })
+    )
 
     const res = await GET(
       getRequest('https://grid.example/api/jobs/async/job/job-1/report'),
@@ -648,7 +644,6 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
     const body = await res.json()
     expect(body.filingFailed).toBeUndefined()
     expect(body.filed).toBeUndefined()
-    expect(body).toMatchObject(REPORT_BODY)
   })
 
   it('still returns the report when filing fails — the answer is not the filing’s to lose', async () => {
@@ -689,7 +684,14 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
     expect(fileResearchReport).not.toHaveBeenCalled()
   })
 
-  it('files nothing without a project to file into', async () => {
+  it('files the run\u2019s report even when the reader\u2019s own context resolves no project', async () => {
+    // The precondition used to be `!session?.organizationId || !projectId`, and
+    // `projectId` there is the READER's — the request's, or their stored
+    // `active_project_id`. It survived the change that moved the destination
+    // onto the run, so a commissioned run opened from a context with no project
+    // of its own was silently never filed, and the response carried neither
+    // `filed` nor `filingFailed`: a reader who had been promised „wird abgelegt"
+    // was told nothing at all.
     vi.mocked(buildCollectionScopeFromRequest).mockResolvedValue({
       headerValue: 'scope',
       scope: [],
@@ -704,7 +706,9 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       streamParams(['job', 'job-1', 'report'])
     )
 
-    expect(fileResearchReport).not.toHaveBeenCalled()
+    expect(fileResearchReport).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'proj-1', runId: 'job-1' })
+    )
   })
 
   /**
