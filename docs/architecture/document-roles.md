@@ -81,10 +81,29 @@ view, because a binding changes without the profile changing:
 ```
 documents:
 - Bebauungsplan: B-Plan 1042 · Plandokument
-- Bestandspläne (Hoftrakt): schnitt-a-a.pdf [nicht bestätigt]
+- Bestandspläne (Hoftrakt): 47 Dokumente, 2 davon nicht bestätigt
 documents_missing:
 - Schadstoffgutachten
 ```
+
+### It carries the shape, never the list
+
+One line per filled **slot** (a role at one scope instance), whatever that slot
+holds: the document's name when it holds one, a count when it holds more. The
+block is therefore `O(roles × scope instances)` and independent of file count —
+a 1000-file project and a 3-file project produce blocks of the same order.
+
+That distinction is the design. Knowing there are 47 Bestandspläne for the
+Hoftrakt is worth its tokens on every turn; knowing *which* 47 is worth nothing
+until the agent is working with them, and costs 47 lines × ~5 prompt templates ×
+every turn, including chit-chat. The first version emitted a line per binding,
+which is the same unbounded growth `_available_documents_limit` in the chat
+researcher already exists to prevent.
+
+A `MAX_SLOT_LINES` cap sits behind that as a backstop for an implausible number
+of buildings, and a truncation says so rather than shortening silently: an agent
+told "these are the documents" while some were withheld reasons as though the
+withheld ones do not exist.
 
 `documents_missing:` is the half that earns its tokens. An agent cannot notice
 the absence of a line, so an unattached Bebauungsplan is named explicitly and
@@ -114,3 +133,9 @@ Bestand and one Neubau recommends Bestandspläne for the first only.
   review screen.
 - **Retrieval** does not filter by role yet. Roles could ride the same channel
   `folder_path` already uses into chunk metadata.
+- **A per-role retrieval tool.** The context deliberately tells the agent that a
+  slot holds 47 documents without naming them, which leaves it no way to reach
+  the 47. A NAT tool taking `(role, scope_instance?)` and returning that slot's
+  documents is the missing half: the block says what exists, the tool fetches it
+  when there is a reason to. Until it exists, the agent can still reach those
+  files through ordinary retrieval — it just cannot ask for them *by role*.

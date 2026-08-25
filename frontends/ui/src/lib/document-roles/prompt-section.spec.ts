@@ -74,6 +74,56 @@ describe('buildDocumentRolesSection', () => {
     expect(section).toContain('(bw2)')
   })
 
+  it('collapses a slot holding many documents to a count, not a list', () => {
+    // The scaling property: a project with 1000 bound plan sheets must not emit
+    // 1000 lines into every prompt template on every turn.
+    const sheets = Array.from({ length: 47 }, (_, index) =>
+      bound({ role: 'bestandsplan', scopeInstanceId: 'bw1', filename: `blatt-${index}.pdf` })
+    )
+    const section = buildDocumentRolesSection(sheets, [], { bw1: 'Hoftrakt' })
+    expect(section).toContain('- Bestandspläne (Hoftrakt): 47 Dokumente')
+    expect(section).not.toContain('blatt-0.pdf')
+    expect(section.split('\n')).toHaveLength(2)
+  })
+
+  it('stays the same size whether the project has three files or a thousand', () => {
+    const small = buildDocumentRolesSection(
+      [bound({ role: 'bestandsplan', scopeInstanceId: 'bw1' }), bound({ role: 'bestandsplan', scopeInstanceId: 'bw1' })],
+      []
+    )
+    const huge = buildDocumentRolesSection(
+      Array.from({ length: 1000 }, () => bound({ role: 'bestandsplan', scopeInstanceId: 'bw1' })),
+      []
+    )
+    expect(huge.split('\n')).toHaveLength(small.split('\n').length)
+  })
+
+  it('names the document when a slot holds exactly one', () => {
+    const section = buildDocumentRolesSection([bound({ role: 'lageplan', filename: 'lage.pdf' })])
+    expect(section).toContain('- Lageplan: lage.pdf')
+  })
+
+  it('reports how many of a multi-document slot are unconfirmed', () => {
+    const section = buildDocumentRolesSection([
+      bound({ role: 'bestandsplan', scopeInstanceId: 'bw1' }),
+      bound({ role: 'bestandsplan', scopeInstanceId: 'bw1', confidence: 'suggested' }),
+    ])
+    expect(section).toContain('2 Dokumente, 1 davon nicht bestätigt')
+  })
+
+  it('keeps one building separate from another', () => {
+    const section = buildDocumentRolesSection(
+      [
+        bound({ role: 'bestandsplan', scopeInstanceId: 'bw1' }),
+        bound({ role: 'bestandsplan', scopeInstanceId: 'bw2' }),
+      ],
+      [],
+      { bw1: 'Hoftrakt', bw2: 'Straßentrakt' }
+    )
+    expect(section).toContain('(Hoftrakt): ')
+    expect(section).toContain('(Straßentrakt): ')
+  })
+
   it('renders in registry order so the block is stable between turns', () => {
     // An unstable block churns the prompt cache for no benefit.
     const section = buildDocumentRolesSection([
