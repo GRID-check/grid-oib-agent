@@ -48,7 +48,11 @@ describe('buildProjectBriefView', () => {
     const a = view.groups.find((g) => g.id === 'A')!
     expect(a.facts).toEqual([
       expect.objectContaining({ key: 'bundesland', label: 'Bundesland', value: 'Wien' }),
-      expect.objectContaining({ key: 'vorhabensart', label: 'Art des Vorhabens', value: 'Neubau' }),
+      expect.objectContaining({
+        key: 'vorhabensart',
+        label: 'Art des Vorhabens (Projekt gesamt)',
+        value: 'Neubau',
+      }),
     ])
     const c = view.groups.find((g) => g.id === 'C')!
     // Scoped keys resolve to their base question label, suffixed with the building name.
@@ -56,7 +60,7 @@ describe('buildProjectBriefView', () => {
       expect.objectContaining({ key: 'bauwerkstyp@bw1', label: 'Bauwerkstyp · Haupthaus' }),
       expect.objectContaining({
         key: 'geschosse_oberirdisch@bw1',
-        label: 'Anzahl oberirdischer Geschoße · Haupthaus',
+        label: 'Anzahl oberirdischer Geschoße (Zielzustand) · Haupthaus',
         value: '5',
       }),
     ])
@@ -79,7 +83,9 @@ describe('buildProjectBriefView', () => {
   it('dedupes unknowns, drops answered ones, resolves scoped labels', () => {
     const view = buildProjectBriefView(profile)
     // `bundesland` is answered by a fact → dropped; the scoped escape-level unknown remains.
-    expect(view.missing).toEqual([{ key: 'fluchtniveau_m@bw1', label: 'Fluchtniveau' }])
+    expect(view.missing).toEqual([
+      { key: 'fluchtniveau_m@bw1', label: 'Fluchtniveau (Zielzustand)' },
+    ])
   })
 
   it('exposes assumptions with display and raw values', () => {
@@ -87,7 +93,7 @@ describe('buildProjectBriefView', () => {
     expect(view.assumptions).toEqual([
       expect.objectContaining({
         key: 'flaechenwidmung',
-        label: 'Flächenwidmung',
+        label: 'Flächenwidmung (Kategorie)',
         value: 'Wohngebiet',
         rawValue: 'wohngebiet',
         reason: 'Typical for the district per the uploaded plan.',

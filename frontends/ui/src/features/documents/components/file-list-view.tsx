@@ -112,9 +112,24 @@ export function FileListView({
 
   return (
     <div className="px-4 pb-4 pt-1">
+      {/* `table-fixed` IS THE TRUNCATION. Every filename cell below already
+          carries `truncate`, and under the browser's default `table-layout: auto`
+          that class did nothing at all: auto layout sizes a column to its
+          content's minimum, a filename does not wrap, so the minimum IS the whole
+          name. Measured on a 390px phone the Name column came out 437px inside a
+          308px wrapper — the `overflow-x-auto` on the Table primitive caught it,
+          so nothing looked broken, and the reader simply had to drag the list
+          sideways to find out what any of their documents were called.
+          Dropping columns at `sm`/`md`/`lg` (below) never touched this: it
+          removes the columns that were not the problem.
+
+          Fixed layout makes the declared widths mean what they say and hands the
+          rest to the one `w-auto` column, so the name gets whatever the viewport
+          has left and the ellipsis finally engages. Desktop is unchanged in
+          practice — there the name column was already taking the remainder. */}
       <Table
         role="grid"
-        className="border-separate border-spacing-0 text-left"
+        className="table-fixed border-separate border-spacing-0 text-left"
         data-testid="file-list-view"
       >
         <TableHeader>
@@ -133,7 +148,14 @@ export function FileListView({
                 sort={sort}
                 onSort={setSort}
                 align="right"
-                className="w-[92px]"
+                // Relevance is a reference column too, and it was the one that
+                // never said so: `pages`, `size` and `added` all step out below
+                // their breakpoints and this stayed at every width, taking 92px
+                // out of the Name column on the narrowest screen there is. In a
+                // ranked list the rows already ARRIVE in relevance order and each
+                // one carries the matched passage under its name — the percentage
+                // refines that, it does not carry it.
+                className="hidden w-[92px] sm:table-cell"
               />
             )}
             <SortHeader
@@ -141,6 +163,15 @@ export function FileListView({
               column="status"
               sort={sort}
               onSort={setSort}
+              // 104px at every width, and NOT the 84px this briefly narrowed to.
+              // The badge is `whitespace-nowrap w-fit`, so a cell too small for
+              // it does not clip — the badge simply renders over its neighbour.
+              // Sized in English that looked fine; German is where it showed:
+              // "Wird hochgeladen" and "Wird verarbeitet" are ~122px at
+              // `text-xs` + `px-2.5`, against the 68px an 84px cell leaves after
+              // its own padding. The cell is the containing box, so the width has
+              // to be one the badge can be made to fit inside — see the `truncate`
+              // on the badge below, which is the other half of this.
               className="w-[104px]"
             />
             {/* Below `sm` the row keeps only what identifies and what acts:
@@ -246,7 +277,12 @@ export function FileListView({
                   </div>
                 </TableCell>
                 {semantic && (
-                  <TableCell className={cn('whitespace-nowrap text-right text-xs tabular-nums', CELL)}>
+                  <TableCell
+                    className={cn(
+                      'hidden whitespace-nowrap text-right text-xs tabular-nums sm:table-cell',
+                      CELL,
+                    )}
+                  >
                     <span
                       className="font-medium text-foreground"
                       title={t('browser.semantic.relevance', { percent: String(percentOf(file.score)) })}
@@ -257,7 +293,16 @@ export function FileListView({
                   </TableCell>
                 )}
                 <TableCell className={CELL}>
-                  {file.status && <DocumentStatusBadge status={file.status} />}
+                  {/* `max-w-full truncate` is what keeps a long localized status
+                      inside its column. The badge is `w-fit whitespace-nowrap`,
+                      so without a ceiling it renders at whatever width its label
+                      needs and simply overlaps the cell beside it — invisible in
+                      English ("Citable"), plainly wrong in German ("Wird
+                      hochgeladen"). `title` carries the full label for the states
+                      that do get clipped, which are the transient ones. */}
+                  {file.status && (
+                    <DocumentStatusBadge status={file.status} className="max-w-full truncate" />
+                  )}
                 </TableCell>
                 <TableCell
                   className={cn(
@@ -341,7 +386,16 @@ function SortHeader({
         type="button"
         onClick={() => onSort(nextSort(sort, column))}
         className={cn(
-          'flex w-full items-center gap-1 px-2 py-1.5 text-[10.5px] font-medium uppercase tracking-wider transition-colors duration-snap ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 motion-reduce:transition-none',
+          // Sorting is how you find a document in a long list, and on a phone it
+          // is the only way — there is no second pane to scan. The header sat at
+          // 26px. Padding rather than a catchment: these are adjacent cells in one
+          // row, so an overhang would put each header's target on top of its
+          // neighbour's.
+          // `min-h-11` rather than more padding: the label is 10.5px, so reaching
+          // 44 by padding alone means guessing at the leading and landing near it
+          // (`py-3.5` measured 42). The `<th>` above is `h-auto p-0`, so the
+          // button owns the whole cell and a min-height is exact.
+          'flex w-full items-center gap-1 px-2 py-1.5 pointer-coarse:min-h-11 text-[10.5px] font-medium uppercase tracking-wider transition-colors duration-snap ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 motion-reduce:transition-none',
           align === 'right' && 'justify-end',
           isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
         )}

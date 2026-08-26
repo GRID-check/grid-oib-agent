@@ -1,4 +1,14 @@
-import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import {
+  boolean,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core'
 import { SHAREABLE_RESOURCE_TYPES } from './resource-shares'
 
 /**
@@ -122,12 +132,15 @@ export const inboxItems = pgTable(
   },
   (table) => ({
     /** Grouping + dedup + idempotency, all three (see module doc). */
-    groupUniq: uniqueIndex('uniq_inbox_items_recipient_group').on(table.recipientUserId, table.groupKey),
+    groupUniq: uniqueIndex('uniq_inbox_items_recipient_group').on(
+      table.recipientUserId,
+      table.groupKey
+    ),
     /** The inbox list: one recipient, one org, newest activity first. */
     listIdx: index('idx_inbox_items_recipient_org_updated').on(
       table.recipientUserId,
       table.organizationId,
-      table.updatedAt,
+      table.updatedAt
     ),
     /** Inert-marking and cascade cleanup by target. */
     targetIdx: index('idx_inbox_items_target').on(table.resourceType, table.resourceId),
@@ -138,7 +151,7 @@ export const inboxItems = pgTable(
     // (actionable AND resolved_at IS NULL)) — is a PARTIAL index the drizzle
     // builder cannot express, so it lives in migration 0027_collaboration.sql.
     // It backs the count rendered on every page.
-  }),
+  })
 )
 
 export type InboxItem = typeof inboxItems.$inferSelect

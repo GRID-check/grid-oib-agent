@@ -13,12 +13,7 @@ import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Field, FieldLabel } from '@/components/ui/field'
-import {
-  Item,
-  ItemActions,
-  ItemContent,
-  ItemList,
-} from '@/components/ui/item'
+import { Item, ItemActions, ItemContent, ItemList } from '@/components/ui/item'
 import { RaisedCard, RaisedCardBody } from '@/components/ui/raised-card'
 import { SectionLabel } from '@/components/ui/section-label'
 import {
@@ -73,7 +68,11 @@ function formatWhen(isoDate: string, t: Translator, locale: string): string {
   if (seconds < 3600) return t('memory.time.minutesAgo', { count: Math.floor(seconds / 60) })
   if (seconds < 86400) return t('memory.time.hoursAgo', { count: Math.floor(seconds / 3600) })
   if (seconds < 86400 * 30) return t('memory.time.daysAgo', { count: Math.floor(seconds / 86400) })
-  return new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' }).format(date)
+  return new Intl.DateTimeFormat(locale, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(date)
 }
 
 async function requestJson<T>(url: string, init?: RequestInit, t?: Translator): Promise<T> {
@@ -83,7 +82,9 @@ async function requestJson<T>(url: string, init?: RequestInit, t?: Translator): 
   })
   if (!res.ok) {
     throw new Error(
-      t ? t('memory.errors.requestFailed', { status: res.status }) : `Request failed (${res.status})`,
+      t
+        ? t('memory.errors.requestFailed', { status: res.status })
+        : `Request failed (${res.status})`
     )
   }
   if (res.status === 204) return undefined as T
@@ -132,7 +133,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
           setError(err instanceof Error ? err.message : t('memory.errors.loadFailed'))
         })
     },
-    [baseUrl, t],
+    [baseUrl, t]
   )
 
   // Initial load.
@@ -185,7 +186,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
           method: 'PATCH',
           body: JSON.stringify(body),
         },
-        t,
+        t
       )
       replaceItem(item)
     } catch (err) {
@@ -220,7 +221,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
           method: 'POST',
           body: JSON.stringify({ kind: addKind, content }),
         },
-        t,
+        t
       )
       setItems((prev) => (prev ? [item, ...prev] : [item]))
       setAddContent('')
@@ -247,7 +248,8 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
     toast.success(t('memory.updated'))
   }
 
-  const visible = items?.filter((it) => it.status !== 'superseded' && it.status !== 'dismissed') ?? []
+  const visible =
+    items?.filter((it) => it.status !== 'superseded' && it.status !== 'dismissed') ?? []
   const groups = PROJECT_MEMORY_KINDS.map((kind) => ({
     kind,
     items: visible.filter((it) => it.kind === kind),
@@ -258,16 +260,14 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
     <section className="space-y-4">
       <div className="flex items-end justify-between gap-4">
         <div>
-          <h2 className="text-sm font-semibold text-foreground">
-            {t('memory.heading')}
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">{t('memory.description')}</p>
+          <h2 className="text-foreground text-sm font-semibold">{t('memory.heading')}</h2>
+          <p className="text-muted-foreground mt-1 text-sm">{t('memory.description')}</p>
         </div>
         <Button
           variant="outline"
           size="sm"
           onClick={() => setAdding(true)}
-          className={adding ? 'invisible pointer-events-none' : undefined}
+          className={adding ? 'pointer-events-none invisible' : undefined}
           tabIndex={adding ? -1 : undefined}
           aria-hidden={adding || undefined}
         >
@@ -282,7 +282,10 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
             <div className="flex flex-wrap items-start gap-3">
               <Field>
                 <FieldLabel htmlFor="memory-add-kind">{t('memory.kindAria')}</FieldLabel>
-                <Select value={addKind} onValueChange={(value) => setAddKind(value as ProjectMemoryKind)}>
+                <Select
+                  value={addKind}
+                  onValueChange={(value) => setAddKind(value as ProjectMemoryKind)}
+                >
                   <SelectTrigger id="memory-add-kind" className="w-44">
                     <SelectValue />
                   </SelectTrigger>
@@ -341,7 +344,11 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
               >
                 {t('memory.cancel')}
               </Button>
-              <Button size="sm" onClick={submitAdd} disabled={addBusy || addContent.trim().length === 0}>
+              <Button
+                size="sm"
+                onClick={submitAdd}
+                disabled={addBusy || addContent.trim().length === 0}
+              >
                 {t('memory.add')}
               </Button>
             </div>
@@ -406,7 +413,9 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                       {isEditing ? (
                         <div className="space-y-2">
                           <Field>
-                            <FieldLabel htmlFor={`memory-edit-${item.id}`}>{t('memory.edit')}</FieldLabel>
+                            <FieldLabel htmlFor={`memory-edit-${item.id}`}>
+                              {t('memory.edit')}
+                            </FieldLabel>
                             <Textarea
                               id={`memory-edit-${item.id}`}
                               value={editDraft}
@@ -444,13 +453,13 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                           <p className="flex items-start gap-1.5 text-sm leading-relaxed">
                             {item.pinned && (
                               <Pin
-                                className="mt-1 size-3 shrink-0 text-muted-foreground"
+                                className="text-muted-foreground mt-1 size-3 shrink-0"
                                 aria-label={t('memory.pinned')}
                               />
                             )}
                             <span className="min-w-0">{item.content}</span>
                           </p>
-                          <p className="mt-1 text-xs text-muted-foreground">
+                          <p className="text-muted-foreground mt-1 text-xs">
                             {item.scope === 'organization' && (
                               <>
                                 <span className="font-medium">{t('memory.orgWide')}</span>
@@ -470,11 +479,11 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                     </ItemContent>
 
                     {!isEditing && (
-                      <ItemActions className="gap-1 opacity-0 transition-opacity duration-quick ease-out focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100 motion-reduce:opacity-100 motion-reduce:transition-none">
+                      <ItemActions className="duration-quick pointer-coarse:opacity-100 gap-1 opacity-0 transition-opacity ease-out focus-within:opacity-100 group-hover:opacity-100 motion-reduce:opacity-100 motion-reduce:transition-none">
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="size-7 text-muted-foreground hover:text-foreground"
+                          className="text-muted-foreground hover:text-foreground size-7"
                           onClick={() => patchItem(item, { pinned: !item.pinned })}
                           disabled={busy}
                           aria-label={item.pinned ? t('memory.unpin') : t('memory.pin')}
@@ -490,7 +499,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="size-7 text-muted-foreground hover:text-foreground"
+                            className="text-muted-foreground hover:text-foreground size-7"
                             onClick={() => patchItem(item, { verification: 'user_confirmed' })}
                             disabled={busy}
                             aria-label={t('memory.confirm')}
@@ -502,7 +511,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="size-7 text-muted-foreground hover:text-foreground"
+                          className="text-muted-foreground hover:text-foreground size-7"
                           onClick={() => startEdit(item)}
                           disabled={busy}
                           aria-label={t('memory.edit')}
@@ -513,7 +522,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="size-7 text-muted-foreground hover:text-destructive"
+                          className="text-muted-foreground hover:text-destructive size-7"
                           onClick={() => setConfirmingDeleteId(item.id)}
                           disabled={busy}
                           aria-label={t('memory.removeAria')}

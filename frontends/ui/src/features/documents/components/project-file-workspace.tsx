@@ -673,7 +673,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               on the listing — one search on the page, not a band under the one
               it duplicates. Its result banner stays over the hits, in the pane. */}
           <FileSearchField
-            className="basis-full sm:w-64 sm:basis-auto lg:w-72"
+            className="w-full sm:w-64 lg:w-72"
             value={search.query}
             onChange={search.setQuery}
             onSubmit={search.run}

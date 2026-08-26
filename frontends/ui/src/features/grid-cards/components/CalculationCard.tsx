@@ -275,7 +275,9 @@ export const CalculationCard: FC<CalculationCardProps> = ({ title, steps, limit,
         <Collapsible open={open} onOpenChange={setOpen}>
           <CollapsibleTrigger
             className={cn(
-              '-ml-1 inline-flex items-center gap-1 rounded px-1 py-0.5',
+              // See CalloutCard: catchment, not padding — the drawn control keeps the
+              // card's rhythm and a fingertip still gets its 44px.
+              '-ml-1 inline-flex items-center gap-1 rounded px-1 py-0.5 touch-target',
               'text-xs font-medium text-muted-foreground',
               'transition-colors duration-quick ease-out hover:text-foreground',
               'focus-visible:ring-ring/60 focus-visible:outline-none focus-visible:ring-2'

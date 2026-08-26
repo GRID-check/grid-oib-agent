@@ -106,7 +106,7 @@ export function ProjectsGrid({
   return (
     <div>
       <PageHeader
-        className="min-h-9 flex-col items-start sm:flex-row sm:items-center"
+        className="min-h-9 sm:items-center"
         title={t('list.heading')}
         action={
           <div className="flex w-full items-center gap-2.5 sm:w-auto">

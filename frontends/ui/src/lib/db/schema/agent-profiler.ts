@@ -46,16 +46,19 @@ export const agentProfilerSpans = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    orgCreatedIdx: index('agent_profiler_spans_org_created_idx').on(table.organizationId, table.createdAt),
+    orgCreatedIdx: index('agent_profiler_spans_org_created_idx').on(
+      table.organizationId,
+      table.createdAt
+    ),
     conversationTurnIdx: index('agent_profiler_spans_conversation_turn_idx').on(
       table.conversationId,
-      table.turnId,
+      table.turnId
     ),
     conversationStartedIdx: index('agent_profiler_spans_conversation_started_idx').on(
       table.conversationId,
-      table.startedAt,
+      table.startedAt
     ),
-  }),
+  })
 )
 
 export type AgentProfilerSpan = typeof agentProfilerSpans.$inferSelect

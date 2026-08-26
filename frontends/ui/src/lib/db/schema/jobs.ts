@@ -1,4 +1,13 @@
-import { boolean, index, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import {
+  boolean,
+  index,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 import { projects } from './projects'
 import type { SkillSnapshot } from '@/lib/skills/types'
@@ -83,7 +92,7 @@ export const skills = pgTable(
   (table) => ({
     orgNameIdx: uniqueIndex('idx_skills_org_name').on(table.organizationId, table.name),
     orgIdx: index('idx_skills_organization_id').on(table.organizationId),
-  }),
+  })
 )
 
 export const jobs = pgTable(
@@ -146,7 +155,7 @@ export const jobs = pgTable(
     // builder can't express, so it lives only in migrations: created as
     // `idx_skill_schedules_due` by 0041_agent_skills.sql and renamed to its
     // current name by 0043_jobs.sql. It backs the scheduler's due-row claim.
-  }),
+  })
 )
 
 export const jobRuns = pgTable(
@@ -201,7 +210,7 @@ export const jobRuns = pgTable(
     projectIdx: index('idx_job_runs_project_id').on(table.projectId),
     orgIdx: index('idx_job_runs_organization_id').on(table.organizationId),
     createdIdx: index('idx_job_runs_created_at').on(table.createdAt),
-  }),
+  })
 )
 
 export const jobsRelations = relations(jobs, ({ one, many }) => ({

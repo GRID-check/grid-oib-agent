@@ -262,7 +262,7 @@ function FilesHeader({ search, view }: { search: FileSearch; view: 'cards' | 'li
               </ToggleGroupItem>
             </ToggleGroup>
             <FileSearchField
-              className="basis-full sm:w-64 sm:basis-auto lg:w-72"
+              className="w-full sm:w-64 lg:w-72"
               value={search.query}
               onChange={search.setQuery}
               onSubmit={search.run}

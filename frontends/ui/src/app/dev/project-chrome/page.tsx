@@ -11,8 +11,9 @@
  * PageHeader molecule, so they sit in their own group at the bottom.
  *
  * A client page: the History fixture hands `SearchField` an `onChange`, and a
- * function prop cannot cross the server boundary — without this the route threw
- * and the screenshot target captured the error page.
+ * function prop cannot cross the server boundary — as a server component this
+ * threw "Event handlers cannot be passed to Client Component props" and served
+ * a 500, so the `project-chrome` target had never produced a screenshot.
  *
  * Not linked from anywhere; the `/dev` layout 404s this outside development.
  */
@@ -85,7 +86,7 @@ export default function ProjectChromePreviewPage(): JSX.Element {
               {/* The real control, not a lookalike — the run button is part of
                   the width this row has to survive. */}
               <FileSearchField
-                className="basis-full sm:w-64 sm:basis-auto lg:w-72"
+                className="w-full sm:w-64 lg:w-72"
                 value=""
                 onChange={() => undefined}
                 onSubmit={() => undefined}

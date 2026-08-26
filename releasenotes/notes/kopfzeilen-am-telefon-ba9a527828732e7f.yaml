@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    On a phone, the heading of every project section was squeezed into the strip
+    left beside its search box or button — under "Historie" the explanation broke
+    to one word per line. The control now sits below the heading on a narrow
+    screen and the text gets the full width. Nothing moves on a laptop.

@@ -1,4 +1,13 @@
-import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import {
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core'
 
 /**
  * Org-level runtime model configuration (ADR-0014,
@@ -56,10 +65,10 @@ export const orgModelConfigVersions = pgTable(
   (table) => ({
     orgVersionUnique: uniqueIndex('uniq_org_model_config_versions_org_version').on(
       table.organizationId,
-      table.version,
+      table.version
     ),
     orgIdx: index('idx_org_model_config_versions_org').on(table.organizationId, table.createdAt),
-  }),
+  })
 )
 
 export type OrgModelConfig = typeof orgModelConfigs.$inferSelect

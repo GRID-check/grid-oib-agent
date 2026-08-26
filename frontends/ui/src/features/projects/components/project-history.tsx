@@ -292,9 +292,9 @@ export function ProjectHistory({ projectId, projectCollection }: ProjectHistoryP
                           <ItemMedia className="size-3.5">
                             <span
                               aria-hidden
-                              className="box-border inline-flex size-3.5 shrink-0 items-center justify-center rounded-full border border-dashed border-source-auto"
+                              className="border-source-auto box-border inline-flex size-3.5 shrink-0 items-center justify-center rounded-full border border-dashed"
                             >
-                              <span className="size-[5px] rounded-full bg-source-auto" />
+                              <span className="bg-source-auto size-[5px] rounded-full" />
                             </span>
                           </ItemMedia>
                           <ItemContent>
@@ -312,13 +312,13 @@ export function ProjectHistory({ projectId, projectCollection }: ProjectHistoryP
                           </ItemContent>
                           <ItemActions>
                             <span
-                              className="text-xs text-muted-foreground"
+                              className="text-muted-foreground text-xs"
                               title={formatAbsoluteTime(conversation.updatedAt, locale)}
                             >
                               {formatRelativeTime(conversation.updatedAt, locale)}
                             </span>
                             <ChevronRight
-                              className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-quick ease-out group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0"
+                              className="text-muted-foreground duration-quick size-3.5 shrink-0 transition-transform ease-out group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0"
                               aria-hidden
                             />
                           </ItemActions>

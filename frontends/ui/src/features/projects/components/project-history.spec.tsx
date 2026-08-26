@@ -40,7 +40,12 @@ vi.mock('@/components/shell/project-section-frame', () => ({
   ProjectSectionActions: ({ children }: { children: ReactNode }) => children,
 }))
 
-const conversation = (id: string, title: string | null, updatedAt: string, tags: string[] = []) => ({
+const conversation = (
+  id: string,
+  title: string | null,
+  updatedAt: string,
+  tags: string[] = []
+) => ({
   id,
   title,
   tags,
@@ -87,7 +92,10 @@ describe('ProjectHistory', () => {
     render(<ProjectHistory projectId="p1" projectCollection="proj_1" />)
     await screen.findByText('Brandschutz EG')
 
-    await userEvent.type(screen.getByRole('textbox', { name: /search conversations/i }), 'stellplatz')
+    await userEvent.type(
+      screen.getByRole('textbox', { name: /search conversations/i }),
+      'stellplatz'
+    )
 
     expect(screen.queryByText('Brandschutz EG')).not.toBeInTheDocument()
     expect(screen.getByText('Stellplatz Nachweis')).toBeInTheDocument()
@@ -123,7 +131,7 @@ describe('ProjectHistory', () => {
 
     expect(await screen.findByTestId('research-runs-list')).toBeInTheDocument()
     expect(researchRunsListProps).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 'p1', projectCollection: 'proj_1' }),
+      expect.objectContaining({ projectId: 'p1', projectCollection: 'proj_1' })
     )
   })
 

@@ -29,7 +29,7 @@ describe('checkIntakeConsistency — fossil heat source on a new build', () => {
     expect(finding).toBeDefined()
     expect(finding.severity).toBe('inconsistency')
     expect(finding.params).toMatchObject({ bauwerk: 'Bauwerk 1' })
-    expect(finding.fields[0]).toBe('Art des Vorhabens')
+    expect(finding.fields[0]).toBe('Art des Vorhabens (Projekt gesamt)')
   })
 
   it('flags each offending building independently', () => {
@@ -76,7 +76,7 @@ describe('collectFreeTextFields', () => {
     }
     expect(collectFreeTextFields(answers, definition)).toEqual([
       {
-        field: 'Projektbeschreibung & Entwurfsidee',
+        field: 'Projektbeschreibung, Entwurfsidee & Umfeld',
         value: 'Ein städtebaulich markanter Wohnbau am Fluss mit begrüntem Innenhof.',
       },
     ])
@@ -98,7 +98,7 @@ describe('collectStructuredContextFields', () => {
     }
     const fields = collectStructuredContextFields(answers, definition)
     expect(fields).toContainEqual({ field: 'Bundesland', value: 'Wien' })
-    expect(fields).toContainEqual({ field: 'Art des Vorhabens', value: 'Neubau' })
-    expect(fields.some((f) => f.field === 'Projektbeschreibung & Entwurfsidee')).toBe(false)
+    expect(fields).toContainEqual({ field: 'Art des Vorhabens (Projekt gesamt)', value: 'Neubau' })
+    expect(fields.some((f) => f.field === 'Projektbeschreibung, Entwurfsidee & Umfeld')).toBe(false)
   })
 })

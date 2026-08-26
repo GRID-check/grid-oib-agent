@@ -1,4 +1,13 @@
-import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import {
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core'
 
 /**
  * Citation-health ledger: one row per (research turn, defect kind) captured by
@@ -85,12 +94,15 @@ export const citationEvents = pgTable(
     /** A retried flush must not double-count a defect. */
     turnKindUidx: uniqueIndex('citation_events_turn_kind_uidx').on(table.turnId, table.kind),
     createdKindIdx: index('citation_events_created_kind_idx').on(table.createdAt, table.kind),
-    orgCreatedIdx: index('citation_events_org_created_idx').on(table.organizationId, table.createdAt),
+    orgCreatedIdx: index('citation_events_org_created_idx').on(
+      table.organizationId,
+      table.createdAt
+    ),
     conversationCreatedIdx: index('citation_events_conversation_created_idx').on(
       table.conversationId,
-      table.createdAt,
+      table.createdAt
     ),
-  }),
+  })
 )
 
 export type CitationEvent = typeof citationEvents.$inferSelect

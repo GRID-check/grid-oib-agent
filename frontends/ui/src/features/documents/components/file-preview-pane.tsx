@@ -1101,7 +1101,11 @@ function DocumentTagsSection({
         )}
         {!readOnly && !atCap && (
           <span className="relative inline-flex items-center">
-            <Plus className="pointer-events-none absolute left-1.5 size-3 text-muted-foreground" aria-hidden />
+            {/* Follows the field's own left padding, which grows with it. */}
+            <Plus
+              className="pointer-events-none absolute left-1.5 size-3 text-muted-foreground pointer-coarse:left-3"
+              aria-hidden
+            />
             <input
               ref={inputRef}
               type="text"
@@ -1130,7 +1134,20 @@ function DocumentTagsSection({
               disabled={isSaving}
               placeholder={t('preview.addTagPlaceholder')}
               aria-label={t('preview.addTagLabel')}
-              className="h-6 w-28 rounded-md border border-dashed border-input bg-transparent pl-6 pr-1.5 text-xs text-foreground placeholder:text-muted-foreground/70 focus-visible:border-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              // A raw `<input>`, so it inherits none of what `ui/input.tsx` does
+              // for a phone. Two of those are load-bearing here:
+              //
+              // `text-xs` is 12px, and iOS Safari zooms the whole page in when a
+              // field under 16px takes focus. That zoom is not undone on blur —
+              // the reader is left in a magnified preview pane, scrolled
+              // sideways, having typed one tag. `pointer-coarse:text-base` is the
+              // same 16px floor the Input primitive carries, applied on the axis
+              // that actually predicts a soft keyboard.
+              //
+              // `h-6` is 24px, a little over half the touch floor, on a control
+              // that has to be hit precisely because a mis-tap lands on a tag
+              // chip that removes itself.
+              className="h-6 w-28 rounded-md border border-dashed border-input bg-transparent pl-6 pr-1.5 text-xs text-foreground placeholder:text-muted-foreground/70 focus-visible:border-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 pointer-coarse:h-11 pointer-coarse:w-36 pointer-coarse:pl-8 pointer-coarse:text-base"
             />
           </span>
         )}
@@ -1147,7 +1164,12 @@ function DocumentTagsSection({
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => addTag(tag)}
               disabled={isSaving}
-              className="inline-flex items-center rounded-md border border-border bg-transparent px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors duration-snap ease-out hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 motion-reduce:transition-none"
+              // The suggestions ARE the way to add a tag on a phone: the endpoint
+              // rejects free-form values, so tapping one of these is the whole
+              // interaction, and at `py-0.5` each was a 20px chip in a wrapped row
+              // of them. Grown rather than overhung — they are neighbours in a
+              // flex-wrap row, so catchments would land on each other.
+              className="inline-flex items-center rounded-md border border-border bg-transparent px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors duration-snap ease-out hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 motion-reduce:transition-none pointer-coarse:min-h-11 pointer-coarse:px-3.5"
             >
               {tag}
             </button>

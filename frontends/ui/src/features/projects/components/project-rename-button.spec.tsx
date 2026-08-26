@@ -67,7 +67,7 @@ describe('ProjectRenameButton', () => {
     await user.click(screen.getByRole('button', { name: /^Save$/i }))
 
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/permission/i)),
+      expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/permission/i))
     )
     expect(refresh).not.toHaveBeenCalled()
   })

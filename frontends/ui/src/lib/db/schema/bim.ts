@@ -14,7 +14,13 @@ import {
 import { sql } from 'drizzle-orm'
 import { projects } from './projects'
 import { documents } from './documents'
-import type { BimClassification, BimModelStatus, BimModelSummary, BimPropertySets, BimQuantitySets } from '@/lib/bim/types'
+import type {
+  BimClassification,
+  BimModelStatus,
+  BimModelSummary,
+  BimPropertySets,
+  BimQuantitySets,
+} from '@/lib/bim/types'
 import type { StoredRuleInputs } from '@/lib/bim/rule-inputs'
 
 /**
@@ -124,7 +130,10 @@ export const bimElements = pgTable(
     searchKeys: jsonb('search_keys').$type<Record<string, string[]>>(),
   },
   (table) => ({
-    modelExpressIdx: uniqueIndex('bim_elements_model_express_idx').on(table.modelId, table.expressId),
+    modelExpressIdx: uniqueIndex('bim_elements_model_express_idx').on(
+      table.modelId,
+      table.expressId
+    ),
     // `express_id` is the third column so the index satisfies the element
     // list's `ORDER BY ifc_type, express_id` outright and a page can stop at
     // the twenty-fifth match instead of sorting a whole type group — see

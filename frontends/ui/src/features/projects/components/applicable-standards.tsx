@@ -43,7 +43,12 @@ function primaryTitle(standard: ApplicableStandard, locale: Locale): string {
 }
 
 /** Build the deep link that prefills the chat composer with a question about a Richtlinie. */
-function askGridHref(projectId: string, standard: ApplicableStandard, locale: Locale, t: Translator): string {
+function askGridHref(
+  projectId: string,
+  standard: ApplicableStandard,
+  locale: Locale,
+  t: Translator
+): string {
   const question = t('applicableStandards.askQuestion', {
     code: standard.code,
     title: primaryTitle(standard, locale),
@@ -56,20 +61,22 @@ function askGridHref(projectId: string, standard: ApplicableStandard, locale: Lo
  * project, derived from the brief, each with a project-grounded reason, a link to
  * the source, and an "Ask Piloti" action.
  */
-export function ApplicableStandards({ projectId, standards, briefComplete }: ApplicableStandardsProps) {
+export function ApplicableStandards({
+  projectId,
+  standards,
+  briefComplete,
+}: ApplicableStandardsProps) {
   const t = useTranslations('projects')
   const { locale } = useLocale()
   return (
     <section className="space-y-4">
       <div>
-        <h2 className="text-sm font-semibold text-foreground">
+        <h2 className="text-foreground text-sm font-semibold">
           {t('applicableStandards.heading')}
         </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t('applicableStandards.description')}
-        </p>
+        <p className="text-muted-foreground mt-1 text-sm">{t('applicableStandards.description')}</p>
         {!briefComplete && (
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="text-muted-foreground mt-1 text-xs">
             {t('applicableStandards.briefIncomplete')}
           </p>
         )}
@@ -91,7 +98,7 @@ export function ApplicableStandards({ projectId, standards, briefComplete }: App
                     <ItemDescription className="whitespace-normal">
                       {locale === 'de' ? standard.titleEn : standard.titleDe}
                     </ItemDescription>
-                    <p className="mt-1 text-xs text-muted-foreground">{standard.reason}</p>
+                    <p className="text-muted-foreground mt-1 text-xs">{standard.reason}</p>
                   </ItemContent>
                   <ItemActions className="gap-3 max-sm:ml-0">
                     <ApplicabilityChip
@@ -134,7 +141,7 @@ export function ApplicableStandards({ projectId, standards, briefComplete }: App
         />
       )}
 
-      <p className="text-xs text-muted-foreground">{t('applicableStandards.disclaimer')}</p>
+      <p className="text-muted-foreground text-xs">{t('applicableStandards.disclaimer')}</p>
     </section>
   )
 }

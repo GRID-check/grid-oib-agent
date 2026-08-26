@@ -56,6 +56,32 @@ import { cn } from '@/lib/utils'
 import { MentionText } from '@/features/collaboration/components/MentionText'
 import { MessageAuthor } from './MessageAuthor'
 
+/**
+ * The copy control on a bubble, in both renderings.
+ *
+ * A REVEAL, and reveals need a second way in. `opacity-0 group-hover:opacity-100`
+ * is the whole affordance on a mouse, and on a phone there is no hover event to
+ * spend: the button was mounted, focusable and permanently invisible, so copying
+ * your own message was a feature only desktop had. `pointer-coarse:opacity-100`
+ * is the escape the memory panel's row actions already use — where a finger
+ * drives the pointer the control is simply present, because there is nothing for
+ * it to wait for.
+ *
+ * Being present is only half of it: at `p-1.5` around a 16px glyph the box is
+ * 28px, which is a mouse target sitting in the bubble's top-right corner next to
+ * the text you are trying to select. `pointer-coarse:size-11` takes it to the
+ * 44px floor (`components/ui/touch-target.spec.ts` holds that line for the
+ * primitives; this is one of the bespoke controls it cannot see).
+ */
+const COPY_BUTTON_CLASS = cn(
+  'absolute right-2 top-2 rounded-md bg-muted p-1.5 text-muted-foreground',
+  'opacity-0 transition-opacity duration-quick ease-out group-hover:opacity-100',
+  'focus-visible:opacity-100 pointer-coarse:opacity-100 motion-reduce:transition-none',
+  'inline-flex items-center justify-center pointer-coarse:size-11 pointer-coarse:p-0',
+  'hover:bg-accent hover:text-foreground',
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+)
+
 /** Who wrote a message, as a shared thread renders it. */
 export interface UserMessageAuthor {
   /** WorkOS user id — the seed of the author's identity colour. */
@@ -146,13 +172,13 @@ export const UserMessage: FC<UserMessageProps> = ({
         {/* Three corners are the token radius; the 4px top-right is the
             bubble's tail-side notch — the one deliberate value, and what makes
             an input bubble identifiable at a glance. */}
-        <div className="group relative w-[400px] max-w-full rounded-lg rounded-tr-[4px] border border-input bg-card px-[14px] py-[11px] text-sm leading-[1.55] text-default shadow-xs">
+        <div className="group relative w-[400px] max-w-full rounded-lg rounded-tr-[4px] border border-input bg-card px-[14px] py-[11px] text-sm leading-[1.55] text-default shadow-xs pointer-coarse:pr-14">
           {body}
           <button
             type="button"
             onClick={() => void handleCopyMessage()}
             aria-label={copied ? t('copyMessage.copied') : t('copyMessage.copy')}
-            className="opacity-0 group-hover:opacity-100 transition-opacity duration-quick ease-out motion-reduce:transition-none absolute top-2 right-2 p-1.5 rounded-md bg-muted hover:bg-accent text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            className={COPY_BUTTON_CLASS}
           >
             {copied ? (
               <Check className="size-4" aria-hidden="true" />
@@ -201,6 +227,13 @@ export const UserMessage: FC<UserMessageProps> = ({
           // bubble's tail-side notch — the one deliberate value.
           'group relative w-[400px] max-w-full rounded-lg rounded-tr-[4px] border border-input bg-card',
           'px-[14px] py-[11px] text-sm leading-[1.55] text-default shadow-xs',
+          // Room for the copy control, which is 44px and ALWAYS VISIBLE on a
+          // coarse pointer (see COPY_BUTTON_CLASS). On a mouse it fades in over
+          // the text and that is fine — it is only there while the cursor is —
+          // but a permanent 44px square in the top-right corner of a bubble sits
+          // on the first line of the message and makes it unreadable and
+          // unselectable. The padding is the price of the control being present.
+          'pointer-coarse:pr-14',
           // A grouped follow-up squares off the corner that pointed at the header
           // it no longer draws, so a run reads as one block of speech. It stays
           // flush with the bubble above — the header sits over the bubble here, not
@@ -214,7 +247,7 @@ export const UserMessage: FC<UserMessageProps> = ({
           type="button"
           onClick={() => void handleCopyMessage()}
           aria-label={copied ? t('copyMessage.copied') : t('copyMessage.copy')}
-          className="opacity-0 group-hover:opacity-100 transition-opacity duration-quick ease-out motion-reduce:transition-none absolute top-2 right-2 p-1.5 rounded-md bg-muted hover:bg-accent text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          className={COPY_BUTTON_CLASS}
         >
           {copied ? (
             <Check className="size-4" aria-hidden="true" />

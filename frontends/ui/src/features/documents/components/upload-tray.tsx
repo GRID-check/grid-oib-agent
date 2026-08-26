@@ -140,14 +140,28 @@ export function UploadTray({ files, onRetry, onCancel, onCancelAll, onDismiss }:
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsHeld(false)
       }}
     >
-      <div className="flex items-center gap-3 px-4 py-2.5">
+      {/* `flex-wrap`: the settled-with-failures state puts "Retry all",
+          "Dismiss all" and the expander in this row, all `shrink-0`, so on a
+          phone the summary — which is the only thing that says WHAT happened —
+          took what was left of the width. Measured 33px: both its lines
+          truncated to an ellipsis while three buttons sat beside them at full
+          size. The summary now holds a readable floor and the actions drop to a
+          second line when they no longer fit beside it. */}
+      <div className="flex flex-wrap items-center gap-3 px-4 py-2.5">
         <TrayGlyph summary={summary} />
 
         <button
           type="button"
           onClick={() => setIsExpanded((open) => !open)}
           aria-expanded={isExpanded}
-          className="min-w-0 flex-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          // `min-h-11` and NOT the `-my-2.5 py-2.5` trick this used to carry.
+          // That trick let the button claim the tray's own padding without
+          // moving anything, which was right while the row could not wrap — and
+          // wrong the moment it could: `flex-wrap` above puts the actions on a
+          // second line separated by `gap-3` (12px), and a 10px overhang eats
+          // most of that gap, so a tap aimed at "Retry all" lands on the summary
+          // instead. A hit box has to stay inside its own flex line.
+          className="min-w-40 flex-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:min-h-11"
         >
           {/* Polite, not assertive: the phase changes two or three times per
               batch and each one is worth hearing, but the byte counter beneath

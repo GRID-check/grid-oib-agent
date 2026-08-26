@@ -78,7 +78,7 @@ export function projectTouchedAt(project: ResumeCandidate): number {
 export function splitForResume<T extends ResumeCandidate>(
   projects: readonly T[],
   viewerActivity: Readonly<Record<string, string | undefined>> = {},
-  slots: number = RESUME_SLOTS,
+  slots: number = RESUME_SLOTS
 ): ResumeSplit<T> {
   const railSize = Math.max(0, Math.trunc(slots))
 

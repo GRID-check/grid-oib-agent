@@ -12,6 +12,14 @@
 
 export const SCREENSHOT_TARGETS = [
   {
+    id: 'document-roles',
+    mobile: true,
+    path: '/dev/document-roles',
+    description:
+      'Declaring which file plays which part in a project: the wizard field for a single-holder role (Bebauungsplan, already filled), a many-holder role mid-set with one unconfirmed suggestion, and the Modul I checklist with per-building slots and the recommended ones lifted to the top.',
+    waitFor: 'text=Bebauungsplan ablegen',
+  },
+  {
     id: 'herleitung',
     mobile: true,
     path: '/dev/herleitung',
@@ -45,6 +53,10 @@ export const SCREENSHOT_TARGETS = [
   },
   {
     id: 'pdf-passage',
+    // The viewer's toolbar used to run off the right edge of a phone and take
+    // the page's horizontal scroll with it; it wraps now, and this is the shot
+    // that says so.
+    mobile: true,
     path: '/dev/pdf-passage',
     description:
       'Cited passage lit up inside the in-app PDF viewer, over a real one-page Bescheid rendered by pdf.js. Left pane freezes the arrival pulse mid-swell, right pane shows the resting mark. The quoted passage spans two printed lines and is cited without the line-break hyphen, so both the de-hyphenation and the per-line rectangle merge are visible.',
@@ -263,8 +275,16 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/intake',
     description:
-      'Project intake wizard (real ProjectIntakeWizard, backend-free) — mobile focus: sticky safe-area Back/Next footer, scroll-into-view stepper, ≥44px touch targets.',
+      'Project intake wizard (real ProjectIntakeWizard, backend-free) — the persistent module rail with per-module answered/total counts, the Schnellstart toggle, and the per-module "Rest überspringen". Mobile collapses the rail to a scrolling strip and keeps the sticky safe-area Back/Next footer and ≥44px touch targets.',
     waitFor: 'main',
+  },
+  {
+    id: 'intake-bestand',
+    mobile: true,
+    path: '/dev/intake?variant=bestand',
+    description:
+      'Modul C for a Bestandsgebäude — the v1.2 Bestandsblock (CB1–CB7_*) unfolded behind "Neubau oder Bestand?", beside the target-state geometry it is compared against. The rail shows real per-module counts once a profile is loaded.',
+    waitFor: 'text=Bauwerke',
   },
   {
     id: 'document-rename',
@@ -352,6 +372,11 @@ export const SCREENSHOT_TARGETS = [
   },
   {
     id: 'file-browser-search-list',
+    // The list view is where a filename has to survive a narrow column, and it
+    // is where it did not: the Name column laid out 437px inside a 308px wrapper
+    // until `table-fixed` made `truncate` mean something. Captured at mobile so
+    // the next regression has a picture to disagree with.
+    mobile: true,
     path: '/dev/file-browser?variant=search-list',
     description:
       'A semantic search answered in the DETAIL view. The card/list toggle was read only on the un-searched branch, so pressing Enter threw a reader who had deliberately chosen the list back into cards, and clearing the query threw them back again. The ranking comes with it: relevance is the column the list opens sorted by \u2014 its own default is newest-first, which would have silently discarded the order the backend ranked \u2014 and every row carries the passage that matched, with its page, in the slot the summary usually holds. What this shot pins beyond the ranking is that NOTHING MOVES: the fixture renders the real Files header, and it is pixel-identical to the unsearched one in `project-chrome` \u2014 title, view toggles, field position, Upload. There is no result banner over the list any more; the header holds the query, and the list holds the answer.',

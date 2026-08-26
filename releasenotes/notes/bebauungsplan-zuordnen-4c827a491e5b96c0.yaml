@@ -1,0 +1,12 @@
+---
+features:
+  - >
+    Sie können einem Projekt jetzt sagen, welche Datei der Bebauungsplan ist.
+    Im Projekt-Assistenten laden Sie den Plan direkt an der Frage hoch oder
+    wählen ein Dokument aus, das bereits im Projekt liegt. Piloti nennt den
+    Plan danach beim Namen, statt allgemein von hochgeladenen Dateien zu
+    sprechen.
+  - >
+    Piloti weiß außerdem, welche Unterlagen noch fehlen, und antwortet
+    entsprechend vorsichtig. Fehlt der Bebauungsplan, sagt Piloti das, statt
+    zu antworten, als hätte es ihn gelesen.
