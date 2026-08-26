@@ -135,7 +135,9 @@ def _salvage_card(card_json: str) -> None:
         from aiq_agent.cards.models import grid_card_adapter
         from aiq_agent.cards.registry import get_card_registry
 
-        payload = json.loads(card_json)
+        # strict=False for the same reason emit_card parses with it: a raw
+        # newline inside a string is a multi-line mermaid source, not bad JSON.
+        payload = json.loads(card_json, strict=False)
         if not isinstance(payload, dict):
             return
         validated = grid_card_adapter.validate_python(payload).model_dump(exclude_none=True)

@@ -158,3 +158,72 @@ class TestTheCatalogTeachesTheBoundary:
         this asserts the backend's own half so the reason survives with it.
         """
         assert "diagram" not in INTERACTIVE_CARD_TYPES
+
+
+class TestTheCardAcceptsWhatModelsActuallyWrite:
+    """The two refusal traps that made every field diagram invisible.
+
+    Both are unique to this card, which is why every other card rendered while
+    this one never reached the client: no other payload carries a large
+    multi-line string, and no other field invites a markdown fence around it.
+    """
+
+    FLOW = "flowchart TD\n A[Landesrecht] --> B{OIB 2 verbindlich?}\n B -->|Ja| C[OIB-Richtlinie 2]"
+
+    def test_a_fence_wrapped_source_is_unwrapped_and_validated(self):
+        # Everything this product teaches the model says "mermaid lives in a
+        # fence", so wrapping the source is the natural fill — decoration,
+        # not information.
+        card = DiagramCard.model_validate(
+            {
+                "type": "diagram",
+                "title": "OIB 2",
+                "diagram_type": "flowchart",
+                "source": "```mermaid\n" + self.FLOW + "\n```",
+            }
+        )
+        assert card.source.startswith("flowchart TD")
+        assert "```" not in card.source
+
+    def test_a_bare_fence_and_a_truncated_one_unwrap_too(self):
+        for source in ("```\n" + self.FLOW + "\n```", "```mermaid\n" + self.FLOW):
+            card = DiagramCard.model_validate(
+                {"type": "diagram", "title": "OIB 2", "diagram_type": "flowchart", "source": source}
+            )
+            assert card.source.startswith("flowchart TD")
+
+    def test_unwrapping_does_not_launder_a_real_defect(self):
+        # A journey inside a fence is still a journey: the wrapper comes off
+        # and the grammar refusal still fires.
+        with pytest.raises(ValidationError, match="journey"):
+            DiagramCard.model_validate(
+                {
+                    "type": "diagram",
+                    "title": "X",
+                    "diagram_type": "flowchart",
+                    "source": "```mermaid\njourney\n  title Nutzerreise\n```",
+                }
+            )
+
+    def test_a_raw_newline_in_the_json_string_still_registers_the_card(self):
+        # The wire form a model actually produces for a multi-line source. A
+        # strict parse called this "not valid JSON" and rejected every diagram
+        # while every short-fielded card sailed through. Tested through the
+        # REAL registration seam (the DSML salvage mirrors emit_card's parse),
+        # so a revert of strict=False fails this, not just a parsing habit.
+        from aiq_agent.agents.shallow_researcher.dsml import _salvage_card
+        from aiq_agent.cards.registry import CardRegistry
+        from aiq_agent.cards.registry import reset_card_registry
+        from aiq_agent.cards.registry import set_card_registry
+
+        raw = '{"type":"diagram","title":"OIB 2","diagram_type":"flowchart","source":"' + self.FLOW + '"}'
+        assert "\n" in raw
+        registry = CardRegistry()
+        token = set_card_registry(registry)
+        try:
+            _salvage_card(raw)
+        finally:
+            reset_card_registry(token)
+        cards = registry.snapshot()
+        assert len(cards) == 1
+        assert cards[0]["type"] == "diagram"
