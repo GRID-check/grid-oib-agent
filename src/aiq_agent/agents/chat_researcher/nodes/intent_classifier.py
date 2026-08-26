@@ -152,9 +152,7 @@ def _gate_deep_route(intent: str, research_depth: str, parsed: dict[str, Any]) -
             "Depth 'deep' downgraded to 'shallow': the request reads as a question to answer, not a report to write"
         )
     if research_depth != "deep" and raw and intent == "research":
-        return "deep", (
-            "Depth lifted to 'deep': the user commissioned a document, and deep research is the only route that files one"
-        )
+        return "deep", ("Depth lifted to 'deep': the user commissioned a document, and only deep research files one")
     return research_depth, None
 
 
