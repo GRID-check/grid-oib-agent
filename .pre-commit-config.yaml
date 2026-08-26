@@ -113,10 +113,10 @@ repos:
         # runs after `task fe:install`.
         entry: >-
           bash -c 'PYTHONPATH=src .venv/bin/python scripts/generate_card_schema.py
-          && { [ -d frontends/ui/node_modules ]
-          && node frontends/ui/scripts/generate-card-schemas.mjs
-          || echo "skipping the Zod stage, frontends/ui/node_modules is absent
-          (task fe:cards:check covers it)"; }'
+          && if [ -d frontends/ui/node_modules ];
+          then node frontends/ui/scripts/generate-card-schemas.mjs;
+          else echo "skipping the Zod stage, frontends/ui/node_modules is absent
+          (task fe:cards:check covers it)"; fi'
         language: system
         pass_filenames: false
         files: ^(src/aiq_agent/cards/models\.py|shared/cards/schemas\.json|scripts/generate_card_schema\.py|frontends/ui/scripts/generate-card-schemas\.mjs|frontends/ui/src/shared/cards/generated\.ts)$

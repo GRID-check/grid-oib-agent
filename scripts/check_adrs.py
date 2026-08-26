@@ -114,6 +114,9 @@ def index_rows(readme: Path, errors: list[str]) -> dict[str, str]:
 
 SUPERSEDED_RE = re.compile(r"^superseded by ADR-\d{4}$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# The heading plus everything up to the next heading, so an empty section
+# is caught: a Confirmation naming no gate is the thing this checks for.
+CONFIRMATION_RE = re.compile(r"^###\s+Confirmation\s*$\n((?:(?!^#{1,6}\s)[\s\S])*)", re.MULTILINE)
 
 
 def check_madr(path: Path, status: str, errors: list[str]) -> None:
@@ -149,7 +152,8 @@ def check_madr(path: Path, status: str, errors: list[str]) -> None:
     if not deciders or not deciders.group(1).strip():
         errors.append(f"{path.name}: frontmatter needs a non-empty `decision-makers:`.")
 
-    if not re.search(r"^###\s+Confirmation\s*$", text, re.MULTILINE):
+    confirmation = CONFIRMATION_RE.search(text)
+    if not confirmation or not confirmation.group(1).strip():
         errors.append(
             f"{path.name}: no `### Confirmation` section. Name the gate that keeps "
             f"the decision true, or say that nothing enforces it yet."

@@ -69,6 +69,13 @@ jobs:
               # is skipped, and `ci-ok` counts skipped as passed — so a broken
               # row-level-security harness merges unverified.
               - 'scripts/**'
+              # The card schema is generated from these two into the Zod module
+              # the UI validates with, and `task fe:cards:check` is the only gate
+              # that sees the Zod half (repo-lint has no node_modules). Without
+              # these lines a models-only PR skips this job and ships a stale
+              # `generated.ts`, which type-checks.
+              - 'src/aiq_agent/cards/models.py'
+              - 'shared/cards/schemas.json'
             web:
               - 'frontends/web/**'
               - 'Taskfile.yml'
