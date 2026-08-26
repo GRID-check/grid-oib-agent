@@ -94,28 +94,38 @@ _INTENT_RESPONSE_FORMAT = {
 _MISSING = object()
 
 
-def _gate_deep_route(research_depth: str, parsed: dict[str, Any]) -> tuple[str, str | None]:
-    """Take the AND of the classifier's two signals, IN CODE.
+def _gate_deep_route(intent: str, research_depth: str, parsed: dict[str, Any]) -> tuple[str, str | None]:
+    """Make the deep route track ``report_requested``, IN CODE, both ways.
 
-    Deep research is the one route that does not answer the user — it stops the
-    turn and asks them to approve a plan first — so it is the one route worth
-    making two independent judgments agree on. ``research_depth`` says "this
-    needs several rounds"; ``report_requested`` says "the user commissioned a
-    document rather than asking a question". Deep requires both.
+    Deep research is the report pipeline: the one route that does not answer
+    the user (it stops the turn and asks them to approve a plan first) and the
+    ONLY route that can file its result into the project. ``report_requested``
+    is the classifier's judgment that the user commissioned a document rather
+    than asking a question, so on a research turn the two must agree in both
+    directions:
 
-    Why the AND lives here and not in the prompt: the prompt ALREADY argued for
-    this policy in prose ("Choose it only when BOTH of these hold"), and prose
-    is not enforceable on this surface. The model behind this role is not the
-    one in the YAML — ``apply_model_override(self.llm, AgentGroup.INTENT)``
-    re-points it at whatever the platform owner picked in Platform -> Models, so
-    the boundary can move with a dashboard click and no deploy. Measured over
-    eight models an admin could plausibly select, three of them routed plain
-    single-topic OIB questions to deep on the prose-only prompt and five did
-    not; the AND taken here brought all eight to the same boundary. A policy
-    that is only written down is a policy that holds for the models that happen
-    to agree with it.
+    * ``deep`` with ``report_requested: false`` is downgraded — a question gets
+      an answer, not a plan.
+    * ``shallow`` with ``report_requested: true`` is LIFTED — before the lift,
+      "erstelle ein File/Bericht über X" on a single-topic question stayed
+      shallow (the depth prompt forbids single-topic deep, correctly, for
+      questions), and shallow has no way to produce a file: the user asked for
+      a document and silently got a chat message. The lift is research-only; a
+      ``meta`` or ``out_of_scope`` turn is never routed into a research plan on
+      this field alone.
 
-    Returns the (possibly downgraded) depth and a reason to log, or ``None``.
+    Why this lives here and not in the prompt: prose is not enforceable on this
+    surface. The model behind this role is not the one in the YAML —
+    ``apply_model_override(self.llm, AgentGroup.INTENT)`` re-points it at
+    whatever the platform owner picked in Platform -> Models, so the boundary
+    can move with a dashboard click and no deploy. Measured over eight models
+    an admin could plausibly select, three routed plain single-topic OIB
+    questions to deep on the prose-only prompt and five did not; taking the
+    rule in code brought all eight to the same boundary. A policy that is only
+    written down is a policy that holds for the models that happen to agree
+    with it.
+
+    Returns the (possibly re-routed) depth and a reason to log, or ``None``.
 
     FAIL DIRECTION, deliberately open: an ABSENT ``report_requested`` leaves the
     depth untouched, i.e. exactly the pre-gate contract. The structured-output
@@ -124,23 +134,26 @@ def _gate_deep_route(research_depth: str, parsed: dict[str, Any]) -> tuple[str, 
     turn fell back to prose parsing. Failing CLOSED there would silently delete
     deep research for that provider — the same class of invisible breakage as a
     sampling parameter the gateway drops — so the gate steps aside instead, and
-    says so in the log rather than doing it quietly. An explicit ``false`` is
-    honoured; only a missing key is a pass.
+    says so in the log rather than doing it quietly. An explicit value decides
+    both directions; only a missing key is a pass.
     """
-    if research_depth != "deep":
-        return research_depth, None
     raw = parsed.get("report_requested", _MISSING)
     if raw is _MISSING:
-        logger.warning(
-            "Depth gate inert: the classifier response carried no 'report_requested' field, "
-            "so 'deep' stands on the depth signal alone"
-        )
+        if research_depth == "deep":
+            logger.warning(
+                "Depth gate inert: the classifier response carried no 'report_requested' field, "
+                "so 'deep' stands on the depth signal alone"
+            )
         return research_depth, None
     if isinstance(raw, str):
         raw = raw.strip().lower() not in ("", "false", "no", "0", "null", "none")
-    if not raw:
+    if research_depth == "deep" and not raw:
         return "shallow", (
             "Depth 'deep' downgraded to 'shallow': the request reads as a question to answer, not a report to write"
+        )
+    if research_depth != "deep" and raw and intent == "research":
+        return "deep", (
+            "Depth lifted to 'deep': the user commissioned a document, and deep research is the only route that files one"
         )
     return research_depth, None
 
@@ -352,8 +365,8 @@ class IntentClassifier:
             research_depth = (parsed.get("research_depth") or "shallow").strip().lower()
             depth_reasoning = parsed.get("depth_reasoning") or ""
 
-            # Both signals must say deep. See ``_gate_deep_route``.
-            research_depth, gate_note = _gate_deep_route(research_depth, parsed)
+            # The deep route tracks report_requested, both ways. See ``_gate_deep_route``.
+            research_depth, gate_note = _gate_deep_route(intent, research_depth, parsed)
             if gate_note:
                 logger.info("%s", gate_note)
                 # The model argued for a route we are not taking; its sentence is

@@ -251,8 +251,16 @@ class TestIntentClassifier:
         assert result["depth_decision"].decision == "deep"
 
     @pytest.mark.asyncio
-    async def test_report_requested_does_not_promote_shallow(self, mock_llm):
-        """Both signals are required for deep; neither one alone can force it."""
+    async def test_report_requested_lifts_shallow_on_a_research_turn(self, mock_llm):
+        """A commissioned document reaches the one route that can file one.
+
+        This reverses the original one-way gate on purpose. Deep research is
+        the only pipeline that files a report into the project, and the depth
+        prompt (correctly, for questions) forbids single-topic deep — so
+        "erstelle ein File über die OIB 2" was classified shallow, and shallow
+        has no way to produce a file: the user asked for a document and
+        silently got a chat message. The field transcripts are the regression.
+        """
         mock_response = MagicMock()
         mock_response.content = (
             '{"intent":"research","research_depth":"shallow","report_requested":true,'
@@ -261,7 +269,50 @@ class TestIntentClassifier:
         mock_llm.ainvoke = AsyncMock(return_value=mock_response)
 
         classifier = IntentClassifier(llm=mock_llm)
-        state = ChatResearcherState(messages=[HumanMessage(content="Kurzer Bericht zur Fluchtweglänge?")])
+        state = ChatResearcherState(
+            messages=[HumanMessage(content="Erstelle ein File mit der OIB 2 Richtlinie und Diagrammen.")]
+        )
+
+        result = await classifier.run(state)
+
+        assert result["depth_decision"].decision == "deep"
+        assert result["depth_decision"].raw_reasoning == "", (
+            "the model argued for a route we are not taking; that sentence is shown to the reader "
+            "as the reason for the route we DID take"
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_lift_is_research_only(self, mock_llm):
+        """A drifting ``report_requested`` on a meta turn must not start a research plan."""
+        mock_response = MagicMock()
+        mock_response.content = (
+            '{"intent":"meta","research_depth":"shallow","report_requested":true,"depth_reasoning":""}'
+        )
+        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+
+        classifier = IntentClassifier(llm=mock_llm)
+        state = ChatResearcherState(messages=[HumanMessage(content="Merk dir: wir dokumentieren alles als Bericht.")])
+
+        result = await classifier.run(state)
+
+        assert result["user_intent"].intent == "meta"
+        assert result["depth_decision"].decision == "shallow"
+
+    @pytest.mark.asyncio
+    async def test_a_declined_plan_still_beats_the_lift(self, mock_llm):
+        """The declined-conversation backstop runs after the gate and wins over it."""
+        mock_response = MagicMock()
+        mock_response.content = (
+            '{"intent":"research","research_depth":"shallow","report_requested":true,'
+            '"depth_reasoning":"Bericht gewünscht."}'
+        )
+        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+
+        classifier = IntentClassifier(llm=mock_llm)
+        state = ChatResearcherState(
+            messages=[HumanMessage(content="Erstelle einen Bericht zum Holzbau.")],
+            deep_research_declined=True,
+        )
 
         result = await classifier.run(state)
 
