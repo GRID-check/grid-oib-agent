@@ -1,5 +1,5 @@
 ---
-name: verfahrensdiagramm
+name: diagrams
 description: >
   Load the moment a diagram is in play at all: the user says Diagramm, diagram,
   Schaubild, Grafik, chart, flowchart, mermaid, visualisieren, zeichnen, "stell

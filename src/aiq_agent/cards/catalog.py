@@ -1114,7 +1114,7 @@ def _diagram_note() -> str:
     # the model reads it at the moment it is about to write a diagram — beside
     # the shape, exactly as the measured-numbers rule is. Not in the always-on
     # index, which has room for one line per type; and deliberately not left to
-    # the `verfahrensdiagramm` skill either, because a skill body only reaches
+    # the `diagrams` skill either, because a skill body only reaches
     # the model if the model calls `use_skill`, while this text arrives with the
     # shape it cannot emit the card without.
     #
