@@ -42,6 +42,10 @@
           "key": "improvements",
           "notes": [
             {
+              "en": "Answers now appear as they are written, line by line, instead of landing on the page in one block. Long answers take no longer to read than before — the text is revealed at a pace set by its length — and the effect steps aside for anyone whose system asks for reduced motion.",
+              "de": "Answers now appear as they are written, line by line, instead of landing on the page in one block. Long answers take no longer to read than before — the text is revealed at a pace set by its length — and the effect steps aside for anyone whose system asks for reduced motion."
+            },
+            {
               "en": "Piloti is built for a phone now, not merely resized for one. The numbers and sources in an answer, the mentions in a shared thread, the steps of a card and the outline of a report are all sized for a fingertip, so checking where a requirement came from no longer takes three attempts on site.",
               "de": "Piloti is built for a phone now, not merely resized for one. The numbers and sources in an answer, the mentions in a shared thread, the steps of a card and the outline of a report are all sized for a fingertip, so checking where a requirement came from no longer takes three attempts on site."
             },
@@ -54,6 +58,10 @@
         {
           "key": "fixes",
           "notes": [
+            {
+              "en": "An answer can once again carry more than one card. Building a card counted against the same budget as looking things up, so on any question that took real research the second card was dropped before it was drawn, however well it fitted the answer.",
+              "de": "An answer can once again carry more than one card. Building a card counted against the same budget as looking things up, so on any question that took real research the second card was dropped before it was drawn, however well it fitted the answer."
+            },
             {
               "en": "On a phone, the heading of every project section was squeezed into the strip left beside its search box or button — under \"Historie\" the explanation broke to one word per line. The control now sits below the heading on a narrow screen and the text gets the full width. Nothing moves on a laptop.",
               "de": "On a phone, the heading of every project section was squeezed into the strip left beside its search box or button — under \"Historie\" the explanation broke to one word per line. The control now sits below the heading on a narrow screen and the text gets the full width. Nothing moves on a laptop."
