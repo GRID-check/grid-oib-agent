@@ -40,6 +40,7 @@
         "@radix-ui/react-tooltip": "^1.2.8",
         "@radix-ui/themes": "^3.3.0",
         "@react-pdf/renderer": "^4.6.0",
+        "@redactpii/node": "^1.0.17",
         "@tailwindcss/postcss": "^4.1.18",
         "@tanstack/react-form": "^1.33.2",
         "@tanstack/react-query": "^5.101.2",
@@ -662,6 +663,8 @@
     "@react-pdf/textkit": ["@react-pdf/textkit@7.0.1", "", { "dependencies": { "@react-pdf/fns": "3.1.3", "@react-pdf/hyphenate": "^0.1.0", "bidi-js": "^1.0.2", "unicode-properties": "^1.4.1" } }, "sha512-ljY/YoEETIOR/+zxWdLLmKlupz8/nBsbmxglM3mDRco62UEzEPnIeMEzYVVVraovCAJC2t+50gKFNSV17FYxbw=="],
 
     "@react-pdf/types": ["@react-pdf/types@2.13.1", "", { "dependencies": { "@react-pdf/font": "^4.1.1", "@react-pdf/primitives": "^4.4.0", "@react-pdf/stylesheet": "^6.3.1" } }, "sha512-uzEWSHZR8HRjsa7g0yCA+sGX1vC10rm9mBE+Ds3j669y1Ax+1hn+MfIknf8Ae8p3WVNNikUof02pVwLRw6kJng=="],
+
+    "@redactpii/node": ["@redactpii/node@1.0.17", "", {}, "sha512-+8wZFkrHslG5SAu7wc+OMKctpjqUFhnxzuBrOmj7Ry1ciIzMBVbdpodf35zMUpSYTjFZfzFU4dIB0OOg55wR2Q=="],
 
     "@rolldown/pluginutils": ["@rolldown/pluginutils@1.0.0-rc.3", "", {}, "sha512-eybk3TjzzzV97Dlj5c+XrBFW57eTNhzod66y9HrBlzJ6NsCrWCp/2kaPS3K9wJmurBC0Tdw4yPjXKZqlznim3Q=="],
 

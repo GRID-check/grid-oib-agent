@@ -231,7 +231,17 @@ OpenRouter, a self-hosted vLLM/Ollama, Azure OpenAI, NVIDIA NIM. The reference
 config is `config_oib_openrouter.yml`; `CONFIG_FILE` selects the active one.
 → `docs/architecture/llm-providers.md`.
 
-### 5.10 Observability
+### 5.10 Platform lessons (failure learning)
+The correction ratchet, applied to the product: a down-vote on an answer is a
+human intervention, so it is distilled — automatically, per report — into an
+anonymized, deduplicated **lesson** the agent reads on every turn, framed
+everywhere as a symptomatic bandage whose root cause stays marked open until
+closed. Platform-scoped tables (`platform_lessons` + provenance-by-reference +
+an append-only event trail), an LLM distill/match/audit pipeline on the
+backend, and a Platform → Lessons dashboard.
+→ `docs/architecture/platform-failure-learning.md`.
+
+### 5.11 Observability
 The agent emits intermediate steps (thinking, tool calls, `remember` writes) to
 the UI trace view, plus token/cost accounting (`tokenomics`) and structured
 logging. Memory capture is silent but observable in these traces.
@@ -269,7 +279,7 @@ marks it purged. Restore is possible only while the row is un-claimed.
 
 | Store | Owner | Holds |
 |---|---|---|
-| **`grid_app`** (Postgres) | BFF (single writer) | projects, conversations, messages, documents, folders, **project_memory**, **deletion_queue**, **legal_holds**, user_preferences |
+| **`grid_app`** (Postgres) | BFF (single writer) | projects, conversations, messages, documents, folders, **project_memory**, **platform_lessons** (+ reports/events), **deletion_queue**, **legal_holds**, user_preferences |
 | **`aiq_jobs`** (Postgres) | backend | job info/access/events (deep research), document summaries |
 | **`aiq_checkpoints`** (Postgres) | backend | LangGraph conversation checkpoints (thread state) |
 | **SeaweedFS** (`grid-documents`) | BFF writes, backend/purger read | OIB PDFs + uploaded documents, keyed by org/project |

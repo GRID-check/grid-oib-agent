@@ -6,6 +6,15 @@ import type {
   ProjectMemoryConfidence,
   ProjectMemoryItem,
 } from '@/lib/db/schema'
+import {
+  NEAR_DUP_JACCARD_THRESHOLD,
+  NEAR_DUP_MIN_TOKENS,
+  contentTokens,
+  jaccardSimilarity,
+  normalizeContent,
+  polaritySignature,
+} from '@/lib/knowledge/consolidation'
+import { formatBoundedDigest } from '@/lib/knowledge/digest-format'
 
 /**
  * Memory service — system-of-record CRUD plus the bounded "core digest"
@@ -26,18 +35,6 @@ const DIGEST_MAX_CHARS = 1800
 const DIGEST_MAX_ITEMS = 20
 
 const CONFIDENCE_RANK: Record<ProjectMemoryConfidence, number> = { low: 0, medium: 1, high: 2 }
-
-/**
- * Normalize content for duplicate detection: lowercase, non-alphanumerics
- * collapsed to single spaces, trimmed. Must stay in lock-step with the SQL
- * expression in `findActiveDuplicate` so JS and Postgres agree on equality.
- */
-function normalizeContent(content: string): string {
-  return content
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-}
 
 /**
  * A normalized-content equality condition (Postgres side of `normalizeContent`).
@@ -89,88 +86,14 @@ async function findActiveDuplicate(
   return existing ?? null
 }
 
-/**
- * Token overlap above which two same-kind findings are the same fact restated
- * (paraphrase-level dedup, design §3.2). Deliberately high: a false positive
- * merges two distinct findings and loses one; a false negative only costs a
- * redundant row the user can prune.
- */
-const NEAR_DUP_JACCARD_THRESHOLD = 0.8
+// Normalization, tokenization, Jaccard, the polarity split and the shared
+// thresholds live in `@/lib/knowledge/consolidation` — one engine for every
+// store that consolidates free-text findings (project memory here, platform
+// lessons in `lib/platform-lessons`). `normalizeContent` there is the ASCII
+// fold that must stay in lock-step with the 0010 index expressions.
+
 /** Bound on the candidate scan (most recently updated active items in scope). */
 const NEAR_DUP_CANDIDATE_LIMIT = 200
-/** Very short findings have jumpy token sets; keep them exact-dup only. */
-const NEAR_DUP_MIN_TOKENS = 3
-
-/**
- * Negation particles whose presence flips what a finding asserts.
- *
- * A correction is token-wise almost identical to the claim it corrects:
- * "OIB-RL 2.1 is not applicable" vs "OIB-RL 2.1 is applicable" score 0.91
- * Jaccard, well over NEAR_DUP_JACCARD_THRESHOLD. Merging those keeps the OLD
- * row and only refreshes its confidence and timestamps — so the correction is
- * discarded and the stale claim survives looking freshly confirmed. Polarity is
- * therefore checked BEFORE any merge: opposed polarity is a contradiction, and
- * a contradiction supersedes instead of merging.
- */
-const NEGATION_TOKENS = new Set([
-  // English
-  'not',
-  'no',
-  'never',
-  'without',
-  'cannot',
-  'none',
-  'neither',
-  'nor',
-  // German
-  'nicht',
-  'kein',
-  'keine',
-  'keinen',
-  'keinem',
-  'keiner',
-  'keines',
-  'nie',
-  'niemals',
-  'ohne',
-  'weder',
-])
-
-/**
- * Boolean literals, which flip meaning the same way a negation does — findings
- * routinely carry flag values verbatim ("betriebsanlage=false").
- */
-const BOOLEAN_TOKENS = new Set(['true', 'false', 'yes', 'ja', 'nein', 'wahr', 'falsch'])
-
-function contentTokenList(content: string): string[] {
-  return normalizeContent(content).split(' ').filter(Boolean)
-}
-
-function contentTokens(content: string): Set<string> {
-  return new Set(contentTokenList(content))
-}
-
-/**
- * A comparable summary of what a content asserts: negation PARITY (double
- * negation reads positive again) plus the boolean literals it carries. Two
- * contents whose signatures differ assert opposite things.
- */
-function polaritySignature(content: string): string {
-  let negations = 0
-  const booleans: string[] = []
-  for (const token of contentTokenList(content)) {
-    if (NEGATION_TOKENS.has(token)) negations++
-    else if (BOOLEAN_TOKENS.has(token)) booleans.push(token)
-  }
-  return `${negations % 2}|${[...new Set(booleans)].sort().join(',')}`
-}
-
-function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 || b.size === 0) return 0
-  let shared = 0
-  for (const token of a) if (b.has(token)) shared++
-  return shared / (a.size + b.size - shared)
-}
 
 /** A near-identical existing item, and whether it asserts the OPPOSITE. */
 interface NearMatch {
@@ -569,22 +492,21 @@ export type DigestItem = Pick<
  * order until DIGEST_MAX_CHARS would be exceeded.
  */
 export function formatDigestLines(items: DigestItem[]): string | null {
-  if (items.length === 0) return null
-
-  const lines: string[] = ['PROJECT_MEMORY v1']
-  let used = lines[0].length
-  for (const item of items) {
-    const content = item.content.replace(/\s+/g, ' ').trim()
-    if (!content) continue
-    const escaped = content.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-    const scopeTag = item.scope === 'organization' ? 'org-wide | ' : ''
-    const line = `- [${scopeTag}${item.kind} | ${item.confidence} | ${item.verification}] "${escaped}"`
-    if (used + line.length + 1 > DIGEST_MAX_CHARS) break
-    lines.push(line)
-    used += line.length + 1
-  }
-
-  return lines.length > 1 ? lines.join('\n') : null
+  // The escaping/bounding mechanics live in the shared formatter; this wrapper
+  // only decides the header and the per-item tag set.
+  return formatBoundedDigest(
+    'PROJECT_MEMORY v1',
+    items.map((item) => ({
+      tags: [
+        ...(item.scope === 'organization' ? ['org-wide'] : []),
+        item.kind,
+        item.confidence,
+        item.verification,
+      ],
+      content: item.content,
+    })),
+    DIGEST_MAX_CHARS
+  )
 }
 
 /**

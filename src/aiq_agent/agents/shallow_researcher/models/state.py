@@ -64,6 +64,9 @@ class ShallowResearchAgentState(BaseModel):
     # ceiling. Per-turn: the chat node builds a fresh state each turn.
     interaction_iterations: int = 0
     project_context: str | None = None
+    # Anonymized fleet-wide failure patterns distilled from user feedback,
+    # threaded through from ChatResearcherState (see the note there).
+    platform_lessons: str | None = None
     # The composer's "Asking about <file>" subject for this turn (filename +
     # shelf). Rendered into the system prompt so "summarize this document"
     # has an antecedent, and widens the tool binding below: a bound file is an

@@ -522,6 +522,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="platform-skills-preview"] [role="switch"]',
   },
   {
+    id: 'platform-lessons',
+    path: '/dev/platform-lessons',
+    description:
+      'Platform → Lessons — the failure-learning register distilled from down-voted answers (docs/architecture/platform-failure-learning.md). The four register states, because they are the whole lifecycle: an auditor-held CANDIDATE waiting for a human, two ACTIVE lessons (one with its root cause already marked addressed, one still open), and a capacity-EVICTED retirement. The bandage callout at the top is not chrome, it is the doctrine: every lesson is a symptomatic patch and the root-cause chip beside each row is what keeps the register from being read as a list of fixes.',
+    waitFor: '[data-testid="platform-lessons"]',
+  },
+  {
     id: 'skills-panel',
     path: '/dev/skills-panel',
     description:

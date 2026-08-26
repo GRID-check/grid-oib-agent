@@ -792,6 +792,7 @@ class ShallowResearcherAgent:
                     current_datetime=current_datetime,
                     available_documents=_documents_dump,
                     project_context=state.project_context,
+                    platform_lessons=state.platform_lessons,
                     focus_file_name=state.focus_file_name,
                     focus_shelf_label=_shelf_label(state.focus_shelf),
                     ris_catalog=render_block_for_prompt(state.project_context) if state.requires_sources else None,

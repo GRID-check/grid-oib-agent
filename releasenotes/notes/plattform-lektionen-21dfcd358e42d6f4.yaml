@@ -1,0 +1,14 @@
+---
+features:
+  - >
+    Piloti now learns from negative feedback. When you mark an answer as not
+    helpful, the report is anonymized and turned into a lesson the assistant
+    reads on every future answer — so a mistake reported once is far less
+    likely to happen to you or anyone else again. Your feedback text never
+    leaves your organization; only the anonymized lesson does.
+improvements:
+  - >
+    Giving a thumbs-down with a short note is now the fastest way to improve
+    answers for everyone: each report is matched against known failure
+    patterns, and repeated reports strengthen the caution the assistant
+    already follows.

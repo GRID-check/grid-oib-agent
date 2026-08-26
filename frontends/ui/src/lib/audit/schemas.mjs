@@ -168,6 +168,21 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'platform_reasoning_efforts' }],
     metadata: MODEL_GROUP_METADATA,
   },
+  // A curation decision on the fleet-wide lesson register (Platform → Lessons):
+  // activating, retiring or editing a lesson changes what every organization's
+  // agent is told on its next turn, so it belongs in the platform org's trail.
+  // The pipeline's own automatic transitions are NOT WorkOS events — they have
+  // no human actor and live in the append-only platform_lesson_events table,
+  // which is the system-side half of the same trail.
+  'platform.lesson.updated': {
+    targets: [{ type: 'platform_lesson' }],
+    metadata: {
+      status: 'string',
+      contentChanged: 'boolean',
+      rootCauseStatus: 'string',
+      reason: 'string',
+    },
+  },
   'platform.norm_registry.updated': {
     targets: [{ type: 'norm_registry' }],
     metadata: { entries: 'number', version: 'number' },

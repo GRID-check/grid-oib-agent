@@ -85,6 +85,14 @@ class ChatResearcherState(BaseModel):
     # the deliberate way back to deep research.
     deep_research_declined: bool | None = None
     project_context: str | None = None
+    # The bounded PLATFORM_LESSONS digest — anonymized failure patterns
+    # distilled from user down-votes across the whole platform
+    # (docs/architecture/platform-failure-learning.md). Fetched per turn by the
+    # register layer (TTL-cached, fail-open to None) and rendered as its own
+    # guarded prompt section, deliberately OUTSIDE project_context: lessons
+    # apply to every turn, project or not, and must not inherit the profile's
+    # "confirmed facts bind" framing.
+    platform_lessons: str | None = None
     # Set when a deep-research run is dispatched as an async job. Carried as a
     # STRUCTURED signal to the frontend (instead of the frontend regex-parsing
     # the "Deep research job submitted. Job ID: ..." prose) so deep-research

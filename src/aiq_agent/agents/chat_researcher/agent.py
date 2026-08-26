@@ -467,6 +467,7 @@ class ChatResearcherAgent:
                     user_info=state.user_info,
                     available_documents=state.available_documents,
                     project_context=state.project_context,
+                    platform_lessons=state.platform_lessons,
                     focus_file_name=state.focus_file_name,
                     focus_shelf=state.focus_shelf,
                     requires_sources=requires_sources,
@@ -921,6 +922,10 @@ class ChatResearcherAgent:
                 "clarifier_result": None,
                 "skip_clarifier": state.skip_clarifier,
                 "project_context": state.project_context,
+                # Refreshed per turn like project_context: the register layer
+                # fetched this turn's digest, and a checkpointed value from an
+                # earlier turn would outlive a curation change.
+                "platform_lessons": state.platform_lessons,
             }
             messages = state.messages
 
