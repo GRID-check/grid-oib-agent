@@ -280,7 +280,7 @@ jobs:
       # Coverage is collected per shard and merged below: a shard only ever
       # loads its own slice of the app, so its coverage is meaningless alone and
       # cannot be recomputed afterwards from the others.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         # A failing shard still wrote its blob, and the merged report is where a
         # reviewer will look — without this the upload is skipped on failure and
         # the merge job silently reports on a subset.
@@ -313,7 +313,7 @@ jobs:
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/setup-task
       - run: task fe:install
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: vitest-blob-*
           merge-multiple: true
@@ -407,7 +407,7 @@ jobs:
           # The require-a-note check diffs against the merge base, so the base
           # branch has to be there. Shallow-by-default checkout has neither.
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v4
+      - uses: astral-sh/setup-uv@v10
         with:
           enable-cache: true
 

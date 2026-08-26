@@ -43,7 +43,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       web: ${{ steps.filter.outputs.web }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # paths-filter diffs the pushed range against `github.event.before`.
           # In the default shallow clone that commit is missing, so the action
@@ -91,13 +91,13 @@ jobs:
     steps:
       # No persisted checkout token: images are pushed via docker/login-action
       # below, never git credentials.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -112,7 +112,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/develop' }}
             type=ref,event=tag
       - name: Build & push (release target)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deploy/Dockerfile
@@ -135,13 +135,13 @@ jobs:
     needs: changes
     if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/develop' || needs.changes.outputs.frontend == 'true' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -156,7 +156,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/develop' }}
             type=ref,event=tag
       - name: Build & push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: frontends/ui
           file: frontends/ui/deploy/Dockerfile
@@ -178,13 +178,13 @@ jobs:
     needs: changes
     if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/develop' || needs.changes.outputs.web == 'true' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -215,7 +215,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/develop' }}
             type=ref,event=tag
       - name: Build & push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: frontends/web
           file: frontends/web/Dockerfile
