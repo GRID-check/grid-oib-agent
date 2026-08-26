@@ -208,8 +208,6 @@ export const files = {
     namePlaceholder: 'Folder name',
     newFolderName: 'New folder name',
     creating: 'Creating folder…',
-    addSubfolderIn: 'Add subfolder in {name}',
-    addSubfolder: 'Add subfolder',
     allFiles: 'All Files',
     newFolder: 'New folder',
     /** On a folder tile: how much is inside, subfolders counted. */
@@ -236,7 +234,6 @@ export const files = {
       label: 'View',
       cards: 'Cards',
       list: 'List',
-      tree: 'Folders',
     },
   },
   // Explorer detail view — column headings for the sortable listing.

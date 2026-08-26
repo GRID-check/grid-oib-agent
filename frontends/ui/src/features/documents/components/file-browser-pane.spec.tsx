@@ -481,3 +481,114 @@ describe('FileBrowserPane — search zero-match', () => {
     expect(screen.queryByRole('button', { name: /clear search/i })).not.toBeInTheDocument()
   })
 })
+
+describe('FileBrowserPane — managing folders from the tiles', () => {
+  // The sidebar tree was folder management's only home: create, rename and
+  // delete existed nowhere else. Retiring that view without moving them would
+  // have retired them too, so these are the tests that used to live on the tree.
+  const folders: FolderItem[] = [
+    { id: 'root-1', parentId: null, name: 'Pläne', path: '/Pläne' },
+    { id: 'child-1', parentId: 'root-1', name: 'EG', path: '/Pläne/EG' },
+  ]
+
+  function renderShelf(overrides: Partial<Omit<PaneProps, 'search'>> = {}) {
+    return renderPane({
+      folders,
+      selectedFolderId: null,
+      onSelectFolder: vi.fn(),
+      onCreateFolder: vi.fn(async () => true),
+      onRenameFolder: vi.fn(async () => true),
+      onDeleteFolder: vi.fn(async () => true),
+      ...overrides,
+    })
+  }
+
+  it('creates a folder at the level being looked at, not always at the root', async () => {
+    const user = userEvent.setup()
+    const onCreateFolder = vi.fn(async () => true)
+    // Inside "Pläne": the per-row "add subfolder" control went with the tree,
+    // so the new-folder tile is what keeps a nested folder creatable at all.
+    renderShelf({ onCreateFolder, selectedFolderId: 'root-1', hasFolderSelected: true })
+
+    await user.click(screen.getByTestId('folder-create-tile'))
+    await user.type(screen.getByTestId('folder-create-input'), 'Einreichung{Enter}')
+
+    expect(onCreateFolder).toHaveBeenCalledWith('Einreichung', 'root-1')
+  })
+
+  it('keeps the typed name when the create is rejected', async () => {
+    const user = userEvent.setup()
+    // Nobody should have to type a name twice because the server was busy.
+    renderShelf({ onCreateFolder: vi.fn(async () => false) })
+
+    await user.click(screen.getByTestId('folder-create-tile'))
+    await user.type(screen.getByTestId('folder-create-input'), 'Bescheide{Enter}')
+
+    expect(screen.getByTestId('folder-create-input')).toHaveValue('Bescheide')
+  })
+
+  it('renames in the tile the reader is already looking at', async () => {
+    const user = userEvent.setup()
+    const onRenameFolder = vi.fn(async () => true)
+    renderShelf({ onRenameFolder })
+
+    await user.click(screen.getByTestId('folder-actions-root-1'))
+    await user.click(await screen.findByRole('menuitem', { name: /rename/i }))
+
+    const field = screen.getByTestId('folder-rename-input-root-1')
+    expect(field).toHaveValue('Pläne')
+    await user.clear(field)
+    await user.type(field, 'Planung{Enter}')
+    expect(onRenameFolder).toHaveBeenCalledWith('root-1', 'Planung')
+  })
+
+  it('treats Escape as a cancel and an unchanged name as nothing to do', async () => {
+    const user = userEvent.setup()
+    const onRenameFolder = vi.fn(async () => true)
+    renderShelf({ onRenameFolder })
+
+    await user.click(screen.getByTestId('folder-actions-root-1'))
+    await user.click(await screen.findByRole('menuitem', { name: /rename/i }))
+    await user.keyboard('{Enter}')
+    // Enter on an untouched field is not a round trip.
+    expect(onRenameFolder).not.toHaveBeenCalled()
+
+    await user.click(screen.getByTestId('folder-actions-root-1'))
+    await user.click(await screen.findByRole('menuitem', { name: /rename/i }))
+    await user.keyboard('{Escape}')
+    expect(screen.queryByTestId('folder-rename-input-root-1')).not.toBeInTheDocument()
+    expect(onRenameFolder).not.toHaveBeenCalled()
+  })
+
+  it('offers the delete on the folder itself', async () => {
+    const user = userEvent.setup()
+    const onDeleteFolder = vi.fn(async () => true)
+    renderShelf({ onDeleteFolder })
+
+    await user.click(screen.getByTestId('folder-actions-root-1'))
+    await user.click(await screen.findByTestId('folder-delete-root-1'))
+    expect(onDeleteFolder).toHaveBeenCalledWith('root-1')
+  })
+
+  it('shows no folder actions at all when the surface passes no handlers', () => {
+    renderPane({ folders, selectedFolderId: null, onSelectFolder: vi.fn() })
+    expect(screen.queryByTestId('folder-actions-root-1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('folder-create-tile')).not.toBeInTheDocument()
+  })
+
+  it('offers the new-folder tile in a project that has no folders yet', () => {
+    // An empty project is exactly where somebody wants to make the first one,
+    // and the emptiness check used to return before the shelf was drawn.
+    renderShelf({ folders: [] })
+    expect(screen.getByTestId('folder-create-tile')).toBeInTheDocument()
+  })
+
+  it('says the folders could not be loaded rather than drawing an empty shelf', () => {
+    // A project whose folders failed to arrive is not a project without
+    // folders, and the difference is the reader's whole model of where their
+    // documents are.
+    renderShelf({ foldersError: <span data-testid="folders-load-error">Folders failed</span> })
+    expect(screen.getByTestId('folders-load-error')).toBeInTheDocument()
+    expect(screen.queryByTestId('folder-tiles')).not.toBeInTheDocument()
+  })
+})

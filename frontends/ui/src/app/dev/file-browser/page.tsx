@@ -1,18 +1,13 @@
 'use client'
 
 /**
- * Dev preview for the Files browser. Two fixtures:
+ * Dev preview for the Files browser — the whole page, not just the listing:
+ * the real `PageHeader` in the band `ProjectSectionFrame` gives it, carrying
+ * the real `FileWorkspaceActions`, and below it the content column the grid is
+ * held to. The pane alone stopped being a picture of the screen when its search
+ * moved into that header.
  *
- *  1. The default card grid (`FileBrowserPane`) — the shared raised FileCard in
- *     its home surface, with the folder quick-filter chip row.
- *  2. The folder-TREE composition — the same segmented `ToggleGroup` the
- *     workspace uses, the tree band wrapper (same responsive classes) around
- *     the real `FolderTreePane`, plus a standalone `FileSearchBar` with a live
- *     query so the enlarged clear (X) hit target is visible.
- *
- * The tree fixture is the evidence for the mobile touch-target work on the
- * folder tree, view toggle, filter chips, and search-bar clear button. A
- * module-scope fetch shim 404s thumbnails so the SVG sketch fallback renders.
+ * A module-scope fetch shim 404s thumbnails so the SVG sketch fallback renders.
  * 404s outside development.
  *
  * `?variant=search-failed` renders the state a semantic search lands in when it
@@ -29,12 +24,16 @@
  * deliberately not in upload order, so the shot also shows the ranking surviving
  * into a view whose default sort is newest-first.
  *
- * `?variant=folder-rename` and `?variant=folder-menu` render the two states the
- * folder tree only reaches through an interaction: a row turned into its own
- * name field, and the per-row ⋯ menu that gets it there. Both drive themselves —
- * the rename editor is internal component state, and the row controls are
- * hover-revealed on a pointer device, so a fixture that merely rendered the tree
- * would be a picture of neither.
+ * `?variant=folder-tiles` is the shelf one level down: the trail out, the
+ * subfolders the chip row could never reach, and the dashed tile that makes
+ * another folder at the level being looked at.
+ *
+ * `?variant=folder-rename` and `?variant=folder-menu` render the two states a
+ * folder tile only reaches through an interaction: a tile turned into its own
+ * name field, and the ⋯ menu that gets it there. Both drive themselves — the
+ * rename editor is internal component state, and the trigger is hover-revealed
+ * on a pointer device, so a fixture that merely rendered the shelf would be a
+ * picture of neither.
  *
  * `?variant=uploading` renders the moment right after a batch lands, which is
  * the one row where the cards are NOT all the same shape: a document that is
@@ -50,8 +49,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { FileBrowserPane } from '@/features/documents/components/file-browser-pane'
-import { FolderTreePane } from '@/features/documents/components/folder-tree-pane'
-import { FileSearchField } from '@/features/documents/components/file-search'
 import {
   FileWorkspaceActions,
   FileWorkspaceSearchField,
@@ -68,8 +65,7 @@ import {
 } from '@/components/ui/breadcrumb'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { LayoutGrid, ListTree, UploadCloud } from 'lucide-react'
+import { UploadCloud } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { FileItem, FolderItem } from '@/features/documents/components/project-file-workspace'
 
@@ -414,18 +410,23 @@ function SearchInListViewFixture(): JSX.Element {
 }
 
 /**
- * The folder tree's two interaction-only states.
+ * The folder shelf's two interaction-only states.
  *
- * `mode="menu"` opens the ⋯ menu on a row — which is also the only way to SEE
- * the row controls on a pointer device, since they are hover-revealed
+ * `mode="menu"` opens the ⋯ menu on a tile — which is also the only way to SEE
+ * that control on a pointer device, since it is hover-revealed
  * (`data-[state=open]:opacity-100` keeps the trigger lit while its menu is up).
- * `mode="rename"` goes one step further and picks Rename, so the row is
- * replaced in place by its own name field — same row, same indent, same width
- * as the folder it stands in for. The two cannot share a page: the rename input
+ * `mode="rename"` goes one step further and picks Rename, so the tile is
+ * replaced in place by its own name field — same box, same cell, same width as
+ * the folder it stands in for. The two cannot share a page: the rename input
  * commits on blur, so opening a menu anywhere else would end the rename.
+ *
+ * These states used to belong to the folder TREE, which was the only home
+ * folder management had. The tree is gone; the actions came with the folders.
  */
 function FolderCrudFixture({ mode }: { mode: 'menu' | 'rename' }): JSX.Element {
+  const [selected, setSelected] = useState<string | null>(null)
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
+  const search = useDevFileSearch()
   const noop = async () => true
 
   // `reactStrictMode` runs an effect twice on mount, and Enter on the trigger
@@ -456,12 +457,10 @@ function FolderCrudFixture({ mode }: { mode: 'menu' | 'rename' }): JSX.Element {
   }, [mode])
 
   return (
-    <main className="mx-auto flex max-w-3xl flex-col gap-8 p-6">
+    <main className="mx-auto flex max-w-6xl flex-col gap-8 p-6">
       <div>
         <h1 className="text-lg font-semibold">
-          {mode === 'menu'
-            ? 'Folder tree — the row’s own actions'
-            : 'Folder tree — renaming in place'}
+          {mode === 'menu' ? 'Folder tiles — a folder’s own actions' : 'Folder tiles — renaming in place'}
         </h1>
         <p className="text-muted-foreground mt-1 text-sm">
           {mode === 'menu'
@@ -470,17 +469,24 @@ function FolderCrudFixture({ mode }: { mode: 'menu' | 'rename' }): JSX.Element {
         </p>
       </div>
 
-      <div className="w-64 overflow-hidden rounded-xl border" data-testid="folder-crud-fixture">
-        <FolderTreePane
+      <FilesFixtureFrame search={search} className="h-[420px]" testId="folder-crud-fixture">
+        <FileBrowserPane
+          files={FILES}
+          allFiles={FILES}
+          selectedFileId={selected}
+          onSelectFile={setSelected}
+          isLoading={false}
+          hasFolderSelected={false}
+          search={search}
+          searchField={<FileWorkspaceSearchField search={search} />}
           folders={FOLDERS}
           selectedFolderId={selectedFolderId}
           onSelectFolder={setSelectedFolderId}
           onCreateFolder={async () => false}
           onRenameFolder={noop}
           onDeleteFolder={noop}
-          isLoading={false}
         />
-      </div>
+      </FilesFixtureFrame>
     </main>
   )
 }
@@ -620,34 +626,27 @@ function FolderTilesFixture(): JSX.Element {
 function FileBrowserFixtures(): JSX.Element {
   const [selected, setSelected] = useState<string | null>('p2')
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
-  const [treeFolderId, setTreeFolderId] = useState<string | null>(null)
   const [view, setView] = useState<'cards' | 'list'>('cards')
-  const [treeView, setTreeView] = useState<'cards' | 'tree'>('tree')
   const search = useDevFileSearch()
-  const treeSearch = useDevFileSearch()
-
-  const noopCreate = async () => false
+  const noop = async () => true
 
   return (
     <main className="mx-auto flex max-w-6xl flex-col gap-8 p-6">
       <div>
         <h1 className="text-lg font-semibold">Files browser — the page, not the pane</h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          Search in the header band, folders as tiles above the grid, and the grid held to the app’s
-          content column so four previews fit a row instead of six stamps.
+          Search in the header band, folders as tiles above the grid — the only home folder
+          management has now — and the grid held to the app’s content column, so four previews fit a
+          row instead of six stamps.
         </p>
       </div>
 
       {/* The browsing surface as the Files page composes it: header band with
-          the search field and the view toggle, then the centred column. */}
-      <FilesFixtureFrame
-        search={search}
-        view={view}
-        onView={(next) => {
-          if (next === 'cards' || next === 'list') setView(next)
-        }}
-        className="h-[880px]"
-      >
+          the search field and the view toggle, then the centred column. There
+          are TWO views to toggle now, not three: the folder sidebar went when
+          the folders became tiles on this surface, because it was the same
+          navigation twice and one of the two cost a fifth of the width. */}
+      <FilesFixtureFrame search={search} view={view} onView={setView} className="h-[880px]">
         <FileBrowserPane
           files={selectedFolderId ? FILES.filter((f) => f.folderId === selectedFolderId) : FILES}
           allFiles={FILES}
@@ -661,77 +660,11 @@ function FileBrowserFixtures(): JSX.Element {
           folders={FOLDERS}
           selectedFolderId={selectedFolderId}
           onSelectFolder={setSelectedFolderId}
+          onCreateFolder={noop}
+          onRenameFolder={noop}
+          onDeleteFolder={noop}
         />
       </FilesFixtureFrame>
-
-      {/* Folder-TREE composition — mirrors ProjectFileWorkspace's tree layout so
-          the folder rows, add-subfolder control, view toggle and tree band
-          height reflect the real workspace on mobile. The pane gets no folders
-          here, exactly as in the workspace: in this view the TREE is the
-          navigation, and tiles beside it would be the same control twice. */}
-      <div className="flex h-[720px] flex-col overflow-hidden rounded-xl border">
-        <div className="flex flex-wrap items-center justify-end gap-2 border-b px-4 py-3">
-          <FileSearchField
-            value={treeSearch.query}
-            onChange={treeSearch.setQuery}
-            onSubmit={treeSearch.submit}
-            onClear={treeSearch.clear}
-            placeholder="Dateien durchsuchen…"
-            searchLabel="Suche"
-            resetLabel="Suche zurücksetzen"
-            canSearch={treeSearch.canSearch}
-            runLabel="Suchen"
-            isSearching={treeSearch.semantic.isSearching}
-          />
-          <ToggleGroup
-            type="single"
-            value={treeView}
-            onValueChange={(value) => {
-              if (value === 'cards' || value === 'tree') setTreeView(value)
-            }}
-            segmented
-            size="icon-sm"
-            aria-label="Ansicht"
-          >
-            <ToggleGroupItem value="cards" aria-label="Kacheln" title="Kacheln">
-              <LayoutGrid />
-            </ToggleGroupItem>
-            <ToggleGroupItem value="tree" aria-label="Ordner" title="Ordner">
-              <ListTree />
-            </ToggleGroupItem>
-          </ToggleGroup>
-        </div>
-        {/* Stacks on mobile (tree band on top), splits on md+ — same as workspace. */}
-        <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
-          <div className="max-h-72 w-full shrink-0 overflow-y-auto border-b md:max-h-none md:w-60 md:border-b-0 md:border-r">
-            <FolderTreePane
-              folders={FOLDERS}
-              selectedFolderId={treeFolderId}
-              onSelectFolder={setTreeFolderId}
-              onCreateFolder={noopCreate}
-              // Folders are full CRUD now; the fixture carries the row controls
-              // so the tree's hover state and its menu stay reviewable.
-              onRenameFolder={async () => true}
-              onDeleteFolder={async () => true}
-              isLoading={false}
-            />
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            <ShellContent width="wide" className="py-4 md:py-6">
-              <FileBrowserPane
-                files={treeFolderId ? FILES.filter((f) => f.folderId === treeFolderId) : FILES}
-                allFiles={FILES}
-                selectedFileId={selected}
-                onSelectFile={setSelected}
-                isLoading={false}
-                hasFolderSelected={treeFolderId !== null}
-                search={treeSearch}
-                searchField={<FileWorkspaceSearchField search={treeSearch} />}
-              />
-            </ShellContent>
-          </div>
-        </div>
-      </div>
     </main>
   )
 }

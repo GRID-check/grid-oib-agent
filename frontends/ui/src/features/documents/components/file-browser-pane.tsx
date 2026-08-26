@@ -6,9 +6,12 @@ import { Search, SearchX, FolderOpen, Sparkles, UploadCloud } from 'lucide-react
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { SectionLabel } from '@/components/ui/section-label'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useTranslations } from '@/i18n'
+import { cn } from '@/lib/utils'
 import type { FileSearchState } from '../hooks/use-file-search'
 import { FileCard } from './file-card'
+import { FILE_GRID_TEMPLATE } from './file-card-size'
 import { FileGrid, FileCardSkeleton } from './file-grid'
 import { FileListSkeleton, FileListView } from './file-list-view'
 import { SemanticSearchBanner } from './file-search'
@@ -55,6 +58,23 @@ interface FileBrowserPaneProps {
   selectedFolderId?: string | null
   onSelectFolder?: (id: string | null) => void
   /**
+   * Create / rename / delete, threaded to the folder tiles. They are the only
+   * home folder management has now that the sidebar tree is gone; omit them for
+   * a reader who may not manage folders.
+   */
+  onCreateFolder?: (name: string, parentId?: string) => Promise<boolean>
+  onRenameFolder?: (folderId: string, name: string) => Promise<boolean>
+  onDeleteFolder?: (folderId: string) => Promise<boolean>
+  /** Folders are still on their way; the shelf holds its height meanwhile. */
+  isLoadingFolders?: boolean
+  /**
+   * The folder list could not be loaded. Said out loud rather than rendering an
+   * empty shelf: a project whose folders failed to arrive is not a project
+   * without folders, and the difference is the reader's whole mental model of
+   * where their documents are.
+   */
+  foldersError?: ReactNode
+  /**
    * How the listing renders. `cards` is the browsing surface; `list` is the
    * explorer's sortable detail view for a corpus too large to skim as tiles.
    * Search, folder filtering and selection are identical in both — the view is
@@ -80,6 +100,11 @@ export function FileBrowserPane({
   folders,
   selectedFolderId = null,
   onSelectFolder,
+  onCreateFolder,
+  onRenameFolder,
+  onDeleteFolder,
+  isLoadingFolders = false,
+  foldersError,
   view = 'cards',
   showAssignment = false,
   renderActions,
@@ -104,14 +129,21 @@ export function FileBrowserPane({
     )
   }
 
-  // Folders come before the emptiness check on purpose: a folder whose files all
-  // sit one level further down holds no documents of its own, and returning the
-  // "nothing here" state for it would hide the very subfolders that hold them —
-  // a dead end for anybody not in the tree view.
-  const hasChildFolders = (folders ?? []).some((folder) => folder.parentId === selectedFolderId)
+  // The folder shelf comes before the emptiness check on purpose. A folder whose
+  // files all sit one level further down holds no documents of ITS own, and
+  // returning the "nothing here" state for it would hide the very subfolders
+  // that hold them. The same goes for the new-folder tile: an empty project is
+  // exactly where somebody wants to make the first folder.
+  const hasFolderPane = onSelectFolder !== undefined && folders !== undefined
+  const showsFolderShelf =
+    hasFolderPane &&
+    (foldersError !== undefined ||
+      isLoadingFolders ||
+      onCreateFolder !== undefined ||
+      (folders ?? []).some((folder) => folder.parentId === selectedFolderId))
 
-  // First-run empty state — this level has neither documents nor folders.
-  if (files.length === 0 && !hasChildFolders) {
+  // First-run empty state — this level has neither documents nor a folder shelf.
+  if (files.length === 0 && !showsFolderShelf) {
     return (
       <div className="flex items-center justify-center py-16">
         {hasFolderSelected ? (
@@ -170,14 +202,35 @@ export function FileBrowserPane({
         />
       )}
 
-      {/* The folders at this level, as objects rather than as a filter row. */}
-      {!semantic.active && onSelectFolder && folders && (
-        <FolderTiles
-          folders={folders}
-          files={allFiles}
-          parentId={selectedFolderId}
-          onOpenFolder={onSelectFolder}
-        />
+      {/* The folders at this level, as objects rather than as a filter row —
+          and the only place a folder can be made, renamed or deleted. */}
+      {!semantic.active && hasFolderPane && foldersError !== undefined ? (
+        <div className="mb-6">{foldersError}</div>
+      ) : !semantic.active && hasFolderPane && isLoadingFolders ? (
+        // Placeholders in the shelf's own shape, so its arrival does not push
+        // the whole grid down a row.
+        <div
+          className={cn('mb-6 grid items-stretch gap-3 sm:gap-3.5', FILE_GRID_TEMPLATE.roomy)}
+          aria-busy
+        >
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-[66px] rounded-xl" />
+          ))}
+        </div>
+      ) : (
+        !semantic.active &&
+        onSelectFolder &&
+        folders && (
+          <FolderTiles
+            folders={folders}
+            files={allFiles}
+            parentId={selectedFolderId}
+            onOpenFolder={onSelectFolder}
+            {...(onCreateFolder ? { onCreateFolder } : {})}
+            {...(onRenameFolder ? { onRenameFolder } : {})}
+            {...(onDeleteFolder ? { onDeleteFolder } : {})}
+          />
+        )
       )}
 
       {semantic.active ? (

@@ -8,5 +8,10 @@ improvements:
     stamps across a wide screen.
   - >
     Folders in a project are shown as tiles above the documents, each naming how
-    much is filed inside it. Subfolders can now be opened from the card view as
-    well, and the trail above the tiles leads back out again.
+    much is filed inside it, and a folder is created, renamed and deleted right
+    there. Subfolders can be opened from the card view now, and the trail above
+    the tiles leads back out again.
+  - >
+    The separate folder sidebar is gone. It showed the same folders the tiles
+    now show, in a fifth of the window, so Files offers two views instead of
+    three: cards and list.

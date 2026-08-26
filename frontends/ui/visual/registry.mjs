@@ -319,7 +319,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/file-browser',
     description:
-      'The Files page as a page. Three things moved at once and they only make sense together: the search left the listing for the header band, where every other control on this screen already was; the grid moved inside the app\u2019s own content column instead of running edge to edge, so four previews fill a row where six stamps used to; and the folder chip row became tiles that carry what is inside each folder. Compare the preview height with `document-grid` \u2014 the chat card keeps the compact metric, because widening cells in a chat column costs it a column.',
+      'The Files page as a page. The search left the listing for the header band, where every other control on this screen already was; the grid moved inside the app\u2019s own content column instead of running edge to edge, so four previews fill a row where six stamps used to; and the folder chip row became a shelf of tiles that carry what is inside each folder and, at its end, the dashed tile that makes another. The view toggle offers TWO views, not three: the folder sidebar went with the chips, because tiles on the surface itself are the same navigation in less width. Compare the preview height with `document-grid` \u2014 the chat card keeps the compact metric, because widening cells in a chat column costs it a column.',
     waitFor: '[data-testid="file-card"]',
   },
   {
@@ -363,21 +363,22 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/file-browser?variant=folder-tiles',
     description:
-      'Inside a folder \u2014 the level the chip row could never reach. Chips listed TOP-LEVEL folders only, so \u201cFluchtwege\u201d existed nowhere but the tree view, and a chip carried a name with nothing behind it where a tile carries what is inside (subfolders counted, so a folder whose files all sit one step down is not reported as empty). The trail above is the way back out: tiles only drill down, so without it this level would be the dead end the chips never were.',
+      'Inside a folder \u2014 the level the chip row could never reach. Chips listed TOP-LEVEL folders only, so \u201cFluchtwege\u201d existed nowhere but the tree view, and a chip carried a name with nothing behind it where a tile carries what is inside (subfolders counted, so a folder whose files all sit one step down is not reported as empty). Two things make this level self-sufficient now that the tree is gone: the trail above is the way back out, and the dashed tile creates a subfolder HERE rather than at the root.',
     waitFor: '[data-testid="folder-tile"]',
   },
   {
     id: 'file-browser-folder-menu',
+    mobile: true,
     path: '/dev/file-browser?variant=folder-menu',
     description:
-      'A folder row\u2019s own \u22ef menu. Folders were create-only: a name typed wrong stayed wrong, and a folder made by mistake stayed in the tree forever. Rename and Delete now sit on the folder itself, one hover away, with the destructive one carrying its own colour \u2014 and the trigger stays lit while its menu is up, so the control that opened it does not vanish underneath the reader.',
+      'A folder tile\u2019s own \u22ef menu. These actions used to live in the sidebar tree and nowhere else, so retiring that view would have retired them with it \u2014 they came along to the folders instead. Rename and Delete sit on the folder itself, one hover away, with the destructive one carrying its own colour, and the trigger stays lit while its menu is up so the control that opened it does not vanish underneath the reader.',
     waitFor: '[role="menuitem"]',
   },
   {
     id: 'file-browser-folder-rename',
     path: '/dev/file-browser?variant=folder-rename',
     description:
-      'Renaming a folder happens in the row itself \u2014 same indent, same width, pre-filled with the current name. The reader is looking at the name they want to change, so a dialog would take it off screen to ask about it. Enter commits, Escape cancels, an unchanged name makes no request at all, and a failed save leaves the field open with the typed text intact.',
+      'Renaming a folder happens in the tile itself \u2014 same box, same cell, same width, pre-filled with the current name. The reader is looking at the name they want to change, so a dialog would take it off screen to ask about it. Enter commits, Escape cancels, an unchanged name makes no request at all, and a failed save leaves the field open with the typed text intact.',
     waitFor: '[data-testid="folder-rename-input-f-brand"]',
   },
   {

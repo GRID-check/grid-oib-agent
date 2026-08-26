@@ -187,8 +187,6 @@ export const files: typeof en.files = {
     namePlaceholder: 'Ordnername',
     newFolderName: 'Name des neuen Ordners',
     creating: 'Ordner wird erstellt …',
-    addSubfolderIn: 'Unterordner in {name} hinzufügen',
-    addSubfolder: 'Unterordner hinzufügen',
     allFiles: 'Alle Dateien',
     newFolder: 'Neuer Ordner',
     /** Auf der Ordner-Kachel: wie viel darin liegt, Unterordner mitgezählt. */
@@ -215,7 +213,6 @@ export const files: typeof en.files = {
       label: 'Ansicht',
       cards: 'Kacheln',
       list: 'Liste',
-      tree: 'Ordner',
     },
   },
   // Detailansicht des Explorers – Spaltenüberschriften der sortierbaren Liste.

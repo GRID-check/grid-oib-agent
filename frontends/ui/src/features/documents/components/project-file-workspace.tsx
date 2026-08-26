@@ -12,7 +12,6 @@ import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { useFileSearch } from '../hooks/use-file-search'
 import { inferDocumentKind } from '../document-kind'
-import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
 import { FileWorkspaceActions, FileWorkspaceSearchField } from './file-workspace-actions'
 import { DocumentActionsMenu } from './document-actions'
@@ -133,10 +132,17 @@ type OptionalWireField =
  * Presentation of the file browser.
  *
  * `cards` browses, `list` is the explorer detail view for a corpus too large to
- * skim as tiles, `tree` puts the folder hierarchy alongside the cards. All
- * three read the same documents through the same search and folder filter.
+ * skim as tiles. Both read the same documents through the same search and
+ * folder filter — the view is a presentation choice, never a different data
+ * path.
+ *
+ * There was a third, `tree`: a folder sidebar beside the cards. It went when
+ * the folders became tiles on the browsing surface itself, because it was then
+ * the same navigation twice, in two shapes, one of which cost a fifth of the
+ * width. Everything it could do — drill in, rename, delete, and make a folder
+ * at any level — moved onto the tiles.
  */
-type FileView = 'cards' | 'list' | 'tree'
+type FileView = 'cards' | 'list'
 
 const VIEW_STORAGE_KEY = 'grid.files.view'
 
@@ -197,7 +203,9 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   useEffect(() => {
     if (typeof window === 'undefined') return
     const stored = window.localStorage.getItem(VIEW_STORAGE_KEY)
-    if (stored === 'cards' || stored === 'list' || stored === 'tree') setView(stored)
+    // A reader whose last choice was the retired `tree` lands on `cards`, not
+    // on a view that no longer exists.
+    if (stored === 'cards' || stored === 'list') setView(stored)
   }, [])
   const selectView = useCallback((next: FileView) => {
     setView(next)
@@ -674,27 +682,6 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       {/* Three-pane layout — stacks on mobile: folders on top, files below,
           preview as a full-screen overlay. */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
-        {/* Folder tree — only in the tree view; the card view navigates folders
-            through the tiles above its grid instead. All tree functionality
-            (expand/collapse, selection, drill-in, create) is preserved. */}
-        {view === 'tree' && (
-          <div className="max-h-72 w-full shrink-0 overflow-y-auto border-b animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none md:max-h-none md:w-60 md:border-b-0 md:border-r">
-            {foldersError ? (
-              <PaneLoadError message={t('workspace.foldersLoadError')} onRetry={loadFolders} />
-            ) : (
-              <FolderTreePane
-                folders={folders}
-                selectedFolderId={selectedFolderId}
-                onSelectFolder={setSelectedFolderId}
-                onCreateFolder={handleCreateFolder}
-                onRenameFolder={handleRenameFolder}
-                onDeleteFolder={handleDeleteFolder}
-                isLoading={isLoadingFolders}
-              />
-            )}
-          </div>
-        )}
-
         {/* File browser. The scroll lives on this column; the content inside it
             is held to the app's own card-grid measure rather than running edge
             to edge — a document surface is a page like every other, and at
@@ -713,7 +700,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               hasFolderSelected={selectedFolderId !== null}
               search={search}
               searchField={<FileWorkspaceSearchField search={search} />}
-              view={view === 'list' ? 'list' : 'cards'}
+              view={view}
               showAssignment={canCollaborate}
               renderActions={(file) => (
                 <DocumentActionsMenu
@@ -725,11 +712,18 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
                   onMoved={handleMoved}
                 />
               )}
-              {...(view !== 'tree'
+              folders={folders}
+              selectedFolderId={selectedFolderId}
+              onSelectFolder={setSelectedFolderId}
+              onCreateFolder={handleCreateFolder}
+              onRenameFolder={handleRenameFolder}
+              onDeleteFolder={handleDeleteFolder}
+              isLoadingFolders={isLoadingFolders}
+              {...(foldersError
                 ? {
-                    folders,
-                    selectedFolderId,
-                    onSelectFolder: setSelectedFolderId,
+                    foldersError: (
+                      <PaneLoadError message={t('workspace.foldersLoadError')} onRetry={loadFolders} />
+                    ),
                   }
                 : {})}
               uploadControl={

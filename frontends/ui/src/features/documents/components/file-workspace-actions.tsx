@@ -1,14 +1,14 @@
 'use client'
 
 import { type ReactNode } from 'react'
-import { LayoutGrid, List, ListTree } from 'lucide-react'
+import { LayoutGrid, List } from 'lucide-react'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useTranslations } from '@/i18n'
 import type { FileSearchState } from '../hooks/use-file-search'
 import { FileSearchField } from './file-search'
 
 /** Presentation of the Files listing. Mirrors the workspace's own `FileView`. */
-export type FileWorkspaceView = 'cards' | 'list' | 'tree'
+export type FileWorkspaceView = 'cards' | 'list'
 
 /**
  * The Files search field with this surface's labels on it.
@@ -94,7 +94,7 @@ export function FileWorkspaceActions({
         type="single"
         value={view}
         onValueChange={(value) => {
-          if (value === 'cards' || value === 'list' || value === 'tree') onViewChange(value)
+          if (value === 'cards' || value === 'list') onViewChange(value)
         }}
         segmented
         size="icon-sm"
@@ -113,13 +113,6 @@ export function FileWorkspaceActions({
           title={t('workspace.view.list')}
         >
           <List />
-        </ToggleGroupItem>
-        <ToggleGroupItem
-          value="tree"
-          aria-label={t('workspace.view.tree')}
-          title={t('workspace.view.tree')}
-        >
-          <ListTree />
         </ToggleGroupItem>
       </ToggleGroup>
       {assignmentFilter && onAssignmentFilterChange && (
