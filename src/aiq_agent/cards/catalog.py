@@ -168,7 +168,9 @@ The trigger, then the card:
   a tabular answer no purpose-built card covers -> typed_table
   a number the answer WORKED OUT rather than looked up -> calculation
   a Verfahren, Ablauf or „wie läuft das ab" -> process_map
-  ANY ask for a Diagramm, Schaubild, Grafik, chart or mermaid — and any path that forks and REJOINS -> diagram
+  ANY ask for a Diagramm, Schaubild, Grafik, chart or mermaid gets a DRAWING card — the shaped one
+    when a row above fits (an Ablauf -> process_map, one deciding factor -> condition_tree), else -> diagram
+  a path that forks and REJOINS, several Stellen exchanging in order, a Nachweis others depend on -> diagram
   „welche Unterlagen brauche ich" — the list is STATES, not names -> document_checklist
   several Fristen in sequence — the order and what starts each clock is the answer -> deadline_timeline
   „was passiert, wenn X sich ändert" — what a move COSTS, not which case applies -> change_impact
