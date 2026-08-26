@@ -4,19 +4,8 @@ The Piloti landing page, blog and changelog: an Astro service, German and
 English, with Keystatic as the CMS the platform owner writes in. Deployed as
 its own container; it shares nothing with the product UI but the brand.
 
-Additive to the root [`../../AGENTS.md`](../../AGENTS.md), not a replacement: this file is only what is true here.
-
-## Commands
-
-```bash
-task web:check     # astro check + content lint
-task web:build     # production build
-task web:verify    # what CI runs for this tier
-task web:preview   # build WITH drafts — preview only, never ship it
-```
-
-**npm, not bun.** The Astro toolchain ships its own lockfile and bundler; this
-is the one Node tree in the repo that is not installed with bun.
+npm, not bun. The Astro toolchain ships its own lockfile and bundler, and this
+is the one Node tree here that bun does not install.
 
 ## Obligations
 

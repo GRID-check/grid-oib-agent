@@ -6,8 +6,6 @@ reverse is the bar: a new service or datastore, an external dependency, the
 auth/tenancy/security model, a data-model change, a cross-cutting pattern, or
 anything that changes a public contract.
 
-Additive to the root [`../../AGENTS.md`](../../AGENTS.md), not a replacement: this file is only what is true here.
-
 ## Writing one
 
 ```bash

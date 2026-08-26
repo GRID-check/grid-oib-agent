@@ -3,20 +3,12 @@
 pytest over `src/aiq_agent`, mirroring its package layout. This is the suite
 `task be:test` runs and the one carrying CI's 65% coverage gate.
 
-Additive to the root [`../AGENTS.md`](../AGENTS.md), not a replacement: this file is only what is true here.
+## The trap
 
-## Commands
-
-```bash
-task be:test                       # the whole suite, quiet
-task be:test:ci                    # with the coverage gate CI enforces
-.venv/bin/pytest tests/aiq_agent/cards -q    # one area, via the venv
-```
-
-`PYTHONPATH=src` is mandatory and `Taskfile.yml` sets it. Invoke `pytest`
-yourself without it and you test whatever the venv installed — possibly another
-worktree — while everything appears to pass. This is the single most expensive
-trap in the repo.
+`PYTHONPATH=src` is mandatory and `Taskfile.yml` sets it. Call `pytest` yourself
+without it and you test whatever the venv installed, possibly another worktree,
+while everything passes. `.venv/bin/pytest tests/aiq_agent/cards` for one area;
+`task be:test:ci` carries CI's 65% coverage gate.
 
 ## Conventions
 

@@ -4,15 +4,6 @@ The backend's FastAPI front end, loaded by NAT as a front-end plugin
 (`_type: aiq_api`): REST routes, the async job API with SSE streaming, and
 `/v1/ingest`. A uv workspace member, installed into the same venv as the agent.
 
-Additive to the root [`../../AGENTS.md`](../../AGENTS.md), not a replacement: this file is only what is true here.
-
-## Commands
-
-```bash
-task be:test:api      # pytest frontends/aiq_api/tests/
-task be:verify        # lint + core suite + this suite, as CI runs them
-```
-
 ## Obligations
 
 | When you | You must | What fails you |

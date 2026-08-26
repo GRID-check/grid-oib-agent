@@ -4,25 +4,19 @@ NAT data-source packages: web search, scholarly search, prediction markets, the
 RIS legal adapter, and the knowledge layer. Each is its own uv workspace member
 with its own `pyproject.toml` and tests, installed into the shared venv.
 
-Additive to the root [`../AGENTS.md`](../AGENTS.md), not a replacement: this file is only what is true here.
+## No CI job runs these tests
 
-## The gap you need to know about
-
-**Nothing in CI runs these tests.** `task be:test` and `task be:test:ci` run
-`tests/` only; `task be:test:api:ci` runs the aiq_api suite. The one command
-that covers `sources/` is the `pytest` pre-commit hook, which is `stages: [push]`
-— and CI's repo-lint job explicitly SKIPs it. So a change here can go green
+`be:test:ci` covers `tests/`, `be:test:api:ci` covers the aiq_api suite. The one
+command that covers `sources/` is the `pytest` pre-commit hook, which is
+`stages: [push]`, and CI's repo-lint job SKIPs it. A change here can go green
 through every gate with its own suite never executed.
 
-Until that is closed, run it yourself:
-
 ```bash
-pytest sources -q          # with PYTHONPATH=src, which the Taskfile sets
-task be:lint               # ruff does cover sources/
+PYTHONPATH=src pytest sources -q   # nothing sets PYTHONPATH for you here
 ```
 
-If you are adding a source, add its tests to a path CI actually runs, or close
-the gap in `Taskfile.yml` in the same change and say so in the PR.
+Adding a source? Put its tests where CI already looks, or wire `sources/` into
+`Taskfile.yml` in the same change and say so in the PR.
 
 ## Obligations
 

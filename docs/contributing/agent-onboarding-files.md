@@ -72,10 +72,15 @@ installed by `task agents:setup`. The three levers that matter most here:
 
 - **Prune no-ops.** A line telling the agent to do what it already does by
   default spends context on every turn and changes nothing.
-- **Do not cache the environment.** `task --list`, `package.json` scripts and
-  `--help` output are their own source of truth and cannot go stale. Write down
-  what an agent cannot find by looking: the unwritten convention, the reason
-  behind a choice, the gotcha no config confesses.
+- **Do not cache the environment, and do not teach the tool.** `task --list`,
+  `package.json` scripts and `--help` output are their own source of truth and
+  cannot go stale. An agent knows how to install go-task; what it cannot know is
+  that nothing in this repo installs it and that `task setup` runs first. Write
+  the second, link the first. The test: if a line would be true in any repo,
+  it says nothing about this one.
+- **A fixed bug is history.** "Installing only the policy pack used to break a
+  fresh clone" stopped being an instruction the day `task setup` installed both.
+  Those belong in [gotchas.md](gotchas.md), which is indexed by symptom.
 - **Say what to do, not what to avoid.** A prohibition makes the forbidden thing
   more available, not less. "Append new keys below the encrypted block" beats
   "do not reorder keys above them", and a ban earns its place only as a hard

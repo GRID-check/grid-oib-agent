@@ -4,19 +4,9 @@ Three deployment paths off one image set: Docker Compose (`compose/`, plus a
 Coolify variant), Helm charts (`helm/`), and the Pulumi TypeScript program
 (`pulumi/`) that is the Kubernetes source of truth.
 
-Additive to the root [`../AGENTS.md`](../AGENTS.md), not a replacement: this file is only what is true here.
-
-## Commands
-
-```bash
-task infra:types     # typechecks the Pulumi program AND its policy pack
-task infra:test      # manifest tests under pulumi.runtime.setMocks — no cluster needed
-task infra:preview   # real `pulumi preview`; needs stack credentials
-```
-
-Two Node programs live here, `pulumi/` and `pulumi/policy/`, each with its own
-lockfile. `task setup` installs both — installing only the policy pack is what
-once left a fresh clone failing `task verify` at `infra:types`.
+`pulumi/` and `pulumi/policy/` are two Node programs with separate lockfiles.
+`task setup` installs both. `infra:preview` needs stack credentials;
+`infra:types` and `infra:test` do not.
 
 ## Obligations
 

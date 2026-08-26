@@ -5,25 +5,17 @@ card surface, the post-answer stages, and the knowledge layer. Stateless per
 turn — conversation state lives in Postgres and reaches this process in headers
 (ADR-0003, ADR-0013).
 
-Additive to the root [`../../AGENTS.md`](../../AGENTS.md), not a replacement: this file is only what is true here.
+## The trap
 
-## Commands
-
-```bash
-task be:lint          # ruff check + format --check, line length 120, py3.11 target
-task be:test          # pytest tests/ — the core suite
-task be:verify        # what CI runs for this tier, incl. the 65% coverage gate
-```
-
-`pytest` directly needs `PYTHONPATH=src`. The Taskfile sets it; you do not get
-it for free, and without it you validate whatever the venv installed — possibly
-another worktree — while everything appears to pass.
+`pytest` run directly needs `PYTHONPATH=src`, which `Taskfile.yml` sets. Without
+it you validate whatever the venv installed, possibly another worktree, while
+everything passes.
 
 ## Obligations
 
 | When you | You must | What fails you |
 |---|---|---|
-| Add a tool or agent | `@register_function` with a `FunctionBaseConfig` subclass, then a `nat.plugins` entry point in the root `pyproject.toml` | NAT never discovers it. It simply is not there at runtime |
+| Add a tool or agent | `@register_function` with a `FunctionBaseConfig` subclass, then a `nat.plugins` entry point in the root `pyproject.toml` | NAT never discovers it, and nothing reports that |
 | Split a tool across optional deps | Give it its own entry point rather than importing from a neighbour's `register` | One missing extra (ifcopenshell, shapely) takes the whole plugin down. `aiq_bim_measure` is the worked example |
 | Add a source kind | Change `common/source_kinds.py` **and** mirror it in `frontends/ui/src/features/chat/lib/source-kinds.ts` | The chip renders as unknown. There is no shared schema between them |
 | Emit a card | Push it through the `emit_card` tool into the session `CardRegistry`; address it from prose as `[[card:N]]` | The frontend resolves N positionally against the same ordered array. A card added by any other path is unaddressable |
@@ -47,9 +39,9 @@ close. The header of `common/source_kinds.py` is the full argument.
 `norm_registry` lanes are a sub-label within a coarse kind, never a kind of
 their own.
 
-**The agent groups are a real boundary.** A model override arrives per group
-through the context headers; do not reach for a global. `common/model_overrides.py`
-is where that resolution belongs.
+**A model override arrives per agent group, through the context headers.**
+Resolve it in `common/model_overrides.py`, which is the one place that knows the
+group.
 
 ## Reference
 
@@ -57,6 +49,6 @@ is where that resolution belongs.
   Adding a retrieval source: [`aiq-add-data-source`](../../skills/aiq-add-data-source/SKILL.md).
 - How the backend fits together:
   [`docs/architecture/backend-deep-dive.md`](../../docs/architecture/backend-deep-dive.md).
-- The modules here carry long "why" docstrings. `common/source_kinds.py`,
-  `cards/registry.py` and `stages/runner.py` are worth reading before changing
-  anything near them; they are the design docs that stayed next to the code.
+- `common/source_kinds.py`, `cards/registry.py` and `stages/runner.py` carry
+  long "why" headers. They are the design docs that stayed next to the code, so
+  read them before changing anything near them.

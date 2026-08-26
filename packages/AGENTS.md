@@ -5,28 +5,23 @@ Two implementations of the same spatial surface over IFC: `ifc-spatial`
 IfcOpenShell). The agent reaches them through
 `aiq_agent/knowledge/ifc_spatial_client.py` (ADR-0045).
 
-Additive to the root [`../AGENTS.md`](../AGENTS.md), not a replacement: this file is only what is true here.
+## No gate covers this directory
 
-## The gap you need to know about
-
-**Neither package is in `task verify`, and neither is in CI.** `Taskfile.yml`
-names no `packages/` target and `.github/workflows/ci.yml` has no `packages/**`
-paths filter, so a change here runs no lint, no typecheck and no tests on any
-gate. They are also outside the uv workspace: `ifc-spatial-py` carries its own
+`Taskfile.yml` names no `packages/` target and `ci.yml` has no `packages/**`
+paths filter, so a change here runs no lint, no typecheck, no tests. Both
+packages also sit outside the uv workspace; `ifc-spatial-py` carries its own
 `uv.lock`.
 
-Run the suites by hand, every time:
-
 ```bash
-npm --prefix packages/ifc-spatial install     # not covered by `task setup` either
+npm --prefix packages/ifc-spatial install      # `task setup` skips this too
 npm --prefix packages/ifc-spatial run typecheck
 npm --prefix packages/ifc-spatial test
-(cd packages/ifc-spatial-py && uv run pytest)  # its own lockfile, its own env
+(cd packages/ifc-spatial-py && uv run pytest)
 ```
 
-Treat a change here as unverified until you have pasted that output. If you
-extend either package, wiring it into `Taskfile.yml` and the CI paths filter is
-the correlated substrate lift, and it belongs in the same branch.
+A change here is unverified until you have pasted that output. Extending either
+package makes wiring it into `Taskfile.yml` and the CI paths filter the
+correlated substrate lift, in the same branch.
 
 ## Obligations
 

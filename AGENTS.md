@@ -6,20 +6,16 @@ and a custom OIB knowledge source.
 
 ## Setup
 
-Run this before anything else, including before reading much further — every
-command this guide names comes from `Taskfile.yml` and none of them exist until
-the first line has run.
-
 ```bash
-npm i -g @go-task/cli   # `task` itself. Nothing in the repo installs it
-task setup              # backend venv, UI, web, both Pulumi programs, agent skills
-pre-commit install      # NOT part of `task setup`, and CI lints the whole repo
-task verify             # the merge gate. Run it before you call anything done
+task setup          # first, and after any pull that moves a lockfile
+pre-commit install  # separate from setup, and CI lints the whole repo
+task verify         # the merge gate
 ```
 
-`task setup` needs `uv`, `bun` and Node on the PATH; it installs everything
-else, is idempotent, and takes a few minutes on a cold clone. `task --list` is
-the live command list and beats any list written down here.
+`Taskfile.yml` defines every command named here and `task --list` is the live
+list. `task` is go-task, which nothing in this repo installs; `uv`, `bun` and
+Node must already be on the PATH. Install lines:
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Start here
 
@@ -37,27 +33,25 @@ to add here has no home yet: give it one under
 
 ## Where the scoped guides are
 
-This file is the part that is true everywhere. Each service carries its own
-`AGENTS.md` with the part that is true only there — the onboarding guide for
-that one thing. **Read the guide for the area you are about to touch before you
-touch it**. They are additive: this file still applies.
+This file is what holds everywhere. Each service keeps its own `AGENTS.md` for
+what holds only there. **Read the one for the area you are about to touch,
+before you touch it.** They are additive: this file still applies.
 
 | You are working in | Read |
 |---|---|
-| `src/aiq_agent/` — the agent: LangGraph agents, tools, cards, stages, knowledge | [`src/aiq_agent/AGENTS.md`](src/aiq_agent/AGENTS.md) |
-| `frontends/ui/` — Next.js UI, the BFF, the WebSocket proxy | [`frontends/ui/AGENTS.md`](frontends/ui/AGENTS.md) |
-| `frontends/aiq_api/` — the FastAPI plugin: REST routes, async jobs, `/v1/ingest` | [`frontends/aiq_api/AGENTS.md`](frontends/aiq_api/AGENTS.md) |
-| `frontends/web/` — the public Astro site and blog | [`frontends/web/AGENTS.md`](frontends/web/AGENTS.md) |
+| `src/aiq_agent/` — the Python agent | [`src/aiq_agent/AGENTS.md`](src/aiq_agent/AGENTS.md) |
+| `frontends/ui/` — Next.js UI, the BFF, the database | [`frontends/ui/AGENTS.md`](frontends/ui/AGENTS.md) |
+| `frontends/aiq_api/` — the FastAPI plugin and async jobs | [`frontends/aiq_api/AGENTS.md`](frontends/aiq_api/AGENTS.md) |
+| `frontends/web/` — the public Astro site | [`frontends/web/AGENTS.md`](frontends/web/AGENTS.md) |
 | `sources/` — NAT data-source packages | [`sources/AGENTS.md`](sources/AGENTS.md) |
 | `packages/` — standalone libraries, gated by nothing yet | [`packages/AGENTS.md`](packages/AGENTS.md) |
 | `deploy/` — Compose, Helm, Pulumi | [`deploy/AGENTS.md`](deploy/AGENTS.md) |
 | `tests/` — the backend suite | [`tests/AGENTS.md`](tests/AGENTS.md) |
-| `docs/adr/` — writing or superseding a decision | [`docs/adr/AGENTS.md`](docs/adr/AGENTS.md) |
+| `docs/adr/` — decision records | [`docs/adr/AGENTS.md`](docs/adr/AGENTS.md) |
 
-Open it yourself. Harnesses differ in whether they load it for you, and Claude
-reaches one only after it has already opened a file in that directory.
-
-Why these files are shaped the way they are, and what breaks when they are not:
+Harnesses differ in whether they load these for you, and Claude reaches one
+only after it has opened a file in that directory. How they are wired, and what
+belongs in which:
 [`docs/contributing/agent-onboarding-files.md`](docs/contributing/agent-onboarding-files.md).
 
 ## Working style
@@ -80,11 +74,10 @@ geometry, cryptography, time zones, PDF, identity, storage, observability — is
 dependency, not a module you write. Identity is WorkOS, the cache Dragonfly, the
 object store SeaweedFS, LLM traces Langfuse; each was an ADR rather than a
 weekend. Before the second hundred lines of something general, search for the
-library and say in the PR what you found and why it did or did not fit. Write it
-yourself when the library's shape does not answer the question you are asking,
-when it drags a native toolchain into the image, or when the thing *is* the
-product — and then keep the library in the suite as the oracle you check
-against.
+library, and say in the PR what you found and why it did or did not fit. Write
+it yourself when the library's shape does not answer your question, when it
+drags a native toolchain into the image, or when the thing *is* the product.
+Then keep the library in the suite as the oracle you check against.
 
 **Fix causes, not symptoms.** Establish what a measurement is *of* before
 optimising it. A change that improves a number without changing what produced it

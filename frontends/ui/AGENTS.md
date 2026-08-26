@@ -15,20 +15,13 @@ the WebSocket proxy (`server.js`). This is also where tenancy, authorization and
 the database live — the Python agent is stateless and trusts what this tier
 sends it.
 
-Additive to the root [`../../AGENTS.md`](../../AGENTS.md), not a replacement: this file is only what is true here.
+## What the gate does not cover
 
-## Commands
-
-```bash
-task fe:lint      task fe:types      task fe:test      task fe:build
-task fe:verify    # all four, in the order CI runs them
-task db:test:rls  # tenant-isolation gate. NOT part of `task verify`
-```
-
-`bun` installs and runs scripts here; it is never the runtime. Adding `--bun`
-exports `NODE_OPTIONS=--bun` and kills Turbopack's PostCSS step. `task fe:types`
-is the signal that the production build will typecheck, because the UI tsconfig
-includes spec files — a type error in a test blocks `next build`.
+`task db:test:rls` is required whenever you touch the tenant boundary, and
+`task verify` does not run it. `task fe:types` is the signal that the production
+build will typecheck, because the UI tsconfig includes spec files. `bun`
+installs and runs scripts here and is never the runtime: `--bun` exports
+`NODE_OPTIONS=--bun`, which kills Turbopack's PostCSS step.
 
 ## Obligations
 
@@ -36,7 +29,7 @@ includes spec files — a type error in a test blocks `next build`.
 |---|---|---|
 | Add an `app/api` route | Declare `authz` on the factory from `@/lib/api/handler` | `apiRoute` does not compile; `authz-coverage.spec.ts` |
 | Add a permission | `lib/authz/catalog.ts` first, then `bun run provision:authz --apply` against **every** environment | WorkOS drifts from the code. A project-tier permission that exists only in the catalog is held by nobody |
-| Decide access | Check a permission, never a role slug. `lib/authz/decide.ts` is the intended single decision point; adoption is incremental (ADR-0038 §6) and the gates still call `hasPermission` / `requireProjectAccess` / `requirePlatformPermission` directly | Bypasses become implicit. A role-name check breaks every custom role |
+| Decide access | Check a permission through `lib/authz/decide.ts`, the single decision point. Adoption is incremental, so gates still call `hasPermission` / `requireProjectAccess` / `requirePlatformPermission` (ADR-0038 §6) | A role-name check breaks every custom role |
 | Create a table | `SELECT grid_secure_table('<table>','<predicate>');` in the same migration | `rls-coverage.spec.ts`, by name |
 | Read tenant rows | Context from `getGridSession()`, or state it (`withTenant`, `withPlatformAccess`, `withOptionalTenant`) | `internalApiRoute` does not compile |
 | Write an endpoint | Route is a thin adapter, service owns logic and authorization, repository owns the SQL and bounds every list | Review. `publicApiRoute` needs an ADR |
@@ -90,5 +83,4 @@ env vars (`GRID_*`), headers (`x-grid-*`) and CSS variables stay GRID.
 
 - [`docs/architecture/bff-service-architecture.md`](../../docs/architecture/bff-service-architecture.md),
   ADR-0017 (repository/service), ADR-0038 (authorization), ADR-0041 (RLS).
-- Conventions and the reasoning behind them:
-  [`docs/contributing/code-conventions.md`](../../docs/contributing/code-conventions.md).
+- Conventions: [`docs/contributing/code-conventions.md`](../../docs/contributing/code-conventions.md).
