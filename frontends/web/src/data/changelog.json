@@ -39,6 +39,23 @@
       "summary": null,
       "sections": [
         {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Piloti zeichnet, wenn Sie danach fragen: „stell es als Diagramm dar\", „Schaubild\", „Grafik\" — jede solche Bitte wird jetzt mit einer echten Zeichnung beantwortet, nie mehr mit Textkunst aus Strichen und Pfeilen.",
+              "de": "Piloti zeichnet, wenn Sie danach fragen: „stell es als Diagramm dar\", „Schaubild\", „Grafik\" — jede solche Bitte wird jetzt mit einer echten Zeichnung beantwortet, nie mehr mit Textkunst aus Strichen und Pfeilen."
+            },
+            {
+              "en": "Der Bericht der Tiefenrecherche zeichnet jetzt ebenfalls: Ablauf, Reihenfolge und Abhängigkeit erscheinen als echte Grafik im Bericht und im heruntergeladenen PDF, statt als Textkunst aus Strichen und Pfeilen.",
+              "de": "Der Bericht der Tiefenrecherche zeichnet jetzt ebenfalls: Ablauf, Reihenfolge und Abhängigkeit erscheinen als echte Grafik im Bericht und im heruntergeladenen PDF, statt als Textkunst aus Strichen und Pfeilen."
+            },
+            {
+              "en": "„Erstelle ein Dokument über …\" startet jetzt die Tiefenrecherche, deren fertiger Bericht im Projekt unter „Berichte\" abgelegt wird — auch bei einem Thema, das sonst als kurze Frage beantwortet würde. Wer nur eine gründliche Antwort will, bekommt weiterhin die Antwort im Chat.",
+              "de": "„Erstelle ein Dokument über …\" startet jetzt die Tiefenrecherche, deren fertiger Bericht im Projekt unter „Berichte\" abgelegt wird — auch bei einem Thema, das sonst als kurze Frage beantwortet würde. Wer nur eine gründliche Antwort will, bekommt weiterhin die Antwort im Chat."
+            }
+          ]
+        },
+        {
           "key": "improvements",
           "notes": [
             {
@@ -61,6 +78,14 @@
             {
               "en": "An answer can once again carry more than one card. Building a card counted against the same budget as looking things up, so on any question that took real research the second card was dropped before it was drawn, however well it fitted the answer.",
               "de": "An answer can once again carry more than one card. Building a card counted against the same budget as looking things up, so on any question that took real research the second card was dropped before it was drawn, however well it fitted the answer."
+            },
+            {
+              "en": "Diagramme in Antworten kommen unverändert an: die Quellenprüfung hat bisher in seltenen Fällen Links und Einrückung innerhalb einer Zeichnung umgeschrieben und sie damit beschädigt.",
+              "de": "Diagramme in Antworten kommen unverändert an: die Quellenprüfung hat bisher in seltenen Fällen Links und Einrückung innerhalb einer Zeichnung umgeschrieben und sie damit beschädigt."
+            },
+            {
+              "en": "Eine Zeichnung, deren Codeblock ohne Kennzeichnung ankommt, wird jetzt trotzdem als Diagramm erkannt und gezeichnet statt als Code angezeigt.",
+              "de": "Eine Zeichnung, deren Codeblock ohne Kennzeichnung ankommt, wird jetzt trotzdem als Diagramm erkannt und gezeichnet statt als Code angezeigt."
             },
             {
               "en": "Diagrams in an answer are drawn again instead of appearing as a block of code. A diagram whose source was written without a language label was printed as a shell listing, and one whose labels were in quotation marks was also broken outright by the note that marks an unverified quotation.",
@@ -89,6 +114,10 @@
             {
               "en": "The controls for zooming a cited PDF were laid out past the right-hand edge of a phone screen, where they could not be reached. They now wrap onto a second line when the screen is narrow.",
               "de": "The controls for zooming a cited PDF were laid out past the right-hand edge of a phone screen, where they could not be reached. They now wrap onto a second line when the screen is narrow."
+            },
+            {
+              "en": "Eine Tiefenrecherche aus dem Chat läuft jetzt wirklich als Hintergrundauftrag: Sie erscheint unter „Recherchen\", Sie können den Fortschritt verfolgen, und der fertige Bericht wird im Projekt abgelegt. Bisher wurde sie im laufenden Chat-Zug abgearbeitet — ohne Auftrag, ohne Fortschritt und ohne abgelegten Bericht.",
+              "de": "Eine Tiefenrecherche aus dem Chat läuft jetzt wirklich als Hintergrundauftrag: Sie erscheint unter „Recherchen\", Sie können den Fortschritt verfolgen, und der fertige Bericht wird im Projekt abgelegt. Bisher wurde sie im laufenden Chat-Zug abgearbeitet — ohne Auftrag, ohne Fortschritt und ohne abgelegten Bericht."
             }
           ]
         }
