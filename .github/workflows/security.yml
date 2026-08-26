@@ -187,6 +187,7 @@ jobs:
         run: |
           docker run --rm -v "${{ github.workspace }}:/repo" \
             zricethezav/gitleaks:latest detect --source /repo --redact -v
+
   image-scan:
     name: Image vulns (trivy)
     runs-on: ubuntu-latest
