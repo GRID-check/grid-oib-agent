@@ -259,11 +259,12 @@ def _base_collection_name() -> str:
 def _derive_project_collection(collection_scope: list[str] | None) -> str | None:
     """Extract the project collection from a request's collection scope.
 
-    The collection scope contains the base/OIB collection, the project
-    collection, and an ``s_<conversation>`` scoped collection. The project
-    collection is the single remaining entry once those two are excluded.
-    Returns None if no such entry exists (or more than one candidate remains,
-    which indicates an ambiguous scope not worth guessing at).
+    The collection scope contains the base/OIB collection, the office Archiv
+    (``archiv_<org>``), the project collection, and an ``s_<conversation>``
+    scoped collection. The project collection is the single remaining entry
+    once those others are excluded. Returns None if no such entry exists (or
+    more than one candidate remains, which indicates an ambiguous scope not
+    worth guessing at).
     """
     if not collection_scope:
         return None
@@ -272,7 +273,7 @@ def _derive_project_collection(collection_scope: list[str] | None) -> str | None
     candidates = [
         collection
         for collection in collection_scope
-        if collection != base_collection and not collection.startswith("s_")
+        if collection != base_collection and not collection.startswith("s_") and not collection.startswith("archiv_")
     ]
     if len(candidates) == 1:
         return candidates[0]

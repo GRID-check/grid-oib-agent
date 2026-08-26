@@ -40,8 +40,13 @@ export const ReportPDF: React.FC<ReportPDFProps> = ({ request }) => {
   const { sections } = documentSections(request)
   return (
     <BlocksDocument
-      cover={{ title: sections.title, facts: sections.facts }}
+      // The marking goes on the COVER, above the facts — the first thing on the
+      // first page, before the document says whose project it is. A reader who
+      // stops after the cover has still been told what they are holding.
+      cover={{ title: sections.title, facts: sections.facts, notice: sections.notice ?? undefined }}
       blocks={sections.body}
+      keywords={request.aiProvenance}
+      subject={sections.notice?.title}
     />
   )
 }

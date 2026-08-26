@@ -105,6 +105,7 @@ export type { ConversationsClient, ConversationSummary } from './conversations-c
 
 // Deep Research Client (SSE Streaming for async jobs)
 export { createDeepResearchClient, getJobStatus, getJobState, getJobReport, cancelJob } from './deep-research-client'
+export type { JobReportFiling, JobReportResponse } from './deep-research-client'
 export type {
   DeepResearchJobStatus,
   DeepResearchEventType,

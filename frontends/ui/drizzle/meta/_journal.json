@@ -447,7 +447,35 @@
       "idx": 63,
       "version": "7",
       "when": 1787875200005,
-      "tag": "0063_document_roles",
+      "tag": "0063_agent_authored_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1787961600005,
+      "tag": "0064_generated_document_idempotency",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1788048000005,
+      "tag": "0065_diagram_document_producer_idempotency",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1788134400005,
+      "tag": "0066_authored_ref_names_its_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1788220800005,
+      "tag": "0067_document_roles",
       "breakpoints": true
     }
   ]

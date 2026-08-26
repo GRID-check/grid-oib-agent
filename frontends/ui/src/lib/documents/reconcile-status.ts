@@ -12,10 +12,30 @@
  * wiped the in-memory job registry) and terminal states are written back.
  */
 
+import type { DocumentAuthor } from '@/lib/db/schema'
+import { collectionFileRef, type CollectionFileRef } from './collection-file-ref'
+import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
 import { setDocumentReconciledStatus } from './repository'
 
-/** DB statuses that mean "ingestion outcome not yet known". */
-const IN_FLIGHT_STATUSES = new Set(['pending', 'processing', 'ingesting'])
+/**
+ * DB statuses that mean "ingestion outcome not yet known".
+ *
+ * Derived from the one declaration of the status vocabulary rather than listed
+ * again here. The set used to be a literal, and it drifted from the badge's own
+ * table by two values without anything failing — which is exactly how `stored`
+ * could have been added to the column and quietly polled forever. A row that is
+ * in this set is asked about on EVERY read, so a value that does not belong in
+ * it (`stored`: no job was ever dispatched, so nothing will ever report on it)
+ * costs a backend round trip per read and then overwrites the status from a
+ * collection file list the document is not in — and, worse, MIGHT be in under
+ * somebody else's row. `generatedFilename` builds a machine-authored row's name
+ * from a title the model wrote, into the project's own collection, so that list
+ * can hold the same filename belonging to a real upload. Reconciling from it
+ * would write another document's ingestion outcome onto this row. The join is
+ * gated on authorship for exactly that reason (see `./collection-file-ref`);
+ * keeping `stored` out of this set is the cheaper half of the same rule.
+ */
+const IN_FLIGHT_STATUSES = IN_FLIGHT_DOCUMENT_STATUSES
 
 const FETCH_TIMEOUT_MS = 5000
 
@@ -29,6 +49,17 @@ export interface ReconcilableDocument {
   status: string
   filename: string
   collectionName: string
+  /**
+   * Whose hand wrote the bytes. REQUIRED, and the reason is this module's two
+   * `(collectionName, filename)` joins: both address the backend's collection
+   * file list, and a machine-authored row owns nothing in it (never dispatched
+   * to `/v1/ingest`), so on a filename collision both would resolve to a human
+   * document's state. `DocumentListRow` and `Document` have both carried the
+   * column since migration 0063, so every existing caller already supplies it;
+   * requiring it means a future row type that omits the `select` fails to
+   * compile rather than silently reconciling as if a person had uploaded it.
+   */
+  authoredBy: DocumentAuthor
   errorMessage: string | null
   metadata?: unknown
 }
@@ -251,11 +282,19 @@ export const clearCollectionFilesCache = (): void => {
   collectionFilesCache.clear()
 }
 
+/**
+ * Resolve an in-flight row's terminal status from the collection file list.
+ *
+ * Takes a {@link CollectionFileRef} rather than a filename, so it cannot be
+ * called for a row a machine wrote: such a row has no entry of its own here,
+ * and on a filename collision it would adopt the human document's `success` —
+ * turning a never-dispatched row into a green, „zitierbar" one.
+ */
 const resolveFromCollection = (
   files: CollectionFiles | null,
-  filename: string
+  ref: CollectionFileRef
 ): TerminalResolution | null => {
-  const file = files?.byName.get(filename)
+  const file = files?.byName.get(ref.filename)
   if (!file) return null
   if (file.status === 'success') return { status: 'completed', errorMessage: null }
   if (file.status === 'failed') return { status: 'failed', errorMessage: file.error_message ?? null }
@@ -263,14 +302,22 @@ const resolveFromCollection = (
 }
 
 /**
- * Extract the curated, read-only metadata subset for a filename from the
- * backend file list. Returns null (→ no enrichment) when the list is missing,
- * the filename is absent, or the join is ambiguous. Individual fields are
- * omitted when the backend did not provide them.
+ * Extract the curated, read-only metadata subset for a document from the backend
+ * file list. Returns null (→ no enrichment) when the list is missing, the
+ * filename is absent, or the join is ambiguous. Individual fields are omitted
+ * when the backend did not provide them.
+ *
+ * Takes a {@link CollectionFileRef}, so a machine-authored row cannot reach it.
+ * That row has no entry in this list of its own — it was never ingested — so
+ * every field it could pick up here belongs to a HUMAN document whose filename
+ * it happens to share, and `FileCard` renders `summary` with no gate. The result
+ * was a real Gutachten's AI summary, page count and OIB tags displayed under a
+ * „Von Piloti erstellt“ byline, and returned by
+ * `GET /api/documents/{id}/status` to the chat peek pane.
  */
-const extractMetadata = (files: CollectionFiles | null, filename: string): DocumentMetadata | null => {
-  if (!files || files.ambiguousNames.has(filename)) return null
-  const file = files.byName.get(filename)
+const extractMetadata = (files: CollectionFiles | null, ref: CollectionFileRef): DocumentMetadata | null => {
+  if (!files || files.ambiguousNames.has(ref.filename)) return null
+  const file = files.byName.get(ref.filename)
   if (!file) return null
 
   const meta: DocumentMetadata = {}
@@ -295,6 +342,14 @@ const extractMetadata = (files: CollectionFiles | null, filename: string): Docum
  * terminal (or still genuinely in flight) keep their status, and metadata is
  * layered on top. Backend outages never fail the read path — a failed fetch
  * simply leaves statuses untouched and metadata absent until the next read.
+ *
+ * BOTH passes join on `(collectionName, filename)`, and both go through
+ * {@link collectionFileRef} first: a row a machine wrote owns nothing under that
+ * pair, so it gets neither a status nor metadata from it. The status pass used
+ * to be safe only by accident — filing writes `stored`, which is not in
+ * {@link IN_FLIGHT_STATUSES} — which is a fact about the STATUS column, not
+ * about authorship; the enrichment pass had no gate at all and leaked a human
+ * document's summary onto an agent row's card on every read.
  */
 export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
   rows: T[],
@@ -344,7 +399,13 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
         }
 
         if (!resolution) {
-          resolution = resolveFromCollection(await getFreshCollectionFiles(row.collectionName), row.filename)
+          // No ref → nothing of this row's exists in that collection; see
+          // `resolveFromCollection`. An in-flight machine-authored row is
+          // already an anomaly (filing writes `stored`, which is terminal), and
+          // the honest outcome for it is "unchanged", not another document's.
+          const ref = collectionFileRef(row)
+          if (!ref) return
+          resolution = resolveFromCollection(await getFreshCollectionFiles(row.collectionName), ref)
         }
         if (!resolution) return
 
@@ -364,7 +425,12 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
   const metaByRow = new Map<string, DocumentMetadata>()
   await Promise.all(
     rows.map(async (row) => {
-      const meta = extractMetadata(await loadCollectionFilesCached(row.collectionName), row.filename)
+      // The authorship gate, ahead of the fetch. A machine-authored row is not
+      // enriched AND does not cost a collection listing to decide that — it
+      // owns nothing in the list either way.
+      const ref = collectionFileRef(row)
+      if (!ref) return
+      const meta = extractMetadata(await loadCollectionFilesCached(row.collectionName), ref)
       if (meta) metaByRow.set(row.id, meta)
     })
   )

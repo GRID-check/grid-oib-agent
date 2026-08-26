@@ -133,6 +133,7 @@ describe('listArchiv', () => {
         filename: 'a.pdf',
         status: 'completed',
         collectionName: 'archiv_org-1',
+        authoredBy: 'user',
         errorMessage: null,
         metadata: { ingestJobId: 'secret' },
         summary: 's',
@@ -151,7 +152,11 @@ describe('listArchiv', () => {
 
 describe('searchArchivDocuments', () => {
   it('resolves the org archiv collection, runs the search, and returns the joined hits', async () => {
-    const docs: Array<ReconcilableDocument & { createdAt: Date }> = [
+    // `listArchiv` selects `authoredBy` (archiv/repository.ts), and
+    // `joinHitsToFiles` requires it — a row without it would be a compile error,
+    // which is the point: the authorship filter cannot be bypassed by a caller
+    // that forgets the column.
+    const docs: Array<ReconcilableDocument & { createdAt: Date; authoredBy: string }> = [
       {
         id: 'd1',
         filename: 'plan.pdf',
@@ -159,6 +164,7 @@ describe('searchArchivDocuments', () => {
         status: 'completed',
         collectionName: 'archiv_org-1',
         errorMessage: null,
+        authoredBy: 'user',
       },
     ]
     vi.mocked(listArchivDocuments).mockResolvedValue([])
@@ -274,5 +280,32 @@ describe('deleteArchivDocument', () => {
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'archiv.document.deleted' }),
     )
+  })
+
+  it('purges no chunks for a machine-authored row, and still deletes it', async () => {
+    // An Archiv row cannot be machine-authored today: `fileGeneratedDocument`
+    // sets no scope, so the column defaults to `project`. That is a coincidence
+    // of a default, and this call — DELETE by `file_ids: [filename]` — is the
+    // exact shape that took a human document's chunks out of retrieval when a
+    // machine-written report shared its name. The row still goes; it is only
+    // the purge that has nothing to do, because such a row owns no chunks.
+    vi.mocked(canManageArchiv).mockReturnValue(true)
+    vi.mocked(findArchivDocument).mockResolvedValue(
+      makeDocument({
+        id: 'd1',
+        scope: 'archiv',
+        projectId: null,
+        authoredBy: 'agent',
+        collectionName: 'archiv_org-1',
+        storageKey: 'org/org-1/archiv/doc/d1/plan.pdf',
+      }),
+    )
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await deleteArchivDocument(session, 'd1', request)
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(deleteArchivDocumentRow).toHaveBeenCalledWith('d1', 'org-1')
   })
 })

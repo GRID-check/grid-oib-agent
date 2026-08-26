@@ -15,6 +15,7 @@ import { useTranslations } from '@/i18n'
 import {
   createDeepResearchClient,
   cancelJob,
+  getJobReport,
   type DeepResearchClient,
   type DeepResearchJobStatus,
   type TodoItem,
@@ -124,6 +125,8 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
   const setDeepResearchCards = useChatStore((s) => s.setDeepResearchCards)
   const patchConversationMessage = useChatStore((s) => s.patchConversationMessage)
   const addDeepResearchBanner = useChatStore((s) => s.addDeepResearchBanner)
+  const recordDeepResearchFiling = useChatStore((s) => s.recordDeepResearchFiling)
+  const recordDeepResearchFilingFailure = useChatStore((s) => s.recordDeepResearchFilingFailure)
   const setStreamLoaded = useChatStore((s) => s.setStreamLoaded)
   const setDeepResearchStalled = useChatStore((s) => s.setDeepResearchStalled)
   const setDeepResearchConnectionLost = useChatStore((s) => s.setDeepResearchConnectionLost)
@@ -149,6 +152,64 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
           : true)
     )
   }, [])
+
+  /**
+   * Ask the report route for this run's report once it has succeeded, so the
+   * BFF files it into the project.
+   *
+   * Filing is observed on `GET .../report` and nowhere else — that route is
+   * where a finished run stops being a chat message and becomes a `documents`
+   * row. The live SSE stream never touches it: the report arrives as stream
+   * output, and `loadResearchPanelTab` deliberately short-circuits the fetch
+   * for a run this tab already has. Without this call a commissioned run would
+   * only be filed if somebody later reopened its report from the history — and
+   * the „wird abgelegt" the starting banner promised would be false for the
+   * common case, which is the dishonesty this whole disclosure exists to
+   * remove.
+   *
+   * Deliberately best-effort, and quiet about everything except the one thing
+   * the reader was promised:
+   *
+   *  - no project, no filing, and therefore no request. The proxy resolves the
+   *    project from the query string and files nothing without one, so firing
+   *    it anyway would be a round trip that can only fail. It is also the case
+   *    in which no disclosure was ever shown, so there is nothing to correct.
+   *  - the REQUEST failing is swallowed. The user's answer already arrived, and
+   *    a dead fetch tells us nothing about whether a document exists — the
+   *    write may well have landed before the response was lost. Guessing out
+   *    loud from a network error is how a banner comes to claim, or deny, a
+   *    file it knows nothing about.
+   *  - the FILING failing is reported. `filingFailed` is the server saying it
+   *    tried, for a project it resolved — the same condition under which the
+   *    starting banner printed „wird abgelegt". That promise is now known to be
+   *    broken, and letting the reader walk to Berichte for a file that is not
+   *    there is not quiet, it is misleading. It is recorded as a fact on the
+   *    banner, not raised as an error in the thread: the register of the
+   *    correction matches the register of the promise.
+   *  - one request per completed run, which cost minutes of compute. Not a
+   *    cost worth optimizing.
+   */
+  const fileCompletedReport = useCallback(
+    async (jobId: string): Promise<void> => {
+      const projectId = useChatStore.getState().projectId
+      if (!projectId) return
+
+      try {
+        const response = await getJobReport(jobId, idToken || undefined, { projectId })
+        if (response.filed) {
+          recordDeepResearchFiling(jobId, {
+            documentId: response.filed.documentId,
+            filename: response.filed.filename,
+          })
+          return
+        }
+        if (response.filingFailed) recordDeepResearchFilingFailure(jobId)
+      } catch (error) {
+        console.warn('[deep research] failed to file the report into the project:', error)
+      }
+    },
+    [idToken, recordDeepResearchFiling, recordDeepResearchFilingFailure]
+  )
 
   // Layout store for opening research panel
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
@@ -349,6 +410,9 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
               }
               if (!isAttachedRun) {
                 addDeepResearchBanner('success', jobId, ownerConvId, { totalTokens, toolCallCount })
+                // After the banner, never before it: the outcome the user has
+                // been waiting minutes for must not wait on a second request.
+                void fileCompletedReport(jobId)
               }
               stopAllDeepResearchSpinners(true)
               setStreamLoaded(true)
@@ -601,7 +665,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
       completeDeepResearchLLMStep, addDeepResearchAgentWithId, completeDeepResearchAgent,
       addDeepResearchToolCall, completeDeepResearchToolCall, addDeepResearchFile,
       setDeepResearchCards,
-      patchConversationMessage, addDeepResearchBanner, setStreaming, setStreamLoaded,
+      patchConversationMessage, addDeepResearchBanner, fileCompletedReport, setStreaming, setStreamLoaded,
       setDeepResearchConnectionLost, tChat,
     ]
   )

@@ -48,6 +48,7 @@ import {
   splitAnswerBody,
 } from '../lib/citations'
 import { AnswerCitations } from './AnswerCitations'
+import { DiagramFilingProvider } from '@/features/diagrams/diagram-filing-context'
 import { SkillsUsedDisclosure } from '@/features/skills/components/SkillsUsedDisclosure'
 import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
@@ -683,6 +684,23 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // nothing to hold still omits the row (no empty band).
   const reserveMetaRow = hasMetaRow || stillArriving
 
+  /**
+   * Where a diagram inside this answer may be filed — or nothing at all.
+   *
+   * Both halves are required and neither can be invented. Without a `projectId`
+   * there is no project to file into (a chat outside a project is a normal
+   * state, not a broken one), and without a `messageId` there is no stable
+   * identity for the diagram, so filing could not be idempotent and pressing
+   * the button twice would file two indistinguishable copies. In either case the
+   * diagram renders with no filing affordance rather than a disabled one — the
+   * rule the research banner already follows for its `filed` object: a dead
+   * action is worse than silence.
+   */
+  const diagramFilingTarget = useMemo(
+    () => (projectId && messageId ? { projectId, answerId: messageId } : null),
+    [projectId, messageId]
+  )
+
   // Guard against null, undefined, empty, or literal "null" string content
   // when no cards are present. Cards can render even with empty text.
   if ((!content || !content.trim() || content === 'null') && !hasCards) {
@@ -692,6 +710,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // Inline variant - no box styling (for use inside containers like thinking process)
   if (variant === 'inline') {
     return (
+      <DiagramFilingProvider target={diagramFilingTarget}>
       <AnswerCitations documents={documents} anchorPrefix={anchorPrefix}>
       <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
         {/* Response Content rendered as markdown (with streaming caret). While
@@ -813,6 +832,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         )}
       </div>
       </AnswerCitations>
+      </DiagramFilingProvider>
     )
   }
 
@@ -827,6 +847,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // error) or an absent signal keeps the "Ergebnis" tab (fail-open).
   const isMeta = routingDecision === 'meta'
   return (
+    <DiagramFilingProvider target={diagramFilingTarget}>
     <AnswerCitations documents={documents} anchorPrefix={anchorPrefix}>
     <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-[680px] max-w-full flex-col duration-base ease-entrance motion-reduce:animate-none">
       {/* Role tab — uppercase 10.5/600. Substantive answer: near-black action
@@ -1007,6 +1028,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       </div>
     </div>
     </AnswerCitations>
+    </DiagramFilingProvider>
   )
 }
 

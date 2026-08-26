@@ -19,6 +19,7 @@ import { ProcessMapCard } from './ProcessMapCard'
 import { DocumentChecklistCard } from './DocumentChecklistCard'
 import { DeadlineTimelineCard } from './DeadlineTimelineCard'
 import { ChangeImpactCard } from './ChangeImpactCard'
+import { DiagramCard } from './DiagramCard'
 import { FollowUpsCard } from './FollowUpsCard'
 import { BuildingSectionCard } from '../schematics/BuildingSectionCard'
 import { StairDiagramCard } from '../schematics/StairDiagramCard'
@@ -293,6 +294,24 @@ export const GridCardItem: FC<GridCardItemProps> = ({
           consequences={card.consequences ?? []}
           reference={card.reference}
           note={card.note}
+        />
+      </FadeIn>
+    )
+  }
+
+  // `diagram_type` is not passed: it is a CONTRACT between the model and the
+  // payload validator (`DiagramCard._source_declares_the_grammar_it_says_it_does`
+  // refuses a source whose declaration disagrees with it), and mermaid reads the
+  // grammar off the source's own first line. A renderer prop for it would be a
+  // second statement of the same fact with no way to be right when they differ.
+  if (card.type === 'diagram') {
+    return (
+      <FadeIn distance={6}>
+        <DiagramCard
+          title={card.title}
+          source={card.source}
+          caption={card.caption}
+          reference={card.reference}
         />
       </FadeIn>
     )

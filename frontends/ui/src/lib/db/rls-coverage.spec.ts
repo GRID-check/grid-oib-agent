@@ -49,9 +49,9 @@ const BOUNDARY_MIGRATIONS = [
   // every tenant reads it, only the platform role writes it.
   '0047_platform_skills.sql',
   '0051_file_native_ownership.sql',
-  // Adds document_roles — which document plays which part in a project's
-  // intake. Project-scoped data, so inside the boundary.
-  '0063_document_roles.sql',
+   // Adds document_roles — which document plays which part in a project's
+   // intake. Project-scoped data, so inside the boundary.
+   '0067_document_roles.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

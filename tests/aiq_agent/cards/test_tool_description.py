@@ -143,7 +143,7 @@ class TestToolDescription:
         assert "PLAIN TEXT" not in render_card_index()
 
     def test_flags_cards_that_ask_the_user_to_confirm(self):
-        # An interactive card costs the user a DECISION, not just screen space
+        # A consent card costs the user a DECISION, not just screen space
         # (ADR-0030). Without saying so, the model emits them speculatively and
         # the answer becomes a pile of consent prompts.
         desc = _build_tool_description()
@@ -151,6 +151,25 @@ class TestToolDescription:
         for card_type in INTERACTIVE_CARD_TYPES - SYSTEM_CARD_TYPES:
             assert f'"{card_type}"' in desc
         assert "At most one per turn" in desc
+
+    def test_a_diagram_is_not_advertised_as_a_consent_prompt(self):
+        """A drawing puts no question to anybody, and must not be framed as one.
+
+        Telling the model that a `diagram` "asks the user to authorize a real,
+        persisted change" and must never be emitted speculatively would suppress
+        the card on exactly the answers it exists for: the cost of a drawing is
+        screen space, not consent.
+
+        This asserted the same thing about a `CONSENT_CARD_TYPES` that no longer
+        exists. The card ships PRESENTATIONAL — it renders a Verfahren and
+        commits nothing, and filing one into the project stays on the mermaid
+        fence — so "must the frontend persist an answer?" and "does emitting it
+        ask something of the reader?" name one set again, and the guard is that
+        `diagram` is in neither.
+        """
+        assert "diagram" not in INTERACTIVE_CARD_TYPES
+        consent_block = _build_tool_description().split("Cards that ask the user to CONFIRM something")[1]
+        assert '"diagram"' not in consent_block.split("\n\n")[0]
 
 
 class TestTheDoctrineStaysCalibrated:

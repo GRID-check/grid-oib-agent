@@ -712,3 +712,59 @@ describe('ProjectFileWorkspace — an .ifc opens as a building', () => {
     expect(routerReplace).not.toHaveBeenCalled()
   })
 })
+
+describe('ProjectFileWorkspace — the Von Piloti filter', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    resetPreviewStore()
+  })
+
+  it('asks the LISTING for agent-authored rows rather than filtering what it already has', async () => {
+    // Authorship is a column with a partial index and the listing is capped at
+    // 500 rows: filtering client-side would quietly miss a report that fell off
+    // the end of a large corpus, which is the one thing this chip exists to
+    // find. So the chip is a query parameter, and the listing is re-read.
+    const searches: string[] = []
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.get('/api/documents', ({ request }) => {
+        searches.push(new URL(request.url).search)
+        return HttpResponse.json({ documents: [] })
+      }),
+    )
+
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+
+    await waitFor(() => expect(searches.length).toBeGreaterThan(0))
+    expect(searches[0]).not.toContain('authoredBy')
+
+    await userEvent.click(screen.getByTestId('filter-agent-authored'))
+
+    await waitFor(() => expect(searches.at(-1)).toContain('authoredBy=agent'))
+    expect(searches.at(-1)).toContain('projectId=proj-1')
+  })
+
+  it('goes back to the whole estate when the chip is released', async () => {
+    const searches: string[] = []
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.get('/api/documents', ({ request }) => {
+        searches.push(new URL(request.url).search)
+        return HttpResponse.json({ documents: [] })
+      }),
+    )
+
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    await waitFor(() => expect(searches.length).toBeGreaterThan(0))
+
+    const chip = screen.getByTestId('filter-agent-authored')
+    await userEvent.click(chip)
+    await waitFor(() => expect(searches.at(-1)).toContain('authoredBy=agent'))
+    await userEvent.click(chip)
+
+    // Unfiltered is not the same as `authoredBy=user`: the default listing is
+    // the whole project's estate, both hands.
+    await waitFor(() => expect(searches.at(-1)).not.toContain('authoredBy'))
+  })
+})

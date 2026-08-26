@@ -211,6 +211,47 @@ export interface DeepResearchBannerData {
    * shallow→deep — `Eskaliert zur Tiefenrecherche: <reason>` per the contract.
    */
   escalationReason?: string
+  /**
+   * The document this run's report was filed as, once the BFF has reported one.
+   *
+   * Absent is the NORMAL, honest state, not a loading state: filing is skipped
+   * when the chat has no project, and for every run that finished before this
+   * feature existed. The banner therefore says nothing at all when this is
+   * missing — it must never offer to open a file that does not exist, and
+   * "maybe there is a document" is not a thing to render.
+   */
+  filedDocument?: DeepResearchFiledDocument
+  /**
+   * A filing this run's starting banner PROMISED, which then did not land.
+   *
+   * The one state `filedDocument` being absent used to swallow. Absence still
+   * means "nothing was ever promised" — no project, no attempt, an older run —
+   * and stays silent. This flag means the opposite: the disclosure
+   * („Der fertige Bericht wird in diesem Projekt unter ‚Berichte' abgelegt.")
+   * was shown, the run finished, and there is no file. That reader is going to
+   * go and look; the banner owes them the correction, in the same quiet
+   * register the promise was made in.
+   *
+   * Set from the report route's `filingFailed`, which is raised only when a
+   * project was resolved — the same condition under which the disclosure
+   * rendered. It carries no reason, deliberately: see `JobReportResponse`.
+   */
+  filingFailed?: boolean
+}
+
+/**
+ * A filed agent-authored report, as the report route reports it back.
+ *
+ * `alreadyFiled` is deliberately NOT carried here. It answers "did this call
+ * create the row", which is a question about the request, not about the
+ * document — the banner shows the same link whether the row was created by this
+ * fetch or by the one before it.
+ */
+export interface DeepResearchFiledDocument {
+  /** `documents.id` — what the `/files?doc=` deep link addresses. */
+  documentId: string
+  /** The generated filename, so the banner can name what now exists. */
+  filename: string
 }
 
 /** Individual chat message */
@@ -1126,6 +1167,38 @@ export interface ChatActions {
     stats?: { totalTokens?: number; toolCallCount?: number },
     escalationReason?: string
   ) => void
+
+  /**
+   * Record that a run's report was filed into the project, on that run's
+   * success banner.
+   *
+   * Separate from `addDeepResearchBanner` because the two facts arrive at
+   * different times and over different transports: the banner is written from
+   * the SSE stream the moment the run succeeds, and the filing is only known
+   * once the report route has been asked for the report (that GET is where the
+   * BFF observes completion and files the document). Folding it into the banner
+   * call would mean holding the banner back until a second request returns,
+   * which would delay the outcome the user is waiting for to decorate it.
+   *
+   * A no-op when no success banner for `jobId` exists — an attached run has no
+   * thread to write into.
+   */
+  recordDeepResearchFiling: (jobId: string, filed: DeepResearchFiledDocument) => void
+
+  /**
+   * Record that a filing this run's starting banner promised did NOT land.
+   *
+   * The counterpart to `recordDeepResearchFiling`, and it exists because the
+   * absence of a filing means two different things. The report route reports
+   * them apart — `filed` when the document exists, `filingFailed` when a
+   * project was resolved and the write still failed — and only the second one
+   * contradicts something the reader was already told.
+   *
+   * Never overrides a recorded document: see the action's own comment.
+   *
+   * A no-op when no success banner for `jobId` exists.
+   */
+  recordDeepResearchFilingFailure: (jobId: string) => void
 
   // Deep research SSE actions
 

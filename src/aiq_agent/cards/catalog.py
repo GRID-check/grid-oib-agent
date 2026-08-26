@@ -69,6 +69,23 @@ SYSTEM_CARD_TYPES = frozenset({"memory_proposal", "document_grid", "follow_ups"}
 # Emit an interactive card ONLY for an action that is not safely repeatable
 # (a memory write, a profile patch). If the action is idempotent and cheap,
 # prefer a presentational card — there is then nothing to remember.
+#
+# `diagram` was briefly a member and is deliberately not one. It was added for a
+# filing button beside the drawing („Im Projekt ablegen" → two `documents` rows),
+# and the release review cut that button from v1: the card SHOWS a drawing and
+# offers nothing, so there is no answer to persist. The route, the SVG validator,
+# the PDF conversion and migration 0065 stay in the tree unreached, and the day
+# the button comes back this set is the first thing that has to change — together
+# with `CARD_INTERACTIVITY` in `card-decision.ts`, which
+# `tests/aiq_agent/cards/test_interactive_card_parity.py` holds to this one.
+#
+# There is no second set here (a `CONSENT_CARD_TYPES` briefly existed for the
+# same reason and left with the button). "Must the frontend persist an answer?"
+# and "does emitting it cost the reader a decision?" only ever named different
+# sets while `diagram` sat between them, and two constants that are equal by
+# construction are two things to keep in sync, of which one stops being
+# maintained. A card that is genuinely one and not the other is the reason to
+# split them again — and then the split has to be argued at that card.
 INTERACTIVE_CARD_TYPES = frozenset({"project_profile_patch", "memory_proposal"})
 
 # Card types whose fields must be COPIED from a tool result and cannot be
@@ -151,6 +168,7 @@ The trigger, then the card:
   a tabular answer no purpose-built card covers -> typed_table
   a number the answer WORKED OUT rather than looked up -> calculation
   a Verfahren, Ablauf or „wie läuft das ab" -> process_map
+  a path that forks and REJOINS, several Stellen exchanging in order, a Nachweis others depend on -> diagram
   „welche Unterlagen brauche ich" — the list is STATES, not names -> document_checklist
   several Fristen in sequence — the order and what starts each clock is the answer -> deadline_timeline
   „was passiert, wenn X sich ändert" — what a move COSTS, not which case applies -> change_impact
@@ -749,6 +767,32 @@ CARD_EXAMPLES: dict[str, dict] = {
         ],
         "reference": {"document": "OIB-Begriffsbestimmungen", "section": "Gebäudeklassen"},
     },
+    # The example has to teach the DISCRIMINATION, not the syntax: this is a
+    # shape `process_map` cannot hold. Three parties hand an Akt back and forth
+    # and the answer is who gives what to whom, which a rail of stations cannot
+    # show. Note what it does NOT carry — no duration, no Frist, no measurement —
+    # and note the caption, which says what the drawing leaves out rather than
+    # repeating the title. The Fundstelle is the procedure's own, at the whole-
+    # procedure altitude the process_map example already uses.
+    "diagram": {
+        "type": "diagram",
+        "title": "Baubewilligungsverfahren – wer wem was übergibt",
+        "diagram_type": "sequence",
+        "source": (
+            "sequenceDiagram\n"
+            "  participant BW as Bauwerber\n"
+            "  participant BB as Baubehörde\n"
+            "  participant ASV as Amtssachverständige\n"
+            "  BW->>BB: Einreichunterlagen\n"
+            "  BB->>ASV: Befassung zur Begutachtung\n"
+            "  ASV-->>BB: Gutachten\n"
+            "  BB-->>BW: Verbesserungsauftrag\n"
+            "  BW->>BB: ergänzte Unterlagen\n"
+            "  BB-->>BW: Baubewilligungsbescheid"
+        ),
+        "caption": "Die Fristen zeigt die Grafik nicht — sie steht für die Reihenfolge der Übergaben.",
+        "reference": {"document": "Wiener Bauordnung", "section": "§§ 60 ff."},
+    },
     "follow_ups": {
         "type": "follow_ups",
         "items": [
@@ -1005,16 +1049,26 @@ def render_card_catalog(*, include_model_backed: bool = True) -> str:
 
     interactive_note = _interactive_note()
     measured_note = _measured_note()
+    # The diagram boundary rides with the shapes for the same reason the
+    # measured-numbers rule does: it is a rule about filling a field in, and this
+    # is the surface that renders every field.
+    diagram_note = _diagram_note() if "diagram" not in withheld else ""
 
     return (
         "Building blocks (reused object shapes):\n" + "\n".join(block_lines) + "\n\n"
-        "Card types:\n" + "\n".join(card_lines) + interactive_note + measured_note + _plain_text_note() + "\n\n"
+        "Card types:\n"
+        + "\n".join(card_lines)
+        + interactive_note
+        + measured_note
+        + diagram_note
+        + _plain_text_note()
+        + "\n\n"
         "Worked examples (copy the nesting exactly):\n" + examples
     )
 
 
 def _interactive_note() -> str:
-    # Interactive cards ASK THE USER TO AUTHORIZE A REAL WRITE, so they cost the
+    # Consent cards ASK THE USER TO AUTHORIZE A REAL WRITE, so they cost the
     # user a decision rather than just screen space. Say so explicitly: without
     # it the model treats them like any other presentational card and emits them
     # speculatively, which turns the answer into a pile of consent prompts.
@@ -1052,6 +1106,45 @@ def _measured_note() -> str:
         "  `value` null and `missing` set to that answer's missing.remedy, VERBATIM — that sentence\n"
         "  is what the architect changes in their CAD. A blank slot instead of it reads as a fact\n"
         "  about the building, when it is a finding about the export."
+    )
+
+
+def _diagram_note() -> str:
+    # The BOUNDARY of the one card whose renderer cannot check it, stated where
+    # the model reads it at the moment it is about to write a diagram — beside
+    # the shape, exactly as the measured-numbers rule is. Not in the always-on
+    # index, which has room for one line per type; and deliberately not left to
+    # the `verfahrensdiagramm` skill either, because a skill body only reaches
+    # the model if the model calls `use_skill`, while this text arrives with the
+    # shape it cannot emit the card without.
+    #
+    # Fifteen schematic cards hold their invariant by having the renderer do the
+    # geometry. This card has no such invariant available: mermaid text IS the
+    # geometry. So the boundary is drawn around the SUBJECT — a drawing that
+    # claims no measurement has nothing on it that can be measurably wrong — and
+    # a rule about subject can only be carried in words.
+    return (
+        "\n\nWhat a `diagram` may draw, and what it may not:\n"
+        "  This card is mermaid, and the source IS the geometry: nothing computes it, so nothing can\n"
+        "  catch it being wrong. Draw only what makes NO dimensional claim — a Verfahrensablauf, an\n"
+        "  Einreichungssequenz, a decision that forks and rejoins, a Zuständigkeits- or\n"
+        "  Abhängigkeitskarte. Anything MEASURED — a section, a stair, an escape route, a fire\n"
+        "  compartment, a setback — belongs to the schematic cards, where the renderer draws to scale\n"
+        "  and cannot disagree with its own numbers. A mermaid box with „40 m\u201c typed inside it is\n"
+        "  precisely the artefact those cards exist to prevent, and it is the one that gets\n"
+        "  screenshotted into an Einreichung. Naming a threshold in a branch condition\n"
+        "  („Fluchtniveau > 22 m\u201c) is not that artefact: it is a label the answer has already\n"
+        "  grounded, and nobody reads a rounded rectangle as a section.\n"
+        "  Four grammars are verified end to end: flowchart, sequence, state, pie. A journey is\n"
+        "  refused before the reader sees it — mermaid emits a foreignObject element for it whatever\n"
+        "  htmlLabels says, the SVG allow-list refuses that element, and the diagram degrades to its\n"
+        "  own source text in the middle of your answer. The rest are untested through the PDF\n"
+        "  converter, and a drawing that previews and then prints blank is worse than none.\n"
+        "  At most ONE per answer. A diagram earns its place by showing a fork, an ordering or a\n"
+        "  dependency that prose cannot hold; a decorative one in a compliance answer costs the\n"
+        "  reader trust in every drawing beside it. Labels in the answer's language and in Sie-Form,\n"
+        "  and no label may carry a claim the answer has not grounded — the drawing leaves the page\n"
+        "  without the paragraph that qualified it."
     )
 
 
@@ -1170,6 +1263,10 @@ def render_card_details(card_types: Iterable[str]) -> str:
     # it rides with the shapes that have the field rather than with every card.
     if any("DimensionCheck" in line for line in block_lines + card_lines):
         out += _measured_note()
+    # Same conditional logic, one type instead of a building block: the boundary
+    # is only instruction where the card it bounds is in play.
+    if "diagram" in wanted:
+        out += _diagram_note()
     # Unconditional, unlike the provenance rule: every card type here has text
     # fields, so there is no shape this one fails to apply to.
     out += _plain_text_note()

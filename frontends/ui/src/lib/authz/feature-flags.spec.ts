@@ -4,7 +4,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   FEATURE_FLAGS,
+  agentAuthoredDocumentsEnvEnabled,
   ifcModelsEnvEnabled,
+  isAgentAuthoredDocumentsEnabled,
   isFeatureEnabled,
   isIfcModelsEnabled,
   isSkillsEnabled,
@@ -134,6 +136,62 @@ describe('ifc-models — default ON, with its own off switch', () => {
     expect(isIfcModelsEnabled({ featureFlags: [] })).toBe(false)
     // A token minted before the flag existed must not inherit the env default.
     expect(isIfcModelsEnabled({ featureFlags: null })).toBe(false)
+  })
+})
+
+describe('agent-authored-documents — the operator gate a permission cannot be', () => {
+  afterEach(() => {
+    delete process.env.GRID_ENFORCE_FEATURE_FLAGS
+    delete process.env.GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED
+  })
+
+  it('registry carries the agent-authored-documents slug', () => {
+    expect(FEATURE_FLAGS.agentAuthoredDocuments).toBe('agent-authored-documents')
+  })
+
+  it('unenforced and unset: ON', () => {
+    // Deliberately NOT the dark-launch shape of `skills` / `collaboration`. This
+    // capability already has its opt-in — `project:documents:generate`, which no
+    // role holds until the catalog is provisioned and which the legacy
+    // `project:edit` umbrella does not satisfy. A second default-off gate would
+    // make every deployment turn two knobs to reach the behaviour its own
+    // release note describes.
+    expect(isAgentAuthoredDocumentsEnabled({ featureFlags: null })).toBe(true)
+    expect(isAgentAuthoredDocumentsEnabled({ featureFlags: [] })).toBe(true)
+  })
+
+  it('unenforced: an explicit falsey value stops filing everywhere at once', () => {
+    // The case the permission cannot serve. Withdrawing the permission
+    // fleet-wide means editing the built-in project roles in WorkOS, which makes
+    // `provision:authz --check` fail in CI — so the operator's kill switch has
+    // to live here.
+    for (const value of ['false', 'FALSE', ' false ', '0', 'no', 'off']) {
+      process.env.GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED = value
+      expect(agentAuthoredDocumentsEnvEnabled(), `value ${JSON.stringify(value)}`).toBe(false)
+      expect(
+        isAgentAuthoredDocumentsEnabled({
+          featureFlags: [FEATURE_FLAGS.agentAuthoredDocuments],
+        })
+      ).toBe(false)
+    }
+  })
+
+  it('unenforced: anything else leaves it on', () => {
+    for (const value of ['', 'true', 'TRUE', '1', 'yes']) {
+      process.env.GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED = value
+      expect(agentAuthoredDocumentsEnvEnabled(), `value ${JSON.stringify(value)}`).toBe(true)
+    }
+  })
+
+  it('enforced: the per-org WorkOS claim decides and the env var is ignored', () => {
+    process.env.GRID_ENFORCE_FEATURE_FLAGS = 'true'
+    process.env.GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED = 'true'
+    expect(
+      isAgentAuthoredDocumentsEnabled({ featureFlags: [FEATURE_FLAGS.agentAuthoredDocuments] })
+    ).toBe(true)
+    expect(isAgentAuthoredDocumentsEnabled({ featureFlags: [] })).toBe(false)
+    // A token minted before the flag existed must not inherit the env default.
+    expect(isAgentAuthoredDocumentsEnabled({ featureFlags: null })).toBe(false)
   })
 })
 

@@ -136,6 +136,7 @@ project access comes from project-scoped roles.
 | `project:chat` | Start and continue conversations in the project |
 | `project:edit` | **Deprecated** umbrella write, retained so existing grants keep working |
 | `project:documents:write` | Upload/delete/re-ingest/retag project documents |
+| `project:documents:generate` | Let the agent file documents it wrote (a Recherchebericht, a diagram) into the project. Required **in addition to** `project:documents:write`, never instead of it, and deliberately NOT satisfied by the `project:edit` umbrella — a permission every legacy role already implicitly holds could not be withheld, which is the whole point of this one. Withhold it on a custom project role to let Piloti answer without writing into the file system |
 | `project:memory:write` | Add/edit/remove project memory items |
 | `project:manage` | Rename, archive or delete the project |
 | `project:members:manage` | Grant and revoke project roles |
@@ -184,6 +185,9 @@ environment-scoped role holds a `platform:*` permission.
 | `org-user-admin` | environment | `org:members:manage`, `widgets:users-table:manage` |
 | `project-viewer` | environment (Project) | `project:view` |
 | `project-contributor` | environment (Project) | `project:view`, `project:chat` |
+| `project-editor` | environment (Project) | + `project:edit`, `project:documents:write`, `project:documents:generate`, `project:memory:write` |
+| `project-admin` | environment (Project) | + `project:manage`, `project:members:manage`, `project:workflows:manage` |
+| `workflow-viewer` / `workflow-operator` / `workflow-admin` | environment (Workflow) | `workflow:view` / +`run` / +`manage` |
 | `project-editor` | environment (Project) | + `project:edit`, `project:documents:write`, `project:memory:write` |
 | `project-admin` | environment (Project) | + `project:manage`, `project:members:manage`, `project:skills:manage` |
 | `org-platform-owner` | **GRID Platform org only** | all `platform:*` + five `widgets:*` |
@@ -272,15 +276,34 @@ Deliberately NOT audited: high-frequency content activity (memory items,
 profile edits, conversation messages, renames, user preferences) — it would
 drown the admin trail.
 
-- **Schemas are reconciled on every deploy.** The Kubernetes Job
-  `grid-app-audit-schemas` (`deploy/pulumi/src/app/audit-schemas-job.ts`) runs
-  `node scripts/provision-workos-audit-schemas.mjs --apply` from the frontend
-  image, against the deployment's own `WORKOS_API_KEY`. It reads first and
-  writes only what is missing or actually changed, so an unchanged registry
-  writes nothing (schema versions are append-only in WorkOS — an
-  unconditional re-create would mint a new version of all ~30 schemas per
-  rollout). Nothing depends on the Job: a WorkOS outage must not hold back a
-  release, so a failure shows up as a failed Job, not a failed deploy.
+- **Schemas are reconciled on every deploy, on all three deployment paths.**
+  Each runs `node scripts/provision-workos-audit-schemas.mjs --apply` from the
+  frontend image against the deployment's own `WORKOS_API_KEY`. It reads first
+  and writes only what is missing or actually changed, so an unchanged registry
+  writes nothing (schema versions are append-only in WorkOS — an unconditional
+  re-create would mint a new version of all ~30 schemas per rollout).
+
+  | Path | How | Does the app wait? |
+  |---|---|---|
+  | Kubernetes (Pulumi) | Job `grid-app-audit-schemas` (`deploy/pulumi/src/app/audit-schemas-job.ts`), created when `requireAuth` is on | **No** — the frontend Deployment does not depend on it |
+  | Docker Compose | one-shot service `grid-audit-schemas` | **Yes** — `frontend` waits on `service_completed_successfully` |
+  | Coolify | the same one-shot service in `docker-compose.coolify.yaml` | **Yes** |
+
+  On the compose paths the container exits 0 without doing anything when
+  `WORKOS_API_KEY` is unset, so an anonymous stack still boots.
+
+- **One action is on a request path, which is why the compose stacks block.**
+  `document.generated` (agent-authored documents) is emitted with
+  `recordAuditEventOrThrow`. A rejected event there does not thin the trail — the
+  document it was about is unfiled, row and object both, and the user is shown a
+  report with no file. WorkOS rejects an event whose action has no schema **and**
+  one whose registered schema has the wrong targets or metadata keys, so this
+  bites after a registry change as much as on a fresh environment: migration 0066
+  added `answer_artifact` to that action's targets, and an environment still
+  holding the two-target version rejects every emit until it is reconciled.
+  Kubernetes deliberately does not gate the rollout on it — the failure window is
+  one deploy long, loud, and self-healing, while gating would put every release
+  behind a third party; the reasoning is in the Job file's own header.
 - **Manual escape hatch** (a fresh environment, or a key the cluster does not
   hold — from `frontends/ui`):
 

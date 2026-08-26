@@ -1,0 +1,93 @@
+-- One filed document per (run, PRODUCER), because a run can owe more than one file.
+--
+-- ## What changed, and why it is not a weakening
+--
+-- 0064 keyed idempotency on `(organization_id, project_id, authored_by_run_id)`
+-- and argued, at length, against putting `authored_by_producer` in that key:
+--
+--   > `authored_by_producer` is deliberately NOT in the key. Adding it would let
+--   > two producers file one run into one project, and the probe — which does not
+--   > ask about the producer — would then return whichever row Postgres happened
+--   > to hand back first.
+--
+-- Read the second half. The failure it names is not "two producers exist"; it is
+-- "the index asks a question the PROBE does not", which 0064 calls the
+-- index-wider-than-the-probe failure and which it is right about. 0064 also
+-- writes down the remedy, for the null-project case it left open: *"a future
+-- org-scoped producer needs BOTH changed together — the probe to ask a question
+-- it can answer ... and this index to key on the same"*. That is exactly this
+-- migration. `findDocumentAuthoredByRun` now takes a producer and filters on it,
+-- and the index below is that WHERE clause, still derived from it rather than
+-- restated. `documents.spec.ts` reads both files and fails when they drift.
+--
+-- What the rule now says is: **one document per (organization, project, run,
+-- producer)**. Which is what a producer has meant since 0063 — a producer is a
+-- KIND OF DELIVERABLE, not a piece of software — and a run owes at most one of
+-- each kind. `deep_research` is unaffected: one producer, one artifact, one row,
+-- byte for byte the behaviour 0064 shipped.
+--
+-- ## The change that forced it
+--
+-- Piloti can now produce a diagram as a file. One diagram is TWO artifacts and
+-- they are not substitutes:
+--
+--   - the SVG, which previews in the Files pane today (`image/svg+xml` is in
+--     `PREVIEW_TYPES`) and carries the diagram's own source in its `<metadata>`
+--     so it can be regenerated or hand-edited later;
+--   - the PDF, which is what gets attached to an Einreichung, and which no
+--     amount of previewing replaces.
+--
+-- Under 0064's key the second call would find the first row and answer
+-- "alreadyFiled", so a diagram could be an SVG or a PDF and never both. Filing
+-- them under two synthetic run ids (`{run}:svg`, `{run}:pdf`) was the change that
+-- did not need a migration, and it was rejected: `authored_by_run_id` exists so
+-- somebody can later ask what wrote a file, in which run, on whose budget — the
+-- schema calls a row that cannot answer that "an audit trail in appearance only".
+-- A key nobody can join back to a real run is that row.
+--
+-- ## Why there is no duplicate guard here
+--
+-- 0063 and 0064 both refuse to build over violating data, and both are right to:
+-- their indexes were NARROWER than what the table already allowed. This one is
+-- strictly WIDER than 0064's — any two rows the old index kept apart already
+-- differ in one of the same three columns — so a table that satisfies
+-- `uniq_documents_authored_run_per_project` satisfies this by construction, and
+-- a guard would be a check that cannot fire. The DOWN migration narrows, so the
+-- guard lives there instead, which is where it can.
+--
+-- ## Nulls
+--
+-- `authored_by_producer` is nullable, and NULL never equals NULL in a unique
+-- index — so a machine-authored row with no producer is not covered here, where
+-- it WAS covered by 0064. That hole is closed by something older and stronger:
+-- 0063's `documents_authorship_requires_provenance` CHECK makes a row with
+-- `authored_by <> 'user'` and a NULL producer impossible in the first place. The
+-- predicate below and that CHECK are written against the same `<> 'user'` for
+-- exactly this reason; if either is ever re-specialised to `= 'agent'`, they stop
+-- covering the same rows and this paragraph stops being true.
+--
+-- ## Locks and RLS
+--
+-- As 0064: a plain `CREATE UNIQUE INDEX` takes a SHARE lock and reads the whole
+-- table, so this is a write pause on `documents` proportional to its length, and
+-- CONCURRENTLY cannot run inside the transaction the migration runner wraps each
+-- file in. Nothing here moves a table across the tenant boundary, so this is
+-- deliberately absent from `rls-coverage.spec.ts`'s BOUNDARY_MIGRATIONS, like
+-- 0063 and 0064.
+
+-- ---------------------------------------------------------------------------
+-- 1. The wider rule, first — so a failure here leaves 0064's index standing
+-- ---------------------------------------------------------------------------
+CREATE UNIQUE INDEX "uniq_documents_authored_run_producer_per_project"
+  ON "documents" ("organization_id", "project_id", "authored_by_run_id", "authored_by_producer")
+  WHERE "authored_by" <> 'user';
+
+--> statement-breakpoint
+COMMENT ON INDEX "uniq_documents_authored_run_producer_per_project" IS
+  'One machine-authored document per (organization, project, run, producer). The columns are exactly the WHERE clause of findDocumentAuthoredByRun, because an index narrower than that probe rejects rows the probe would accept, and an index wider than it admits duplicates the probe was meant to prevent. Supersedes uniq_documents_authored_run_per_project (0064), which keyed on the first three columns only and so allowed a run to file at most one document — impossible for a diagram, which is a previewable SVG and an attachable PDF and needs both. Partial on authored_by <> ''user'' because 0063''s CHECK deliberately allows a HUMAN row to carry a run id as well, and two people saving the same run''s artefact into one project must not collide. A NULL producer is not covered (NULL never equals NULL), which 0063''s documents_authorship_requires_provenance CHECK makes unreachable for these rows.';
+
+-- ---------------------------------------------------------------------------
+-- 2. 0064's index, now subsumed
+-- ---------------------------------------------------------------------------
+--> statement-breakpoint
+DROP INDEX IF EXISTS "uniq_documents_authored_run_per_project";

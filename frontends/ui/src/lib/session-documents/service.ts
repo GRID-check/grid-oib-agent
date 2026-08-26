@@ -42,6 +42,7 @@ import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/document
 import type { DocumentListRow } from '@/lib/documents/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { deleteDocumentObjects, purgeCollectionChunks } from './cleanup'
+import { collectionFileRef } from '@/lib/documents/collection-file-ref'
 import {
   deleteSessionDocument as deleteSessionDocumentRow,
   findSessionDocument,
@@ -250,7 +251,10 @@ export async function deleteSessionDocument(
 
   await requireResourceAccess(session, 'conversation', doc.conversationId, 'collaborator')
 
-  const chunks = await purgeCollectionChunks(doc.collectionName, [doc.filename])
+  // `collectionFileRef` or nothing: a row that owns no chunks has none to purge,
+  // and purging by its filename would address whatever human document shares it.
+  const purgeRef = collectionFileRef(doc)
+  const chunks = await purgeCollectionChunks(doc.collectionName, purgeRef ? [purgeRef] : [])
   const objects = await deleteDocumentObjects(doc)
   if (!chunks.ok || !objects.ok) {
     // Reasons carry bucket names and upstream error text, so they go to the log

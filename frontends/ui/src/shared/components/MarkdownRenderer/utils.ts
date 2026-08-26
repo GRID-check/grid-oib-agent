@@ -41,6 +41,18 @@ export const getLanguageFromClassName = (className?: string): SupportedLanguage 
 }
 
 /**
+ * Is this fence a diagram rather than a listing?
+ *
+ * Asked of the RAW class name, not of `getLanguageFromClassName`, because that
+ * function's job is to pick a highlighting theme and it answers `bash` for
+ * everything it does not know — including mermaid. Widening its union to carry
+ * a language nothing highlights would make every consumer of
+ * `SupportedLanguage` handle a member that is not one.
+ */
+export const isMermaidFence = (className?: string): boolean =>
+  /(?:^|\s)language-mermaid(?:$|\s)/.test(className ?? '')
+
+/**
  * Heading anchor ids.
  *
  * German letters are spelled out rather than dropped: `[^\w\s-]` below treats

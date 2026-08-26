@@ -16,6 +16,7 @@ from aiq_api.jobs.access import cleanup_job_access
 from aiq_api.jobs.access import create_job_access
 from aiq_api.jobs.access import ensure_job_access_table
 from aiq_api.jobs.access import get_job_access
+from aiq_api.jobs.access import get_job_project_collection
 from aiq_api.jobs.event_store import EventStore
 
 
@@ -94,6 +95,48 @@ class TestJobAccessStorage:
         assert get_job_access("live-job", db_url) is not None
         assert get_job_access("expired-job", db_url) is None
         assert get_job_access("orphan-job", db_url) is None
+
+
+class TestCommissioningProject:
+    """Which project a run belongs to — read from the run, never from a request.
+
+    The report a run produces is filed into a project as a document, and its
+    cover sheet names the Bundesland, which is what says which Bauordnung the
+    report was checked against. Taking that project from whatever the reader's
+    session or preferences happen to say produces a compliance document
+    asserting the wrong law, so the answer has to come from the row written at
+    submit time.
+    """
+
+    def test_reports_the_project_recorded_at_submit_time(self, db_url):
+        principal = Principal(type="jwt", sub="user-1")
+        create_job_access("job-1", principal, db_url, project_collection="proj_wien")
+
+        assert asyncio.run(get_job_project_collection("job-1", db_url)) == "proj_wien"
+
+    def test_a_run_started_outside_a_project_reports_none(self, db_url):
+        # The case the old `active_project_id` fallback filled in silently: a
+        # chat with no project makes no filing promise, and None has to stay
+        # None all the way to the caller so it can decline to file.
+        principal = Principal(type="jwt", sub="user-1")
+        create_job_access("job-2", principal, db_url)
+
+        assert asyncio.run(get_job_project_collection("job-2", db_url)) is None
+
+    def test_an_unknown_job_reports_none_rather_than_raising(self, db_url):
+        # This runs on the report path beside an authorization check that has
+        # already decided whether the caller may see the job. Raising here would
+        # turn "no destination" into a failed report.
+        assert asyncio.run(get_job_project_collection("job-does-not-exist", db_url)) is None
+
+    def test_an_empty_string_is_not_a_project(self, db_url):
+        # The column is nullable VARCHAR and nothing constrains it, so an empty
+        # string is storable. Returning it would send the caller looking up a
+        # project named "", and the honest answer is the same as no project.
+        principal = Principal(type="jwt", sub="user-1")
+        create_job_access("job-3", principal, db_url, project_collection="")
+
+        assert asyncio.run(get_job_project_collection("job-3", db_url)) is None
 
 
 class TestAuthorizeJobAccess:

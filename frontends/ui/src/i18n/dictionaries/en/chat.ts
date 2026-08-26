@@ -354,6 +354,13 @@ export const chat = {
       computedNote:
         'The result is computed by this card from the figures above, not copied from the answer.',
     },
+    // The one card whose picture the renderer did not compute — the model wrote
+    // the mermaid. The rest of its words are shared with the mermaid FENCE
+    // (`diagrams.schematicOnly`, `diagrams.fallback`): the same claim about the
+    // same picture, said once.
+    diagram: {
+      eyebrow: 'Diagram',
+    },
     processMap: {
       eyebrow: 'Procedure',
       current: 'you are here',
@@ -939,6 +946,21 @@ export const chat = {
     success: {
       heading: 'Report Completed!{stats}',
       subheading: 'Research has finished and a report is ready to view in the research panel.',
+      // Rendered ONLY when the report really was filed and has a document id.
+      // Absent with nothing having been promised — no project, a run older than
+      // the feature — the banner says nothing rather than claiming a file that
+      // does not exist.
+      filedLine: 'Filed in the project: {filename}',
+      // The retraction of `starting.filingDisclosure`, and only that: the
+      // starting banner promised „wird abgelegt", the server attempted the
+      // filing (there was a project) and it did not land. A reader who saw the
+      // promise otherwise walks to Berichte, finds nothing, and the only record
+      // is a server log they cannot read. No reason travels — a refused quota,
+      // a revoked `project:documents:write` and a report too long to render are
+      // one fact here: the document is not there. Same quiet line as the
+      // promise, no red and no error state: the research itself succeeded. The
+      // folder is named in German because that is what the folder is called.
+      filingFailedLine: 'The report could not be filed under “Berichte”.',
     },
     failure: {
       heading: 'Report Failed to Complete',
@@ -958,8 +980,23 @@ export const chat = {
       heading: 'Starting Deep Research',
       subheading:
         'Chat is paused while the report is created to prevent generating multiple reports. You can click away while this runs — it may take several minutes.',
+      // The disclosure that makes the authorization real. It sits on the
+      // STARTING banner rather than the outcome: deep research escalates out of
+      // a chat turn (there is no submit form), and a run can begin because the
+      // classifier escalated rather than because anybody ordered a report. The
+      // moment the run can still be stopped is therefore the only moment at
+      // which naming the destination is worth anything. No dialog and no
+      // confirmation: a modal asked after the fact is only ever answered yes,
+      // which makes it a ritual rather than a decision. Shown inside a project
+      // only — outside one nothing is filed. The folder is named in German
+      // because that is literally what the folder in the file tree is called.
+      filingDisclosure: 'The finished report will be filed in this project under “Berichte”.',
     },
     viewReport: 'View Report',
+    // The success banner's second action, when something was filed. Worded
+    // apart from "View Report" on purpose: that opens the research panel, this
+    // opens the file in the project — two places, two words.
+    openInProject: 'Open in project',
     viewThinking: 'View Thinking',
     viewProgress: 'View Progress',
     // One-liner above the "Starting Deep Research" banner when the turn

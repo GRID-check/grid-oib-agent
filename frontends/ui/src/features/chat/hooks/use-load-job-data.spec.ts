@@ -21,6 +21,8 @@ const mockCompleteDeepResearch = vi.fn()
 const mockSetStreaming = vi.fn()
 const mockPatchConversationMessage = vi.fn()
 const mockAddDeepResearchBanner = vi.fn()
+const mockRecordDeepResearchFiling = vi.fn()
+const mockRecordDeepResearchFilingFailure = vi.fn()
 const mockAttachToDeepResearchJob = vi.fn()
 const mockOpenRightPanel = vi.fn()
 const mockSetResearchPanelTab = vi.fn()
@@ -55,6 +57,7 @@ let mockStoreState: {
   deepResearchStreamLoaded: boolean
   reportContent: string
   isDeepResearchStreaming: boolean
+  projectId: string | null
 } = {
   currentConversation: {
     id: 'conv-1',
@@ -65,6 +68,7 @@ let mockStoreState: {
   deepResearchStreamLoaded: false,
   reportContent: '',
   isDeepResearchStreaming: false,
+  projectId: 'proj-1',
 }
 
 type MockChatSelectorState = {
@@ -81,6 +85,8 @@ type MockChatSelectorState = {
   setStreaming: typeof mockSetStreaming
   patchConversationMessage: typeof mockPatchConversationMessage
   addDeepResearchBanner: typeof mockAddDeepResearchBanner
+  recordDeepResearchFiling: typeof mockRecordDeepResearchFiling
+  recordDeepResearchFilingFailure: typeof mockRecordDeepResearchFilingFailure
   attachToDeepResearchJob: typeof mockAttachToDeepResearchJob
 }
 
@@ -113,6 +119,8 @@ vi.mock('../store', () => ({
         setStreaming: mockSetStreaming,
         patchConversationMessage: mockPatchConversationMessage,
         addDeepResearchBanner: mockAddDeepResearchBanner,
+        recordDeepResearchFiling: mockRecordDeepResearchFiling,
+        recordDeepResearchFilingFailure: mockRecordDeepResearchFilingFailure,
         attachToDeepResearchJob: mockAttachToDeepResearchJob,
       }
       return selector ? selector(state) : state
@@ -153,6 +161,7 @@ describe('useLoadJobData', () => {
       deepResearchStreamLoaded: false,
       reportContent: '',
       isDeepResearchStreaming: false,
+      projectId: 'proj-1',
     }
   })
 
@@ -173,9 +182,79 @@ describe('useLoadJobData', () => {
 
     expect(mockSetResearchPanelTab).toHaveBeenCalledWith('report')
     expect(mockOpenRightPanel).toHaveBeenCalledWith('research')
-    expect(mockGetJobReport).toHaveBeenCalledWith('job-123', 'token-123')
+    // The projectId is not decoration: the proxy resolves the project from the
+    // query string, and a report fetched without one is never filed.
+    expect(mockGetJobReport).toHaveBeenCalledWith('job-123', 'token-123', { projectId: 'proj-1' })
     expect(mockSetReportContent).toHaveBeenCalledWith('Loaded report', 'final_report')
     expect(mockCreateDeepResearchClient).not.toHaveBeenCalled()
+  })
+
+  test('records the filed document when the report route reports one', async () => {
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-123', status: 'success', error: null })
+    mockGetJobReport.mockResolvedValue({
+      job_id: 'job-123',
+      has_report: true,
+      report: 'Loaded report',
+      filed: { documentId: 'doc-9', filename: 'fluchtweglangen-gk-4-2026-08-20.pdf', alreadyFiled: false },
+    })
+    mockGetJobState.mockResolvedValue({ job_id: 'job-123', has_state: false, artifacts: null })
+
+    const { result } = renderHook(() => useLoadJobData())
+
+    await act(async () => {
+      await result.current.loadResearchPanelTab('job-123', 'report')
+    })
+
+    // `alreadyFiled` is deliberately dropped: it answers a question about the
+    // REQUEST, and the banner shows the same link either way.
+    expect(mockRecordDeepResearchFiling).toHaveBeenCalledWith('job-123', {
+      documentId: 'doc-9',
+      filename: 'fluchtweglangen-gk-4-2026-08-20.pdf',
+    })
+  })
+
+  test('records nothing when the report route filed nothing', async () => {
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-123', status: 'success', error: null })
+    mockGetJobReport.mockResolvedValue({
+      job_id: 'job-123',
+      has_report: true,
+      report: 'Loaded report',
+    })
+    mockGetJobState.mockResolvedValue({ job_id: 'job-123', has_state: false, artifacts: null })
+
+    const { result } = renderHook(() => useLoadJobData())
+
+    await act(async () => {
+      await result.current.loadResearchPanelTab('job-123', 'report')
+    })
+
+    // Neither key: no filing was ever attempted for this report, so nothing was
+    // promised and the absence must stay an absence all the way to the banner.
+    expect(mockRecordDeepResearchFiling).not.toHaveBeenCalled()
+    expect(mockRecordDeepResearchFilingFailure).not.toHaveBeenCalled()
+  })
+
+  test('records a promised filing the report route says did not land', async () => {
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-123', status: 'success', error: null })
+    mockGetJobReport.mockResolvedValue({
+      job_id: 'job-123',
+      has_report: true,
+      report: 'Loaded report',
+      filingFailed: true,
+    })
+    mockGetJobState.mockResolvedValue({ job_id: 'job-123', has_state: false, artifacts: null })
+
+    const { result } = renderHook(() => useLoadJobData())
+
+    await act(async () => {
+      await result.current.loadResearchPanelTab('job-123', 'report')
+    })
+
+    // Reopening a report re-triggers the filing, so this path is both the
+    // second chance for a run whose first attempt failed and the place a second
+    // failure is finally said out loud.
+    expect(mockRecordDeepResearchFilingFailure).toHaveBeenCalledWith('job-123')
+    expect(mockRecordDeepResearchFiling).not.toHaveBeenCalled()
   })
 
   test('does not reload report tab data when the current job already has report content', async () => {

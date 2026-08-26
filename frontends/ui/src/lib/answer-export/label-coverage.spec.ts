@@ -160,10 +160,15 @@ for (const defName of cardDefNames) {
   if (!type) continue
   const kind = exportKindOf(type)
   // Chrome contributes nothing at all, so it can carry no label. A live card
-  // prints its title and one fixed sentence — a heading, but no fields.
+  // prints its title and one fixed sentence — a heading, but no fields. A
+  // `diagram` prints its title, the fence's own label, the source, the caption
+  // and the Fundstelle, none of which the WALKER labels: the caption and the
+  // source stand on their own (a caption under a label is not a caption), and
+  // the Fundstelle reuses `fields.reference`, which every other card already
+  // demands. So all three head a block and only `content` is walked.
   if (kind === 'chrome') continue
   exportedTypes.push(type)
-  if (kind !== 'live') {
+  if (kind === 'content') {
     walkedTypes.push(type)
     collect(defName, type, true, new Set())
   }

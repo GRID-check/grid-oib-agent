@@ -82,7 +82,7 @@ def _preferred_cards_block(skill: Skill) -> str | None:
 
     That same reasoning is why the full SHAPES ride along here rather than in the
     always-on ``emit_card`` catalog. A skill that names its cards is the moment we
-    know which of the 27 shapes this turn could possibly need, so it is the moment
+    know which of the 38 shapes this turn could possibly need, so it is the moment
     to spend context on them — and it saves the activated turn a `describe_card`
     round-trip it would otherwise always pay.
     """

@@ -1276,6 +1276,73 @@
       "title": "DensityCheckCard",
       "type": "object"
     },
+    "DiagramCard": {
+      "description": "Emit for a fork that rejoins, an ordered exchange or a dependency \u2014 drawn as mermaid, never a measurement.\n\nA relationship prose cannot hold: a Verfahren whose stages fork and come back\ntogether, several Stellen handing something to each other in order, a\nNachweis that other Nachweise wait on.\n\nIt is the residue after the purpose-built cards have taken their shapes.\n`process_map` owns the ordered Verfahren, which is a LINE; `condition_tree`\nowns the fork on one factor, which is a FAN. Reach for this card only when\nthe answer is a GRAPH neither of them can draw \u2014 a branch that comes back\ntogether, a Bescheid that returns a stage, three parties passing an Akt\nbetween them, a dependency between requirements. If the answer does fit a\nline or a fan, that card draws it better, because there the renderer decides\nwhat the picture looks like.\n\n## The boundary, and why it is about subject rather than quality\n\nEvery other drawing in this catalog is a schematic card: the model emits\nparameters and the renderer computes the geometry, so a card cannot show a\ndiagram that disagrees with its own numbers. Here the source IS the geometry.\nNothing stands between what the model types and what is drawn, so nothing can\ncatch a disagreement \u2014 which is why the rule is that there must be nothing to\ndisagree WITH. A Verfahrensablauf, an Einreichungssequenz, a\nZust\u00e4ndigkeitskarte: none of them claims a measurement, so none of them can\nbe measurably wrong.\n\nAnything carrying a measurement \u2014 a section, a stair, an escape route, a fire\ncompartment, a setback \u2014 belongs to the fifteen schematic cards, where the\nrenderer draws to scale. A mermaid box with \u201e40 m\" typed inside it is\nprecisely the artefact the card system exists to prevent, and it is the one\nthat gets screenshotted into an Einreichung.\n\nNaming a threshold in a branch condition (\u201eFluchtniveau > 22 m \u2192 GK 5\") is\nnot that artefact and is not refused: the reader cannot mistake a rounded\nrectangle for a section, and the number there is a label the answer has\nalready grounded. What is refused is the drawing that asks to be read as\nscaled. No regular expression is going to tell those apart \u2014 the same \u201e22 m\"\nappears in both \u2014 so the line is drawn in words, in the catalog, where the\nmodel reads it before it writes.\n\n## One per answer\n\nA diagram earns its place when it shows something prose cannot: a fork, an\nordering, a dependency. Most answers have none of those, and a decorative\ndiagram in a compliance answer costs the reader trust in every drawing beside\nit. At most one per answer, for the same reason `callout` says so: a second\nputs both back at the weight of the prose around them.",
+      "properties": {
+        "caption": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "One line under the drawing saying what it shows that the prose does not \u2014 which Bundesland's Verfahren this is, which case is drawn, what it leaves out. Omit it rather than restating the title",
+          "title": "Caption"
+        },
+        "diagram_type": {
+          "description": "Which mermaid grammar `source` is written in: 'flowchart' (a path that forks and rejoins, or a dependency), 'sequence' (parties exchanging things in order), 'state' (a stage that can be returned to), 'pie' (a split the answer has already established). These four are verified end to end; every other mermaid type either fails to draw or fails to file, so an answer needing one writes prose instead",
+          "enum": [
+            "flowchart",
+            "sequence",
+            "state",
+            "pie"
+          ],
+          "title": "Diagram Type",
+          "type": "string"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The Bestimmung the depicted Verfahren rests on, e.g. the Land's Bauordnung. A procedure differs by Bundesland, so a drawing of one without its Fundstelle is a procedure from nowhere"
+        },
+        "source": {
+          "description": "The mermaid source, starting with its own declaration line ('flowchart TD', 'sequenceDiagram', 'stateDiagram-v2', 'pie') \u2014 a source that declares nothing draws nothing. Labels in the answer's language and in Sie-Form; no label may carry a claim the answer has not grounded, because the drawing leaves the page without the paragraph that qualified it. Five to nine nodes: past that nobody reads the picture",
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "title": {
+          "description": "Heading above the drawing, e.g. 'Ablauf einer Bauanzeige \u2013 Wien'. It is read on its own, above the picture, so write it as a document title rather than as a sentence",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "diagram",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "title",
+        "diagram_type",
+        "source"
+      ],
+      "title": "DiagramCard",
+      "type": "object"
+    },
     "DimensionCheck": {
       "description": "One measured dimension drawn on a schematic and checked against a limit.\n\n`value` is the project's actual measurement (drawn to scale); `required` is\nthe OIB limit. If `value` is unknown, leave it null and set status\n'needs_input'.\n\n## Why a number here carries where it came from\n\nThis block used to be `label / value / required / unit / comparator /\nstatus` and nothing else, and that made the card the least honest surface in\nthe product. `ifc_measure` answers \u201egemessen: 2.47 m (\u00b15 mm) \u2014 aus der\nGeometrie berechnet, nicht deklariert\", the assistant repeats that in the\nprose, and the card beside it drew **2.47 m \u2713** \u2014 indistinguishable from a\nfigure the architect had stated in their own file. The card is the part a\nreviewer screenshots into a submission, so the surface that dropped the\nqualifier was the surface most likely to be forwarded without it.\n\nThree fields close that, and all three are OPTIONAL: a card built from the\nBestimmung alone (a limit with no model behind it) has nothing to put in\nthem, and a null here means \"not stated\", never \"declared\".",
       "properties": {
@@ -4297,6 +4364,7 @@
       "daylight_incidence": "#/$defs/DaylightIncidenceCard",
       "deadline_timeline": "#/$defs/DeadlineTimelineCard",
       "density_check": "#/$defs/DensityCheckCard",
+      "diagram": "#/$defs/DiagramCard",
       "dimension_diagram": "#/$defs/DimensionDiagramCard",
       "document_checklist": "#/$defs/DocumentChecklistCard",
       "document_grid": "#/$defs/DocumentGridCard",
@@ -4378,6 +4446,9 @@
     },
     {
       "$ref": "#/$defs/ChangeImpactCard"
+    },
+    {
+      "$ref": "#/$defs/DiagramCard"
     },
     {
       "$ref": "#/$defs/FollowUpsCard"

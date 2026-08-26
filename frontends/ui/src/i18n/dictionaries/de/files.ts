@@ -61,6 +61,11 @@ export const files: typeof en.files = {
     processing: 'Wird verarbeitet',
     uploading: 'Wird hochgeladen',
     failed: 'Fehlgeschlagen',
+    // Der Bericht, den Piloti geschrieben hat: die Datei liegt im Projekt, ist
+    // aber bewusst nicht in der Wissensbasis. „Abgelegt“ sagt genau das – kein
+    // Erfolg („Zitierbar“ wäre ein Versprechen, das die Suche nicht einlöst)
+    // und kein Fehler. Dasselbe Wort wie im Toast nach dem Lauf.
+    stored: 'Abgelegt',
     unknown: 'Unbekannt',
   },
   toast: {
@@ -296,6 +301,20 @@ export const files: typeof en.files = {
       'Bilder können hier nicht hochgeladen werden: In dieser Umgebung ist keine Bilderkennung eingerichtet.',
     fileSingular: 'Datei',
     filePlural: 'Dateien',
+  },
+  // Herkunft – wer die Datei geschrieben hat. Bewusst eine eigene Gruppe und
+  // NICHT Teil von `assignment`: Ein Gesicht sagt, wer verantwortlich ist,
+  // dieser Text sagt, wer sie erstellt hat. Ein von Piloti erstellter Bericht
+  // ist eine ganz normale unvergebene Datei – in der Fußzeile steht daneben
+  // weiterhin „Unvergeben“.
+  authorship: {
+    byPiloti: 'Von Piloti erstellt',
+    filter: 'Von Piloti',
+    // Warum „Piloti dazu fragen“ deaktiviert ist – deaktiviert, nicht
+    // versteckt, wie beim noch nicht zitierbaren Dokument. Der Unterschied:
+    // Hier gibt es kein „noch nicht“. Der Bericht wurde absichtlich nicht
+    // indexiert, damit Piloti den eigenen Text nicht als Beleg zitiert.
+    notInKnowledge: 'Von Piloti erstellt — nicht in der Wissensbasis',
   },
   assignment: {
     unassigned: 'Unvergeben',

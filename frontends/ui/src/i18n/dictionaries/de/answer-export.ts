@@ -19,12 +19,34 @@ import type { en } from '../en'
 export const answerExport: typeof en.answerExport = {
   documentTitle: 'Antwort',
   fileName: 'antwort',
+  aiNotice: {
+    title: 'KI-generiert — nicht geprüft',
+    body: 'Dieses Dokument hat Piloti erstellt; ein Mensch hat es nicht geprüft. Es ist ein Entwurf und kein Nachweis — prüfen Sie jede Angabe, bevor Sie das Dokument weitergeben oder einreichen.',
+  },
+  // Siehe die englische Quelle für die drei Bedingungen an diesen Satz: wahr
+  // zum Satzzeitpunkt, kein Fehler und keine Entschuldigung. „nicht
+  // dargestellt" beschreibt die Datei; „konnte nicht" beschriebe die Arbeit.
+  diagramPlaceholder:
+    'Diagramm — in dieser Datei nicht dargestellt. Die Antwort in Piloti zeigt es als Grafik.',
   question: 'Frage',
   answer: 'Antwort',
   project: 'Projekt',
   createdAt: 'Erstellt am',
   sources: 'Quellen',
   findings: 'Befunde',
+  legalBasis: 'Rechtsgrundlagen',
+  // Beschriftungen eines Deckblatts, keine Sätze: „Standort“ und „Erstellt
+  // von“ stehen links in einer zweispaltigen Aufstellung, so wie es eine
+  // Amtsleserin auf dem Ausdruck erwartet. „Bundesland“ und „Analyse-ID“
+  // bleiben in beiden Sprachfassungen bei ihrem jeweiligen Fachwort — die
+  // englische Fassung folgt hier `platform`, das den Begriff dort schon
+  // beschriftet.
+  reportCover: {
+    location: 'Standort',
+    bundesland: 'Bundesland',
+    author: 'Erstellt von',
+    analysisId: 'Analyse-ID',
+  },
   confidence: 'Verlässlichkeit',
   confidenceReason: 'Begründung des Assistenten',
   confidenceLevels: {
@@ -73,6 +95,7 @@ export const answerExport: typeof en.answerExport = {
     process_map: 'Verfahrensablauf',
     document_checklist: 'Unterlagen',
     deadline_timeline: 'Fristen',
+    diagram: 'Diagramm',
     change_impact: 'Auswirkung',
     ifc_viewer: 'Modellansicht',
     ifc_compliance: 'Modellprüfung',

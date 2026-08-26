@@ -11,6 +11,7 @@ import { documentDisplayName } from '@/lib/documents/display-name'
 import { sourceTint } from '@/lib/ui/source-tint'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
 import { DocumentKindThumbnail } from './document-kind-thumbnail'
+import { AuthorshipLine } from './authorship-line'
 import { DocumentStatusBadge, isCitableStatus, isSettlingStatus } from './document-status'
 import { SemanticMatch } from './semantic-match'
 import { RaisedCard, RaisedCardBody, RaisedCardFooter, RaisedCardMedia } from '@/components/ui/raised-card'
@@ -299,6 +300,11 @@ export function FileCard({
             <p className="mt-[10px] truncate text-xs font-medium leading-[1.4] text-foreground" title={name}>
               {name}
             </p>
+            {/* A byline, directly under the name — who WROTE this. It is not in
+                the footer, because the footer is where the faces and the word
+                `Unvergeben` live and that slot answers a different question:
+                who is responsible for it. */}
+            <AuthorshipLine authoredBy={file.authoredBy} className="mt-0.5" />
             {match ? (
               <SemanticMatch snippet={match.snippet} page={match.page} score={match.score} />
             ) : isFailed ? (

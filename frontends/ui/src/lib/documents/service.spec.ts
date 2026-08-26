@@ -88,9 +88,14 @@ import {
   deleteDocument,
   renameDocument,
   getDocumentStatus,
+  getDocumentVisualDetails,
+  updateDocumentTags,
+  reindexProject,
   searchProjectDocuments,
   joinHitsToFiles,
   deriveSearchTopK,
+  dispatchDocument,
+  AgentAuthoredDocumentNotIndexableError,
   INGEST_DISPATCH_FAILED_MESSAGE,
 } from './service'
 import {
@@ -142,12 +147,42 @@ beforeEach(() => {
   }
   mockFetch.mockReset()
   vi.mocked(findProjectInOrg).mockResolvedValue(makeProject())
+  // `dispatchDocument` reads the row it is about to ingest and refuses when
+  // there is none — the row always exists in production, because
+  // `admitOrDiscard` commits it before the dispatch. A spec that leaves this
+  // unmocked puts every upload path on a shape the application cannot produce,
+  // and would have made the guard look breakable when it is not.
+  vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument())
 })
 
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
   vi.clearAllMocks()
+})
+
+describe('dispatchDocument reads the row, and needs one', () => {
+  it('refuses a document whose row it cannot read', async () => {
+    // The guard is an allow-list on a row that must EXIST. `if (row && …)` read
+    // a missing row as permission to ingest — trusting the caller about the one
+    // thing reading the row was meant to stop trusting them about. Unreachable
+    // today (every path inserts before dispatching), which is exactly when a
+    // default is cheap to fix and expensive to discover.
+    vi.mocked(findDocumentInOrg).mockResolvedValue(null)
+
+    await expect(
+      dispatchDocument({
+        organizationId: 'org-1',
+        projectId: 'proj-1',
+        documentId: 'doc-vanished',
+        filename: 'plan.pdf',
+        storageKey: 'k',
+        storageBucket: 'b',
+        collectionName: 'proj_abc',
+      }),
+    ).rejects.toBeInstanceOf(AgentAuthoredDocumentNotIndexableError)
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
 })
 
 describe('uploadDocument server-side type gate', () => {
@@ -370,6 +405,31 @@ describe('uploadDocument ingest dispatch — backend fetch is time-bounded', () 
 })
 
 describe('listDocuments', () => {
+  it('pushes the author filter down to the query instead of filtering the result', async () => {
+    // The „Von Piloti" chip asks for the small minority of rows a machine
+    // wrote, and migration 0063 gave that predicate its own partial index.
+    // Filtering after the fact would read the whole corpus — then reconcile and
+    // assignment-hydrate every row of it — to return a handful, so the
+    // parameter has to reach the repository. It also has to reach it in the
+    // right ARGUMENT SLOT: `limit` sits between, and passing the author there
+    // would silently cap the listing at zero rows instead of filtering it.
+    vi.mocked(listProjectDocuments).mockResolvedValue([])
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([])
+
+    await listDocuments(session, 'proj-1', { authoredBy: 'agent' })
+
+    expect(listProjectDocuments).toHaveBeenCalledWith('proj-1', session.organizationId, undefined, 'agent')
+  })
+
+  it('asks for every author when the caller states no filter', async () => {
+    vi.mocked(listProjectDocuments).mockResolvedValue([])
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([])
+
+    await listDocuments(session, 'proj-1')
+
+    expect(listProjectDocuments).toHaveBeenCalledWith('proj-1', session.organizationId, undefined, undefined)
+  })
+
   it('carries the curated metadata subset through and strips the internal metadata column', async () => {
     vi.mocked(listProjectDocuments).mockResolvedValue([])
     // reconcile returns rows with the internal `metadata` jsonb (ingestJobId)
@@ -384,6 +444,7 @@ describe('listDocuments', () => {
         fileSize: 1024,
         contentType: 'application/pdf',
         status: 'completed',
+        authoredBy: 'user',
         collectionName: 'proj_abc',
         folderId: null,
         createdAt: new Date('2026-01-01T00:00:00Z'),
@@ -413,9 +474,9 @@ describe('listDocuments', () => {
 })
 
 describe('joinHitsToFiles', () => {
-  const older = { filename: 'plan.pdf', createdAt: new Date('2026-01-01T00:00:00Z'), id: 'old' }
-  const newer = { filename: 'plan.pdf', createdAt: new Date('2026-02-01T00:00:00Z'), id: 'new' }
-  const other = { filename: 'permit.pdf', createdAt: new Date('2026-01-05T00:00:00Z'), id: 'permit' }
+  const older = { filename: 'plan.pdf', createdAt: new Date('2026-01-01T00:00:00Z'), id: 'old', authoredBy: 'user' }
+  const newer = { filename: 'plan.pdf', createdAt: new Date('2026-02-01T00:00:00Z'), id: 'new', authoredBy: 'user' }
+  const other = { filename: 'permit.pdf', createdAt: new Date('2026-01-05T00:00:00Z'), id: 'permit', authoredBy: 'user' }
 
   it('joins by filename and augments each row with snippet/page/score', () => {
     const hits = [
@@ -451,6 +512,72 @@ describe('joinHitsToFiles', () => {
     const [row] = joinHitsToFiles(hits, [older])
     expect(row.page).toBeNull()
   })
+
+  // A machine-authored document is not Projektwissen: it is never indexed, so a
+  // hit can only reach one by way of a filename collision. `generatedFilename`
+  // builds `slug(title)-YYYY-MM-DD.ext` out of a title the model itself wrote,
+  // which makes that collision reachable by the model, not just by accident.
+  it('never returns a machine-authored row, even on an exact filename match', () => {
+    const generated = {
+      filename: 'plan.pdf',
+      createdAt: new Date('2026-03-01T00:00:00Z'),
+      id: 'generated',
+      authoredBy: 'agent',
+    }
+    const hits = [{ file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: 2, collection: 'c' }]
+    expect(joinHitsToFiles(hits, [generated])).toEqual([])
+  })
+
+  it('lets the user row win a collision a newer machine-authored row would take', () => {
+    // Recency alone would hand the hit to the generated row, and with it the
+    // real Gutachten's snippet and page number under a „Von Piloti erstellt" label.
+    const userRow = { ...older, authoredBy: 'user' }
+    const generated = {
+      filename: 'plan.pdf',
+      createdAt: new Date('2026-03-01T00:00:00Z'),
+      id: 'generated',
+      authoredBy: 'agent',
+    }
+    const hits = [{ file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: null, collection: 'c' }]
+    const [row] = joinHitsToFiles(hits, [userRow, generated])
+    expect(row.id).toBe('old')
+  })
+
+  it('admits only `user`, so an author value nobody has added yet stays out', () => {
+    // The check must be an allow-list, not `=== 'agent'`. `document-authors.ts`
+    // anticipates a later `system` or `import`, and the column carries no CHECK
+    // (migration 0063), so an unknown value is reachable. A deny-list would let
+    // each new author ride in until someone remembers to extend it — the same
+    // mistake `findStorageKeyByCollectionAndFilename` was corrected for.
+    const unknownAuthor = {
+      filename: 'plan.pdf',
+      createdAt: new Date('2026-06-01T00:00:00Z'),
+      id: 'imported',
+      authoredBy: 'import',
+    }
+    const hits = [{ file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: null, collection: 'c' }]
+    expect(joinHitsToFiles(hits, [unknownAuthor])).toEqual([])
+  })
+
+  // There is deliberately no test for a row that omits `authoredBy`: the
+  // signature requires the column, so a caller that forgets it is a compile
+  // error, not a runtime fail-open. Both callers select it — `listProjectDocuments`
+  // (documents/repository.ts) and `listArchiv` (archiv/repository.ts).
+  it('takes the authorship of each row, not of the first one seen', () => {
+    // Guards the loop shape: a `break`-like early exit, or hoisting the check out
+    // of the loop, would let a generated row ride in behind a user row.
+    const generated = {
+      filename: 'permit.pdf',
+      createdAt: new Date('2026-06-01T00:00:00Z'),
+      id: 'generated',
+      authoredBy: 'agent',
+    }
+    const hits = [
+      { file_name: 'plan.pdf', score: 0.9, snippet: 'a', page_number: null, collection: 'c' },
+      { file_name: 'permit.pdf', score: 0.4, snippet: 'x', page_number: null, collection: 'c' },
+    ]
+    expect(joinHitsToFiles(hits, [older, generated]).map((r) => r.id)).toEqual(['old'])
+  })
 })
 
 describe('deriveSearchTopK', () => {
@@ -473,7 +600,11 @@ describe('deriveSearchTopK', () => {
 })
 
 describe('searchProjectDocuments', () => {
-  const fileRows: Array<ReconcilableDocument & { createdAt: Date }> = [
+  // `listProjectDocuments` selects `authoredBy` (repository.ts), so every row
+  // reaching the join carries it. Building these rows without the column would
+  // put the search seam on a shape production never produces — and would hide a
+  // regression in the authorship filter behind the Archiv fallback.
+  const fileRows: Array<ReconcilableDocument & { createdAt: Date; authoredBy: string }> = [
     {
       id: 'doc-a',
       filename: 'plan.pdf',
@@ -481,6 +612,7 @@ describe('searchProjectDocuments', () => {
       status: 'completed',
       collectionName: 'proj_abc',
       errorMessage: null,
+      authoredBy: 'user',
     },
     {
       id: 'doc-b',
@@ -489,6 +621,7 @@ describe('searchProjectDocuments', () => {
       status: 'completed',
       collectionName: 'proj_abc',
       errorMessage: null,
+      authoredBy: 'user',
     },
   ]
 
@@ -538,6 +671,42 @@ describe('searchProjectDocuments', () => {
     // Reordered by score (permit first), each augmented with match evidence.
     expect(hits.map((h) => h.id)).toEqual(['doc-b', 'doc-a'])
     expect(hits[0]).toMatchObject({ snippet: 'permit snippet', page: 2, score: 0.91 })
+  })
+
+  // The end-to-end half of the `joinHitsToFiles` authorship guard: the unit test
+  // pins the function, this pins the seam that actually calls it. A filed report
+  // takes its filename from a title the model wrote, so a collision with a real
+  // Gutachten is reachable by the model — and recency would hand the hit to the
+  // newer generated row, returning the Gutachten's snippet and page under a
+  // „Von Piloti erstellt" label.
+  it('never surfaces a machine-authored row, even when it wins the collision on recency', async () => {
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([
+      ...fileRows.map((r) => ({ ...r, metadata: { ingestJobId: 'j' } })),
+      {
+        id: 'doc-generated',
+        filename: 'plan.pdf',
+        createdAt: new Date('2026-06-01T00:00:00Z'),
+        status: 'completed',
+        collectionName: 'proj_abc',
+        errorMessage: null,
+        authoredBy: 'agent',
+        metadata: { ingestJobId: 'j' },
+      },
+    ] as unknown as Awaited<ReturnType<typeof reconcileDocumentStatuses>>)
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          hits: [
+            { file_name: 'plan.pdf', score: 0.9, snippet: 'plan snippet', page_number: 7, collection: 'proj_abc' },
+          ],
+        }),
+    })
+
+    const { hits } = await searchProjectDocuments(session, 'proj-1', 'fire escape')
+
+    expect(hits.map((h) => h.id)).toEqual(['doc-a'])
   })
 
   it('fails open to no hits when the backend errors (non-OK)', async () => {
@@ -950,5 +1119,200 @@ describe('getDocumentStatus', () => {
     const status = await getDocumentStatus(session, 'doc-1')
 
     expect(status).toHaveProperty('displayName', null)
+  })
+})
+
+/**
+ * Every `(collectionName, filename)` call this service makes, exercised against
+ * the collision `generatedFilename` puts within the model's reach.
+ *
+ * The scenario is one project. A person uploaded
+ * `brandschutz-gutachten-2026-08-20.pdf`; the same day Piloti filed a report
+ * whose own H1 slugged to the same stem, into the SAME project collection,
+ * because that is where a filed report goes. Two rows, one name over there, and
+ * the backend has an entry for only the human one — nothing machine-authored is
+ * ever dispatched to `/v1/ingest`.
+ *
+ * Both rows are addressed here by id, so nothing about these cases depends on
+ * the collision being *detected*: the agent row must make no
+ * `(collection, filename)` call AT ALL, because it owns nothing under that pair
+ * whether or not somebody else does.
+ */
+describe('the authorship gate on the (collection, filename) join', () => {
+  const collidingName = 'brandschutz-gutachten-2026-08-20.pdf'
+
+  const humanDoc = makeDocument({ filename: collidingName })
+
+  // `authoredBy: 'agent'` obliges the other three provenance columns —
+  // `documents_authorship_requires_provenance` (migration 0063) rejects the row
+  // otherwise, so a fixture that set only `authoredBy` would describe a row the
+  // database cannot hold.
+  const agentDoc = makeDocument({
+    id: 'doc-agent',
+    filename: collidingName,
+    authoredBy: 'agent',
+    authoredByProducer: 'deep_research',
+    authoredByRef: 'run-7',
+    authoredByRefKind: 'agent_run',
+    status: 'stored',
+    storageKey: 'org/org-1/project/proj-1/doc/doc-agent/' + collidingName,
+  })
+
+  /** Backend calls that name a document — the ones a filename identity reaches. */
+  const documentCalls = () =>
+    mockFetch.mock.calls.filter(([url]) => String(url).includes('/v1/collections/'))
+
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) })
+  })
+
+  describe('deleteDocument', () => {
+    it("does not purge chunks for a machine-authored row — they are somebody else's", async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(agentDoc)
+
+      await deleteDocument(session, 'doc-agent', new Request('http://x'))
+
+      // The DELETE was unconditional. For an agent row it is always wrong (the
+      // row owns no chunks), and on this collision it removed the HUMAN
+      // Gutachten's chunks while that document kept `status: 'completed'`, its
+      // green „zitierbar“ badge and its Ask affordance — and answered nothing
+      // from then on.
+      expect(documentCalls()).toHaveLength(0)
+      // The delete itself still completes: the row and the object are this
+      // function's durable job and neither depends on the backend.
+      expect(deleteProjectDocument).toHaveBeenCalledWith('doc-agent', 'org-1', 'proj-1')
+      expect(recordAuditEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'document.deleted' }),
+      )
+    })
+
+    it('still purges chunks for the human document that owns the same filename', async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(humanDoc)
+
+      await deleteDocument(session, 'doc-1', new Request('http://x'))
+
+      const [url, init] = documentCalls()[0] ?? []
+      expect(String(url)).toBe('http://backend:8000/v1/collections/proj_abc/documents')
+      expect((init as RequestInit)?.method).toBe('DELETE')
+      expect(JSON.parse(String((init as RequestInit)?.body))).toEqual({ file_ids: [collidingName] })
+    })
+  })
+
+  describe('getDocumentVisualDetails', () => {
+    it('returns no page text for a machine-authored row, and asks for none', async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(agentDoc)
+
+      // Per-page VLM text is fetched by (collection, filename); unGated, this
+      // panel showed another document's extracted drawings.
+      await expect(getDocumentVisualDetails(session, 'doc-agent')).resolves.toEqual({
+        id: 'doc-agent',
+        details: [],
+      })
+      expect(documentCalls()).toHaveLength(0)
+    })
+
+    it('still fetches page text for the human document with the same filename', async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(humanDoc)
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ details: [{ page: 3, content_type: 'drawing', text: 'Schnitt A-A' }] }),
+      })
+
+      const result = await getDocumentVisualDetails(session, 'doc-1')
+
+      expect(result.details).toEqual([
+        { page: 3, contentType: 'drawing', drawingType: '', scale: '', text: 'Schnitt A-A' },
+      ])
+      expect(String(documentCalls()[0]?.[0])).toBe(
+        `http://backend:8000/v1/collections/proj_abc/documents/${collidingName}/visual-details`,
+      )
+    })
+  })
+
+  describe('updateDocumentTags', () => {
+    it('404s a machine-authored row instead of retagging the colliding document', async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(agentDoc)
+
+      // 404 is what the backend itself answers for a NON-colliding agent row
+      // (no summary row was ever written for it). The gate makes the colliding
+      // one answer the same way rather than PATCHing the human document's
+      // controlled OIB tags.
+      await expect(updateDocumentTags(session, 'doc-agent', ['Gutachten'])).rejects.toBeInstanceOf(
+        NotFoundError,
+      )
+      expect(documentCalls()).toHaveLength(0)
+    })
+
+    it('still retags the human document with the same filename', async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(humanDoc)
+      mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ tags: ['Gutachten'] }) })
+
+      await expect(updateDocumentTags(session, 'doc-1', ['Gutachten'])).resolves.toEqual({
+        id: 'doc-1',
+        tags: ['Gutachten'],
+      })
+      expect(String(documentCalls()[0]?.[0])).toBe(
+        `http://backend:8000/v1/collections/proj_abc/documents/${collidingName}/tags`,
+      )
+    })
+  })
+
+  describe('renameDocument', () => {
+    it('renames a machine-authored row without retitling the colliding document', async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(agentDoc)
+
+      await renameDocument(session, 'doc-agent', 'Piloti-Bericht.pdf', new Request('http://x'))
+
+      // The durable rename is the row, and it happens.
+      expect(setDocumentDisplayName).toHaveBeenCalledWith('doc-agent', 'org-1', 'Piloti-Bericht.pdf')
+      // The best-effort mirror does not: it would have renamed the human
+      // Gutachten's citation chips to „Piloti-Bericht.pdf“.
+      expect(documentCalls()).toHaveLength(0)
+    })
+
+    it('still mirrors the rename for the human document with the same filename', async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(humanDoc)
+
+      await renameDocument(session, 'doc-1', 'Einreichplan.pdf', new Request('http://x'))
+
+      expect(String(documentCalls()[0]?.[0])).toBe(
+        `http://backend:8000/v1/collections/proj_abc/documents/${collidingName}/display-title`,
+      )
+    })
+  })
+
+  describe('reindexProject', () => {
+    it('skips a machine-authored row rather than deleting the colliding chunks', async () => {
+      // Belt to the `'user'` filter the listing already applies: a row that
+      // reaches the rebuild loop machine-authored is counted as never-eligible,
+      // and — the point — its chunk DELETE is never issued. The delete is the
+      // destructive half of this function and runs BEFORE the dispatcher's own
+      // refusal would.
+      vi.mocked(listProjectDocuments).mockResolvedValue([
+        {
+          id: 'doc-agent',
+          filename: collidingName,
+          displayName: null,
+          fileSize: 1024,
+          contentType: 'application/pdf',
+          status: 'stored',
+          authoredBy: 'agent',
+          collectionName: 'proj_abc',
+          folderId: null,
+          createdAt: new Date('2026-08-20T00:00:00Z'),
+          updatedAt: new Date('2026-08-20T00:00:00Z'),
+          errorMessage: null,
+          metadata: null,
+        },
+      ])
+      vi.mocked(findDocumentInOrg).mockResolvedValue(agentDoc)
+
+      const result = await reindexProject(session, 'proj-1')
+
+      expect(result).toEqual({ projectId: 'proj-1', queued: 0, skipped: 1, failed: [] })
+      expect(documentCalls()).toHaveLength(0)
+    })
   })
 })

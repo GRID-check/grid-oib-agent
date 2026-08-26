@@ -581,6 +581,26 @@ export interface BlocksDocumentProps {
   cover: CoverInfo
   /** The document's body — prose, cards and references, already assembled. */
   blocks: DocBlock[]
+  /**
+   * The machine-readable AI marking, into the Info dictionary's Keywords.
+   *
+   * Separate from the printed notice on purpose, and both or neither: the
+   * notice is what a person reads, this is what a detector matches on, and a
+   * document that carries one without the other is marked for exactly one of
+   * its two audiences. `fileGeneratedDocument` verifies this string against the
+   * stored bytes before it stores them, so it cannot be merely claimed.
+   */
+  keywords?: string
+  /**
+   * The Info dictionary's Subject.
+   *
+   * The one marking field a reader actually SEES, in their viewer's
+   * document-properties panel — so „KI-generiert — nicht geprüft" reaches
+   * someone who never scrolls to page one. Set only when there is a marking, so
+   * an ordinary export's Subject is not overwritten with something it did not
+   * say.
+   */
+  subject?: string
 }
 
 /**
@@ -591,12 +611,19 @@ export interface BlocksDocumentProps {
  * viewer puts in its title bar, and leaving it blank means an exported answer
  * shows up in a DMS as an untitled file from an unnamed producer.
  */
-export const BlocksDocument: React.FC<BlocksDocumentProps> = ({ cover, blocks }) => (
+export const BlocksDocument: React.FC<BlocksDocumentProps> = ({
+  cover,
+  blocks,
+  keywords,
+  subject,
+}) => (
   <Document
     title={cover.title}
     author={PRODUCT_NAME}
     creator={PRODUCT_NAME}
     producer={PRODUCT_NAME}
+    keywords={keywords}
+    subject={subject}
   >
     <Page size="A4" style={COVER_PAGE_STYLE}>
       <CoverContent cover={cover} />

@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { createDeepResearchClient, getJobStatus, type DeepResearchCallbacks } from './deep-research-client'
+import {
+  createDeepResearchClient,
+  getJobReport,
+  getJobStatus,
+  type DeepResearchCallbacks,
+} from './deep-research-client'
 import { ApiRequestError } from './api-error'
 
 /**
@@ -169,5 +174,63 @@ describe('deep research REST client', () => {
 
     expect(error).toBeInstanceOf(ApiRequestError)
     expect((error as ApiRequestError).status).toBe(404)
+  })
+})
+
+/**
+ * The report body is REBUILT at this boundary rather than passed through, so a
+ * malformed `filed` cannot cross wearing a type it does not satisfy. The cost
+ * of that choice is that a key this function does not name is a key no caller
+ * ever sees — which is exactly how `filingFailed` came to be set by the BFF,
+ * asserted by its route spec, and read by nobody.
+ */
+describe('report filing, as it crosses the wire', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const reportBody = (extra: Record<string, unknown>): void => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ job_id: 'job-1', has_report: true, report: '# Bericht', ...extra }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      )
+    )
+  }
+
+  test('carries a broken filing promise through to the caller', async () => {
+    reportBody({ filingFailed: true })
+
+    const response = await getJobReport('job-1', undefined, { projectId: 'proj-1' })
+
+    expect(response.filingFailed).toBe(true)
+    expect(response.filed).toBeUndefined()
+    // Never at the answer's expense: the report the user waited minutes for is
+    // returned alongside the bad news, not instead of it.
+    expect(response.report).toBe('# Bericht')
+  })
+
+  test('reports no failure when the server claimed none', async () => {
+    // Absence still means "nothing was promised" — no project, no attempt, a
+    // run older than the feature. That state must stay silent.
+    reportBody({})
+
+    const response = await getJobReport('job-1', undefined, { projectId: 'proj-1' })
+
+    expect(response.filingFailed).toBeUndefined()
+  })
+
+  test('believes only a real boolean', async () => {
+    // A retraction is a claim about a promise the server made. A truthy string
+    // arriving in this key would have the banner take back a promise nobody
+    // said was broken.
+    reportBody({ filingFailed: 'yes' })
+
+    const response = await getJobReport('job-1', undefined, { projectId: 'proj-1' })
+
+    expect(response.filingFailed).toBeUndefined()
   })
 })

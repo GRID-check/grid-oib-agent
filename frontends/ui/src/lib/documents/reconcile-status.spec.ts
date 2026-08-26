@@ -9,7 +9,12 @@ vi.mock('@/lib/db', () => ({
 
 import { getDb } from '@/lib/db'
 import { asDb } from '@/test-utils/db-fixtures'
-import { reconcileDocumentStatuses, extractIngestJobId, clearCollectionFilesCache } from './reconcile-status'
+import {
+  reconcileDocumentStatuses,
+  extractIngestJobId,
+  clearCollectionFilesCache,
+  type ReconcilableDocument,
+} from './reconcile-status'
 
 const makeDbMock = () => {
   const where = vi.fn().mockResolvedValue(undefined)
@@ -19,11 +24,19 @@ const makeDbMock = () => {
   return { update, set, where }
 }
 
-const makeRow = (overrides: Record<string, unknown> = {}) => ({
+/**
+ * A row as the read paths hand it over. `authoredBy: 'user'` is the default
+ * because a person uploading a file is what every row means until a commissioned
+ * run writes one — and because it is REQUIRED: the fixture is typed as the real
+ * `ReconcilableDocument`, so a case that means to exercise the machine-authored
+ * path has to say so rather than inherit it.
+ */
+const makeRow = (overrides: Partial<ReconcilableDocument> = {}): ReconcilableDocument => ({
   id: 'doc-1',
   status: 'pending',
   filename: 'plan.pdf',
   collectionName: 'proj_abc',
+  authoredBy: 'user',
   errorMessage: null,
   metadata: { ingestJobId: 'job-1' },
   ...overrides,
@@ -356,6 +369,142 @@ describe('reconcileDocumentStatuses metadata enrichment', () => {
 
     expect(result.summary).toBeUndefined()
     expect(result.chunkCount).toBeUndefined()
+  })
+
+  /**
+   * The collision `generatedFilename` makes reachable, played out on the read
+   * path: one real Gutachten a person uploaded, and one report Piloti filed into
+   * the SAME project collection whose model-written title slugged to the same
+   * stem on the same day. The backend list has exactly one entry for that name —
+   * the human document's, because nothing machine-authored is ever ingested.
+   */
+  const gutachtenListing = () =>
+    collectionResponse([
+      {
+        file_id: 'f-1',
+        file_name: 'brandschutz-gutachten-2026-08-20.pdf',
+        status: 'success',
+        summary: 'Gutachten zum Brandschutzkonzept, Bauteil B.',
+        chunk_count: 42,
+        tags: ['Gutachten', 'Brandschutz'],
+        metadata: { page_count: 31, content_types: ['text', 'table'] },
+      },
+    ])
+
+  const collidingRow = (authoredBy: 'user' | 'agent') =>
+    makeRow({
+      id: authoredBy === 'agent' ? 'doc-agent' : 'doc-human',
+      status: authoredBy === 'agent' ? 'stored' : 'completed',
+      filename: 'brandschutz-gutachten-2026-08-20.pdf',
+      authoredBy,
+    })
+
+  it('gives a machine-authored row none of the colliding human document\'s metadata', async () => {
+    makeDbMock()
+    mockFetch.mockResolvedValue(gutachtenListing())
+
+    const [result] = await reconcileDocumentStatuses([collidingRow('agent')], 'org-1')
+
+    // Every one of these belongs to somebody's actual Gutachten. `FileCard`
+    // renders `summary` with no gate, so before the authorship gate this row
+    // displayed that summary under „Von Piloti erstellt“, and
+    // `GET /api/documents/{id}/status` returned it to the chat peek pane.
+    expect(result.summary).toBeUndefined()
+    expect(result.pageCount).toBeUndefined()
+    expect(result.chunkCount).toBeUndefined()
+    expect(result.contentTypes).toBeUndefined()
+    expect(result.tags).toBeUndefined()
+    // The row itself is untouched — this is a suppression, not a failure.
+    expect(result.status).toBe('stored')
+  })
+
+  it('still enriches the human document that owns the colliding filename', async () => {
+    makeDbMock()
+    mockFetch.mockResolvedValue(gutachtenListing())
+
+    const [result] = await reconcileDocumentStatuses([collidingRow('user')], 'org-1')
+
+    expect(result.summary).toBe('Gutachten zum Brandschutzkonzept, Bauteil B.')
+    expect(result.pageCount).toBe(31)
+    expect(result.tags).toEqual(['Gutachten', 'Brandschutz'])
+  })
+
+  it('does not fetch a collection listing for a read of machine-authored rows only', async () => {
+    makeDbMock()
+    mockFetch.mockResolvedValue(gutachtenListing())
+
+    await reconcileDocumentStatuses([collidingRow('agent')], 'org-1')
+
+    // The gate runs ahead of the fetch: the row owns nothing in that list either
+    // way, so deciding costs no backend round trip.
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+})
+
+describe('reconcileDocumentStatuses authorship gate on the status pass', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch)
+    mockFetch.mockReset()
+    clearCollectionFilesCache()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  it('never resolves a machine-authored row from a colliding entry in the file list', async () => {
+    const db = makeDbMock()
+    // In flight AND machine-authored is already an anomaly — filing writes the
+    // terminal `stored`. The point is that the collection fallback must be
+    // closed by AUTHORSHIP and not merely by the status vocabulary: `stored`
+    // being outside IN_FLIGHT_STATUSES is a fact about the status column, and a
+    // row that reaches this pass anyway would otherwise adopt the human
+    // document's `success` and go green and „zitierbar“.
+    mockFetch.mockResolvedValue(
+      collectionResponse([
+        { file_id: 'f-1', file_name: 'brandschutz-gutachten-2026-08-20.pdf', status: 'success' },
+      ])
+    )
+
+    const [result] = await reconcileDocumentStatuses(
+      [
+        makeRow({
+          status: 'pending',
+          filename: 'brandschutz-gutachten-2026-08-20.pdf',
+          authoredBy: 'agent',
+          metadata: null,
+        }),
+      ],
+      'org-1'
+    )
+
+    expect(result.status).toBe('pending')
+    expect(db.update).not.toHaveBeenCalled()
+  })
+
+  it('still resolves a human row with the same filename from the same list', async () => {
+    const db = makeDbMock()
+    mockFetch.mockResolvedValue(
+      collectionResponse([
+        { file_id: 'f-1', file_name: 'brandschutz-gutachten-2026-08-20.pdf', status: 'success' },
+      ])
+    )
+
+    const [result] = await reconcileDocumentStatuses(
+      [
+        makeRow({
+          status: 'pending',
+          filename: 'brandschutz-gutachten-2026-08-20.pdf',
+          authoredBy: 'user',
+          metadata: null,
+        }),
+      ],
+      'org-1'
+    )
+
+    expect(result.status).toBe('completed')
+    expect(db.update).toHaveBeenCalled()
   })
 })
 

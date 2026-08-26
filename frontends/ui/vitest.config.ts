@@ -45,7 +45,13 @@ export default defineConfig({
     clearMocks: true,
     server: {
       deps: {
-        inline: [/@nvidia/],
+        // `@workos-inc/authkit-nextjs` is inlined so Vite resolves its imports
+        // rather than Node: its ESM build imports `next/cache` with no file
+        // extension, which Node's ESM resolver rejects ("Did you mean to import
+        // next/cache.js?"), and every spec that transitively reaches authkit
+        // then fails to LOAD rather than to assert. Vite is fine with the
+        // specifier, which is why the app build never saw this.
+        inline: [/@nvidia/, /@workos-inc\/authkit-nextjs/],
       },
     },
     coverage: {
@@ -80,6 +86,16 @@ export default defineConfig({
         __dirname,
         './config/vitest/mocks/external-svg-loader.ts',
       ),
+      // `@workos-inc/authkit-nextjs`'s ESM build imports `next/cache` without a
+      // file extension. Node's ESM resolver requires one, so every spec that
+      // transitively reaches authkit fails to load — not with an assertion, but
+      // with "Cannot find module … Did you mean to import next/cache.js?".
+      //
+      // Next ships the file; only the specifier is short. Vite's own resolver
+      // is fine with it in the app build, which is why this surfaces in vitest
+      // alone and why the fix belongs here rather than in a stub: nothing about
+      // authkit's BEHAVIOUR needs replacing, just the extension.
+      'next/cache': path.resolve(__dirname, './node_modules/next/cache.js'),
     },
   },
 })

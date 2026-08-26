@@ -10,6 +10,7 @@ export type ProjectPermission =
   | 'project:manage'
   | 'project:chat'
   | 'project:documents:write'
+  | 'project:documents:generate'
   | 'project:memory:write'
   | 'project:members:manage'
   | 'project:skills:manage'

@@ -303,6 +303,53 @@ services:
     networks:
       - aiq-network
 
+  # One-shot audit-schema reconciler, and the compose half of what the
+  # Kubernetes Job `grid-app-audit-schemas` does (deploy/pulumi/src/app/
+  # audit-schemas-job.ts). WorkOS validates every emitted Audit Log event
+  # against the schema registered for its action and rejects the event when
+  # there is none — or when the registered one has the wrong targets or
+  # metadata keys, which is the same rejection.
+  #
+  # It runs BEFORE the frontend serves, unlike the Kubernetes Job, because
+  # `document.generated` is emitted with the THROWING emitter: a rejected event
+  # does not thin the audit trail, it unfiles the document the trail was about
+  # (frontends/ui/src/lib/documents/generated.ts). An unreconciled environment
+  # therefore serves a Piloti that files nothing, silently, and there is no
+  # rolling update here whose availability the ordering would cost — the stack
+  # comes up as a unit, and where WORKOS_API_KEY is set WorkOS is already a hard
+  # dependency of it (nobody can log in without one).
+  #
+  # No key, no reconcile, exit 0: the default stack is anonymous
+  # (REQUIRE_AUTH=false), and there is no WorkOS environment to reconcile
+  # against — the same condition `deploy/pulumi/index.ts` expresses as
+  # `if (cfg.auth.requireAuth)`. The guard is on the KEY rather than on
+  # REQUIRE_AUTH because the key is what the script and every emit actually
+  # need.
+  #
+  # `--apply` reconciles (reads first, writes only what is missing or changed),
+  # so re-running on every `up` is a no-op against an environment that already
+  # matches. Bare `node`: the runtime image ships no npm and no devDependencies.
+  grid-audit-schemas:
+    image: ${FRONTEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-frontend:2.0.0}
+    build:
+      context: ../../frontends/ui
+      dockerfile: deploy/Dockerfile
+    container_name: aiq-blueprint-audit-schemas
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - >
+        if [ -z "$${WORKOS_API_KEY}" ]; then
+        echo "WORKOS_API_KEY is unset - no WorkOS environment to reconcile, skipping.";
+        exit 0;
+        fi;
+        node scripts/provision-workos-audit-schemas.mjs --apply
+    environment:
+      - WORKOS_API_KEY=${WORKOS_API_KEY:-}
+    networks:
+      - aiq-network
+
   frontend:
     image: ${FRONTEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-frontend:2.0.0}
     build:
@@ -395,6 +442,7 @@ services:
       # IFC/BIM models (ADR-0045). ON by default; set false to withdraw the
       # feature without turning on flag enforcement for everything else.
       - GRID_IFC_MODELS_ENABLED=${GRID_IFC_MODELS_ENABLED:-true}
+      - GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED=${GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED:-true}
       # Extraction bounds. BIM_MAX_IFC_BYTES is also the UPLOAD ceiling for a
       # .ifc — the two must not disagree. Defaults: 250 MB / 200 000 rows.
       - BIM_MAX_IFC_BYTES=${BIM_MAX_IFC_BYTES:-}
@@ -405,6 +453,11 @@ services:
       - aiq-network
     depends_on:
       grid-migrate:
+        condition: service_completed_successfully
+      # Wait for the WorkOS audit schemas before serving. A rejected
+      # `document.generated` event unfiles the document it was about, so an
+      # unreconciled environment serves a Piloti that files nothing.
+      grid-audit-schemas:
         condition: service_completed_successfully
       aiq-agent:
         condition: service_healthy

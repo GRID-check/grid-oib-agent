@@ -22,7 +22,13 @@
  * - GET /api/jobs/async/job/{job_id}/state - Get job artifacts
  * - GET /api/jobs/async/job/{job_id}/report - Get final report
  *
- * @see docs/api.md - Deep Research API section
+ * The report GET is also where a commissioned run's completion is OBSERVED on
+ * the BFF, and therefore where the report stops being a chat message that dies
+ * with the run's file system and becomes a `documents` row the project can
+ * find, assign, preview and delete (`fileReportIfCommissioned` below).
+ *
+ * @see docs/api/bff-routes.md - Deep Research / Async Jobs, incl. the additive
+ *      `filed` object this route adds to the report response
  */
 
 import { NextResponse } from 'next/server'
@@ -47,7 +53,9 @@ import {
 } from '@/lib/backend-proxy'
 import { parseBodyContext, parseQueryContext } from '@/lib/proxy/collection-authz'
 import { buildProxyUrl, resolveSessionAndBearer } from '@/lib/proxy/proxy-request'
-import type { GridSession } from '@/lib/auth/types'
+import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
+import { fileResearchReport } from '@/lib/documents/research-report'
+import { findProjectIdByCollectionName } from '@/lib/projects/repository'
 
 /**
  * Per-org runtime model overrides ({agentGroup: openrouterModelId}) plus the
@@ -126,6 +134,184 @@ const traceRequest = (...args: unknown[]): void => {
 const JOBS_BASE_PATH = '/v1/jobs/async'
 
 /**
+ * What the client is told about the filing, alongside the report itself.
+ *
+ * Additive: every field the report response already had is untouched, so a
+ * client that has never heard of filing keeps working. `documentId` is what the
+ * toast's *Öffnen* and *Zuweisen* actions need; `alreadyFiled` distinguishes
+ * "this run just produced a document" from "this is the fourth time the tab was
+ * opened", which is the difference between showing that toast and not.
+ */
+interface ReportFilingResult {
+  documentId: string
+  filename: string
+  alreadyFiled: boolean
+}
+
+/**
+ * What happened to the filing, when something happened at all.
+ *
+ * ## Why a failure is reported and not just swallowed
+ *
+ * Filing stays best-effort — the answer is never the filing's to lose, and the
+ * `catch` below still swallows the error. What changed is that swallowing it
+ * SILENTLY is a broken promise: before the run starts, the banner prints
+ * „Der fertige Bericht wird in diesem Projekt unter ‚Berichte' abgelegt."
+ * (`deepResearch.starting.filingDisclosure`). A reader who was told that, and
+ * is then shown a plain success, goes to Berichte and finds nothing — with
+ * nothing anywhere to tell them why, because the only record is a server log
+ * they cannot read.
+ *
+ * `null` used to mean four different things: not a report request, no project
+ * to file into, no report yet, and "we tried and it did not work". The first
+ * three are states in which no promise was made. Only the fourth is a promise
+ * broken, and it is the only one worth a word to the reader.
+ *
+ * ## Why the reason does not travel
+ *
+ * A quota refusal, a revoked permission and an object store that is down are
+ * one fact to this reader: the document is not there. The differences between
+ * them are actionable by an administrator, not by the architect reading a
+ * report, and the messages that carry them name buckets, permissions and
+ * limits. Those belong in the log, which already has them. A boolean is the
+ * whole of what the surface can honestly act on.
+ */
+type ReportFilingOutcome = { status: 'filed'; filed: ReportFilingResult } | { status: 'failed' }
+
+/** The report endpoint's body, as `JobReportResponse` on the backend defines it. */
+function readReportMarkdown(data: unknown): string | null {
+  if (typeof data !== 'object' || data === null) return null
+  const body = data as { has_report?: unknown; report?: unknown }
+  if (body.has_report !== true) return null
+  return typeof body.report === 'string' && body.report.trim() ? body.report : null
+}
+
+/**
+ * The collection of the project this run was COMMISSIONED in, off the same body.
+ *
+ * The backend records it on `job_access` at submit time, from the request that
+ * started the run, and returns it beside the report. It is the only statement
+ * about the destination that the reader of the report cannot influence.
+ */
+function readCommissioningCollection(data: unknown): string | null {
+  if (typeof data !== 'object' || data === null) return null
+  const body = data as { project_collection?: unknown }
+  return typeof body.project_collection === 'string' && body.project_collection
+    ? body.project_collection
+    : null
+}
+
+/**
+ * The run's cards off the same body, for the filed PDF's „Rechtsgrundlagen".
+ *
+ * Only shape is checked, not card identity: the backend already validated these
+ * at generation (`aiq_agent.cards.validate_cards`) and `legalBasisSection`
+ * narrows them again at render, so a third opinion here could only reject a
+ * card both of those accept. What it does do is refuse a non-array, so a
+ * malformed body cannot reach `fileResearchReport` as something to iterate.
+ *
+ * Absent rather than empty when there is nothing: the section prints no heading
+ * at all for an absent value, which is the state a report with no legal basis
+ * should reach.
+ */
+function readReportCards(data: unknown): unknown[] | undefined {
+  if (typeof data !== 'object' || data === null) return undefined
+  const { cards } = data as { cards?: unknown }
+  return Array.isArray(cards) && cards.length > 0 ? cards : undefined
+}
+
+/**
+ * File a finished run's report into the project, if this is one.
+ *
+ * ## Why the failure is swallowed
+ *
+ * The user asked a question and waited minutes for the answer. Filing is a
+ * SECOND thing that happens to that answer, and no failure of it — a quota
+ * refusal, a revoked permission, an object store that is down — is a reason to
+ * throw the answer away. It is logged and surfaced on the response (`filed`
+ * absent) rather than raised, which is the same posture every other best-effort
+ * enrichment on this route already takes.
+ *
+ * ## Interactive runs only
+ *
+ * A scheduled run (`jobs.schedule_cron`) has no live session, and there is no
+ * BFF path today on which one reaches this handler — nothing polls a report on
+ * a user's behalf. The session check below is therefore both the anonymous-mode
+ * guard and the scheduled-run guard: with no session there is no principal
+ * whose `project:documents:write` could authorize the write, and resolving the
+ * scheduler's `triggered_by` permission at fire time is a real design that v1.1
+ * owns (design doc decision 10). Do not paper over it by falling back to a
+ * service token — the agent's principal is WIDER than the user's, which is the
+ * hole this whole feature was shaped to avoid.
+ */
+async function fileReportIfCommissioned(
+  req: Request,
+  path: string[],
+  session: GridSession | null,
+  data: unknown
+): Promise<ReportFilingOutcome | null> {
+  if (path.length !== 3 || path[0] !== 'job' || path[2] !== 'report') return null
+  const runId = path[1]
+  // The reader's project is deliberately NOT a parameter of this function. It
+  // used to be, as a precondition — `|| !projectId` — which survived the change
+  // that moved the destination onto the run and quietly kept the old coupling:
+  // a run commissioned in a project, opened from a context that resolved no
+  // project of its own, was never filed, and the response carried neither
+  // `filed` nor `filingFailed`, so a reader who had been promised „wird
+  // abgelegt" was told nothing at all. Taking the argument away is what stops
+  // that being re-introduced by someone reading the precondition as a guard.
+  if (!session?.organizationId) return null
+
+  const report = readReportMarkdown(data)
+  if (!report) return null
+
+  // WHERE the report goes is a property of the RUN, never of the request that
+  // reads it. `projectId` above is whatever the reader's request named, and
+  // `buildCollectionScopeFromRequest` fills a missing one in from their stored
+  // `active_project_id` — so a run started in a project-less chat (whose banner
+  // therefore promised no filing at all) would be filed into whatever project
+  // that reader last had open, and an old run reopened while a different
+  // project is active would be filed there. Both file a report researched under
+  // one Bauordnung carrying a cover sheet that names another one, marked
+  // „KI-generiert" and shaped for an Einreichung.
+  //
+  // So the destination is DERIVED from the run's own `job_access` row and the
+  // request's project is not consulted. A run with no commissioning project
+  // files nothing: that is the honest reading of „no promise was made", not a
+  // licence to pick one.
+  const commissioned = readCommissioningCollection(data)
+  if (!commissioned) return null
+  const commissionedProjectId = await findProjectIdByCollectionName(commissioned, session.organizationId)
+  // The collection is real but names no project THIS organization owns. Filing
+  // anywhere on that basis would be the cross-tenant version of the bug above.
+  if (!commissionedProjectId) return null
+
+  try {
+    // Narrowed the way every other proxy-layer call to a session-taking service
+    // narrows it (`collection-scope-request.ts`): the organization is what makes
+    // a session authorized, and it has just been checked.
+    const filed = await fileResearchReport({
+      session: session as AuthorizedSession,
+      projectId: commissionedProjectId,
+      runId,
+      report,
+      cards: readReportCards(data),
+      request: req,
+    })
+    return {
+      status: 'filed',
+      filed: { documentId: filed.documentId, filename: filed.filename, alreadyFiled: filed.alreadyFiled },
+    }
+  } catch (error) {
+    // Logged with the reason, reported without it. The log is where an operator
+    // finds the bucket, the permission or the limit; the response carries only
+    // what the reader can act on.
+    console.error(`[${LOG_LABEL}] failed to file the report as a document:`, error)
+    return { status: 'failed' }
+  }
+}
+
+/**
  * Handle GET requests (status, stream, state, report)
  */
 export const GET = tenantSlotRoute(async function GET(
@@ -160,6 +346,10 @@ export const GET = tenantSlotRoute(async function GET(
     const authHeaders = buildAuthHeaders(authHeader)
     traceRequest('WorkOS access token present:', !!authHeaders.Authorization)
 
+    // Only the scope header. The reader's project used to be destructured here
+    // and handed to `fileReportIfCommissioned`; that it is now unused is the
+    // check on the claim that a report's destination comes from the run — the
+    // linter fails the build if it is ever consulted again without being read.
     const { headerValue } = await buildCollectionScopeFromRequest(
       session,
       parseQueryContext(searchParams)
@@ -209,6 +399,18 @@ export const GET = tenantSlotRoute(async function GET(
 
     // For regular JSON responses
     const data = await response.json()
+
+    // This is where a run's completion is observed on the BFF: the client asks
+    // for the finished report, and until now the answer was read once, rendered
+    // into a chat message and thrown away with the run's file system.
+    const filing = await fileReportIfCommissioned(req, path, session, data)
+
+    // Three shapes, and the third is the point: `filed` when it landed,
+    // `filingFailed` when a promise was made and broken, and the untouched body
+    // when no promise was made at all (no project, no report, not a report
+    // request). A client that has never heard of either key keeps working.
+    if (filing?.status === 'filed') return NextResponse.json({ ...data, filed: filing.filed })
+    if (filing?.status === 'failed') return NextResponse.json({ ...data, filingFailed: true })
     return NextResponse.json(data)
   } catch (error) {
     if (isAuthzError(error)) {

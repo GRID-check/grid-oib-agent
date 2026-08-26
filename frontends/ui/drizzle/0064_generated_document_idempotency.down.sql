@@ -1,0 +1,26 @@
+-- Reverse 0064: a run may file more than one document into a project again.
+--
+-- ## Why there is no guard
+--
+-- 0063's down-migration refuses while any machine-authored row exists, because
+-- dropping its columns would destroy the only record that a machine wrote the
+-- document. Nothing comparable is at stake here. Dropping a unique index deletes
+-- no data and changes no row: it only stops rejecting future writes.
+--
+-- What it does mean is that `fileGeneratedDocument` falls back to being
+-- idempotent only through its probe — a lookup that two concurrent report
+-- fetches both miss — so the duplicate this index exists to prevent becomes
+-- possible again the moment this runs. The catch in `fileGeneratedDocument` that
+-- recovers from a 23505 is harmless without the index; it simply never fires,
+-- and the race it recovers from goes back to producing two identical rows.
+-- Anything still filing reports should therefore be switched off first, which is
+-- a deploy ordering note and not something an index can enforce.
+--
+-- ## What is NOT reverted
+--
+-- The catch itself stays in the application. It reads a Postgres error code and
+-- does nothing when no error arrives, so it is inert without the index rather
+-- than wrong — and re-applying 0064 must not require a code change to become
+-- correct again.
+
+DROP INDEX IF EXISTS "uniq_documents_authored_run_per_project";

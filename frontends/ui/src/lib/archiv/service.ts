@@ -37,6 +37,7 @@ import {
   joinHitsToFiles,
   type SearchedDocument,
 } from '@/lib/documents/service'
+import { collectionDocumentsUrl, collectionFileRef } from '@/lib/documents/collection-file-ref'
 import { deleteBimDerivedObjects } from '@/lib/bim/service'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard } from '@/lib/storage/admission'
@@ -202,15 +203,26 @@ export async function deleteArchivDocument(
   // Best-effort: remove the ingested chunks so a deleted document stops showing
   // up in retrieval. A backend hiccup must not block the durable SeaweedFS + DB
   // cleanup below, so failures here are swallowed.
-  try {
-    await fetch(`${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_ids: [doc.filename] }),
-      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-    })
-  } catch {
-    // ignore — chunks may linger until the next collection reconcile/purge
+  //
+  // Through `collectionFileRef` like every other `(collection, filename)` call,
+  // and not because an Archiv row can be machine-authored today — it cannot,
+  // since `fileGeneratedDocument` sets no scope and the column defaults to
+  // `project`. That is a coincidence of a default, and this call is the exact
+  // shape of the leak that deleted a human document's chunks: purge by
+  // filename. `null` here means "not ours to purge", which is the right answer
+  // for a row that owns no chunks whatever put it in this scope.
+  const purgeRef = collectionFileRef(doc)
+  if (purgeRef) {
+    try {
+      await fetch(collectionDocumentsUrl(getBackendUrl(), purgeRef), {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_ids: [purgeRef.filename] }),
+        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+      })
+    } catch {
+      // ignore — chunks may linger until the next collection reconcile/purge
+    }
   }
 
   if (doc.storageKey) {

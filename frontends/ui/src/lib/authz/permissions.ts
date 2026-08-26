@@ -75,6 +75,12 @@ export const PROJECT_PERMISSIONS = {
   /** @deprecated Umbrella write kept for existing grants; prefer the specific ones. */
   edit: 'project:edit',
   documentsWrite: 'project:documents:write',
+  /**
+   * Machine authorship. Required IN ADDITION to `documentsWrite` at the
+   * generated-document seam (`lib/documents/generated.ts`), so an organization
+   * can stop the agent filing without stopping its own people uploading.
+   */
+  documentsGenerate: 'project:documents:generate',
   memoryWrite: 'project:memory:write',
   manage: 'project:manage',
   membersManage: 'project:members:manage',
