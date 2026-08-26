@@ -200,6 +200,11 @@ jobs:
       # The triggering "Publish Images" run id — workflow_run only; empty on
       # workflow_dispatch, where every service is treated as built/pinned.
       RUN_ID: ${{ github.event.workflow_run.id }}
+      # The tag an OPERATOR typed, empty otherwise. It is what separates the two
+      # kinds of manual dispatch: a rollback, which pins every service to one
+      # chosen tag, from a bare re-deploy, which asks for the fleet as it should
+      # be — each service at the newest image actually built for it.
+      EXPLICIT_TAG: ${{ inputs.imageTag }}
     steps:
       # Manual dispatch only deploys develop: images are published only for
       # develop/release/tags, so dispatching from a feature branch would pin a
@@ -387,7 +392,7 @@ jobs:
           # org/user variants differ by owner type, and listing versions would
           # need pagination over every sha ever published. A manifest HEAD is
           # exactly the lookup the kubelet will perform.
-          if [ -z "$RUN_ID" ]; then
+          if [ -z "$RUN_ID" ] && [ -n "$EXPLICIT_TAG" ]; then
             for service in backend frontend web; do
               image_path="${owner}/grid-oib-${service}"
               pull_token="$(curl -sSL -u "${GITHUB_ACTOR}:${GH_TOKEN}" \
@@ -417,8 +422,18 @@ jobs:
           is_built() {
             if [ -n "$RUN_ID" ]; then
               echo "$built_jobs" | grep -qx "Build & push $1 image"
-            else
+            elif [ -n "$EXPLICIT_TAG" ]; then
+              # Rollback: the operator pinned every service to their tag, and
+              # the loop above already proved it exists for all three.
               return 0
+            else
+              # Bare re-deploy (dispatch, no tag). Nothing was built FOR this
+              # commit, so treat every service as unbuilt and let the
+              # per-service resolution below find each one's newest image. This
+              # is the only way to redeploy the fleet after a commit that built
+              # nothing: pinning all three to this commit's own sha names tags
+              # GHCR does not have, and the preflight would fail the run.
+              return 1
             fi
           }
 
