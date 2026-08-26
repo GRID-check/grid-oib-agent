@@ -24,7 +24,7 @@ export const diagrams = {
   schematicOnly: 'Schematic — no dimensions are claimed.',
   /** The file name a diagram gets when neither the source nor the surface names it. */
   defaultTitle: 'Diagram',
-  fallback: 'This diagram could not be drawn. Its source is below.',
+  fallback: 'This diagram could not be drawn. Its source is above.',
   file: {
     action: 'File in project',
     pending: 'Filing…',

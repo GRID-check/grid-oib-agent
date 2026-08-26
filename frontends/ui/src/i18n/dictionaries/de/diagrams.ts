@@ -12,7 +12,7 @@ export const diagrams: typeof en.diagrams = {
   schematicOnly: 'Schematisch — ohne Maßangabe.',
   /** The file name a diagram gets when neither the source nor the surface names it. */
   defaultTitle: 'Diagramm',
-  fallback: 'Dieses Diagramm konnte nicht gezeichnet werden. Der Quelltext steht unten.',
+  fallback: 'Dieses Diagramm konnte nicht gezeichnet werden. Der Quelltext steht darüber.',
   file: {
     action: 'Im Projekt ablegen',
     pending: 'Wird abgelegt …',

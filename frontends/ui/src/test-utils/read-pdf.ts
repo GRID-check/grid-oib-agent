@@ -15,8 +15,6 @@
  * because a test has no bundler to stage worker assets for.
  */
 
-import { fileURLToPath } from 'node:url'
-
 /** What a spec can ask about a rendered PDF. */
 export interface PdfContents {
   /** The Info dictionary: Title, Author, Subject, Keywords, Creator, Producer. */
@@ -66,9 +64,13 @@ export async function readPdf(bytes: Uint8Array): Promise<PdfContents> {
     // metrics the file actually names. The app stages the same files under
     // `public/pdfjs/` (`scripts/copy-pdfjs-assets.mjs`); a spec has no server
     // to serve them from, so it reads them from `node_modules` directly.
-    standardFontDataUrl: fileURLToPath(
-      new URL('../../node_modules/pdfjs-dist/standard_fonts/', import.meta.url)
-    ),
+    // pdf.js 6 rejects a factory URL that does not end in `/`. `fileURLToPath`
+    // on Windows yields `...\standard_fonts\` — a trailing backslash, which
+    // fails that check. The `file:` URL keeps the slash on every OS.
+    standardFontDataUrl: new URL(
+      '../../node_modules/pdfjs-dist/standard_fonts/',
+      import.meta.url,
+    ).href,
   })
   const document = await task.promise
 

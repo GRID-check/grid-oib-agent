@@ -360,6 +360,8 @@ export const SCREENSHOT_TARGETS = [
     description:
       'What a person is told before and after Piloti writes a file into their project. The `starting` banner carries ONE quiet line naming the destination — Projekt › Berichte — and it sits there rather than in a modal because this is the only moment the run can still be stopped; a confirmation asked afterwards is answered yes every time. The second panel is the same line under the escalation narration, the case where the classifier started the run and „the user asked for a report" is not even true. The last two panels are the rule for the outcome: with a filed document the banner names the real filename and offers a second action that goes somewhere else than „Bericht anzeigen" (the research panel) — into the project, through the same /files?doc= deep link every other document surface uses; with nothing filed and nothing ever promised (a chat outside a project, a run older than the feature) it says nothing at all, because a banner must never claim a file that does not exist. The fifth panel is the one absence that is NOT silent: the disclosure was on screen, the filing was attempted for a resolved project and it failed, so one muted line takes the promise back — same size, same ink, same success variant, no red, no icon and no reason, because a refused quota and a revoked permission are one fact to the reader: the document is not there.',
     waitFor: '[data-testid="research-filing-preview"]',
+  },
+  {
     id: 'file-browser-search-failed',
     path: '/dev/file-browser?variant=search-failed',
     description:

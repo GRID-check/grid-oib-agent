@@ -30,6 +30,11 @@
  * when they disagree the disagreement is a missing branch here rather than a
  * silently blank region in a submitted document.
  *
+ * Arrowheads are drawn by `arrowheadFor`, not by spreading mermaid's
+ * `marker-end="url(#id)"` onto `<Path>`. The library's `markerEnd` prop, when
+ * it exists, wants a marker node; a URL string is not one. Keep those keys off
+ * `Presentation` even if a later type package lists them.
+ *
  * ## What is deliberately lost
  *
  *   - **Typefaces.** `@react-pdf/renderer` knows the fourteen standard PDF
@@ -92,9 +97,6 @@ type Presentation = Pick<
   | 'visibility'
   | 'transform'
   | 'clipPath'
-  | 'markerStart'
-  | 'markerMid'
-  | 'markerEnd'
   | 'textAnchor'
   | 'dominantBaseline'
 >
@@ -160,9 +162,6 @@ function presentationOf(element: SvgElement): Presentation {
     visibility: oneOf(VISIBILITIES, at('visibility')),
     transform: at('transform'),
     clipPath: at('clip-path'),
-    markerStart: at('marker-start'),
-    markerMid: at('marker-mid'),
-    markerEnd: at('marker-end'),
     textAnchor: oneOf(TEXT_ANCHORS, at('text-anchor')),
     dominantBaseline: oneOf(BASELINES, at('dominant-baseline')),
   }

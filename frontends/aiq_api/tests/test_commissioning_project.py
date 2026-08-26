@@ -46,6 +46,21 @@ def test_the_base_corpus_alone_is_not_a_project() -> None:
     assert _derive_project_collection(["oib_knowledge"]) is None
 
 
+def test_the_office_archive_is_not_a_project() -> None:
+    """Live chat scope is base + Archiv + project + session.
+
+    Archiv is fail-open (`organization-archiv`). Treating it as a candidate
+    left two names after the `s_` exclusion, so a normal project submit
+    recorded no commissioning collection and the finished report was never
+    filed. The archive is not a project; drop it the same way as `s_`.
+    """
+    assert (
+        _derive_project_collection(["oib_knowledge", "archiv_org1", "proj_abc", "s_conv-1"])
+        == "proj_abc"
+    )
+    assert _derive_project_collection(["oib_knowledge", "archiv_org1", "s_conv-1"]) is None
+
+
 def test_an_ambiguous_scope_is_refused_rather_than_guessed() -> None:
     """Two candidates means the request did not say which project.
 

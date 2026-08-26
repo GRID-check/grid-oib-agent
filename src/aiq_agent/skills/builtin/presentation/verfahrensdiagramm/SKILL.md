@@ -2,7 +2,7 @@
 name: verfahrensdiagramm
 description: >
   Load before drawing an Ablauf, a Zuständigkeit or a Reihenfolge — that is,
-  before emitting a `diagram` card or writing a mermaid fence. The situations
+  before emitting a `diagram` card. The situations
   this product actually has: a Verfahren whose stages fork and rejoin
   (Einreichung, Verbesserungsauftrag, Bauverhandlung, Bescheid), a
   Genehmigungskette across Bauwerber, Baubehörde and Amtssachverständige, a
@@ -128,9 +128,9 @@ between a drawing that is incomplete and one that is wrong.
   the prose, where it can be read.
 - Labels in the language of the answer, and in Sie-Form where a label addresses
   the reader.
-- **No label may carry a claim the answer has not grounded.** The drawing is
-  filed as an SVG and a PDF and attached to an Einreichung; it leaves the page
-  without the paragraph that qualified it.
+- **No label may carry a claim the answer has not grounded.** The reader can
+  file the drawing as an SVG and a PDF from the button under it; those files
+  leave the page without the paragraph that qualified the picture.
 
 ## Comments
 
@@ -157,7 +157,9 @@ Fundstelle is a procedure from nowhere.
 
 Then write `[[card:N]]` on its own line at the point in the answer the diagram
 belongs to, and always write the prose as well: the diagram is in addition to
-the answer, never instead of it.
+the answer, never instead of it. Do not also write a mermaid fence of the same
+drawing — the card is the drawing; a fence would be a second copy. Filing is
+the reader's button, not a side-effect of emitting the card.
 
 **One per answer.** A diagram earns its place by showing a fork, an ordering or
 a dependency that prose cannot hold. A second one puts both back at the weight
