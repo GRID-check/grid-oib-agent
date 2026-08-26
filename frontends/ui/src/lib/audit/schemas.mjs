@@ -207,6 +207,45 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'document' }],
     metadata: { projectId: 'string', filename: 'string', collectionName: 'string' },
   },
+  // A deliverable Piloti wrote, filed into the project on a human's authority
+  // (agent-authored-documents design, decision 4 — the BFF writes it in the
+  // commissioning user's session; the agent never writes).
+  //
+  // Its own action rather than a `document.uploaded` carrying a flag, for the
+  // reason `session.document.*` are their own pair: the provenance question
+  // these answer is different. `uploaded` answers "who put these bytes here";
+  // `generated` answers "which human authorized a machine to write them, and
+  // which run did it" — and that second half is not an optional embellishment
+  // of an upload, it is the whole record. Folded into `document.uploaded` it
+  // would be a key that is absent on almost every event of that action, which
+  // is exactly the shape that cannot be queried or attested to.
+  //
+  // What produced it is NOT metadata: it rides as the second target, `{type:
+  // <the reference's kind>, id: <the reference>}`, which `recordAuditEvent`
+  // appends for an agent actor (see `AuditActorType` in `service.ts`). Hence
+  // both kinds below — an emitted target type that is not registered is
+  // rejected like an unregistered action, so any future action emitted with an
+  // agent actor owes these same entries.
+  //
+  // There are TWO because there are two kinds of identity a machine-authored
+  // document is filed under, and until migration 0066 both were emitted as
+  // `agent_run`: a research report's reference is a backend async job id, and a
+  // diagram's is the chat answer it was drawn in plus a hash of its source. One
+  // target type for both meant an auditor resolving a diagram's provenance
+  // looked up a job that does not exist. The list must stay in step with
+  // `AUTHORED_REF_KINDS` in `lib/documents/document-authors.ts`, and
+  // `schemas.spec.ts` is what notices when it does not — a kind added there and
+  // missing here does not lose an audit line, it unfiles the document the line
+  // was about, because this action's emit throws.
+  'document.generated': {
+    targets: [{ type: 'document' }, { type: 'agent_run' }, { type: 'answer_artifact' }],
+    // `producer` is emitted by `fileGeneratedDocument` and MUST be declared
+    // here: a schema with the wrong keys rejects events exactly like a missing
+    // one, and the emit for this action throws rather than swallowing — so an
+    // unregistered key does not lose an audit line, it unfiles the document the
+    // line was about.
+    metadata: { projectId: 'string', producer: 'string', filename: 'string', fileSize: 'number' },
+  },
   // A rename changes what a document is CALLED, never which file it is, so the
   // trail records both: `filename` is the unchanged identity, the other two are
   // the label before and after.

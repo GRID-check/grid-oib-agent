@@ -20,6 +20,7 @@ EXPECTED = {
     ("oib", "hygiene"),
     ("oib", "nutzungssicherheit"),
     ("oib", "waermeschutz"),
+    ("presentation", "verfahrensdiagramm"),
     ("research", "data-table-analysis"),
     ("research", "forecast-analysis"),
     ("research", "lightweight-calculation"),

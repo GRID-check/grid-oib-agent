@@ -25,6 +25,7 @@ import { ProcessMapCard } from '@/features/grid-cards/components/ProcessMapCard'
 import { DocumentChecklistCard } from '@/features/grid-cards/components/DocumentChecklistCard'
 import { DeadlineTimelineCard } from '@/features/grid-cards/components/DeadlineTimelineCard'
 import { ChangeImpactCard } from '@/features/grid-cards/components/ChangeImpactCard'
+import { DiagramCard } from '@/features/grid-cards/components/DiagramCard'
 import { FollowUpsCard } from '@/features/grid-cards/components/FollowUpsCard'
 import { LegalBasisCard } from '@/features/grid-cards/components/LegalBasisCard'
 import { RequirementChecklistCard } from '@/features/grid-cards/components/RequirementChecklistCard'
@@ -931,6 +932,30 @@ function Gallery() {
           bicycle_spaces={{ label: 'Fahrradabstellplätze', value: 28, required: 24, unit: 'Stpl.', comparator: '>=', status: 'pass' }}
           basis="1 Stellplatz je Wohneinheit (14 WE)"
           reference={{ document: 'Wiener Garagengesetz 2008', section: '§ 48' }}
+        />
+      </Section>
+
+      {/* The one drawing the renderer did not compute — the model wrote the
+          mermaid. The fixture is `CARD_EXAMPLES['diagram']` from the backend
+          catalog, so the gallery photographs the card the agent was actually
+          taught to emit. Its failure state has its own target, /dev/diagram-card. */}
+      <Section id="diagram">
+        <DiagramCard
+          title="Baubewilligungsverfahren – wer wem was übergibt"
+          source={[
+            'sequenceDiagram',
+            '  participant BW as Bauwerber',
+            '  participant BB as Baubehörde',
+            '  participant ASV as Amtssachverständige',
+            '  BW->>BB: Einreichunterlagen',
+            '  BB->>ASV: Befassung zur Begutachtung',
+            '  ASV-->>BB: Gutachten',
+            '  BB-->>BW: Verbesserungsauftrag',
+            '  BW->>BB: ergänzte Unterlagen',
+            '  BB-->>BW: Baubewilligungsbescheid',
+          ].join('\n')}
+          caption="Die Fristen zeigt die Grafik nicht — sie steht für die Reihenfolge der Übergaben."
+          reference={{ document: 'Wiener Bauordnung', section: '§§ 60 ff.' }}
         />
       </Section>
 

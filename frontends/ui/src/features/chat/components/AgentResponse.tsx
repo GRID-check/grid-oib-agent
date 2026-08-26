@@ -36,6 +36,10 @@ import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks'
+// Imported from its module rather than the barrel: the specs around this
+// component mock `../hooks` wholesale for `useLoadJobData`, and a reveal that
+// disappears under a partial mock takes every one of them down with it.
+import { useTypedReveal } from '../hooks/use-typed-reveal'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   answerDocuments,
@@ -44,6 +48,7 @@ import {
   splitAnswerBody,
 } from '../lib/citations'
 import { AnswerCitations } from './AnswerCitations'
+import { DiagramFilingProvider } from '@/features/diagrams/diagram-filing-context'
 import { SkillsUsedDisclosure } from '@/features/skills/components/SkillsUsedDisclosure'
 import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
@@ -498,13 +503,24 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // prose become links to its rows. Answers without such a section are untouched.
   const fallbackId = useId()
   const anchorPrefix = answerSourceAnchorPrefix(messageId ?? fallbackId)
+  // What the reader may see this frame. The answer is finished before its first
+  // delta leaves the agent, so `isStreaming` is a state the turn passes through
+  // in a frame or two — the writing is the REVEAL, and it belongs here rather
+  // than in the store, which stays the authoritative full text for persistence,
+  // export and copy. See `hooks/use-typed-reveal.ts`.
+  const { text: revealedContent, isTyping } = useTypedReveal(content)
+  // "Still arriving" as far as the reader is concerned: the caret trails the
+  // text, the footer stays reserved at its height, and nothing that acts on a
+  // WHOLE answer — the copy actions, the cards no marker claimed — is offered
+  // over half of one.
+  const stillArriving = isStreaming || isTyping
   const {
     body,
     entries: sourceEntries,
     numbers: citationNumbers,
-  } = useMemo(() => splitAnswerBody(content), [content])
+  } = useMemo(() => splitAnswerBody(revealedContent), [revealedContent])
 
-  const ledeClass = opensWithLede(body, isStreaming) ? LEDE_CLASS : ''
+  const ledeClass = opensWithLede(body, stillArriving) ? LEDE_CLASS : ''
   // The markers are linked while the body is PARSED, not before: `[2][3]` — two
   // sources behind one claim, the shape the backend is told to write — is
   // indistinguishable from reference-link syntax in raw text, and used to reach
@@ -656,7 +672,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // Prüfvermerk is worse than none — and a cards-only turn has no markdown to
   // hand over, so both are excluded rather than given a button that copies ''.
   const hasAnswerActions =
-    !isStreaming && Boolean(content) && content.trim().length > 0 && content !== 'null'
+    !stillArriving && Boolean(content) && content.trim().length > 0 && content !== 'null'
   const hasMetaRow =
     hasConfidence ||
     hasFeedback ||
@@ -666,7 +682,24 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // Streaming still has no chips/thumbs, but the row is reserved at chip
   // height so the footer does not jump when they land. An idle answer with
   // nothing to hold still omits the row (no empty band).
-  const reserveMetaRow = hasMetaRow || isStreaming
+  const reserveMetaRow = hasMetaRow || stillArriving
+
+  /**
+   * Where a diagram inside this answer may be filed — or nothing at all.
+   *
+   * Both halves are required and neither can be invented. Without a `projectId`
+   * there is no project to file into (a chat outside a project is a normal
+   * state, not a broken one), and without a `messageId` there is no stable
+   * identity for the diagram, so filing could not be idempotent and pressing
+   * the button twice would file two indistinguishable copies. In either case the
+   * diagram renders with no filing affordance rather than a disabled one — the
+   * rule the research banner already follows for its `filed` object: a dead
+   * action is worse than silence.
+   */
+  const diagramFilingTarget = useMemo(
+    () => (projectId && messageId ? { projectId, answerId: messageId } : null),
+    [projectId, messageId]
+  )
 
   // Guard against null, undefined, empty, or literal "null" string content
   // when no cards are present. Cards can render even with empty text.
@@ -677,6 +710,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // Inline variant - no box styling (for use inside containers like thinking process)
   if (variant === 'inline') {
     return (
+      <DiagramFilingProvider target={diagramFilingTarget}>
       <AnswerCitations documents={documents} anchorPrefix={anchorPrefix}>
       <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
         {/* Response Content rendered as markdown (with streaming caret). While
@@ -686,23 +720,27 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         <MarkdownSlotProvider render={renderCardSlot}>
           <div
             className={
-              isStreaming
+              stillArriving
                 ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
                 : ledeClass || undefined
             }
           >
-            <MarkdownRenderer content={body} isStreaming={isStreaming} remarkPlugins={markerPlugins} />
-            {isStreaming && <StreamingCaret />}
+            <MarkdownRenderer content={body} isStreaming={stillArriving} remarkPlugins={markerPlugins} />
+            {stillArriving && <StreamingCaret />}
           </div>
         </MarkdownSlotProvider>
 
         {/* Cards no marker claimed. AFTER the body, never before it: an answer
             that opens with three diagrams has pushed itself below the fold.
+            Withheld until the reveal finishes, because "unplaced" is read off
+            the body SO FAR: a card whose `[[card:N]]` has not been typed out yet
+            looks unplaced, would render here, and would then jump up the answer
+            the moment its marker arrives.
             `mt-1` for the same reason the action button below carries one: this
             column's `gap-2` is 8px and the markdown body's paragraph rhythm is
             12px, so without it an UNPLACED card hugged the prose 4px tighter
             than a placed one — visible the moment an answer carries both. */}
-        {cards && fallbackCardIndices.length > 0 && (
+        {!stillArriving && cards && fallbackCardIndices.length > 0 && (
           <div className="mt-1">
             <GridCards
               cards={cards}
@@ -746,7 +784,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           documents={documents}
           anchorPrefix={anchorPrefix}
           routingDecision={routingDecision}
-          isStreaming={isStreaming}
+          isStreaming={stillArriving}
         />
         <ResearchTruncatedNote
           researchTruncated={researchTruncated}
@@ -794,6 +832,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         )}
       </div>
       </AnswerCitations>
+      </DiagramFilingProvider>
     )
   }
 
@@ -808,6 +847,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // error) or an absent signal keeps the "Ergebnis" tab (fail-open).
   const isMeta = routingDecision === 'meta'
   return (
+    <DiagramFilingProvider target={diagramFilingTarget}>
     <AnswerCitations documents={documents} anchorPrefix={anchorPrefix}>
     <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-[680px] max-w-full flex-col duration-base ease-entrance motion-reduce:animate-none">
       {/* Role tab — uppercase 10.5/600. Substantive answer: near-black action
@@ -845,13 +885,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           <MarkdownSlotProvider render={renderCardSlot}>
             <div
               className={
-                isStreaming
+                stillArriving
                   ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
                   : ledeClass || undefined
               }
             >
-              <MarkdownRenderer content={body} isStreaming={isStreaming} remarkPlugins={markerPlugins} />
-              {isStreaming && <StreamingCaret />}
+              <MarkdownRenderer content={body} isStreaming={stillArriving} remarkPlugins={markerPlugins} />
+              {stillArriving && <StreamingCaret />}
             </div>
           </MarkdownSlotProvider>
 
@@ -862,7 +902,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               rhythm is 12px, so without it an UNPLACED card hugged the prose 4px
               tighter than a placed one — visible the moment an answer carries
               both, which is what /dev/chat-turn?variant=two-cards shows. */}
-          {cards && fallbackCardIndices.length > 0 && (
+          {!stillArriving && cards && fallbackCardIndices.length > 0 && (
             <div className="mt-1">
               <GridCards
                 cards={cards}
@@ -917,7 +957,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             documents={documents}
             anchorPrefix={anchorPrefix}
             routingDecision={routingDecision}
-            isStreaming={isStreaming}
+            isStreaming={stillArriving}
             withDivider={false}
           />
           <ResearchTruncatedNote
@@ -988,6 +1028,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       </div>
     </div>
     </AnswerCitations>
+    </DiagramFilingProvider>
   )
 }
 

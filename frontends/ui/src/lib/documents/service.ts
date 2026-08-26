@@ -39,8 +39,9 @@ import { listResourceAssignments } from '@/lib/assignments/service'
 import { deleteAssignmentsForResource } from '@/lib/assignments/repository'
 import { purgeResourceCollaboration } from '@/lib/collaboration/cleanup'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import type { Document } from '@/lib/db/schema'
+import type { Document, DocumentAuthor } from '@/lib/db/schema'
 import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
+import { collectionDocumentsUrl, collectionFileRef, collectionFileUrl } from './collection-file-ref'
 import {
   deleteProjectDocument,
   findDocumentInOrg,
@@ -323,10 +324,25 @@ export async function dispatchIngest(
 export async function listDocuments(
   session: AuthorizedSession,
   projectId: string,
+  /**
+   * Narrowing options. `authoredBy` is pushed down to the query rather than
+   * filtered here: the „Von Piloti" chip asks for the small minority of rows a
+   * machine wrote, migration 0063 gave that predicate its own partial index,
+   * and filtering after the fact would read the whole project's corpus — plus
+   * reconcile and assignment-hydrate every row of it — to return a handful.
+   */
+  options: { authoredBy?: DocumentAuthor } = {},
 ): Promise<Array<Omit<DocumentListRow, 'metadata'> & DocumentMetadata>> {
   await requireProjectAccess(session, projectId, 'project:view')
 
-  const rows = await listProjectDocuments(projectId, session.organizationId)
+  const rows = await listProjectDocuments(
+    projectId,
+    session.organizationId,
+    // `undefined` takes the repository's own default rather than restating it
+    // here, where a second copy of the cap could drift from the real one.
+    undefined,
+    options.authoredBy,
+  )
 
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
@@ -439,13 +455,46 @@ export async function fetchSemanticHits(
  * snippet, page, and score. Hits with no matching row are dropped. When a
  * filename collides across rows the most-recent row (latest `createdAt`) wins,
  * so a re-uploaded document resolves to its current entry.
+ *
+ * ## Machine-authored rows are not candidates, and the collision rule is why
+ *
+ * A hit comes from the retrieval index, and nothing machine-authored is ever
+ * indexed — so every hit describes a document a person supplied. This join is
+ * what turns that hit back into a row, and it keys on FILENAME, which is not a
+ * safe identity across authorship.
+ *
+ * `generatedFilename` builds `slug(title)-YYYY-MM-DD.ext` from a title the
+ * MODEL wrote — a report's own H1, a diagram card's `title`. So a filed report
+ * whose title slugs to the stem of a real Gutachten, on the same day, collides.
+ * The tie-break then decides it, and it decides it the wrong way by
+ * construction: the agent row was written after the corpus it was written from,
+ * so it is always the most recent. The reader would get a search result labelled
+ * „Von Piloti erstellt" carrying a snippet and a page number lifted from
+ * somebody's actual Gutachten.
+ *
+ * No chunk was created for the agent row and no retrieval invariant was broken —
+ * the leak is in the join, not in the index, which is why the dispatch-site
+ * guard and the storage-key allow-list do not reach it. This is the third path
+ * by which a machine-authored row can reach a reader as evidence, and it is
+ * closed the same way as the other two: by asking the row, not by trusting the
+ * name.
  */
-export function joinHitsToFiles<T extends { filename: string; createdAt: Date | string }>(
-  hits: BackendSearchHit[],
-  files: T[],
-): Array<SearchedDocument<T>> {
+export function joinHitsToFiles<
+  T extends { filename: string; createdAt: Date | string; authoredBy: string },
+>(hits: BackendSearchHit[], files: T[]): Array<SearchedDocument<T>> {
   const byName = new Map<string, T>()
   for (const file of files) {
+    // Only a human-authored row may take a hit. A filename is not an identity
+    // across authorship: `generatedFilename` builds `slug(title)-DATE.ext` from a
+    // title the model wrote, so a collision with a real document is reachable by
+    // the model, and recency would then hand it that document's snippet and page
+    // under a „Von Piloti erstellt" label.
+    //
+    // `authoredBy` is required rather than optional on purpose. Both callers
+    // select it (`listProjectDocuments`, `listArchiv`); making it optional would
+    // mean a future caller that forgets the column fails OPEN at runtime instead
+    // of failing to compile.
+    if (file.authoredBy !== 'user') continue
     const existing = byName.get(file.filename)
     if (!existing || new Date(file.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
       byName.set(file.filename, file)
@@ -721,7 +770,53 @@ export interface DispatchDocumentResult {
  * would have been the fourth copy. There is one copy now, so a caller cannot
  * forget the branch: it cannot see it.
  */
+/**
+ * Thrown when something tries to index a document a machine wrote.
+ *
+ * Named and exported so a caller can tell this refusal apart from a backend
+ * failure: one is a bug in the caller, the other is an outage.
+ */
+export class AgentAuthoredDocumentNotIndexableError extends Error {
+  constructor(readonly documentId: string) {
+    super(`document ${documentId} was written by a machine and must not be indexed`)
+    this.name = 'AgentAuthoredDocumentNotIndexableError'
+  }
+}
+
 export async function dispatchDocument(input: DispatchDocumentInput): Promise<DispatchDocumentResult> {
+  /**
+   * A document a machine wrote never reaches the retrieval index — checked
+   * HERE, at the one place every ingestion path funnels through, and checked by
+   * READING THE ROW rather than by trusting the caller.
+   *
+   * The invariant used to live in `generated.ts`, which only proved that the
+   * FILING path does not ingest. That is a claim about one function; the claim
+   * the design actually makes is about the document. `reindexProject` — behind
+   * the „Projekt neu indizieren" button in Project Settings — enumerated every
+   * document in the project and re-dispatched it, and an agent-authored row
+   * passed its guard: `stored` is neither `pending` nor `processing`, and the
+   * row carries a real storage key and the project's own collection. One click
+   * put Piloti's own report into the corpus it retrieves from, whereupon the
+   * status became `completed` and the entire not-citable UI — which derives
+   * from `status`, not from `authoredBy` — went green.
+   *
+   * Reading the row costs one primary-key select on an operation that is about
+   * to make an HTTP call to the backend, and it buys an invariant no caller can
+   * forget and no caller can lie about. Passing authorship in the input would
+   * be cheaper and weaker: the next caller would simply be able to get it
+   * wrong, which is exactly what happened.
+   */
+  const row = await findDocumentInOrg(input.documentId, input.organizationId)
+  // An allow-list on a row that must EXIST. `if (row && …)` read a missing row
+  // as permission to ingest, which is the one default this guard was moved here
+  // to stop making: the argument for reading the row is "never trust the
+  // caller", and treating an absent row as `user` trusts the caller about the
+  // only thing left. No caller reaches this without having inserted first, so
+  // the refusal costs nothing today; it is what keeps the next one honest.
+  if (!row || row.authoredBy !== 'user') {
+    throw new AgentAuthoredDocumentNotIndexableError(input.documentId)
+  }
+
   if (isIfcFilename(input.filename)) {
     return beginModelExtraction(input)
   }
@@ -904,7 +999,12 @@ export async function reindexProject(
 ): Promise<ReindexProjectResult> {
   await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
 
-  const rows = await listProjectDocuments(projectId, session.organizationId)
+  // `'user'` explicitly, not "everything": a machine-authored document must not
+  // be indexed (see `dispatchDocument`), and reaching the dispatcher's refusal
+  // would report a project-wide reindex as partially FAILED for rows that were
+  // never eligible. The dispatcher is the invariant; this is the caller not
+  // asking a question it already knows the answer to.
+  const rows = await listProjectDocuments(projectId, session.organizationId, undefined, 'user')
   const result: ReindexProjectResult = { projectId, queued: 0, skipped: 0, failed: [] }
 
   const redispatch = async (row: DocumentListRow): Promise<void> => {
@@ -917,17 +1017,26 @@ export async function reindexProject(
       return
     }
 
+    // Belt to the query's braces. The listing above already asks for `'user'`
+    // only, so this is never null in practice — but the delete below is the
+    // destructive half of this function, and "the caller filtered correctly" is
+    // the assumption every one of these leaks was built on. A row that somehow
+    // arrives here machine-authored is skipped, not reported failed: it was
+    // never eligible, exactly as the `'user'` filter above says.
+    const ref = collectionFileRef(doc)
+    if (!ref) {
+      result.skipped += 1
+      return
+    }
+
     // The bucket the object is ACTUALLY in — see `reingestDocument` for why
     // defaulting this breaks per-organization documents in two directions.
-    const response = await fetch(
-      `${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents`,
-      {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_ids: [doc.filename] }),
-        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-      },
-    )
+    const response = await fetch(collectionDocumentsUrl(getBackendUrl(), ref), {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_ids: [ref.filename] }),
+      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+    })
     if (!response.ok) {
       throw new Error(`chunk delete returned ${response.status}`)
     }
@@ -986,19 +1095,22 @@ export async function updateDocumentTags(
     })
   }
 
+  // The same gate as the read paths, on a WRITE. There is no backend summary row
+  // for a document a machine wrote (never ingested), so the honest answer is the
+  // 404 the backend itself gives for a non-colliding agent row — and the gate is
+  // what makes the COLLIDING one answer the same way instead of overwriting the
+  // controlled tags of the human document sharing the filename.
+  const ref = collectionFileRef(doc)
+  if (!ref) throw new NotFoundError()
+
   let res: Response
   try {
-    res = await fetch(
-      `${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents/${encodeURIComponent(
-        doc.filename,
-      )}/tags`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tags }),
-        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-      },
-    )
+    res = await fetch(collectionFileUrl(getBackendUrl(), ref, '/tags'), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tags }),
+      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+    })
   } catch {
     // Includes a TimeoutError abort — treat a hung backend like any other
     // transport failure rather than letting the request hang.
@@ -1072,21 +1184,26 @@ export async function renameDocument(
   // the rename immediately, with no re-ingest (the retrieval layer prefers a
   // stored `display_title` over the derived filename default). Best-effort by
   // design — see the note above.
-  try {
-    await fetch(
-      `${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents/${encodeURIComponent(
-        doc.filename,
-      )}/display-title`,
-      {
+  //
+  // Gated on authorship like every other `(collection, filename)` call: a
+  // machine-authored row has no metadata row over there to mirror onto, and on a
+  // filename collision this PATCH would retitle the HUMAN document's citation
+  // chips — renaming one file would silently rename another. Skipping costs
+  // nothing that is not already accepted here: the mirror is best-effort, and
+  // the durable rename is the row written above.
+  const mirrorRef = collectionFileRef(doc)
+  if (mirrorRef) {
+    try {
+      await fetch(collectionFileUrl(getBackendUrl(), mirrorRef, '/display-title'), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ display_title: displayName }),
         signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-      },
-    )
-  } catch {
-    // ignore — the durable rename is the row above; the chip catches up on the
-    // next rename or the next re-ingestion.
+      })
+    } catch {
+      // ignore — the durable rename is the row above; the chip catches up on the
+      // next rename or the next re-ingestion.
+    }
   }
 
   // Data-provenance event: who called which file what. Both names are
@@ -1141,15 +1258,28 @@ export async function deleteDocument(
   // Best-effort: remove the ingested chunks so a deleted document stops showing
   // up in retrieval. A backend hiccup must not block the durable SeaweedFS + DB
   // cleanup below, so failures here are swallowed.
-  try {
-    await fetch(`${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_ids: [doc.filename] }),
-      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-    })
-  } catch {
-    // ignore — chunks may linger until the next collection reconcile/purge
+  //
+  // No ref → no chunks to purge, and this is where that mattered most. A
+  // machine-authored row was never dispatched to `/v1/ingest`, so `file_ids:
+  // [doc.filename]` names nothing of its own — and on the filename collision
+  // `generatedFilename` makes reachable, it names a HUMAN document's chunks and
+  // deletes them. That document keeps `status: 'completed'`, keeps its green
+  // „zitierbar“ badge and its Ask affordance, and answers nothing from then on:
+  // a silent, unlogged, unrecoverable content loss triggered by deleting an
+  // unrelated file. The purge is skipped rather than made conditional on the
+  // collision, because for an agent row it is ALWAYS wrong, collision or not.
+  const purgeRef = collectionFileRef(doc)
+  if (purgeRef) {
+    try {
+      await fetch(collectionDocumentsUrl(getBackendUrl(), purgeRef), {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_ids: [purgeRef.filename] }),
+        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+      })
+    } catch {
+      // ignore — chunks may linger until the next collection reconcile/purge
+    }
   }
 
   if (doc.storageKey) {
@@ -1213,14 +1343,20 @@ export async function getDocumentVisualDetails(
 ): Promise<{ id: string; details: DocumentVisualDetail[] }> {
   const doc = await getAccessibleDocument(session, documentId, 'read')
 
+  // A machine-authored row has no visual chunks — nothing it wrote was ever
+  // ingested, so no page of it was ever described by the VLM. Asking anyway
+  // returns, on a filename collision, ANOTHER document's extracted page text
+  // rendered inside this row's detail panel. The empty list is the truth here,
+  // and it is the same thing this function already answers for a backend that
+  // has never heard of the file.
+  const ref = collectionFileRef(doc)
+  if (!ref) return { id: doc.id, details: [] }
+
   let res: Response
   try {
-    res = await fetch(
-      `${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents/${encodeURIComponent(
-        doc.filename,
-      )}/visual-details`,
-      { signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS) },
-    )
+    res = await fetch(collectionFileUrl(getBackendUrl(), ref, '/visual-details'), {
+      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+    })
   } catch {
     return { id: doc.id, details: [] }
   }
@@ -1533,6 +1669,13 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     chunkCount: reconciled.chunkCount,
     contentTypes: reconciled.contentTypes,
     tags: reconciled.tags,
+    // Whose hand wrote the bytes. Added because this payload is how the CHAT
+    // resolves a document into the peek pane, and a report Piloti wrote that
+    // opens beside the conversation without its „Von Piloti erstellt" byline is
+    // an agent-authored file presented as an uploaded one. PROVENANCE, never
+    // responsibility — the row's assignees are unaffected and still say
+    // `Unvergeben`.
+    authoredBy: reconciled.authoredBy,
   }
 }
 

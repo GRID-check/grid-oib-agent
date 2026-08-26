@@ -27,6 +27,7 @@ import { PageHeader } from '@/components/ui/page-header'
 import { SearchField } from '@/components/ui/search-field'
 import { SectionLabel } from '@/components/ui/section-label'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { FileFilterStrip } from '@/features/documents/components/file-filter-strip'
 import { FileSearchField } from '@/features/documents/components/file-search-bar'
 
 /**
@@ -72,17 +73,15 @@ export default function ProjectChromePreviewPage(): JSX.Element {
                   <ListTree />
                 </ToggleGroupItem>
               </ToggleGroup>
-              <ToggleGroup type="single" value="all" size="sm" aria-label="Responsible">
-                <ToggleGroupItem value="all" className="px-2 text-xs">
-                  All
-                </ToggleGroupItem>
-                <ToggleGroupItem value="mine" className="px-2 text-xs">
-                  Mine
-                </ToggleGroupItem>
-                <ToggleGroupItem value="unassigned" className="px-2 text-xs">
-                  Unassigned
-                </ToggleGroupItem>
-              </ToggleGroup>
+              {/* The real strip, not a lookalike — assignment plus the
+                  `Von Piloti` chip, exactly as the Files header carries it. */}
+              <FileFilterStrip
+                canCollaborate
+                assignmentFilter="all"
+                onAssignmentFilterChange={() => undefined}
+                agentAuthoredOnly={false}
+                onAgentAuthoredOnlyChange={() => undefined}
+              />
               {/* The real control, not a lookalike — the run button is part of
                   the width this row has to survive. */}
               <FileSearchField

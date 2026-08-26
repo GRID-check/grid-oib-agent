@@ -256,12 +256,106 @@ class JobStateResponse(BaseModel):
     artifacts: dict | None = Field(None, description="Tool calls, outputs, and sources collected during execution")
 
 
+def _report_cards(raw: Any) -> list[dict] | None:
+    """Narrow a persisted ``output["cards"]`` value to cards, or to nothing.
+
+    Defensive for the same reason the caller wraps the parse in a ``try``: this
+    is a READ of a column an older build of the worker wrote, and the route's
+    contract is that it delivers the REPORT. Anything that is not a list of
+    objects is not cards, so it yields ``None`` instead of reaching the response
+    model, where a stray string in the list would turn a finished run into a
+    validation error and a non-iterable would raise out of the comprehension.
+    Per-item rather than all-or-nothing, matching ``validate_cards``: one
+    unusable entry costs its own card, never the batch — and a list that empties
+    out that way is reported as no cards, because the consumer's "no section at
+    all" state is reached from an absent value, not an empty one.
+    """
+    if not isinstance(raw, list):
+        return None
+    cards = [card for card in raw if isinstance(card, dict)]
+    return cards or None
+
+
 class JobReportResponse(BaseModel):
-    """Final report response."""
+    """The finished report, and the Grid cards the same run produced from it.
+
+    ## Why ``cards`` rides on the report response
+
+    ``lib/pdf/legal-basis.ts`` renders a „Rechtsgrundlagen" section into the
+    filed report PDF out of the answer's ``legal_basis`` cards, and
+    ``fileResearchReport`` (``frontends/ui/src/lib/documents/research-report.ts``)
+    takes them as an optional argument its only caller could not fill: the BFF
+    files the report at the moment it reads it off THIS route, and this route
+    returned the report and nothing else. The runner has persisted
+    ``output["cards"]`` beside ``output["report"]`` since card generation
+    shipped (``aiq_api.jobs.runner``), so the data sat one key away from the one
+    consumer that wanted it, and the section stayed dormant — no heading, no
+    citations — for want of a field.
+
+    ## Why ``list[dict]`` and not the ``GridCard`` union
+
+    These dicts were validated on the way IN. ``aiq_agent.cards.validate_cards``
+    put every one of them through ``grid_card_adapter`` and dumped the model
+    back out before the runner wrote them, dropping malformed ones card by card
+    and system-card fabrications outright. Typing this field as the union would
+    re-run that validation on the way OUT, which adds no guarantee that was not
+    already made and costs two real things: the OpenAPI schema of a route whose
+    job is delivering a report would grow the entire card union — 72 model
+    definitions, ~106 KB of JSON Schema, measured — and a card that
+    validated under the schema of the day it was generated but no longer
+    validates under today's would turn a completed report into a 500. The report
+    is what the user waited minutes for; a display enhancement must not be able
+    to take it down. Validation on this path belongs where it already is — at
+    generation, and again at render (the BFF's Zod ``validateGridCards``, then
+    ``legalBasisSection``'s own narrowing) — not a third time in between, where
+    the only new behaviour available to it is failure.
+
+    ## Why every card type and not only ``legal_basis``
+
+    The PDF reads ``legal_basis`` today, but the same run's cards already reach
+    the client whole by two other paths — over the socket as the answer streams,
+    and on the conversation message row ``write_job_turn`` writes
+    (``metadata["cards"]``). A report response carrying a filtered subset would
+    be a THIRD and narrower answer to "what cards did this run produce", so the
+    filed PDF and the chat thread could disagree about one run. It would also
+    put a PDF renderer's present appetite inside the API: the next section the
+    export grows would need a backend change and a deploy before the frontend
+    could read it. The consumer decides what to render; this route reports what
+    the run produced.
+
+    ## Why nothing is truncated here
+
+    The only ceiling on card volume is a prompt one — "Two content cards is a
+    turn's ceiling", ``_CARD_RESTRAINT`` in ``aiq_agent.cards.catalog`` — and it
+    is advice to a model, not an invariant; no write path enforces a count. So a
+    runaway generation is ALREADY persisted in the job output, already on the
+    message row, and was already streamed to the browser, and a cap applied only
+    here would prevent none of that. What it would do is make the filed PDF
+    silently omit a Rechtsgrundlage the chat thread still shows — a citation
+    missing from the document that goes to the Behörde is a worse failure than a
+    large JSON body. A bound worth having belongs at generation, where it would
+    hold for all three readers at once.
+    """
 
     job_id: str = Field(..., description="Unique job identifier")
+    project_collection: str | None = Field(
+        None,
+        description=(
+            "Collection of the project this run was commissioned in, recorded at "
+            "submit time. The report is filed into THIS project or into none — "
+            "never into one the report request names, which is a property of the "
+            "reader rather than of the run."
+        ),
+    )
     has_report: bool = Field(..., description="Whether the final report is available")
     report: str | None = Field(None, description="Final research report from the agent")
+    cards: list[dict] | None = Field(
+        None,
+        description=(
+            "Grid response cards generated from this report, as the runner persisted them "
+            "(already validated at write time). Null when the run produced none."
+        ),
+    )
 
 
 class ResearchRunItem(BaseModel):
@@ -341,6 +435,7 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
     from ..jobs.access import authorize_job_access
     from ..jobs.access import ensure_job_access_table
+    from ..jobs.access import get_job_project_collection
     from ..jobs.event_store import EventStore
     from ..jobs.submit import DuplicateJobIdError
     from ..jobs.submit import MissingPrincipalError
@@ -724,14 +819,31 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         job = await authorize_job_access(job_store, db_url, job_id, principal)
 
         report = None
+        cards = None
         if job.output:
             try:
                 output = json.loads(job.output) if isinstance(job.output, str) else job.output
                 report = output.get("report")
+                # Gated on the report, not read independently: without one there
+                # is no report for these to be the cards OF, and a body saying
+                # `has_report: false` while carrying that report's citations
+                # describes a state the runner cannot produce — it writes both
+                # keys in the same `output` dict or neither.
+                cards = _report_cards(output.get("cards")) if report else None
             except (json.JSONDecodeError, AttributeError):
                 pass
 
-        return JobReportResponse(job_id=job_id, has_report=bool(report), report=report)
+        # Only when there is something to file. A poll that finds no report yet
+        # is the common case on this route and must not pay for a second read.
+        project_collection = await get_job_project_collection(job_id, db_url) if report else None
+
+        return JobReportResponse(
+            job_id=job_id,
+            has_report=bool(report),
+            report=report,
+            cards=cards,
+            project_collection=project_collection,
+        )
 
     @app.get(
         "/v1/jobs/async/jobs",

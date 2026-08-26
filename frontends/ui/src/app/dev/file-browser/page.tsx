@@ -50,6 +50,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { FileBrowserPane } from '@/features/documents/components/file-browser-pane'
+import { FileFilterStrip } from '@/features/documents/components/file-filter-strip'
 import { useFileSearch, type FileSearch } from '@/features/documents/hooks/use-file-search'
 import { FolderTreePane } from '@/features/documents/components/folder-tree-pane'
 import { FileSearchBar, FileSearchField } from '@/features/documents/components/file-search-bar'
@@ -250,17 +251,15 @@ function FilesHeader({ search, view }: { search: FileSearch; view: 'cards' | 'li
                 <ListTree />
               </ToggleGroupItem>
             </ToggleGroup>
-            <ToggleGroup type="single" value="all" size="sm" aria-label="Responsible">
-              <ToggleGroupItem value="all" className="px-2 text-xs">
-                All
-              </ToggleGroupItem>
-              <ToggleGroupItem value="mine" className="px-2 text-xs">
-                Mine
-              </ToggleGroupItem>
-              <ToggleGroupItem value="unassigned" className="px-2 text-xs">
-                Unassigned
-              </ToggleGroupItem>
-            </ToggleGroup>
+              {/* The real strip, not a lookalike — assignment plus the
+                  `Von Piloti` chip, exactly as the Files header carries it. */}
+              <FileFilterStrip
+                canCollaborate
+                assignmentFilter="all"
+                onAssignmentFilterChange={() => undefined}
+                agentAuthoredOnly={false}
+                onAgentAuthoredOnlyChange={() => undefined}
+              />
             <FileSearchField
               className="w-full sm:w-64 lg:w-72"
               value={search.query}

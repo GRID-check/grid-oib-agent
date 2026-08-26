@@ -24,7 +24,10 @@ class ShallowResearchAgentState(BaseModel):
         focus_file_name: Filename of the composer's "Asking about <file>" subject.
         focus_shelf: Shelf that focused file sits on (session/project/archiv).
         collection_name: Knowledge collection name (for fetching documents).
-        tool_iterations: Counter for tool-calling iterations.
+        tool_iterations: Counter for tool-calling iterations (the RESEARCH
+            budget; see ``interaction_iterations`` for the output channel).
+        interaction_iterations: Counter for interaction-tool calls (`emit_card`,
+            `describe_card`, `remember`), which are budgeted separately.
         requires_sources: Whether this turn must be grounded in captured sources.
             True for research turns (an empty source registry is a failure —
             EmptySourceRegistryError). False for conversational/meta turns, which
@@ -50,6 +53,16 @@ class ShallowResearchAgentState(BaseModel):
     available_documents: list[AvailableDocument] | None = None
     collection_name: str | None = None
     tool_iterations: int = 0
+    # Interaction-tool calls spent this turn (`emit_card`, `describe_card`,
+    # `remember`). Counted APART from ``tool_iterations`` because those calls are
+    # the answer's output channel rather than research: charging them to the
+    # research budget made the turn's second card unreachable on any turn that
+    # had actually searched, since cards are emitted last and forced synthesis
+    # forbids further tool calls. The first
+    # ``agent._INTERACTION_TOOL_ALLOWANCE`` of them cost no research budget; the
+    # rest are charged normally, so the loop still terminates on the same
+    # ceiling. Per-turn: the chat node builds a fresh state each turn.
+    interaction_iterations: int = 0
     project_context: str | None = None
     # The composer's "Asking about <file>" subject for this turn (filename +
     # shelf). Rendered into the system prompt so "summarize this document"

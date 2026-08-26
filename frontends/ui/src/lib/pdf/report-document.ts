@@ -33,6 +33,7 @@
 import { marked } from 'marked'
 import { z } from 'zod'
 import {
+  aiNoticeText,
   buildAnswerSections,
   referenceParagraph,
   type AnswerSections,
@@ -76,6 +77,29 @@ export const pdfRequestSchema = z
       .nullish(),
     /** The language the reader read the answer in; defaults to the app default. */
     locale: z.string().nullish(),
+    /**
+     * Print the „KI-generiert — nicht geprüft" marking above the cover facts.
+     *
+     * Set by the FILING path, never by the browser export: a person exporting
+     * prose they have read and chosen to download is the case
+     * `MarkdownPdfOptions.aiProvenance` names as the reason the marking is
+     * opt-in, and a stamp on every PDF is a stamp that means nothing. A document
+     * Piloti wrote into a project is the other case — it leaves the product
+     * without a byline to carry it.
+     */
+    aiProvenance: z.string().optional(),
+    /** Printed instead of a mermaid fence's source — see `markdownToBlocks`. */
+    diagramPlaceholder: z.string().optional(),
+    /**
+     * Facts the caller knows and the prose does not — Standort, Bundesland,
+     * Gebäudeklasse. Appended after the ones derived here.
+     *
+     * Bundesland is the reason this field exists rather than the cover being
+     * fixed at project + date: a compliance statement without it is not
+     * checkable, because it is the line that says which Bauordnung the document
+     * was checked against.
+     */
+    facts: z.array(z.object({ label: z.string(), value: z.string() })).optional(),
   })
   .passthrough()
 
@@ -161,6 +185,7 @@ const reportSections = (
 
   return {
     title: trimmed(request.title) ?? lifted.title ?? t('documentTitle'),
+    notice: request.aiProvenance ? aiNoticeText(t) : null,
     facts: [
       ...(projectName ? [{ label: t('project'), value: projectName }] : []),
       ...(created
@@ -173,9 +198,10 @@ const reportSections = (
             },
           ]
         : []),
+      ...(request.facts ?? []),
     ],
     body: [
-      ...markdownToBlocks(lifted.body),
+      ...markdownToBlocks(lifted.body, { diagramPlaceholder: request.diagramPlaceholder }),
       ...(references.length > 0
         ? ([
             { kind: 'heading', level: 2, text: t('sources') },
@@ -217,6 +243,8 @@ export function documentSections(request: PdfRequest): { sections: AnswerSection
       createdAt: parseDate(request.createdAt),
       citations: request.citations,
       cards: request.cards,
+      agentAuthored: Boolean(request.aiProvenance),
+      diagramPlaceholder: request.diagramPlaceholder,
       confidence: request.confidence
         ? {
             level: request.confidence.level,
@@ -233,5 +261,14 @@ export function documentSections(request: PdfRequest): { sections: AnswerSection
     locale
   )
 
-  return { sections, locale }
+  // The caller's own facts land on BOTH paths. A filed report carries Standort,
+  // Bundesland and Gebäudeklasse, and it reaches this branch rather than
+  // `reportSections` as soon as it has cards — which every report with a
+  // Rechtsgrundlage does. Dropping them here printed a cover with a title and
+  // nothing under it, and lost the line that says which Bauordnung the document
+  // was checked against.
+  return {
+    sections: { ...sections, facts: [...sections.facts, ...(request.facts ?? [])] },
+    locale,
+  }
 }

@@ -258,3 +258,40 @@ describe('FileCard while the document is still being read', () => {
     expect(screen.getByText('PDF')).toBeInTheDocument()
   })
 })
+
+describe('FileCard for a report Piloti wrote', () => {
+  const generated: FileItem = {
+    ...file('g1', 'Tiefenrecherche_Brandschutz.pdf', 'application/pdf'),
+    status: 'stored',
+    authoredBy: 'agent',
+    summary: 'Rechercheergebnis zu Fluchtwegen in der Gebäudeklasse 4.',
+  }
+
+  it('names its author under the file name, as a line and not a chip', () => {
+    render(<FileCard file={generated} isSelected={false} onSelect={() => {}} locale="de" />)
+
+    const byline = screen.getByText('Created by Piloti')
+    expect(byline.tagName).toBe('P')
+    // In the BODY, under the name — not in the footer, which is the assignment
+    // slot where the faces and the word `Unvergeben` live.
+    expect(screen.getByTestId('file-card').lastElementChild).not.toContainElement(byline)
+  })
+
+  it('stays silent about authorship for an uploaded file', () => {
+    render(
+      <FileCard file={{ ...generated, authoredBy: 'user', status: 'ready' }} isSelected={false} onSelect={() => {}} locale="de" />,
+    )
+
+    expect(screen.queryByText('Created by Piloti')).not.toBeInTheDocument()
+  })
+
+  it('badges `stored` as neither citable nor failed', () => {
+    render(<FileCard file={generated} isSelected={false} onSelect={() => {}} locale="de" />)
+
+    // The word the badge shows is the neutral one: a green "Citable" would
+    // promise a citation the retrieval path cannot make, because the report was
+    // deliberately never indexed.
+    expect(screen.getByText('Filed')).toBeInTheDocument()
+    expect(screen.queryByText('Citable')).not.toBeInTheDocument()
+  })
+})

@@ -217,6 +217,8 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
   const setStreaming = useChatStore((s) => s.setStreaming)
   const patchConversationMessage = useChatStore((s) => s.patchConversationMessage)
   const addDeepResearchBanner = useChatStore((s) => s.addDeepResearchBanner)
+  const recordDeepResearchFiling = useChatStore((s) => s.recordDeepResearchFiling)
+  const recordDeepResearchFilingFailure = useChatStore((s) => s.recordDeepResearchFilingFailure)
   const attachToDeepResearchJob = useChatStore((s) => s.attachToDeepResearchJob)
 
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
@@ -296,23 +298,6 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
   )
 
   /**
-   * Load job data using REST API (report only)
-   */
-  const _loadReportOnly = useCallback(
-    async (jobId: string): Promise<boolean> => {
-      const response = await getJobReport(jobId, idToken || undefined)
-
-      if (response.has_report && response.report) {
-        setReportContent(response.report, 'final_report')
-        return true
-      }
-
-      return false
-    },
-    [idToken, setReportContent]
-  )
-
-  /**
    * Load job state for additional artifacts (tool calls, outputs)
    * This is faster than streaming but provides less data than full stream replay
    */
@@ -369,11 +354,26 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
   const loadJobDataFast = useCallback(
     async (jobId: string, scope: JobLoadScope): Promise<void> => {
       const [reportResult] = await Promise.allSettled([
-        getJobReport(jobId, idToken || undefined),
+        getJobReport(jobId, idToken || undefined, {
+          projectId: useChatStore.getState().projectId,
+        }),
         loadJobState(jobId, scope),
       ])
 
       if (!isJobLoadScopeCurrent(scope)) return
+
+      if (reportResult.status === 'fulfilled' && reportResult.value.filed) {
+        // Recorded even when the panel has moved on: the filing is a fact about
+        // the project, not about which tab is open.
+        recordDeepResearchFiling(jobId, {
+          documentId: reportResult.value.filed.documentId,
+          filename: reportResult.value.filed.filename,
+        })
+      } else if (reportResult.status === 'fulfilled' && reportResult.value.filingFailed) {
+        // Same reason, opposite fact: a promised filing that did not land is
+        // also a fact about the project rather than about this tab.
+        recordDeepResearchFilingFailure(jobId)
+      }
 
       if (
         reportResult.status === 'fulfilled' &&
@@ -383,7 +383,13 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
         setReportContent(reportResult.value.report, 'final_report')
       }
     },
-    [idToken, loadJobState, setReportContent]
+    [
+      idToken,
+      loadJobState,
+      setReportContent,
+      recordDeepResearchFiling,
+      recordDeepResearchFilingFailure,
+    ]
   )
 
   /**

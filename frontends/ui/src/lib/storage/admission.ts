@@ -37,6 +37,14 @@ import { admitDocumentWithinQuota } from './service'
  * Throws whatever admission threw — `InsufficientStorageError` on a refusal — so
  * the caller's error handling is unchanged from when the quota was checked before
  * the upload.
+ *
+ * The discard is on ANY failure of the insert, not only on a quota refusal, and
+ * that breadth is depended on rather than incidental. `fileGeneratedDocument`
+ * loses an idempotency race as a `23505` from this insert (migration 0064's
+ * unique index): the losing caller has already PUT an object under its OWN
+ * document id, so if the discard only covered refusals those bytes would stay
+ * behind with no row pointing at them — invisible to the UI and to the quota
+ * ledger, exactly the orphan this module exists to prevent.
  */
 export async function admitOrDiscard(
   bucket: string,

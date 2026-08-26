@@ -13,6 +13,7 @@ import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { inferDocumentKind } from '../document-kind'
 import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
+import { FileFilterStrip, type AssignmentFilter } from './file-filter-strip'
 import { DocumentActionsMenu } from './document-actions'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
@@ -27,6 +28,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
+import type { DocumentAuthor } from '@/lib/db/schema'
 
 interface ProjectFileWorkspaceProps {
   projectId: string
@@ -101,6 +103,14 @@ export interface FileItem {
   tags: string[] | null
   /** Who is on the hook. Empty = Unvergeben. Absent when collaboration is off. */
   assignees?: readonly FileAssignee[]
+  /**
+   * Whose hand wrote the bytes — `agent` for a report Piloti produced on a
+   * commissioned run. PROVENANCE, never responsibility: an agent-authored file
+   * has no assignees and its footer says `Unvergeben` like any other unclaimed
+   * file. Absent on a listing served before the column existed, which means
+   * exactly what the column's default means — a person uploaded it.
+   */
+  authoredBy?: DocumentAuthor
 }
 
 export interface FileAssignee {
@@ -119,6 +129,7 @@ export interface FileAssignee {
 type DocumentWireRow = Omit<FileItem, OptionalWireField> & Partial<Pick<FileItem, OptionalWireField>>
 
 type OptionalWireField =
+  | 'authoredBy'
   | 'displayName'
   | 'folderId'
   | 'errorMessage'
@@ -229,6 +240,20 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   const loadGeneration = useRef(0)
 
   /**
+   * The `Von Piloti` filter, and the one filter on this surface that is asked
+   * of the SERVER rather than applied to the loaded listing.
+   *
+   * Assignment can be filtered here because the assignees ride along on every
+   * row. Authorship cannot: it is a column with a partial index
+   * (`WHERE authored_by = 'agent'`), the listing is capped at 500 rows, and
+   * "everything Piloti wrote" has to be able to find a report that fell off the
+   * end of a large corpus. So the chip becomes `?authoredBy=agent` and the
+   * effect below re-reads the listing, because `loadFiles` changes identity
+   * with it.
+   */
+  const [agentAuthoredOnly, setAgentAuthoredOnly] = useState(false)
+
+  /**
    * @param quiet Refresh without the skeleton — used by the settling poll
    *   below, which would otherwise flash the whole grid every few seconds.
    */
@@ -238,6 +263,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     if (!quiet) setIsLoadingFiles(true)
     setFilesError(false)
     const params = new URLSearchParams({ projectId })
+    if (agentAuthoredOnly) params.set('authoredBy', 'agent')
     return fetch(`/api/documents?${params}`)
       .then((r) => {
         if (!r.ok) throw new Error(`Failed to load documents (${r.status})`)
@@ -261,6 +287,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
           contentTypes: d.contentTypes ?? null,
           tags: d.tags ?? null,
           assignees: d.assignees ?? [],
+          authoredBy: d.authoredBy ?? 'user',
         }))
         setFiles(docs)
       })
@@ -278,7 +305,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         // otherwise leave it spinning forever with nobody left to clear it.
         if (!quiet) setIsLoadingFiles(false)
       })
-  }, [projectId])
+  }, [projectId, agentAuthoredOnly])
 
   // The query lives here rather than in the browser pane: the field sits in the
   // page header (beside the view toggles and Upload) while the results it
@@ -382,7 +409,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     wasUploading.current = isUploading
   }, [isUploading, loadFiles])
 
-  const [assignmentFilter, setAssignmentFilter] = useState<'all' | 'mine' | 'unassigned'>('all')
+  const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilter>('all')
 
   const docParam = searchParams?.get('doc')
   const filteredFiles = useMemo(() => {
@@ -646,32 +673,18 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               <ListTree />
             </ToggleGroupItem>
           </ToggleGroup>
-          {canCollaborate && (
-            <ToggleGroup
-              type="single"
-              value={assignmentFilter}
-              onValueChange={(value) => {
-                if (value === 'all' || value === 'mine' || value === 'unassigned') setAssignmentFilter(value)
-              }}
-              size="sm"
-              aria-label={t('assignment.responsible')}
-            >
-              {(['all', 'mine', 'unassigned'] as const).map((key) => (
-                <ToggleGroupItem key={key} value={key} className="px-2 text-xs">
-                  {t(
-                    key === 'all'
-                      ? 'assignment.filterAll'
-                      : key === 'mine'
-                        ? 'assignment.filterMine'
-                        : 'assignment.filterUnassigned',
-                  )}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-          )}
+          {/* develop's strip: the assignment toggles this branch had inline,
+              plus the agent-authored filter it grew while this branch was open. */}
+          <FileFilterStrip
+            canCollaborate={!!canCollaborate}
+            assignmentFilter={assignmentFilter}
+            onAssignmentFilterChange={setAssignmentFilter}
+            agentAuthoredOnly={agentAuthoredOnly}
+            onAgentAuthoredOnlyChange={setAgentAuthoredOnly}
+          />
           {/* The corpus search, in the header with the other controls that act
               on the listing — one search on the page, not a band under the one
-              it duplicates. Its result banner stays over the hits, in the pane. */}
+              it duplicates. */}
           <FileSearchField
             className="w-full sm:w-64 lg:w-72"
             value={search.query}
@@ -680,15 +693,13 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             onClear={search.clear}
             // The short placeholder, always: the long one spells out "press
             // Enter for semantic search" because the sticky band had no other
-            // way to say it. Here the run button is right beside the field and
-            // says it plainly, and the long string only truncated.
+            // way to say it, and in this width it only truncated.
             placeholder={t('browser.searchPlaceholder')}
             searchLabel={t('browser.searchLabel')}
             resetLabel={t('browser.resetSearch')}
             // No run button: the field reads as the plain filter it mostly is,
             // the way History's does. Enter still commits the query to the
-            // semantic search, and the result banner reports the run from the
-            // first frame, so nothing about the progress goes unsaid.
+            // semantic search.
           />
           <ProjectUppyUpload
             projectId={projectId}

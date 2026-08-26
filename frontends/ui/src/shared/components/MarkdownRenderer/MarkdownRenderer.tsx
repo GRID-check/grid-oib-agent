@@ -1,6 +1,7 @@
 'use client'
 
 import { type FC, type ReactNode, memo, useCallback, useMemo } from 'react'
+import dynamic from 'next/dynamic'
 import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
 import type { PluggableList } from 'unified'
 import rehypeKatex from 'rehype-katex'
@@ -12,7 +13,26 @@ import { scrollToAnchor, useInPageAnchorRenderer } from './anchor-context'
 import { MARKDOWN_SLOT_TAG, useMarkdownSlotRenderer } from './slot-context'
 import { isInternalHref, useInternalLinkRenderer } from './internal-link-context'
 import { markdownHeadings } from './headings'
-import { getLanguageFromClassName, headingAnchorId } from './utils'
+import { getLanguageFromClassName, headingAnchorId, isMermaidFence } from './utils'
+
+/**
+ * A ```mermaid fence, drawn instead of printed.
+ *
+ * `dynamic` with `ssr: false` for the same reason the BIM preview uses it: the
+ * component reaches for a DOM (mermaid lays out a graph by measuring text), and
+ * everything behind this boundary — the renderer, the SVG validator and, one
+ * `import()` further in, mermaid itself — stays out of the bundle of an answer
+ * that has no diagram in it. Measured: mermaid's first flowchart render pulls
+ * 214 KB gzipped, and a reader who never meets a fence pays none of it.
+ *
+ * The fallback while the chunk loads is deliberately nothing rather than a
+ * spinner: the block below it is about to be replaced, and a spinner that
+ * resolves in one frame reads as a fault.
+ */
+const MermaidDiagram = dynamic(
+  () => import('@/features/diagrams/components/mermaid-diagram').then((module) => module.MermaidDiagram),
+  { ssr: false }
+)
 
 function getTextFromChildren(node: ReactNode): string {
   if (typeof node === 'string') return node
@@ -174,6 +194,15 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
             const language = getLanguageFromClassName(codeClassName)
             const lineCount = codeContent.split('\n').length
 
+            // A diagram, not a listing. `MermaidDiagram` falls back to exactly
+            // the `CodeBlock` below when the source will not draw — while the
+            // answer is still streaming (the stabiliser makes a half-arrived
+            // fence LOOK closed, so drawing it would flash a parse error per
+            // token) and when the model wrote broken mermaid, which it will.
+            if (isMermaidFence(codeClassName)) {
+              return <MermaidDiagram source={codeContent} isStreaming={isStreaming} />
+            }
+
             return (
               <CodeBlock
                 value={codeContent}
@@ -330,7 +359,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           <td className="px-3 py-2 text-sm text-foreground">{children}</td>
         ),
       }) as Components,
-      [compact, headingId, renderInPageAnchor, renderInternalLink, renderSlot]
+      [compact, headingId, isStreaming, renderInPageAnchor, renderInternalLink, renderSlot]
     )
 
     return (

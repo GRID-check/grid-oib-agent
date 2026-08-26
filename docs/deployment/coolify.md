@@ -138,8 +138,23 @@ own domains, DB password, and internal token with no manual input.
    `SERVICE_FQDN_FRONTEND_3000`. Optionally override it with your own domain in
    the service's settings. Do the same for SeaweedFS if you want a stable S3 URL.
 5. **Deploy.** On first boot: Postgres runs `init-db.sql` (creates the 3 DBs),
-   the frontend runs Drizzle migrations for `grid_app`, `seaweedfs-init` creates the
-   bucket, and the backend starts + kicks off OIB ingestion in the background.
+   `grid-migrate` runs the Drizzle migrations for `grid_app`, `seaweedfs-init`
+   creates the bucket, `grid-audit-schemas` reconciles the WorkOS Audit Log
+   schemas, and the backend starts + kicks off OIB ingestion in the background.
+   The frontend waits for the first three; they are `depends_on:
+   service_completed_successfully`, so a failure in any of them stops the
+   frontend rather than letting it serve a half-provisioned environment.
+
+   > **`grid-audit-schemas` is why nothing here is a manual WorkOS step.** WorkOS
+   > rejects an Audit Log event whose action has no schema in the environment —
+   > and rejects one whose registered schema has the wrong targets or metadata
+   > keys the same way. Most of the trail survives that (the default emitter
+   > swallows it); `document.generated` does not, because it is emitted with the
+   > throwing emitter, so a rejected event unfiles the document it was about and
+   > Piloti quietly files nothing. With `WORKOS_API_KEY` unset the container
+   > prints one line and exits 0, so a `REQUIRE_AUTH=false` preview still boots.
+   > It reconciles rather than re-creates, so redeploys write nothing when the
+   > registry has not changed.
 
 ### WebSockets
 
@@ -401,6 +416,11 @@ redeploys of the same environment; each preview gets its own set.
       resolves to SeaweedFS's public domain and the signature host matches.
 - [ ] Ask an OIB question → knowledge results appear (confirms embeddings +
       ingestion). If empty, revisit §6 and §7.
+- [ ] (WorkOS environments) `grid-audit-schemas` exited 0 in the deploy log, and
+      a filed report produces a `document.generated` event in the org's audit
+      log. A rejected event unfiles the document, so "the report is not in
+      Berichte" and "the audit schema is stale" are the same symptom —
+      [agent-authored documents rollout](agent-authored-documents-rollout.md) §3.
 - [ ] (If a managed/external Postgres is used instead of the bundled one) the
       three databases exist — run `deploy/compose/init-db.sql` manually.
 

@@ -11,8 +11,13 @@
  * it *changes* as the state changes, and the three states cannot coexist in one
  * composer. Stacked here, the transition is legible in a single still:
  *
- *   1. **Geht an Piloti** — the default, and where a thread always returns. Quiet
- *      reassurance; the Piloti mark, no colour, no border.
+ *   1. **Silence** — the default, and where a thread always returns. It used to
+ *      state "Geht an Piloti" here; that sentence described the case the user is
+ *      already in and was rendered forever to do it. What remains on the line is
+ *      the `@` offer, which is not a statement but the only thing in the product
+ *      that teaches mentions exist. Captured deliberately: an empty row IS the
+ *      evidence, and without it nothing would show that the other two are
+ *      departures rather than the norm.
  *   2. **Geht an Anna Berger** — a person is tagged in the message being written, so
  *      the agent will stay out; paired with the "Piloti antwortet nicht" hint, which
  *      the user must see BEFORE sending.
@@ -32,7 +37,7 @@
  */
 
 import { notFound } from 'next/navigation'
-import { ArrowUp, AtSign, ChevronDown, Layers, Sparkles, ZoomIn } from 'lucide-react'
+import { ArrowUp, AtSign, ChevronDown, Layers, ZoomIn } from 'lucide-react'
 
 import { AddresseeIndicator } from '@/features/collaboration/components/AddresseeIndicator'
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
@@ -93,10 +98,10 @@ function MockComposer({
 
       {hint && (
         <p className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed">
-          {hint.icon === 'at' ? (
+          {/* Only the `@` hint carries a glyph. The agent hint's spark went with
+              the rest of the composer's AI marks — see `InputArea`. */}
+          {hint.icon === 'at' && (
             <AtSign className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden />
-          ) : (
-            <Sparkles className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden />
           )}
           <span>{hint.body}</span>
         </p>
@@ -122,7 +127,7 @@ function Previews(): JSX.Element {
   return (
     <>
       <section className="space-y-3">
-        <Eyebrow>Standard — der Chat fragt Piloti</Eyebrow>
+        <Eyebrow>Standard — der Chat fragt Piloti, ohne es zu sagen</Eyebrow>
         {/* `onMentionSomeone` is passed because the real composer passes it, and
             without it this preview quietly captured a state the product never
             shows: the affordance renders only when a handler exists, so every
@@ -202,8 +207,8 @@ export default function ComposerAddresseePreviewPage(): JSX.Element {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Wer die Nachricht bekommt</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Die Aussage im Composer — in jedem Zustand, damit „Piloti ist als Nächstes dran“ nichts
-            ist, was man erschließen muss.
+            Die Aussage im Composer — überall dort, wo die Nachricht nicht an Piloti geht.
+            Der Standardfall bleibt still; genau das macht die anderen lesbar.
           </p>
         </div>
 

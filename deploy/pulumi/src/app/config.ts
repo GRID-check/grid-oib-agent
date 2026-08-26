@@ -368,6 +368,15 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // backend needs it. Default-deny for the same reason as collaboration —
     // this one renders compliance verdicts.
     { name: "GRID_IFC_MODELS_ENABLED", value: String(cfg.ifcModels.enabled) },
+    // Agent-authored documents. Frontend-only: the filing seam lives in the BFF
+    // (`lib/documents/generated.ts`) and no worker or backend path reaches it.
+    // Default ON — the tenant-facing lever is the `project:documents:generate`
+    // permission; this is the operator's, for stopping filing across every
+    // tenant at once without touching a role.
+    {
+      name: "GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED",
+      value: String(cfg.agentAuthoredDocuments.enabled),
+    },
     // Storage-quota alerting (ADR-0042). Read by the sweep behind
     // /api/internal/storage/alerts, which the storage-alerts CronJob calls — so
     // it belongs to the frontend even though nothing renders it. Escalation to

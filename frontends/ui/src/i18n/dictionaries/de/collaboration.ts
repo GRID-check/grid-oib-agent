@@ -131,7 +131,6 @@ export const collaboration: typeof en.collaboration = {
     composerHint: 'Piloti hält sich zurück – {name} wird gefragt.',
     composerHintMany: 'Piloti hält sich zurück – {names} werden gefragt.',
     addressee: {
-      toAgent: 'Geht an Piloti',
       toPerson: 'Geht an {name}',
       toPeople: 'Geht an {names}',
       toThread: 'Geht an alle im Chat',

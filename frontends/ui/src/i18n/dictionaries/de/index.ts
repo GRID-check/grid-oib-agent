@@ -29,6 +29,7 @@ import { presence } from './presence'
 import { shortcuts } from './shortcuts'
 import { legal } from './legal'
 import { answerExport } from './answer-export'
+import { diagrams } from './diagrams'
 import type { Dictionary } from '../index'
 
 export const de: Dictionary = {
@@ -55,4 +56,5 @@ export const de: Dictionary = {
   platform,
   legal,
   answerExport,
+  diagrams,
 }

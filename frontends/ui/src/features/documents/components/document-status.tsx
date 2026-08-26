@@ -1,20 +1,21 @@
 /**
- * Document status semantics — the single source of truth for how a document's
- * ingestion status maps to a Badge variant and a human label across the Files
- * workspace. Previously the same literal (e.g. 'uploaded') was coloured green in
- * one component and yellow in another; unifying here keeps status colour honest.
+ * Document status as the Files workspace renders it — the badge, its label, and
+ * the three questions every surface asks about a status ("can Piloti quote it",
+ * "did it fail", "will it change on its own").
  *
- * Token map (per design language):
- *   ready / uploaded / ingested / success   → success
- *   ingesting / pending / processing / uploading → info
- *   failed / error                          → destructive
- *   anything else                           → secondary (neutral)
+ * The vocabulary itself is NOT here. It lives in `@/lib/documents/document-status`
+ * as data, because the server writes those values and the badge only reads them;
+ * this module used to restate the whole set twice (a variant map and a label
+ * map) and the server's poller restated it a third time. Everything below
+ * DERIVES from that one declaration, so a new status is one entry there rather
+ * than four edits nobody can find.
  */
 
 'use client'
 
 import { File, FileText, Image as ImageIcon, type LucideIcon } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { documentStatusFacts, type DocumentStatusVariant } from '@/lib/documents/document-status'
 import { useTranslations } from '@/i18n'
 import type { Translator } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -35,72 +36,97 @@ export function fileTypeIcon(contentType: string | null | undefined, filename?: 
   return File
 }
 
-type StatusVariant = 'success' | 'info' | 'destructive' | 'secondary'
-
-const STATUS_VARIANT: Record<string, StatusVariant> = {
-  ready: 'success',
-  uploaded: 'success',
-  ingested: 'success',
-  success: 'success',
-  completed: 'success',
-  ingesting: 'info',
-  pending: 'info',
-  processing: 'info',
-  uploading: 'info',
-  failed: 'destructive',
-  error: 'destructive',
-}
-
-const STATUS_LABEL_KEY: Record<string, string> = {
-  ready: 'status.ready',
-  uploaded: 'status.ready',
-  ingested: 'status.ready',
-  success: 'status.ready',
-  completed: 'status.ready',
-  ingesting: 'status.processing',
-  pending: 'status.processing',
-  processing: 'status.processing',
-  uploading: 'status.uploading',
-  failed: 'status.failed',
-  error: 'status.failed',
-}
+/** Re-exported so the Files components keep one import for status questions. */
+export type StatusVariant = DocumentStatusVariant
 
 export function documentStatusVariant(status: string | null | undefined): StatusVariant {
-  return STATUS_VARIANT[(status ?? '').toLowerCase()] ?? 'secondary'
+  // An undeclared status is neutral rather than green: the honest rendering of
+  // "nobody has said what this means" is a grey badge with the raw word in it.
+  return documentStatusFacts(status)?.variant ?? 'secondary'
 }
 
 /**
- * Statuses that are going to change on their own — the `info` family above.
- * Anything else (citable, failed) is terminal and needs no watching.
- *
- * Callers use this to decide what to re-ask for: the workspace polls the
- * document list while one is unsettled, and a card treats a "no thumbnail yet"
- * answer for one as provisional rather than as the final word.
+ * The document is going to change on its own — it is being uploaded, read or
+ * indexed right now. Callers use this to decide what to re-ask for: the
+ * workspace polls the document list while one is unsettled, and a card treats a
+ * "no thumbnail yet" answer for one as provisional rather than as the final word.
  */
-const SETTLING_STATUSES = new Set(['uploading', 'ingesting', 'pending', 'processing'])
-
-/** Ingestion wrote `completed`; the badge already treats that as citable. */
-const CITABLE_STATUSES = new Set(['ready', 'uploaded', 'ingested', 'success', 'completed'])
-
-const FAILED_STATUSES = new Set(['failed', 'error'])
-
 export function isSettlingStatus(status: string | null | undefined): boolean {
-  return SETTLING_STATUSES.has((status ?? '').toLowerCase())
+  return documentStatusFacts(status)?.phase === 'in-flight'
 }
 
-/** The document is indexed and Ask may open it — not only the literal `ready`. */
+/**
+ * The document is indexed and Ask may open it — not only the literal `ready`.
+ *
+ * Asked of the badge COLOUR on purpose: green is the product saying "Piloti can
+ * quote this", so a status that renders green and a status that unlocks Ask are
+ * the same claim. Two sets that must agree are one set.
+ */
 export function isCitableStatus(status: string | null | undefined): boolean {
-  return CITABLE_STATUSES.has((status ?? '').toLowerCase())
+  return documentStatusFacts(status)?.variant === 'success'
 }
 
 export function isFailedStatus(status: string | null | undefined): boolean {
-  return FAILED_STATUSES.has((status ?? '').toLowerCase())
+  return documentStatusFacts(status)?.variant === 'destructive'
+}
+
+/**
+ * The document has come to rest without ever being indexed — today, exactly
+ * `stored`: an agent-authored report, deliberately never dispatched to
+ * `/v1/ingest`. It is the case where "not citable yet" would be a lie, because
+ * there is no "yet", and the Ask affordance has to say so instead of promising
+ * a wait that never ends.
+ *
+ * An UNDECLARED status is not this: it also renders neutral, but what it means
+ * is unknown, and "we never indexed it" is a claim only a declared value earns.
+ */
+/**
+ * This document is not, and will never become, Projektwissen.
+ *
+ * Asks BOTH questions, and that is the whole point. Every not-citable
+ * affordance used to derive from `status` alone, which was correct only while
+ * `stored` implied "written by a machine" — a coincidence, not a rule. The
+ * design's own lesson from this feature is that *provenance is the durable
+ * fact*: `status` describes where a document is in a pipeline and can move,
+ * while `authored_by` is what it IS and cannot.
+ *
+ * So a machine-authored row is never-indexed whatever its status says, and a
+ * human row still answers on status alone, which is what keeps a genuinely
+ * pending upload from being labelled as something it is not.
+ */
+export function isNeverIndexed(file: {
+  status?: string | null
+  authoredBy?: string | null
+}): boolean {
+  if (file.authoredBy && file.authoredBy !== 'user') return true
+  return isNeverIndexedStatus(file.status)
+}
+
+/**
+ * Ask may open this document — the same claim the green badge makes.
+ *
+ * Machine-authored rows are excluded on authorship rather than on status, for
+ * the reason above: nothing this product wrote is citable, and a status that
+ * moved must not be able to say otherwise.
+ */
+export function isCitable(file: {
+  status?: string | null
+  authoredBy?: string | null
+}): boolean {
+  if (file.authoredBy && file.authoredBy !== 'user') return false
+  return isCitableStatus(file.status)
+}
+
+export function isNeverIndexedStatus(status: string | null | undefined): boolean {
+  const facts = documentStatusFacts(status)
+  return facts !== null && facts.variant === 'secondary' && facts.phase === 'terminal'
 }
 
 export function documentStatusLabel(status: string | null | undefined, t: Translator): string {
-  const key = (status ?? '').toLowerCase()
-  const labelKey = STATUS_LABEL_KEY[key]
+  const labelKey = documentStatusFacts(status)?.labelKey
   if (labelKey) return t(labelKey)
+  // An undeclared value still has to read as SOMETHING; showing it verbatim is
+  // what makes the drift visible to the person looking at the card.
   return status ? status.charAt(0).toUpperCase() + status.slice(1) : t('status.unknown')
 }
 

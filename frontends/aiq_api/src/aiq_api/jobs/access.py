@@ -105,6 +105,54 @@ def get_job_access(job_id: str, db_url: str) -> dict[str, Any] | None:
         return dict(row) if row is not None else None
 
 
+async def get_job_project_collection(job_id: str, db_url: str) -> str | None:
+    """The collection of the project this run was COMMISSIONED in, or None.
+
+    Recorded once, at submit time, from the request that started the run — so
+    unlike anything the report request carries it cannot be re-chosen later.
+
+    ## Why the report route needs it
+
+    A deep-research report is filed into a project as a document, and the cover
+    sheet it is filed with names the project, the Standort, the Bundesland and
+    the Gebäudeklasse. Bundesland is on that sheet because a compliance
+    statement without it is not checkable: it says which Bauordnung the report
+    was checked against.
+
+    The BFF used to take that project from the report REQUEST — and where the
+    request named none, from the caller's stored ``active_project_id``. Both are
+    properties of the reader at the moment they open a tab, not of the run. So a
+    run started in a project-less chat could be filed into whatever project the
+    reader last had open, and a run reopened from history while a different
+    project was active could be filed there: in both cases a report researched
+    under one Bauordnung, carrying a cover sheet asserting another, marked
+    „KI-generiert" and shaped for an Einreichung.
+
+    Returning it here lets the destination be DERIVED from the run instead of
+    checked against a request, which is what makes the wrong pairing
+    unrepresentable rather than merely detected.
+
+    ## Why it is separate from ``authorize_job_access``
+
+    That function returns the JOB, and a dozen callers destructure it. It also
+    skips the access read entirely when ``REQUIRE_AUTH`` is false, and this
+    answer has to be the same in both modes: filing runs on deployments where
+    auth is off, and a report filed into the wrong project is no less wrong
+    there. So this is its own read, on a path that runs once per report view
+    rather than per poll.
+
+    None is a truthful answer, not a failure: a run submitted before the column
+    existed, or from a chat with no project, has no commissioning project, and
+    the caller must treat that as "do not file" rather than as "file anywhere".
+    """
+    loop = asyncio.get_running_loop()
+    access = await loop.run_in_executor(None, get_job_access, job_id, db_url)
+    if access is None:
+        return None
+    collection = access.get("project_collection")
+    return collection if isinstance(collection, str) and collection else None
+
+
 def job_exists(job_id: str, db_url: str) -> bool:
     """Return True if a job with this ID already exists (job_access OR job_info row).
 

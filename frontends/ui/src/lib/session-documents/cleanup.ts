@@ -22,6 +22,10 @@ import { getBackendUrl } from '@/lib/backend-proxy'
 import { deleteBimDerivedObjects } from '@/lib/bim/service'
 import type { Document } from '@/lib/db/schema'
 import {
+  collectionFileRef,
+  type CollectionFileRef,
+} from '@/lib/documents/collection-file-ref'
+import {
   deleteSessionDocumentsByIds,
   listSessionDocumentsForCleanup,
   SESSION_DOCUMENT_LIST_LIMIT,
@@ -139,18 +143,27 @@ export async function deleteDocumentObjects(
  * with no row to retry from means a later question can still be answered out of
  * a file the user deleted.
  */
+/**
+ * Refs rather than bare filenames, for the reason `collection-file-ref.ts`
+ * gives: a filename is not an identity across authorship, and purging by one is
+ * the exact shape that deleted a human document's chunks when a machine-written
+ * report shared its name. Session rows cannot be machine-authored today —
+ * `fileGeneratedDocument` sets no scope, so the column defaults to `project` —
+ * but that is a coincidence of a default, and this signature is what stops it
+ * mattering.
+ */
 export async function purgeCollectionChunks(
   collectionName: string,
-  filenames: string[],
+  refs: CollectionFileRef[],
 ): Promise<ExternalCleanupResult> {
-  if (filenames.length === 0) return { ok: true }
+  if (refs.length === 0) return { ok: true }
   try {
     const response = await fetch(
       `${getBackendUrl()}/v1/collections/${encodeURIComponent(collectionName)}/documents`,
       {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_ids: filenames }),
+        body: JSON.stringify({ file_ids: refs.map((ref) => ref.filename) }),
         signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
       },
     )
@@ -227,9 +240,13 @@ export async function purgeSessionDocuments(
     // filenames. A collection that fails marks EVERY document in it as
     // unerased: the call is one request and we cannot tell which of its
     // filenames survived.
-    const byCollection = new Map<string, string[]>()
+    const byCollection = new Map<string, CollectionFileRef[]>()
     for (const doc of docs) {
-      byCollection.set(doc.collectionName, [...(byCollection.get(doc.collectionName) ?? []), doc.filename])
+      // A row this sweep must not purge by name is simply not added; it owns no
+      // chunks, so there is nothing for the purge to do about it.
+      const ref = collectionFileRef(doc)
+      if (!ref) continue
+      byCollection.set(doc.collectionName, [...(byCollection.get(doc.collectionName) ?? []), ref])
     }
     const failedCollections = new Map<string, string>()
     for (const [collectionName, filenames] of byCollection) {

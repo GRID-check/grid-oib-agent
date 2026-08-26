@@ -96,6 +96,37 @@ export const FEATURE_FLAGS = {
    * and degraded to the data explorer, not a deployment capability.
    */
   ifcModels: 'ifc-models',
+  /**
+   * Agent-authored documents: a finished deep-research report and a drawn
+   * diagram filed into a project as `documents` rows
+   * (`lib/documents/generated.ts`, ADR-0047's 2026-08-20 addenda).
+   *
+   * Gates the ONE filing seam, so every producer rides it — a flag per producer
+   * could only let the two disagree, which is the argument the `skills` entry
+   * above already makes about jobs.
+   *
+   * ## Why this exists ALONGSIDE `project:documents:generate`
+   *
+   * They answer different questions, and neither can answer the other's.
+   *
+   *   - The permission is the TENANT's: per project, per role, set by the
+   *     organization's own admin, and withheld by putting people on a custom
+   *     project role that omits it. It cannot serve as an operator kill switch,
+   *     because the only way to withdraw it fleet-wide is to edit the built-in
+   *     `project-editor`/`project-admin` roles in WorkOS — which makes
+   *     `provision:authz --check` fail in CI (ADR-0038 §1). The repo actively
+   *     forbids using the catalog as a knob.
+   *   - This flag is the OPERATOR's: is the capability present in this
+   *     deployment at all. It is what the rollout runbook's §4 reaches for when
+   *     filing has to stop now, and it stops filing for every producer and every
+   *     tenant without touching a single role.
+   *
+   * Default **ON**, `ifc-models` shape and for the same reason: a deployment
+   * must be able to switch a capability off without switching WorkOS flag
+   * enforcement on for every other feature at the same time, which the plain
+   * fail-open path gives no way to do.
+   */
+  agentAuthoredDocuments: 'agent-authored-documents',
   /** Agent Skills: the org toolbox of agentskills.io-format skills plus the
    *  project jobs that may attach them. Dark-launched — gated by the WorkOS
    *  flag when enforcement is on, else the GRID_SKILLS_ENABLED env opt-in
@@ -187,6 +218,41 @@ export function isIfcModelsEnabled(session: Pick<GridSession, 'featureFlags'>): 
  */
 export function ifcModelsEnvEnabled(): boolean {
   const raw = (process.env.GRID_IFC_MODELS_ENABLED ?? '').trim().toLowerCase()
+  return raw === '' || !['false', '0', 'no', 'off'].includes(raw)
+}
+
+/**
+ * Gate for agent-authored documents. With WorkOS flag enforcement it follows the
+ * per-org `agent-authored-documents` flag; without enforcement it follows
+ * `GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED`, which **defaults to true**.
+ *
+ * Default-ON is deliberate and it is not the same posture as `collaboration` or
+ * `skills`: those launch dark, and their opt-in is the whole point. This
+ * capability already has its opt-in — `project:documents:generate`, which no
+ * role holds unless the catalog has been provisioned and which the legacy
+ * `project:edit` umbrella deliberately does not satisfy. A second default-off
+ * gate would not make the feature safer, it would make every deployment turn two
+ * knobs to reach the behaviour its own release note describes.
+ *
+ * What this flag is FOR is the case the permission cannot serve: an operator who
+ * has to stop filing across every tenant at once. See the registry entry.
+ */
+export function isAgentAuthoredDocumentsEnabled(
+  session: Pick<GridSession, 'featureFlags'>
+): boolean {
+  if (enforcementOn()) {
+    return isFeatureEnabled(session, FEATURE_FLAGS.agentAuthoredDocuments)
+  }
+  return agentAuthoredDocumentsEnvEnabled()
+}
+
+/**
+ * Unset means ON. Only an explicit falsey value turns filing off, so the check
+ * is inverted relative to the opt-in gates above — the same shape, and the same
+ * accepted spellings, as {@link ifcModelsEnvEnabled}.
+ */
+export function agentAuthoredDocumentsEnvEnabled(): boolean {
+  const raw = (process.env.GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED ?? '').trim().toLowerCase()
   return raw === '' || !['false', '0', 'no', 'off'].includes(raw)
 }
 

@@ -2,6 +2,19 @@
 
 All BFF (Backend-for-Frontend) routes are under `frontends/ui/src/app/api/`. They proxy to the Python backend, handle auth, and inject collection scope headers.
 
+> **Not exhaustive, and the gap is old.** A walk of `app/api/**/route.ts` on
+> 2026-08-20 found 157 route directories, of which **51 have no entry in this
+> file or in [`collaboration-routes.md`](collaboration-routes.md)** — chiefly the
+> project surfaces (`folders`, `memory`, `overview`, `profile`,
+> `profile/patches`, `intake-definition`, `generate-summary`, `reindex`,
+> `restore`), `documents/{id}/{thumbnail,image}`, the session-attached document
+> shelf (`/api/session/documents/*`), legal holds and `/api/deletions`, the org
+> BYOK/memory/storage routes, several platform-tier routes (norms, storage,
+> profiler, reasoning efforts, vector reconcile), `citations/format`,
+> `skills/review`, `healthz`, and nine `/api/internal/*` service endpoints. The
+> route file is the source of truth; absence here means undocumented, never
+> non-existent.
+
 ## Architecture & error contract (ADR-0017)
 
 Every route is declared through a factory from `@/lib/api/handler`
@@ -61,6 +74,21 @@ Source: `frontends/ui/src/app/api/chat/route.ts`
 
 Source: `frontends/ui/src/app/api/generate/route.ts`, `frontends/ui/src/app/api/generate/respond/route.ts`
 
+## PDF export
+
+| Method | Path | Auth | Description | Request Body | Response |
+|--------|------|------|-------------|-------------|----------|
+| `POST` | `/api/generate-pdf` | Session only | Render caller-supplied Markdown as a PDF the browser downloads — the *Download PDF* button in the research panel's report tab (`use-download-pdf.ts`) and in `ReportCard`'s footer. No backend, no database, no object store: the bytes come from the request and go straight back. **Not** the filed-report renderer — this one prints no AI notice and no provenance line, because it is a person exporting prose they have read on screen (`MarkdownPdfOptions.aiProvenance` is opt-in for exactly that reason; the report filed into a project turns it on). Two bounds, both explicit because the App Router supplies neither: the JSON body is refused ahead of `request.json()` past **1 MiB** (`413 PAYLOAD_TOO_LARGE`, the ceiling the Pages Router used to apply for free), and `markdown` is capped at **65 536 characters** (`MAX_MARKDOWN_PDF_CHARS`) — the schema refuses past it with `400 BAD_REQUEST`, and the renderer refuses on its own behalf (`MarkdownTooLongError`) so the second caller cannot forget the bound. The cap is an ADMISSION control, not a performance tweak: `renderToStream`'s layout pass is one synchronous block, so a timeout cannot enforce anything (a 3 s timer armed before a 128 KiB table-heavy render fired at 32.5 s and the work ran to completion anyway) and Node serves nobody else meanwhile. Measured at 64 KiB: 1.0 s/189 MB as prose, 11.0 s/387 MB as dense tables; at 256 KiB the table shape reaches 141.7 s and 1.19 GB peak RSS, which is an OOM rather than a slow response. Rate-limited by the factory's `DEFAULT_MUTATION_LIMIT` (300/min, burst 40/2s) per member. `authz: { sessionOnly }`: it reads nothing and owns nothing, so there is no resource to authorize against — only a rendering cost that must not be free to the internet. | `{ markdown }` (1–65 536 characters) | `application/pdf` bytes, `Content-Disposition: attachment; filename="report.pdf"`, `Cache-Control: no-store` |
+
+Moved out of `src/pages/api/generate-pdf.ts` on 2026-08-20 at the same path. The
+Pages handler had **no session check at all** and was invisible to
+`app/api/authz-coverage.spec.ts`, which walks `app/api/**/route.ts`; `src/pages/`
+is gone entirely so the next handler cannot land in the same blind spot.
+
+Source: `frontends/ui/src/app/api/generate-pdf/route.ts` (renderer:
+`frontends/ui/src/lib/pdf/markdown-pdf.ts`, which owns `MAX_MARKDOWN_PDF_CHARS`
+and the measurements behind it)
+
 ## Conversations
 
 | Method | Path | Auth | Description | Request Body / Params | Response |
@@ -96,19 +124,21 @@ Source: `frontends/ui/src/app/api/conversations/route.ts`, `frontends/ui/src/app
 | `GET` | `/api/projects/{id}/members` | Required | List project members. Checks `project:manage`. Merges FGA role assignments with WorkOS user list. | — | `{ members: [{ organizationMembershipId, userId, email, name, role }] }` |
 | `POST` | `/api/projects/{id}/members` | Required | Add a member. Checks `project:manage`. Assigns a project-level FGA role. | `{ organizationMembershipId, roleSlug }` | `201 No Content` |
 | `DELETE` | `/api/projects/{id}/members/{assignmentId}` | Required | Remove a member. Checks `project:manage`. Removes WorkOS FGA role assignment. | — | `204 No Content` |
+| `POST` | `/api/projects/{id}/diagrams` | Required | File a diagram the BROWSER drew as **two** documents in the project: the SVG (`image/svg+xml`, previews in the Files pane and carries the mermaid/excalidraw source in its `<metadata>` so the drawing can be regenerated later) and a PDF wrapping the same geometry as `@react-pdf/renderer` `<Svg>` primitives (the artifact that gets attached to an Einreichung). Both go through `fileGeneratedDocument`, so both are `authored_by='agent'`, `status='stored'`, **never ingested**, `Unvergeben` on arrival and charged to the quota; the producers are `diagram_svg` and `diagram_pdf`. Authorization is `project:documents:write` (or the legacy `project:edit` umbrella) **and** `project:documents:generate`, both enforced inside the service before a byte is stored, behind the `agent-authored-documents` flag. The second permission is what an organization withholds to let Piloti answer without writing into its file system; the umbrella deliberately does not satisfy it ([ADR-0047's third addendum](../adr/0047-assignment-is-not-access.md)). `runId` identifies the diagram — the answer id plus a hash of its source — and is half the idempotency key: it lands in `authored_by_ref` with `authored_by_ref_kind = 'answer_artifact'` (migrations `0065`/`0066`; the request field keeps the old name), so posting twice files once and the retry after a partial failure files only the missing half. **The provenance here is CLIENT-ASSERTED**, unlike the research report's: the browser lays the graph out (production has no browser) and this route files what it sends, so a hand-crafted POST from any member holding the permission can put chosen bytes into a row that reads `authored_by='agent'`, under a reference naming no real answer. What the label means and what it does not — and why the forgeable shelf is the *less* capable one, since nothing agent-authored is indexable, searchable or citable — is [ADR-0047's second addendum](../adr/0047-assignment-is-not-access.md#addendum-2026-08-20-for-a-filed-diagram-the-client-asserts-the-provenance). Do not read `authored_by` as a warrant about whose hand wrote the bytes. The SVG is **parsed, allow-listed and re-serialised server-side**; a refusal names its rule in the reader's locale (`400 BAD_REQUEST`): a `<script>`, a `<foreignObject>`, a `<style>`, an `on*` handler, any `href`/`url()` that is not a fragment, a DOCTYPE/entity declaration, malformed XML, an unsupported element (including a `<metadata>` anywhere but as a direct child of the root, which is the only position the server writes one in and replaces), a missing viewport, nesting deeper than 64 elements (`too-deep` — the parse and the PDF conversion each recurse per level), or either payload over its cap (1 MiB SVG; 32 KiB mermaid / 512 KiB excalidraw source). The two caps are also declared on the schema and the whole JSON body is bounded ahead of `request.json()` (`413` past ~3 MB), because an App Router handler has no body limit of its own. | `{ runId, title, sourceKind: 'mermaid'\|'excalidraw', source, svg }` | `{ svg: { documentId, filename, folderId, alreadyFiled }, pdf: { … } \| null }` (201) — `pdf` is **null** when only the SVG landed: it is filed and quota-charged either way, so a partial filing is a 201 that names which half exists and not an error, and filing again adds only the missing half. |
 | `POST` | `/api/projects/{id}/consistency-check` | Required | End-of-wizard **free-text** intake consistency check (FB-13). Checks `project:edit` FGA (as of commit 873754b — aligned with the profile save/summary flow; only editors save the wizard). Proxies the backend `POST /v1/consistency-check`, which asks an LLM whether the free-text answers contradict the structured answers (passed as read-only context) or each other. **Fully fail-open**: always `200`; any backend non-200/transport failure or missing-LLM config degrades to `{ findings: null, error }` so a check outage never blocks the save. `findings: []` = consistent. | `{ freeText: [{field,value}] (≤50), structured?: [{field,value}] (≤200), locale? }` | `{ findings: [{ kind:'ai', fields, severity:'warning'\|'inconsistency', message }] \| null, error? }` |
 | `GET` | `/api/projects/{id}/folders` | Required | List the project's folders, ordered by materialised `path`. Checks `project:view`. | — | `{ folders: [{ id, projectId, parentId, name, path, createdAt, updatedAt }] }` |
 | `POST` | `/api/projects/{id}/folders` | Required | Create a folder. Checks `project:documents:write`. `path` is materialised from the parent's path + the validated name. | `{ name, parentId? }` | `{ folder }` (201) |
 | `PATCH` | `/api/projects/{id}/folders/{folderId}` | Required | **Rename and/or move** a folder. Checks `project:documents:write`. `parentId` is `.nullable().optional()` on purpose: absent leaves the parent alone, explicit `null` moves the folder to the project root. Rejects a move into the folder itself or into its own subtree (a cycle would be invisible until something walked the tree, because `path` is materialised). On success the whole subtree's `path` is rewritten in one SQL prefix-replace inside the same transaction — descendants never keep a stale path, and the same prefix rewrite is mirrored onto the Python backend's document metadata (`PATCH /v1/collections/{c}/folder-paths`, best-effort — ADR-0049) so the agent stops describing a folder the user renamed. Validation failures (bad name, unknown parent, cycle) come back as `400 BAD_REQUEST`. | `{ name?, parentId? }` (at least one) | `{ folder }` |
 | `DELETE` | `/api/projects/{id}/folders/{folderId}` | Required | Delete a folder **without deleting what was filed in it**. Checks `project:documents:write`. `documents.folder_id` is `ON DELETE CASCADE`, so the service first re-files the folder's documents and re-parents its child folders (subtree paths rewritten with them) into the deleted folder's own parent — the project root when it had none — and only then removes the row. The counts come back so the surface can say where the files went. The collapse is mirrored onto the backend as one prefix rewrite from the folder's path to its parent's (ADR-0049). | — | `{ documentsMoved, foldersMoved }` |
 
+Source: `frontends/ui/src/app/api/projects/route.ts`, `frontends/ui/src/app/api/projects/[id]/route.ts`, `frontends/ui/src/app/api/projects/[id]/diagrams/route.ts` (services: `frontends/ui/src/lib/diagrams/`), `frontends/ui/src/app/api/projects/[id]/members/route.ts`, `frontends/ui/src/app/api/projects/[id]/members/[assignmentId]/route.ts`, `frontends/ui/src/app/api/projects/[id]/consistency-check/route.ts` (service: `frontends/ui/src/lib/project-profile/profile-service.ts`)
 Source: `frontends/ui/src/app/api/projects/route.ts`, `frontends/ui/src/app/api/projects/[id]/route.ts`, `frontends/ui/src/app/api/projects/[id]/members/route.ts`, `frontends/ui/src/app/api/projects/[id]/members/[assignmentId]/route.ts`, `frontends/ui/src/app/api/projects/[id]/consistency-check/route.ts`, `frontends/ui/src/app/api/projects/[id]/folders/route.ts`, `frontends/ui/src/app/api/projects/[id]/folders/[folderId]/route.ts` (services: `frontends/ui/src/lib/project-profile/profile-service.ts`, `frontends/ui/src/lib/projects/folder-service.ts`)
 
 ## Documents
 
 | Method | Path | Auth | Description | Request Body / Params | Response |
 |--------|------|------|-------------|-----------------------|----------|
-| `GET` | `/api/documents` | Required | List documents for a project. Requires `projectId` query param. Checks `project:view` FGA. Read-only document metadata (`summary`, `pageCount`, `chunkCount`, `contentTypes`) is merged from the backend collection listing when available; the internal `metadata` jsonb (ingest job id) is never returned. | `?projectId=` | `{ documents: [{ id, filename, fileSize, contentType, status, errorMessage?, summary?, pageCount?, chunkCount?, contentTypes?, displayName?, ... }] }` (`displayName` is the rename, `null` when the document has never been renamed — surfaces show `displayName ?? filename` via `documentDisplayName`) |
+| `GET` | `/api/documents` | Required | List documents for a project. Requires `projectId` query param. Checks `project:view` FGA. Read-only document metadata (`summary`, `pageCount`, `chunkCount`, `contentTypes`) is merged from the backend collection listing when available; the internal `metadata` jsonb (ingest job id) is never returned. Lists the `project` shelf only — an Archiv or session-attached document has no project and never appears here. **`authoredBy` (2026-08-20)** narrows the listing to one hand and is the query behind the „Von Piloti" filter chip: validated against `DOCUMENT_AUTHORS` (`user` \| `agent`), so an unknown value is a `400` rather than a silently empty list, and pushed down to the query (partial index `documents_agent_authored_idx`, migration 0063) rather than filtered after the fact. Omitted is not the same as `user`: unfiltered is the whole project's estate. | `?projectId=&authoredBy=user\|agent` | `{ documents: [{ id, filename, fileSize, contentType, status, authoredBy, errorMessage?, summary?, pageCount?, chunkCount?, contentTypes?, displayName?, ... }] }` (`displayName` is the rename, `null` when the document has never been renamed — surfaces show `displayName ?? filename` via `documentDisplayName`; `authoredBy` is on the LIST row because „Von Piloti erstellt" is a line in the Files pane and the pane never loads the full document) |
 | `POST` | `/api/documents/upload` | Required | Upload a file. Checks `project:edit` FGA. Writes to SeaweedFS, creates DB row, triggers ingestion via `POST /v1/ingest` on Python backend. | `multipart/form-data` with `projectId` + `file` | `{ documentId, jobId?, status, filename }` |
 | `POST` | `/api/documents/search` | Required | Document-centric **semantic search** over a project's corpus (deterministic vector search, no LLM). Checks `project:view` FGA (via `listDocuments`), resolves the project's RAG collection, and proxies to the backend `POST /v1/collections/{c}/search` (`{ query, top_k: 40, top_k_files: topK }`). Backend hits (one per file, best snippet, score-descending) are joined to the project's own file rows **by filename** (`hit.file_name === file.filename`; a filename collision resolves to the most-recent row), so every result is a real, visible document with its live status/metadata plus match evidence. Fail-open: a backend error/timeout yields `{ hits: [] }`, never a 5xx. Body is zod-validated (`q` 1–1000 chars; `topK` 1–100, default 20). | `{ projectId, q, topK? }` | `{ hits: [{ id, filename, status, ..., snippet, page, score }] }` (reordered by score) |
 | `GET` | `/api/documents/{id}/download` | Required | Get a presigned download URL for a document. Verifies org ownership + `project:view` FGA. | — | `{ downloadUrl, filename, contentType, fileSize }` |
@@ -226,9 +256,62 @@ Source: `frontends/ui/src/app/api/v1/[...path]/route.ts`
 | `POST` | `/api/jobs/async/job/{job_id}/cancel` | Varies | Cancel a running job. Proxies to `POST /v1/jobs/async/job/{id}/cancel`. | — | `{ job_id, status, task_cancelled }` |
 | `DELETE` | `/api/jobs/async/job/{job_id}/cancel` | Varies | Same as POST cancel. | — | `{ job_id, status, task_cancelled }` |
 | `GET` | `/api/jobs/async/job/{job_id}/state` | Varies | Get job artifacts (tool calls, outputs, sources). Proxies to `GET /v1/jobs/async/job/{id}/state`. | — | `{ job_id, has_state, artifacts }` |
-| `GET` | `/api/jobs/async/job/{job_id}/report` | Varies | Get final report. Proxies to `GET /v1/jobs/async/job/{id}/report`. | — | `{ job_id, has_report, report }` |
+| `GET` | `/api/jobs/async/job/{job_id}/report` | Varies | Get final report. Proxies to `GET /v1/jobs/async/job/{id}/report`. **2026-08-20**: this is also where the BFF observes a commissioned run finishing and files the report into the project as a `documents` row (`fileResearchReport` → `fileGeneratedDocument`), which is why the response gained the additive `filed` / `filingFailed` keys below. The upstream additively returns `cards` — the run's Grid cards as the runner persisted them — and the BFF passes them through unchanged AND uses them to render the filed PDF's „Rechtsgrundlagen" section (`legalBasisSection`); a non-array is dropped rather than iterated. The filed artifact is a **PDF** rendered from the report's Markdown with the AI notice and the provenance metadata on, not the `.docx` the saved-answer export produces. | `projectId` (query, optional) — the project to file into. **Absent is not "do not file"**: `buildCollectionScopeFromRequest` falls back to the caller's stored `active_project_id` preference (authorized with `project:view`, silently dropped if that has gone stale), so a client that sends nothing may still file into whatever project the user last had open. | `{ job_id, has_report, report, cards?, filed? \| filingFailed? }` |
 
 SSE streams pass through the response body unmodified. The `?token=` query parameter provides an auth fallback for `EventSource` connections that cannot set custom headers (token is extracted and forwarded as `Authorization: Bearer`, not passed to the backend in the URL).
+
+### `filed` / `filingFailed` on the report response (additive, 2026-08-20)
+
+```jsonc
+{
+  "job_id": "…",
+  "has_report": true,
+  "report": "# Fluchtweglängen …",
+  "cards": [ … ],                  // the run's cards, from the upstream (2026-08-20)
+  "filed": {                       // present ONLY when a document now exists
+    "documentId": "…",             // the `/files?doc=` deep-link target
+    "filename": "fluchtweglangen-gk-4-2026-08-20.pdf",
+    "alreadyFiled": false          // false on the fetch that created the row
+  }
+  // …or, mutually exclusive with `filed`:
+  // "filingFailed": true          // a filing was attempted for this report and did not land
+}
+```
+
+`cards` is passed through exactly as
+[`python-endpoints.md`](python-endpoints.md) describes it — every card type the
+run produced, not only `legal_basis`, and opaque objects rather than a validated
+union — so the filed PDF and the chat thread cannot disagree about one run. This
+route checks only that the value is a non-empty array; the renderer narrows
+structurally on its own (`legalBasisSection` keeps the `legal_basis` cards and
+prints no heading at all when none of them is printable, because a heading over
+nothing in a submission document reads as "the citations were lost").
+
+**Three shapes, and the third is the point.** Every field the response already
+had is untouched, so a client that has never heard of either key keeps working.
+
+| Shape | Means |
+|---|---|
+| `filed: { … }` | The document exists. `alreadyFiled` distinguishes the fetch that created the row from the re-reads that follow — a report is fetched again every time its tab is opened, and filing is idempotent per run. |
+| `filingFailed: true` | A filing was attempted for this report and did not land: storage admission refused the bytes (`admitOrDiscard`, quota), the audit write failed (in which case the document is un-filed again, row and object both), or the caller does not hold both `project:documents:write` and `project:documents:generate` on the project — or the deployment has switched filing off entirely (`GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED=false` / the per-org `agent-authored-documents` flag). **No reason travels.** A quota refusal, a revoked permission and an object store that is down are one fact to this reader — the document is not there — and the messages that separate them name buckets and limits, which belong in the server log that already has them. |
+| neither key | No promise was made: this is not a report request, there is no report yet, no session (which is also the scheduled-run guard — a cron run has no live principal whose permission could authorize a write, design decision 10), or no project could be resolved, meaning neither a `projectId` on the request nor a reachable `active_project_id` preference to fall back on. |
+
+The distinction exists because the banner promises the filing before the run
+starts („Der fertige Bericht wird in diesem Projekt unter ‚Berichte' abgelegt.").
+A reader shown a plain success who then found nothing in Berichte had no way to
+learn why — the only record was a server log. **The client reads it**: the chat
+adapter carries `filingFailed` through the report boundary
+(`adapters/api/deep-research-client.ts`, which REBUILDS the body, so a key it
+does not name is a key no caller sees), the hooks record it on the run's success
+banner, and the banner prints one muted line taking the promise back
+(`deepResearch.success.filingFailedLine`) — no reason, no colour, no error
+state. Filing itself stays best-effort: none of this fails the request, and the
+user waited minutes for the report and gets it regardless.
+
+The document is written with `authored_by = 'agent'`, `status = 'stored'` and
+**zero assignees**, and is **never ingested** — see
+[../superpowers/specs/2026-08-20-agent-authored-documents-design.md](../superpowers/specs/2026-08-20-agent-authored-documents-design.md)
+and [../user-guides/agent-authored-reports.md](../user-guides/agent-authored-reports.md).
 
 Source: `frontends/ui/src/app/api/jobs/async/[...path]/route.ts`
 

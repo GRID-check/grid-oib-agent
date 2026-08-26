@@ -10,7 +10,9 @@ import type {
   PromptType,
   FileCardData,
   ErrorCode,
+  DeepResearchBannerData,
   DeepResearchBannerType,
+  DeepResearchFiledDocument,
   Conversation,
   CitationSource,
   AnswerTransparency,
@@ -248,6 +250,10 @@ export type MessagesSlice = {
     stats?: { totalTokens?: number; toolCallCount?: number },
     escalationReason?: string
   ) => void
+  /** See `ChatActions.recordDeepResearchFiling` — the filing arrives after the banner. */
+  recordDeepResearchFiling: (jobId: string, filed: DeepResearchFiledDocument) => void
+  /** See `ChatActions.recordDeepResearchFilingFailure` — the other half of the same answer. */
+  recordDeepResearchFilingFailure: (jobId: string) => void
   setProjectId: (projectId: string | null) => void
   /** Queue text for the composer to pick up (does NOT auto-send). */
   setComposerPrefill: (text: string, mentions?: DraftMention[], subject?: ComposerSubject) => void
@@ -517,6 +523,61 @@ const withDeepResearchBanner = (
       createDeepResearchBannerMessage(bannerType, jobId, stats, escalationReason),
     ],
     updatedAt: new Date(),
+  }
+}
+
+/**
+ * Patch one run's SUCCESS banner with what the report route said about filing,
+ * wherever in the store that banner happens to live.
+ *
+ * Shared by the two outcomes — a document landed, or a promised filing did not
+ * — because they differ only in the patch, never in the search. Both are
+ * reported by the same endpoint on the same fetch, and a second walk written
+ * separately is a second answer to "which banner is this about".
+ *
+ * Every conversation, not just the current one: the run's banner lives in the
+ * thread that commissioned it, and the report can be re-read (and so first
+ * filed) from another thread, from the run history, or after the reader has
+ * moved on. Searching by job id is what makes that safe.
+ *
+ * `patch` returns `null` for "already says this" — an attached run has no
+ * banner at all, and a report is re-fetched every time its tab is opened, so
+ * both callers would otherwise re-render the whole conversation list to write
+ * the value that is already there.
+ */
+const withPatchedDeepResearchSuccessBanner = (
+  conversations: Conversation[],
+  currentConversation: Conversation | null,
+  jobId: string,
+  patch: (data: DeepResearchBannerData) => DeepResearchBannerData | null
+): { conversations: Conversation[]; currentConversation: Conversation | null; changed: boolean } => {
+  let changed = false
+
+  const patchConversation = (conversation: Conversation): Conversation => {
+    let patchedHere = false
+    const messages = conversation.messages.map((message) => {
+      const data = message.deepResearchBannerData
+      if (
+        message.messageType !== 'deep_research_banner' ||
+        data?.jobId !== jobId ||
+        data.bannerType !== 'success'
+      ) {
+        return message
+      }
+      const patched = patch(data)
+      if (!patched) return message
+      patchedHere = true
+      return { ...message, deepResearchBannerData: patched }
+    })
+    if (!patchedHere) return conversation
+    changed = true
+    return { ...conversation, messages }
+  }
+
+  return {
+    conversations: conversations.map(patchConversation),
+    currentConversation: currentConversation ? patchConversation(currentConversation) : currentConversation,
+    changed,
   }
 }
 
@@ -1998,6 +2059,54 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       },
       false,
       'addDeepResearchBanner'
+    )
+  },
+
+  recordDeepResearchFiling: (jobId: string, filed: DeepResearchFiledDocument) => {
+    const { currentConversation, conversations } = get()
+
+    const next = withPatchedDeepResearchSuccessBanner(
+      conversations,
+      currentConversation,
+      jobId,
+      (data) =>
+        data.filedDocument?.documentId === filed.documentId
+          ? null
+          : // `filingFailed` is cleared, not merged. A document that exists is
+            // the whole of what the reader needs to know; leaving the
+            // retraction beside it would have the same banner deny and name the
+            // same file.
+            { ...data, filedDocument: filed, filingFailed: false }
+    )
+    if (!next.changed) return
+
+    set(
+      { currentConversation: next.currentConversation, conversations: next.conversations },
+      false,
+      'recordDeepResearchFiling'
+    )
+  },
+
+  recordDeepResearchFilingFailure: (jobId: string) => {
+    const { currentConversation, conversations } = get()
+
+    const next = withPatchedDeepResearchSuccessBanner(
+      conversations,
+      currentConversation,
+      jobId,
+      (data) =>
+        // A recorded document wins over a later failed attempt. The file is
+        // there; a re-read that could not file it again says nothing about
+        // that, and retracting a filing the reader can still open would be the
+        // one dishonesty worse than the silence this replaces.
+        data.filedDocument || data.filingFailed ? null : { ...data, filingFailed: true }
+    )
+    if (!next.changed) return
+
+    set(
+      { currentConversation: next.currentConversation, conversations: next.conversations },
+      false,
+      'recordDeepResearchFilingFailure'
     )
   },
 

@@ -22,7 +22,14 @@ all three images.
 - **The only GitHub secret** the pipeline needs is `PULUMI_ACCESS_TOKEN`.
 - **Gating**: `deploy.yml` triggers on **Publish Images** completing successfully,
   then re-checks that both aggregate gates (`CI OK` **and** `Security OK`) are green
-  on the exact commit before it touches the cluster.
+  on the exact commit before it touches the cluster. That re-check is its own
+  `gate` job, and it has three outcomes rather than two: green → deploy; a
+  **failed** CI/Security run → the gate fails, loudly, because a commit that
+  should have shipped did not; a **cancelled** one → the gate passes and the
+  deploy is *skipped*, because cancelled means the commit was superseded by a
+  newer push (the concurrency group killed its CI) and the newer tip brings its
+  own chain. A merge train used to paint that third case red, which is how a
+  real deploy failure stops being noticed.
 
 ## One-time setup
 

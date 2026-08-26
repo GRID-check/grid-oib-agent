@@ -75,6 +75,10 @@ Index: [`contributing/README.md`](contributing/README.md).
 |------|-------------|
 | [Chat](user-guides/chat.md) | Chat interface, conversation workflows, data source toggles |
 | [Projects](user-guides/projects.md) | Organizing documents and chats into projects with access control |
+| [Documents](user-guides/documents.md) | Uploading, tracking, and downloading documents through the UI |
+| [Reports Piloti Writes](user-guides/agent-authored-reports.md) | Where a deep-research report is filed, how it is marked as machine-written, why it stays out of the knowledge base, and who is responsible for it |
+| [Knowledge Search](user-guides/knowledge-search.md) | How the AI searches OIB knowledge base and uploaded documents |
+| [Keyboard Shortcuts](user-guides/keyboard-shortcuts.md) | The command palette, `g …` section jumps, composer keys, and the two gates that enable them |
 | [Documents](user-guides/documents.md) | Uploading, tracking, and downloading documents |
 | [Knowledge Search](user-guides/knowledge-search.md) | How the assistant searches OIB knowledge and uploaded documents |
 | [Keyboard Shortcuts](user-guides/keyboard-shortcuts.md) | Command palette, `g …` section jumps, composer keys |

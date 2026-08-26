@@ -76,6 +76,14 @@ describe('admitOrDiscard', () => {
 
   // Any failure, not just a quota refusal: a row that was not inserted for ANY
   // reason leaves the same orphan.
+  //
+  // That breadth is now DEPENDED ON and not merely prudent. `fileGeneratedDocument`
+  // loses an idempotency race as a `23505` out of this insert (migration 0064's
+  // unique index on `(organization_id, project_id, authored_by_ref, authored_by_producer)`), and its
+  // recovery deliberately does no cleanup of its own because this one already
+  // ran. Narrowing the catch to `InsufficientStorageError` would therefore leak
+  // one object per lost race — bytes with no row, invisible to the UI and to the
+  // quota ledger, which counts rows.
   it('also cleans up when the insert fails for a reason other than the quota', async () => {
     admitDocumentWithinQuota.mockRejectedValue(new Error('deadlock detected'))
     await expect(admitOrDiscard(BUCKET, ROW.storageKey, ROW)).rejects.toThrow('deadlock detected')

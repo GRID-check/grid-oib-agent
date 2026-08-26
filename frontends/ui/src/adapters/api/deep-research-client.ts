@@ -804,12 +804,80 @@ export const getJobStatus = async (
   return response.json()
 }
 
-/** Get job report */
+/**
+ * The document a commissioned run's report was filed as.
+ *
+ * The BFF files the report where it OBSERVES the run finishing, which is this
+ * endpoint (`app/api/jobs/async/[...path]/route.ts`), and reports the result
+ * back as an additive `filed` object. It is optional in every direction: a
+ * chat outside a project sends no `projectId` and nothing is filed, an
+ * organization can withhold `project:documents:write`, a quota can refuse the
+ * bytes, and a report fetched from a build that predates the feature carries
+ * nothing at all.
+ */
+export interface JobReportFiling {
+  documentId: string
+  filename: string
+  /** False only on the fetch that created the row; true on every re-read. */
+  alreadyFiled: boolean
+}
+
+export interface JobReportResponse {
+  job_id: string
+  has_report: boolean
+  report: string | null
+  filed?: JobReportFiling
+  /**
+   * A filing was attempted for this report and did not land.
+   *
+   * Mutually exclusive with `filed`, and NOT the same as its absence. The BFF
+   * sets it only in the one state where a promise was made and broken: a
+   * project was resolved, so `deepResearch.starting.filingDisclosure` told the
+   * reader the report would land under „Berichte", and then it did not. No
+   * project, no report yet and no filing attempt all leave both keys absent,
+   * because in none of them was anything promised.
+   *
+   * No reason travels with it, by design — a refused quota, a withheld
+   * `project:documents:write` and a report too long to render are one fact to
+   * an architect: the document is not there. The reasons name buckets,
+   * permissions and limits, and those are in the server log an operator reads.
+   */
+  filingFailed?: boolean
+}
+
+/**
+ * Narrow the additive `filed` object off an otherwise untyped response body.
+ *
+ * `response.json()` is `any` at the boundary and this repo forbids `any`, so
+ * the body is read as `unknown` and every field is checked before it is
+ * believed — the same posture `readReportMarkdown` takes on the server side of
+ * this same call. A malformed or absent `filed` yields `undefined`, which is
+ * exactly the state the UI already has to handle.
+ */
+function readReportFiling(body: unknown): JobReportFiling | undefined {
+  if (typeof body !== 'object' || body === null) return undefined
+  const filed = (body as { filed?: unknown }).filed
+  if (typeof filed !== 'object' || filed === null) return undefined
+  const { documentId, filename, alreadyFiled } = filed as Record<string, unknown>
+  if (typeof documentId !== 'string' || !documentId) return undefined
+  if (typeof filename !== 'string' || !filename) return undefined
+  return { documentId, filename, alreadyFiled: alreadyFiled === true }
+}
+
+/**
+ * Get job report.
+ *
+ * `projectId` is not decoration: the proxy resolves the caller's project from
+ * the query string, and without it the request is projectless and the report is
+ * never filed. Pass the chat's active project whenever there is one.
+ */
 export const getJobReport = async (
   jobId: string,
-  authToken?: string
-): Promise<{ job_id: string; has_report: boolean; report: string | null }> => {
-  const url = `${getDeepResearchBaseUrl()}/job/${jobId}/report`
+  authToken?: string,
+  options: { projectId?: string | null } = {}
+): Promise<JobReportResponse> => {
+  const query = options.projectId ? `?projectId=${encodeURIComponent(options.projectId)}` : ''
+  const url = `${getDeepResearchBaseUrl()}/job/${jobId}/report${query}`
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
   }
@@ -824,7 +892,22 @@ export const getJobReport = async (
     await throwDeepResearchApiError(response, 'Failed to get job report')
   }
 
-  return response.json()
+  const body = (await response.json()) as JobReportResponse
+  // Rebuilt rather than passed through, so a malformed `filed` cannot survive
+  // the boundary wearing a type it does not satisfy. The rebuild is also why
+  // `filingFailed` has to be listed here: a key this function does not name is
+  // a key the caller never sees, whatever the server sent.
+  const filed = readReportFiling(body)
+  return {
+    job_id: body.job_id,
+    has_report: body.has_report,
+    report: body.report,
+    ...(filed ? { filed } : {}),
+    // `=== true` and not truthiness: this is a boolean on the wire, and a
+    // client that believed a string here would retract a promise the server
+    // never said was broken.
+    ...(body.filingFailed === true ? { filingFailed: true as const } : {}),
+  }
 }
 
 /** Cancel a running job */

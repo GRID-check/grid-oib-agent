@@ -21,6 +21,7 @@ import { documents, projectFolders } from '@/lib/db/schema'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { collectionFileRef, collectionFileUrl, type CollectionFileRef } from '@/lib/documents/collection-file-ref'
 
 /** Same ceiling the other backend mirrors in `@/lib/documents/service` use. */
 const BACKEND_MIRROR_TIMEOUT_MS = 10_000
@@ -52,6 +53,7 @@ export async function moveDocumentToFolder(
       folderId: documents.folderId,
       filename: documents.filename,
       collectionName: documents.collectionName,
+      authoredBy: documents.authoredBy,
     })
     .from(documents)
     .where(and(eq(documents.id, input.documentId), eq(documents.organizationId, session.organizationId)))
@@ -91,7 +93,14 @@ export async function moveDocumentToFolder(
     .where(eq(documents.id, document.id))
     .returning({ id: documents.id, folderId: documents.folderId })
 
-  await mirrorDocumentFolderPath(document.collectionName, document.filename, destinationPath)
+  const backendRef = collectionFileRef({
+    collectionName: document.collectionName,
+    filename: document.filename,
+    authoredBy: document.authoredBy,
+  })
+  if (backendRef) {
+    await mirrorDocumentFolderPath(backendRef, destinationPath)
+  }
 
   return { ok: true, document: { id: updated.id, folderId: updated.folderId } }
 }
@@ -114,23 +123,14 @@ export async function moveDocumentToFolder(
  * entitled to. The bounded cost is that the agent keeps the old folder until
  * the next move or re-ingest.
  */
-async function mirrorDocumentFolderPath(
-  collectionName: string,
-  filename: string,
-  folderPath: string | null,
-): Promise<void> {
+async function mirrorDocumentFolderPath(ref: CollectionFileRef, folderPath: string | null): Promise<void> {
   try {
-    await fetch(
-      `${getBackendUrl()}/v1/collections/${encodeURIComponent(collectionName)}/documents/${encodeURIComponent(
-        filename,
-      )}/folder-path`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folder_path: folderPath }),
-        signal: AbortSignal.timeout(BACKEND_MIRROR_TIMEOUT_MS),
-      },
-    )
+    await fetch(collectionFileUrl(getBackendUrl(), ref, '/folder-path'), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folder_path: folderPath }),
+      signal: AbortSignal.timeout(BACKEND_MIRROR_TIMEOUT_MS),
+    })
   } catch {
     // ignore — see the note above; `documents.folder_id` is the durable truth.
   }

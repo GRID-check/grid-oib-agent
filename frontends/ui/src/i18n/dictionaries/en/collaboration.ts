@@ -174,7 +174,6 @@ export const collaboration = {
      */
     addressee: {
       /** Default, and where a thread always returns. */
-      toAgent: 'Goes to Piloti',
       /** One or more humans tagged in the message being written. */
       toPerson: 'Goes to {name}',
       toPeople: 'Goes to {names}',

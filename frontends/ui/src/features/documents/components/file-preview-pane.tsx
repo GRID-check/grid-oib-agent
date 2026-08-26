@@ -35,8 +35,15 @@ import { cn } from '@/lib/utils'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { DocumentActionsMenu, useDocumentActions, type DocumentScope } from './document-actions'
-import { DocumentStatusBadge, fileTypeIcon, isCitableStatus, isFailedStatus } from './document-status'
+import {
+  DocumentStatusBadge,
+  fileTypeIcon,
+  isCitable,
+  isNeverIndexed,
+  isFailedStatus,
+} from './document-status'
 import { AssignmentFaces } from './assignment-faces'
+import { AuthorshipLine } from './authorship-line'
 import { AssignPopover } from './assign-popover'
 import { useRouter } from 'next/navigation'
 import { askAboutFile } from '../lib/ask-about-file'
@@ -142,6 +149,25 @@ export function FilePreviewPane({
 }: FilePreviewPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
+  /**
+   * „Von Piloti indexiert" is a claim, and on a report Piloti WROTE it is a
+   * false one: that document was deliberately never dispatched to `/v1/ingest`,
+   * so there is nothing indexed to show and the eyebrow would contradict the
+   * hint on the disabled Ask button two lines above it. The rail keeps the
+   * facts that come from the file itself (type, size, project) and drops the
+   * section that describes an ingestion that never ran.
+   */
+  const showIndexedSection = showMetadataPanel && !isNeverIndexed(file)
+  /**
+   * Why „Piloti dazu fragen" is off. „Sobald die Datei zitierbar ist" promises
+   * a wait; a report Piloti wrote was deliberately never dispatched to
+   * `/v1/ingest`, so there is no wait to promise and the sentence says that
+   * instead.
+   */
+  const askDisabledReason = isNeverIndexed(file)
+    ? t('authorship.notInKnowledge')
+    : t('assignment.askDisabled')
+  const askReasonId = `ask-disabled-${file.id}`
   const router = useRouter()
   const storeMode = useFilePreviewStore((state) => state.mode)
   const storeFileId = useFilePreviewStore((state) => state.file?.id)
@@ -300,9 +326,27 @@ export function FilePreviewPane({
 
   return (
     <div className="@container flex h-full min-h-0 flex-col bg-card">
-      {/* Peek chrome lives on the host — this header is the modal/expanded one. */}
+      {/* Peek chrome lives on the host — this header is the modal/expanded one.
+
+          The row WRAPS, because on a phone it cannot hold both a filename and
+          five controls. Every action carries `shrink-0` (correctly — an
+          80px-wide „Herunterladen" is not a control), so the title block was
+          the only thing able to give, and with `min-w-0` it gave everything:
+          the name rendered as „f.", the „Von Piloti erstellt" byline as „C",
+          and the status badge collided with the Ask button. A floor on the
+          title block turns that into a wrap — one row on any container wide
+          enough, name over actions on one that is not. 11rem is about twenty
+          characters of the 14px name, enough that truncation is reading a
+          filename rather than guessing at one.
+
+          The basis is the row minus the extension chip, so the break is
+          DETERMINISTIC: the name and the chip take the first row and every
+          action wraps together onto the second. Left to `flex-1` alone the
+          break fell wherever the remaining width happened to run out, which put
+          „Ask Piloti" beside the name and the other four beneath it — an action
+          row split across two lines for no reason a reader could see. */}
       {!peeking && (
-      <div className="flex shrink-0 items-center gap-2.5 border-b px-3.5 pb-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] @md:gap-3 @md:px-5 sm:pt-3.5">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-2 border-b px-3.5 pb-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] @md:flex-nowrap @md:gap-x-3 @md:px-5 sm:pt-3.5">
         <span
           className="flex size-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold uppercase leading-none"
           style={extChipTint(ext)}
@@ -310,7 +354,7 @@ export function FilePreviewPane({
         >
           {ext || <Icon className="size-4" />}
         </span>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[11rem] flex-1 basis-[calc(100%-3.25rem)] @md:min-w-0 @md:basis-0">
           {/* The name the document was GIVEN, if it was given one. `title`
               carries it in full for the truncated case — and the file's own
               name underneath it, which is the answer to "which file is this
@@ -321,6 +365,10 @@ export function FilePreviewPane({
           >
             {actions.name}
           </h3>
+          {/* The byline, under the name and ABOVE the type · status line, which
+              keeps it clear of the assignment row further down: provenance and
+              responsibility are two answers that must never be read as one. */}
+          <AuthorshipLine authoredBy={file.authoredBy} className="mt-0.5" />
           {/* Type AND status on one line. The status badge used to live only in
               the metadata column, below the fold on a narrow panel — so the one
               question a reader has on opening a file ("is this actually indexed,
@@ -348,7 +396,7 @@ export function FilePreviewPane({
             </div>
           )}
         </div>
-        {projectId && isCitableStatus(file.status) && !inChat && (
+        {projectId && isCitable(file) && !inChat && (
           <Button
             type="button"
             size="sm"
@@ -364,17 +412,36 @@ export function FilePreviewPane({
             {t('assignment.ask')}
           </Button>
         )}
-        {projectId && canCollaborate && isCitableStatus(file.status) && (
+        {projectId && canCollaborate && isCitable(file) && (
           <AskColleagueButton
             projectId={projectId}
             file={file}
             documentId={file.id}
           />
         )}
-        {projectId && !isCitableStatus(file.status) && !isFailedStatus(file.status) && (
-          <Button size="sm" className="h-8 shrink-0" disabled title={t('assignment.askDisabled')}>
-            {t('assignment.ask')}
-          </Button>
+        {/* Disabled rather than hidden, the way this surface already treats a
+            document that is still being read — but the HINT has to tell the
+            truth. „Sobald die Datei zitierbar ist" promises a wait; a report
+            Piloti wrote was deliberately never indexed, so there is nothing to
+            wait for, and the hint says why instead. No `Piloti dazu fragen`
+            affordance appears in any other form here: that is the design, not
+            a gap. */}
+        {projectId && !isCitable(file) && !isFailedStatus(file.status) && (
+          // The reason sits on a WRAPPER, not on the button. A disabled
+          // `<button>` dispatches no pointer events in Chrome or Safari, so a
+          // `title` on it is a tooltip that can never open — the one sentence
+          // explaining why Ask is off was unreachable for every reader. The
+          // span is not disabled and does receive hover, so the explanation
+          // exists again; `aria-describedby` gives it to the reader who is not
+          // hovering anything.
+          <span title={askDisabledReason} className="shrink-0">
+            <Button size="sm" className="h-8 shrink-0" disabled aria-describedby={askReasonId}>
+              {t('assignment.ask')}
+            </Button>
+            <span id={askReasonId} className="sr-only">
+              {askDisabledReason}
+            </span>
+          </span>
         )}
         <Button
           type="button"
@@ -718,7 +785,7 @@ export function FilePreviewPane({
               agent actually understand this file" — and it used to sit as one
               more 12.5px paragraph between an eyebrow and six key/value rows,
               read at the same weight as the MIME type. */}
-          {showMetadataPanel && (
+          {showIndexedSection && (
             <section className="space-y-2.5" aria-label={t('preview.indexed.title')}>
               <SectionLabel as="p" icon={Sparkles} className="font-semibold tracking-[0.05em]">
                 {t('preview.indexed.title')}
@@ -735,7 +802,7 @@ export function FilePreviewPane({
               with, because one group was behind a feature flag and the other
               was not. The flag now gates ROWS, which is what it was always
               about; the group is whole either way. */}
-          <section className={cn('space-y-2', showMetadataPanel && 'mt-4')}>
+          <section className={cn('space-y-2', showIndexedSection && 'mt-4')}>
             <SectionLabel as="p" icon={FileCode2} className="font-semibold tracking-[0.05em]">
               {t('preview.properties')}
             </SectionLabel>
@@ -884,7 +951,10 @@ export function FilePreviewPane({
               on this file. */}
 
           <div className="flex-1" />
-          {showMetadataPanel && (
+          {/* Same claim as the section eyebrow, in a sentence — „beim Hochladen
+              automatisch erkannt" is about an upload and an ingestion that a
+              report Piloti wrote never had. */}
+          {showIndexedSection && (
             <p className="mt-4 border-t pt-3 text-xs leading-relaxed text-muted-foreground/80">
               {t('preview.indexed.caption')}
             </p>

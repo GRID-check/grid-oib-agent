@@ -244,6 +244,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `skillMinIntervalMinutes` | `15` | Floor on how often a job may be scheduled to fire |
 | **Collaboration** (ADR-0032…0035) | | |
 | `collaborationEnabled` | `false` | Shared chats, `@`-mentions and the inbox. Reaches the frontend as `GRID_COLLABORATION_ENABLED`; consulted only while `enforceFeatureFlags` is `false` (with enforcement on, the per-org `collaboration` WorkOS flag decides). Default-deny — the feature changes who can see a conversation |
+| `agentAuthoredDocumentsEnabled` | `true` | Whether Piloti may file the documents it writes — a finished Recherchebericht, a drawn diagram — into a project. Reaches the frontend as `GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED`; consulted only while `enforceFeatureFlags` is `false` (with enforcement on, the per-org `agent-authored-documents` WorkOS flag decides). Defaults ON. This is the OPERATOR's lever; the tenant's is the `project:documents:generate` permission, and withdrawing that fleet-wide would mean editing the built-in project roles in WorkOS, which fails `provision:authz --check` |
 | `ifcModelsEnabled` | `true` | `.ifc` upload, the model workspace, the 3D viewer, the Prüfbuch and the agent's `ifc_query` tool (ADR-0045). Reaches the frontend as `GRID_IFC_MODELS_ENABLED`; consulted only while `enforceFeatureFlags` is `false` (with enforcement on, the per-org `ifc-models` WorkOS flag decides). Defaults ON; set `false` to withdraw the feature without enabling flag enforcement globally |
 | **Storage alerts** (ADR-0042) | | |
 | `storageAlertsEnabled` | `true` | Creates the hourly `storage-alerts` CronJob, which calls `POST /api/internal/storage/alerts`. Default-**on**, unlike the dark-launch gates above: the quota already refuses the upload that crosses it, so without the alert the first person to learn about the limit is whoever breaks mid-task. An org with no quota is skipped, so on a deployment that sets none the sweep emits nothing |
@@ -348,7 +349,11 @@ src/app/                 config (Secret + env), migrations Job,
   registered schema is rejected by WorkOS and the audit trail silently thins
   out (issues #255/#256). The script reads before it writes, so a deploy that
   changes nothing writes nothing. Nothing depends on the Job — an audit outage
-  must not block a release. See `docs/deployment/workos-provisioning.md` §5.
+  must not block a release — and since agent-authored documents shipped that is
+  a deliberate trade rather than a free choice: `document.generated` uses the
+  throwing emitter, so a rejected event unfiles the document instead of losing a
+  line. The window and the reasoning are in the Job's own header; the compose
+  stacks make the opposite call. See `docs/deployment/workos-provisioning.md` §5.
 - **SeaweedFS** ships two topologies (`seaweedfsTopology`, ADR-0043). A new
   stack defaults to `split` — separate master, volume and filer workloads, so
   capacity is a replica count. Both stack templates pin `single`, the

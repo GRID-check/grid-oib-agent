@@ -614,3 +614,98 @@ describe('FilePreviewPane', () => {
     })
   })
 })
+
+describe('FilePreviewPane — a report Piloti wrote', () => {
+  const generated = {
+    id: 'doc-9',
+    filename: 'Tiefenrecherche_Brandschutz.pdf',
+    displayName: null,
+    fileSize: 1048576,
+    contentType: 'application/pdf',
+    status: 'stored',
+    folderId: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    errorMessage: null,
+    summary: null,
+    pageCount: null,
+    chunkCount: null,
+    contentTypes: null,
+    tags: null,
+    authoredBy: 'agent' as const,
+  }
+
+  it('carries the byline above the type line, clear of the assignment row', () => {
+    render(<FilePreviewPane file={generated} projectId="proj-1" canCollaborate />)
+
+    const byline = screen.getByText('Created by Piloti')
+    expect(byline.tagName).toBe('P')
+    // Provenance and responsibility are two answers, and the design forbids
+    // reading them as one: the byline sits under the NAME, with the type ·
+    // status line between it and the faces.
+    const identity = byline.parentElement
+    expect(identity?.querySelector('h3')?.textContent).toBe('Tiefenrecherche_Brandschutz.pdf')
+    expect(byline.nextElementSibling?.textContent).toMatch(/PDF/)
+  })
+
+  it('drops the „Von Piloti indexiert" section, which would be a false claim', () => {
+    render(<FilePreviewPane file={generated} projectId="proj-1" showMetadataPanel />)
+
+    // The eyebrow describes an ingestion that never ran, and it would sit two
+    // lines under a hint saying the report is not in the knowledge base.
+    expect(screen.queryByText('Indexed by Piloti')).not.toBeInTheDocument()
+    // The facts that come from the FILE are still there.
+    expect(screen.getByText('Size')).toBeInTheDocument()
+  })
+
+  it('disables Ask and says why, instead of promising a wait that never ends', async () => {
+    render(<FilePreviewPane file={generated} projectId="proj-1" />)
+
+    const ask = screen.getByRole('button', { name: 'Ask Piloti' })
+    expect(ask).toBeDisabled()
+    // NOT "Once the file is citable": the report was deliberately never
+    // indexed, so there is no "once".
+    //
+    // And the reason is on the WRAPPER, not the button: a disabled `<button>`
+    // dispatches no pointer events in Chrome or Safari, so a `title` on it is a
+    // tooltip that can never open. The description is also announced, so the
+    // sentence exists for a reader who is not hovering anything.
+    expect(ask.closest('[title]')).toHaveAttribute(
+      'title',
+      'Created by Piloti — not in the knowledge base',
+    )
+    expect(ask).toHaveAccessibleDescription('Created by Piloti — not in the knowledge base')
+  })
+
+  it('withholds Ask on a machine-authored row whose status says citable', () => {
+    // The design's own lesson from this feature, which had been written down
+    // and not applied: "Every not-citable affordance derived from `status`.
+    // That was fine while `stored` implied agent-authored, and wrong the
+    // instant anything moved the row out of `stored`. Provenance is the durable
+    // fact." The gates read `status` alone until now.
+    //
+    // Nothing can move an agent row out of `stored` today — `dispatchDocument`
+    // refuses it, and `stored` is terminal so the poller never revisits it —
+    // which is precisely why this is cheap to fix now and expensive to discover
+    // later. `status` says where a document is in a pipeline and can move;
+    // `authored_by` says what it is and cannot.
+    render(
+      <FilePreviewPane file={{ ...generated, status: 'completed' }} projectId="proj-1" />
+    )
+
+    const ask = screen.getByRole('button', { name: 'Ask Piloti' })
+    expect(ask).toBeDisabled()
+    expect(ask.closest('[title]')).toHaveAttribute(
+      'title',
+      'Created by Piloti — not in the knowledge base',
+    )
+  })
+
+  it('still promises the wait for a document that really is being read', () => {
+    render(<FilePreviewPane file={{ ...generated, status: 'processing', authoredBy: 'user' }} projectId="proj-1" />)
+
+    const ask = screen.getByRole('button', { name: 'Ask Piloti' })
+    expect(ask).toBeDisabled()
+    expect(ask.closest('[title]')).toHaveAttribute('title', 'Once the file is citable')
+    expect(ask).toHaveAccessibleDescription('Once the file is citable')
+  })
+})

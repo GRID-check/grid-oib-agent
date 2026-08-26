@@ -52,6 +52,7 @@ vi.mock('./repository', () => ({
 
 import type { Document } from '@/lib/db/schema'
 import { deleteDocumentObjects, purgeCollectionChunks, purgeSessionDocuments } from './cleanup'
+import { collectionFileRef } from '@/lib/documents/collection-file-ref'
 
 const CONVERSATION_ID = 's_11111111-2222-3333-4444-555555555555'
 const ORG_ID = 'org_1'
@@ -62,6 +63,11 @@ function sessionDoc(overrides: Partial<Document> = {}): Document {
     organizationId: ORG_ID,
     conversationId: CONVERSATION_ID,
     scope: 'session',
+    // A real session row carries this — every `documents` row does, since 0063.
+    // Omitting it made the fixture a shape the application cannot produce, and
+    // `collectionFileRef` (correctly) refuses such a row, which is what turned
+    // the omission into a failing test rather than a silent one.
+    authoredBy: 'user',
     filename: 'brandschutz.pdf',
     collectionName: CONVERSATION_ID,
     storageKey: `org/${ORG_ID}/session/${CONVERSATION_ID}/doc/doc-1/brandschutz.pdf`,
@@ -150,8 +156,16 @@ describe('deleteDocumentObjects', () => {
 })
 
 describe('purgeCollectionChunks', () => {
+  // Built through the constructor, like production: a bare filename is no
+  // longer callable, which is the point of the signature.
+  const ref = (filename: string) => {
+    const value = collectionFileRef({ collectionName: CONVERSATION_ID, filename, authoredBy: 'user' })
+    if (!value) throw new Error('fixture is not a user-authored row')
+    return value
+  }
+
   it('succeeds on a 2xx', async () => {
-    await expect(purgeCollectionChunks(CONVERSATION_ID, ['a.pdf'])).resolves.toEqual({ ok: true })
+    await expect(purgeCollectionChunks(CONVERSATION_ID, [ref('a.pdf')])).resolves.toEqual({ ok: true })
   })
 
   // The bug: `fetch` rejects only on a transport error, so a 500 resolved and
@@ -159,7 +173,7 @@ describe('purgeCollectionChunks', () => {
   it('reports FAILURE on a non-2xx answer', async () => {
     stubFetch({ ok: false, status: 500 })
 
-    const result = await purgeCollectionChunks(CONVERSATION_ID, ['a.pdf'])
+    const result = await purgeCollectionChunks(CONVERSATION_ID, [ref('a.pdf')])
 
     expect(result.ok).toBe(false)
     expect(result.reason).toContain('500')
@@ -168,7 +182,17 @@ describe('purgeCollectionChunks', () => {
   it('reports FAILURE when the backend is unreachable', async () => {
     stubFetch(new Error('ECONNREFUSED'))
 
-    await expect(purgeCollectionChunks(CONVERSATION_ID, ['a.pdf'])).resolves.toMatchObject({ ok: false })
+    await expect(purgeCollectionChunks(CONVERSATION_ID, [ref('a.pdf')])).resolves.toMatchObject({ ok: false })
+  })
+
+  it('refuses a row that owns no chunks, so the purge cannot address another document', () => {
+    // The gate, at the one place a caller could still have passed a bare string.
+    // A machine-authored row is never ingested, so purging by its filename would
+    // delete the chunks of whatever human document shares that name — the leak
+    // this signature exists to make unrepresentable.
+    expect(
+      collectionFileRef({ collectionName: CONVERSATION_ID, filename: 'a.pdf', authoredBy: 'agent' })
+    ).toBeNull()
   })
 
   it('does not call the backend for an empty file list', async () => {
@@ -197,6 +221,27 @@ describe('purgeSessionDocuments', () => {
    * nothing lists, nothing can delete, and that still counts against the
    * organization's quota.
    */
+  it('never sends a machine-authored filename to the chunk purge', async () => {
+    // The sweep batches filenames per collection, and the batch is where a
+    // machine-authored row would have addressed a human document's chunks: the
+    // backend deletes by `file_ids`, so one wrong name in the list deletes
+    // somebody else's passages while their row keeps its „zitierbar" badge.
+    listSessionDocumentsForCleanup.mockResolvedValue([
+      sessionDoc(),
+      sessionDoc({ id: 'doc-2', filename: 'brandschutz.pdf', authoredBy: 'agent' } as Partial<Document>),
+    ])
+
+    await purgeSessionDocuments(CONVERSATION_ID, ORG_ID)
+
+    const purge = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([, init]) => (init as RequestInit | undefined)?.method === 'DELETE'
+    )
+    expect(purge, 'the human row is still purged').toBeTruthy()
+    expect(JSON.parse((purge?.[1] as RequestInit).body as string)).toEqual({
+      file_ids: ['brandschutz.pdf'],
+    })
+  })
+
   it('KEEPS the row when SeaweedFS refuses the delete', async () => {
     listSessionDocumentsForCleanup.mockResolvedValue([sessionDoc()])
     send.mockRejectedValue(new Error('SeaweedFS 500'))

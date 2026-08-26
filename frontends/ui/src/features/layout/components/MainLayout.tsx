@@ -12,7 +12,7 @@
 
 'use client'
 
-import { type FC, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type FC, useCallback, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { ChatToolbar } from './ChatToolbar'
@@ -32,6 +32,7 @@ import { useSessionUrl } from '@/hooks/use-session-url'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import { useTranslations } from '@/i18n'
 import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
+import { useComposerMetrics } from '../hooks/use-composer-metrics'
 
 interface MainLayoutProps {
   /** Whether the user is authenticated */
@@ -131,22 +132,14 @@ export const MainLayout: FC<MainLayoutProps> = ({
   const expandFile = useFilePreviewStore((s) => s.expand)
   const tFiles = useTranslations('files')
 
-  // Measure the floating composer stack (NoSourcesBanner + InputArea — variable
-  // height: multi-line textarea, wrapped chips, hint, banners) and publish it as
-  // --composer-h so ChatArea reserves EXACTLY that much bottom padding instead
-  // of a fixed guess. useLayoutEffect avoids a first-paint flash; ChatArea's
-  // 11rem fallback covers the pre-measure frame and jsdom (offsetHeight 0).
-  const composerRef = useRef<HTMLDivElement>(null)
-  const [composerHeight, setComposerHeight] = useState<number | null>(null)
-  useLayoutEffect(() => {
-    const el = composerRef.current
-    if (!el) return
-    const update = () => setComposerHeight(el.offsetHeight)
-    update()
-    const ro = new ResizeObserver(update)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
+  // How many messages this thread holds decides two separate things — whether
+  // the toolbar calls the chat started, and whether the composer is lifted off
+  // the floor into the empty canvas — so it is read once, here.
+  const messageCount = currentConversation?.messages?.length ?? 0
+
+  // Composer geometry (--composer-h, --composer-lift) — see useComposerMetrics.
+  // Shared with the /dev preview route so the two cannot drift.
+  const { composerRef, columnVars, composerStyle } = useComposerMetrics(messageCount === 0)
 
   // Deep research SSE hook - manages connection when deep research starts
   useDeepResearch()
@@ -256,11 +249,9 @@ export const MainLayout: FC<MainLayoutProps> = ({
             // motion belongs: the reader needs to see where the PANEL came
             // from, not watch their own text re-wrap sixty times.
             width: isResearchPanelOpen ? (isMobile ? '0%' : '50%') : '100%',
-            // Published from the ResizeObserver above; inherits into ChatArea
-            // (a descendant), which reads it via calc(). undefined pre-measure.
-            ...(composerHeight != null
-              ? { ['--composer-h' as string]: `${composerHeight}px` }
-              : {}),
+            // Published by useComposerMetrics; inherits into ChatArea (a
+            // descendant), which reads both via calc().
+            ...columnVars,
           }}
         >
           {/* Top fade scrim — a full-width gradient behind the floating pills
@@ -283,7 +274,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
             projectName={projectName ?? undefined}
             onNewSession={handleNewSession}
             isNewSessionDisabled={isNavigationBlocked}
-            isChatStarted={(currentConversation?.messages?.length ?? 0) > 0}
+            isChatStarted={messageCount > 0}
             // Collaboration affordances in the thread header: the participant
             // strip, the access chip and the share dialog. All three are gated on
             // the dark-launch flag AND on there being a conversation to share, so
@@ -324,7 +315,11 @@ export const MainLayout: FC<MainLayoutProps> = ({
               area instead of docking below it, so messages scroll behind the
               translucent input. ChatArea pads its bottom to keep the last
               message readable above it. */}
-          <div ref={composerRef} className="absolute inset-x-0 bottom-0 z-10 flex flex-col">
+          <div
+            ref={composerRef}
+            className="absolute inset-x-0 z-10 flex flex-col"
+            style={composerStyle}
+          >
             {/* No sources warning - shown when no data sources or files available */}
             <NoSourcesBanner isAuthenticated={isAuthenticated} />
 

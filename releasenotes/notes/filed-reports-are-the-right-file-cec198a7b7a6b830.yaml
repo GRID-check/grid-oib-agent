@@ -1,0 +1,25 @@
+---
+fixes:
+  - >
+    A filed Recherchebericht now always lands in the project the research was
+    actually run for. If you started a run outside a project, or reopened an
+    older run while a different project was open, the report could previously be
+    filed somewhere it did not belong — carrying a cover sheet naming that other
+    project's Bundesland, which is the line that says which Bauordnung the
+    report was checked against.
+  - >
+    Files Piloti writes no longer misspell their own names. A report on
+    „Fluchtweglängen Gebäudeklasse 4" is now saved as
+    fluchtweglaengen-gebaeudeklasse-4, the way you would write it yourself and
+    the way you would search for it a year later, and a client name with a
+    Polish or Czech letter in it survives intact.
+  - >
+    A report Piloti wrote can no longer be mistaken for one of your own
+    documents when the two happen to share a name. Search results, file
+    summaries, tags, page details and renaming now always act on the document
+    you actually opened, and deleting a report can no longer take the
+    corresponding Gutachten out of what Piloti can cite.
+  - >
+    Opening a file on a phone shows its name again. In the file preview, long
+    filenames and the „Von Piloti erstellt" line were being squeezed out by the
+    row of buttons beside them.

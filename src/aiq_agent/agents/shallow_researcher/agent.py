@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from collections.abc import Iterable
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
@@ -108,6 +109,24 @@ def _shelf_label(shelf: str | None) -> str | None:
 # right card and unable to fill it in.
 _INTERACTION_TOOL_BASENAMES = frozenset({"remember", "emit_card", "describe_card"})
 
+# How many interaction calls a turn may make WITHOUT spending research budget.
+# Sized from what the card doctrine sanctions, read at its most generous so the
+# budget is never the thing that decides: one `describe_card` (it takes several
+# type names in one call, and says so), three `emit_card` — the two content
+# cards `_CARD_RESTRAINT` allows plus a verdict header, on the reading where the
+# header is not one of the two — one `remember`, and one spare for the retry
+# `emit_card` invites by returning a shape hint on a validation failure. Six.
+#
+# Deliberately not tuned any finer than that. This constant decides only when a
+# card starts costing research; how many cards an answer SHOULD carry is the
+# doctrine's judgement and the `piloti-cards` skill's, both editable without a
+# deploy, and neither should have to be read out of a number here.
+#
+# It is a CEILING on the exemption, not a second budget to spend: a call past it
+# is charged to research exactly as before, so the tool loop still terminates on
+# `tool_iteration_ceiling` no matter what the model does with the card channel.
+_INTERACTION_TOOL_ALLOWANCE = 6
+
 # Tool-name base resolution lives with the retrieval that also needs it
 # (``tool_search.tool_basename``) so both the meta partition and the
 # ``always_include`` pin set resolve a group-qualified name the same way.
@@ -128,6 +147,27 @@ _RESEARCH_ONLY_BASENAMES = frozenset({"surface_documents", "ifc_query", "ifc_mea
 # bind_tools (pure CPU, no network), while an unbounded dict on a long-lived
 # worker costs memory forever.
 _MAX_CACHED_BINDINGS = 32
+
+
+def _count_interaction_calls(tool_calls: Iterable[Any]) -> int:
+    """How many of a round's tool calls are the answer's own output channel.
+
+    Interaction calls (``emit_card``, ``describe_card``, ``remember``) produce
+    the answer's cards and durable memory, not evidence, so they are counted
+    separately from the research budget — see the accounting in ``agent_node``.
+    Matched on the BASE name, so a NAT/MCP-qualified variant counts too.
+
+    Defensive about the call shape (dicts here, objects under some LangChain
+    versions): a call it cannot read is counted as research, which is the old
+    behaviour and the conservative direction — it can only shorten a turn's
+    research, never let the loop run longer.
+    """
+    count = 0
+    for call in tool_calls or ():
+        name = call.get("name") if isinstance(call, dict) else getattr(call, "name", None)
+        if name and _tool_basename(str(name)) in _INTERACTION_TOOL_BASENAMES:
+            count += 1
+    return count
 
 
 def _is_search_tool(tool_name: str) -> bool:
@@ -683,6 +723,7 @@ class ShallowResearcherAgent:
             messages = state.messages
             user_info = state.user_info
             iterations = state.tool_iterations
+            interaction_iterations = state.interaction_iterations
 
             tools_info = state.tools_info if state.tools_info else self.tools_info
 
@@ -834,10 +875,50 @@ class ShallowResearcherAgent:
                 response = await active_llm_with_tools.ainvoke(full_messages)
 
                 new_iterations = iterations
+                new_interaction_iterations = interaction_iterations
                 if hasattr(response, "tool_calls") and response.tool_calls:
+                    # What this round COSTS, and to which budget. Splitting the
+                    # count is the whole fix for "an answer only ever carries
+                    # one card": `max_tool_iterations` is the RESEARCH budget —
+                    # its own docstring says so, and the traced floors that
+                    # calibrated it measure search chains — but every call was
+                    # charged to it, `emit_card` and `describe_card` included.
+                    # Those are the answer's OUTPUT channel and they are called
+                    # last, after the searching is done, so on any turn that
+                    # actually researched, the ceiling landed on the cards
+                    # rather than on the research. Forced synthesis then says
+                    # "Do not attempt any further tool calls", which makes the
+                    # SECOND card the doctrine allows (`_CARD_RESTRAINT` in
+                    # `cards/catalog.py`) unreachable by construction — whatever
+                    # the model decided, and with no trace saying so.
+                    #
+                    # So the interaction channel gets its own allowance, spent
+                    # before the research budget is touched, exactly as
+                    # `reserved_tool_iterations` does for `use_skill`. Bounded
+                    # rather than free: past the allowance the calls are charged
+                    # normally again, so a model looping on `emit_card` still
+                    # terminates on the same ceiling as everything else.
                     added_calls = len(response.tool_calls)
-                    new_iterations += added_calls
-                    logger.info("Added %d tool calls to budget. Total: %d", added_calls, new_iterations)
+                    interaction_calls = _count_interaction_calls(response.tool_calls)
+                    research_calls = added_calls - interaction_calls
+                    exempt = min(
+                        interaction_calls,
+                        max(0, _INTERACTION_TOOL_ALLOWANCE - interaction_iterations),
+                    )
+                    new_iterations += research_calls + (interaction_calls - exempt)
+                    new_interaction_iterations += interaction_calls
+                    logger.info(
+                        "Added %d tool calls (%d research, %d interaction of which %d free). "
+                        "Research budget spent: %d/%d. Interaction spent: %d/%d",
+                        added_calls,
+                        research_calls,
+                        interaction_calls,
+                        exempt,
+                        new_iterations,
+                        self.tool_iteration_ceiling,
+                        new_interaction_iterations,
+                        _INTERACTION_TOOL_ALLOWANCE,
+                    )
                     # The same fact, said to the USER instead of the log: which
                     # corpus is about to be read, and with what wording. One
                     # line per ROUND, not per call -- the model emits its calls
@@ -853,6 +934,7 @@ class ShallowResearcherAgent:
                 return {
                     "messages": [response],
                     "tool_iterations": new_iterations,
+                    "interaction_iterations": new_interaction_iterations,
                     "cached_system_prompt": rendered_system_prompt,
                 }
 
@@ -1001,7 +1083,12 @@ class ShallowResearcherAgent:
             registry = SourceRegistry()
             registry_token = set_session_registry(registry)
 
-        recursion_limit = (self.max_llm_turns * 2) + 10
+        # Two graph steps per tool-call round (agent + tools), plus slack. The
+        # interaction allowance is added because it buys rounds the research
+        # budget no longer pays for: a model that emits its cards one call at a
+        # time now reaches the ceiling it is supposed to reach instead of a
+        # GraphRecursionError on the way there.
+        recursion_limit = ((self.max_llm_turns + _INTERACTION_TOOL_ALLOWANCE) * 2) + 10
         config = {"recursion_limit": recursion_limit}
         if self.callbacks:
             config["callbacks"] = self.callbacks

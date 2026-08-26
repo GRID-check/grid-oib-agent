@@ -97,20 +97,6 @@ export const chat: typeof en.chat = {
     afternoon: 'Guten Tag',
     evening: 'Guten Abend',
     withName: '{greeting}, {name}.',
-    subtitle: 'Fragen Sie zu Ihrem Projekt – Antworten belegen ihre Quellen.',
-  },
-  // Beispielhafte österreichische Baurecht-Fragen im leeren Chat — ein Klick
-  // füllt den Verfasser vor (sendet nicht automatisch), gegen die Blockade des
-  // leeren Blatts.
-  examples: {
-    label: 'Zum Beispiel',
-    questions: {
-      modelElements: 'Wie viele Außenwände hat das Erdgeschoß?',
-      modelRequirements: 'Welche Anforderungen kann mein Modell noch nicht beantworten?',
-      fluchtweg: 'Fluchtweglänge nach OIB-2?',
-      barrierefreiheit: 'Barrierefreiheit Wohnbau Wien?',
-      brandabschnitte: 'Brandabschnitte Gebäudeklasse 4?',
-    },
   },
   // Empty-state lock chip + thread role tabs (click-dummy overhaul, WS-3).
   workspace: {
@@ -341,6 +327,12 @@ export const chat: typeof en.chat = {
       // gerechnet hat die Karte, zu prüfen sind die Werte.
       computedNote:
         'Das Ergebnis wird von dieser Karte aus den obigen Werten berechnet, nicht aus der Antwort übernommen.',
+    },
+    // „Diagramm" und nicht „Grafik": das Wort steht über einer Zeichnung, die
+    // ausdrücklich nichts misst. Die übrigen Worte teilt die Karte mit dem
+    // Mermaid-Block im Fließtext (`diagrams.schematicOnly`, `diagrams.fallback`).
+    diagram: {
+      eyebrow: 'Diagramm',
     },
     processMap: {
       eyebrow: 'Verfahrensablauf',
@@ -933,6 +925,22 @@ export const chat: typeof en.chat = {
       heading: 'Bericht abgeschlossen!{stats}',
       subheading:
         'Die Recherche ist abgeschlossen und ein Bericht steht im Recherchebereich zur Ansicht bereit.',
+      // Steht NUR, wenn die Ablage tatsächlich stattgefunden hat und der Bericht
+      // eine Dokument-ID hat. Fehlt sie und wurde auch nichts versprochen — Chat
+      // ohne Projekt, Lauf aus der Zeit vor dieser Funktion —, schweigt das
+      // Banner, statt eine Datei zu behaupten, die es nicht gibt.
+      filedLine: 'Im Projekt abgelegt: {filename}',
+      // Die Rücknahme von `starting.filingDisclosure`, und nur dann: Das
+      // Start-Banner hat „wird abgelegt“ versprochen, der Server hat die Ablage
+      // versucht (es gab ein Projekt) und sie ist nicht zustande gekommen. Wer
+      // die Zusage gelesen hat, geht sonst in „Berichte“ und findet nichts —
+      // die einzige Spur wäre ein Serverprotokoll, das niemand hier lesen kann.
+      // Kein Grund: abgelehntes Speicherkontingent, entzogene Berechtigung
+      // „project:documents:write“ und ein zu langer Bericht sind dieselbe
+      // Tatsache — das Dokument ist nicht da; die Unterschiede sind für den
+      // Betrieb, nicht für die Ziviltechnikerin. Gleiche leise Zeile wie die
+      // Zusage, kein Rot, kein Fehlerzustand: die Recherche ist gelungen.
+      filingFailedLine: 'Der Bericht konnte nicht unter „Berichte“ abgelegt werden.',
     },
     failure: {
       heading: 'Bericht konnte nicht abgeschlossen werden',
@@ -952,8 +960,22 @@ export const chat: typeof en.chat = {
       heading: 'Deep Research wird gestartet',
       subheading:
         'Der Chat ist pausiert, während der Bericht erstellt wird, um zu verhindern, dass mehrere Berichte generiert werden. Sie können den Tab verlassen, während dies läuft – es kann mehrere Minuten dauern.',
+      // Die Offenlegung, die die Zustimmung erst echt macht. Sie steht auf dem
+      // START-Banner, nicht auf dem Ergebnis: Deep Research eskaliert aus einem
+      // Chat-Turn (es gibt kein Absendeformular), und ein Lauf kann beginnen,
+      // weil der Klassifikator eskaliert hat — nicht, weil jemand einen Bericht
+      // bestellt hat. Der Zeitpunkt, an dem man den Lauf noch abbrechen kann,
+      // ist deshalb der einzige, an dem die Angabe des Ablageorts etwas wert
+      // ist. Kein Dialog, keine Rückfrage: eine Bestätigung nach dem Lauf wird
+      // immer nur mit Ja beantwortet und ist damit keine Entscheidung.
+      // Erscheint nur in einem Projekt — außerhalb wird nichts abgelegt.
+      filingDisclosure: 'Der fertige Bericht wird in diesem Projekt unter „Berichte“ abgelegt.',
     },
     viewReport: 'Bericht anzeigen',
+    // Zweite Aktion auf dem Erfolgsbanner, wenn abgelegt wurde. Bewusst anders
+    // benannt als „Bericht anzeigen“: das öffnet den Recherchebereich, dies
+    // öffnet die Datei in der Projektablage — zwei Orte, zwei Wörter.
+    openInProject: 'Im Projekt öffnen',
     viewThinking: 'Denkschritte anzeigen',
     viewProgress: 'Fortschritt anzeigen',
     // Einzeiler über dem „Deep Research wird gestartet“-Banner, wenn der Turn

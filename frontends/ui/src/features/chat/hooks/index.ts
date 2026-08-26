@@ -5,3 +5,4 @@ export { useLoadJobData, type LoadJobDataOptions, type UseLoadJobDataReturn } fr
 export { useDeepResearchTitle } from './use-deep-research-title'
 export { useAnswerFeedback, type AnswerFeedbackState } from './use-answer-feedback'
 export { useElapsedSeconds, formatElapsed } from './use-elapsed-seconds'
+export { useTypedReveal, type TypedReveal, type TypedRevealOptions } from './use-typed-reveal'

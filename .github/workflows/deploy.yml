@@ -101,11 +101,91 @@ permissions:
 # production apply must not queue behind a staging publish or vice versa.
 # Within each stack, updates still run strictly one at a time.
 jobs:
+  # The green-CI gate, lifted out of the deploy into its own job so that
+  # "do not deploy" and "something is wrong" can look different. As a step it
+  # had only one way to stop the run, `core.setFailed`, and a commit superseded
+  # before its CI finished took that path — so an ordinary merge train painted
+  # the Actions tab red, which is how a real deploy failure stops being noticed.
+  # Now: green → deploy; a FAILED check → this job fails, because a commit that
+  # should have shipped did not; a CANCELLED one → this job passes and the
+  # deploy is skipped, because the commit was superseded and was never going to
+  # ship. Nothing about WHICH commits reach the cluster changes.
+  gate:
+    name: Require green CI + Security
+    # Same conditions the deploy itself carries: this job decides whether that
+    # deploy runs, so it must not run in cases the deploy would not.
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'staging' || inputs.target == 'both')) }}
+    runs-on: ubuntu-latest
+    outputs:
+      # 'true' only when every required workflow is green for this commit.
+      # Empty when the gate failed or was skipped, which the deploy reads as no.
+      proceed: ${{ steps.require.outputs.proceed }}
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      # The stated invariant: staging only receives commits whose CI and
+      # Security workflows passed. Publish Images has no `needs` relationship
+      # to them, so enforce it here by polling both workflows' conclusions for
+      # the deploy SHA (they usually finish long before the image build).
+      - name: Require green CI + Security for this commit
+        id: require
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const required = ["CI", "Security"];
+            const sha = process.env.DEPLOY_SHA;
+            const deadline = Date.now() + 25 * 60 * 1000;
+            for (const name of required) {
+              for (;;) {
+                const runs = (await github.rest.actions.listWorkflowRunsForRepo({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  head_sha: sha,
+                  per_page: 50,
+                })).data.workflow_runs.filter((r) => r.name === name);
+                const run = runs[0]; // most recent for this SHA
+                if (run && run.status === "completed") {
+                  // CANCELLED is not a failure, it is a SUPERSESSION: `develop`
+                  // moved on while the images were building and the concurrency
+                  // group killed this commit's CI. Nothing is broken, nothing is
+                  // deployable, and the newer tip brings its own Publish Images →
+                  // Deploy chain. Standing down quietly is the whole point of
+                  // this job: a red mark here is meant to mean "a commit that
+                  // should have shipped did not", and a merge train that paints
+                  // it red as a matter of routine is how a real deploy failure
+                  // stops being noticed.
+                  if (run.conclusion === "cancelled") {
+                    core.notice(
+                      `${name} for ${sha} was cancelled — this commit was superseded before its ` +
+                      `checks finished, so there is nothing to deploy. Skipping.`
+                    );
+                    core.setOutput("proceed", "false");
+                    return;
+                  }
+                  if (run.conclusion !== "success") {
+                    core.setFailed(`${name} for ${sha} concluded '${run.conclusion}' — refusing to deploy.`);
+                    return;
+                  }
+                  core.info(`${name}: success`);
+                  break;
+                }
+                if (!run) core.info(`${name}: no run found yet for ${sha}, waiting…`);
+                else core.info(`${name}: ${run.status}, waiting…`);
+                if (Date.now() > deadline) {
+                  core.setFailed(`${name} for ${sha} did not complete within 25 minutes.`);
+                  return;
+                }
+                await new Promise((r) => setTimeout(r, 30_000));
+              }
+            }
+            core.setOutput("proceed", "true");
+
   deploy:
     name: Pulumi up (dev)
-    # Only when the image build actually succeeded (skip on failed/cancelled),
-    # or on a manual dispatch whose target is staging/both.
-    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'staging' || inputs.target == 'both')) }}
+    # `gate` already encodes the trigger conditions; a skipped or failed gate
+    # leaves this output empty, so both read as "do not deploy".
+    needs: gate
+    if: ${{ needs.gate.outputs.proceed == 'true' }}
     runs-on: ubuntu-latest
     environment: staging
     concurrency:
@@ -158,44 +238,6 @@ jobs:
         with:
           # Deploy the exact commit whose images were just published.
           ref: ${{ env.DEPLOY_SHA }}
-
-      # The stated invariant: staging only receives commits whose CI and
-      # Security workflows passed. Publish Images has no `needs` relationship
-      # to them, so enforce it here by polling both workflows' conclusions for
-      # the deploy SHA (they usually finish long before the image build).
-      - name: Require green CI + Security for this commit
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const required = ["CI", "Security"];
-            const sha = process.env.DEPLOY_SHA;
-            const deadline = Date.now() + 25 * 60 * 1000;
-            for (const name of required) {
-              for (;;) {
-                const runs = (await github.rest.actions.listWorkflowRunsForRepo({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  head_sha: sha,
-                  per_page: 50,
-                })).data.workflow_runs.filter((r) => r.name === name);
-                const run = runs[0]; // most recent for this SHA
-                if (run && run.status === "completed") {
-                  if (run.conclusion !== "success") {
-                    core.setFailed(`${name} for ${sha} concluded '${run.conclusion}' — refusing to deploy.`);
-                    return;
-                  }
-                  core.info(`${name}: success`);
-                  break;
-                }
-                if (!run) core.info(`${name}: no run found yet for ${sha}, waiting…`);
-                else core.info(`${name}: ${run.status}, waiting…`);
-                if (Date.now() > deadline) {
-                  core.setFailed(`${name} for ${sha} did not complete within 25 minutes.`);
-                  return;
-                }
-                await new Promise((r) => setTimeout(r, 30_000));
-              }
-            }
 
       # Fail fast, with instructions, if the committed stack file is still the
       # template — otherwise the failure surfaces as a cryptic preview error.

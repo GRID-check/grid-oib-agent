@@ -34,6 +34,13 @@ import { BRAND_MARK, PDF_PAGE, PDF_THEME, PDF_TYPE } from './theme'
 export interface CoverFact {
   label: string
   value: string
+  /**
+   * Set for a value that is TRANSCRIBED rather than read — a run id, a
+   * reference number. The design language's rule ("monospace for identifiers")
+   * exists because a proportional font makes `l`/`1` and `O`/`0` the reader's
+   * problem at exactly the moment they are copying the thing into a ticket.
+   */
+  mono?: boolean
 }
 
 export interface CoverInfo {
@@ -41,6 +48,15 @@ export interface CoverInfo {
   title: string
   /** Project, date, and anything else the source of the document stated. */
   facts: CoverFact[]
+  /**
+   * The AI marking, when the document is machine-authored.
+   *
+   * Above the facts and below the title band, because a reader who stops after
+   * the cover has still been told what they are holding — and because the facts
+   * are what the document CLAIMS, while this is a statement about how much of
+   * it to trust.
+   */
+  notice?: { title: string; body: string }
 }
 
 const styles = StyleSheet.create({
@@ -86,6 +102,26 @@ const styles = StyleSheet.create({
     paddingTop: 44,
     flexGrow: 1,
   },
+  // The marking. A ruled block rather than a filled one: the cover is already
+  // the loudest page in the document, and a second filled area competes with
+  // the title band instead of being read before the facts.
+  coverNotice: {
+    borderLeftWidth: 3,
+    borderLeftColor: PDF_THEME.ink,
+    paddingLeft: 10,
+    paddingVertical: 2,
+    marginBottom: 28,
+  },
+  coverNoticeTitle: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  coverNoticeBody: {
+    fontSize: 9,
+    color: PDF_THEME.subtle,
+    lineHeight: 1.45,
+  },
   factRow: {
     flexDirection: 'row',
     borderBottomWidth: 1,
@@ -101,6 +137,10 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     fontSize: PDF_TYPE.body,
     color: PDF_THEME.ink,
+  },
+  factValueMono: {
+    fontFamily: 'Courier',
+    fontSize: PDF_TYPE.body - 1,
   },
   coverFooter: {
     position: 'absolute',
@@ -254,10 +294,18 @@ export const CoverContent: React.FC<{ cover: CoverInfo }> = ({ cover }) => (
     </View>
 
     <View style={styles.coverBody}>
+      {cover.notice ? (
+        <View style={styles.coverNotice} wrap={false}>
+          <Text style={styles.coverNoticeTitle}>{cover.notice.title}</Text>
+          <Text style={styles.coverNoticeBody}>{cover.notice.body}</Text>
+        </View>
+      ) : null}
       {cover.facts.map((fact, index) => (
         <View key={index} style={styles.factRow}>
           <Text style={styles.factLabel}>{fact.label}</Text>
-          <Text style={styles.factValue}>{fact.value}</Text>
+          <Text style={[styles.factValue, ...(fact.mono ? [styles.factValueMono] : [])]}>
+            {fact.value}
+          </Text>
         </View>
       ))}
     </View>

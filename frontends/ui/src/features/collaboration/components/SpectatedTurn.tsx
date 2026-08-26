@@ -28,7 +28,6 @@
 
 import type { FC } from 'react'
 import type { PluggableList } from 'unified'
-import { Sparkles } from 'lucide-react'
 import { ChatThinking } from '@/features/chat/components/ChatThinking'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { remarkCardMarkers } from '@/features/grid-cards/card-markers'
@@ -67,7 +66,6 @@ export const SpectatedTurn: FC<SpectatedTurnProps> = ({ turn, label, className }
       aria-live="off"
     >
       <div className="flex items-center gap-2">
-        <Sparkles className="text-muted-foreground size-3.5 shrink-0" aria-hidden="true" />
         <span
           className={cn(
             'text-foreground text-xs font-medium',
