@@ -218,10 +218,11 @@ tasks:
       # user-visible surface.
       #
       # NEEDS A CHROMIUM. The repo pins `playwright-core`, which ships none, so
-      # this reads `CHROMIUM_PATH` or `/opt/pw-browsers` — both present in the
-      # devcontainer and the CI image. On a bare machine, `npx playwright install
-      # chromium` once. The script says so itself rather than failing on a
-      # missing-executable stack trace.
+      # this reads `CHROMIUM_PATH`, `PLAYWRIGHT_BROWSERS_PATH`, `/opt/pw-browsers`
+      # (devcontainer and CI image) and Playwright's own per-OS cache — which is
+      # where `npx playwright install chromium` puts it, so on a bare machine that
+      # one command is the whole story. The script says so itself rather than
+      # failing on a missing-executable stack trace.
       - bun run touch-audit -- {{.CLI_ARGS}}
 
   fe:provision:authz:

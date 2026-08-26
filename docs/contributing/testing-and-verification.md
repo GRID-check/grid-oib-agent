@@ -134,9 +134,12 @@ measured including any `touch-target` catchment, so a control that widens its
 catchment correctly does not report. Add `-- <registry id>` for one surface.
 
 It needs a Chromium, which the repo does not ship (`playwright-core` has no
-browser): it reads `CHROMIUM_PATH` or `/opt/pw-browsers`, both present in the
-devcontainer and the CI image, and tells you to run `npx playwright install
-chromium` when neither is there. A target that fails to load is reported as a
+browser). It looks in `CHROMIUM_PATH`, `PLAYWRIGHT_BROWSERS_PATH`,
+`/opt/pw-browsers` (present in the devcontainer and the CI image) and
+Playwright's own per-OS cache. That last one is where `npx playwright install
+chromium` installs, so on a bare machine that single command is enough — no
+`PLAYWRIGHT_BROWSERS_PATH` to set afterwards. The error names every path it
+tried. A target that fails to load is reported as a
 failure and exits non-zero — findings themselves do not, because `SMALL` is a
 prompt to read rather than a verdict.
 

@@ -66,6 +66,8 @@
 import { chromium } from 'playwright-core'
 import { readdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
+import { connect } from 'node:net'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { SCREENSHOT_TARGETS } from './registry.mjs'
@@ -100,36 +102,69 @@ const INTERACTIVE = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',')
 
+/**
+ * Every place a Chromium can plausibly be, in the order it should win.
+ *
+ * `npx playwright install chromium` — the command this harness tells you to run
+ * — writes to Playwright's per-OS cache, NOT to `/opt/pw-browsers`. An earlier
+ * version searched only `PLAYWRIGHT_BROWSERS_PATH` and `/opt/pw-browsers`, so
+ * following the documented remedy on an ordinary machine still failed with the
+ * error that recommended it. The default cache is now searched too, which makes
+ * the instruction true instead of making the reader set an env var to repair it.
+ */
+function chromiumSearchPath() {
+  const home = homedir()
+  const roots = [process.env.PLAYWRIGHT_BROWSERS_PATH, '/opt/pw-browsers']
+  // Playwright's own defaults, per platform (see its `registry/index.ts`).
+  if (process.platform === 'darwin') roots.push(join(home, 'Library', 'Caches', 'ms-playwright'))
+  else if (process.platform === 'win32') {
+    roots.push(join(process.env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'ms-playwright'))
+  } else roots.push(join(home, '.cache', 'ms-playwright'))
+  return roots.filter(Boolean)
+}
+
 async function resolveChromium() {
   if (process.env.CHROMIUM_PATH && existsSync(process.env.CHROMIUM_PATH)) return process.env.CHROMIUM_PATH
-  const base = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers'
-  try {
-    const entries = await readdir(base)
-    const dir = entries
-      .filter((e) => e.startsWith('chromium-') && !e.includes('headless'))
-      .sort()
-      .pop()
-    if (dir) {
-      const candidate = join(base, dir, 'chrome-linux', 'chrome')
-      if (existsSync(candidate)) return candidate
+  const roots = chromiumSearchPath()
+  for (const base of roots) {
+    let entries
+    try {
+      entries = await readdir(base)
+    } catch {
+      continue
     }
-  } catch {
-    /* fall through below */
+    // Newest revision wins, and `headless_shell` is excluded: it cannot render
+    // the previews this audit measures.
+    const dirs = entries
+      .filter((e) => e.startsWith('chromium-') && !e.includes('headless'))
+      .sort((a, b) => Number(a.slice('chromium-'.length)) - Number(b.slice('chromium-'.length)))
+    for (const dir of dirs.reverse()) {
+      // The layout differs by platform; check each rather than assume Linux.
+      for (const rel of [
+        ['chrome-linux', 'chrome'],
+        ['chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'Chromium'],
+        ['chrome-win', 'chrome.exe'],
+      ]) {
+        const candidate = join(base, dir, ...rel)
+        if (existsSync(candidate)) return candidate
+      }
+    }
   }
   // `playwright-core` ships NO browser, so there is nothing to fall through to:
-  // without one of the two paths above, `chromium.launch()` throws a stack trace
+  // without one of the paths above, `chromium.launch()` throws a stack trace
   // about a missing executable, which reads as the harness being broken rather
   // than as a machine that has never had a browser installed. Say the actual
-  // thing, with the two ways out.
+  // thing, with the ways out.
   throw new Error(
     [
       'No Chromium found for the touch audit.',
       '',
       `  Looked in: ${process.env.CHROMIUM_PATH ?? '(CHROMIUM_PATH unset)'}`,
-      `             ${base}`,
+      ...roots.map((r) => `             ${r}`),
       '',
       'This repo pins `playwright-core`, which ships no browser of its own. Either:',
       '  • install one:  npx playwright install chromium',
+      '    (it lands in the last path above, which this harness searches)',
       '  • or point at an existing binary:  CHROMIUM_PATH=/path/to/chrome task fe:touch-audit',
       '',
       'The devcontainer and CI images already provide one at /opt/pw-browsers.',
@@ -253,33 +288,36 @@ const AUDIT = ({ interactive, floor, slack }) => {
 
   return {
     viewportWidth,
-    // How far the document ACTUALLY scrolls sideways, by trying it — not
-    // `scrollWidth > clientWidth`, which was the first version of this check and
-    // reports pages that do not scroll at all. An ancestor's `scrollWidth`
-    // accounts for content laid out inside a nested horizontal scroller even
-    // though that content is reachable only by scrolling the strip, so a
-    // composer with a chip rail read as 453px wide on a 390px screen and moved
-    // nowhere. Asking the browser to scroll and reading back how far it went is
-    // the question we actually mean.
-    // Whether the PAGE itself runs past the viewport — derived from the walk
-    // above, not from trying to scroll.
+    // Does the PAGE run past the viewport, and if so what is responsible?
     //
-    // Two probes were tried and both are wrong. `scrollWidth > clientWidth`
-    // counts content laid out inside a nested horizontal scroller, so a composer
-    // with a chip rail reads as 453px on a 390px screen and is perfectly fine.
-    // Scrolling and reading back looks like the honest answer and cannot work
-    // here at all: under Playwright's `isMobile` emulation the layout viewport
-    // does not pan programmatically, so `window.scrollX` stays 0 no matter what
-    // — verified against a deliberately 900px-wide document, where the same
-    // probe returns 510 with `isMobile: false` and 0 with it on. A check that
-    // always answers "no" is worse than no check, because it reads as evidence.
+    // Three probes were tried before this one. `scrollWidth > clientWidth` PER
+    // ELEMENT over-reports, because a horizontal scroller exceeds its own client
+    // width by design — that is what makes it a scroller. Scrolling and reading
+    // `window.scrollX` back cannot work here at all: under Playwright's
+    // `isMobile` emulation the layout viewport does not pan programmatically, so
+    // the read is 0 for every page (verified against a deliberately 900px-wide
+    // document: 510 with `isMobile: false`, 0 with it on). Deriving it purely
+    // from the element walk under-reports: a pseudo-element can push the
+    // document wider while appearing nowhere in `querySelectorAll('*')` and
+    // contributing nothing to its host's border box — verified with an
+    // over-wide `::after`, where the document measured 900px against a 390px
+    // viewport and the walk found nothing.
     //
-    // What actually decides it: an element sticking out past the viewport with
-    // NOTHING above it clipping or scrolling the overhang. That is precisely the
-    // `overflow` list — `covered`/`clipped` are already excluded, and anything
-    // inside a scroller is flagged `scroller`. If one of those exists, the page
-    // has content it cannot show without moving sideways.
-    pageOverflow: overflow.filter((item) => !item.scroller).length,
+    // So the two questions are separated. `documentElement` answers WHETHER,
+    // and it is the right element for it: unlike a per-element read it counts
+    // only what the document itself must scroll to show, so content inside an
+    // `overflow-x:auto` rail correctly reads as clean (measured: 390 vs 390 for
+    // a 1200px rail, 1200 vs 390 for the same content unclipped). The walk
+    // answers WHAT, and may legitimately come up empty — an overflow no element
+    // accounts for is a pseudo-element, and is reported as unattributed rather
+    // than swallowed.
+    pageOverflow:
+      document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    pageOverflowBy: Math.max(
+      0,
+      document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    ),
+    pageOverflowBlamed: overflow.filter((item) => !item.scroller).length,
     documentScrollWidth: document.documentElement.scrollWidth,
     overflow,
     traps,
@@ -306,6 +344,16 @@ async function startServer() {
   const { spawn } = await import('node:child_process')
   const port = Number(process.env.PORT) || 3411
   const baseUrl = `http://127.0.0.1:${port}`
+  if (await portIsBusy(port)) {
+    throw new Error(
+      `Port ${port} is already in use.\n\n` +
+        'The audit will not adopt it: a stale `next dev` from an earlier run, or an\n' +
+        'unrelated service, would answer the readiness probe while our own server\n' +
+        'failed to bind — and the audit would report that other process\'s pages as\n' +
+        "this branch's. Stop whatever holds the port, or pass a free one.",
+    )
+  }
+
   const child = spawn('npx', ['next', 'dev', '--turbopack', '-p', String(port), '-H', '127.0.0.1'], {
     cwd: UI_ROOT,
     stdio: 'ignore',
@@ -346,36 +394,84 @@ async function startServer() {
 }
 
 /**
+ * Turn a registry `waitFor` selector into a string the SERVER-RENDERED HTML must
+ * contain, or null when the selector cannot yield one.
+ *
+ * `waitFor` is a Playwright selector and this probe is a plain `fetch`, so only
+ * some selector shapes survive the translation. `text=` and `[data-testid="x"]`
+ * do. A class hook like `.react-flow__node` does not: it is applied by client
+ * JavaScript and appears nowhere in the server's HTML.
+ */
+function htmlMarkerFor(waitFor) {
+  if (typeof waitFor !== 'string') return null
+  if (waitFor.startsWith('text=')) return waitFor.slice('text='.length)
+  const testId = waitFor.match(/\[data-testid=["']([^"']+)["']\]/)
+  if (testId) return `data-testid="${testId[1]}"`
+  return null
+}
+
+/**
+ * The surface readiness is checked against, and the string its HTML must carry.
+ *
+ * Chosen for whether it yields a marker, NOT by id. The previous version pinned
+ * `chat-turn`, whose `waitFor` is `.react-flow__node` — a client-applied class,
+ * so the marker was null and the probe fell back to "any 200 will do". That is
+ * exactly the hole the marker exists to close: a stale `next dev` still holding
+ * the port answers 200 for the previous branch's code, and the audit measures
+ * it. 97 of the registry's targets use a `data-testid`, which IS in the server's
+ * HTML, so a usable marker is always available.
+ */
+const PROBE_TARGET = SCREENSHOT_TARGETS.find((t) => htmlMarkerFor(t.waitFor))
+const PROBE_MARKER = htmlMarkerFor(PROBE_TARGET?.waitFor)
+if (!PROBE_MARKER) {
+  // Never degrade to "any 200": that silently turns a readiness check into a
+  // liveness check and the audit reports another server's pages as this one's.
+  throw new Error(
+    'No registry target yields a server-HTML marker for the readiness probe.\n' +
+      'Give one target a `text=` or `[data-testid="…"]` waitFor, or the audit\n' +
+      'cannot tell this app apart from anything else holding the port.',
+  )
+}
+
+/**
  * Is THIS app serving previews at `baseUrl`?
  *
  * Not "did something answer below 500". A 3xx to a sign-in page and an unrelated
- * service already on port 3411 both clear that bar, and the audit would then
- * measure whatever they returned and report it as a clean surface. So: no
- * redirect, a 200, and a body carrying the marker the `/dev` layout renders.
+ * service on the port both clear that bar, and the audit would then measure
+ * whatever they returned and report it as a clean surface. So: no redirect, a
+ * 200, and a body carrying a marker only this app's `/dev` preview renders.
  */
 async function servesPreviews(baseUrl) {
   try {
     const res = await fetch(`${baseUrl}${PROBE_TARGET.path}`, { redirect: 'manual' })
-    const body = await res.text()
     if (res.status !== 200) return false
-    return PROBE_MARKER ? body.includes(PROBE_MARKER) : true
+    return (await res.text()).includes(PROBE_MARKER)
   } catch {
     return false
   }
 }
 
 /**
- * The surface readiness is checked against, and a string its HTML must contain.
+ * Is anything already listening on `port`?
  *
- * `waitFor` in the registry is a Playwright selector, and this probe is a plain
- * `fetch` — so the marker is the selector's own text where that is a `text=`
- * locator, and otherwise readiness settles for a clean 200. Either way it is
- * THIS app answering, not a redirect and not whatever else holds the port.
+ * Checked BEFORE spawning. Our own `next dev` would fail to bind and exit, while
+ * the incumbent keeps answering the readiness probe — so without this the audit
+ * silently measures whatever that other process serves. Refusing is the only
+ * honest option: the port's occupant is not ours to kill.
  */
-const PROBE_TARGET = SCREENSHOT_TARGETS.find((t) => t.id === 'chat-turn') ?? SCREENSHOT_TARGETS[0]
-const PROBE_MARKER = PROBE_TARGET?.waitFor?.startsWith('text=')
-  ? PROBE_TARGET.waitFor.slice('text='.length)
-  : null
+async function portIsBusy(port) {
+  return await new Promise((resolve) => {
+    const socket = connect({ port, host: '127.0.0.1' })
+    const done = (busy) => {
+      socket.destroy()
+      resolve(busy)
+    }
+    socket.setTimeout(1000)
+    socket.once('connect', () => done(true))
+    socket.once('timeout', () => done(false))
+    socket.once('error', () => done(false))
+  })
+}
 
 const targets = SCREENSHOT_TARGETS.filter((t) => {
   if (only.length) return only.includes(t.id)
@@ -418,7 +514,7 @@ try {
       continue
     }
 
-    const scrolls = report.pageOverflow > 0
+    const scrolls = report.pageOverflow
     const clean =
       !scrolls &&
       report.overflow.length === 0 &&
@@ -427,9 +523,17 @@ try {
     if (!clean) flagged += 1
     console.log(`\n## ${target.id}  (${target.path})${clean ? '  clean' : ''}`)
     if (scrolls) {
+      // An overflow the walk cannot name is the pseudo-element case: `::before`
+      // and `::after` are absent from `querySelectorAll('*')` and contribute
+      // nothing to their host's rect, so they widen the document invisibly. Say
+      // so rather than printing "0 element(s)", which reads as a contradiction.
+      const blame = report.pageOverflowBlamed
+        ? `${report.pageOverflowBlamed} element(s) with nothing clipping them; see OVERFLOW below`
+        : 'no element accounts for it — check for an over-wide ::before / ::after'
       console.log(
-        `   PAGE RUNS PAST THE VIEWPORT  ${report.pageOverflow} element(s) with nothing clipping them  ` +
-          `(laid out ${report.documentScrollWidth} in ${report.viewportWidth}; see OVERFLOW below)`,
+        `   PAGE RUNS PAST THE VIEWPORT  by ${report.pageOverflowBy}px  ` +
+          `(laid out ${report.documentScrollWidth} in ${report.viewportWidth})\n` +
+          `                                ${blame}`,
       )
     }
     for (const item of report.overflow) {
