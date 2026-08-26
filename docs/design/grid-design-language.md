@@ -141,10 +141,13 @@ field (History), title-only (Settings), and — on Files, the densest of them �
 the view and assignment toggles, the corpus search and Upload in that order,
 left to right. **A section has one search.** Files puts its field in the header
 beside the controls that act on the same listing, so there is no second search
-band inside the pane; what stays over the listing is the result banner, which
-belongs with the hits it counts. The field carries no run button: it reads as
-the plain live filter History's does, and Enter commits the query to the corpus
-search — the banner reports that run from its first frame. The intake wizard
+band inside the pane, and no banner over the results either: the header holds
+the query, the list holds the answer, and a strip between them saying "3 results
+for X" only restates the list while pushing it down a row. What a search DID is
+carried by the listing's own states — skeletons while it runs, a panel when it
+failed or found nothing — and the field's ✕ is the way back. The field carries
+no run button: it reads as the plain live filter History's does, and Enter
+commits the query to the corpus search. The intake wizard
 is a content page too — `PageHeader` plus a `SectionLabel` eyebrow, never a
 second `text-2xl` title. Projects home (above a project) uses the same
 `PageHeader`. The org **Archiv** uses that same band as the first strip of its
@@ -167,7 +170,7 @@ Tabbed shells (Organisation, Platform, and the same pattern on Inbox) are **one 
 
 **Stat** — `rounded-lg border bg-card p-5`, number in `text-2xl font-semibold tabular-nums`, label in `text-sm text-muted-foreground` below.
 
-**Search** — `SearchField` (`components/ui/search-field.tsx`) is the one magnifier + input + clear control. The file surfaces compose it inside `FileSearchField`, which Files renders in the page header and the Archiv inside `FileSearchBar` (the sticky band, field + result banner). Its optional `runButton` decides how VISIBLE the semantic run is, never whether it is reachable: Enter always submits, so a field without the button — Files — still reaches the corpus search. The banner is `FileSearchBanner` and always sits over the hits it counts, wherever the field went. Admin lists compose `SearchField` inside `DataToolbar`. Do not hand-roll another `relative` + `Search` icon + `Input`.
+**Search** — `SearchField` (`components/ui/search-field.tsx`) is the one magnifier + input + clear control. The file surfaces compose it inside `FileSearchField`, which Files renders in the page header and the Archiv inside `FileSearchBar` (the sticky band, field + result banner). Its optional `runButton` decides how VISIBLE the semantic run is, never whether it is reachable: Enter always submits, so a field without the button — Files — still reaches the corpus search. `FileSearchBanner` is the Archiv band's result line and belongs to that band; Files does not use it — a header that holds the query needs no strip repeating it over the results. Admin lists compose `SearchField` inside `DataToolbar`. Do not hand-roll another `relative` + `Search` icon + `Input`.
 
 **Exclusive / multi filters** — `ToggleGroup` (`components/ui/toggle-group.tsx`). Segmented icon clusters (Files view switcher) use `segmented`. Inverted pills (folder / category chips) use `variant="inverted"`. Exclusive form choices with a description (job output) use `RadioGroup`, not a toggle row.
 

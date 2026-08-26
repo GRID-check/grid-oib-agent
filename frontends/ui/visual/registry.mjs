@@ -333,7 +333,7 @@ export const SCREENSHOT_TARGETS = [
     id: 'file-browser-search-failed',
     path: '/dev/file-browser?variant=search-failed',
     description:
-      'A semantic search that could not RUN, held apart from one that ran and found nothing. The hook fails open to an empty hit list so the pane cannot crash, and reports which of the two happened — but nothing read that flag, so a backend timeout rendered as "Keine semantischen Treffer für …": the surface told the reader something about their own corpus that the app had no way of knowing, and offered them a reset for it. The retry re-runs the SAME query, because they had already typed it once. The field sits in a header band above the listing, the way the Files page now carries it; the result banner stays over the results it describes.',
+      'A semantic search that could not RUN, held apart from one that ran and found nothing. The hook fails open to an empty hit list so the pane cannot crash, and reports which of the two happened — but nothing read that flag, so a backend timeout rendered as "Keine semantischen Treffer für …": the surface told the reader something about their own corpus that the app had no way of knowing, and offered them a reset for it. The retry re-runs the SAME query, because they had already typed it once, and the panel is now the ONLY place the failure is stated \u2014 a tinted banner used to say it a second time directly above. The fixture renders the real Files header, so the other half of the evidence is that the header is identical to the unsearched one: same title, same toggles, same field position, same Upload.',
     waitFor: '[data-testid="file-browser-search-failed"]',
   },
   {
@@ -354,7 +354,7 @@ export const SCREENSHOT_TARGETS = [
     id: 'file-browser-search-list',
     path: '/dev/file-browser?variant=search-list',
     description:
-      'A semantic search answered in the DETAIL view. The card/list toggle was read only on the un-searched branch, so pressing Enter threw a reader who had deliberately chosen the list back into cards, and clearing the query threw them back again. The ranking comes with it: relevance is the column the list opens sorted by \u2014 its own default is newest-first, which would have silently discarded the order the backend ranked \u2014 and every row carries the passage that matched, with its page, in the slot the summary usually holds. The field is in the header band above the listing now, not in a sticky band inside it \u2014 the query state is owned above both, so this shot also proves the lift kept Enter-to-search working.',
+      'A semantic search answered in the DETAIL view. The card/list toggle was read only on the un-searched branch, so pressing Enter threw a reader who had deliberately chosen the list back into cards, and clearing the query threw them back again. The ranking comes with it: relevance is the column the list opens sorted by \u2014 its own default is newest-first, which would have silently discarded the order the backend ranked \u2014 and every row carries the passage that matched, with its page, in the slot the summary usually holds. What this shot pins beyond the ranking is that NOTHING MOVES: the fixture renders the real Files header, and it is pixel-identical to the unsearched one in `project-chrome` \u2014 title, view toggles, field position, Upload. There is no result banner over the list any more; the header holds the query, and the list holds the answer.',
     waitFor: '[data-testid="file-list-relevance"]',
   },
   {

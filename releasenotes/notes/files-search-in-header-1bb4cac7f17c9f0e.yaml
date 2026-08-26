@@ -7,5 +7,6 @@ improvements:
     there is one search on the page, not two places to look.
   - >
     That field behaves like the one in Historie: type, and the list narrows as
-    you go. Press Enter and Piloti searches the whole project corpus instead,
-    and says above the results what it found.
+    you go. Press Enter and Piloti searches the whole project corpus instead.
+    The header does not move while it does — the results simply take the place
+    of the list, each one showing the passage that matched and on which page.

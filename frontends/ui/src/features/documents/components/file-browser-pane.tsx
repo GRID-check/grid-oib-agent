@@ -13,7 +13,6 @@ import type { FileSearch } from '../hooks/use-file-search'
 import { FileCard } from './file-card'
 import { FileGrid, FileCardSkeleton } from './file-grid'
 import { FileListSkeleton, FileListView } from './file-list-view'
-import { FileSearchBanner } from './file-search-bar'
 import { FilterChip } from './filter-chip'
 import { AssignmentFaces } from './assignment-faces'
 
@@ -142,30 +141,13 @@ export function FileBrowserPane({
 
   return (
     <div className="flex h-full flex-col">
-      {/* What the committed search found, over the results it describes. The
-          field itself is the caller's — on Files it sits in the page header. */}
-      {semantic.active && (
-        <FileSearchBanner
-          isSearching={semantic.isSearching}
-          bannerText={
-            semantic.isSearching
-              ? t('browser.semantic.searching', { query: semantic.query ?? '' })
-              : // The count is a claim about the corpus, and a search that never
-                // ran has not counted anything. Reporting "0 results" above a
-                // panel that says the search failed is the same lie twice, in the
-                // one line the reader takes at face value.
-                semantic.error
-                ? t('browser.semantic.failedBanner', { query: semantic.query ?? '' })
-                : t('browser.semantic.banner', {
-                    count: String(semantic.hits.length),
-                    query: semantic.query ?? '',
-                  })
-          }
-          resetSemanticLabel={t('browser.semantic.reset')}
-          onResetSemantic={search.clear}
-          bannerTestId="semantic-banner"
-        />
-      )}
+      {/* No banner over the results. It restated in a tinted strip what the
+          listing below it already shows — how many hits, for which query —
+          and it moved the whole listing down a row the moment a search ran.
+          Everything it carried has a better home: the skeletons say a search
+          is running, the empty and failed panels say what came back, and the
+          field's own ✕ is the way out. The Archiv's band still uses
+          {@link FileSearchBanner}; Files does not. */}
 
       {/* Top-level folder quick filter — chip presentation of the same folder
           selection the sidebar tree drives (no separate navigation model).

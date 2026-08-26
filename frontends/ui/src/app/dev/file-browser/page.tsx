@@ -54,7 +54,9 @@ import { useFileSearch, type FileSearch } from '@/features/documents/hooks/use-f
 import { FolderTreePane } from '@/features/documents/components/folder-tree-pane'
 import { FileSearchBar, FileSearchField } from '@/features/documents/components/file-search-bar'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { LayoutGrid, ListTree } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { PageHeader } from '@/components/ui/page-header'
+import { LayoutGrid, List, ListTree } from 'lucide-react'
 import type { FileItem, FolderItem } from '@/features/documents/components/project-file-workspace'
 
 function makeFile(id: string, filename: string, summary: string, extra: Record<string, unknown> = {}): FileItem {
@@ -220,23 +222,58 @@ export default function FileBrowserDevPage(): JSX.Element {
 }
 
 /**
- * The Files page header, as far as these fixtures need it: the search field in
- * the band the shell draws around it. The real header adds the title, the view
- * toggles and Upload (see `/dev/project-chrome`); what matters here is that the
- * field is ABOVE the listing rather than in a band inside it.
+ * The WHOLE Files header, not a stand-in for it — title, view toggles,
+ * assignment filter, the search field, Upload, in the band `ProjectSectionFrame`
+ * draws. These two fixtures exist to show the searched state, and the claim
+ * being made about it is that the header does not move: the field stays where
+ * `/dev/project-chrome` shows it, and everything beside it is unchanged. A
+ * header reduced to just the field could not carry that claim, and the earlier
+ * version of this helper made the searched state look like a different page.
+ *
+ * `view` is passed so the toggle reflects the fixture's own listing.
  */
-function SearchHeader({ search }: { search: FileSearch }): JSX.Element {
+function FilesHeader({ search, view }: { search: FileSearch; view: 'cards' | 'list' }): JSX.Element {
   return (
-    <div className="shrink-0 border-b border-border px-4 py-3">
-      <FileSearchField
-        className="w-full sm:w-72"
-        value={search.query}
-        onChange={search.setQuery}
-        onSubmit={search.run}
-        onClear={search.clear}
-        placeholder="Search the project — press Enter for semantic search…"
-        searchLabel="Search files"
-        resetLabel="Reset search"
+    <div className="shrink-0 border-b border-border bg-background px-4 py-4 md:px-8">
+      <PageHeader
+        title="Files"
+        action={
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+            <ToggleGroup type="single" value={view} segmented size="icon-sm" aria-label="View">
+              <ToggleGroupItem value="cards" aria-label="Cards">
+                <LayoutGrid />
+              </ToggleGroupItem>
+              <ToggleGroupItem value="list" aria-label="List">
+                <List />
+              </ToggleGroupItem>
+              <ToggleGroupItem value="tree" aria-label="Folders">
+                <ListTree />
+              </ToggleGroupItem>
+            </ToggleGroup>
+            <ToggleGroup type="single" value="all" size="sm" aria-label="Responsible">
+              <ToggleGroupItem value="all" className="px-2 text-xs">
+                All
+              </ToggleGroupItem>
+              <ToggleGroupItem value="mine" className="px-2 text-xs">
+                Mine
+              </ToggleGroupItem>
+              <ToggleGroupItem value="unassigned" className="px-2 text-xs">
+                Unassigned
+              </ToggleGroupItem>
+            </ToggleGroup>
+            <FileSearchField
+              className="basis-full sm:w-64 sm:basis-auto lg:w-72"
+              value={search.query}
+              onChange={search.setQuery}
+              onSubmit={search.run}
+              onClear={search.clear}
+              placeholder="Search files..."
+              searchLabel="Search files"
+              resetLabel="Reset search"
+            />
+            <Button type="button">Upload</Button>
+          </div>
+        }
       />
     </div>
   )
@@ -283,7 +320,7 @@ function SearchInListViewFixture(): JSX.Element {
         className="flex h-[420px] flex-col overflow-hidden rounded-xl border"
         data-testid="file-browser-search-list"
       >
-        <SearchHeader search={search} />
+        <FilesHeader search={search} view="list" />
         <div className="min-h-0 flex-1">
           <FileBrowserPane
             files={FILES}
@@ -408,7 +445,7 @@ function SearchFailedFixture(): JSX.Element {
         className="flex h-[420px] flex-col overflow-hidden rounded-xl border"
         data-testid="file-browser-search-failed"
       >
-        <SearchHeader search={search} />
+        <FilesHeader search={search} view="cards" />
         <div className="min-h-0 flex-1">
           <FileBrowserPane
             files={FILES}

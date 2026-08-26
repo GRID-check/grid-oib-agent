@@ -265,13 +265,13 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
 
     await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
 
-    // The banner AND the panel both say it now, which is why this counts two.
-    expect(await screen.findAllByText(/could not be run/i)).toHaveLength(2)
+    // Said once, by the panel — the banner that used to repeat it is gone.
+    expect(await screen.findAllByText(/could not be run/i)).toHaveLength(1)
     expect(screen.queryByText(/no semantic matches/i)).not.toBeInTheDocument()
-    // And the banner above it: a count is a claim about the corpus, and a
-    // search that never ran has not counted anything. "0 results" over a panel
-    // that says the search failed is the same lie twice.
-    expect(await screen.findByTestId('semantic-banner')).not.toHaveTextContent(/0 results/i)
+    // And nowhere a count: a count is a claim about the corpus, and a search
+    // that never ran has not counted anything. "0 results" beside a panel that
+    // says the search failed is the same lie twice.
+    expect(screen.queryByText(/0 results/i)).not.toBeInTheDocument()
   })
 
   it('retries the SAME query, instead of only offering to give up', async () => {
@@ -357,10 +357,9 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
 
     await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
 
-    // Transparent banner naming the mode + result count for the query.
-    const banner = await screen.findByTestId('semantic-banner')
-    expect(banner).toHaveTextContent(/semantic search: 1 result for/i)
-    expect(banner).toHaveTextContent(/fire escape/)
+    // The results ARE the report — no banner restating the mode and the count
+    // over a list that shows both.
+    expect(screen.queryByText(/semantic search:/i)).not.toBeInTheDocument()
 
     // The match evidence: snippet + page + relevance percent.
     const match = await screen.findByTestId('semantic-match')
@@ -376,16 +375,18 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
     })
   })
 
-  it('reset returns to the normal list and clears the banner', async () => {
+  it('clearing the field returns to the normal list', async () => {
     const user = userEvent.setup()
     renderPane({ projectId: 'proj-1' })
 
     await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
-    await screen.findByTestId('semantic-banner')
+    await screen.findByTestId('semantic-match')
 
-    await user.click(screen.getByRole('button', { name: /show all files/i }))
+    // The field's own ✕ is the whole way out now that the banner — which used
+    // to carry a second one — is gone.
+    await user.click(screen.getByRole('button', { name: /reset search/i }))
 
-    expect(screen.queryByTestId('semantic-banner')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('semantic-match')).not.toBeInTheDocument()
     // Back to the full list.
     expect(screen.getByText('site-plan.pdf')).toBeInTheDocument()
     expect(screen.getByText('permit.pdf')).toBeInTheDocument()
