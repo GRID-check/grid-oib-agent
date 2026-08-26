@@ -74,3 +74,35 @@ describe('routing a fence', () => {
     expect(renderer).not.toHaveBeenCalled()
   }, 15000)
 })
+
+
+describe('a fence the model forgot to tag', () => {
+  // Both field transcripts landed here: asked for a diagram, the model wrote
+  // mermaid into a bare ``` fence. `getLanguageFromClassName` answers `bash`
+  // for anything it does not know, so the answer promised a drawing and printed
+  // a shell listing with a "bash" header on it.
+  it('is a diagram when its first line declares one', () => {
+    expect(isMermaidFence(undefined, 'flowchart TD\n  A[Brand entsteht] --> B[Baustoffe]')).toBe(true)
+    expect(isMermaidFence(undefined, 'sequenceDiagram\n  BW->>BB: Einreichunterlagen')).toBe(true)
+    expect(isMermaidFence('language-bash', 'graph LR\n  A --> B')).toBe(true)
+  })
+
+  it('reads past a leading %%{init}%% directive', () => {
+    expect(isMermaidFence(undefined, "%%{init: {'theme':'neutral'}}%%\nflowchart LR\n  A --> B")).toBe(true)
+  })
+
+  it('leaves a real listing alone', () => {
+    // The failure that would matter: `typescript` stops being highlighted, or a
+    // shell script mentioning the word "graph" gets fed to a diagram renderer.
+    expect(isMermaidFence('language-typescript', 'const graph = new Graph()')).toBe(false)
+    expect(isMermaidFence('language-bash', 'git graph --oneline')).toBe(false)
+    expect(isMermaidFence(undefined, '# pie chart data\necho "graph"')).toBe(false)
+    expect(isMermaidFence(undefined, '')).toBe(false)
+    expect(isMermaidFence()).toBe(false)
+  })
+
+  it('still honours an explicit mermaid tag with unfamiliar content', () => {
+    // The tag is the model saying what it meant; content sniffing only ADDS.
+    expect(isMermaidFence('language-mermaid', 'something mermaid 12 has that this list does not')).toBe(true)
+  })
+})

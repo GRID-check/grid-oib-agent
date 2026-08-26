@@ -199,7 +199,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
             // answer is still streaming (the stabiliser makes a half-arrived
             // fence LOOK closed, so drawing it would flash a parse error per
             // token) and when the model wrote broken mermaid, which it will.
-            if (isMermaidFence(codeClassName)) {
+            if (isMermaidFence(codeClassName, codeContent)) {
               return <MermaidDiagram source={codeContent} isStreaming={isStreaming} />
             }
 

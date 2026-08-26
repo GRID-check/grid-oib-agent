@@ -2048,6 +2048,63 @@ _QUOTED_SPAN_RE = re.compile(
 _QUOTE_EDGE_CHARS = "„“”»«\"'‚‘’ "
 
 
+# Regions of the answer that are CODE, and therefore carry no quotations to
+# verify. A mermaid node label is written `A["Anwendungsbereich"]`, which the
+# ASCII branch of `_QUOTED_SPAN_RE` reads as a quoted claim — so a sourced
+# answer carrying a diagram had every one of its labels flagged, and
+# `annotate_unverified_quotes` inserted its marker after the closing quote,
+# i.e. INSIDE the bracket:
+#
+#     A["OIB-Richtlinie 2<br/>Brandschutz" [nicht wörtlich in der Quelle belegt]]
+#
+# That is not a mis-annotation, it is a syntax error: the diagram stops parsing,
+# the frontend falls back to printing the source, and the reader gets a code
+# listing where the answer promised a drawing. The same pass then reported the
+# labels as unverified quotes, which caps the turn's confidence to "low" — so
+# one diagram degraded the chip on an otherwise well-sourced answer.
+_FENCE_RE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
+
+# Inline code, matched only outside fences. `\1` requires the same run length,
+# and the lookarounds keep a ``longer`` run from closing a shorter one.
+_INLINE_CODE_RE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.DOTALL)
+
+
+def _code_spans(text: str) -> list[tuple[int, int]]:
+    """Half-open ``(start, end)`` offsets of every code region in ``text``.
+
+    Fenced blocks first (``` or ~~~, three or more, closed by at least as many
+    of the same character), then inline spans in what is left. An UNTERMINATED
+    fence runs to the end of the text: a half-written diagram is still code, and
+    a streaming answer meets this function mid-fence routinely.
+    """
+    spans: list[tuple[int, int]] = []
+    offset = 0
+    fence: str | None = None
+    fence_start = 0
+    for line in text.splitlines(keepends=True):
+        match = _FENCE_RE.match(line)
+        marker = match.group(1) if match else None
+        if fence is None:
+            if marker is not None:
+                fence, fence_start = marker, offset
+        elif marker is not None and marker[0] == fence[0] and len(marker) >= len(fence):
+            spans.append((fence_start, offset + len(line)))
+            fence = None
+        offset += len(line)
+    if fence is not None:
+        spans.append((fence_start, len(text)))
+
+    for match in _INLINE_CODE_RE.finditer(text):
+        if not any(start <= match.start() < end for start, end in spans):
+            spans.append((match.start(), match.end()))
+    return spans
+
+
+def _inside(offset: int, spans: Sequence[tuple[int, int]]) -> bool:
+    """Whether ``offset`` falls inside any of ``spans``."""
+    return any(start <= offset < end for start, end in spans)
+
+
 @dataclass
 class UnverifiedQuote:
     """A quoted span in the answer body that no source chunk text supports."""
@@ -2202,8 +2259,15 @@ def verify_quoted_spans(
         return []
 
     body = _answer_body_before_sources(answer_text)
+    # Code is not prose and carries nothing to verify — see `_code_spans`.
+    # Skipped by OFFSET rather than by stripping the code out, so every
+    # `start`/`end` below still indexes the text `annotate_unverified_quotes`
+    # will be handed.
+    code = _code_spans(body)
     unverified: list[UnverifiedQuote] = []
     for match in _QUOTED_SPAN_RE.finditer(body):
+        if _inside(match.start(), code):
+            continue
         inner = next((group for group in match.groups() if group is not None), None)
         if inner is None:
             continue

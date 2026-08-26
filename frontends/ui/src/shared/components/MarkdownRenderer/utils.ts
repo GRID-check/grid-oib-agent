@@ -49,8 +49,39 @@ export const getLanguageFromClassName = (className?: string): SupportedLanguage 
  * a language nothing highlights would make every consumer of
  * `SupportedLanguage` handle a member that is not one.
  */
-export const isMermaidFence = (className?: string): boolean =>
-  /(?:^|\s)language-mermaid(?:$|\s)/.test(className ?? '')
+/**
+ * Mermaid's diagram keywords, as they appear on a graph's FIRST line.
+ *
+ * Deliberately anchored to the first line rather than searched for: `graph` and
+ * `pie` are ordinary words, and a shell listing that mentions one mid-file is a
+ * listing. A real diagram declares its type before anything else.
+ */
+const MERMAID_OPENERS =
+  /^(?:flowchart|graph|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|journey|gantt|pie|mindmap|timeline|gitGraph|quadrantChart|requirementDiagram|sankey-beta|xychart-beta|block-beta|C4Context)\b/
+
+/** `%%{init: …}%%` and `%% comment` lines may precede the diagram keyword. */
+const MERMAID_PREAMBLE = /^%%/
+
+export const isMermaidFence = (className?: string, source?: string): boolean => {
+  if (/(?:^|\s)language-mermaid(?:$|\s)/.test(className ?? '')) return true
+
+  // The fence the model actually writes. Asked for a diagram it reaches for
+  // mermaid and then, often enough to be the common case rather than the edge
+  // one, opens the fence bare — ``` with no language, or with a language it
+  // guessed. `getLanguageFromClassName` answers `bash` for anything it does not
+  // know, so the answer promised a drawing and printed a shell listing.
+  //
+  // Sniffing the CONTENT is the deterministic half of that fix: a fence whose
+  // first line is a mermaid diagram keyword is a diagram whatever its tag says,
+  // and no shell, Python or TypeScript listing opens with `flowchart TD`. The
+  // model-side half — teaching it to tag the fence — belongs in the prompt and
+  // cannot be relied on alone, which is why this reads the source.
+  const firstLine = (source ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0 && !MERMAID_PREAMBLE.test(line))
+  return firstLine !== undefined && MERMAID_OPENERS.test(firstLine)
+}
 
 /**
  * Heading anchor ids.

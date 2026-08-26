@@ -231,7 +231,31 @@ both files.
 ## Rendering in an answer
 
 A ```` ```mermaid ```` fence in an answer is drawn instead of printed
-(`MarkdownRenderer`'s `code` override → `MermaidDiagram`). Three states:
+(`MarkdownRenderer`'s `code` override → `MermaidDiagram`).
+
+**A fence the model forgot to tag is drawn too.** `isMermaidFence` reads the
+fence's CONTENT as well as its class: a fence whose first line declares a
+diagram (`flowchart`, `sequenceDiagram`, `graph`, … — optionally after a
+`%%{init}%%` directive) is a diagram whatever its tag says. This is not
+politeness toward a sloppy model, it is the common case: asked for a diagram the
+model reaches for mermaid and then opens the fence bare, and
+`getLanguageFromClassName` answers `bash` for everything it does not recognise —
+so the answer promised a drawing and printed a shell listing with a "bash"
+header on it. No real listing opens with `flowchart TD`, which is what makes
+sniffing the first line safe. Teaching the model to tag its fence is the other
+half and belongs in the prompt; it cannot be the only half.
+
+**Nothing outside this renderer may rewrite what is inside a fence.** Quote
+verification learned this the hard way: a mermaid label is written
+`A["Anwendungsbereich"]`, the ASCII branch of its quoted-span grammar read every
+label as a quoted claim, none of them were in a retrieved passage, and the
+annotation went in after the closing quote — inside the bracket. The diagram
+stopped parsing, and the same flags capped the turn's confidence to "low".
+`_code_spans` in `common/citation_verification.py` now excludes fenced and
+inline code from that scan. Any future pass over the answer body owes a diagram
+the same courtesy.
+
+Three states:
 
 - **streaming** — a code block. The markdown stabiliser auto-closes an odd
   number of fences, so a half-arrived diagram *looks* complete on every token;
