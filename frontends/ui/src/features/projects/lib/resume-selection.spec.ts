@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'vitest'
 
-import { projectTouchedAt, RESUME_SLOTS, splitForResume, type ResumeCandidate } from './resume-selection'
+import {
+  projectTouchedAt,
+  RESUME_SLOTS,
+  splitForResume,
+  type ResumeCandidate,
+} from './resume-selection'
 
 const project = (id: string, overrides: Partial<ResumeCandidate> = {}): ResumeCandidate => ({
   id,
@@ -17,7 +22,7 @@ describe('splitForResume', () => {
         a: '2026-08-01T09:00:00Z',
         b: '2026-08-03T09:00:00Z',
         c: '2026-08-02T09:00:00Z',
-      },
+      }
     )
 
     expect(resume.map((p) => p.id)).toEqual(['b', 'c', 'a'])
@@ -45,7 +50,7 @@ describe('splitForResume', () => {
         project('fresh', { createdAt: new Date('2026-07-01T00:00:00Z') }),
         project('stale', { createdAt: new Date('2026-02-01T00:00:00Z') }),
       ],
-      { touched: '2026-08-01T09:00:00Z' },
+      { touched: '2026-08-01T09:00:00Z' }
     )
 
     // 'touched' is the oldest project on record and still leads the rail — the
@@ -87,7 +92,7 @@ describe('splitForResume', () => {
 
   test('accepts ISO strings as well as Dates for the fallback ordering', () => {
     expect(projectTouchedAt(project('a', { createdAt: '2026-04-01T00:00:00Z' }))).toBe(
-      new Date('2026-04-01T00:00:00Z').getTime(),
+      new Date('2026-04-01T00:00:00Z').getTime()
     )
     expect(projectTouchedAt(project('a', { createdAt: 'nonsense' }))).toBe(0)
   })

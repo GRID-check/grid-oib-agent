@@ -80,7 +80,9 @@ function compile(predicate: SQL): { sql: string; params: unknown[] } {
 describe('getProjectOverviewData', () => {
   beforeEach(() => {
     predicates = []
-    vi.mocked(getDb).mockReturnValue(recordingDb([[projectRow], [{ count: 0, totalSize: '0' }], []]))
+    vi.mocked(getDb).mockReturnValue(
+      recordingDb([[projectRow], [{ count: 0, totalSize: '0' }], []])
+    )
   })
 
   it('counts only documents on the project shelf', async () => {

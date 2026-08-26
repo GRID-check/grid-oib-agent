@@ -1,6 +1,7 @@
 import { findProjectCollectionName } from '@/lib/projects/repository'
 import { findUserPreferencesForSession } from '@/lib/user-preferences/repository'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { CHAT_PERMISSIONS } from '@/lib/authz/chat'
 import { findConversationTenancy } from '@/lib/conversations/repository'
 import { requireResourceAccess } from '@/lib/sharing/access'
 import {
@@ -168,7 +169,11 @@ export async function buildCollectionScopeFromRequest(
 
   if (projectId && session && !anonymous) {
     if (explicitProject) {
-      await requireProjectAccess(session as AuthorizedSession, projectId, 'project:view')
+      // The collection scope is what a chat request retrieves against, so
+      // reaching it is chatting in the project — `project:chat`, not
+      // `project:view`. A reader gets the project's documents through the
+      // documents API; they do not get the agent pointed at them.
+      await requireProjectAccess(session as AuthorizedSession, projectId, CHAT_PERMISSIONS)
     } else {
       // Implicit fallback from the stored active_project_id preference, which
       // can go stale (project soft-deleted, membership revoked) and is never
@@ -176,7 +181,7 @@ export async function buildCollectionScopeFromRequest(
       // projectId — global listings 404, general chat WS upgrades 403 — so
       // degrade to an unscoped request instead of failing.
       try {
-        await requireProjectAccess(session as AuthorizedSession, projectId, 'project:view')
+        await requireProjectAccess(session as AuthorizedSession, projectId, CHAT_PERMISSIONS)
       } catch {
         projectId = undefined
       }

@@ -20,7 +20,7 @@ vi.mock('@/lib/authz/platform', () => {
   }
   return {
     PlatformAccessDeniedError,
-    requirePlatformOwner: vi.fn().mockImplementation(async () => {
+    requirePlatformPermission: vi.fn().mockImplementation(async () => {
       if (!isOwner.value) {
         throw new PlatformAccessDeniedError()
       }
@@ -131,7 +131,12 @@ describe('platform knowledge routes', () => {
 
   it('queues a re-ingest of the selected documents for the platform owner', async () => {
     isOwner.value = true
-    reingestMock.mockResolvedValue({ status: 'pending', queued: ['a.pdf', 'b.pdf'], unknown: [], message: 'ok' })
+    reingestMock.mockResolvedValue({
+      status: 'pending',
+      queued: ['a.pdf', 'b.pdf'],
+      unknown: [],
+      message: 'ok',
+    })
 
     const res = await reingestRoute(
       new Request('https://grid.example', {

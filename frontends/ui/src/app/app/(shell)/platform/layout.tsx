@@ -1,14 +1,18 @@
 /**
- * Platform dashboard shell (ADR-0016) — exclusive to the platform owner.
+ * Platform dashboard shell (ADR-0016) — exclusive to platform staff.
  *
- * The owner gate, the shell chrome and the section nav live here, so every
+ * The staff gate, the shell chrome and the section nav live here, so every
  * subsection inherits them and none can forget the gate. Previously the whole
  * tier was one page stacking seven admin domains in a single scrolling column;
  * each is now its own route under this layout.
  *
- * Server-gated by isPlatformOwner (GRID Platform org membership with the
- * org-platform-owner role, or the break-glass env allowlist). Non-owners get
- * an explanatory card, mirroring the org page's non-admin experience.
+ * Server-gated by `isPlatformStaff` (membership of the GRID Platform
+ * organization holding at least one `platform:*` permission, or the break-glass
+ * env allowlist). That is deliberately the PRECONDITION and not the whole
+ * decision: `org-platform-support` reaches this shell and reads every section,
+ * while each route underneath requires its own `platform:*` permission, so the
+ * read-only role cannot write through any of them. Everyone else gets an
+ * explanatory card, mirroring the org page's non-admin experience.
  */
 
 import { redirect } from 'next/navigation'

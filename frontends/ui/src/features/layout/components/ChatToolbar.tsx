@@ -424,7 +424,21 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                     onKeyDown={handleTitleKeyDown}
                     onBlur={handleTitleBlur}
                     aria-label={tChat('breadcrumb.renameInputAria')}
-                    className="h-11 w-56 max-w-full rounded-md border bg-card px-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:h-9"
+                    // Enter commits the rename (see `handleTitleKeyDown`), so the
+                    // phone's action key says so. A conversation title is a name,
+                    // not a sentence: the keyboard must not capitalise or
+                    // "correct" what the reader chose to call it.
+                    enterKeyHint="done"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    // The same 16px floor `ui/input.tsx` and the composer carry,
+                    // on the same pointer axis: iOS Safari zooms the page whenever
+                    // a field under 16px takes focus, and this one opens focused,
+                    // at the top of the thread, with the toolbar pinned over the
+                    // conversation. The zoom is not undone on blur, so renaming a
+                    // chat left the reader magnified inside their own answer.
+                    className="h-11 w-56 max-w-full rounded-md border bg-card px-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:text-base sm:h-9"
                   />
                 ) : (
                   // Click-to-rename, kept as the SHORTCUT rather than as the only

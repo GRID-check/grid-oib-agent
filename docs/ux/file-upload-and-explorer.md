@@ -135,7 +135,18 @@ Beyond Nielsen:
   already has; the detail view is the Explorer/Finder list every professional
   already knows.
 - **Fitts's law.** Row actions and list rows grow their targets under
-  `pointer-coarse`.
+  `pointer-coarse`. So do the sort headers, the upload tray's expand control and
+  the preview's tag field — all of which were mouse-sized until they were
+  measured rather than read.
+- **The list truncates rather than scrolls.** The detail view is a real `<table>`
+  and it is `table-fixed`, which is what makes the `truncate` on every filename
+  cell mean anything: under the browser's default auto layout a column is sized
+  to its content's minimum, a filename does not wrap, so the Name column laid out
+  437px wide inside a 308px phone wrapper and the reader had to drag the list
+  sideways to find out what a document was called. Dropping the reference
+  columns at `sm`/`md`/`lg` never touched that — it removes the columns that were
+  not the problem. Anything added to this table declares a width, or it is the
+  one `w-auto` column that absorbs what is left.
 
 ## The preview pane
 

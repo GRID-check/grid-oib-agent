@@ -117,7 +117,11 @@ export const ReportOutline: FC<ReportOutlineProps> = ({ entries, scrollRootRef }
         aria-controls={listId}
         title={isOpen ? t('reportOutline.hide') : t('reportOutline.show')}
         className={cn(
-          'flex w-full items-center gap-2 rounded-md px-1 py-2 text-left text-sm outline-none',
+          // The sticky bar that opens the report's table of contents: full width,
+          // alone in its band, and 36px. Padding, not a catchment — an overhang
+          // would reach past the sticky band's own border into the report text
+          // scrolling underneath it.
+          'flex w-full items-center gap-2 rounded-md px-1 py-2 text-left text-sm outline-none pointer-coarse:py-3',
           'text-muted-foreground hover:text-foreground',
           FOCUS_RING_INSET
         )}
@@ -159,7 +163,11 @@ export const ReportOutline: FC<ReportOutlineProps> = ({ entries, scrollRootRef }
                   // box is drawn around the corner radius at both ends, so the
                   // mark rendered as a parenthesis beside the section title
                   // rather than as a straight rule.
-                  'block truncate rounded-r-md border-l-2 py-1 pr-2 text-sm outline-none',
+                  // The outline is a stack of jump links and on a phone it is the
+                  // only way to move around a long report. At `py-1` each row was
+                  // 28px, so the list needed a precise tap on every entry —
+                  // padding, not a catchment, because the rows are neighbours.
+                  'block truncate rounded-r-md border-l-2 py-1 pr-2 text-sm outline-none pointer-coarse:py-3',
                   entry.level === 3 ? 'pl-6' : 'pl-3',
                   isActive
                     ? 'border-l-foreground font-medium text-foreground'

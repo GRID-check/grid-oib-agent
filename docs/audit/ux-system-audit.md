@@ -1,5 +1,9 @@
 # UX System Audit — Run Log (append-only, one entry per round)
 
+> **Archived.** Frozen record of a finished loop, moved here from `ux_audit_log.md`
+> in the repo root. Do not append. Live loop state is `backlog.md` at the root.
+> Context: [`README.md`](README.md).
+
 Run started: 2026-07-10. Branch: `claude/ux-system-audit-taqedy`.
 
 **Mandate (user):** holistic UX audit — not just visual design; every user path,

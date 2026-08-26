@@ -1,5 +1,6 @@
 ---
 import Pill from '../atoms/Pill.astro'
+import SectionTag from '../atoms/SectionTag.astro'
 import { CONTACT_EMAIL } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
 
@@ -13,18 +14,30 @@ const t = ui[locale]
 <section
   id="kontakt"
   data-screen-label={t.sheets.kontakt}
-  class="mx-auto box-border flex min-h-[85vh] max-w-[80rem] flex-col justify-center px-6 py-28 text-center sm:px-12"
+  class="relative isolate mx-auto box-border flex min-h-[72vh] max-w-[80rem] flex-col justify-center px-6 pb-16 pt-24 text-center sm:px-12"
 >
+  <!-- The page ends on open ground rather than another panel, so the close gets
+       one soft light and a closing mark instead of a frame. -->
+  <div
+    class="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[34rem] w-[58rem] max-w-[120%] -translate-x-1/2 -translate-y-[58%] rounded-full opacity-70 blur-3xl"
+    style="background: radial-gradient(ellipse at center, rgb(164 208 106 / 0.20), rgb(164 208 106 / 0.06) 45%, transparent 72%)"
+    aria-hidden="true"
+  >
+  </div>
+  <span
+    class="mx-auto mb-9 block h-10 w-px bg-gradient-to-b from-transparent to-ink/25"
+    aria-hidden="true"></span>
+  <SectionTag no="07" class="mb-7 justify-center">{t.footer.contactHeading}</SectionTag>
   <h2
     data-reveal
-    class="mx-auto mb-8 max-w-5xl font-display text-h1"
+    class="mx-auto mb-8 max-w-5xl font-voice text-v1"
     style="text-wrap: balance"
     set:html={t.cta.titleHtml}
   />
   <div data-reveal class="mb-11 flex flex-wrap justify-center gap-2.5">
     {
       t.cta.chips.map((c) => (
-        <span class="rounded-full border border-accent-600/40 px-4 py-2 font-display text-xs uppercase tracking-widest text-accent-600">
+        <span class="rounded-full border border-accent-600/30 px-4 py-2 font-mono text-2xs uppercase tracking-label text-accent-600">
           {c}
         </span>
       ))

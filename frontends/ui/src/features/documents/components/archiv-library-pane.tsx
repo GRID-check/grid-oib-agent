@@ -26,6 +26,7 @@ import type { FileItem } from './project-file-workspace'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
+import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useLocale, useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import { inferDocumentKind } from '../document-kind'
@@ -69,6 +70,8 @@ export function ArchivLibraryPane({
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
 
   const semantic = useSemanticSearch({ endpoint: '/api/archiv/documents/search' })
+  // A width question, asked on the width axis — see FileBrowserPane.
+  const isNarrow = useIsMobile()
 
   const runSemantic = () => semantic.run(search)
   // Any edit to the query drops back to the live substring filter so the two
@@ -194,7 +197,12 @@ export function ArchivLibraryPane({
         onChange={handleSearchChange}
         onSubmit={runSemantic}
         onClear={clearSearch}
-        placeholder={t('library.semantic.searchPlaceholder')}
+        // See FileBrowserPane: below the breakpoint the teaching placeholder is
+        // cut off mid-word, and the keyboard's own action key now says "Search",
+        // so the short one is both shorter and more honest.
+        placeholder={
+          isNarrow ? t('library.searchPlaceholder') : t('library.semantic.searchPlaceholder')
+        }
         searchLabel={t('library.searchLabel')}
         resetLabel={t('library.resetSearch')}
         canSearch

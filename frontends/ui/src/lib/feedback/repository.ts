@@ -128,7 +128,7 @@ export const FEEDBACK_HEALTH_RECENT_LIMIT = 50
  * it, because it serves a tenant. This one serves the *platform owner*, whose
  * whole job is the cross-org view, so scoping it to one org would answer the
  * wrong question. The guard therefore does not live in SQL: `getAnswerFeedbackHealth`
- * calls `requirePlatformOwner` before this function is reachable, and that is the
+ * calls `requirePlatformPermission` before this function is reachable, and that is the
  * only caller. Do not export a route that reaches this directly.
  */
 export interface FeedbackHealthTotals {
@@ -468,7 +468,7 @@ export async function getFeedbackHealth(
  * the half that drifts is always the one nobody is watching.
  *
  * Cross-tenant like `getFeedbackHealth`, and reachable only through it or
- * through the digest — both of which sit behind `requirePlatformOwner`.
+ * through the digest — both of which sit behind `requirePlatformPermission`.
  */
 export async function listFeedbackTurns(
   filters: FeedbackHealthFilters = {},

@@ -32,6 +32,199 @@
   },
   "releases": [
     {
+      "id": "2026-08-26",
+      "kind": "date",
+      "version": null,
+      "date": "2026-08-26",
+      "summary": null,
+      "sections": [
+        {
+          "key": "improvements",
+          "notes": [
+            {
+              "en": "Piloti is built for a phone now, not merely resized for one. The numbers and sources in an answer, the mentions in a shared thread, the steps of a card and the outline of a report are all sized for a fingertip, so checking where a requirement came from no longer takes three attempts on site.",
+              "de": "Piloti is built for a phone now, not merely resized for one. The numbers and sources in an answer, the mentions in a shared thread, the steps of a card and the outline of a report are all sized for a fingertip, so checking where a requirement came from no longer takes three attempts on site."
+            },
+            {
+              "en": "Your phone's keyboard finally knows what each field is for: the key that sends a message says \"send\", the one that runs a search says \"search\", and a search box stops capitalising and autocorrecting what you type — so looking for a file by its exact name finds it.",
+              "de": "Your phone's keyboard finally knows what each field is for: the key that sends a message says \"send\", the one that runs a search says \"search\", and a search box stops capitalising and autocorrecting what you type — so looking for a file by its exact name finds it."
+            }
+          ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "On a phone, the heading of every project section was squeezed into the strip left beside its search box or button — under \"Historie\" the explanation broke to one word per line. The control now sits below the heading on a narrow screen and the text gets the full width. Nothing moves on a laptop.",
+              "de": "On a phone, the heading of every project section was squeezed into the strip left beside its search box or button — under \"Historie\" the explanation broke to one word per line. The control now sits below the heading on a narrow screen and the text gets the full width. Nothing moves on a laptop."
+            },
+            {
+              "en": "Copying your own message and removing an attached source were impossible on a touch device. Both controls only appeared when a mouse hovered over them, which a phone cannot do, so they were invisible on every tablet and phone.",
+              "de": "Copying your own message and removing an attached source were impossible on a touch device. Both controls only appeared when a mouse hovered over them, which a phone cannot do, so they were invisible on every tablet and phone."
+            },
+            {
+              "en": "The file list in a project and in the Archiv no longer has to be dragged sideways to read a document's name. Long filenames now shorten to fit the screen instead of stretching the list past the edge of it.",
+              "de": "The file list in a project and in the Archiv no longer has to be dragged sideways to read a document's name. Long filenames now shorten to fit the screen instead of stretching the list past the edge of it."
+            },
+            {
+              "en": "Typing into any field on an iPhone or iPad no longer zooms the page in and leaves it there. This affected tablets everywhere and phones when renaming a conversation, a file or a building in the project wizard.",
+              "de": "Typing into any field on an iPhone or iPad no longer zooms the page in and leaves it there. This affected tablets everywhere and phones when renaming a conversation, a file or a building in the project wizard."
+            },
+            {
+              "en": "The controls for zooming a cited PDF were laid out past the right-hand edge of a phone screen, where they could not be reached. They now wrap onto a second line when the screen is narrow.",
+              "de": "The controls for zooming a cited PDF were laid out past the right-hand edge of a phone screen, where they could not be reached. They now wrap onto a second line when the screen is narrow."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "2026-08-25",
+      "kind": "date",
+      "version": null,
+      "date": "2026-08-25",
+      "summary": null,
+      "sections": [
+        {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Sie können einem Projekt jetzt sagen, welche Datei der Bebauungsplan ist. Im Projekt-Assistenten laden Sie den Plan direkt an der Frage hoch oder wählen ein Dokument aus, das bereits im Projekt liegt. Piloti nennt den Plan danach beim Namen, statt allgemein von hochgeladenen Dateien zu sprechen.",
+              "de": "Sie können einem Projekt jetzt sagen, welche Datei der Bebauungsplan ist. Im Projekt-Assistenten laden Sie den Plan direkt an der Frage hoch oder wählen ein Dokument aus, das bereits im Projekt liegt. Piloti nennt den Plan danach beim Namen, statt allgemein von hochgeladenen Dateien zu sprechen."
+            },
+            {
+              "en": "Piloti weiß außerdem, welche Unterlagen noch fehlen, und antwortet entsprechend vorsichtig. Fehlt der Bebauungsplan, sagt Piloti das, statt zu antworten, als hätte es ihn gelesen.",
+              "de": "Piloti weiß außerdem, welche Unterlagen noch fehlen, und antwortet entsprechend vorsichtig. Fehlt der Bebauungsplan, sagt Piloti das, statt zu antworten, als hätte es ihn gelesen."
+            },
+            {
+              "en": "Der Projekt-Assistent hat eine durchgehende Modulübersicht: alle Module stehen mit vollem Namen daneben, jedes zeigt, wie viele Angaben schon gemacht sind, und Sie springen jederzeit dorthin, wo Sie gerade weiterarbeiten wollen.",
+              "de": "Der Projekt-Assistent hat eine durchgehende Modulübersicht: alle Module stehen mit vollem Namen daneben, jedes zeigt, wie viele Angaben schon gemacht sind, und Sie springen jederzeit dorthin, wo Sie gerade weiterarbeiten wollen."
+            },
+            {
+              "en": "Neu ist der Schnellstart: er zeigt nur die Kernfragen. Alles Übrige wird als „offen“ übernommen und in der Zusammenfassung als offener Punkt gelistet, sodass Sie es später gezielt ergänzen können. Pro Modul können Sie den Rest auch einzeln überspringen.",
+              "de": "Neu ist der Schnellstart: er zeigt nur die Kernfragen. Alles Übrige wird als „offen“ übernommen und in der Zusammenfassung als offener Punkt gelistet, sodass Sie es später gezielt ergänzen können. Pro Modul können Sie den Rest auch einzeln überspringen."
+            }
+          ]
+        },
+        {
+          "key": "improvements",
+          "notes": [
+            {
+              "en": "When the on-screen keyboard opens, the app now makes room for it instead of letting it cover the composer, so you can see what you are typing.",
+              "de": "When the on-screen keyboard opens, the app now makes room for it instead of letting it cover the composer, so you can see what you are typing."
+            },
+            {
+              "en": "The decision chain frames what it is showing. The camera used to work from fixed coordinates and cut through the middle of cards; it now measures each card and keeps it whole, in both languages and at any window size.",
+              "de": "The decision chain frames what it is showing. The camera used to work from fixed coordinates and cut through the middle of cards; it now measures each card and keeps it whole, in both languages and at any window size."
+            },
+            {
+              "en": "The footer carries the whole site: what Piloti is, where every page is, and how to reach a person.",
+              "de": "The footer carries the whole site: what Piloti is, where every page is, and how to reach a person."
+            },
+            {
+              "en": "The site has been reset onto one type scale, one set of neutrals and one elevation system: headings a shade lighter, set larger and drawn closer together, greys that share the warmth of the paper, and the drafting grid turned down so it reads as structure rather than noise.",
+              "de": "The site has been reset onto one type scale, one set of neutrals and one elevation system: headings a shade lighter, set larger and drawn closer together, greys that share the warmth of the paper, and the drafting grid turned down so it reads as structure rather than noise."
+            },
+            {
+              "en": "The site now speaks in two typefaces with a rule behind them: what Piloti says is set in a serif, and what Piloti measures — every figure, label and instrument — stays in the grotesque it was already set in.",
+              "de": "The site now speaks in two typefaces with a rule behind them: what Piloti says is set in a serif, and what Piloti measures — every figure, label and instrument — stays in the grotesque it was already set in."
+            },
+            {
+              "en": "The data-and-transparency section now carries a check sheet: what is attached to every answer, and what is true of your office's data, stated plainly enough to be held to.",
+              "de": "The data-and-transparency section now carries a check sheet: what is attached to every answer, and what is true of your office's data, stated plainly enough to be held to."
+            }
+          ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Using the research agent inside a project now requires the chat permission on every path, not only when starting a new conversation. A member with read-only access to a project could continue an existing conversation in it, which still ran the agent and still spent the organization's budget.",
+              "de": "Using the research agent inside a project now requires the chat permission on every path, not only when starting a new conversation. A member with read-only access to a project could continue an existing conversation in it, which still ran the agent and still spent the organization's budget."
+            },
+            {
+              "en": "Replying to a colleague in a shared conversation is unaffected. The restriction applies to messages addressed to the agent, not to taking part in the conversation.",
+              "de": "Replying to a colleague in a shared conversation is unaffected. The restriction applies to messages addressed to the agent, not to taking part in the conversation."
+            },
+            {
+              "en": "The Platform area no longer appears for members of the platform organization who hold no platform permissions; it opened and then refused every screen inside it.",
+              "de": "The Platform area no longer appears for members of the platform organization who hold no platform permissions; it opened and then refused every screen inside it."
+            },
+            {
+              "en": "Inviting a colleague to a project no longer fails for administrators whose organization-wide access came from a role the identity provider had not yet been updated for.",
+              "de": "Inviting a colleague to a project no longer fails for administrators whose organization-wide access came from a role the identity provider had not yet been updated for."
+            },
+            {
+              "en": "On a phone, the reasoning trace under an answer used to swallow every swipe: a finger anywhere on it moved nothing, so you could not scroll past it to read the answer itself. The trace now scrolls like the rest of the page.",
+              "de": "On a phone, the reasoning trace under an answer used to swallow every swipe: a finger anywhere on it moved nothing, so you could not scroll past it to read the answer itself. The trace now scrolls like the rest of the page."
+            },
+            {
+              "en": "Card headers with buttons in them no longer run past the edge of a narrow screen. Where there is not room for the title and the buttons on one line, the buttons move underneath.",
+              "de": "Card headers with buttons in them no longer run past the edge of a narrow screen. Where there is not room for the title and the buttons on one line, the buttons move underneath."
+            },
+            {
+              "en": "The photograph in the hero never covered the hero. It was laid out at its own proportions and stopped partway down, leaving a hard line across the page. It now fills the frame and softens towards the foot of it.",
+              "de": "The photograph in the hero never covered the hero. It was laid out at its own proportions and stopped partway down, leaving a hard line across the page. It now fills the frame and softens towards the foot of it."
+            },
+            {
+              "en": "The closing section could not be scrolled past on some setups, so the footer was unreachable. It no longer holds the scroll.",
+              "de": "The closing section could not be scrolled past on some setups, so the footer was unreachable. It no longer holds the scroll."
+            },
+            {
+              "en": "Project roles now mean what the access reference says they mean. The Contributor role can be assigned — it could not be before — and the permission that defines it, using the research agent in a project, is now actually enforced. A Viewer reads a project's documents and conversations and can no longer start research runs against it.",
+              "de": "Project roles now mean what the access reference says they mean. The Contributor role can be assigned — it could not be before — and the permission that defines it, using the research agent in a project, is now actually enforced. A Viewer reads a project's documents and conversations and can no longer start research runs against it."
+            },
+            {
+              "en": "A Viewer opening a project's chat now sees the composer locked with the reason, instead of typing a question and watching it fail on send. The member roster reports the role each person really holds, instead of rounding narrower roles down to \"Viewer\".",
+              "de": "A Viewer opening a project's chat now sees the composer locked with the reason, instead of typing a question and watching it fail on send. The member roster reports the role each person really holds, instead of rounding narrower roles down to \"Viewer\"."
+            },
+            {
+              "en": "Read-only platform staff are now read-only. The Platform Support role passed every platform gate, including the ones behind changing model defaults, retrieval settings and the shared knowledge base. Each platform screen now requires the specific permission it needs, so Support can see all of them and change none of them.",
+              "de": "Read-only platform staff are now read-only. The Platform Support role passed every platform gate, including the ones behind changing model defaults, retrieval settings and the shared knowledge base. Each platform screen now requires the specific permission it needs, so Support can see all of them and change none of them."
+            },
+            {
+              "en": "Platform Support also works while viewing a tenant organization, which it previously could not.",
+              "de": "Platform Support also works while viewing a tenant organization, which it previously could not."
+            },
+            {
+              "en": "Organization-wide access to every project is now a permission an administrator role holds, rather than a role called \"Admin\". A custom administrator role built for your organization reaches projects like the built-in one does, and a role that merely shares the name no longer inherits access it was never granted.",
+              "de": "Organization-wide access to every project is now a permission an administrator role holds, rather than a role called \"Admin\". A custom administrator role built for your organization reaches projects like the built-in one does, and a role that merely shares the name no longer inherits access it was never granted."
+            },
+            {
+              "en": "Scheduled agent skills are reachable again for project admins. The permission behind them was renamed without the identity provider being updated, so only organization admins could create or run them.",
+              "de": "Scheduled agent skills are reachable again for project admins. The permission behind them was renamed without the identity provider being updated, so only organization admins could create or run them."
+            },
+            {
+              "en": "A project whose creation failed part-way is no longer left behind unreachable by the person who created it.",
+              "de": "A project whose creation failed part-way is no longer left behind unreachable by the person who created it."
+            },
+            {
+              "en": "Wenn ein Projekt mehr Dateien enthält, als Piloti auf einmal überblicken kann, sagt Piloti das jetzt. Bisher hat es die verkürzte Liste als vollständig behandelt und auf die Frage \"welche Dateien liegen im Projekt\" zuversichtlich eine unvollständige Antwort gegeben. Jetzt weist es pro Regal darauf hin, dass weitere Dateien vorhanden sind, die es hier nicht aufzählt.",
+              "de": "Wenn ein Projekt mehr Dateien enthält, als Piloti auf einmal überblicken kann, sagt Piloti das jetzt. Bisher hat es die verkürzte Liste als vollständig behandelt und auf die Frage \"welche Dateien liegen im Projekt\" zuversichtlich eine unvollständige Antwort gegeben. Jetzt weist es pro Regal darauf hin, dass weitere Dateien vorhanden sind, die es hier nicht aufzählt."
+            }
+          ]
+        },
+        {
+          "key": "upgrade",
+          "notes": [
+            {
+              "en": "Der Fragebogen ist auf den aktuellen Stand gebracht. Die Fragen zum Bestand — Baujahr, Denkmalschutz, Eingriff ins Tragwerk, Umfang der Sanierung — gehören jetzt zum jeweiligen Bauwerk statt zum ganzen Projekt und stehen dort neben dem Zielzustand. Bestehende Projekte mit genau einem Bauwerk übernehmen ihre bisherigen Angaben automatisch; bei mehreren Bauwerken ordnen Sie sie einmalig zu.",
+              "de": "Der Fragebogen ist auf den aktuellen Stand gebracht. Die Fragen zum Bestand — Baujahr, Denkmalschutz, Eingriff ins Tragwerk, Umfang der Sanierung — gehören jetzt zum jeweiligen Bauwerk statt zum ganzen Projekt und stehen dort neben dem Zielzustand. Bestehende Projekte mit genau einem Bauwerk übernehmen ihre bisherigen Angaben automatisch; bei mehreren Bauwerken ordnen Sie sie einmalig zu."
+            }
+          ]
+        },
+        {
+          "key": "other",
+          "notes": [
+            {
+              "en": "Piloti trägt den OIB-Grundkorpus nicht mehr Datei für Datei in jeder Anfrage mit — der Korpus ist immer derselbe, und Piloti findet darin über die Suche. Ihre eigenen Unterlagen nennt Piloti weiterhin einzeln beim Namen, und auf die Frage, welche OIB-Richtlinien vorliegen, zählt es sie vollständig auf.",
+              "de": "Piloti trägt den OIB-Grundkorpus nicht mehr Datei für Datei in jeder Anfrage mit — der Korpus ist immer derselbe, und Piloti findet darin über die Suche. Ihre eigenen Unterlagen nennt Piloti weiterhin einzeln beim Namen, und auf die Frage, welche OIB-Richtlinien vorliegen, zählt es sie vollständig auf."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-08-24",
       "kind": "date",
       "version": null,
@@ -155,6 +348,14 @@
             {
               "en": "Moving a document also tells Piloti where it went, so an answer that mentions where a document lives follows the move immediately, with nothing re-indexed.",
               "de": "Moving a document also tells Piloti where it went, so an answer that mentions where a document lives follows the move immediately, with nothing re-indexed."
+            },
+            {
+              "en": "The website now shows what Piloti is worth to an office before anyone signs anything. Enter how many planners would use it and what they earn, and the calculation gives the value per year, the hours it hands back and how quickly a seat pays for itself.",
+              "de": "The website now shows what Piloti is worth to an office before anyone signs anything. Enter how many planners would use it and what they earn, and the calculation gives the value per year, the hours it hands back and how quickly a seat pays for itself."
+            },
+            {
+              "en": "Every step behind that figure is published with it: which numbers are our assumptions, which are yours, what a planner's week is assumed to look like, and what the calculation deliberately leaves out.",
+              "de": "Every step behind that figure is published with it: which numbers are our assumptions, which are yours, what a planner's week is assumed to look like, and what the calculation deliberately leaves out."
             }
           ]
         },

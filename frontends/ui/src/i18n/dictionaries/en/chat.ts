@@ -71,6 +71,9 @@ export const chat = {
   },
   // Composer (InputArea) control row — WS-3 click-dummy overhaul.
   composer: {
+    /** Shown when the reader holds project:view but not project:chat. */
+    noProjectChatPermission:
+      'The research agent is unavailable in this project for you right now. If you have read-only access, a project admin can grant you the Contributor role.',
     placeholder: 'Ask Piloti about this project …',
     sources: 'Data basis',
     sourcesAria: 'Data basis — {enabled} of {total} sources enabled. Opens the data sources panel.',
@@ -162,7 +165,8 @@ export const chat = {
       'The search stopped before it was finished — this answer rests on the evidence gathered up to that point',
     // The same fact for an answer that cites nothing: the sentence above would
     // promise evidence that is not there.
-    researchTruncatedWithoutSources: 'The search stopped before it was finished, and before it had found anything',
+    researchTruncatedWithoutSources:
+      'The search stopped before it was finished, and before it had found anything',
     // WHY it stopped, appended to whichever sentence above applies as a short
     // parenthetical — "it stopped early" is the fact, "it ran out of time" is
     // what tells the reader whether asking again is worth anything.
@@ -183,8 +187,7 @@ export const chat = {
     // each one names something the reader can act on, which is why they are
     // stated rather than folded into the truncation sentence.
     degradedReason: {
-      no_report_file:
-        'No research report was filed — this answer is the only record of the run',
+      no_report_file: 'No research report was filed — this answer is the only record of the run',
       no_valid_citations:
         'No citation survived verification — please check the figures yourself before relying on them',
     },
@@ -335,7 +338,8 @@ export const chat = {
       sourcesLess: 'Less',
       // Said inside the disclosure, where the reader is already checking the
       // inputs: the card did the arithmetic, so what they audit is the inputs.
-      computedNote: 'The result is computed by this card from the figures above, not copied from the answer.',
+      computedNote:
+        'The result is computed by this card from the figures above, not copied from the answer.',
     },
     processMap: {
       eyebrow: 'Procedure',
@@ -398,7 +402,8 @@ export const chat = {
       // The sentence that keeps the card honest: the order is drawn, the
       // length is not — each period runs from its own event.
       notToScale: 'The order is drawn, not the lengths: each period runs from an event of its own.',
-      noDatesNote: 'Every period is carried as the provision words it. This card works out no dates.',
+      noDatesNote:
+        'Every period is carried as the provision words it. This card works out no dates.',
     },
     // ── Impact of a change ──────────────────────────────────────────────
     changeImpact: {
@@ -598,8 +603,7 @@ export const chat = {
     // sentence ("Reply approve to proceed, reject to cancel").
     approvalInstruction: 'Choose "Approve" to start the research or "Reject" to cancel.',
     // Duration/cost expectation shown at the decision point, BEFORE approval.
-    durationHint:
-      'Deep research can take several minutes to run and consumes usage quota.',
+    durationHint: 'Deep research can take several minutes to run and consumes usage quota.',
   },
   agentResponse: {
     viewProgress: 'View Progress',
@@ -807,8 +811,7 @@ export const chat = {
     // no citations. The line counts what is there and says nothing about what
     // is not.
     herleitungSummary: 'Trace · {count, plural, one {# step} other {# steps}}',
-    herleitungSummaryWithSources:
-      '{summary} · {count, plural, one {# source} other {# sources}}',
+    herleitungSummaryWithSources: '{summary} · {count, plural, one {# source} other {# sources}}',
     // The turn has reported no step yet, so the line says what it is instead of
     // counting to zero.
     herleitungSummaryNoSteps: 'Trace',
@@ -1009,8 +1012,7 @@ export const chat = {
     researchQueueFull: {
       title: 'Research is busy',
       message: 'The research queue is currently full. Please resend your request in a moment.',
-      retryHint:
-        'Please try again in about {seconds, plural, one {# second} other {# seconds}}.',
+      retryHint: 'Please try again in about {seconds, plural, one {# second} other {# seconds}}.',
     },
   },
   // User-facing deep-research error copy raised from the SSE hook and the
@@ -1080,7 +1082,8 @@ export const chat = {
     // What each level MEANS, shown in the tooltip so the reader can interpret the chip.
     levelMeanings: {
       high: 'High: the answer is directly grounded in the retrieved sources, which support it clearly and consistently.',
-      medium: 'Medium: partially grounded — sources support parts, but a gap, an inference, or a minor ambiguity remains.',
+      medium:
+        'Medium: partially grounded — sources support parts, but a gap, an inference, or a minor ambiguity remains.',
       low: 'Low: sources are missing, conflicting, or clearly insufficient; the answer extrapolates from general knowledge.',
     },
     // Label introducing the model's own one-clause justification (verbatim).

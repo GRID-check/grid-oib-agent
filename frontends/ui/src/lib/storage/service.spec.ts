@@ -50,10 +50,10 @@ vi.mock('@/lib/audit/service', () => ({
 // (`app/api/platform/*/route.spec.ts`). Spreading the original is what keeps the
 // REAL `PlatformAccessDeniedError` available, so the rejection below is the class
 // the handler maps to 403 rather than a look-alike.
-const requirePlatformOwner = vi.fn()
+const requirePlatformPermission = vi.fn()
 vi.mock('@/lib/authz/platform', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/authz/platform')>()
-  return { ...original, requirePlatformOwner: (s: unknown) => requirePlatformOwner(s) }
+  return { ...original, requirePlatformPermission: (s: unknown) => requirePlatformPermission(s) }
 })
 
 import { PlatformAccessDeniedError } from '@/lib/authz/platform'
@@ -108,7 +108,7 @@ describe('storage quota', () => {
     // Known to Grid by default; the "unknown organization" tests opt out.
     findOrganization.mockResolvedValue({ workosOrganizationId: 'org-1', settings: {} })
     // Authorized by default; the authorization tests opt out.
-    requirePlatformOwner.mockResolvedValue(undefined)
+    requirePlatformPermission.mockResolvedValue(undefined)
   })
 
   describe('getStorageQuotaBytes', () => {
@@ -260,7 +260,7 @@ describe('storage quota', () => {
      * The authorization is the service's, not the route's.
      *
      * This file used to carry a note explaining why there was deliberately no
-     * such test: the gate was `platformApiRoute`'s `requirePlatformOwner`, and
+     * such test: the gate was `platformApiRoute`'s `requirePlatformPermission`, and
      * asserting a second check here "would test a belt that does not exist". The
      * note was accurate and the design was wrong. This function probes whether an
      * organization exists, writes a platform-owned setting, and records who
@@ -270,7 +270,7 @@ describe('storage quota', () => {
      * without anyone revisiting the comment that depended on them.
      */
     it('refuses a caller who is not the platform owner', async () => {
-      requirePlatformOwner.mockRejectedValue(new PlatformAccessDeniedError())
+      requirePlatformPermission.mockRejectedValue(new PlatformAccessDeniedError())
       await expect(setStorageQuota(platformSession(), 'org-1', 10 * GB)).rejects.toMatchObject({
         status: 403,
       })
@@ -282,7 +282,7 @@ describe('storage quota', () => {
       // Ordering, not just presence: checking authorization AFTER the existence
       // lookup would answer "does org-X exist?" with 404-vs-403 for anyone who
       // could reach the function.
-      requirePlatformOwner.mockRejectedValue(new PlatformAccessDeniedError())
+      requirePlatformPermission.mockRejectedValue(new PlatformAccessDeniedError())
       await expect(setStorageQuota(platformSession(), 'org-typo', 10 * GB)).rejects.toMatchObject({
         status: 403,
       })

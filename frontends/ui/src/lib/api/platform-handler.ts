@@ -9,16 +9,28 @@
 
 import { NextResponse } from 'next/server'
 import { getGridSession } from '@/lib/auth/session'
-import { PlatformAccessDeniedError, requirePlatformOwner } from '@/lib/authz/platform'
+import { PlatformAccessDeniedError, requirePlatformPermission } from '@/lib/authz/platform'
+import type { PlatformPermission } from '@/lib/authz/permissions'
 import { runWithTenantSlot, withPlatformAccess } from '@/lib/db/tenant-context'
 import type { GridSession } from '@/lib/auth/types'
-import {
-  errorResponse,
-  resolveParams,
-  successResponse,
-  type FixedAuthzRouteOptions,
-  type NextRouteContext,
-} from './handler'
+import { errorResponse, resolveParams, successResponse, type NextRouteContext } from './handler'
+
+/**
+ * How a platform route is authorized. Required, for the same reason `apiRoute`'s
+ * `authz` is (ADR-0038): the factory used to ask one binary question —
+ * "is this platform staff?" — which cannot express a read-only role. It said yes
+ * to `org-platform-support` on eleven mutating routes.
+ */
+export interface PlatformRouteOptions {
+  /**
+   * The platform permission this route requires, checked before the handler
+   * runs. Reads take a `*:view` permission; anything that writes takes a
+   * `*:manage` one, which is what keeps Platform Support read-only.
+   */
+  readonly permission: PlatformPermission
+  /** Status code for successful non-Response results (default 200). */
+  readonly status?: number
+}
 
 /** Context passed to platform-owner handlers. The session may have no active org. */
 export interface PlatformApiContext<TParams = Record<string, never>> {
@@ -32,7 +44,7 @@ export interface PlatformApiContext<TParams = Record<string, never>> {
  * Declare a platform-owner route (ADR-0016).
  *
  * Eighteen routes used to open with the same twelve lines: resolve the session,
- * `requirePlatformOwner`, then a bespoke try/catch translating
+ * a platform gate, then a bespoke try/catch translating
  * `PlatformAccessDeniedError` into a 403 and delegating everything else to
  * `authzErrorResponse`. Every copy was a chance to get the translation subtly
  * wrong, and none of them went through the shared factory, so none of them
@@ -42,7 +54,7 @@ export interface PlatformApiContext<TParams = Record<string, never>> {
  */
 export function platformApiRoute<TParams = Record<string, string | string[]>>(
   handler: (ctx: PlatformApiContext<TParams>) => Promise<unknown>,
-  options: FixedAuthzRouteOptions = {}
+  options: PlatformRouteOptions
 ) {
   return async (request: Request, context?: NextRouteContext): Promise<Response> => {
     // Bounded slot per request — see `runWithTenantSlot`. Without it a platform
@@ -51,14 +63,15 @@ export function platformApiRoute<TParams = Record<string, string | string[]>>(
     return runWithTenantSlot(async () => {
       try {
         const session = await getGridSession()
-        await requirePlatformOwner(session)
+        await requirePlatformPermission(session, options.permission)
         const params = (await resolveParams(context)) as TParams
         // The platform tier is cross-organization by definition, so its queries
         // run under the audited bypass (ADR-0041) rather than as one tenant. The
-        // gate above has already established that the caller is a platform owner,
-        // which is exactly the authorization this bypass rests on.
+        // gate above has already established that the caller holds the platform
+        // permission this route requires, which is the authorization this bypass
+        // rests on.
         const result = await withPlatformAccess(`platformApiRoute ${request.method}`, () =>
-          // requirePlatformOwner throws unless the session is non-null.
+          // requirePlatformPermission throws unless the session is non-null.
           handler({ request, session: session as GridSession, params })
         )
         return successResponse(result, options.status ?? 200)

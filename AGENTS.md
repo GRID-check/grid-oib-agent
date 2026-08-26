@@ -4,6 +4,19 @@ Grid is an OIB building-regulation assistant: a Next.js UI and BFF
 (`frontends/ui`), a Python agent on the NeMo Agent Toolkit (`src/aiq_agent`),
 and a custom OIB knowledge source.
 
+## Setup
+
+```bash
+task setup          # first, and after any pull that moves a lockfile
+.venv/bin/pre-commit install   # separate from setup, and CI lints the whole repo
+task verify         # the merge gate
+```
+
+`Taskfile.yml` defines every command named here and `task --list` is the live
+list. `task` is go-task, which nothing in this repo installs; `uv`, `bun` and
+Node must already be on the PATH. Install lines:
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 ## Start here
 
 | Question | Go to |
@@ -17,6 +30,18 @@ and a custom OIB knowledge source.
 This file is what you must **act on** while working. Project knowledge you want
 to add here has no home yet: give it one under
 [`docs/contributing/`](docs/contributing/README.md) and leave a one-line pointer.
+
+## Where the scoped guides are
+
+Each service keeps its own `AGENTS.md` beside the code, for what holds only
+there. **Read the one for the area you are about to touch, before you touch
+it.** They are additive: this file still applies.
+
+Harnesses find them on their own, but late. Claude reaches one only after it has
+opened a file in that directory, and never for a question answered without
+opening one, so opening it yourself is the difference. How they are wired, and
+what belongs in which:
+[`docs/contributing/agent-onboarding-files.md`](docs/contributing/agent-onboarding-files.md).
 
 ## Working style
 
@@ -33,6 +58,16 @@ sequence, render an Excalidraw diagram (`create_view`) rather than prose alone:
 layered left to right, aligned, orthogonal arrows that miss the boxes, short
 legend. Offer one proactively in design discussions.
 
+**Buy, don't build.** Complexity that belongs to somebody else's domain is a
+dependency, not a module you write: geometry, cryptography, time zones, PDF,
+identity, storage, observability. Identity is WorkOS, the cache Dragonfly, the
+object store SeaweedFS, LLM traces Langfuse; each was an ADR rather than a
+weekend. Before the second hundred lines of something general, search for the
+library, and say in the PR what you found and why it did or did not fit. Write
+it yourself when the library's shape does not answer your question, when it
+drags a native toolchain into the image, or when the thing *is* the product.
+Then keep the library in the suite as the oracle you check against.
+
 **Fix causes, not symptoms.** Establish what a measurement is *of* before
 optimising it. A change that improves a number without changing what produced it
 is a bandage, and it removes the signal pointing at the real fault. Verify the
@@ -48,6 +83,32 @@ Ratcheted means a second occurrence is caught by something other than a person
 noticing. Reach for it when a reviewer corrects you, when something surprises
 you, or when you correct yourself twice for one reason.
 
+**Finish the task.** Reversible work does not get a permission checkpoint. A
+natural boundary, a layer done or a slice green or a commit pushed, is a place
+to report progress, never a place to stop and ask whether to continue. Asking costs
+the user a turn to say "yes, keep going", and that turn is a correction: it
+means the plan was already agreed and you paused anyway. Carry on to the end
+state the user described, then present the result and let them redirect. Stop
+early only for something genuinely irreversible or genuinely ambiguous, and when
+you do, say what you need rather than offering a menu.
+
+**Ask first only for a one-way door.** That list is short, and everything on it
+has a safe form that is the default. Run the writing form when the user has
+asked for it in this session:
+
+| Run it freely | Ask first |
+|---|---|
+| `task fe:provision:authz` and its siblings, which check | the same task with `-- --apply`, which writes the catalog into WorkOS |
+| `npm run preview` in `deploy/pulumi` | `npm run up`, which mutates the cluster, and `npm run destroy`, which deletes it |
+| writing a migration file | `bun run db:migrate` or `migrate:storage` against a database you did not create |
+| a commit, a branch, a push to your own branch | a force-push, or any history rewrite on a branch someone else may have checked out |
+
+The rest of the work in this repo is reversible and gets no checkpoint. That is
+a statement about the tasks above, not a blanket permission: anything that
+destroys what you cannot regenerate needs the same confirmation whether or not
+it is listed here. `rm -rf`, `git clean -fdx`, a `DROP` or unfiltered `DELETE`
+against a database anyone else uses, and removing a Docker volume all qualify.
+
 **When something surprises you or breaks, read
 [`docs/contributing/gotchas.md`](docs/contributing/gotchas.md) before you start
 debugging it.** It is indexed by the symptom you arrive with, and every entry is
@@ -62,45 +123,33 @@ Which layer to close: [`docs/contributing/correction-ratchet.md`](docs/contribut
 
 ## Obligations
 
+Repo-wide. Each service adds its own; the map is above, and those rows are the
+ones that will fail your PR.
+
 | When you | You must | What fails you |
 |---|---|---|
-| Add an `app/api` route | Declare `authz` on the factory from `@/lib/api/handler` | `apiRoute` does not compile; `authz-coverage.spec.ts` |
-| Add a permission | Add it to `lib/authz/catalog.ts` first, then `bun run provision:authz` | WorkOS drifts from the code |
-| Decide access | Go through `lib/authz/decide.ts`, the single decision point | Bypasses become implicit |
-| Create a table | `SELECT grid_secure_table('<table>','<tenancy predicate>');` in the same migration | `rls-coverage.spec.ts`, by name |
-| Read tenant rows | Take context from `getGridSession()`, or state it (`withTenant`, `withPlatformAccess`, `withOptionalTenant`) | `internalApiRoute` does not compile |
-| Write an endpoint | Route stays a thin adapter, service owns logic and authorization, repository owns the SQL and bounds every list | Review. `publicApiRoute` needs an ADR |
-| Add a card type | Classify it in `CARD_INTERACTIVITY` (`frontends/ui/src/features/grid-cards/card-decision.ts`) | `task fe:types` |
-| Store a card's answer | Put it on `ChatMessage.cardInteractions` via `useCardDecision` | A reload re-applies the patch; neither endpoint is idempotent |
 | Add an environment variable | Add its row to [`docs/deployment/environment-variables.md`](docs/deployment/environment-variables.md) in the same change | Review |
 | Change what a customer can notice | `task release:note -- <slug>` | The **Release note** CI job |
-| Change behaviour a doc describes | Update the doc in the same commit | Review. Stale docs are a bug |
-| Ship a user-visible surface | `/dev/<name>` preview route, a registry target, committed PNGs from `task fe:screenshots` | `visual-coverage` |
-| Touch the tenant boundary | `task db:test:rls`, which `task verify` does not include | A required merge check |
-| Run `pytest` directly | Set `PYTHONPATH=src`, which `Taskfile.yml` otherwise sets for you | Silently validating another worktree's code |
+| Change behaviour a doc describes | Update the doc in the same commit | Review. Stale docs are a bug, because an agent acts on them |
+| Learn something the repo could have told you | Write it down where the next agent will already be looking, before you carry on | Nothing, once. Then everyone re-earns it. [The ratchet](docs/contributing/correction-ratchet.md#human-intervention-is-a-failure-signal) |
 
 `task verify` is the local gate: host-native, defined once in `Taskfile.yml`. CI
 calls the same definitions but schedules them differently, so a local pass is
 strong evidence rather than a guarantee. `task verify:fast` skips two production
-builds, `fe:build` and `web:build`. `task --list` is the current command list.
-Spec type errors fail the production build, because the UI tsconfig includes
-tests.
+builds, `fe:build` and `web:build`.
 
-## Four rules that need more than a row
+Two gates sit outside `task verify` and are still required: `task db:test:rls`
+whenever you touch the tenant boundary, and the suites under `sources/` and
+`packages/`, which no CI job runs at all.
 
-**Stepping up is not authorization.** Row-level security guards application
-bugs, the missing `WHERE` and the widened join. Anything that runs arbitrary SQL
-as `grid_app_rw` can name any tenant, so every platform-scope caller keeps its
-own check.
-
-**The project profile has one editor, the intake wizard.** Settings shows it
-read-only and links to the wizard. Its facts are interdependent, so edits belong
-in the guided flow rather than a second form.
+## Two rules that span services
 
 **One coarse `SourceKind` drives all rendering** (`baurecht | buero | projekt |
 web`), defined in `src/aiq_agent/common/source_kinds.py`, mirrored in
-`frontends/ui/src/features/chat/lib/source-kinds.ts`. The fine `norm_registry` lanes are a
-sub-label within a kind. `doc_class` is human-set and beats every filename guess.
+`frontends/ui/src/features/chat/lib/source-kinds.ts`. The fine `norm_registry`
+lanes are a sub-label within a kind. `doc_class` is human-set and beats every
+filename guess. There is no shared schema between the two files: changing one
+and not the other renders the chip as unknown.
 
 **Correlated substrate debt belongs in the change that tripped over it.** YAGNI
 forbids unused features, not known defects on the path you are walking. If B
@@ -125,16 +174,11 @@ delete. Reduce complexity, never features. That pass is part of done.
 - Code conventions, the `any` ban, coercing raw `sql<T>`, where a shared helper
   belongs, capability doctrine:
   [`docs/contributing/code-conventions.md`](docs/contributing/code-conventions.md).
-  Python is ruff, line length 120, 3.11; new tools use `@register_function` with
-  a `FunctionBaseConfig` subclass.
+- Patterns in use and what enforces each:
+  [`docs/architecture/patterns-in-use.md`](docs/architecture/patterns-in-use.md).
 - Verification, CI sharding, the security stack, visual evidence:
   [`docs/contributing/testing-and-verification.md`](docs/contributing/testing-and-verification.md).
-- Branching, Conventional Commits, PR titles: [`CONTRIBUTING.md`](CONTRIBUTING.md).
-  Substrate lifts go in the same branch, each its own commit, before the feature
-  depends on the repaired primitive.
-- Skills: `skills/` is the one source. `apm.yml` lists it and the pinned
-  third-party ones, and `task agents:setup` publishes the set into every
-  harness target. `.claude/` and `.agents/` are generated and gitignored.
+- Skills: `skills/` is the one source, `.claude/` and `.agents/` are generated.
   [`docs/contributing/agent-skills.md`](docs/contributing/agent-skills.md).
 - `configs/` model names are the boot fallback only. The live default is
   admin-controlled (Platform → Models); moving the fleet is a save in the admin

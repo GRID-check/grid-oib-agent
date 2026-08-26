@@ -277,7 +277,14 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
 
   return (
     <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col gap-2', className)}>
-      <div className="flex shrink-0 items-center gap-2">
+      {/* `flex-wrap`: this row holds a page count, a "jump to the passage"
+          button and the zoom group, and on a phone — where each of those grows
+          to the 44px touch floor — they add up past the viewport. Unwrapped, the
+          row pushed the zoom control off the right edge and took the whole PAGE
+          horizontal with it (measured 445px inside 390), so reading a cited
+          passage on a phone meant scrolling the document sideways to find the
+          controls for it. Wrapping costs one line and only when it is needed. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
         <span className="text-xs tabular-nums text-muted-foreground">
           {doc ? t('viewer.pageCount', { count: doc.numPages }) : t('viewer.loading')}
         </span>

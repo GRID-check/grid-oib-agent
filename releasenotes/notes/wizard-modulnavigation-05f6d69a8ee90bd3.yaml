@@ -1,0 +1,20 @@
+---
+features:
+  - >
+    Der Projekt-Assistent hat eine durchgehende Modulübersicht: alle Module
+    stehen mit vollem Namen daneben, jedes zeigt, wie viele Angaben schon
+    gemacht sind, und Sie springen jederzeit dorthin, wo Sie gerade
+    weiterarbeiten wollen.
+  - >
+    Neu ist der Schnellstart: er zeigt nur die Kernfragen. Alles Übrige wird
+    als „offen“ übernommen und in der Zusammenfassung als offener Punkt
+    gelistet, sodass Sie es später gezielt ergänzen können. Pro Modul können
+    Sie den Rest auch einzeln überspringen.
+upgrade:
+  - >
+    Der Fragebogen ist auf den aktuellen Stand gebracht. Die Fragen zum
+    Bestand — Baujahr, Denkmalschutz, Eingriff ins Tragwerk, Umfang der
+    Sanierung — gehören jetzt zum jeweiligen Bauwerk statt zum ganzen Projekt
+    und stehen dort neben dem Zielzustand. Bestehende Projekte mit genau einem
+    Bauwerk übernehmen ihre bisherigen Angaben automatisch; bei mehreren
+    Bauwerken ordnen Sie sie einmalig zu.

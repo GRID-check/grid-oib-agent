@@ -51,8 +51,17 @@ the TTL-cleanup lock — is a cliff).
    no LIMIT, 5 j2 templates). Per-turn LLM cost grew linearly with document count.
    **[LANDED]** capped at the aggregation choke point to `GRID_AVAILABLE_DOCUMENTS_MAX`
    (default 50), sorted by filename first so the capped slice is stable across turns
-   (also helps prompt caching). A search-first `available_documents` tool (recency/
-   relevance ranking) remains the richer follow-up.
+   (also helps prompt caching). **[LANDED 2026-08]** two further turns of the same
+   screw: the cap now announces per shelf what it dropped, instead of handing the
+   model a shortened list it reads as complete (a listing question routes to
+   `intent="meta"`, which binds no search tools, so the block IS the answer and
+   there is no retrieval to fall back on); and **Basiswissen renders as a count**
+   rather than ~39 filenames, since the platform corpus is a constant that
+   `knowledge_search` reaches anyway — ~950 tokens per rendered block, on every
+   turn, including chit-chat. `focus_shelf=base` still prints the full list, which
+   is exactly the turn that has no retrieval. A search-first `available_documents`
+   tool (recency/relevance ranking) remains the richer follow-up; note it would
+   need adding to `_INTERACTION_TOOL_BASENAMES` to survive the meta partition.
 7. **No orchestrator-level context compaction** — summarization is wired only into
    the leaf researcher (`factory.py:363`), not orchestrator/planner/writer; ~80k-token
    contexts confirmed. The budget guard counts only output tokens and is off by

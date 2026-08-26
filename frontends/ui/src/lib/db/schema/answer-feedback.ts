@@ -47,14 +47,20 @@ export const answerFeedback = pgTable(
   },
   (table) => ({
     /** Upsert target: one vote per user per answer. */
-    userMessageUidx: uniqueIndex('answer_feedback_user_message_uidx').on(table.userId, table.messageId),
+    userMessageUidx: uniqueIndex('answer_feedback_user_message_uidx').on(
+      table.userId,
+      table.messageId
+    ),
     /** Serves the per-conversation hydration list (org + user + conversation). */
     orgConversationIdx: index('answer_feedback_org_conversation_idx').on(
       table.organizationId,
-      table.conversationId,
+      table.conversationId
     ),
-    orgProjectIdx: index('answer_feedback_org_project_idx').on(table.organizationId, table.projectId),
-  }),
+    orgProjectIdx: index('answer_feedback_org_project_idx').on(
+      table.organizationId,
+      table.projectId
+    ),
+  })
 )
 
 export type AnswerFeedback = typeof answerFeedback.$inferSelect

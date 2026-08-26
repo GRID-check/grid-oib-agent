@@ -130,7 +130,8 @@ async def _aggregate_documents_across_collections(collections, fetch_one, max_do
     collection contributes an empty list (matching the old ``continue``) rather
     than failing the whole aggregation.
     """
-    from aiq_agent.knowledge.inventory import allocate_inventory
+    from aiq_agent.knowledge.inventory import allocate_inventory_detailed
+    from aiq_agent.knowledge.inventory import set_inventory_drops
     from aiq_agent.knowledge.inventory import stamp_document
 
     scoped = [entry for item in collections if (entry := _as_scoped_collection(item)) is not None]
@@ -152,7 +153,12 @@ async def _aggregate_documents_across_collections(collections, fetch_one, max_do
 
     limit = _available_documents_limit() if max_documents is None else max_documents
     before = len(aggregated)
-    aggregated = allocate_inventory(aggregated, limit)
+    aggregated, dropped = allocate_inventory_detailed(aggregated, limit)
+    # Tell the MODEL, not only the operator. The log line below is for whoever
+    # is tuning the cap; the contextvar is what puts "and N more" into the
+    # rendered block, so the agent can say a shelf listing is incomplete
+    # instead of presenting a truncated shelf as the whole shelf.
+    set_inventory_drops(dropped)
     if limit and limit > 0 and before > len(aggregated):
         logger.info(
             "Capping available_documents from %d to %d (GRID_AVAILABLE_DOCUMENTS_MAX)",

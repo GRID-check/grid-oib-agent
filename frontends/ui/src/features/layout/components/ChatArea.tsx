@@ -679,7 +679,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
           {accessLost && (
             <div
               role="status"
-              className="mx-auto mt-3 w-full max-w-3xl px-4 text-sm text-muted-foreground"
+              className="text-muted-foreground mx-auto mt-3 w-full max-w-3xl px-4 text-sm"
             >
               {tCollaboration('thread.accessLost')}
             </div>
@@ -783,7 +783,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                         // fades. A ring rather than a background, so it reads on the
                         // user bubble and the answer card alike.
                         highlightedMessageId === message.id &&
-                          'ring-warning/50 ring-offset-background rounded-xl ring-2 ring-offset-4 transition-shadow duration-quick ease-out motion-reduce:transition-none'
+                          'ring-warning/50 ring-offset-background duration-quick rounded-xl ring-2 ring-offset-4 transition-shadow ease-out motion-reduce:transition-none'
                       )}
                       variants={fadeRise}
                       // Animate only genuinely new messages; hydrated ones render in place.
@@ -935,16 +935,15 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               first moments before the first token. `spectatingLive` is the switch,
               and it only turns on once there is something to show, so the banner is
               never replaced by an empty box. */}
-              {shared && turnInFlight && !isStreaming && !showTypingPlaceholder && (
-                spectatingLive && spectatedTurn ? (
-                  <SpectatedTurn
-                    turn={spectatedTurn}
-                    label={turnInFlightLabel}
-                  />
+              {shared &&
+                turnInFlight &&
+                !isStreaming &&
+                !showTypingPlaceholder &&
+                (spectatingLive && spectatedTurn ? (
+                  <SpectatedTurn turn={spectatedTurn} label={turnInFlightLabel} />
                 ) : (
                   <TurnInFlightBanner label={turnInFlightLabel} />
-                )
-              )}
+                ))}
 
               {/* A colleague at a keyboard. Distinct vocabulary from the agent's
               banner above (see TypingPresence), and independent of it: somebody may
@@ -998,7 +997,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                 type="button"
                 onClick={handleScrollToLatest}
                 aria-label={t('chatArea.scrollToLatest')}
-                className="bg-card text-muted-foreground hover:text-foreground pointer-events-auto flex size-9 items-center justify-center rounded-lg border shadow-md transition-colors duration-snap ease-out motion-reduce:transition-none"
+                className="bg-card text-muted-foreground hover:text-foreground duration-snap pointer-events-auto flex size-9 items-center justify-center rounded-lg border shadow-md transition-colors ease-out motion-reduce:transition-none"
               >
                 <ArrowDown className="size-4" aria-hidden="true" />
               </button>
@@ -1289,7 +1288,9 @@ const TurnInFlightBanner: FC<{ label: string }> = ({ label }) => (
     role="status"
     data-testid="turn-in-flight"
   >
-    <span className="animate-text-shimmer text-foreground text-xs font-medium motion-reduce:animate-none">{label}</span>
+    <span className="animate-text-shimmer text-foreground text-xs font-medium motion-reduce:animate-none">
+      {label}
+    </span>
   </div>
 )
 
@@ -1317,18 +1318,20 @@ const TypingIndicator: FC<{ status?: StatusType | null }> = ({ status }) => {
   const elapsed = useElapsedSeconds(true)
   return (
     <div
-      className="animate-in fade-in-0 bg-muted flex min-h-9 w-fit items-center gap-2 rounded-2xl px-3.5 py-2.5 duration-base ease-out motion-reduce:animate-none"
+      className="animate-in fade-in-0 bg-muted duration-base flex min-h-9 w-fit items-center gap-2 rounded-2xl px-3.5 py-2.5 ease-out motion-reduce:animate-none"
       role="status"
       aria-label={label}
     >
       <span className="flex items-center gap-1" aria-hidden="true">
-        <span className="bg-muted-foreground/70 size-1.5 animate-pulse rounded-full motion-reduce:animate-none [animation-delay:-0.3s]" />
-        <span className="bg-muted-foreground/70 size-1.5 animate-pulse rounded-full motion-reduce:animate-none [animation-delay:-0.15s]" />
+        <span className="bg-muted-foreground/70 size-1.5 animate-pulse rounded-full [animation-delay:-0.3s] motion-reduce:animate-none" />
+        <span className="bg-muted-foreground/70 size-1.5 animate-pulse rounded-full [animation-delay:-0.15s] motion-reduce:animate-none" />
         <span className="bg-muted-foreground/70 size-1.5 animate-pulse rounded-full motion-reduce:animate-none" />
       </span>
       {/* Always word the wait (shimmering), and surface elapsed seconds once
           past a couple of seconds so a slow first token never feels stalled. */}
-      <span className="animate-text-shimmer text-xs font-medium motion-reduce:animate-none">{label}</span>
+      <span className="animate-text-shimmer text-xs font-medium motion-reduce:animate-none">
+        {label}
+      </span>
       {elapsed > 2 && (
         <span className="text-muted-foreground/80 text-xs tabular-nums">
           {formatElapsed(elapsed)}
@@ -1408,20 +1411,18 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
     return (
       <div
         className="flex flex-1 items-end justify-center px-4 pt-20 sm:pt-16"
-        style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + var(--composer-lift, 0px) + var(--composer-gap, 2rem))' }}
+        style={{
+          paddingBottom:
+            'calc(var(--composer-h, 11rem) + var(--composer-lift, 0px) + var(--composer-gap, 2rem))',
+        }}
       >
         <div className="flex w-full max-w-md flex-col items-center gap-4 text-center">
           <div className="bg-muted text-brand flex size-12 items-center justify-center rounded-xl border">
             <Lock className="size-5" aria-hidden="true" />
           </div>
-          <h1 className="text-xl font-semibold tracking-tight">
-            {t('chatArea.loggedOutTitle')}
-          </h1>
+          <h1 className="text-xl font-semibold tracking-tight">{t('chatArea.loggedOutTitle')}</h1>
           <p className="text-muted-foreground text-sm">{t('chatArea.loggedOutBody')}</p>
-          <Button
-            onClick={onSignIn}
-            aria-label={t('chatArea.signInSso')}
-          >
+          <Button onClick={onSignIn} aria-label={t('chatArea.signInSso')}>
             {t('chatArea.signInSso')}
           </Button>
         </div>
@@ -1444,7 +1445,10 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
       // arithmetically: it omitted the `pt-20`, and the composer landed on the
       // greeting on a phone.
       className="flex flex-1 flex-col items-center justify-end px-6 pt-20 sm:pt-16"
-      style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + var(--composer-lift, 0px) + var(--composer-gap, 2rem))' }}
+      style={{
+        paddingBottom:
+          'calc(var(--composer-h, 11rem) + var(--composer-lift, 0px) + var(--composer-gap, 2rem))',
+      }}
     >
       {/* "Privater Workspace" lock chip — h28, radius8, hairline, raised */}
       <div className="bg-card shadow-xs mb-4 inline-flex h-7 items-center gap-[7px] rounded-md border px-[11px]">

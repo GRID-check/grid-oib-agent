@@ -41,12 +41,7 @@ import {
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
@@ -128,7 +123,7 @@ function normalizeSendResult(result: unknown): { ok: boolean; outcome?: SendMess
 function mentionRefusalMessage(
   outcome: SendMessageOutcome | undefined,
   taggedHumans: readonly DraftMention[],
-  tCollab: (key: string, vars?: Record<string, string | number>) => string,
+  tCollab: (key: string, vars?: Record<string, string | number>) => string
 ): string | null {
   const reason = outcome?.failure?.reason
   if (!reason) return null
@@ -210,7 +205,10 @@ const FileChip: FC<{
         // A finger has to be able to hit the remove-x, and that button can only
         // grow inside a taller chip — the strip scrolls horizontally, so the
         // extra height costs nothing but a slightly shorter filename.
-        'pointer-coarse:h-11',
+        // `max-w` grows with it: the buttons inside are 44px square now, so at
+        // 200px a failed chip (retry AND remove) had ~90px left for a filename.
+        // The strip already scrolls sideways, so width here is free.
+        'pointer-coarse:h-11 pointer-coarse:max-w-[260px]',
         // `border-error` is a static `@utility` in globals.css with no
         // `--modifier()`, so the slash form (`border-error/50`) matched nothing
         // and this chip kept the neutral default border — a failed upload was
@@ -225,7 +223,7 @@ const FileChip: FC<{
           type="button"
           onClick={() => onOpen(file)}
           aria-label={t('inputArea.openFile', { name: file.fileName })}
-          className="text-foreground/85 focus-visible:ring-ring/50 flex min-w-0 flex-1 items-center gap-1.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 pointer-coarse:min-h-11"
+          className="text-foreground/85 focus-visible:ring-ring/50 pointer-coarse:min-h-11 flex min-w-0 flex-1 items-center gap-1.5 rounded-sm focus-visible:outline-none focus-visible:ring-2"
         >
           {statusIcon}
           <span className="min-w-0 truncate">{file.fileName}</span>
@@ -242,7 +240,10 @@ const FileChip: FC<{
           onClick={() => onRetry(file.id)}
           aria-label={t('inputArea.retryUpload')}
           title={t('inputArea.retryUpload')}
-          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 inline-flex shrink-0 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 pointer-coarse:size-9"
+          // The chip above is already `pointer-coarse:h-11` precisely so this
+          // button could grow inside it — and then the button stopped at 36.
+          // `size-11` fills the height the chip is already paying for.
+          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 pointer-coarse:size-11 inline-flex shrink-0 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2"
         >
           <RotateCw className="size-3" aria-hidden="true" />
         </button>
@@ -253,7 +254,10 @@ const FileChip: FC<{
           onClick={() => onRemove(file.id)}
           aria-label={t('inputArea.removeFile', { name: file.fileName })}
           title={t('inputArea.removeFile', { name: file.fileName })}
-          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 inline-flex shrink-0 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 pointer-coarse:size-9"
+          // The chip above is already `pointer-coarse:h-11` precisely so this
+          // button could grow inside it — and then the button stopped at 36.
+          // `size-11` fills the height the chip is already paying for.
+          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 pointer-coarse:size-11 inline-flex shrink-0 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2"
         >
           <X className="size-3" aria-hidden="true" />
         </button>
@@ -281,6 +285,8 @@ interface InputAreaProps {
    * gated org cannot notice either of them.
    */
   canCollaborate?: boolean
+  /** Whether the reader may chat in this project (`project:chat`). */
+  canChatInProject?: boolean
 }
 
 /**
@@ -301,6 +307,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   connectionMode = 'websocket',
   projectName,
   canCollaborate = false,
+  canChatInProject = true,
 }) {
   const t = useTranslations('research')
   const tChat = useTranslations('chat')
@@ -392,9 +399,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // is what hides `Show file`, the one control that could bring the document
   // back was withheld exactly when it was needed. `expanded` counts on its own:
   // that is the file over the whole page, which is certainly on screen.
-  const previewExpanded = useFilePreviewStore(
-    (state) => state.mode === 'expanded' && !state.hidden,
-  )
+  const previewExpanded = useFilePreviewStore((state) => state.mode === 'expanded' && !state.hidden)
   const peekBesideChat = useFilePeekBesideChat()
   const fileDockVisible =
     (peekBesideChat || previewExpanded) &&
@@ -477,7 +482,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // Archiv instead (#429). Bind the latest ready file; do not re-bind after
   // the user clears the bar.
   useEffect(() => {
-    const ready = sessionFiles.filter((file) => file.status === 'success' || file.status === 'ingesting')
+    const ready = sessionFiles.filter(
+      (file) => file.status === 'success' || file.status === 'ingesting'
+    )
     if (ready.length === 0) {
       boundSessionUploadRef.current = null
       return
@@ -629,6 +636,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     canCollaborate,
     sharing: threadSharing,
     myRole: myThreadRole,
+    mayChatInProject: canChatInProject,
     isBusy,
     isResponseMode,
     researchLocked: isResearchSessionSuccessful,
@@ -648,6 +656,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const isDisabledByAuth = !isAuthenticated
   /** Read-only because of the role specifically — drives the viewer notice. */
   const isViewerInSharedThread = capabilities.deniedBy === 'read-only-role'
+  /**
+   * Locked because the PROJECT does not grant `project:chat`. Its own notice,
+   * and not gated on `canCollaborate`: this has nothing to do with sharing, and
+   * a reader in a tenant without collaboration must still be told why the
+   * composer is dead rather than watching a send fail.
+   */
+  const cannotChatInProject = capabilities.deniedBy === 'no-project-chat-permission'
   const cannotContribute = !capabilities.canContribute
   const disabled = !capabilities.canCompose
 
@@ -741,7 +756,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // leaves the round-trip, and the flicker is the round-trip.
   const { data: mentionData, loading: mentionsLoading } = useMentionCandidates(
     currentSessionId ?? null,
-    canCollaborate && mentionRequested,
+    canCollaborate && mentionRequested
   )
 
   /**
@@ -836,7 +851,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       syncMentionQuery(element.value, element.selectionStart)
       syncSlashQueryRef.current?.(element.value, element.selectionStart)
     },
-    [syncMentionQuery],
+    [syncMentionQuery]
   )
 
   /*
@@ -856,7 +871,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       pendingCaretRef.current = caret
       handleValueChange(text, caret)
     },
-    [handleValueChange],
+    [handleValueChange]
   )
   const slash = useSlashCommand({
     text: message,
@@ -899,7 +914,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   */
   const { awaiting } = useAwaitingState(
     canCollaborate && threadSharing === 'shared' ? (currentSessionId ?? null) : null,
-    canCollaborate && threadSharing === 'shared',
+    canCollaborate && threadSharing === 'shared'
   )
   const threadAwaitsHuman = (awaiting?.pending.length ?? 0) > 0
 
@@ -918,7 +933,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         awaitingHuman: threadAwaitsHuman,
         canCollaborate,
       }),
-    [message, mentions, threadAwaitsHuman, canCollaborate],
+    [message, mentions, threadAwaitsHuman, canCollaborate]
   )
   const activeMentions = addressee.mentions
   const taggedHumans = addressee.humans
@@ -1011,10 +1026,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           // mentions above follow.
           const invoked = slash.skillsForSend(currentMessage)
           const options = invoked ? { ...(routed ?? {}), skills: invoked } : routed
-          return options
-            ? sendMessage(currentMessage, options)
-            : sendMessage(currentMessage)
-        })(),
+          return options ? sendMessage(currentMessage, options) : sendMessage(currentMessage)
+        })()
       )
       if (!ok) {
         // Restore the text so nothing the user wrote is lost, and keep the picked
@@ -1234,657 +1247,695 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           slash.dismiss()
         }}
       >
-      <PopoverAnchor asChild>
-      <div
-        ref={composerRef}
-        className={cn(
-          // Composer card: white card grounded by a soft CARD-tier shadow (not
-          // the modal shadow-lg, which detached it as a floating object over the
-          // chat plane). No hard border — the field reads as a calm surface, and
-          // focus is signalled by a subtle focus-within ring instead of an
-          // outline. Textarea on top, hairline-separated control row below.
-          // NOT `active:scale-95`: the press response belongs on the controls a
-          // reader actually presses (the chips and buttons in the row below), and
-          // this div is the card that HOLDS them. With it here, putting the caret
-          // in the textarea shrank the whole composer — text, chips and all — on
-          // every mousedown, which reads as the surface flinching away from the
-          // click rather than as a control acknowledging a press.
-          'bg-card focus-within:ring-ring/40 relative flex flex-col rounded-xl px-4 py-2.5 shadow-sm transition-[box-shadow,border-color] duration-quick ease-out focus-within:ring-2',
-          isDisabledByAuth && 'opacity-60',
-          isDragging && isUnsupportedDrag
-            ? 'border-2 border-error border-dashed'
-            : isDragging
-              ? 'border-2 border-brand border-dashed'
-              : ''
-        )}
-        {...dragHandlers}
-      >
-        {/* Drag overlay */}
-        {isDragging && (
-          // 90%, not an opaque fill: a drop scrim has to dim what is underneath
-          // without erasing it, so the reader can still see what they are
-          // dropping onto ("a scrim built from --background at near-full
-          // opacity" is the failure the tokens file documents).
-          <div className="bg-background/90 absolute inset-0 z-10 flex items-center justify-center rounded-xl">
-            <div className="flex flex-col items-center gap-2">
-              {isUnsupportedDrag ? (
-                <XCircle className="text-error size-8" aria-hidden="true" />
-              ) : (
-                <Paperclip className="text-brand size-8" aria-hidden="true" />
-              )}
-              <span
-                className={cn(
-                  'text-sm font-semibold',
-                  isUnsupportedDrag ? 'text-error' : 'text-brand'
-                )}
-              >
-                {isUnsupportedDrag
-                  ? t('inputArea.unsupportedFileType')
-                  : t('inputArea.dropToUpload')}
-              </span>
-              {isUnsupportedDrag ? (
-                <span className="text-muted-foreground text-xs">
-                  {t('inputArea.accepts', { types: fileUploadConfig.acceptedTypes })}
-                </span>
-              ) : (
-                /* WHERE the drop lands, in the sources panel's own words. The
+        <PopoverAnchor asChild>
+          <div
+            ref={composerRef}
+            className={cn(
+              // Composer card: white card grounded by a soft CARD-tier shadow (not
+              // the modal shadow-lg, which detached it as a floating object over the
+              // chat plane). No hard border — the field reads as a calm surface, and
+              // focus is signalled by a subtle focus-within ring instead of an
+              // outline. Textarea on top, hairline-separated control row below.
+              // NOT `active:scale-95`: the press response belongs on the controls a
+              // reader actually presses (the chips and buttons in the row below), and
+              // this div is the card that HOLDS them. With it here, putting the caret
+              // in the textarea shrank the whole composer — text, chips and all — on
+              // every mousedown, which reads as the surface flinching away from the
+              // click rather than as a control acknowledging a press.
+              'bg-card focus-within:ring-ring/40 duration-quick relative flex flex-col rounded-xl px-4 py-2.5 shadow-sm transition-[box-shadow,border-color] ease-out focus-within:ring-2',
+              isDisabledByAuth && 'opacity-60',
+              isDragging && isUnsupportedDrag
+                ? 'border-error border-2 border-dashed'
+                : isDragging
+                  ? 'border-brand border-2 border-dashed'
+                  : ''
+            )}
+            {...dragHandlers}
+          >
+            {/* Drag overlay */}
+            {isDragging && (
+              // 90%, not an opaque fill: a drop scrim has to dim what is underneath
+              // without erasing it, so the reader can still see what they are
+              // dropping onto ("a scrim built from --background at near-full
+              // opacity" is the failure the tokens file documents).
+              <div className="bg-background/90 absolute inset-0 z-10 flex items-center justify-center rounded-xl">
+                <div className="flex flex-col items-center gap-2">
+                  {isUnsupportedDrag ? (
+                    <XCircle className="text-error size-8" aria-hidden="true" />
+                  ) : (
+                    <Paperclip className="text-brand size-8" aria-hidden="true" />
+                  )}
+                  <span
+                    className={cn(
+                      'text-sm font-semibold',
+                      isUnsupportedDrag ? 'text-error' : 'text-brand'
+                    )}
+                  >
+                    {isUnsupportedDrag
+                      ? t('inputArea.unsupportedFileType')
+                      : t('inputArea.dropToUpload')}
+                  </span>
+                  {isUnsupportedDrag ? (
+                    <span className="text-muted-foreground text-xs">
+                      {t('inputArea.accepts', { types: fileUploadConfig.acceptedTypes })}
+                    </span>
+                  ) : (
+                    /* WHERE the drop lands, in the sources panel's own words. The
                    overlay used to state the accepted types and nothing else, so
                    the one moment the user is deciding to hand over a file was
                    also the one moment the app said nothing about which shelf it
                    would go on — while the panel, one click away, both asked and
                    answered that question. */
-                <UploadDestinationNote target="session" />
-              )}
-            </div>
-          </div>
-        )}
-        <ComposerSubjectBar
-          subject={composerSubject}
-          projectId={projectId}
-          // NO ONE-WAY DOORS. Ending the subject also closes the viewer, so it
-          // is the one control here that cannot be walked back by pressing it
-          // again — `dropFileSubject` carries the undo with it.
-          onClear={() =>
-            dropFileSubject({
-              cleared: t('inputArea.subjectCleared'),
-              undo: t('inputArea.subjectClearedUndo'),
-            })
-          }
-          onShowFile={
-            !fileDockVisible && composerSubject
-              ? () => {
-                  // Whatever is standing in front of the file, this control
-                  // means "show me the file". With the research panel open,
-                  // `peek()` on its own is a no-op the reader watches do
-                  // nothing — the pane has nowhere to go — so the panel that
-                  // holds the row yields to the request that was just made.
-                  if (useLayoutStore.getState().rightPanel === 'research') {
-                    useLayoutStore.getState().closeRightPanel()
-                  }
-                  useFilePreviewStore.getState().peek()
-                }
-              : undefined
-          }
-          onResolved={handleSubjectResolved}
-        />
+                    <UploadDestinationNote target="session" />
+                  )}
+                </div>
+              </div>
+            )}
+            <ComposerSubjectBar
+              subject={composerSubject}
+              projectId={projectId}
+              // NO ONE-WAY DOORS. Ending the subject also closes the viewer, so it
+              // is the one control here that cannot be walked back by pressing it
+              // again — `dropFileSubject` carries the undo with it.
+              onClear={() =>
+                dropFileSubject({
+                  cleared: t('inputArea.subjectCleared'),
+                  undo: t('inputArea.subjectClearedUndo'),
+                })
+              }
+              onShowFile={
+                !fileDockVisible && composerSubject
+                  ? () => {
+                      // Whatever is standing in front of the file, this control
+                      // means "show me the file". With the research panel open,
+                      // `peek()` on its own is a no-op the reader watches do
+                      // nothing — the pane has nowhere to go — so the panel that
+                      // holds the row yields to the request that was just made.
+                      if (useLayoutStore.getState().rightPanel === 'research') {
+                        useLayoutStore.getState().closeRightPanel()
+                      }
+                      useFilePreviewStore.getState().peek()
+                    }
+                  : undefined
+              }
+              onResolved={handleSubjectResolved}
+            />
 
-        {/* Inline file chips — one per attached file, above the textarea.
+            {/* Inline file chips — one per attached file, above the textarea.
             Live status dot/spinner, retry on failure, ✕ to remove. */}
-        {sessionFiles.length > 0 && (
-          <div
-            // Horizontal scroll strip with a soft right-edge fade so an
-            // overflowing chip dissolves instead of hard-clipping — and the fade
-            // quietly signals there is more to scroll. The mask self-hides when
-            // the chips don't reach the edge (nothing there to fade).
-            className="mb-2 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [mask-image:linear-gradient(to_right,black_calc(100%_-_24px),transparent)] [scrollbar-width:none] [-webkit-mask-image:linear-gradient(to_right,black_calc(100%_-_24px),transparent)] [&::-webkit-scrollbar]:hidden"
-            aria-label={t('inputArea.manageFiles')}
-          >
-            {sessionFiles.map((file) => (
-              <FileChip
-                key={file.id}
-                file={file}
-                onOpen={(opened) => {
-                  setPreviewFile(opened)
-                  const id = opened.serverFileId ?? opened.id
-                  boundSessionUploadRef.current = id
-                  setComposerSubject({
-                    resourceType: 'document',
-                    resourceId: id,
-                    title: opened.fileName,
-                    filename: opened.fileName,
-                    shelf: 'session',
-                  })
-                }}
-                onRemove={deleteFile}
-                onRetry={retryFile}
-                readOnly={cannotContribute}
-              />
-            ))}
-          </div>
-        )}
+            {sessionFiles.length > 0 && (
+              <div
+                // Horizontal scroll strip with a soft right-edge fade so an
+                // overflowing chip dissolves instead of hard-clipping — and the fade
+                // quietly signals there is more to scroll. The mask self-hides when
+                // the chips don't reach the edge (nothing there to fade).
+                className="mb-2 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [-webkit-mask-image:linear-gradient(to_right,black_calc(100%_-_24px),transparent)] [mask-image:linear-gradient(to_right,black_calc(100%_-_24px),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                aria-label={t('inputArea.manageFiles')}
+              >
+                {sessionFiles.map((file) => (
+                  <FileChip
+                    key={file.id}
+                    file={file}
+                    onOpen={(opened) => {
+                      setPreviewFile(opened)
+                      const id = opened.serverFileId ?? opened.id
+                      boundSessionUploadRef.current = id
+                      setComposerSubject({
+                        resourceType: 'document',
+                        resourceId: id,
+                        title: opened.fileName,
+                        filename: opened.fileName,
+                        shelf: 'session',
+                      })
+                    }}
+                    onRemove={deleteFile}
+                    onRetry={retryFile}
+                    readOnly={cannotContribute}
+                  />
+                ))}
+              </div>
+            )}
 
-        {/* The destination of the chips above — the composer attaches to the
+            {/* The destination of the chips above — the composer attaches to the
             PRIVATE SESSION and cannot be told otherwise, unlike the sources
             panel, which offers the project corpus as well. Stated in the same
             words the panel uses (shared primitive), so a user who has seen both
             surfaces reads one vocabulary rather than two. */}
-        {sessionFiles.length > 0 && <UploadDestinationNote target="session" className="mb-2" />}
+            {sessionFiles.length > 0 && <UploadDestinationNote target="session" className="mb-2" />}
 
-        {/* Mobile-only entry to the full manage-files sheet. The desktop
+            {/* Mobile-only entry to the full manage-files sheet. The desktop
             manage-files button is hidden on phones (the action row stays one
             line), so this compact text link — under the chip strip, only when
             files exist — is the phone user's way to the browse/upload/delete
             list. Not another chip in the action row (keeps it un-bulked). */}
-        {/* Not for a viewer, for the same reason the desktop button beside the
+            {/* Not for a viewer, for the same reason the desktop button beside the
             paperclip is disabled for them: what it opens is the browse / upload /
             per-file delete surface. This entry is `sm:hidden`, so leaving it out
             of the gate left the whole write surface reachable on a phone while
             the user guide said it was closed. */}
-        {attachedFilesCount > 0 && !cannotContribute && (
-          <button
-            type="button"
-            onClick={() => setManageFilesOpen(true)}
-            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 mb-2 self-start rounded-sm text-xs font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 touch-target sm:hidden"
-          >
-            {t('inputArea.manageFilesMobile', { count: attachedFilesCount })}
-          </button>
-        )}
+            {attachedFilesCount > 0 && !cannotContribute && (
+              <button
+                type="button"
+                onClick={() => setManageFilesOpen(true)}
+                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 touch-target mb-2 self-start rounded-sm text-xs font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 sm:hidden"
+              >
+                {t('inputArea.manageFilesMobile', { count: attachedFilesCount })}
+              </button>
+            )}
 
-        {/* Text Input */}
-        <Textarea
-          ref={textareaRef}
-          // text-base (16px) below md keeps iOS Safari from zooming the page
-          // when the composer gains focus; desktop drops to the body ramp step.
-          // The composer CARD signals focus with its focus-within ring (see the
-          // card class above), so the textarea shows no ring/border/outline of
-          // its own. `outline-hidden!` beats the app's global :focus-visible
-          // outline (globals.css, unlayered) with an important utility — otherwise
-          // focus is drawn twice: a nested box inside the card's ring.
-          className="max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.5] shadow-none outline-none! focus-visible:ring-0 pointer-coarse:min-h-11 md:text-sm"
-          value={message}
-          onChange={(e) => handleValueChange(e.target.value, e.target.selectionStart)}
-          onKeyDown={handleKeyDown}
-          // Intent to send. In a shared thread this is what opens the agent socket
-          // (see the note next to `noteSendIntent` above); everywhere else the
-          // socket is already up and this is a no-op.
-          onFocus={noteSendIntent}
-          // The caret can move without the text changing (arrows, a click); the
-          // trigger has to follow it, or the picker outlives its own fragment.
-          onKeyUp={(e) => syncMentionQueryFromElement(e.currentTarget)}
-          onClick={(e) => syncMentionQueryFromElement(e.currentTarget)}
-          onPaste={handlePaste}
-          placeholder={getPlaceholder()}
-          disabled={disabled}
-          rows={1}
-          aria-label={
-            isResponseMode ? t('inputArea.responseInput') : t('inputArea.chatMessageInput')
-          }
-          // Combobox semantics only while the picker is live: the listbox
-          // `aria-controls` points at exists only then, and a chat composer that
-          // announces itself as a combobox at all times is worse for a screen
-          // reader than one that announces the popup when it appears.
-          role={mentionPickerOpen || slash.open ? 'combobox' : undefined}
-          aria-expanded={mentionPickerOpen || slash.open ? true : undefined}
-          aria-haspopup={mentionPickerOpen || slash.open ? 'listbox' : undefined}
-          aria-autocomplete={mentionPickerOpen || slash.open ? 'list' : undefined}
-          aria-controls={
-            slash.open
-              ? (slash.aria.listboxId ?? undefined)
-              : mentionPickerOpen
-                ? (mentionAria.listboxId ?? undefined)
-                : undefined
-          }
-          aria-activedescendant={
-            slash.open
-              ? (slash.aria.activeOptionId ?? undefined)
-              : mentionPickerOpen
-                ? (mentionAria.activeOptionId ?? undefined)
-                : undefined
-          }
-        />
+            {/* Text Input */}
+            <Textarea
+              ref={textareaRef}
+              // 16px on a coarse pointer keeps iOS Safari from zooming the page
+              // when the composer gains focus; a mouse gets the body ramp step. The
+              // pointer axis, not `md:` — see the note in `ui/input.tsx`.
+              // The composer CARD signals focus with its focus-within ring (see the
+              // card class above), so the textarea shows no ring/border/outline of
+              // its own. `outline-hidden!` beats the app's global :focus-visible
+              // outline (globals.css, unlayered) with an important utility — otherwise
+              // focus is drawn twice: a nested box inside the card's ring.
+              className="outline-none! pointer-coarse:min-h-11 pointer-coarse:text-base max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-sm leading-[1.5] shadow-none focus-visible:ring-0"
+              value={message}
+              onChange={(e) => handleValueChange(e.target.value, e.target.selectionStart)}
+              onKeyDown={handleKeyDown}
+              // Intent to send. In a shared thread this is what opens the agent socket
+              // (see the note next to `noteSendIntent` above); everywhere else the
+              // socket is already up and this is a no-op.
+              onFocus={noteSendIntent}
+              // The caret can move without the text changing (arrows, a click); the
+              // trigger has to follow it, or the picker outlives its own fragment.
+              onKeyUp={(e) => syncMentionQueryFromElement(e.currentTarget)}
+              onClick={(e) => syncMentionQueryFromElement(e.currentTarget)}
+              onPaste={handlePaste}
+              placeholder={getPlaceholder()}
+              disabled={disabled}
+              rows={1}
+              // The action key on a phone keyboard, told what it actually does.
+              // `handleKeyDown` above sends on a plain Enter and only inserts a
+              // newline on Shift+Enter — but a `<textarea>` defaults its soft-key
+              // to the return glyph, so the most consequential key in the product
+              // was drawn as "start a new line" and wired to "send this to the
+              // agent". `enterKeyHint="send"` makes the label agree with the
+              // handler. It changes no behaviour on any device; it stops the
+              // phone from misdescribing the behaviour there already is.
+              //
+              // Deliberately NOT paired with autocorrect/autocapitalize off the
+              // way the search fields are: this field takes German prose, and
+              // there the phone's help is help.
+              enterKeyHint="send"
+              aria-label={
+                isResponseMode ? t('inputArea.responseInput') : t('inputArea.chatMessageInput')
+              }
+              // Combobox semantics only while the picker is live: the listbox
+              // `aria-controls` points at exists only then, and a chat composer that
+              // announces itself as a combobox at all times is worse for a screen
+              // reader than one that announces the popup when it appears.
+              role={mentionPickerOpen || slash.open ? 'combobox' : undefined}
+              aria-expanded={mentionPickerOpen || slash.open ? true : undefined}
+              aria-haspopup={mentionPickerOpen || slash.open ? 'listbox' : undefined}
+              aria-autocomplete={mentionPickerOpen || slash.open ? 'list' : undefined}
+              aria-controls={
+                slash.open
+                  ? (slash.aria.listboxId ?? undefined)
+                  : mentionPickerOpen
+                    ? (mentionAria.listboxId ?? undefined)
+                    : undefined
+              }
+              aria-activedescendant={
+                slash.open
+                  ? (slash.aria.activeOptionId ?? undefined)
+                  : mentionPickerOpen
+                    ? (mentionAria.activeOptionId ?? undefined)
+                    : undefined
+              }
+            />
 
-        {/* The skill this message invokes, if any. Under the textarea and above
+            {/* The skill this message invokes, if any. Under the textarea and above
             the control row, where the file chips sit: both answer "what is
             attached to what I am about to send?". */}
-        <AnimatePresence initial={false}>
-          {slash.invokedSkill && (
-            <motion.div
-              key={`invoked-skill-${slash.invokedSkill.name}`}
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 2 }}
-              transition={easeQuiet}
-            >
-              <InvokedSkillChip
-                name={slash.invokedSkill.name}
-                description={slash.invokedSkill.description}
-                onRemove={cannotContribute ? undefined : slash.clearInvocation}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
+            <AnimatePresence initial={false}>
+              {slash.invokedSkill && (
+                <motion.div
+                  key={`invoked-skill-${slash.invokedSkill.name}`}
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 2 }}
+                  transition={easeQuiet}
+                >
+                  <InvokedSkillChip
+                    name={slash.invokedSkill.name}
+                    description={slash.invokedSkill.description}
+                    onRemove={cannotContribute ? undefined : slash.clearInvocation}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-        {/* Upload Error Display */}
-        <AnimatePresence initial={false}>
-          {uploadError && (
-            <motion.div
-              key="upload-error"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 4 }}
-              transition={easeQuiet}
-            >
-              <Alert variant="destructive" className="mt-2">
-                <AlertDescription className="flex w-full items-start justify-between gap-2">
-                  <span>{uploadError}</span>
-                  <button
-                    type="button"
-                    onClick={clearError}
-                    aria-label={t('dismissError')}
-                    className="focus-visible:ring-ring/60 shrink-0 rounded-md p-1 opacity-70 transition-opacity duration-quick ease-out hover:opacity-100 focus-visible:outline-none focus-visible:ring-2"
-                  >
-                    <X className="size-4" aria-hidden="true" />
-                  </button>
-                </AlertDescription>
-              </Alert>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            {/* Upload Error Display */}
+            <AnimatePresence initial={false}>
+              {uploadError && (
+                <motion.div
+                  key="upload-error"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 4 }}
+                  transition={easeQuiet}
+                >
+                  <Alert variant="destructive" className="mt-2">
+                    <AlertDescription className="flex w-full items-start justify-between gap-2">
+                      <span>{uploadError}</span>
+                      <button
+                        type="button"
+                        onClick={clearError}
+                        aria-label={t('dismissError')}
+                        className="focus-visible:ring-ring/60 duration-quick shrink-0 rounded-md p-1 opacity-70 transition-opacity ease-out hover:opacity-100 focus-visible:outline-none focus-visible:ring-2"
+                      >
+                        <X className="size-4" aria-hidden="true" />
+                      </button>
+                    </AlertDescription>
+                  </Alert>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-        {/* Bottom control row — hairline-separated from the textarea.
+            {/* Bottom control row — hairline-separated from the textarea.
             Order per the click dummy: scope · Datengrundlage · Deep-Research,
             then attach + send pushed right. */}
-        <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t pt-2.5">
-          {/* Scope chip — current project; cross-project is honestly disabled.
+            <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t pt-2.5">
+              {/* Scope chip — current project; cross-project is honestly disabled.
               Dashed status-active dot + label + chevron (dummy composer). */}
-          <Popover>
-            <PopoverTrigger asChild>
-              {/* The primitive, not a hand-rolled `<button>`: the outline/sm
+              <Popover>
+                <PopoverTrigger asChild>
+                  {/* The primitive, not a hand-rolled `<button>`: the outline/sm
                   variant IS this chip's geometry, and it ships the press
                   response with its `motion-reduce` escape for free. Matches
                   `SourceBasisTrigger` beside it. */}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={cannotContribute}
-                aria-label={tChat('composer.scopeAria', { project: scopeLabel })}
-                title={tChat('composer.scopeAria', { project: scopeLabel })}
-                className="min-w-0"
-              >
-                <span className="border-status-active flex size-3.5 shrink-0 items-center justify-center rounded-full border border-dashed">
-                  {/* 5px: the dot has to sit INSIDE a 14px dashed ring with a
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={cannotContribute}
+                    aria-label={tChat('composer.scopeAria', { project: scopeLabel })}
+                    title={tChat('composer.scopeAria', { project: scopeLabel })}
+                    className="min-w-0"
+                  >
+                    <span className="border-status-active flex size-3.5 shrink-0 items-center justify-center rounded-full border border-dashed">
+                      {/* 5px: the dot has to sit INSIDE a 14px dashed ring with a
                       visible gap on every side, and the 6px token step closes it. */}
-                  <span className="bg-status-active size-[5px] rounded-full" />
-                </span>
-                <span className="text-foreground/85 hidden max-w-44 truncate sm:inline">
-                  {scopeLabel}
-                </span>
-                <ChevronDown className="text-muted-foreground size-3 shrink-0" aria-hidden="true" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent side="top" align="start" className="w-64 p-1.5">
-              <div
-                className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm"
-                aria-current="true"
-              >
-                <Check className="text-foreground size-3.5 shrink-0" aria-hidden="true" />
-                <span className="min-w-0 flex-1 truncate font-medium">{scopeLabel}</span>
-                <span className="text-muted-foreground shrink-0 text-xs">
-                  {tChat('composer.scopeCurrent')}
-                </span>
-              </div>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  {/* span wrapper: disabled elements don't emit hover events */}
-                  <span className="block" tabIndex={0}>
-                    <button
-                      type="button"
-                      disabled
-                      aria-disabled="true"
-                      className="text-muted-foreground flex w-full cursor-not-allowed items-center gap-2 rounded-lg px-2.5 py-2 text-sm opacity-60"
-                    >
-                      <span className="size-3.5 shrink-0" aria-hidden="true" />
-                      <span className="truncate">{tChat('composer.scopeAll')}</span>
-                    </button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-60">
-                  {tChat('composer.scopeAllSoon')}
-                </TooltipContent>
-              </Tooltip>
-            </PopoverContent>
-          </Popover>
+                      <span className="bg-status-active size-[5px] rounded-full" />
+                    </span>
+                    <span className="text-foreground/85 hidden max-w-44 truncate sm:inline">
+                      {scopeLabel}
+                    </span>
+                    <ChevronDown
+                      className="text-muted-foreground size-3 shrink-0"
+                      aria-hidden="true"
+                    />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent side="top" align="start" className="w-64 p-1.5">
+                  <div
+                    className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm"
+                    aria-current="true"
+                  >
+                    <Check className="text-foreground size-3.5 shrink-0" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate font-medium">{scopeLabel}</span>
+                    <span className="text-muted-foreground shrink-0 text-xs">
+                      {tChat('composer.scopeCurrent')}
+                    </span>
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      {/* span wrapper: disabled elements don't emit hover events */}
+                      <span className="block" tabIndex={0}>
+                        <button
+                          type="button"
+                          disabled
+                          aria-disabled="true"
+                          className="text-muted-foreground flex w-full cursor-not-allowed items-center gap-2 rounded-lg px-2.5 py-2 text-sm opacity-60"
+                        >
+                          <span className="size-3.5 shrink-0" aria-hidden="true" />
+                          <span className="truncate">{tChat('composer.scopeAll')}</span>
+                        </button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-60">
+                      {tChat('composer.scopeAllSoon')}
+                    </TooltipContent>
+                  </Tooltip>
+                </PopoverContent>
+              </Popover>
 
-          {/* Datenbasis — the one control for WHERE Piloti may look. The
+              {/* Datenbasis — the one control for WHERE Piloti may look. The
               trigger names the mix (a preset, a set of strata, "Alle Quellen");
               it never renders a bare count, because the count it used to render
               was wrong in both directions — see components/source-basis. Open
               state is lifted so the trigger can tell "the reader is watching
               the picker" from "a preset click landed off-screen". */}
-          <Popover open={sourcesOpen} onOpenChange={setSourcesOpen}>
-            <PopoverTrigger asChild>
-              <SourceBasisTrigger disabled={cannotContribute} pickerOpen={sourcesOpen} />
-            </PopoverTrigger>
-            <PopoverContent side="top" align="start" className="w-88 max-w-[calc(100vw-2rem)] p-3">
-              <SourceBasisPicker />
-            </PopoverContent>
-          </Popover>
+              <Popover open={sourcesOpen} onOpenChange={setSourcesOpen}>
+                <PopoverTrigger asChild>
+                  <SourceBasisTrigger disabled={cannotContribute} pickerOpen={sourcesOpen} />
+                </PopoverTrigger>
+                <PopoverContent
+                  side="top"
+                  align="start"
+                  className="w-88 max-w-[calc(100vw-2rem)] p-3"
+                >
+                  <SourceBasisPicker />
+                </PopoverContent>
+              </Popover>
 
-          {/* Deep-Research intent pill — preference, NOT a hard trigger:
+              {/* Deep-Research intent pill — preference, NOT a hard trigger:
               the agent auto-escalates on its own (spec §2.2(6)) */}
-          {/* Same rebuild as the scope chip beside it. Pressed is the `default`
+              {/* Same rebuild as the scope chip beside it. Pressed is the `default`
               (ink) variant and resting is `outline`, so "on" is the ink fill the
               design language reserves for the action — no third hand-rolled
               state, and the press response comes from the primitive. */}
-          <Button
-            type="button"
-            variant={deepResearchIntent ? 'default' : 'outline'}
-            size="sm"
-            aria-pressed={deepResearchIntent}
-            aria-label={tChat('composer.deepResearchAria')}
-            title={tChat('composer.deepResearchHint')}
-            disabled={cannotContribute}
-            onClick={() => setDeepResearchIntent(!deepResearchIntent)}
-            className={cn('shrink-0', !deepResearchIntent && 'text-muted-foreground')}
-          >
-            <ZoomIn className="size-3.5" aria-hidden="true" />
-            <span className="hidden sm:inline">{tChat('composer.deepResearch')}</span>
-          </Button>
+              <Button
+                type="button"
+                variant={deepResearchIntent ? 'default' : 'outline'}
+                size="sm"
+                aria-pressed={deepResearchIntent}
+                aria-label={tChat('composer.deepResearchAria')}
+                title={tChat('composer.deepResearchHint')}
+                disabled={cannotContribute}
+                onClick={() => setDeepResearchIntent(!deepResearchIntent)}
+                className={cn('shrink-0', !deepResearchIntent && 'text-muted-foreground')}
+              >
+                <ZoomIn className="size-3.5" aria-hidden="true" />
+                <span className="hidden sm:inline">{tChat('composer.deepResearch')}</span>
+              </Button>
 
-          {/* Who this message goes to — ALWAYS, whenever collaboration exists at
+              {/* Who this message goes to — ALWAYS, whenever collaboration exists at
               all. The point of it being unconditional: if it only appeared in the
               unusual case, "Piloti is next" would remain something the user has to
               infer from an absence. Borderless on purpose — it is a statement
               standing among buttons, and must not read as one. */}
-          {canCollaborate && (
-            <AddresseeIndicator
-              mentions={activeMentions}
-              awaitingHuman={threadAwaitsHuman}
-              // Only where there is somebody to mention: a solo thread grows no
-              // collaboration furniture (spec NF-8).
-              // Offered wherever collaboration is available — including a PRIVATE
-              // thread, because mentioning somebody is how a thread starts being
-              // shared (the picker offers "Wird eingeladen"). This is the discovery
-              // path into the feature, not a reward for already having used it.
-              //
-              // But NOT to someone who may not write here. A screenshot of the
-              // read-only composer caught this: the whole control row was dimmed
-              // and this one link sat above "Sie können hier mitlesen", live and
-              // underlined, offering to type an `@` into a disabled textarea.
-              // Same class as the paperclip and the Datengrundlage popover.
-              onMentionSomeone={cannotContribute ? undefined : handleMentionSomeone}
-            />
-          )}
+              {canCollaborate && (
+                <AddresseeIndicator
+                  mentions={activeMentions}
+                  awaitingHuman={threadAwaitsHuman}
+                  // Only where there is somebody to mention: a solo thread grows no
+                  // collaboration furniture (spec NF-8).
+                  // Offered wherever collaboration is available — including a PRIVATE
+                  // thread, because mentioning somebody is how a thread starts being
+                  // shared (the picker offers "Wird eingeladen"). This is the discovery
+                  // path into the feature, not a reward for already having used it.
+                  //
+                  // But NOT to someone who may not write here. A screenshot of the
+                  // read-only composer caught this: the whole control row was dimmed
+                  // and this one link sat above "Sie können hier mitlesen", live and
+                  // underlined, offering to type an `@` into a disabled textarea.
+                  // Same class as the paperclip and the Datengrundlage popover.
+                  onMentionSomeone={cannotContribute ? undefined : handleMentionSomeone}
+                />
+              )}
 
-          {/* Right Actions: manage-files, attach, submit — pushed right */}
-          <div className="ml-auto flex items-center gap-1">
-            {/* Manage files — opens a Dialog hosting the full FileSourcesTab
+              {/* Right Actions: manage-files, attach, submit — pushed right */}
+              <div className="ml-auto flex items-center gap-1">
+                {/* Manage files — opens a Dialog hosting the full FileSourcesTab
                 (browse, upload zone, per-file delete). Replaces the old
                 right-panel toggle. Shown only when files exist. */}
-            {attachedFilesCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                // Redundant with the inline file chips (status + retry + remove)
-                // on a narrow composer — hidden on mobile so the action row
-                // stays one clean line; the FileSourcesTab dialog it opens
-                // (browse + upload zone) remains available on wider viewports.
-                // Mobile reaches the same dialog via the "manage" text entry
-                // under the chip strip.
-                className="text-muted-foreground hidden h-8 rounded-lg px-2.5 pointer-coarse:h-11 sm:inline-flex"
-                disabled={cannotContribute || !knowledgeLayerAvailable}
-                onClick={() => setManageFilesOpen(true)}
-                aria-label={t('inputArea.manageFilesCount', { count: attachedFilesCount })}
-                title={
-                  knowledgeLayerAvailable
-                    ? t('inputArea.manageFiles')
-                    : t('inputArea.uploadNotAvailable')
-                }
-              >
-                <FileText className="size-3" aria-hidden="true" />
-                <span className="text-xs font-semibold">{attachedFilesCount}</span>
-              </Button>
-            )}
+                {attachedFilesCount > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    // Redundant with the inline file chips (status + retry + remove)
+                    // on a narrow composer — hidden on mobile so the action row
+                    // stays one clean line; the FileSourcesTab dialog it opens
+                    // (browse + upload zone) remains available on wider viewports.
+                    // Mobile reaches the same dialog via the "manage" text entry
+                    // under the chip strip.
+                    className="text-muted-foreground pointer-coarse:h-11 hidden h-8 rounded-lg px-2.5 sm:inline-flex"
+                    disabled={cannotContribute || !knowledgeLayerAvailable}
+                    onClick={() => setManageFilesOpen(true)}
+                    aria-label={t('inputArea.manageFilesCount', { count: attachedFilesCount })}
+                    title={
+                      knowledgeLayerAvailable
+                        ? t('inputArea.manageFiles')
+                        : t('inputArea.uploadNotAvailable')
+                    }
+                  >
+                    <FileText className="size-3" aria-hidden="true" />
+                    <span className="text-xs font-semibold">{attachedFilesCount}</span>
+                  </Button>
+                )}
 
-            {/* Hidden file input */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept={fileUploadConfig.acceptedTypes}
-              className="hidden"
-              tabIndex={-1}
-              onChange={handleFileChange}
-            />
+                {/* Hidden file input */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept={fileUploadConfig.acceptedTypes}
+                  className="hidden"
+                  tabIndex={-1}
+                  onChange={handleFileChange}
+                />
 
-            {/* Attach files */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-subtle size-[34px] rounded-lg"
-              onClick={handleAttachClick}
-              disabled={cannotContribute || isUploading || isBusy || !knowledgeLayerAvailable}
-              aria-label={t('inputArea.attachFiles')}
-              title={
-                isBusy
-                  ? t('inputArea.uploadDisabledBusy')
-                  : !knowledgeLayerAvailable
-                    ? t('inputArea.uploadNotAvailable')
-                    : t('inputArea.selectFiles')
-              }
-            >
-              <Paperclip className="size-4" aria-hidden="true" />
-            </Button>
+                {/* Attach files */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-subtle size-[34px] rounded-lg"
+                  onClick={handleAttachClick}
+                  disabled={cannotContribute || isUploading || isBusy || !knowledgeLayerAvailable}
+                  aria-label={t('inputArea.attachFiles')}
+                  title={
+                    isBusy
+                      ? t('inputArea.uploadDisabledBusy')
+                      : !knowledgeLayerAvailable
+                        ? t('inputArea.uploadNotAvailable')
+                        : t('inputArea.selectFiles')
+                  }
+                >
+                  <Paperclip className="size-4" aria-hidden="true" />
+                </Button>
 
-            {/* Send button - wrapped in Popover when research session is complete/in-progress.
+                {/* Send button - wrapped in Popover when research session is complete/in-progress.
                 Exception: isResponseMode always shows the normal send button so users can
                 submit HITL responses (approve/reject) even during active research. */}
-            {isResearchSessionSuccessful && !isResponseMode ? (
-              // Completed research is a dead-end for the locked composer: replace
-              // the old no-op explanation popover with an explicit forward action
-              // that starts a fresh session (the real new-session path). A short
-              // helper line below the composer carries the "why" the popover used
-              // to hide.
-              <motion.div
-                className="inline-flex"
-                whileTap={{ scale: 0.94 }}
-                transition={springSnappy}
-                tabIndex={-1}
-              >
-                <Button
-                  size="sm"
-                  className="h-9 gap-1.5 rounded-lg px-3 shadow-md"
-                  onClick={handleStartNewSession}
-                  aria-label={t('inputArea.startNewSession')}
-                  title={t('inputArea.startNewSession')}
-                >
-                  <RotateCw className="size-3.5" aria-hidden="true" />
-                  <span className="text-xs font-semibold">
-                    {t('inputArea.startNewSession')}
-                  </span>
-                </Button>
-              </motion.div>
-            ) : isResearchSessionInProgress && !isResponseMode ? (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    size="icon"
-                    className="size-9 rounded-lg shadow-md"
-                    aria-label={t('inputArea.researchInProgressAria')}
-                    title={t('inputArea.researchInProgress')}
+                {isResearchSessionSuccessful && !isResponseMode ? (
+                  // Completed research is a dead-end for the locked composer: replace
+                  // the old no-op explanation popover with an explicit forward action
+                  // that starts a fresh session (the real new-session path). A short
+                  // helper line below the composer carries the "why" the popover used
+                  // to hide.
+                  <motion.div
+                    className="inline-flex"
+                    whileTap={{ scale: 0.94 }}
+                    transition={springSnappy}
+                    tabIndex={-1}
                   >
-                    <ArrowUp className="size-4" aria-hidden="true" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent side="top" align="end" className="w-auto max-w-xs p-3">
-                  <p className="text-sm">{t('inputArea.researchInProgressPopover')}</p>
-                </PopoverContent>
-              </Popover>
-            ) : isStreaming && !isResponseMode ? (
-              // Stop button (C1): while a shallow-thinking turn streams, replace
-              // the disabled send button with a stop control that cancels the
-              // in-flight turn via the chat store's stopStreaming action.
-              <motion.div
-                className="inline-flex"
-                whileTap={{ scale: 0.94 }}
-                transition={springSnappy}
-                tabIndex={-1}
-              >
-                <Button
-                  size="icon"
-                  className="size-9 rounded-lg shadow-md"
-                  // `isStreaming` is the LOCAL store's turn flag and a viewer
-                  // never starts a local turn, so this is belt and braces rather
-                  // than a demonstrated hole — but cancelling somebody else's
-                  // turn is the most consequential thing on this row, and it was
-                  // the one control here with no gate at all.
-                  disabled={cannotContribute}
-                  onClick={() => stopStreaming?.()}
-                  aria-label={t('inputArea.stopStreaming')}
-                  title={t('inputArea.stopStreaming')}
-                >
-                  <Square className="size-3.5 fill-current" aria-hidden="true" />
-                </Button>
-              </motion.div>
-            ) : (
-              <motion.div
-                className="inline-flex"
-                whileTap={{ scale: 0.94 }}
-                transition={springSnappy}
-                // whileTap makes framer-motion inject tabindex="0"; the wrapper must
-                // not be a tab stop — the Button inside is the real control.
-                tabIndex={-1}
-              >
-                <Button
-                  size="icon"
-                  className="size-9 rounded-lg shadow-md"
-                  onClick={handleSubmit}
-                  disabled={!message.trim() || disabled}
-                  aria-label={
-                    isResponseMode ? t('inputArea.sendResponse') : t('inputArea.sendMessage')
-                  }
-                  title={
-                    pendingCount > 0 ? t('inputArea.sendWhilePending') : t('inputArea.sendQuery')
-                  }
-                >
-                  <AnimatePresence mode="popLayout" initial={false}>
-                    {isLoading ? (
-                      <motion.span
-                        key="loading"
-                        className="animate-pulse"
-                        initial={{ opacity: 0, scale: 0.8 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.8 }}
-                        transition={springSnappy}
-                      >
-                        ...
-                      </motion.span>
-                    ) : (
-                      <motion.span
-                        key="send"
-                        className="inline-flex"
-                        initial={{ opacity: 0, scale: 0.8 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.8 }}
-                        transition={springSnappy}
+                    <Button
+                      size="sm"
+                      className="h-9 gap-1.5 rounded-lg px-3 shadow-md"
+                      onClick={handleStartNewSession}
+                      aria-label={t('inputArea.startNewSession')}
+                      title={t('inputArea.startNewSession')}
+                    >
+                      <RotateCw className="size-3.5" aria-hidden="true" />
+                      <span className="text-xs font-semibold">
+                        {t('inputArea.startNewSession')}
+                      </span>
+                    </Button>
+                  </motion.div>
+                ) : isResearchSessionInProgress && !isResponseMode ? (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        size="icon"
+                        className="size-9 rounded-lg shadow-md"
+                        aria-label={t('inputArea.researchInProgressAria')}
+                        title={t('inputArea.researchInProgress')}
                       >
                         <ArrowUp className="size-4" aria-hidden="true" />
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
-                </Button>
-              </motion.div>
-            )}
-          </div>
-        </div>
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent side="top" align="end" className="w-auto max-w-xs p-3">
+                      <p className="text-sm">{t('inputArea.researchInProgressPopover')}</p>
+                    </PopoverContent>
+                  </Popover>
+                ) : isStreaming && !isResponseMode ? (
+                  // Stop button (C1): while a shallow-thinking turn streams, replace
+                  // the disabled send button with a stop control that cancels the
+                  // in-flight turn via the chat store's stopStreaming action.
+                  <motion.div
+                    className="inline-flex"
+                    whileTap={{ scale: 0.94 }}
+                    transition={springSnappy}
+                    tabIndex={-1}
+                  >
+                    <Button
+                      size="icon"
+                      className="size-9 rounded-lg shadow-md"
+                      // `isStreaming` is the LOCAL store's turn flag and a viewer
+                      // never starts a local turn, so this is belt and braces rather
+                      // than a demonstrated hole — but cancelling somebody else's
+                      // turn is the most consequential thing on this row, and it was
+                      // the one control here with no gate at all.
+                      disabled={cannotContribute}
+                      onClick={() => stopStreaming?.()}
+                      aria-label={t('inputArea.stopStreaming')}
+                      title={t('inputArea.stopStreaming')}
+                    >
+                      <Square className="size-3.5 fill-current" aria-hidden="true" />
+                    </Button>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    className="inline-flex"
+                    whileTap={{ scale: 0.94 }}
+                    transition={springSnappy}
+                    // whileTap makes framer-motion inject tabindex="0"; the wrapper must
+                    // not be a tab stop — the Button inside is the real control.
+                    tabIndex={-1}
+                  >
+                    <Button
+                      size="icon"
+                      className="size-9 rounded-lg shadow-md"
+                      onClick={handleSubmit}
+                      disabled={!message.trim() || disabled}
+                      aria-label={
+                        isResponseMode ? t('inputArea.sendResponse') : t('inputArea.sendMessage')
+                      }
+                      title={
+                        pendingCount > 0
+                          ? t('inputArea.sendWhilePending')
+                          : t('inputArea.sendQuery')
+                      }
+                    >
+                      <AnimatePresence mode="popLayout" initial={false}>
+                        {isLoading ? (
+                          <motion.span
+                            key="loading"
+                            className="animate-pulse"
+                            initial={{ opacity: 0, scale: 0.8 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.8 }}
+                            transition={springSnappy}
+                          >
+                            ...
+                          </motion.span>
+                        ) : (
+                          <motion.span
+                            key="send"
+                            className="inline-flex"
+                            initial={{ opacity: 0, scale: 0.8 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.8 }}
+                            transition={springSnappy}
+                          >
+                            <ArrowUp className="size-4" aria-hidden="true" />
+                          </motion.span>
+                        )}
+                      </AnimatePresence>
+                    </Button>
+                  </motion.div>
+                )}
+              </div>
+            </div>
 
-        {/* The hand-off, said out loud BEFORE sending (spec MN-7/MN-8): once a
+            {/* The hand-off, said out loud BEFORE sending (spec MN-7/MN-8): once a
             person is tagged the agent will stay quiet, and the user has to know
             that while they can still change their mind. Suppressed when `@Piloti`
             is tagged too — then the agent DOES answer (MN-1) and this sentence
             would be false; the addressee line above names both. */}
-        {taggedHumans.length > 0 && !agentTagged && (
-          <p
-            data-testid="composer-mention-hint"
-            className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
-            role="note"
-          >
-            <AtSign className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
-            <span>
-              {/* German inflects the verb, so joining names into the singular
+            {taggedHumans.length > 0 && !agentTagged && (
+              <p
+                data-testid="composer-mention-hint"
+                className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+                role="note"
+              >
+                <AtSign className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
+                <span>
+                  {/* German inflects the verb, so joining names into the singular
                   string produced "Anna Berger, Tobias Kern WIRD gefragt" — wrong
                   grammar in the primary product language. This i18n layer has no
                   plural rules, hence two keys. */}
-              {taggedHumans.length === 1
-                ? tCollab('mentions.composerHint', { name: taggedHumans[0]!.display })
-                : tCollab('mentions.composerHintMany', {
-                    names: taggedHumans.map((mention) => mention.display).join(', '),
-                  })}
-            </span>
-          </p>
-        )}
+                  {taggedHumans.length === 1
+                    ? tCollab('mentions.composerHint', { name: taggedHumans[0]!.display })
+                    : tCollab('mentions.composerHintMany', {
+                        names: taggedHumans.map((mention) => mention.display).join(', '),
+                      })}
+                </span>
+              </p>
+            )}
 
-        {/* The way BACK, exactly where it is needed: while the thread waits on a
+            {/* The way BACK, exactly where it is needed: while the thread waits on a
             person, a plain message is a remark, so the composer says how to reach
             Piloti instead of leaving that to be discovered. */}
-        {canCollaborate && threadAwaitsHuman && activeMentions.length === 0 && (
-          <p
-            data-testid="composer-agent-hint"
-            className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
-            role="note"
-          >
-            <span>{tCollab('mentions.addressee.agentHint')}</span>
-          </p>
-        )}
+            {canCollaborate && threadAwaitsHuman && activeMentions.length === 0 && (
+              <p
+                data-testid="composer-agent-hint"
+                className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+                role="note"
+              >
+                <span>{tCollab('mentions.addressee.agentHint')}</span>
+              </p>
+            )}
 
-        {/* Piloti is mid-answer for SOMEBODY ELSE (spec CC-13). The composer is
+            {/* Piloti is mid-answer for SOMEBODY ELSE (spec CC-13). The composer is
             locked on the same fact (`otherPersonsTurnName` disables it above), and
             without a line here that lock is unexplained — a colleague sees a dead
             input and no reason for it. Only when the turn belongs to someone else:
             the asker has their own typing indicator and Herleitung, so telling them
             "Piloti is answering your question" would be noise. */}
-        {canCollaborate && otherPersonsTurnName && (
-          <p
-            data-testid="composer-busy-hint"
-            className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
-            role="note"
-          >
-            <span>{tCollab('thread.composerBusy', { name: otherPersonsTurnName })}</span>
-          </p>
-        )}
+            {canCollaborate && otherPersonsTurnName && (
+              <p
+                data-testid="composer-busy-hint"
+                className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+                role="note"
+              >
+                <span>{tCollab('thread.composerBusy', { name: otherPersonsTurnName })}</span>
+              </p>
+            )}
 
-        {/* Read-only participant: the composer is disabled on the same fact, and
+            {/* No `project:chat` in this project: the composer is dead on the same
+            fact, and this is why. Deliberately NOT behind `canCollaborate` —
+            this is a project permission, not a sharing one, so a tenant with
+            collaboration off must still get the explanation. */}
+            {cannotChatInProject && (
+              <p
+                data-testid="composer-project-chat-hint"
+                className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+                role="note"
+              >
+                <Eye className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
+                <span>{tChat('composer.noProjectChatPermission')}</span>
+              </p>
+            )}
+
+            {/* Read-only participant: the composer is disabled on the same fact, and
             this line is why. */}
-        {canCollaborate && isViewerInSharedThread && (
-          <p
-            data-testid="composer-viewer-hint"
-            className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
-            role="note"
-          >
-            <Eye className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
-            <span>{tCollab('thread.viewerNotice')}</span>
-          </p>
-        )}
+            {canCollaborate && isViewerInSharedThread && (
+              <p
+                data-testid="composer-viewer-hint"
+                className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+                role="note"
+              >
+                <Eye className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
+                <span>{tCollab('thread.viewerNotice')}</span>
+              </p>
+            )}
 
-        {/* Honest Deep-Research hint: the pill records intent; escalation
+            {/* Honest Deep-Research hint: the pill records intent; escalation
             stays automatic. Never promises a forced deep-research run. */}
-        {deepResearchIntent && (
-          <p className="text-muted-foreground mt-2 text-xs leading-relaxed" role="note">
-            {tChat('composer.deepResearchHint')}
-          </p>
-        )}
+            {deepResearchIntent && (
+              <p className="text-muted-foreground mt-2 text-xs leading-relaxed" role="note">
+                {tChat('composer.deepResearchHint')}
+              </p>
+            )}
 
-        {/* Post-research helper line — the explanation that used to live in the
+            {/* Post-research helper line — the explanation that used to live in the
             (no-op) send popover, now always visible next to the "Neue Sitzung
             starten" action so the completed-report lock is understandable. */}
-        {isResearchSessionSuccessful && !isResponseMode && (
-          <p className="text-muted-foreground mt-2 text-xs leading-relaxed" role="note">
-            {t('inputArea.researchCompletedPopover')}
-          </p>
-        )}
-      </div>
-      </PopoverAnchor>
+            {isResearchSessionSuccessful && !isResponseMode && (
+              <p className="text-muted-foreground mt-2 text-xs leading-relaxed" role="note">
+                {t('inputArea.researchCompletedPopover')}
+              </p>
+            )}
+          </div>
+        </PopoverAnchor>
 
         {/* The panel itself supplies the surface, so the popover contributes
             nothing but placement and width. Focus must NOT move here: the user is
