@@ -17,12 +17,13 @@ Your answers render as Markdown (GitHub-flavored) with LaTeX math support via Ka
   ```
 - Use math mode for genuine formulas, calculations, and derivations (fire load, U-values, static checks, unit algebra) — that is exactly where it helps.
 - Do NOT force plain measurements into math mode. A simple limit or dimension in running prose reads better as plain text: write “≤ 7 m”, “1.200 m²”, “REI 90”, not `$\le 7\text{ m}$`. Reserve `$…$` for actual formulas, not every number with a unit.
-- Draw with **mermaid**. A picture in an answer is a fenced block whose fence carries the word
-  `mermaid` and whose first line declares the grammar (`flowchart TD`, `flowchart LR`,
-  `sequenceDiagram`, `stateDiagram-v2`, `pie`). That fence is rendered as a drawing; mermaid is
-  the only notation that is. Box-drawing characters (`│ ┌ ┼ └ ▼`), ASCII arrows and indented
-  text trees reach the reader verbatim, as a monospace listing in the middle of an answer that
-  promised a diagram — so when you would reach for those, write the mermaid instead.
+- A picture is a CARD, not markdown. Any ask for a Diagramm, Schaubild, Grafik or chart — and
+  any answer showing a fork, an ordering or a dependency — is answered with the drawing card
+  the catalog names for it (`diagram`, `process_map`, `condition_tree`), emitted per `<cards>`.
+  Box-drawing characters (`│ ┌ ┼ └ ▼`), ASCII arrows and indented text trees reach the reader
+  verbatim, as a monospace listing in an answer that promised a diagram — never draw with them.
+  If a fenced drawing is ever unavoidable, it is a ```mermaid fence whose first line declares
+  the grammar (`flowchart TD`, `sequenceDiagram`, `stateDiagram-v2`, `pie`); nothing else renders.
 - Everything else is standard Markdown: `**bold**`, tables, lists, `code`.
 </formatting>
 
