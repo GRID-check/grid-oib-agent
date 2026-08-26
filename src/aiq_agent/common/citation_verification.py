@@ -2069,13 +2069,26 @@ _FENCE_RE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
 _INLINE_CODE_RE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.DOTALL)
 
 
-def _code_spans(text: str) -> list[tuple[int, int]]:
+def _code_spans(
+    text: str,
+    *,
+    include_inline: bool = True,
+    unterminated_fence_is_code: bool = True,
+) -> list[tuple[int, int]]:
     """Half-open ``(start, end)`` offsets of every code region in ``text``.
 
     Fenced blocks first (``` or ~~~, three or more, closed by at least as many
-    of the same character), then inline spans in what is left. An UNTERMINATED
-    fence runs to the end of the text: a half-written diagram is still code, and
-    a streaming answer meets this function mid-fence routinely.
+    of the same character), then inline spans in what is left.
+
+    The defaults are the READER's contract (``verify_quoted_spans``): an
+    UNTERMINATED fence runs to the end of the text, because a streaming answer
+    meets this function mid-fence routinely and a half-written diagram is still
+    code. A REWRITER over a complete document passes
+    ``unterminated_fence_is_code=False``: there, run-to-EOF would silently
+    exempt the whole rest of the report from URL hygiene on one broken fence.
+    ``include_inline=False`` likewise serves a rewriter whose rule (markdown
+    link collapse) must be allowed to span an inline code run inside a link's
+    display text.
     """
     spans: list[tuple[int, int]] = []
     offset = 0
@@ -2091,13 +2104,60 @@ def _code_spans(text: str) -> list[tuple[int, int]]:
             spans.append((fence_start, offset + len(line)))
             fence = None
         offset += len(line)
-    if fence is not None:
+    if fence is not None and unterminated_fence_is_code:
         spans.append((fence_start, len(text)))
 
-    for match in _INLINE_CODE_RE.finditer(text):
-        if not any(start <= match.start() < end for start, end in spans):
-            spans.append((match.start(), match.end()))
+    if include_inline:
+        for match in _INLINE_CODE_RE.finditer(text):
+            if not any(start <= match.start() < end for start, end in spans):
+                spans.append((match.start(), match.end()))
     return spans
+
+
+def _map_outside_code(
+    text: str,
+    transform: Callable[[str], str],
+    *,
+    include_inline: bool = True,
+    unterminated_fence_is_code: bool = True,
+) -> str:
+    """Apply ``transform`` to everything in ``text`` except code.
+
+    The companion to the skip in ``verify_quoted_spans``, for the passes that
+    REWRITE rather than read. `sanitize_report` strips URLs and collapses runs
+    of spaces across the whole answer body, and a mermaid fence is answer body:
+    a `click` directive's URL became `[1]`, and two-space indentation became
+    one. The diagram is the source, so editing it is editing the drawing.
+
+    Segments rather than offsets, because a rewrite changes lengths: the spans
+    are read once from the ORIGINAL text, the code between them is passed
+    through untouched, and only the prose around it is transformed.
+
+    Safe on the URL question, which is the one worth asking before declining to
+    sanitize something. A URL inside a fence cannot become a link: mermaid runs
+    at ``securityLevel: 'strict'`` (``features/diagrams/render-diagram.ts``),
+    which refuses click bindings and DOMPurifies labels, and a fence that is not
+    a diagram renders as a code listing, which is text.
+    """
+    spans = sorted(
+        _code_spans(
+            text,
+            include_inline=include_inline,
+            unterminated_fence_is_code=unterminated_fence_is_code,
+        )
+    )
+    if not spans:
+        return transform(text)
+    out: list[str] = []
+    cursor = 0
+    for start, end in spans:
+        if start > cursor:
+            out.append(transform(text[cursor:start]))
+        out.append(text[max(cursor, start) : end])
+        cursor = max(cursor, end)
+    if cursor < len(text):
+        out.append(transform(text[cursor:]))
+    return "".join(out)
 
 
 def _inside(offset: int, spans: Sequence[tuple[int, int]]) -> bool:
@@ -2682,14 +2742,31 @@ def sanitize_report(report_text: str) -> ReportSanitizationResult:
         body_urls_removed += 1
         return ""
 
-    # Collapse markdown links to display text
-    cleaned_body = _MD_LINK_RE.sub(r"\1", body)
-    # Replace matching bare URLs with [N], strip the rest
-    cleaned_body = _BODY_URL_RE.sub(_replace_body_url, cleaned_body)
-    # Clean up leftover empty parentheses and extra spaces
-    cleaned_body = re.sub(r"\(\s*\)", "", cleaned_body)
-    cleaned_body = re.sub(r"  +", " ", cleaned_body)
-    cleaned_body = _SPACE_BEFORE_PUNCTUATION_RE.sub("", cleaned_body)
+    def _collapse_links(segment: str) -> str:
+        return _MD_LINK_RE.sub(r"\1", segment)
+
+    def _clean_prose(segment: str) -> str:
+        # Replace matching bare URLs with [N], strip the rest
+        segment = _BODY_URL_RE.sub(_replace_body_url, segment)
+        # Clean up leftover empty parentheses and extra spaces
+        segment = re.sub(r"\(\s*\)", "", segment)
+        segment = re.sub(r"  +", " ", segment)
+        return _SPACE_BEFORE_PUNCTUATION_RE.sub("", segment)
+
+    # Prose only — every rule here is about how a SENTENCE should read, and none
+    # of them is true of code: the space collapse alone rewrites a diagram's
+    # indentation. Two passes, because the rules protect different spans:
+    #   1. Link collapse skips only FENCES. A link's display text may itself
+    #      carry inline code (`[den ``pulumi`` Befehl](url)`), and segmenting at
+    #      the inline span would split the link so it never collapses — the URL
+    #      half then rots in the reader-visible report.
+    #   2. URL/space hygiene skips fences AND inline code, computed on the
+    #      link-collapsed text.
+    # Both passes treat an unterminated fence as prose: this runs on the
+    # COMPLETE report (unlike the streaming reader), and run-to-EOF would
+    # exempt everything after one broken fence from URL hygiene.
+    cleaned_body = _map_outside_code(body, _collapse_links, include_inline=False, unterminated_fence_is_code=False)
+    cleaned_body = _map_outside_code(cleaned_body, _clean_prose, unterminated_fence_is_code=False)
 
     if body_urls_replaced:
         logger.debug("[ReportSanitize] Replaced %d body URL(s) with citation numbers", body_urls_replaced)

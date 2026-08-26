@@ -191,6 +191,33 @@ def test_the_writer_keeps_its_own_lead_rule_alongside_the_voice(llm_provider, gr
     assert "- Open with the answer." in writer["system_prompt"]
 
 
+def test_the_writer_prompt_carries_the_diagram_contract(llm_provider, graph):
+    """The deep half of "a diagram printed as a shell listing".
+
+    Chat routes a diagram request to a drawing CARD; the deep report has no
+    card surface, so a tagged ```mermaid fence IS the drawing here — the PDF
+    converter renders it and prints a placeholder for anything else. Without
+    this block the writer had no diagram guidance at all and fell back to box
+    art, which is a monospace listing in the file the reader files.
+    """
+    agent = DeepResearcherAgent(llm_provider=llm_provider, tools=[web_search_tool])
+    state = DeepResearchAgentState(messages=[HumanMessage(content="q")], organization_id="org-1")
+
+    with mock.patch.object(SkillResolver, "_fetch_org_skills", return_value=[_voice_row()]):
+        writer = _prepare(agent, graph, state)
+
+    prompt = writer["system_prompt"]
+    # The fence, and the declaration line without which mermaid draws nothing.
+    assert "```mermaid" in prompt
+    assert "`stateDiagram-v2`" in prompt
+    # The ban that the field transcripts are about, and the reason for it.
+    assert "Never draw with ASCII box art" in prompt
+    # Meaning survives a converter that drops styling, and a label cannot
+    # outrun the report's own grounding.
+    assert "never in colour or styling" in prompt
+    assert "No label may carry a claim the report has not grounded" in prompt
+
+
 def test_a_chat_only_platform_skill_is_not_offered_to_the_writer(llm_provider, graph):
     """``grid-agents`` is one gate read the same way on both sides of it."""
     agent = DeepResearcherAgent(llm_provider=llm_provider, tools=[web_search_tool])

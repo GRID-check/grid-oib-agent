@@ -168,6 +168,8 @@ The trigger, then the card:
   a tabular answer no purpose-built card covers -> typed_table
   a number the answer WORKED OUT rather than looked up -> calculation
   a Verfahren, Ablauf or „wie läuft das ab" -> process_map
+  ANY ask for a Diagramm, Schaubild, Grafik, chart or mermaid gets a DRAWING card — the shaped one
+    when a row above fits (an Ablauf -> process_map, one deciding factor -> condition_tree), else -> diagram
   a path that forks and REJOINS, several Stellen exchanging in order, a Nachweis others depend on -> diagram
   „welche Unterlagen brauche ich" — the list is STATES, not names -> document_checklist
   several Fristen in sequence — the order and what starts each clock is the answer -> deadline_timeline
@@ -1114,7 +1116,7 @@ def _diagram_note() -> str:
     # the model reads it at the moment it is about to write a diagram — beside
     # the shape, exactly as the measured-numbers rule is. Not in the always-on
     # index, which has room for one line per type; and deliberately not left to
-    # the `verfahrensdiagramm` skill either, because a skill body only reaches
+    # the `diagrams` skill either, because a skill body only reaches
     # the model if the model calls `use_skill`, while this text arrives with the
     # shape it cannot emit the card without.
     #
@@ -1144,7 +1146,10 @@ def _diagram_note() -> str:
         "  dependency that prose cannot hold; a decorative one in a compliance answer costs the\n"
         "  reader trust in every drawing beside it. Labels in the answer's language and in Sie-Form,\n"
         "  and no label may carry a claim the answer has not grounded — the drawing leaves the page\n"
-        "  without the paragraph that qualified it."
+        "  without the paragraph that qualified it.\n"
+        "  When the user asks for a Diagramm, Schaubild or Grafik BY NAME, a drawing card answers\n"
+        "  it — this one, or the purpose-built card whose shape fits (`process_map` for a line,\n"
+        "  `condition_tree` for a fan). Never prose alone, never ASCII art, never a raw fence."
     )
 
 

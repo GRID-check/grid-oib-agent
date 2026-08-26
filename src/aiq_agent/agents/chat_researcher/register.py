@@ -4,6 +4,8 @@ import asyncio
 import dataclasses
 import logging
 from collections.abc import AsyncGenerator
+from collections.abc import Awaitable
+from collections.abc import Callable
 from typing import Annotated
 from typing import Any
 
@@ -649,6 +651,86 @@ class ChatDeepResearcherConfig(FunctionBaseConfig, name="chat_deepresearcher_age
     )
 
 
+def _build_deep_research_job_submitter(
+    config: ChatDeepResearcherConfig,
+) -> Callable[[ChatResearcherState], Awaitable[str]] | None:
+    """The callable that hands a deep-research turn to a worker, or ``None`` when
+    this deployment has no worker and the turn must run deep research in process.
+
+    ``None`` is the fallback, not a failure: a local dev machine with neither
+    backend still answers, just synchronously.
+    """
+    if not config.use_async_deep_research:
+        return None
+
+    # THE acceptance condition, imported from the submitter itself rather than
+    # mirrored: submit_agent_job refuses exactly when this returns None, and a
+    # second copy of the condition is how the db-mode blindness happened.
+    from aiq_api.jobs.submit import async_job_dispatch
+
+    dispatch = async_job_dispatch()
+    if dispatch is None:
+        logger.info(
+            "use_async_deep_research is enabled but neither NAT_DASK_SCHEDULER_ADDRESS nor "
+            "GRID_JOB_EXECUTION=db is configured. Falling back to synchronous deep research execution."
+        )
+        return None
+
+    from aiq_agent.auth import get_current_principal
+    from aiq_api.jobs.submit import submit_agent_job
+
+    logger.info("Chat-initiated deep research submits async jobs (dispatch=%s)", dispatch)
+
+    async def _submit_deep_job(state: ChatResearcherState) -> str:
+        principal = get_current_principal()
+        owner = principal.email if principal and principal.email else "anonymous"
+        query = state.original_query
+        if not query:
+            if not state.messages:
+                raise RuntimeError("Cannot submit deep research job without messages.")
+            from aiq_agent.common import get_latest_user_query
+
+            query = get_latest_user_query(state.messages)
+        input_text = query if isinstance(query, str) else str(query)
+
+        # Serialize available_documents for the worker
+        available_docs = None
+        if state.available_documents:
+            available_docs = [doc.model_dump() for doc in state.available_documents]
+            logger.debug(
+                "Passing %d available documents to deep research job",
+                len(available_docs),
+            )
+
+        return await submit_agent_job(
+            agent_type="deep_researcher",
+            input_text=input_text,
+            owner=owner,
+            available_documents=available_docs,
+            data_sources=state.data_sources,
+            collection_scope=state.collection_scope,
+            project_context=state.project_context,
+            model_overrides=get_model_overrides_from_context() or None,
+            # Structured fields (not prose-folded into input_text) so the
+            # worker sets them on DeepResearchAgentState and the deep
+            # prompts render their dedicated sections, same as the
+            # synchronous in-process deep research path.
+            user_info=state.user_info,
+            clarifier_result=state.clarifier_result,
+            # Deep-research reflection runs on the worker once the report
+            # exists (the sync post-answer stage skips deep jobs). Both
+            # values are read here while the request context is live.
+            memory_reflection_enabled=(
+                config.memory_reflection_llm is not None and get_memory_reflection_enabled_from_context()
+            ),
+            # Plain str (LLMRef is a str subclass) so it crosses the worker
+            # serialization boundary without depending on the subclass.
+            memory_reflection_llm=(str(config.memory_reflection_llm) if config.memory_reflection_llm else None),
+        )
+
+    return _submit_deep_job
+
+
 @register_function(config_type=ChatDeepResearcherConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: Builder):
     """
@@ -763,69 +845,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
     verbose = is_verbose(config.verbose)
     callbacks = [VerboseTraceCallback()] if verbose else []
 
-    deep_research_job_submitter = None
-    if config.use_async_deep_research:
-        import os
-
-        # Check if Dask scheduler is available
-        scheduler_address = os.environ.get("NAT_DASK_SCHEDULER_ADDRESS")
-        if scheduler_address:
-            from aiq_agent.auth import get_current_principal
-            from aiq_api.jobs.submit import submit_agent_job
-
-            async def _submit_deep_job(state: ChatResearcherState) -> str:
-                principal = get_current_principal()
-                owner = principal.email if principal and principal.email else "anonymous"
-                query = state.original_query
-                if not query:
-                    if not state.messages:
-                        raise RuntimeError("Cannot submit deep research job without messages.")
-                    from aiq_agent.common import get_latest_user_query
-
-                    query = get_latest_user_query(state.messages)
-                input_text = query if isinstance(query, str) else str(query)
-
-                # Serialize available_documents for the Dask worker
-                available_docs = None
-                if state.available_documents:
-                    available_docs = [doc.model_dump() for doc in state.available_documents]
-                    logger.debug(
-                        "Passing %d available documents to deep research job",
-                        len(available_docs),
-                    )
-
-                return await submit_agent_job(
-                    agent_type="deep_researcher",
-                    input_text=input_text,
-                    owner=owner,
-                    available_documents=available_docs,
-                    data_sources=state.data_sources,
-                    collection_scope=state.collection_scope,
-                    project_context=state.project_context,
-                    model_overrides=get_model_overrides_from_context() or None,
-                    # Structured fields (not prose-folded into input_text) so the
-                    # worker sets them on DeepResearchAgentState and the deep
-                    # prompts render their dedicated sections, same as the
-                    # synchronous in-process deep research path.
-                    user_info=state.user_info,
-                    clarifier_result=state.clarifier_result,
-                    # Deep-research reflection runs on the worker once the report
-                    # exists (the sync post-answer stage skips deep jobs). Both
-                    # values are read here while the request context is live.
-                    memory_reflection_enabled=(
-                        config.memory_reflection_llm is not None and get_memory_reflection_enabled_from_context()
-                    ),
-                    # Plain str (LLMRef is a str subclass) so it crosses the Dask
-                    # pickle boundary without depending on the subclass.
-                    memory_reflection_llm=(str(config.memory_reflection_llm) if config.memory_reflection_llm else None),
-                )
-
-            deep_research_job_submitter = _submit_deep_job
-        else:
-            logger.info(
-                "use_async_deep_research is enabled but NAT_DASK_SCHEDULER_ADDRESS is not set. "
-                "Falling back to synchronous deep research execution."
-            )
+    deep_research_job_submitter = _build_deep_research_job_submitter(config)
 
     # Optional LLM for the async post-answer memory-reflection stage. Built once
     # at registration; None (unset config) disables reflection with zero cost.

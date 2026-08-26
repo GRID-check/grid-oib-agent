@@ -2023,6 +2023,64 @@ class TestDeletionDoesNotStrandPunctuation:
         assert "eins\n." in sanitize_report(report).sanitized_report
 
 
+class TestSanitizeLeavesCodeAlone:
+    """`sanitize_report` rewrites prose; a fence or inline span is not prose."""
+
+    def test_a_code_fence_is_not_rewritten(self):
+        """Regression: URL hygiene edited INSIDE fences — a mermaid ``click``
+        directive's URL became ``[1]`` and two-space indentation collapsed to
+        one, so sanitizing the answer redrew the diagram. Code is not prose."""
+        fence = (
+            "```mermaid\n"
+            "flowchart TD\n"
+            '  A["OIB-Richtlinie 2"] --> B["Brandabschnitte"]\n'
+            '  click A "https://www.oib.or.at/de/oib-richtlinien" "OIB"\n'
+            "```"
+        )
+        report = (
+            "Der Ablauf: siehe https://www.oib.or.at/de/oib-richtlinien [1].\n\n"
+            f"{fence}\n\n"
+            "## Sources\n"
+            "[1] OIB: https://www.oib.or.at/de/oib-richtlinien\n"
+        )
+        result = sanitize_report(report)
+        assert fence in result.sanitized_report
+        # The guard must survive the skip: prose around the fence still gets
+        # its URL folded to the citation it matches.
+        assert "Der Ablauf: siehe [1] [1]." in result.sanitized_report
+
+    def test_inline_code_is_not_rewritten(self):
+        """The two-space collapse is a prose rule; a command's spacing is data."""
+        report = (
+            "Der Befehl `pulumi config get  grid-oib:imageTag` zeigt es.\n\n## Quellen\n- [1] a: https://a.example/y\n"
+        )
+        assert "`pulumi config get  grid-oib:imageTag`" in sanitize_report(report).sanitized_report
+
+    def test_a_link_whose_text_carries_inline_code_still_collapses(self):
+        """Regression on the fence skip itself: segmenting the body at inline
+        code split a markdown link around its code span, so the link never
+        collapsed and its URL half rotted in place — an unbalanced ``(`` and
+        literal brackets in the reader-visible report."""
+        report = (
+            "Siehe [den `pulumi` Befehl](https://a.example/y) im Detail.\n\n## Quellen\n- [1] a: https://a.example/y\n"
+        )
+        body = sanitize_report(report).sanitized_report
+        assert "Siehe den `pulumi` Befehl im Detail." in body
+        assert "](" not in body.split("## Quellen")[0]
+
+    def test_an_unterminated_fence_does_not_exempt_the_rest_of_the_report(self):
+        """This runs on the COMPLETE report, so run-to-EOF (the streaming
+        reader's rule) would let one broken fence switch URL hygiene off for
+        everything after it."""
+        report = (
+            "Der Anfang [1].\n\n"
+            "```mermaid\nflowchart TD\n  A --> B\n\n"
+            "Danach steht https://leak.example/secret?q=1 im Text.\n\n"
+            "## Quellen\n- [1] a: https://a.example/y\n"
+        )
+        assert "leak.example" not in sanitize_report(report).sanitized_report.split("## Quellen")[0]
+
+
 class TestSanitizeReportExposesRenumberMap:
     """Callers that put verify_citations' [N] on the wire must be able to remap."""
 

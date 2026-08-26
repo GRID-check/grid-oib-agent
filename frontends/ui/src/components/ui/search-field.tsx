@@ -107,7 +107,11 @@ export function SearchField({
           aria-label={clearLabel}
           onClick={() => {
             if (!hasValue) return
-            onClear ? onClear() : onChange('')
+            if (onClear) {
+              onClear()
+            } else {
+              onChange('')
+            }
           }}
         >
           <X className="size-3.5" aria-hidden />

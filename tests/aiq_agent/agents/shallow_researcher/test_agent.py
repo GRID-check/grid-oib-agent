@@ -446,6 +446,33 @@ class TestShallowResearcherAgent:
             requires_sources=requires_sources,
         )
 
+    def test_the_formatting_block_routes_a_diagram_to_a_drawing_card(self, mock_llm_provider, real_tool):
+        """The model-side half of "a diagram printed as a shell listing".
+
+        Asked for a diagram the model drew ASCII box art into a bare fence, and
+        the answer promised a drawing and printed a listing. The formatting rule
+        now routes a named diagram request to the drawing CARDS — the surface
+        with the caption, the Fundstelle and the PDF path — keeps the ban on box
+        art, and leaves the tagged mermaid fence only as the last resort.
+        Asserted on BOTH turn shapes, because `<formatting>` is outside the
+        `requires_sources` guards and a diagram is at least as likely on the
+        conversational one.
+        """
+        for requires_sources in (True, False):
+            rendered = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=requires_sources)
+            formatting = rendered.split("<formatting>")[1].split("</formatting>")[0]
+            assert "A picture is a CARD" in formatting
+            assert "`diagram`" in formatting
+            # The box-art ban must survive the rewrite: the third field
+            # transcript drew box-drawing characters where a diagram was asked.
+            assert "never draw with them" in formatting
+            # And the fallback still names the notation that renders.
+            assert "flowchart TD" in formatting
+            # And the consequence, so an edit that keeps the rule and drops the
+            # reason still fails: a listing where a drawing was promised.
+            assert "monospace listing" in formatting
+            assert "│" in formatting
+
     def test_meta_turn_prompt_suppresses_marker_mandate(self, mock_llm_provider, real_tool):
         """requires_sources=False renders a deterministic suppression note and no marker mandate."""
         rendered = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=False)

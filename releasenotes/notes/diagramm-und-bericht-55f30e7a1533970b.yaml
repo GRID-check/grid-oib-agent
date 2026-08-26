@@ -1,0 +1,23 @@
+---
+features:
+  - >
+    Piloti zeichnet, wenn Sie danach fragen: „stell es als Diagramm dar",
+    „Schaubild", „Grafik" — jede solche Bitte wird jetzt mit einer echten
+    Zeichnung beantwortet, nie mehr mit Textkunst aus Strichen und Pfeilen.
+  - >
+    Der Bericht der Tiefenrecherche zeichnet jetzt ebenfalls: Ablauf, Reihenfolge
+    und Abhängigkeit erscheinen als echte Grafik im Bericht und im
+    heruntergeladenen PDF, statt als Textkunst aus Strichen und Pfeilen.
+  - >
+    „Erstelle ein Dokument über …" startet jetzt die Tiefenrecherche, deren
+    fertiger Bericht im Projekt unter „Berichte" abgelegt wird — auch bei
+    einem Thema, das sonst als kurze Frage beantwortet würde. Wer nur eine
+    gründliche Antwort will, bekommt weiterhin die Antwort im Chat.
+fixes:
+  - >
+    Diagramme in Antworten kommen unverändert an: die Quellenprüfung hat
+    bisher in seltenen Fällen Links und Einrückung innerhalb einer Zeichnung
+    umgeschrieben und sie damit beschädigt.
+  - >
+    Eine Zeichnung, deren Codeblock ohne Kennzeichnung ankommt, wird jetzt
+    trotzdem als Diagramm erkannt und gezeichnet statt als Code angezeigt.

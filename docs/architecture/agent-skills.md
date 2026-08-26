@@ -428,7 +428,7 @@ offered a procedure it cannot carry out.
 
 The six in `bim/`, `oib/` and `presentation/` are chat skills and say so.
 `ifc-spatial-reasoning` and the four `oib/` domain skills name both agents;
-`verfahrensdiagramm` names **`shallow_researcher` alone**, and the reason is
+`diagrams` names **`shallow_researcher` alone**, and the reason is
 worth stating because it looks like an omission. A builtin FILE does not reach
 deep research through `grid-agents` at all: `resolve_served_skills` keeps only
 BFF-served rows (`origin == "org"`), and the builtins reach deep subagents

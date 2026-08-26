@@ -583,6 +583,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     if (composerSubject.shelf && composerSubject.shelf !== 'project') return
     const sources = useLayoutStore.getState().availableDataSources ?? []
     applySourcePreset('project', computePresetSourceIds('project', sources))
+    // Keyed on the subject's identity fields, not the object: a re-render
+    // carrying an equivalent subject must not re-apply the preset.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [composerSubject?.resourceId, composerSubject?.shelf, applySourcePreset])
 
   // Streaming state + cancel action for the composer stop button (C1).
