@@ -9,8 +9,10 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
+from aiq_agent.agents.shallow_researcher.agent import _INTERACTION_TOOL_ALLOWANCE
 from aiq_agent.agents.shallow_researcher.agent import ShallowResearcherAgent
 from aiq_agent.agents.shallow_researcher.agent import _append_minimal_citation
+from aiq_agent.agents.shallow_researcher.agent import _count_interaction_calls
 from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
@@ -59,6 +61,18 @@ async def _run_with_bound_registry(agent, state, registry):
 def web_search_tool(query: str) -> str:
     """Search the web for information."""
     return f"Results for: {query}"
+
+
+@tool
+def emit_card(card_json: str) -> str:
+    """Render a rich UI card alongside your answer."""
+    return f"Card will be shown with your answer: {card_json}"
+
+
+@tool
+def describe_card(card_types: str) -> str:
+    """Return the exact JSON shape for one or more card types."""
+    return f"Shapes for: {card_types}"
 
 
 class TestShallowResearcherAgent:
@@ -555,6 +569,91 @@ class TestShallowResearcherAgent:
         assert result is not None
         # The unbounded LLM should have been called (without tools)
         mock_llm.ainvoke.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_a_card_call_does_not_spend_the_research_budget(self, mock_llm_provider, mock_llm, real_tool):
+        """The regression behind "an answer only ever carries one card".
+
+        One search, then one ``emit_card``, on a research budget of one. Every
+        tool call used to be charged to ``max_tool_iterations``, so the card
+        round met ``iterations >= ceiling`` and the turn was forced into
+        synthesis with "Do not attempt any further tool calls" — the card never
+        reached the registry, and nothing in the answer said why. Cards are
+        emitted LAST, after the searching, so the ceiling always landed on them
+        rather than on the research.
+        """
+        search_round = AIMessage(
+            content="",
+            tool_calls=[{"name": "web_search_tool", "args": {"query": "test"}, "id": "1"}],
+        )
+        # A shape lookup and the first card, the way the tool description asks
+        # for them: one `describe_card` for the types the answer wants, then the
+        # cards. Three interaction calls in total across two rounds.
+        first_card_round = AIMessage(
+            content="",
+            tool_calls=[
+                {"name": "describe_card", "args": {"card_types": "verdict_header,typed_table"}, "id": "2"},
+                {"name": "emit_card", "args": {"card_json": "{}"}, "id": "3"},
+            ],
+        )
+        second_card_round = AIMessage(
+            content="",
+            tool_calls=[{"name": "emit_card", "args": {"card_json": "{}"}, "id": "4"}],
+        )
+        mock_llm.ainvoke = AsyncMock(
+            side_effect=[search_round, first_card_round, second_card_round, AIMessage(content="Final answer")]
+        )
+
+        agent = ShallowResearcherAgent(
+            llm_provider=mock_llm_provider,
+            tools=[real_tool, emit_card, describe_card],
+            max_tool_iterations=2,
+        )
+
+        result = await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Test query")]))
+
+        # Only the search was research, so the turn never reached its ceiling
+        # and was never cut off: the second card is emitted rather than refused.
+        assert result.tool_iterations == 1
+        assert result.interaction_iterations == 3
+        assert result.research_truncated is None
+        assert sum(1 for message in result.messages if getattr(message, "name", None) == "emit_card") == 2
+
+    @pytest.mark.asyncio
+    async def test_the_interaction_allowance_is_a_ceiling_not_a_free_pass(self, mock_llm_provider, mock_llm, real_tool):
+        """Past the allowance an interaction call is charged like any other.
+
+        Without this the tool loop would have no bound at all on the card
+        channel: a model looping on ``emit_card`` would never reach
+        ``tool_iteration_ceiling`` and would only stop at the recursion limit,
+        which is an exception rather than an answer.
+        """
+        card_round = AIMessage(
+            content="",
+            tool_calls=[{"name": "emit_card", "args": {"card_json": "{}"}, "id": "1"}],
+        )
+        mock_llm.ainvoke = AsyncMock(side_effect=[card_round, AIMessage(content="Final answer")])
+
+        agent = ShallowResearcherAgent(
+            llm_provider=mock_llm_provider,
+            tools=[real_tool, emit_card],
+            max_tool_iterations=5,
+        )
+
+        result = await agent.run(
+            ShallowResearchAgentState(
+                messages=[HumanMessage(content="Test query")],
+                interaction_iterations=_INTERACTION_TOOL_ALLOWANCE,
+            )
+        )
+
+        assert result.tool_iterations == 1
+        assert result.interaction_iterations == _INTERACTION_TOOL_ALLOWANCE + 1
+
+    def test_state_has_interaction_iterations_field(self):
+        """The card channel's counter is per-turn state, defaulting to unspent."""
+        state = ShallowResearchAgentState(messages=[])
+        assert state.interaction_iterations == 0
 
     def test_state_has_tool_iterations_field(self):
         """Test that ShallowResearchAgentState has tool_iterations field."""
@@ -2906,3 +3005,37 @@ class TestTruncationIsObservable:
         await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Kurz gefragt")]))
 
         assert [s for s in steps if s.get("slot") == "budget"] == []
+
+
+class TestInteractionCallCounting:
+    """``_count_interaction_calls`` — which calls the research budget skips."""
+
+    def test_it_counts_the_answers_own_output_channel(self):
+        calls = [
+            {"name": "emit_card", "args": {}, "id": "1"},
+            {"name": "describe_card", "args": {}, "id": "2"},
+            {"name": "remember", "args": {}, "id": "3"},
+        ]
+        assert _count_interaction_calls(calls) == 3
+
+    def test_it_does_not_count_research(self):
+        calls = [
+            {"name": "web_search_tool", "args": {}, "id": "1"},
+            {"name": "emit_card", "args": {}, "id": "2"},
+        ]
+        assert _count_interaction_calls(calls) == 1
+
+    def test_it_resolves_a_qualified_tool_name(self):
+        # NAT/MCP qualify a tool name; the meta partition resolves the base name
+        # the same way, and an unrecognised `emit_card` would be charged to
+        # research on exactly the deployments that qualify names.
+        assert _count_interaction_calls([{"name": "aiq_cards__emit_card", "args": {}, "id": "1"}]) == 1
+
+    def test_an_unreadable_call_counts_as_research(self):
+        # The conservative direction: it can shorten a turn's research, never
+        # let the tool loop run longer than its ceiling.
+        assert _count_interaction_calls([None, {"args": {}}, {"name": ""}]) == 0
+
+    def test_it_tolerates_no_calls(self):
+        assert _count_interaction_calls([]) == 0
+        assert _count_interaction_calls(None) == 0
