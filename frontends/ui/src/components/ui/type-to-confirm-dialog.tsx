@@ -89,11 +89,25 @@ export const TypeToConfirmDialog: FC<TypeToConfirmDialogProps> = ({
               // project named "hofgasse 12" comes back as "Hofgasse 12", the
               // comparison fails, and the reader is told they typed it wrong
               // while looking at what appears to be the right name.
-              // `enterKeyHint="done"` because this is the confirmation step: the
-              // action key finishes the dialog.
               autoCapitalize="off"
               autoCorrect="off"
+              // `enterKeyHint="done"` AND the handler that makes it true. The
+              // hint shipped here on its own first, which is worse than not
+              // labelling the key at all: this `Input` is in no `<form>`, so
+              // there was nothing for Enter to submit and the phone's "Done" key
+              // only dismissed the keyboard. The reader was told the action was
+              // finished and then had to go find the button.
+              //
+              // Gated on `matches`, so Enter can only ever do what the
+              // destructive button can do at that moment — typing the exact name
+              // IS the confirmation gesture, and this is the same submit-on-enter
+              // every type-to-confirm dialog offers once it is satisfied.
               enterKeyHint="done"
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || !matches || pending) return
+                event.preventDefault()
+                void onConfirm()
+              }}
               disabled={pending}
             />
           </Field>

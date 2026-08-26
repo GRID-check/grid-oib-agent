@@ -36,7 +36,6 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-// @ts-expect-error -- plain ESM guard script, no types published for it
 import { blankComments } from '../../../scripts/check-static-utility-modifiers.mjs'
 
 const SRC = join(__dirname, '..', '..')

@@ -19,12 +19,16 @@
  * It loads every `/dev` preview in `registry.mjs` at a phone viewport with
  * `hasTouch`, then reports, per target:
  *
- *   PAGE SCROLLS  the document itself moves sideways — always a defect. Measured
- *   SIDEWAYS      by asking the browser to scroll and reading back how far it
- *                 went, NOT by `scrollWidth > clientWidth`: an ancestor's
- *                 `scrollWidth` counts content laid out inside a nested
- *                 horizontal scroller, so a composer with a chip rail reads as
- *                 453px wide on a 390px screen and scrolls nowhere.
+ *   PAGE RUNS PAST the page itself has content past the viewport — always a
+ *   THE VIEWPORT   defect. Derived from the OVERFLOW walk below (an element
+ *                 sticking out with nothing clipping or scrolling it), NOT from
+ *                 `scrollWidth > clientWidth` and NOT from trying to scroll and
+ *                 reading back. The first counts content inside a nested
+ *                 scroller; the second cannot work under `isMobile` emulation,
+ *                 where the layout viewport does not pan programmatically and
+ *                 `window.scrollX` stays 0 for every page. Both shipped here
+ *                 before being measured against a deliberately over-wide
+ *                 document, which is the only way either mistake shows.
  *   OVERFLOW      an element's box sticks out past the viewport with nothing
  *                 above it to catch the overhang. Only the OUTERMOST offender is
  *                 listed. Content clipped by an ancestor is not reported at all
@@ -257,13 +261,25 @@ const AUDIT = ({ interactive, floor, slack }) => {
     // composer with a chip rail read as 453px wide on a 390px screen and moved
     // nowhere. Asking the browser to scroll and reading back how far it went is
     // the question we actually mean.
-    documentScrollX: (() => {
-      const before = window.scrollX
-      window.scrollTo(99999, window.scrollY)
-      const reached = window.scrollX
-      window.scrollTo(before, window.scrollY)
-      return reached
-    })(),
+    // Whether the PAGE itself runs past the viewport — derived from the walk
+    // above, not from trying to scroll.
+    //
+    // Two probes were tried and both are wrong. `scrollWidth > clientWidth`
+    // counts content laid out inside a nested horizontal scroller, so a composer
+    // with a chip rail reads as 453px on a 390px screen and is perfectly fine.
+    // Scrolling and reading back looks like the honest answer and cannot work
+    // here at all: under Playwright's `isMobile` emulation the layout viewport
+    // does not pan programmatically, so `window.scrollX` stays 0 no matter what
+    // — verified against a deliberately 900px-wide document, where the same
+    // probe returns 510 with `isMobile: false` and 0 with it on. A check that
+    // always answers "no" is worse than no check, because it reads as evidence.
+    //
+    // What actually decides it: an element sticking out past the viewport with
+    // NOTHING above it clipping or scrolling the overhang. That is precisely the
+    // `overflow` list — `covered`/`clipped` are already excluded, and anything
+    // inside a scroller is flagged `scroller`. If one of those exists, the page
+    // has content it cannot show without moving sideways.
+    pageOverflow: overflow.filter((item) => !item.scroller).length,
     documentScrollWidth: document.documentElement.scrollWidth,
     overflow,
     traps,
@@ -402,7 +418,7 @@ try {
       continue
     }
 
-    const scrolls = report.documentScrollX > 1
+    const scrolls = report.pageOverflow > 0
     const clean =
       !scrolls &&
       report.overflow.length === 0 &&
@@ -412,7 +428,8 @@ try {
     console.log(`\n## ${target.id}  (${target.path})${clean ? '  clean' : ''}`)
     if (scrolls) {
       console.log(
-        `   PAGE SCROLLS SIDEWAYS  by ${report.documentScrollX}px  (laid out ${report.documentScrollWidth} in ${report.viewportWidth})`,
+        `   PAGE RUNS PAST THE VIEWPORT  ${report.pageOverflow} element(s) with nothing clipping them  ` +
+          `(laid out ${report.documentScrollWidth} in ${report.viewportWidth}; see OVERFLOW below)`,
       )
     }
     for (const item of report.overflow) {
