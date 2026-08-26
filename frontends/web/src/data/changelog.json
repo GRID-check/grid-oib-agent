@@ -118,6 +118,14 @@
           "key": "improvements",
           "notes": [
             {
+              "en": "A new chat now opens with the greeting and the input box together in the middle of the screen, instead of the greeting floating high and the input pinned to the bottom edge. As soon as you ask something, the input returns to the bottom and the answer gets the full height.",
+              "de": "A new chat now opens with the greeting and the input box together in the middle of the screen, instead of the greeting floating high and the input pinned to the bottom edge. As soon as you ask something, the input returns to the bottom and the answer gets the full height."
+            },
+            {
+              "en": "The empty chat no longer offers example questions or explains that answers cite their sources, and the composer no longer states that a plain message goes to Piloti. Mentioning a colleague works exactly as before, and the composer still names the recipient whenever it is not Piloti — when you have tagged someone, or when the chat is waiting on a person.",
+              "de": "The empty chat no longer offers example questions or explains that answers cite their sources, and the composer no longer states that a plain message goes to Piloti. Mentioning a colleague works exactly as before, and the composer still names the recipient whenever it is not Piloti — when you have tagged someone, or when the chat is waiting on a person."
+            },
+            {
               "en": "When the on-screen keyboard opens, the app now makes room for it instead of letting it cover the composer, so you can see what you are typing.",
               "de": "When the on-screen keyboard opens, the app now makes room for it instead of letting it cover the composer, so you can see what you are typing."
             },
