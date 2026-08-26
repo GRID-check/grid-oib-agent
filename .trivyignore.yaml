@@ -21,6 +21,12 @@
 # The OpenTelemetry Collector block is boxed SHORT because contrib ships every
 # ~two weeks. 0.157.0 (the pin) and even 0.158.0 (2026-08-04) were built on
 # Go 1.26.5; 1.26.6 landed 2026-08-13. The next collector tag is the real fix.
+#
+# The LAST entry is boxed shortest of all, and it is the only one here that is
+# not a dependency of anything we or upstream chose: CVE-2026-14456 is OpenSSL
+# in the Alpine base both Langfuse images are built from. It waits on Alpine
+# publishing the patch and Langfuse rebuilding, which is days-to-weeks, not on
+# anybody changing a manifest.
 vulnerabilities:
   - id: CVE-2026-49451
     expired_at: 2026-10-31
@@ -398,6 +404,68 @@ vulnerabilities:
       behind the permission gate.
 
       Drop as soon as a Langfuse image ships undici >= 7.29.0.
+
+  # ── Langfuse web/worker images — the Alpine BASE, not the app (ADR-0044) ──
+  #
+  # The seven entries above are npm packages Langfuse bundles. This one is a
+  # different animal and is filed apart from them on purpose: it is an OS
+  # package in the base image both Langfuse images are built FROM, so nothing
+  # Langfuse does to its own dependency tree affects it and the "no digest bump
+  # clears it" reasoning above does not transfer — it had to be re-established
+  # against the registry, and it was.
+
+  - id: CVE-2026-14456
+    expired_at: 2026-09-26
+    statement: |
+      libcrypto3 / libssl3 3.5.7-r0 — OpenSSL, unbounded memory growth in the
+      QUIC SERVER path, a denial of service. Present in both
+      ghcr.io/langfuse/langfuse and ghcr.io/langfuse/langfuse-worker
+      (alpine 3.24.1). Marked `fixed` upstream in 3.5.8-r0, so
+      `--ignore-unfixed` does not skip it.
+
+      No digest bump clears it, and neither does a major upgrade. Every
+      currently published Langfuse image was checked by pulling its amd64
+      manifest from ghcr and reading `lib/apk/db/installed` out of the base
+      layer — not by reading release notes and not by assuming:
+
+        langfuse:3         (3.225.2)  alpine 3.24.1  libcrypto3/libssl3 3.5.7-r0
+        langfuse:latest    (4.x)      alpine 3.24.1  libcrypto3/libssl3 3.5.7-r0
+        langfuse-worker:3             alpine 3.24.1  libcrypto3/libssl3 3.5.7-r0
+        langfuse-worker:latest        alpine 3.24.1  libcrypto3/libssl3 3.5.7-r0
+
+      The 3 -> 4 major line ships the identical vulnerable base, so "just
+      upgrade" is not an available fix here; it would be a schema migration
+      that buys nothing on this CVE.
+
+      Not exploitable in this deployment, and the reason is the QUIC half of
+      the advisory rather than the OpenSSL half. The defect is in OpenSSL's
+      QUIC server implementation, which only runs for a process that serves
+      QUIC through that API. Nothing in this cluster does:
+
+        * `deploy/pulumi/src/` contains no occurrence of quic, http3 or alpn —
+          no listener, no ALPN advertisement, no UDP port anywhere.
+        * The Langfuse listeners in `platform/gateway.ts` are Gateway API
+          `protocol: "HTTPS"` with `tls: { mode: "Terminate" }`, so TLS is
+          terminated at the Envoy Gateway. The Langfuse containers never
+          terminate TLS at all: the web tier listens on one plain container
+          port named `http` (`platform/langfuse.ts`), and the worker sits
+          behind no Service.
+        * Reaching the web tier at all means passing the Envoy edge and the
+          OIDC flow gated on `platform:organizations:view`, per the shared
+          context above.
+
+      The argument deliberately does NOT rest on whether Node in these images
+      links Alpine's libssl3 — that was not verified and does not need to be.
+      Even a process that links it cannot reach a QUIC server path it never
+      opens.
+
+      Boxed SHORTER than the npm entries above (2026-09-26 against 2026-10-09)
+      because it waits on something faster: Alpine publishing 3.5.8-r0 into the
+      3.24 branch and Langfuse rebuilding on it, and Langfuse rebuilds several
+      times a week. Drop it as soon as a Langfuse image ships
+      libcrypto3/libssl3 >= 3.5.8-r0 — check with the same base-layer read, not
+      by version number alone, since both tags moved without moving this
+      package once already.
 
 secrets:
   - id: gcp-service-account
