@@ -43,7 +43,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       web: ${{ steps.filter.outputs.web }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # paths-filter diffs the pushed range against `github.event.before`.
           # In the default shallow clone that commit is missing, so the action
@@ -91,7 +91,7 @@ jobs:
     steps:
       # No persisted checkout token: images are pushed via docker/login-action
       # below, never git credentials.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Set up Docker Buildx
@@ -135,7 +135,7 @@ jobs:
     needs: changes
     if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/develop' || needs.changes.outputs.frontend == 'true' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Set up Docker Buildx
@@ -178,7 +178,7 @@ jobs:
     needs: changes
     if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/develop' || needs.changes.outputs.web == 'true' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Set up Docker Buildx

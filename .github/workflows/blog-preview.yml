@@ -47,7 +47,7 @@ jobs:
       has_posts: ${{ steps.diff.outputs.has_posts }}
       paths: ${{ steps.diff.outputs.paths }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -125,7 +125,7 @@ jobs:
       count: ${{ steps.stage.outputs.count }}
       artifact_url: ${{ steps.upload.outputs.artifact-url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           # The steps below run PR-controlled dependency scripts and app code —
