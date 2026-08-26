@@ -125,7 +125,20 @@ export const SourceCard: FC<{
           // the card itself needs only the NAME. Printing the full chrome here
           // squeezed the one thing this card exists to say into an ellipsis.
           detail="name-only"
-          className="border-0 bg-transparent p-0 shadow-none hover:bg-transparent"
+          // `p-0` is what strips the row down to the name — and it strips the
+          // TARGET down with it: the card's own `py-2.5` stays on the card, so
+          // the only thing a finger could press to open the source was the 19px
+          // line box of the title. On a phone that is the primary action of the
+          // whole Herleitung, sized like a mouse's.
+          //
+          // The height is bought back out of padding the card already spends
+          // rather than added to it: `min-h-11` reaches the 44px floor and
+          // `-my-2` pulls 8px of it back through the card's own inset, so the
+          // card grows ~9px instead of ~25px and the fan-out keeps its density.
+          // `items-center` because a flex row defaults to `stretch`, which would
+          // pin the title to the top of the taller box and leave the extra
+          // height looking like a gap rather than part of the control.
+          className="border-0 bg-transparent p-0 shadow-none hover:bg-transparent pointer-coarse:-my-2 pointer-coarse:min-h-11 pointer-coarse:items-center"
         />
 
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">

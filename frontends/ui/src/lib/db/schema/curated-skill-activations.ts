@@ -52,7 +52,7 @@ export const curatedSkillActivations = pgTable(
   (table) => ({
     pk: primaryKey({ columns: [table.organizationId, table.skillName] }),
     orgIdx: index('idx_curated_skill_activations_organization_id').on(table.organizationId),
-  }),
+  })
 )
 
 export type CuratedSkillActivation = typeof curatedSkillActivations.$inferSelect

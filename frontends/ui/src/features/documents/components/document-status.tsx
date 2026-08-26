@@ -143,9 +143,20 @@ interface DocumentStatusBadgeProps {
 
 export function DocumentStatusBadge({ status, className, title }: DocumentStatusBadgeProps) {
   const t = useTranslations('files')
+  const label = documentStatusLabel(status, t)
   return (
-    <Badge variant={documentStatusVariant(status)} className={cn('shrink-0', className)} title={title}>
-      {documentStatusLabel(status, t)}
+    <Badge
+      variant={documentStatusVariant(status)}
+      className={cn('shrink-0', className)}
+      // Defaults to the label itself, so a caller that has to constrain the
+      // badge's width (the Files list column, where German "Wird hochgeladen" is
+      // half again the width of English "Uploading") gets the full wording back
+      // on hover and to assistive tech without threading the translator out to
+      // the call site. An explicit `title` still wins — the chat peek passes the
+      // status's CONSEQUENCE, which is more than the word.
+      title={title ?? label}
+    >
+      {label}
     </Badge>
   )
 }

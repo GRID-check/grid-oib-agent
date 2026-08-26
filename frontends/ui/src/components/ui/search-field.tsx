@@ -63,6 +63,27 @@ export function SearchField({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         aria-label={label}
+        // THE SOFT KEYBOARD IS PART OF THIS CONTROL, and until now nothing in the
+        // app told it so — `enterKeyHint` appeared nowhere in `src/`.
+        //
+        // `enterKeyHint="search"` relabels the phone's action key from the
+        // generic return arrow to "Search"/"Suchen". Every field built on this
+        // molecule submits on Enter (the Files browser and the Archiv library run
+        // a semantic search off it), so the key already did this — it just would
+        // not say so, and a key that does not say what it does is one a reader
+        // has to try.
+        //
+        // The three off-switches matter as much. A phone capitalises the first
+        // letter of a field and autocorrects as you type, which is right for
+        // prose and wrong for every query typed here: these search filenames,
+        // norm numbers and people. "oib" became "Oib", "§" phrases were
+        // "corrected" into words, and the result set silently disagreed with what
+        // the reader thought they had typed. Search matches strings; the keyboard
+        // must not edit them on the way in.
+        enterKeyHint="search"
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
         className={cn(
           'h-9 pl-8 [&::-webkit-search-cancel-button]:hidden',
           // Reserve the clear gutter even when empty so typing does not shift text.

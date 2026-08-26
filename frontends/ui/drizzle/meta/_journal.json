@@ -470,6 +470,13 @@
       "when": 1788134400005,
       "tag": "0066_authored_ref_names_its_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1788220800005,
+      "tag": "0067_document_roles",
+      "breakpoints": true
     }
   ]
 }

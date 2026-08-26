@@ -63,6 +63,17 @@ const pillClasses = (isMe: boolean, isAgent: boolean, interactive: boolean): str
     // to track whatever size that sentence is set at (bubble body, digest row,
     // inbox preview) rather than pin itself to one of them.
     'inline-flex items-baseline rounded-md px-[3px] py-px align-baseline text-[0.9375em] font-medium',
+    // A pill is already wide enough for a fingertip — a name sees to that — and
+    // 1px of vertical padding left it 22px tall, half the floor on the one axis
+    // it could fix. `py-1` measures 29px, which is a prose line box, so the
+    // target fills the line it sits on without opening the leading.
+    // Applied to BOTH variants deliberately: the interactive pill is the one that
+    // needs the target, but this function exists so the two cannot look different
+    // in one thread, and a plain pill pays nothing for the extra 8px.
+    // Vertical only, and that is the whole reason it can be done here: growing a
+    // mention sideways would push the sentence's own punctuation off, which is
+    // exactly the gap the padding note above was written to close.
+    'pointer-coarse:py-1',
     // A mention of YOU is the only signal that a message wants something from the
     // reader — no row treatment carries it — so it has to survive a scan. It does
     // NOT have to win the page. At `bg-primary` it was a solid ink block in light

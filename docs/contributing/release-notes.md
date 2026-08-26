@@ -1,12 +1,12 @@
 # Release notes
 
 Every change a customer can notice ships with a release note, in the same pull
-request that makes the change. The notes are published — automatically, in
-German and English — to the changelog on the marketing site.
+request that makes the change. The notes are published to the changelog on the marketing site, automatically,
+in German and English.
 
 - **Tool:** [reno](https://docs.openstack.org/reno/latest/), OpenStack's release-note
   manager. One YAML file per change, under `releasenotes/notes/`.
-- **Rule:** [AGENTS.md](../../AGENTS.md) — "Release notes are mandatory".
+- **Rule:** [AGENTS.md](../../AGENTS.md), "Release notes are mandatory".
   Enforced on every PR by the **Release note** job in
   [`ci.yml`](../../.github/workflows/ci.yml).
 - **Destination:** `https://piloti.at/changelog` (de) and `/en/changelog` (en).
@@ -19,7 +19,7 @@ $EDITOR releasenotes/notes/re-index-projects-*.yaml
 task release:lint                           # the same check CI runs
 ```
 
-reno picks the filename — a slug plus a random suffix — which is why two
+reno picks the filename, a slug plus a random suffix, which is why two
 branches never collide on the same note file even when they both add one.
 
 Keep exactly the sections you need and delete the rest:
@@ -58,7 +58,7 @@ half; the rest is judgement.
   Say what they can now do, or what stopped going wrong for them.
 - Plain sentences, ending in punctuation. Two is usually right, 400 characters
   is the ceiling.
-- No reStructuredText, no backticks, no code fences — the page renders plain text.
+- No reStructuredText, no backticks, no code fences. The page renders plain text.
 - No issue numbers, commit shas, file names, repository paths, module names, or
   links to anything but piloti.at.
 - English. The German version is produced by the publish step (see below), so
@@ -91,7 +91,7 @@ fixes:
 
 Until the repository starts tagging releases, notes are grouped on the page by
 the **day they shipped**. Once `git tag` produces versions, notes group under
-their version instead — no configuration change needed.
+their version instead, with no configuration change needed.
 
 ### Translation
 
@@ -107,7 +107,7 @@ Without the key the pipeline still runs and publishes the English text on the
 German page, with a warning in the log.
 
 To fix a machine translation, edit the German side of the entry in
-`releasenotes/translations/de.json` and run `task release:changelog` — the cache
+`releasenotes/translations/de.json` and run `task release:changelog`. The cache
 is the source of truth and the translator never overwrites an entry that exists.
 
 ### The generated file
@@ -124,8 +124,8 @@ the web image is built from a bare working tree.
 
 ## Setup checklist (once, per repository)
 
-- [ ] Repository secret `OPENROUTER_API_KEY` — otherwise the German page shows English.
-- [ ] Repository secret `RELEASE_PAT` — a fine-grained PAT with `contents: write`
+- [ ] Repository secret `OPENROUTER_API_KEY`, without which the German page shows English.
+- [ ] Repository secret `RELEASE_PAT`, a fine-grained PAT with `contents: write`
       on this repository, owned by an admin whose RepositoryRole bypass is listed
       on the `develop` rulesets (the ruleset requires pull requests, and GitHub
       refuses the Actions integration as a bypass actor). Without it the publish

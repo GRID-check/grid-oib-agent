@@ -26,10 +26,19 @@ export type ProjectMemoryStatus = (typeof PROJECT_MEMORY_STATUSES)[number]
 export const PROJECT_MEMORY_CONFIDENCES = ['low', 'medium', 'high'] as const
 export type ProjectMemoryConfidence = (typeof PROJECT_MEMORY_CONFIDENCES)[number]
 
-export const PROJECT_MEMORY_VERIFICATIONS = ['unverified', 'source_grounded', 'user_confirmed'] as const
+export const PROJECT_MEMORY_VERIFICATIONS = [
+  'unverified',
+  'source_grounded',
+  'user_confirmed',
+] as const
 export type ProjectMemoryVerification = (typeof PROJECT_MEMORY_VERIFICATIONS)[number]
 
-export const PROJECT_MEMORY_PROVENANCES = ['agent', 'user', 'distillation', 'profile_graduation'] as const
+export const PROJECT_MEMORY_PROVENANCES = [
+  'agent',
+  'user',
+  'distillation',
+  'profile_graduation',
+] as const
 export type ProjectMemoryProvenance = (typeof PROJECT_MEMORY_PROVENANCES)[number]
 
 /**
@@ -51,8 +60,14 @@ export const projectMemory = pgTable(
     content: text('content').notNull(),
     status: text('status').$type<ProjectMemoryStatus>().notNull().default('active'),
     confidence: text('confidence').$type<ProjectMemoryConfidence>().notNull().default('medium'),
-    verification: text('verification').$type<ProjectMemoryVerification>().notNull().default('unverified'),
-    provenanceType: text('provenance_type').$type<ProjectMemoryProvenance>().notNull().default('agent'),
+    verification: text('verification')
+      .$type<ProjectMemoryVerification>()
+      .notNull()
+      .default('unverified'),
+    provenanceType: text('provenance_type')
+      .$type<ProjectMemoryProvenance>()
+      .notNull()
+      .default('agent'),
     sourceConversationId: text('source_conversation_id'),
     supersedesId: uuid('supersedes_id'),
     salience: real('salience').notNull().default(0.5),
@@ -65,13 +80,17 @@ export const projectMemory = pgTable(
   (table) => ({
     projectIdx: index('idx_project_memory_project_id').on(table.projectId),
     projectStatusIdx: index('idx_project_memory_project_status').on(table.projectId, table.status),
-    orgScopeIdx: index('idx_project_memory_org_scope').on(table.organizationId, table.scope, table.status),
+    orgScopeIdx: index('idx_project_memory_org_scope').on(
+      table.organizationId,
+      table.scope,
+      table.status
+    ),
     // NOTE: two PARTIAL UNIQUE indexes on a normalized-content expression
     // (uniq_project_memory_{project,org}_content_active) enforce "at most one
     // active item per scope-owner + normalized content". They are expression +
     // partial indexes that the drizzle builder can't express, so they live in
     // migration 0010_project_memory_dedup.sql. See createProjectMemoryItem.
-  }),
+  })
 )
 
 export const projectMemoryRelations = relations(projectMemory, ({ one }) => ({

@@ -83,17 +83,20 @@ export const mentionRequests = pgTable(
     resourceStatusIdx: index('idx_mention_requests_resource_status').on(
       table.resourceType,
       table.resourceId,
-      table.status,
+      table.status
     ),
     /** "What is outstanding against me?" — resolution on reply, and reminders. */
-    requestedOfIdx: index('idx_mention_requests_requested_of_status').on(table.requestedOf, table.status),
+    requestedOfIdx: index('idx_mention_requests_requested_of_status').on(
+      table.requestedOf,
+      table.status
+    ),
     /** "What have I asked of others?" — the asker's side, and cascade cleanup. */
     orgRequestedByIdx: index('idx_mention_requests_org_requested_by').on(
       table.organizationId,
       table.requestedBy,
-      table.status,
+      table.status
     ),
-  }),
+  })
 )
 
 export type MentionRequest = typeof mentionRequests.$inferSelect

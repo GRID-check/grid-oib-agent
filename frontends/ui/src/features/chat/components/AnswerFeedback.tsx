@@ -253,10 +253,13 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
                   placeholder={t('feedback.commentPlaceholder')}
                   rows={2}
                   maxLength={2000}
-                  // `md:text-xs` is not redundant: Textarea's own `md:text-sm`
-                  // survives the merge (different variant), and 14px in a
-                  // footnote out-weighs the answer it is about.
-                  className="min-h-14 resize-none rounded-lg py-2 text-xs md:text-xs"
+                  // 12px because a footnote about an answer must not out-weigh
+                  // the answer. The `md:text-xs` that used to sit here was
+                  // beating Textarea's `md:text-sm`; that override is now
+                  // `pointer-coarse:text-base`, which this deliberately does NOT
+                  // undo — a field this small still zooms iOS on focus, and a
+                  // comment box is exactly where somebody is typing prose.
+                  className="min-h-14 resize-none rounded-lg py-2 text-xs"
                 />
                 {/* Full ink when it will do something, 40% when it will not:
                     the difference is a contrast jump, not grey vs. grey. */}

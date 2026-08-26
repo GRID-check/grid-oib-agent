@@ -72,20 +72,23 @@ export async function readPdf(bytes: Uint8Array): Promise<PdfContents> {
       import.meta.url,
     ).href,
   })
-  const document = await task.promise
+  try {
+    const document = await task.promise
 
-  const pageCount = document.numPages
-  const pages: string[] = []
-  for (let number = 1; number <= pageCount; number += 1) {
-    const page = await document.getPage(number)
-    const content = await page.getTextContent()
-    pages.push(content.items.map((item) => ('str' in item ? item.str : '')).join(' '))
+    const pageCount = document.numPages
+    const pages: string[] = []
+    for (let number = 1; number <= pageCount; number += 1) {
+      const page = await document.getPage(number)
+      const content = await page.getTextContent()
+      pages.push(content.items.map((item) => ('str' in item ? item.str : '')).join(' '))
+    }
+
+    const { info } = await document.getMetadata()
+
+    if (!isRecord(info)) throw new Error('the PDF carries no information dictionary')
+
+    return { info, pageCount, text: normalizePdfText(pages.join(' ')) }
+  } finally {
+    await task.destroy()
   }
-
-  const { info } = await document.getMetadata()
-  await task.destroy()
-
-  if (!isRecord(info)) throw new Error('the PDF carries no information dictionary')
-
-  return { info, pageCount, text: normalizePdfText(pages.join(' ')) }
 }

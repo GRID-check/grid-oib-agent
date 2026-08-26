@@ -77,7 +77,10 @@ export const projects = {
         label: 'Commercial build — fire safety',
         name: 'Commercial build — fire safety',
       },
-      sanierungBestand: { label: 'Existing-building renovation', name: 'Existing-building renovation' },
+      sanierungBestand: {
+        label: 'Existing-building renovation',
+        name: 'Existing-building renovation',
+      },
       oibBrandschutzAudit: { label: 'OIB fire-safety audit', name: 'OIB fire-safety audit' },
     },
     footnote:
@@ -108,7 +111,8 @@ export const projects = {
   },
   dangerZone: {
     deleteSuccess: 'Project deleted. An organization admin can restore it until {date}.',
-    deleteSuccessNoDate: 'Project deleted. An organization admin can restore it during the grace period.',
+    deleteSuccessNoDate:
+      'Project deleted. An organization admin can restore it during the grace period.',
     deleteError: 'Failed to delete project.',
     heading: 'Danger zone',
     description:
@@ -172,14 +176,27 @@ export const projects = {
     salvage: {
       partial:
         'Parts of the existing project brief could not be loaded and will be replaced when you save.',
-      full:
-        'The existing project brief could not be loaded. Anything you enter here will replace it when you save.',
+      full: 'The existing project brief could not be loaded. Anything you enter here will replace it when you save.',
     },
     eyebrowEdit: 'Edit project brief',
     eyebrowCreate: 'Project setup',
     titleFallback: 'Tell Piloti about this project',
     subtitle:
       'About 2 minutes. Piloti uses this brief to ground every answer — and to show which OIB Richtlinien apply to this building.',
+    moduleNav: 'Modules',
+    moduleNavAria: 'Wizard modules',
+    schnellstart: 'Quick start',
+    schnellstartOn:
+      'Core questions only. Everything else is recorded as “open” and listed in the summary as an open point.',
+    schnellstartOff: 'Every question in this module.',
+    skipRest: 'Skip the rest',
+    skipRestDone: 'Recorded as open',
+    moduleProgress: '{answered} of {total}',
+    moduleDone: 'complete',
+    coreBadge: 'Core question',
+    hiddenByQuickstart:
+      '{count, plural, one {# more question} other {# more questions}} hidden in quick start',
+    showAllHere: 'Show all here',
     progressAria: 'Progress',
     reviewTitle: 'Review & confirm',
     reviewStep: 'Review',

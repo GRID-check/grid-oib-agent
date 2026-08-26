@@ -21,7 +21,9 @@ export const conversationReads = pgTable(
     // Composite in the database since 0031 — see the foreign key below.
     conversationId: text('conversation_id').notNull(),
     /** Owning tenant, denormalised from the conversation — see `messages`. */
-    organizationId: text('organization_id').notNull().default(sql`nullif(current_setting('grid.organization_id', true), '')`),
+    organizationId: text('organization_id')
+      .notNull()
+      .default(sql`nullif(current_setting('grid.organization_id', true), '')`),
     /** WorkOS user id. */
     userId: text('user_id').notNull(),
     /** High-water mark: everything created at or before this is read. */
@@ -41,7 +43,7 @@ export const conversationReads = pgTable(
       columns: [table.conversationId, table.organizationId],
       foreignColumns: [conversations.id, conversations.organizationId],
     }).onDelete('cascade'),
-  }),
+  })
 )
 
 export type ConversationRead = typeof conversationReads.$inferSelect

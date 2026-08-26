@@ -52,6 +52,21 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+
+  /* The platform's own tap flash, turned off because this app already answers a
+     press — and better. WebKit and Chromium paint a translucent grey rectangle
+     over whatever you touch, and it is a RECTANGLE: it ignores border-radius, so
+     a press on a rounded chip or a pill-shaped citation marker squares off for
+     the length of the tap. Every control here already has a press state of its
+     own (`active:scale-95` on the Button primitive and everything that matches
+     it), so the default is a second, cruder answer to the same event, drawn on
+     top of the considered one.
+
+     Removed only where something replaces it. This is not "no feedback on
+     touch" — that would be worse than the grey box. It is the app's feedback
+     instead of the browser's, and any control that ships without a press state
+     of its own is the bug this line makes visible. */
+  -webkit-tap-highlight-color: transparent;
 }
 
 #__next {
@@ -239,6 +254,42 @@ body {
    And the overhang is clipped by an ancestor with `overflow: hidden`, which
    silently returns the target to its visible size. In a clipping row, give the
    row the padding to hold the catchment. */
+
+/* Give the Herleitung back to the finger scrolling past it.
+   ─────────────────────────────────────────────────────────
+   React Flow's stylesheet sets `touch-action: none` on `.react-flow__pane`,
+   unconditionally, because a graph normally owns pan and pinch itself. The
+   viewport holding the nodes is a CHILD of that pane, and `touch-action` is not
+   a value you read off one element: the browser intersects the declarations of
+   the touched element and every ancestor up to the scroll container. So a `none`
+   on the pane disallows the pan for everything under it, whatever those
+   descendants compute for themselves — every node, every edge, every gap
+   between them. (Which is why reading the computed style of a node here says
+   `auto` and means nothing.)
+
+   Our reasoning graph owns none of those gestures: it is a read-only display
+   built with `panOnDrag`, `panOnScroll`, `zoomOnScroll`, `zoomOnPinch` and
+   `zoomOnDoubleClick` all false, and `preventScrolling={false}`. React Flow
+   still claims the gesture in CSS, and CSS does not know the props are off.
+
+   What that costs on a phone: measured at 390x844, the graph's pane is 877px
+   tall — taller than the viewport, so there is no margin beside it to start the
+   gesture from. A drag beginning anywhere on the Herleitung moves nothing, and
+   the answer below it cannot be reached by the only gesture anyone tries. Taps
+   still work, which is what makes it read as the page being frozen rather than
+   as a control misbehaving.
+
+   `auto` rather than `pan-y`: there is no gesture to preserve here, so the
+   browser should have all of them back, pinch-to-zoom included — that one is an
+   accessibility affordance, and a graph of small type is exactly where a reader
+   reaches for it.
+
+   Scoped to the class rather than applied to `.react-flow__pane` globally: a
+   future graph that genuinely wants to pan should keep the library's default,
+   and have to say so by not opting in. */
+.reasoning-flow-scrollable .react-flow__pane {
+  touch-action: auto;
+}
 
 /* =============================================================================
    Theme-aware text color utilities

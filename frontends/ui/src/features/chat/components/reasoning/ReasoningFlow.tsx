@@ -1082,7 +1082,11 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
         ['--banner-w' as string]: `${layout.contentW}px`,
         ['--source-w' as string]: `${layout.colW}px`,
       }}
-      className="w-full"
+      // `reasoning-flow-scrollable` hands the browser back the touch gestures
+      // React Flow's stylesheet takes and this graph never uses. See the rule in
+      // globals.css — without it the whole Herleitung is a dead zone under a
+      // finger, and it is the tallest thing in a turn.
+      className="reasoning-flow-scrollable w-full"
       data-testid="reasoning-flow"
       role="group"
       aria-label={t('thinking.reasoningGraphLabel')}

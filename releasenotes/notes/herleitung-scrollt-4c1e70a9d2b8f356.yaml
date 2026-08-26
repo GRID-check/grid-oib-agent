@@ -1,0 +1,14 @@
+---
+fixes:
+  - >
+    On a phone, the reasoning trace under an answer used to swallow every swipe:
+    a finger anywhere on it moved nothing, so you could not scroll past it to
+    read the answer itself. The trace now scrolls like the rest of the page.
+  - >
+    Card headers with buttons in them no longer run past the edge of a narrow
+    screen. Where there is not room for the title and the buttons on one line,
+    the buttons move underneath.
+improvements:
+  - >
+    When the on-screen keyboard opens, the app now makes room for it instead of
+    letting it cover the composer, so you can see what you are typing.

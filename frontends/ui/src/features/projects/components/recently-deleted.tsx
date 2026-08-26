@@ -47,7 +47,7 @@ export function RecentlyDeleted({ canManageCompliance = false }: RecentlyDeleted
         month: 'short',
         year: 'numeric',
       }),
-    [locale],
+    [locale]
   )
 
   const refresh = useCallback(async () => {
@@ -106,12 +106,12 @@ export function RecentlyDeleted({ canManageCompliance = false }: RecentlyDeleted
   if (error) {
     return (
       <section className="mt-8">
-        <h2 className="text-sm font-semibold text-muted-foreground">
+        <h2 className="text-muted-foreground text-sm font-semibold">
           {t('recentlyDeleted.heading')}
         </h2>
-        <div className="mt-2 flex flex-wrap items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
-          <AlertTriangle className="size-4 shrink-0 text-destructive" aria-hidden />
-          <p className="flex-1 text-sm text-muted-foreground">{t('recentlyDeleted.loadError')}</p>
+        <div className="border-destructive/30 bg-destructive/5 mt-2 flex flex-wrap items-center gap-3 rounded-lg border p-3">
+          <AlertTriangle className="text-destructive size-4 shrink-0" aria-hidden />
+          <p className="text-muted-foreground flex-1 text-sm">{t('recentlyDeleted.loadError')}</p>
           <Button variant="outline" size="sm" onClick={() => void refresh()}>
             <RefreshCw className="size-3.5" aria-hidden />
             {t('recentlyDeleted.retry')}
@@ -125,18 +125,15 @@ export function RecentlyDeleted({ canManageCompliance = false }: RecentlyDeleted
 
   return (
     <section className="mt-8">
-      <h2 className="text-sm font-semibold text-muted-foreground">
+      <h2 className="text-muted-foreground text-sm font-semibold">
         {t('recentlyDeleted.heading')}
       </h2>
       <ul className="mt-2 flex flex-col gap-2">
         {entries.map((entry) => (
-          <li
-            key={entry.id}
-            className="flex items-center justify-between rounded-lg border p-3"
-          >
+          <li key={entry.id} className="flex items-center justify-between rounded-lg border p-3">
             <div>
               <p className="text-sm font-medium">{entry.displayName}</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 {entry.status === 'failed'
                   ? t('recentlyDeleted.purgeFailed')
                   : t('recentlyDeleted.purgeAfter', {
@@ -144,7 +141,7 @@ export function RecentlyDeleted({ canManageCompliance = false }: RecentlyDeleted
                     })}
               </p>
               {entry.status === 'failed' && entry.lastError && (
-                <p className="mt-0.5 break-words font-mono text-xs text-destructive/80">
+                <p className="text-destructive/80 mt-0.5 break-words font-mono text-xs">
                   {entry.lastError}
                 </p>
               )}
@@ -162,7 +159,7 @@ export function RecentlyDeleted({ canManageCompliance = false }: RecentlyDeleted
                   aria-hidden={restoringId !== entry.id}
                   className={
                     restoringId === entry.id
-                      ? 'transition-opacity duration-snap ease-out motion-reduce:transition-none'
+                      ? 'duration-snap transition-opacity ease-out motion-reduce:transition-none'
                       : 'opacity-0'
                   }
                 />

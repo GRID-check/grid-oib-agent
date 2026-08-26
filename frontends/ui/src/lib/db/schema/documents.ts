@@ -8,6 +8,7 @@ import {
   check,
   foreignKey,
   index,
+  unique,
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { projects } from './projects'
@@ -315,6 +316,18 @@ export const documents = pgTable('documents', {
   // No inline `.references()`: the real constraint is composite (below).
   folderId: uuid('folder_id'),
 }, (table) => ({
+    /**
+     * Referenceable `(id, project_id)`, so a child table can bind a document to
+     * the project it belongs to (see `document_roles`). `id` is already the
+     * primary key, so this adds no restriction — it exists to be a foreign-key
+     * target, exactly as `project_folders_id_project_id_key` does for folders.
+     *
+     * Declared here as well as in migration 0063: schema-driven provisioning
+     * builds the FK from THIS file, and Postgres rejects a composite reference
+     * with "no unique constraint matching given keys" when the target is only
+     * in the migration.
+     */
+    idProjectKey: unique('documents_id_project_id_key').on(table.id, table.projectId),
   projectIdx: index('documents_project_idx').on(table.projectId),
   collectionIdx: index('documents_collection_idx').on(table.collectionName),
   statusIdx: index('documents_status_idx').on(table.status),

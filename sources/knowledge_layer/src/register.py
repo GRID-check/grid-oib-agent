@@ -65,7 +65,9 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "HOW TO QUERY — rewrite the user question into a search query (topic + "
     "jurisdiction + implied year). Prefer one precise call over a broad dump. "
     "At most 2 calls; change the query on the second. Never invent a "
-    "`file_name`; take it from the inventory or the user. Do not pass a raw "
+    "`file_name`; take it from the inventory or the user. The OIB base corpus "
+    "is not enumerated there — reach it by `doc_class` (e.g. `oib_richtlinie`) "
+    "or by plain semantic search, never a guessed name. Do not pass a raw "
     "`filters` object unless you need `content_type`.\n"
     "RETURNS — numbered passages with Source, Citation (copy this key "
     "verbatim), Dokumentart, Ordner (the folder the file is filed in, when it "
@@ -1322,7 +1324,9 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 query (topic + jurisdiction + implied year). Not the raw user
                 message.
             file_name (str | None): Indexed file name to read (from the
-                inventory or the user). Never invent a name.
+                inventory or the user). Never invent a name. Base-corpus
+                files are not listed in the inventory — filter those with
+                `doc_class` instead.
             doc_class (str | None): Dokumentart key (e.g. "oib_richtlinie",
                 "gesetz"). Store-authoritative; reclassifications apply
                 without re-ingest.
