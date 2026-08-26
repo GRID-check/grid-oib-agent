@@ -125,9 +125,13 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
         {svg ? (
           <div
             // Safe because of what produced the string, not because of where it is
-            // used: `renderMermaid` re-serialises mermaid's output through
-            // `lib/diagrams/svg.ts`, so only allow-listed elements and attributes
-            // survive — no script, no foreignObject, no external reference.
+            // used: mermaid runs `securityLevel: 'strict'`, and `renderMermaid`
+            // re-serialises its output through `lib/diagrams/svg.ts`, so only
+            // allow-listed elements and attributes survive — no script, no
+            // foreignObject, no external reference. That provenance lives in the
+            // producer, which the scanner cannot see — a false positive, argued
+            // out the same way as `scripts/release_notes.py`.
+            // nosemgrep: typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml
             dangerouslySetInnerHTML={{ __html: svg }}
           />
         ) : (

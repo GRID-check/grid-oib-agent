@@ -273,9 +273,7 @@ def _derive_project_collection(collection_scope: list[str] | None) -> str | None
     candidates = [
         collection
         for collection in collection_scope
-        if collection != base_collection
-        and not collection.startswith("s_")
-        and not collection.startswith("archiv_")
+        if collection != base_collection and not collection.startswith("s_") and not collection.startswith("archiv_")
     ]
     if len(candidates) == 1:
         return candidates[0]

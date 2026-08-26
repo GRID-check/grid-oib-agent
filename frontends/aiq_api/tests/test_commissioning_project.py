@@ -54,10 +54,7 @@ def test_the_office_archive_is_not_a_project() -> None:
     recorded no commissioning collection and the finished report was never
     filed. The archive is not a project; drop it the same way as `s_`.
     """
-    assert (
-        _derive_project_collection(["oib_knowledge", "archiv_org1", "proj_abc", "s_conv-1"])
-        == "proj_abc"
-    )
+    assert _derive_project_collection(["oib_knowledge", "archiv_org1", "proj_abc", "s_conv-1"]) == "proj_abc"
     assert _derive_project_collection(["oib_knowledge", "archiv_org1", "s_conv-1"]) is None
 
 
