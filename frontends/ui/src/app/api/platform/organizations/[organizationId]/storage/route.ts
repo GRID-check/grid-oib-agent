@@ -6,7 +6,7 @@
  * limit is not limited. Same placement, and the same reasoning, as
  * `platform_model_defaults`.
  *
- * `platformApiRoute` runs `requirePlatformOwner` BEFORE the handler, so the gate
+ * `platformApiRoute` runs `requirePlatformPermission` BEFORE the handler, so the gate
  * cannot be lost by editing the body. `setStorageQuota` checks again on its own
  * account — deliberately, and not as ceremony: the service writes a
  * platform-owned setting and an audit row, so its authorization has to be a
@@ -16,6 +16,7 @@
 
 import { parseJsonBody } from '@/lib/api/handler'
 import { platformApiRoute } from '@/lib/api/platform-handler'
+import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 import { storageQuotaPutSchema } from '@/lib/storage/contract'
 import { getOrganizationStorage, setStorageQuota } from '@/lib/storage/service'
 
@@ -23,8 +24,9 @@ interface Params {
   organizationId: string
 }
 
-export const GET = platformApiRoute<Params>(async ({ params }) =>
-  getOrganizationStorage(params.organizationId)
+export const GET = platformApiRoute<Params>(
+  async ({ params }) => getOrganizationStorage(params.organizationId),
+  { permission: PLATFORM_PERMISSIONS.organizationsView }
 )
 
 /**
@@ -39,7 +41,10 @@ export const GET = platformApiRoute<Params>(async ({ params }) =>
  * The schema comes from `@/lib/storage/contract`, which the editor imports too —
  * the constraint is stated once for both sides of the request.
  */
-export const PUT = platformApiRoute<Params>(async ({ session, request, params }) => {
-  const { quotaBytes } = await parseJsonBody(request, storageQuotaPutSchema)
-  return setStorageQuota(session, params.organizationId, quotaBytes, request)
-})
+export const PUT = platformApiRoute<Params>(
+  async ({ session, request, params }) => {
+    const { quotaBytes } = await parseJsonBody(request, storageQuotaPutSchema)
+    return setStorageQuota(session, params.organizationId, quotaBytes, request)
+  },
+  { permission: PLATFORM_PERMISSIONS.organizationsManage }
+)

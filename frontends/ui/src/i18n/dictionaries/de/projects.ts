@@ -70,7 +70,10 @@ export const projects: typeof en.projects = {
     templateLabel: 'Mit einer Vorlage beginnen',
     templates: {
       neubauWohnbau: { label: 'Neubau Wohnbau', name: 'Neubau Wohnbau' },
-      betriebsbauBrandschutz: { label: 'Betriebsbau Brandschutz', name: 'Betriebsbau — Brandschutz' },
+      betriebsbauBrandschutz: {
+        label: 'Betriebsbau Brandschutz',
+        name: 'Betriebsbau — Brandschutz',
+      },
       sanierungBestand: { label: 'Sanierung Bestand', name: 'Sanierung Bestand' },
       oibBrandschutzAudit: { label: 'OIB Brandschutz-Audit', name: 'OIB Brandschutz-Audit' },
     },
@@ -102,7 +105,8 @@ export const projects: typeof en.projects = {
       'Nur zur Orientierung — keine Rechtsberatung. Prüfen Sie die Anwendbarkeit anhand der aktuellen Bauordnung und der zuständigen Behörde.',
   },
   dangerZone: {
-    deleteSuccess: 'Projekt gelöscht. Ein Organisationsadministrator kann es bis {date} wiederherstellen.',
+    deleteSuccess:
+      'Projekt gelöscht. Ein Organisationsadministrator kann es bis {date} wiederherstellen.',
     deleteSuccessNoDate:
       'Projekt gelöscht. Ein Organisationsadministrator kann es während der Kulanzfrist wiederherstellen.',
     deleteError: 'Projekt konnte nicht gelöscht werden.',
@@ -161,7 +165,8 @@ export const projects: typeof en.projects = {
       loadFailed: 'Wir konnten die Projektfragen nicht laden.',
       saveConflict:
         'Dieses Briefing wurde an anderer Stelle geändert. Bitte aktualisieren Sie und versuchen Sie es erneut.',
-      saveFailed: 'Wir konnten das Projekt-Briefing nicht speichern. Bitte versuchen Sie es erneut.',
+      saveFailed:
+        'Wir konnten das Projekt-Briefing nicht speichern. Bitte versuchen Sie es erneut.',
     },
     tryAgain: 'Erneut versuchen',
     conflictReload: 'Aktualisieren',
@@ -169,14 +174,27 @@ export const projects: typeof en.projects = {
     salvage: {
       partial:
         'Teile des bestehenden Projekt-Briefings konnten nicht geladen werden und werden beim Speichern ersetzt.',
-      full:
-        'Das bestehende Projekt-Briefing konnte nicht geladen werden. Ihre Eingaben ersetzen es beim Speichern.',
+      full: 'Das bestehende Projekt-Briefing konnte nicht geladen werden. Ihre Eingaben ersetzen es beim Speichern.',
     },
     eyebrowEdit: 'Projekt-Briefing bearbeiten',
     eyebrowCreate: 'Projekteinrichtung',
     titleFallback: 'Erzählen Sie Piloti von diesem Projekt',
     subtitle:
       'Etwa 2 Minuten. Piloti nutzt dieses Briefing, um jede Antwort zu fundieren — und um zu zeigen, welche OIB-Richtlinien auf dieses Gebäude zutreffen.',
+    moduleNav: 'Module',
+    moduleNavAria: 'Wizard-Module',
+    schnellstart: 'Schnellstart',
+    schnellstartOn:
+      'Nur Kernfragen. Alles Übrige wird als „offen“ übernommen und in der Zusammenfassung als offener Punkt gelistet.',
+    schnellstartOff: 'Alle Fragen dieses Moduls.',
+    skipRest: 'Rest überspringen',
+    skipRestDone: 'Als offen übernommen',
+    moduleProgress: '{answered} von {total}',
+    moduleDone: 'vollständig',
+    coreBadge: 'Kernfrage',
+    hiddenByQuickstart:
+      '{count, plural, one {# weitere Frage} other {# weitere Fragen}} im Schnellstart ausgeblendet',
+    showAllHere: 'Hier alle anzeigen',
     progressAria: 'Fortschritt',
     reviewTitle: 'Prüfen & bestätigen',
     reviewStep: 'Prüfen',
@@ -225,7 +243,8 @@ export const projects: typeof en.projects = {
     consistency: {
       checking: 'Angaben werden geprüft…',
       title: 'Ein paar Dinge zum Prüfen',
-      subtitle: 'Einige Angaben passen möglicherweise nicht zusammen. Bitte prüfen — oder trotzdem speichern.',
+      subtitle:
+        'Einige Angaben passen möglicherweise nicht zusammen. Bitte prüfen — oder trotzdem speichern.',
       severity: {
         warning: 'Zum Nachsehen',
         inconsistency: 'Möglicher Widerspruch',
@@ -350,7 +369,8 @@ export const projects: typeof en.projects = {
       summaryGenerating: 'Wird erstellt…',
       summaryWriting: 'Piloti schreibt die Projekt-Zusammenfassung…',
       summarySuccess: 'Zusammenfassung aktualisiert.',
-      summaryError: 'Die Zusammenfassung konnte nicht erstellt werden. Bitte versuchen Sie es erneut.',
+      summaryError:
+        'Die Zusammenfassung konnte nicht erstellt werden. Bitte versuchen Sie es erneut.',
       summaryLlmNotConfigured:
         'Die Erstellung der Zusammenfassung ist nicht verfügbar — es ist kein Sprachmodell konfiguriert. Bitten Sie eine Administratorin, eines einzurichten.',
       summaryForbidden: 'Sie haben keine Berechtigung, die Zusammenfassung zu erstellen.',
@@ -363,7 +383,8 @@ export const projects: typeof en.projects = {
       completeBrief: 'Briefing vervollständigen',
       startedNoDetailsAfter: ', damit Piloti seine Antworten fundieren kann.',
       missingHeading: 'Piloti weiß noch nicht',
-      assumptionsHeading: 'Von Piloti vorgeschlagen — bestätigen, um es als Projektfakt zu übernehmen',
+      assumptionsHeading:
+        'Von Piloti vorgeschlagen — bestätigen, um es als Projektfakt zu übernehmen',
       assumptionConfirm: 'Bestätigen',
       assumptionDismiss: 'Verwerfen',
       assumptionError: 'Das Briefing konnte nicht aktualisiert werden. Bitte erneut versuchen.',

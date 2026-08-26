@@ -22,7 +22,12 @@ import {
   isOrgAdmin,
   type OrgWidgetPermission,
 } from '@/lib/authz/organizations'
-import { getPlatformOrganizationId, PlatformAccessDeniedError, requirePlatformOwner } from '@/lib/authz/platform'
+import {
+  getPlatformOrganizationId,
+  PlatformAccessDeniedError,
+  requirePlatformPermission,
+} from '@/lib/authz/platform'
+import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 import { ForbiddenError, ServiceUnavailableError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 
@@ -44,13 +49,16 @@ function grants(session: AuthorizedSession, scope: OrgWidgetPermission): boolean
 export async function mintWidgetToken(
   session: AuthorizedSession,
   requestedScopes: string[],
-  forPlatformOrg: boolean,
+  forPlatformOrg: boolean
 ): Promise<{ token: string }> {
   let organizationId = session.organizationId
   let holdsScope = (scope: OrgWidgetPermission): boolean => grants(session, scope)
   if (forPlatformOrg) {
     try {
-      await requirePlatformOwner(session)
+      // Minting a platform-org widget token hands the holder WorkOS's own user,
+      // SSO and directory admin surfaces. That is administration, not oversight,
+      // so read-only platform staff must not reach it.
+      await requirePlatformPermission(session, PLATFORM_PERMISSIONS.organizationsManage)
     } catch (error) {
       if (error instanceof PlatformAccessDeniedError) throw new ForbiddenError()
       throw error
@@ -65,7 +73,9 @@ export async function mintWidgetToken(
     holdsScope = (scope) => scope === USERS_TABLE_MANAGE
   }
 
-  const scopes = requestedScopes.filter((s): s is OrgWidgetPermission => ALLOWED.has(s)).filter(holdsScope)
+  const scopes = requestedScopes
+    .filter((s): s is OrgWidgetPermission => ALLOWED.has(s))
+    .filter(holdsScope)
 
   const { token } = await getWorkOS().widgets.createToken({
     organizationId,

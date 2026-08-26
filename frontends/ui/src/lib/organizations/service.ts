@@ -13,7 +13,8 @@ import { getCached, invalidateCached } from '@/lib/cache'
 import { PLATFORM_OWNED_SETTINGS, type Organization } from '@/lib/db/schema'
 import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
-import { requirePlatformOwner } from '@/lib/authz/platform'
+import { requirePlatformPermission } from '@/lib/authz/platform'
+import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 import { isOrgFeatureEnabled, WEB_SEARCH_FLAG } from '@/lib/workos/feature-flags'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 import { defaultLocale, isLocale, type Locale } from '@/i18n/config'
@@ -261,7 +262,7 @@ export async function updateOrgSettings(
  * check runs here, and `PLATFORM_OWNED_SETTINGS` therefore has no unguarded
  * writer anywhere.
  *
- * The route-level `requirePlatformOwner` stays where it is. Checking twice costs a
+ * The route-level platform gate stays where it is. Checking twice costs a
  * cached predicate and means neither layer is load-bearing alone.
  */
 export async function updatePlatformOwnedOrgSettings(
@@ -269,7 +270,7 @@ export async function updatePlatformOwnedOrgSettings(
   organizationId: string,
   patch: OrgSettingsPatch
 ): Promise<OrgSettings> {
-  await requirePlatformOwner(session)
+  await requirePlatformPermission(session, PLATFORM_PERMISSIONS.organizationsManage)
   return writeOrgSettings(organizationId, patch)
 }
 

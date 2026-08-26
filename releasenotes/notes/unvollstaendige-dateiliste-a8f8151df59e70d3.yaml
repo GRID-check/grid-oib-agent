@@ -1,0 +1,9 @@
+---
+fixes:
+  - >
+    Wenn ein Projekt mehr Dateien enthält, als Piloti auf einmal überblicken
+    kann, sagt Piloti das jetzt. Bisher hat es die verkürzte Liste als
+    vollständig behandelt und auf die Frage "welche Dateien liegen im Projekt"
+    zuversichtlich eine unvollständige Antwort gegeben. Jetzt weist es pro
+    Regal darauf hin, dass weitere Dateien vorhanden sind, die es hier nicht
+    aufzählt.

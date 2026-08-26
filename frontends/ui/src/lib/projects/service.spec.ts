@@ -100,10 +100,32 @@ describe('listProjects', () => {
   })
 
   it('org admins still see every project in their organization (named bypass)', async () => {
+    // A legacy admin session: role slug, no claims. `hasPermission`'s bounded
+    // catalog implication carries it, so nobody re-logs-in for the fix.
     const visible = await listProjects(session({ role: 'admin' }))
 
     expect(visible).toHaveLength(3)
     expect(check).not.toHaveBeenCalled()
+  })
+
+  it('the bypass is the PERMISSION, not the role slug', async () => {
+    // This pair is what fails if `hasPermission(...)` is reverted to
+    // `session.role === 'admin'`. The old test above passes under BOTH rules,
+    // so on its own it pinned nothing.
+    const custom = await listProjects(
+      session({ role: 'acme-owner', permissions: ['org:projects:administer'] })
+    )
+    expect(custom).toHaveLength(3)
+    expect(check).not.toHaveBeenCalled()
+
+    // …and a role that holds org permissions but not THAT one is filtered like
+    // anyone else.
+    check.mockResolvedValue({ authorized: false })
+    const auditor = await listProjects(
+      session({ role: 'org-auditor', permissions: ['org:audit:view'] })
+    )
+    expect(auditor).toHaveLength(0)
+    expect(check).toHaveBeenCalled()
   })
 
   it('fails closed per project: one broken check hides that project, not the page', async () => {

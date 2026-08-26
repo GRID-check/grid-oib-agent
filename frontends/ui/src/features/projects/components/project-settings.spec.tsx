@@ -94,7 +94,7 @@ describe('ProjectSettings', () => {
     rerender(<ProjectSettings data={data} showKnowledgeLink />)
     expect(screen.getByRole('link', { name: /knowledge base/i })).toHaveAttribute(
       'href',
-      '/app/projects/p1/knowledge',
+      '/app/projects/p1/knowledge'
     )
   })
 })

@@ -71,7 +71,7 @@ export function ProjectSettings({
   const { locale } = useLocale()
   const dateFormatter = useMemo(
     () => new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' }),
-    [locale],
+    [locale]
   )
 
   let createdLabel = ''
@@ -87,7 +87,7 @@ export function ProjectSettings({
         <ProjectSectionActions>
           <Link
             href={`/app/projects/${data.id}/knowledge`}
-            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors duration-quick ease-out hover:text-foreground touch-target motion-reduce:transition-none"
+            className="text-muted-foreground duration-quick hover:text-foreground touch-target inline-flex items-center gap-1.5 text-sm transition-colors ease-out motion-reduce:transition-none"
           >
             <BookOpenCheck className="size-4" aria-hidden />
             {t('project.knowledgeLink')}
@@ -108,7 +108,7 @@ export function ProjectSettings({
             )}
           </div>
           {createdLabel && (
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="text-muted-foreground mt-1 text-sm">
               {t('project.createdOn', { date: createdLabel })}
             </p>
           )}
@@ -138,7 +138,7 @@ export function ProjectSettings({
               dummy, ready for the source-mix layout once telemetry exists. */}
           <RaisedCard aria-label={t('project.sections.insights')}>
             <RaisedCardBody className="p-6">
-              <h2 className="text-sm font-semibold text-foreground">
+              <h2 className="text-foreground text-sm font-semibold">
                 {t('project.sections.insights')}
               </h2>
               <EmptyState
@@ -167,8 +167,10 @@ export function ProjectSettings({
       <StaggerItem>
         <section aria-label={t('project.sections.members')} className="space-y-4">
           <div className="space-y-1">
-            <h2 className="text-sm font-semibold text-foreground">{t('project.sections.members')}</h2>
-            <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            <h2 className="text-foreground text-sm font-semibold">
+              {t('project.sections.members')}
+            </h2>
+            <p className="text-muted-foreground max-w-2xl text-sm leading-relaxed">
               {canManageProject
                 ? t('project.membersDescriptionManage')
                 : t('project.membersDescriptionReadOnly')}

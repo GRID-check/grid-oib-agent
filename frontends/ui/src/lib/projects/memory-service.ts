@@ -49,15 +49,18 @@ function normalizedContentEquals(content: string) {
 
 /** Scope-exact owner condition shared by both dedup passes. */
 function memoryOwnerCondition(
-  values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId'>,
+  values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId'>
 ) {
   return values.scope === 'organization'
     ? and(
         eq(projectMemory.scope, 'organization'),
         eq(projectMemory.organizationId, values.organizationId),
-        isNull(projectMemory.projectId),
+        isNull(projectMemory.projectId)
       )
-    : and(eq(projectMemory.scope, 'project'), eq(projectMemory.projectId, values.projectId as string))
+    : and(
+        eq(projectMemory.scope, 'project'),
+        eq(projectMemory.projectId, values.projectId as string)
+      )
 }
 
 /**
@@ -68,13 +71,19 @@ function memoryOwnerCondition(
  * the org and require project_id IS NULL.
  */
 async function findActiveDuplicate(
-  values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId' | 'content'>,
+  values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId' | 'content'>
 ): Promise<ProjectMemoryItem | null> {
   const db = getDb()
   const [existing] = await db
     .select()
     .from(projectMemory)
-    .where(and(memoryOwnerCondition(values), eq(projectMemory.status, 'active'), normalizedContentEquals(values.content)))
+    .where(
+      and(
+        memoryOwnerCondition(values),
+        eq(projectMemory.status, 'active'),
+        normalizedContentEquals(values.content)
+      )
+    )
     .orderBy(desc(projectMemory.updatedAt))
     .limit(1)
   return existing ?? null
@@ -182,7 +191,7 @@ interface NearMatch {
  * (→ supersede). See NEGATION_TOKENS.
  */
 async function findActiveNearMatch(
-  values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId' | 'content' | 'kind'>,
+  values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId' | 'content' | 'kind'>
 ): Promise<NearMatch | null> {
   const incomingTokens = contentTokens(values.content)
   if (incomingTokens.size < NEAR_DUP_MIN_TOKENS) return null
@@ -191,7 +200,11 @@ async function findActiveNearMatch(
     .select()
     .from(projectMemory)
     .where(
-      and(memoryOwnerCondition(values), eq(projectMemory.status, 'active'), eq(projectMemory.kind, values.kind)),
+      and(
+        memoryOwnerCondition(values),
+        eq(projectMemory.status, 'active'),
+        eq(projectMemory.kind, values.kind)
+      )
     )
     .orderBy(desc(projectMemory.updatedAt))
     .limit(NEAR_DUP_CANDIDATE_LIMIT)
@@ -228,7 +241,7 @@ const SUPERSEDE_MATCH_THRESHOLD = 0.7
  */
 async function resolveSupersedeTarget(
   values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId'>,
-  supersedesContent: string,
+  supersedesContent: string
 ): Promise<ProjectMemoryItem | null> {
   const db = getDb()
   const candidates = await db
@@ -268,7 +281,11 @@ function isAgentSupersedable(item: ProjectMemoryItem): boolean {
 
 export async function listProjectMemory(
   projectId: string,
-  options: { includeArchived?: boolean; organizationId?: string; sourceConversationId?: string } = {},
+  options: {
+    includeArchived?: boolean
+    organizationId?: string
+    sourceConversationId?: string
+  } = {}
 ): Promise<ProjectMemoryItem[]> {
   const db = getDb()
 
@@ -279,7 +296,7 @@ export async function listProjectMemory(
   const projectCondition = options.organizationId
     ? and(
         eq(projectMemory.projectId, projectId),
-        eq(projectMemory.organizationId, options.organizationId),
+        eq(projectMemory.organizationId, options.organizationId)
       )
     : eq(projectMemory.projectId, projectId)
   const scopeCondition = options.organizationId
@@ -288,8 +305,8 @@ export async function listProjectMemory(
         and(
           eq(projectMemory.scope, 'organization'),
           eq(projectMemory.organizationId, options.organizationId),
-          isNull(projectMemory.projectId),
-        ),
+          isNull(projectMemory.projectId)
+        )
       )
     : projectCondition
 
@@ -310,7 +327,7 @@ export async function listProjectMemory(
 
 export async function listOrganizationMemory(
   organizationId: string,
-  options: { includeArchived?: boolean } = {},
+  options: { includeArchived?: boolean } = {}
 ): Promise<ProjectMemoryItem[]> {
   const db = getDb()
   const conditions = [
@@ -348,12 +365,14 @@ export interface CreateMemoryOptions {
 /** Refresh a duplicate in place: recency + the best-known confidence. */
 async function refreshDuplicate(
   duplicate: ProjectMemoryItem,
-  values: NewProjectMemoryItem,
+  values: NewProjectMemoryItem
 ): Promise<ProjectMemoryItem> {
   const db = getDb()
   const incoming = (values.confidence ?? 'medium') as ProjectMemoryConfidence
   const best =
-    CONFIDENCE_RANK[incoming] > CONFIDENCE_RANK[duplicate.confidence] ? incoming : duplicate.confidence
+    CONFIDENCE_RANK[incoming] > CONFIDENCE_RANK[duplicate.confidence]
+      ? incoming
+      : duplicate.confidence
   const [updated] = await db
     .update(projectMemory)
     .set({ confidence: best, lastReferencedAt: new Date(), updatedAt: new Date() })
@@ -364,7 +383,7 @@ async function refreshDuplicate(
 
 export async function createProjectMemoryItem(
   values: NewProjectMemoryItem,
-  options: CreateMemoryOptions = {},
+  options: CreateMemoryOptions = {}
 ): Promise<ProjectMemoryItem> {
   const db = getDb()
 
@@ -465,7 +484,7 @@ export async function resolveProjectOrganization(projectId: string): Promise<str
 export async function createProjectMemoryItemForProject(
   projectId: string,
   values: Omit<NewProjectMemoryItem, 'projectId' | 'organizationId' | 'scope'>,
-  options: CreateMemoryOptions = {},
+  options: CreateMemoryOptions = {}
 ): Promise<ProjectMemoryItem | null> {
   const db = getDb()
   const [project] = await db
@@ -482,7 +501,7 @@ export async function createProjectMemoryItemForProject(
       projectId,
       organizationId: project.organizationId,
     },
-    options,
+    options
   )
 }
 
@@ -498,13 +517,16 @@ export async function updateProjectMemoryItem(
       ProjectMemoryItem,
       'content' | 'kind' | 'status' | 'confidence' | 'verification' | 'pinned' | 'salience'
     >
-  >,
+  >
 ): Promise<ProjectMemoryItem | null> {
   const db = getDb()
   const ownerCondition =
     'projectId' in owner
       ? eq(projectMemory.projectId, owner.projectId)
-      : and(eq(projectMemory.scope, 'organization'), eq(projectMemory.organizationId, owner.organizationId))
+      : and(
+          eq(projectMemory.scope, 'organization'),
+          eq(projectMemory.organizationId, owner.organizationId)
+        )
   const [item] = await db
     .update(projectMemory)
     .set({ ...patch, updatedAt: new Date() })
@@ -515,13 +537,16 @@ export async function updateProjectMemoryItem(
 
 export async function deleteProjectMemoryItem(
   owner: { projectId: string } | { organizationId: string },
-  itemId: string,
+  itemId: string
 ): Promise<boolean> {
   const db = getDb()
   const ownerCondition =
     'projectId' in owner
       ? eq(projectMemory.projectId, owner.projectId)
-      : and(eq(projectMemory.scope, 'organization'), eq(projectMemory.organizationId, owner.organizationId))
+      : and(
+          eq(projectMemory.scope, 'organization'),
+          eq(projectMemory.organizationId, owner.organizationId)
+        )
   const deleted = await db
     .delete(projectMemory)
     .where(and(eq(projectMemory.id, itemId), ownerCondition))
@@ -574,7 +599,7 @@ export function formatDigestLines(items: DigestItem[]): string | null {
  */
 export async function buildProjectMemoryDigest(
   projectId: string | undefined,
-  organizationId: string | undefined,
+  organizationId: string | undefined
 ): Promise<string | null> {
   if (!projectId && !organizationId) return null
   const db = getDb()
@@ -588,9 +613,9 @@ export async function buildProjectMemoryDigest(
       organizationId
         ? and(
             eq(projectMemory.projectId, projectId),
-            eq(projectMemory.organizationId, organizationId),
+            eq(projectMemory.organizationId, organizationId)
           )
-        : eq(projectMemory.projectId, projectId),
+        : eq(projectMemory.projectId, projectId)
     )
   }
   if (organizationId) {
@@ -598,8 +623,8 @@ export async function buildProjectMemoryDigest(
       and(
         eq(projectMemory.scope, 'organization'),
         eq(projectMemory.organizationId, organizationId),
-        isNull(projectMemory.projectId),
-      ),
+        isNull(projectMemory.projectId)
+      )
     )
   }
 
@@ -613,7 +638,12 @@ export async function buildProjectMemoryDigest(
       pinned: projectMemory.pinned,
     })
     .from(projectMemory)
-    .where(and(scopeConditions.length > 1 ? or(...scopeConditions) : scopeConditions[0], eq(projectMemory.status, 'active')))
+    .where(
+      and(
+        scopeConditions.length > 1 ? or(...scopeConditions) : scopeConditions[0],
+        eq(projectMemory.status, 'active')
+      )
+    )
     .orderBy(desc(projectMemory.pinned), desc(projectMemory.updatedAt))
     .limit(DIGEST_MAX_ITEMS)
 

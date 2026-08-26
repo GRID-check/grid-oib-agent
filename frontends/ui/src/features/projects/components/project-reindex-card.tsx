@@ -63,8 +63,8 @@ export function ProjectReindexCard({ projectId }: ProjectReindexCardProps): JSX.
     <RaisedCard aria-label={t('project.sections.reindex')}>
       <RaisedCardBody className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
-          <h2 className="text-sm font-semibold text-foreground">{t('project.sections.reindex')}</h2>
-          <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          <h2 className="text-foreground text-sm font-semibold">{t('project.sections.reindex')}</h2>
+          <p className="text-muted-foreground max-w-2xl text-sm leading-relaxed">
             {t('project.reindexDescription')}
           </p>
         </div>
@@ -74,7 +74,10 @@ export function ProjectReindexCard({ projectId }: ProjectReindexCardProps): JSX.
           disabled={isReindexing}
           className="shrink-0"
         >
-          <RefreshCw className={isReindexing ? 'size-4 animate-spin' : 'size-4'} aria-hidden="true" />
+          <RefreshCw
+            className={isReindexing ? 'size-4 animate-spin' : 'size-4'}
+            aria-hidden="true"
+          />
           {isReindexing ? t('project.reindexBusy') : t('project.reindexAction')}
         </Button>
       </RaisedCardBody>

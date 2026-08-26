@@ -108,6 +108,88 @@ The ramp targets the dummy's 9.5–24px scale: **20px page titles**, **23px hero
 - **Radius:** cards `rounded-lg` (var --radius, 12px — inside the dummy's 7–14px range), inputs/buttons follow shadcn defaults, pills/badges `rounded-md`.
 - **Borders:** hairline `border` (border-border — alpha ink, composites on any surface). Prefer a single border + `bg-card` over nested boxes. Use `divide-y` for list groups inside one bordered container. Depth = surface step + layered soft shadow (`shadow-xs/sm/md/lg` are bound to `--elevation-*`), never a heavy border.
 
+## Touch
+
+Sized on ONE axis — `pointer-coarse:`, never a viewport breakpoint. `md:` asks
+about width, and width is a proxy for input device that is wrong at both ends: a
+touch tablet past the breakpoint keeps mouse-sized controls, and a half-width
+desktop window gets finger-sized ones.
+
+**The floor is 44px on both axes**, and a control reaches it in one of two ways.
+Which one is not a matter of taste — it is decided by what is next to the control:
+
+- **Room around it → `touch-target`.** The utility centres a `max(100%, 44px)`
+  catchment on the element and lets it overhang, so the drawn control does not
+  move and the surface keeps its rhythm. Right for a caption-sized disclosure
+  under a card's body, a lone link at the end of a turn.
+- **A neighbour beside it → grow it** (`pointer-coarse:py-*`, `min-h-11`,
+  `size-11`). Two 44px catchments on rows 33px apart overlap, and in the overlap
+  the later element in the DOM takes the tap — the reader presses one row and
+  opens the one below it. A confidently wrong target is worse than a small one.
+
+Exceptions, and they are narrow: an inline target inside a sentence (a citation
+marker, a mention pill, a prose link) cannot reach 44px without stealing its
+neighbour's taps, which is why WCAG 2.5.8 exempts it. Those still grow to at
+least the line box they sit in.
+
+**A hover reveal needs a second way in.** `opacity-0 group-hover:opacity-100`
+is an affordance a touch device cannot generate, so the control is present,
+focusable and permanently invisible. Add `pointer-coarse:opacity-100`, or invert
+to `md:opacity-0` and let it simply be visible below the breakpoint.
+
+**Nothing takes the page scroll.** A `touch-action` that refuses the vertical pan
+strands every finger that lands on it, and the browser intersects that value
+across the whole ancestor chain — so a library stylesheet can freeze a region
+none of our code mentions. Only a surface that genuinely owns its gestures (the
+3D model canvas) may keep one.
+
+**Text fields are 16px below `md`**, or iOS Safari zooms the page on focus and
+does not zoom back out. **The action key is labelled**: `enterKeyHint` says what
+Enter does, and a field that matches strings turns off autocapitalize and
+autocorrect so the phone cannot edit a query on its way into a matcher.
+
+Measured, not eyeballed: `task fe:touch-audit`. Held statically by
+`components/ui/touch-target.spec.ts` and `components/ui/mobile-affordances.spec.ts`.
+## Component layers (atomic design)
+
+The UI is built atomically: **atoms** compose into **molecules**, molecules into
+**organisms**, and only then into a route. The vocabulary is already in the code:
+`project-atoms.tsx`, "the shared `SearchField` molecule", "the organisms import
+from HERE". This section is what it means, because the layering is
+a rule and not a filing convention.
+
+| Layer | Where it lives | What it is |
+|---|---|---|
+| Atom | `components/ui/` for the product-wide kit; a local `*-atoms.tsx` or a `viewer/`-style kit folder for a surface's own | One decision each: a shape, a control, a piece of material. Knows no domain |
+| Molecule | `components/ui/`, `components/<area>/` | A few atoms with one job. `SearchField`, `PageHeader`, `RaisedCard` |
+| Organism | `components/<area>/`, `features/<domain>/components/` | A meaningful chunk of a screen. `ProjectCard`, the viewer rail, the model stage |
+| Route | `app/**` | Composition and data, not markup |
+
+Three rules carry the weight:
+
+**An organism reaches for an atom, never for Tailwind.** If a control needs a
+shape the kit does not have, **the kit gains an atom** rather than the organism
+gaining a `<div className="…">`. `features/bim/components/viewer/index.ts` is a
+barrel that exists purely to enforce this: nine atoms, exported from one place,
+and everything the model stage draws is built from them. The viewport before it
+had four floating panels in three different materials, all written inline, none
+testable.
+
+**A second surface showing the same thing composes the same atoms.** It does not
+hand-roll a lookalike. Two lookalikes drift on the first token retune, and the
+divergence surfaces as one card with a different corner radius or a hover lift
+that does not match. `project-atoms.tsx` exists so a genuinely different
+*arrangement*, the dense list row next to the card grid, is still made of the
+same material.
+
+**Shape is a primitive; domain is an atom on top of it.** The raised white plate
+on a subtler tray is `components/ui/raised-card.tsx`. What makes it a *project*
+is `project-atoms.tsx`. Re-declaring the geometry in the domain file is how you
+get the fifth hand-rolled copy of `rounded-b-[10px] bg-card shadow-xs`.
+
+The layer names carry weight in review. "Make it an atom" and "that belongs in
+the kit" are the two most common notes on a UI diff.
+
 ## Component patterns
 
 **Project card** — "a project, listed" has ONE component: `ProjectCard`
@@ -351,3 +433,4 @@ More than one ambient loop on screen. `ease-linear`. `transition-all`.
 - No hardcoded colors — tokens only, so dark mode is free.
 - No nested cards (card-inside-card). Flatten with borders/dividers/spacing.
 - No purple/generic-AI aesthetic. **Provenance signals are the only chroma** — no accent-colored buttons, no blue active states (actions and focus are ink), and a source color is never used outside its meaning or without its icon + label.
+- No touch size on a `md:` breakpoint, no reveal that only hover can open, no `touch-action` that takes the page scroll from a surface that does not own the gesture. See [Touch](#touch).

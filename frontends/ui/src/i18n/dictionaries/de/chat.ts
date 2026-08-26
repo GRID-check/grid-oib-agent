@@ -64,6 +64,9 @@ export const chat: typeof en.chat = {
     showing: '{label} wird angezeigt',
   },
   composer: {
+    /** Shown when the reader holds project:view but not project:chat. */
+    noProjectChatPermission:
+      'Der Recherche-Agent steht Ihnen in diesem Projekt derzeit nicht zur Verfügung. Wenn Sie nur Lesezugriff haben, kann Ihnen eine Projektadministratorin oder ein Projektadministrator die Rolle „Mitwirkender“ erteilen.',
     placeholder: 'Fragen Sie Piloti zu diesem Projekt …',
     sources: 'Datengrundlage',
     sourcesAria: 'Datengrundlage – {enabled} von {total} Quellen aktiv. Öffnet die Datenquellen.',
@@ -336,7 +339,8 @@ export const chat: typeof en.chat = {
       sourcesLess: 'Weniger',
       // Steht in der Aufklappung, wo die Eingangswerte ohnehin geprüft werden:
       // gerechnet hat die Karte, zu prüfen sind die Werte.
-      computedNote: 'Das Ergebnis wird von dieser Karte aus den obigen Werten berechnet, nicht aus der Antwort übernommen.',
+      computedNote:
+        'Das Ergebnis wird von dieser Karte aus den obigen Werten berechnet, nicht aus der Antwort übernommen.',
     },
     processMap: {
       eyebrow: 'Verfahrensablauf',
@@ -399,8 +403,10 @@ export const chat: typeof en.chat = {
       basis: 'Grundlage',
       // Der Satz, der die Karte ehrlich hält: Die Reihenfolge ist gezeichnet,
       // die Länge nicht — die Fristen laufen ab verschiedenen Ereignissen.
-      notToScale: 'Die Reihenfolge ist maßstabslos dargestellt: Jede Frist läuft ab einem eigenen Ereignis.',
-      noDatesNote: 'Die Fristen stehen so, wie sie die Bestimmung formuliert. Diese Karte rechnet kein Datum aus.',
+      notToScale:
+        'Die Reihenfolge ist maßstabslos dargestellt: Jede Frist läuft ab einem eigenen Ereignis.',
+      noDatesNote:
+        'Die Fristen stehen so, wie sie die Bestimmung formuliert. Diese Karte rechnet kein Datum aus.',
     },
     // ── Auswirkung einer Änderung ───────────────────────────────────────
     changeImpact: {
@@ -793,15 +799,13 @@ export const chat: typeof en.chat = {
     // Kompakter Inline-Hinweis auf einer unterbrochenen Antwort: eine stille
     // Wiederverbindung kann eine laufende Antwort verwerfen (Protokoll-
     // Robustheit, Punkt 4). Statt nur des stummen „Unterbrochen“-Chips.
-    interruptedNotice:
-      'Verbindung kurz unterbrochen — Antwort ging verloren. Bitte erneut senden.',
+    interruptedNotice: 'Verbindung kurz unterbrochen — Antwort ging verloren. Bitte erneut senden.',
     // Vorübergehender „Wird geprüft“-Zustand (FIX 3): angezeigt, solange der
     // Wiederherstellungs-Abruf nach einer Wiederverbindung läuft, damit ein
     // Zug, der nur unterbrochen AUSSIEHT, nicht sofort den „verloren“-Hinweis
     // zeigt, bevor bestätigt ist, dass die Antwort wirklich fehlt.
     recovering: 'Verbindung wird wiederhergestellt',
-    recoveringNotice:
-      'Verbindung wird wiederhergestellt — prüfe auf fertige Antwort …',
+    recoveringNotice: 'Verbindung wird wiederhergestellt — prüfe auf fertige Antwort …',
     done: 'Fertig',
     showThinking: 'Denkschritte anzeigen ({count})',
     showThinkingSteps: 'Denkschritte anzeigen ({count})',
@@ -811,8 +815,7 @@ export const chat: typeof en.chat = {
     // Modell hat zu Recht keine Zitate. Gezählt wird, was da ist; über das,
     // was nicht da ist, sagt die Zeile nichts.
     herleitungSummary: 'Herleitung · {count, plural, one {# Schritt} other {# Schritte}}',
-    herleitungSummaryWithSources:
-      '{summary} · {count, plural, one {# Quelle} other {# Quellen}}',
+    herleitungSummaryWithSources: '{summary} · {count, plural, one {# Quelle} other {# Quellen}}',
     // Der Zug hat noch keinen Schritt gemeldet — dann nennt die Zeile nur, was
     // sie ist, statt „0 Schritte“ zu zählen.
     herleitungSummaryNoSteps: 'Herleitung',
@@ -971,8 +974,7 @@ export const chat: typeof en.chat = {
     },
     connectionFailed: {
       title: 'Verbindung fehlgeschlagen',
-      message:
-        'Verbindung zum Server nicht möglich. Bitte überprüfen Sie Ihre Netzwerkverbindung.',
+      message: 'Verbindung zum Server nicht möglich. Bitte überprüfen Sie Ihre Netzwerkverbindung.',
     },
     connectionTimeout: {
       title: 'Zeitüberschreitung der Anfrage',
@@ -992,7 +994,8 @@ export const chat: typeof en.chat = {
     },
     responseInterrupted: {
       title: 'Antwort unterbrochen',
-      message: 'Ihre vorherige Anfrage wurde nicht abgeschlossen. Bitte senden Sie Ihre Nachricht erneut.',
+      message:
+        'Ihre vorherige Anfrage wurde nicht abgeschlossen. Bitte senden Sie Ihre Nachricht erneut.',
     },
     workflowError: {
       title: 'Anfrage fehlgeschlagen',

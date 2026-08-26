@@ -37,11 +37,27 @@ vi.mock('@/lib/db/schema', () => ({
  * of the partitioned cache key.
  */
 const rowsByOrg = new Map<string, { profile: unknown; profilePromptView: string }>()
+/**
+ * The document-roles block is appended by `loadProjectPromptView` at read time.
+ * Mocked here rather than let through: this spec is about the cache and its
+ * tenant partition, and the real loader would drag the schema barrel in behind
+ * it. What the block CONTAINS is covered by
+ * `lib/document-roles/prompt-section.spec.ts`.
+ */
+let rolesSection = ''
+vi.mock('@/lib/document-roles/prompt-loader', () => ({
+  loadDocumentRolesPromptSection: async () => rolesSection,
+}))
+
 vi.mock('@/lib/projects/repository', () => ({
   findProjectPromptView: async (_projectId: string, organizationId: string | null | undefined) =>
-    rowsByOrg.get(organizationId ?? 'anon')?.profilePromptView ?? (dbRows[0] as { profilePromptView?: string })?.profilePromptView ?? null,
+    rowsByOrg.get(organizationId ?? 'anon')?.profilePromptView ??
+    (dbRows[0] as { profilePromptView?: string })?.profilePromptView ??
+    null,
   findProjectProfile: async (_projectId: string, organizationId: string | null | undefined) =>
-    rowsByOrg.get(organizationId ?? 'anon')?.profile ?? (dbRows[0] as { profile?: unknown })?.profile ?? null,
+    rowsByOrg.get(organizationId ?? 'anon')?.profile ??
+    (dbRows[0] as { profile?: unknown })?.profile ??
+    null,
 }))
 
 import { setCacheStore, type CacheStore } from '@/lib/cache'
@@ -77,7 +93,12 @@ class TestStore implements CacheStore {
 
 const rowFor = (bundesland: string, promptView: string) => [
   {
-    profile: { facts: { bundesland: { value: bundesland } }, goals: {}, unknowns: [], assumptions: {} },
+    profile: {
+      facts: { bundesland: { value: bundesland } },
+      goals: {},
+      unknowns: [],
+      assumptions: {},
+    },
     profilePromptView: promptView,
   },
 ]
@@ -92,6 +113,23 @@ describe('project profile cache invalidation (Fix 1)', () => {
 
   afterEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('appends the document-roles block to the stored view', async () => {
+    // The stored view is built at profile-save; a document declared afterwards
+    // would never reach a view built there, so the block is appended at read
+    // time instead.
+    dbRows = rowFor('wien', 'PROJECT_CONTEXT v1')
+    rolesSection = 'documents:\n- Bebauungsplan: bplan.pdf'
+
+    const view = await loadProjectPromptView('proj-1', 'org-1')
+    expect(view).toBe('PROJECT_CONTEXT v1\n\ndocuments:\n- Bebauungsplan: bplan.pdf')
+    rolesSection = ''
+  })
+
+  it('returns the stored view unchanged when a project has no document roles', async () => {
+    dbRows = rowFor('wien', 'PROJECT_CONTEXT v1')
+    expect(await loadProjectPromptView('proj-1', 'org-1')).toBe('PROJECT_CONTEXT v1')
   })
 
   it('caches both the prompt view and the structured bundesland under their own keys', async () => {
@@ -160,11 +198,21 @@ describe('project profile cache is partitioned by tenant', () => {
     // straight out of the cache — no query, no tenant scope, no row-level
     // security in the path at all.
     rowsByOrg.set('org-a', {
-      profile: { facts: { bundesland: { value: 'wien' } }, goals: {}, unknowns: [], assumptions: {} },
+      profile: {
+        facts: { bundesland: { value: 'wien' } },
+        goals: {},
+        unknowns: [],
+        assumptions: {},
+      },
       profilePromptView: 'ORG A CONTEXT',
     })
     rowsByOrg.set('org-b', {
-      profile: { facts: { bundesland: { value: 'tirol' } }, goals: {}, unknowns: [], assumptions: {} },
+      profile: {
+        facts: { bundesland: { value: 'tirol' } },
+        goals: {},
+        unknowns: [],
+        assumptions: {},
+      },
       profilePromptView: 'ORG B CONTEXT',
     })
 
@@ -177,11 +225,21 @@ describe('project profile cache is partitioned by tenant', () => {
 
   it('does not serve an anonymous caller the context cached for a tenant', async () => {
     rowsByOrg.set('org-a', {
-      profile: { facts: { bundesland: { value: 'wien' } }, goals: {}, unknowns: [], assumptions: {} },
+      profile: {
+        facts: { bundesland: { value: 'wien' } },
+        goals: {},
+        unknowns: [],
+        assumptions: {},
+      },
       profilePromptView: 'ORG A CONTEXT',
     })
     rowsByOrg.set('anon', {
-      profile: { facts: { bundesland: { value: 'tirol' } }, goals: {}, unknowns: [], assumptions: {} },
+      profile: {
+        facts: { bundesland: { value: 'tirol' } },
+        goals: {},
+        unknowns: [],
+        assumptions: {},
+      },
       profilePromptView: 'ANON CONTEXT',
     })
 
@@ -194,11 +252,21 @@ describe('project profile cache is partitioned by tenant', () => {
     // populated `anon`. Dropping only one leaves the other serving what the
     // write just replaced.
     rowsByOrg.set('org-a', {
-      profile: { facts: { bundesland: { value: 'wien' } }, goals: {}, unknowns: [], assumptions: {} },
+      profile: {
+        facts: { bundesland: { value: 'wien' } },
+        goals: {},
+        unknowns: [],
+        assumptions: {},
+      },
       profilePromptView: 'BEFORE',
     })
     rowsByOrg.set('anon', {
-      profile: { facts: { bundesland: { value: 'wien' } }, goals: {}, unknowns: [], assumptions: {} },
+      profile: {
+        facts: { bundesland: { value: 'wien' } },
+        goals: {},
+        unknowns: [],
+        assumptions: {},
+      },
       profilePromptView: 'BEFORE',
     })
     await loadProjectPromptView('proj-1', 'org-a')

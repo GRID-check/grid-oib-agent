@@ -93,7 +93,7 @@ export function ProjectBrief({
             >
               <ClipboardList className="size-[17px]" />
             </span>
-            <h2 className="text-sm font-semibold text-foreground">{t('overview.brief.heading')}</h2>
+            <h2 className="text-foreground text-sm font-semibold">{t('overview.brief.heading')}</h2>
             {brief.totalCount > 0 && (
               <CountPill>
                 {t('overview.brief.captured', {
@@ -106,7 +106,7 @@ export function ProjectBrief({
           {canEdit && (
             <Link
               href={intakeHref}
-              className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors duration-quick ease-out hover:text-foreground touch-target motion-reduce:transition-none"
+              className="text-muted-foreground duration-quick hover:text-foreground touch-target inline-flex items-center gap-1 text-sm transition-colors ease-out motion-reduce:transition-none"
             >
               <PencilLine className="size-3.5" aria-hidden />
               {t('overview.brief.edit')}
@@ -121,7 +121,7 @@ export function ProjectBrief({
             manual reload. The manual control remains for retry/regenerate. */}
         {prose ? (
           <div className="mt-3">
-            <p className="text-sm leading-relaxed text-muted-foreground">{prose}</p>
+            <p className="text-muted-foreground text-sm leading-relaxed">{prose}</p>
             <SummaryControl projectId={projectId} hasSummary summaryLocale={summaryLocale} />
           </div>
         ) : (
@@ -133,14 +133,14 @@ export function ProjectBrief({
         {/* Focus areas the architect selected for Piloti */}
         {brief.focusAreas.length > 0 && (
           <div className="mt-4 flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-xs text-muted-foreground">{t('overview.brief.focus')}</span>
+            <span className="text-muted-foreground mr-1 text-xs">{t('overview.brief.focus')}</span>
             {brief.focusAreas.map((area) => (
               <Badge key={area} variant="secondary">
                 {area}
               </Badge>
             ))}
             {brief.goalDetails && (
-              <span className="basis-full text-xs text-muted-foreground">{brief.goalDetails}</span>
+              <span className="text-muted-foreground basis-full text-xs">{brief.goalDetails}</span>
             )}
           </div>
         )}
@@ -150,11 +150,11 @@ export function ProjectBrief({
           <div className="mt-5 space-y-5">
             {brief.groups.map((group) => (
               <div key={group.id}>
-                <h3 className="text-xs font-medium text-muted-foreground/80">{group.title}</h3>
+                <h3 className="text-muted-foreground/80 text-xs font-medium">{group.title}</h3>
                 <dl className="mt-2 grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-3">
                   {group.facts.map((fact) => (
                     <div key={fact.key}>
-                      <dt className="text-xs text-muted-foreground">{fact.label}</dt>
+                      <dt className="text-muted-foreground text-xs">{fact.label}</dt>
                       <dd
                         className="mt-0.5 text-sm font-medium"
                         title={
@@ -172,9 +172,12 @@ export function ProjectBrief({
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-sm text-muted-foreground">
+          <p className="text-muted-foreground mt-3 text-sm">
             {t('overview.brief.startedNoDetailsBefore')}
-            <Link href={intakeHref} className="font-medium text-foreground underline-offset-4 transition-colors duration-quick ease-out hover:underline motion-reduce:transition-none">
+            <Link
+              href={intakeHref}
+              className="text-foreground duration-quick font-medium underline-offset-4 transition-colors ease-out hover:underline motion-reduce:transition-none"
+            >
               {t('overview.brief.completeBrief')}
             </Link>
             {t('overview.brief.startedNoDetailsAfter')}
@@ -190,7 +193,7 @@ export function ProjectBrief({
         {brief.missing.length > 0 && (
           <div className="mt-5 border-t pt-4">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="mr-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
+              <span className="text-muted-foreground mr-1 inline-flex items-center gap-1 text-xs">
                 <CircleHelp className="size-3.5" aria-hidden />
                 {t('overview.brief.missingHeading')}
               </span>
@@ -257,9 +260,10 @@ function SummaryControl({
       }
       // The route answers 200 even on generation failure, carrying a diagnostic
       // `error` code (e.g. no LLM configured) and an empty summary.
-      const data = (await res.json().catch(() => null)) as
-        | { summary?: string; error?: string | null }
-        | null
+      const data = (await res.json().catch(() => null)) as {
+        summary?: string
+        error?: string | null
+      } | null
       if (data?.error === 'llm_not_configured') {
         throw { kind: 'llm_not_configured' } as const
       }
@@ -280,7 +284,7 @@ function SummaryControl({
             ? t('overview.brief.summaryForbidden')
             : kind === 'llm_not_configured'
               ? t('overview.brief.summaryLlmNotConfigured')
-              : t('overview.brief.summaryError'),
+              : t('overview.brief.summaryError')
         )
       }
     } finally {
@@ -316,7 +320,7 @@ function SummaryControl({
         type="button"
         onClick={() => void generate()}
         disabled={pending}
-        className="mt-2 inline-flex min-w-36 items-center gap-1 text-xs text-muted-foreground transition-colors duration-quick ease-out hover:text-foreground disabled:opacity-60 touch-target motion-reduce:transition-none"
+        className="text-muted-foreground duration-quick hover:text-foreground touch-target mt-2 inline-flex min-w-36 items-center gap-1 text-xs transition-colors ease-out disabled:opacity-60 motion-reduce:transition-none"
       >
         <span className="inline-flex size-3.5 shrink-0 items-center justify-center">
           {pending ? (
@@ -335,7 +339,7 @@ function SummaryControl({
     // the prose is on its way, not an inviting "Generate" button that would
     // start a duplicate LLM call.
     return (
-      <p className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+      <p className="text-muted-foreground flex items-center gap-2 text-sm" aria-live="polite">
         <Spinner size="sm" />
         {t('overview.brief.summaryWriting')}
       </p>
@@ -347,10 +351,12 @@ function SummaryControl({
     // notice (a specific cause hint for the no-LLM case) plus a manual retry.
     return (
       <div className="space-y-2" aria-live="polite">
-        <p className="text-sm text-muted-foreground">
+        <p className="text-muted-foreground text-sm">
           {t('overview.brief.summaryUnavailable')}
           {autoFailure === 'llm_not_configured' && (
-            <span className="mt-0.5 block text-xs">{t('overview.brief.summaryUnavailableLlm')}</span>
+            <span className="mt-0.5 block text-xs">
+              {t('overview.brief.summaryUnavailableLlm')}
+            </span>
           )}
         </p>
         <Button type="button" variant="outline" size="sm" onClick={() => void generate()}>
@@ -374,7 +380,13 @@ function SummaryControl({
  * assumption into a hard fact (source `user_confirmed`); dismissing removes it.
  * Both go through the same profile-patch endpoint the agent's patch cards use.
  */
-function AssumptionsBlock({ projectId, assumptions }: { projectId: string; assumptions: BriefAssumption[] }) {
+function AssumptionsBlock({
+  projectId,
+  assumptions,
+}: {
+  projectId: string
+  assumptions: BriefAssumption[]
+}) {
   const t = useTranslations('projects')
   const router = useRouter()
   const [busyKey, setBusyKey] = useState<string | null>(null)
@@ -419,7 +431,7 @@ function AssumptionsBlock({ projectId, assumptions }: { projectId: string; assum
           ? t('overview.brief.assumptionForbidden')
           : kind === 'conflict'
             ? t('overview.brief.assumptionConflict')
-            : t('overview.brief.assumptionError'),
+            : t('overview.brief.assumptionError')
       )
     } finally {
       setBusyKey(null)
@@ -428,7 +440,7 @@ function AssumptionsBlock({ projectId, assumptions }: { projectId: string; assum
 
   return (
     <div className="mt-5 border-t pt-4">
-      <h3 className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
+      <h3 className="text-muted-foreground inline-flex items-center gap-1 text-xs font-medium">
         <Sparkles className="size-3.5" aria-hidden />
         {t('overview.brief.assumptionsHeading')}
       </h3>
@@ -441,7 +453,7 @@ function AssumptionsBlock({ projectId, assumptions }: { projectId: string; assum
                 <span className="font-medium">{assumption.value}</span>
               </p>
               {assumption.reason && (
-                <p className="text-xs text-muted-foreground">{assumption.reason}</p>
+                <p className="text-muted-foreground text-xs">{assumption.reason}</p>
               )}
             </div>
             <div className="flex shrink-0 gap-2">
@@ -467,7 +479,7 @@ function AssumptionsBlock({ projectId, assumptions }: { projectId: string; assum
           </li>
         ))}
       </ul>
-      {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
+      {error && <p className="text-destructive mt-2 text-xs">{error}</p>}
     </div>
   )
 }

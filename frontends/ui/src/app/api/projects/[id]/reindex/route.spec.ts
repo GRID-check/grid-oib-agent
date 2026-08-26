@@ -31,9 +31,12 @@ describe('POST /api/projects/[id]/reindex', () => {
     reindexProject.mockResolvedValue({ projectId: 'p-1', queued: 3, skipped: 0, failed: [] })
     const { POST } = await import('./route')
 
-    const response = await POST(new Request('http://t/api/projects/p-1/reindex', { method: 'POST' }), {
-      params: Promise.resolve({ id: 'p-1' }),
-    })
+    const response = await POST(
+      new Request('http://t/api/projects/p-1/reindex', { method: 'POST' }),
+      {
+        params: Promise.resolve({ id: 'p-1' }),
+      }
+    )
 
     expect(reindexProject).toHaveBeenCalledTimes(1)
     expect(reindexProject.mock.calls[0][1]).toBe('p-1')
@@ -49,9 +52,12 @@ describe('POST /api/projects/[id]/reindex', () => {
     })
     const { POST } = await import('./route')
 
-    const response = await POST(new Request('http://t/api/projects/p-1/reindex', { method: 'POST' }), {
-      params: Promise.resolve({ id: 'p-1' }),
-    })
+    const response = await POST(
+      new Request('http://t/api/projects/p-1/reindex', { method: 'POST' }),
+      {
+        params: Promise.resolve({ id: 'p-1' }),
+      }
+    )
 
     const body = (await response.json()) as { queued: number; failed: string[] }
     expect(body.queued).toBe(2)

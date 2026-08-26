@@ -1,5 +1,6 @@
 ---
 import Logo from '../atoms/Logo.astro'
+import Pill from '../atoms/Pill.astro'
 import { CONTACT_EMAIL } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
 import { useTranslatedPath } from '../../i18n/utils'
@@ -13,25 +14,123 @@ const translatePath = useTranslatedPath(locale)
 const home = translatePath('/')
 
 const year = new Date().getFullYear()
+const block = t.footer.block.map((cell) =>
+  cell.value === '' ? { ...cell, value: String(year) } : cell
+)
+
+const columns = [
+  {
+    heading: t.footer.productHeading,
+    links: [
+      { label: t.footer.usage, href: `${home}#nutzung` },
+      { label: t.footer.data, href: `${home}#daten` },
+      { label: t.footer.value, href: `${home}#wert` },
+      { label: t.footer.working, href: translatePath('/rechenweg/') },
+    ],
+  },
+  {
+    heading: t.footer.companyHeading,
+    links: [
+      { label: t.footer.blog, href: translatePath('/blog/') },
+      { label: t.footer.changelog, href: translatePath('/changelog/') },
+      { label: t.ki.tag, href: `${home}#datenschutz` },
+    ],
+  },
+  {
+    heading: t.footer.legalHeading,
+    links: [
+      { label: t.footer.privacy, href: translatePath('/datenschutz/') },
+      { label: t.footer.imprint, href: translatePath('/impressum/') },
+    ],
+  },
+]
 ---
 
-<footer class="px-4 pb-6">
+<!-- The footer is where a visitor lands who did not convert: it has to say who
+     we are, where everything is, and how to reach a person — which is why it is
+     a full sheet rather than the single line of links it used to be. -->
+<footer class="px-4 pb-8 pt-4">
   <div
-    class="mx-auto flex max-w-[84rem] flex-wrap items-center justify-between gap-x-8 gap-y-5 border-t border-ink/15 px-4 py-6 sm:px-8"
+    class="mx-auto box-border max-w-[85rem] rounded-panel bg-surface-dim px-6 py-16 sheet-light sm:px-16 sm:py-20"
   >
-    <Logo href={`${home}#top`} label={t.nav.logoLabel} size="sm" />
-    <nav
-      aria-label={t.footer.ariaLabel}
-      class="flex flex-wrap items-center gap-x-6 gap-y-2.5 text-sm text-ink-soft"
+    <div class="grid grid-cols-[1.6fr_1fr_1fr_1fr] gap-x-10 gap-y-12 max-lg:grid-cols-2 max-sm:grid-cols-1">
+      <div class="max-w-xs">
+        <Logo href={`${home}#top`} label={t.nav.logoLabel} size="sm" />
+        <p class="m-0 mt-5 text-sm leading-relaxed text-ink-soft" style="text-wrap: pretty">
+          {t.footer.tagline}
+        </p>
+        <p
+          class="m-0 mt-5 inline-flex items-center gap-2 rounded-full border border-accent-600/35 px-3 py-1.5 font-mono text-2xs uppercase tracking-widest text-accent-600"
+        >
+          <span class="size-1.5 rounded-full bg-accent-500" aria-hidden="true"></span>
+          {t.footer.privacyPromise}
+        </p>
+      </div>
+
+      {
+        columns.map((col) => (
+          <nav aria-label={col.heading}>
+            <h2 class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
+              {col.heading}
+            </h2>
+            <ul class="m-0 mt-5 list-none space-y-3 p-0">
+              {col.links.map((l) => (
+                <li>
+                  <a class="text-sm text-ink-soft transition-colors hover:text-accent-600" href={l.href}>
+                    {l.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ))
+      }
+    </div>
+
+    <div
+      class="mt-14 grid grid-cols-[1.6fr_3fr] items-end gap-x-10 gap-y-8 border-t border-ink/12 pt-10 max-lg:grid-cols-1"
     >
-      <a href={`${home}#nutzung`}>{t.footer.usage}</a>
-      <a href={`${home}#daten`}>{t.footer.data}</a>
-      <a href={translatePath('/blog/')}>{t.footer.blog}</a>
-      <a href={translatePath('/changelog/')}>{t.footer.changelog}</a>
-      <a href={translatePath('/datenschutz/')}>{t.footer.privacy}</a>
-      <a href={translatePath('/impressum/')}>{t.footer.imprint}</a>
-      <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
-    </nav>
-    <p class="text-xs text-ink-faint">© Piloti {year}</p>
+      <div>
+        <h2 class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
+          {t.footer.contactHeading}
+        </h2>
+        <a
+          class="mt-3 inline-block font-display text-xl font-semibold tracking-tight text-panel hover:text-accent-600"
+          href={`mailto:${CONTACT_EMAIL}`}
+        >
+          {CONTACT_EMAIL}
+        </a>
+        <p class="m-0 mt-2 max-w-sm text-sm leading-relaxed text-ink-mute">
+          {t.footer.contactBody}
+        </p>
+      </div>
+      <div class="flex justify-end max-lg:justify-start">
+        <Pill href={`mailto:${CONTACT_EMAIL}?subject=${t.cta.subjectDemo}`} variant="solid" size="md">
+          {t.footer.demo}
+        </Pill>
+      </div>
+    </div>
+
+    <!-- The foot of the sheet states what the sheet is, the way a drawing does
+         in the corner where its title block sits. -->
+    <div class="mt-12 border-t border-ink/12 pt-6">
+      <dl
+        class="m-0 grid grid-cols-[1.4fr_1fr_1fr_1fr] gap-x-6 gap-y-3 max-sm:grid-cols-2"
+      >
+        {
+          block.map((cell) => (
+            <div class="flex items-baseline gap-2.5 whitespace-nowrap">
+              <dt class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-ghost">
+                {cell.label}
+              </dt>
+              <dd class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-mute">
+                {cell.value}
+              </dd>
+            </div>
+          ))
+        }
+      </dl>
+      <p class="m-0 mt-6 text-2xs text-ink-faint">© Piloti {year}. {t.footer.rights}</p>
+    </div>
   </div>
 </footer>

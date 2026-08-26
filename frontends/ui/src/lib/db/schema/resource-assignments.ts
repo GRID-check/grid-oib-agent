@@ -24,15 +24,18 @@ export const resourceAssignments = pgTable(
     subjectUniq: uniqueIndex('uniq_resource_assignments_resource_subject').on(
       table.resourceType,
       table.resourceId,
-      table.subjectUserId,
+      table.subjectUserId
     ),
-    resourceIdx: index('idx_resource_assignments_resource').on(table.resourceType, table.resourceId),
+    resourceIdx: index('idx_resource_assignments_resource').on(
+      table.resourceType,
+      table.resourceId
+    ),
     orgSubjectIdx: index('idx_resource_assignments_org_subject').on(
       table.organizationId,
       table.subjectUserId,
-      table.resourceType,
+      table.resourceType
     ),
-  }),
+  })
 )
 
 export type ResourceAssignment = typeof resourceAssignments.$inferSelect

@@ -34,7 +34,8 @@ vi.mock('@/lib/db', () => {
             db.calls.push(`update:${target}`)
             return {
               returning: async () => [{ id: 'doc-1' }, { id: 'doc-2' }],
-              then: (resolve: (value: unknown) => unknown) => Promise.resolve(undefined).then(resolve),
+              then: (resolve: (value: unknown) => unknown) =>
+                Promise.resolve(undefined).then(resolve),
             }
           },
         }),
@@ -48,31 +49,40 @@ vi.mock('@/lib/db', () => {
     }),
   }
   return {
-  getDb: () => {
-    const selectFrom = () => ({
-      from: () => ({
-        where: () => ({
-          limit: async () => db.folders.filter((f) => f.__match === 'one').map((f) => f.row),
-          then: undefined,
+    getDb: () => {
+      const selectFrom = () => ({
+        from: () => ({
+          where: () => ({
+            limit: async () => db.folders.filter((f) => f.__match === 'one').map((f) => f.row),
+            then: undefined,
+          }),
         }),
-      }),
-    })
-    return {
-      select: selectFrom,
-      transaction: async (run: (handle: unknown) => Promise<unknown>) => {
-        db.calls.push('begin')
-        const result = await run(tx)
-        db.calls.push('commit')
-        return result
-      },
-    }
-  },
+      })
+      return {
+        select: selectFrom,
+        transaction: async (run: (handle: unknown) => Promise<unknown>) => {
+          db.calls.push('begin')
+          const result = await run(tx)
+          db.calls.push('commit')
+          return result
+        },
+      }
+    },
   }
 })
 
 vi.mock('@/lib/db/schema', () => ({
-  projectFolders: { id: 'folders.id', projectId: 'folders.project_id', parentId: 'folders.parent_id', path: 'folders.path' },
-  documents: { id: 'documents.id', folderId: 'documents.folder_id', projectId: 'documents.project_id' },
+  projectFolders: {
+    id: 'folders.id',
+    projectId: 'folders.project_id',
+    parentId: 'folders.parent_id',
+    path: 'folders.path',
+  },
+  documents: {
+    id: 'documents.id',
+    folderId: 'documents.folder_id',
+    projectId: 'documents.project_id',
+  },
 }))
 
 // The backend mirror runs after the transaction (ADR-0049). Both of its
@@ -151,7 +161,7 @@ describe('deleteProjectFolder', () => {
     expect(db.calls.at(-1)).toBe('commit')
     expect(fetchSpy).toHaveBeenCalledWith(
       'http://backend:8000/v1/collections/proj_abc/folder-paths',
-      expect.objectContaining({ method: 'PATCH' }),
+      expect.objectContaining({ method: 'PATCH' })
     )
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string) as Record<string, unknown>
     expect(body).toEqual({ from_path: 'Brandschutz', to_path: null })
@@ -201,7 +211,10 @@ describe('updateProjectFolder', () => {
   })
 
   it('does not touch the backend when nothing actually moved', async () => {
-    await updateProjectFolder({ projectId: 'proj-1', folderId: 'folder-1', name: 'Brandschutz' }, SESSION)
+    await updateProjectFolder(
+      { projectId: 'proj-1', folderId: 'folder-1', name: 'Brandschutz' },
+      SESSION
+    )
 
     expect(fetchSpy).not.toHaveBeenCalled()
   })

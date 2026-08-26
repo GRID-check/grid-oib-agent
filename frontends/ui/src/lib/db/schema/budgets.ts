@@ -1,4 +1,15 @@
-import { boolean, date, index, integer, numeric, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import {
+  boolean,
+  date,
+  index,
+  integer,
+  numeric,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uuid,
+} from 'drizzle-orm/pg-core'
 
 /**
  * LLM spend limits + auditable usage ledger (ADR-0015,
@@ -55,13 +66,13 @@ export const budgetPolicies = pgTable(
       table.organizationId,
       table.scope,
       table.subjectId,
-      table.status,
+      table.status
     ),
     // NOTE: a PARTIAL UNIQUE index enforcing "one active policy per
     // (org, scope, subject)" lives in the hand-written part of the migration
     // (uniq_budget_policies_active) — drizzle's builder can't express
     // COALESCE-expression partial indexes (same pattern as 0010).
-  }),
+  })
 )
 
 export const COST_SOURCES = ['usage_field', 'missing', 'generation_api', 'estimate'] as const
@@ -103,19 +114,19 @@ export const llmUsageEvents = pgTable(
     orgUserTimeIdx: index('idx_llm_usage_events_org_user_time').on(
       table.organizationId,
       table.userId,
-      table.createdAt,
+      table.createdAt
     ),
     orgProjectTimeIdx: index('idx_llm_usage_events_org_project_time').on(
       table.organizationId,
       table.projectId,
-      table.createdAt,
+      table.createdAt
     ),
     orgModelTimeIdx: index('idx_llm_usage_events_org_model_time').on(
       table.organizationId,
       table.model,
-      table.createdAt,
+      table.createdAt
     ),
-  }),
+  })
 )
 
 /**
@@ -144,13 +155,17 @@ export const llmUsageRollups = pgTable(
       name: 'llm_usage_rollups_pk',
       columns: [table.organizationId, table.day, table.userId, table.projectId],
     }),
-    orgUserDayIdx: index('idx_llm_usage_rollups_org_user_day').on(table.organizationId, table.userId, table.day),
+    orgUserDayIdx: index('idx_llm_usage_rollups_org_user_day').on(
+      table.organizationId,
+      table.userId,
+      table.day
+    ),
     orgProjectDayIdx: index('idx_llm_usage_rollups_org_project_day').on(
       table.organizationId,
       table.projectId,
-      table.day,
+      table.day
     ),
-  }),
+  })
 )
 
 export type BudgetPolicy = typeof budgetPolicies.$inferSelect

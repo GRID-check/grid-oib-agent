@@ -127,7 +127,12 @@ export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail })
             <Collapsible open={open} onOpenChange={setOpen}>
               <CollapsibleTrigger
                 className={cn(
-                  '-ml-1 mt-1 inline-flex items-center gap-1 rounded px-1 py-0.5',
+                  // `touch-target` rather than real padding: this is a caption-sized
+                  // disclosure sitting directly under the card's body text, and adding
+                  // 20px of vertical padding to reach the floor would open a visible gap
+                  // in the card on phones only. The utility widens the CATCHMENT to 44px
+                  // and leaves the drawn control exactly where the card's rhythm puts it.
+                  '-ml-1 mt-1 inline-flex items-center gap-1 rounded px-1 py-0.5 touch-target',
                   'card-caption font-medium text-muted-foreground',
                   'transition-colors duration-quick ease-out hover:text-foreground',
                   'focus-visible:ring-ring/60 focus-visible:outline-none focus-visible:ring-2',

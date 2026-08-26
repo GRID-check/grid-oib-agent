@@ -62,7 +62,7 @@ export function toFolderRow(row: typeof projectFolders.$inferSelect): FolderRow 
 
 export async function listProjectFolders(
   projectId: string,
-  session: AuthorizedSession,
+  session: AuthorizedSession
 ): Promise<FolderRow[]> {
   await requireProjectAccess(session, projectId, 'project:view')
   const db = getDb()
@@ -76,7 +76,7 @@ export async function listProjectFolders(
 
 export async function createProjectFolder(
   input: CreateFolderInput,
-  session: AuthorizedSession,
+  session: AuthorizedSession
 ): Promise<{ ok: true; folder: FolderRow } | { ok: false; error: string }> {
   await requireProjectAccess(session, input.projectId, ['project:documents:write', 'project:edit'])
   const validation = validateFolderName(input.name)
@@ -90,7 +90,9 @@ export async function createProjectFolder(
     const [parent] = await db
       .select()
       .from(projectFolders)
-      .where(and(eq(projectFolders.id, input.parentId), eq(projectFolders.projectId, input.projectId)))
+      .where(
+        and(eq(projectFolders.id, input.parentId), eq(projectFolders.projectId, input.projectId))
+      )
       .limit(1)
     if (!parent) {
       return { ok: false, error: 'Parent folder not found.' }
@@ -137,7 +139,7 @@ async function rewriteDescendantPaths(
   tx: Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0],
   projectId: string,
   oldPath: string,
-  newPath: string,
+  newPath: string
 ): Promise<void> {
   if (oldPath === newPath) return
   await tx
@@ -149,8 +151,8 @@ async function rewriteDescendantPaths(
     .where(
       and(
         eq(projectFolders.projectId, projectId),
-        like(projectFolders.path, `${escapeLikePattern(oldPath)}/%`),
-      ),
+        like(projectFolders.path, `${escapeLikePattern(oldPath)}/%`)
+      )
     )
 }
 
@@ -180,18 +182,21 @@ export async function mirrorFolderPathRewrite(
   projectId: string,
   organizationId: string,
   fromPath: string,
-  toPath: string,
+  toPath: string
 ): Promise<void> {
   if (fromPath === toPath) return
   try {
     const project = await findProjectInOrg(projectId, organizationId)
     if (!project) return
-    await fetch(`${getBackendUrl()}/v1/collections/${encodeURIComponent(project.collectionName)}/folder-paths`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from_path: fromPath, to_path: toPath || null }),
-      signal: AbortSignal.timeout(BACKEND_MIRROR_TIMEOUT_MS),
-    })
+    await fetch(
+      `${getBackendUrl()}/v1/collections/${encodeURIComponent(project.collectionName)}/folder-paths`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from_path: fromPath, to_path: toPath || null }),
+        signal: AbortSignal.timeout(BACKEND_MIRROR_TIMEOUT_MS),
+      }
+    )
   } catch {
     // ignore — see the note above; the folder rows are the durable truth.
   }
@@ -208,7 +213,7 @@ export async function mirrorFolderPathRewrite(
  */
 export async function updateProjectFolder(
   input: UpdateFolderInput,
-  session: AuthorizedSession,
+  session: AuthorizedSession
 ): Promise<{ ok: true; folder: FolderRow } | { ok: false; error: string }> {
   await requireProjectAccess(session, input.projectId, ['project:documents:write', 'project:edit'])
   const db = getDb()
@@ -216,7 +221,9 @@ export async function updateProjectFolder(
   const [folder] = await db
     .select()
     .from(projectFolders)
-    .where(and(eq(projectFolders.id, input.folderId), eq(projectFolders.projectId, input.projectId)))
+    .where(
+      and(eq(projectFolders.id, input.folderId), eq(projectFolders.projectId, input.projectId))
+    )
     .limit(1)
   if (!folder) return { ok: false, error: 'Folder not found.' }
 
@@ -250,7 +257,9 @@ export async function updateProjectFolder(
     const [parent] = await db
       .select()
       .from(projectFolders)
-      .where(and(eq(projectFolders.id, folder.parentId), eq(projectFolders.projectId, input.projectId)))
+      .where(
+        and(eq(projectFolders.id, folder.parentId), eq(projectFolders.projectId, input.projectId))
+      )
       .limit(1)
     parentPath = parent?.path ?? ''
   }
@@ -291,7 +300,7 @@ export async function updateProjectFolder(
  */
 export async function deleteProjectFolder(
   input: DeleteFolderInput,
-  session: AuthorizedSession,
+  session: AuthorizedSession
 ): Promise<{ ok: true; result: DeleteFolderResult } | { ok: false; error: string }> {
   await requireProjectAccess(session, input.projectId, ['project:documents:write', 'project:edit'])
   const db = getDb()
@@ -299,7 +308,9 @@ export async function deleteProjectFolder(
   const [folder] = await db
     .select()
     .from(projectFolders)
-    .where(and(eq(projectFolders.id, input.folderId), eq(projectFolders.projectId, input.projectId)))
+    .where(
+      and(eq(projectFolders.id, input.folderId), eq(projectFolders.projectId, input.projectId))
+    )
     .limit(1)
   if (!folder) return { ok: false, error: 'Folder not found.' }
 
@@ -308,7 +319,9 @@ export async function deleteProjectFolder(
     const [parent] = await db
       .select()
       .from(projectFolders)
-      .where(and(eq(projectFolders.id, folder.parentId), eq(projectFolders.projectId, input.projectId)))
+      .where(
+        and(eq(projectFolders.id, folder.parentId), eq(projectFolders.projectId, input.projectId))
+      )
       .limit(1)
     parentPath = parent?.path ?? ''
   }
@@ -325,7 +338,9 @@ export async function deleteProjectFolder(
     const children = await tx
       .select()
       .from(projectFolders)
-      .where(and(eq(projectFolders.parentId, folder.id), eq(projectFolders.projectId, input.projectId)))
+      .where(
+        and(eq(projectFolders.parentId, folder.id), eq(projectFolders.projectId, input.projectId))
+      )
 
     for (const child of children) {
       const childPath = buildFolderPath(parentPath, child.name)

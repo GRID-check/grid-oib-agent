@@ -44,7 +44,13 @@ repos:
         # LINE NUMBER, and this file grows by a case every time a shelf is added —
         # the same trap the Pulumi note below describes. JSON cannot carry the
         # inline `pragma: allowlist secret` comment that would be the other way out.
-        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$)
+        #
+        # apm.lock.yaml is the same case as pnpm-lock.yaml: a lockfile whose
+        # `resolved_commit` and `content_hash` values are hex by construction and
+        # secret by none. Excluded rather than baselined for the reason the note
+        # below gives — a baseline entry pins a hash to a LINE NUMBER, and this
+        # file grows by a block every time a skill is added.
+        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$)
         # REGENERATING THE BASELINE — keep the --exclude-lines flag, or CI starts
         # failing again a few commits later:
         #
@@ -79,6 +85,73 @@ repos:
         language: system
         pass_filenames: false
         files: ^(src/aiq_agent/skills/builtin/.*/SKILL\.md|frontends/ui/src/lib/skills/platform-skills\.ts|frontends/ui/scripts/sync-platform-skills\.mjs)$
+
+      - id: card-schemas
+        name: the card schemas are generated from cards/models.py
+        # Two generated, committed artifacts in one pipeline: the Pydantic
+        # models render to shared/cards/schemas.json, which renders to the Zod
+        # module the frontend validates with. Neither had a guard, and the
+        # failure mode is the one platform-skills.ts already demonstrated three
+        # times — a stale generated module type-checks perfectly, so nothing
+        # local objects and only CI (or a user) finds out.
+        #
+        # Running the generators IS the check: pre-commit fails the commit if
+        # they modify anything. Neither stamps a timestamp, so a clean tree
+        # stays clean (verified).
+        #
+        # The venv python explicitly, not a bare `python`: `task lint:repo`
+        # invokes `.venv/bin/pre-commit` WITHOUT activating the venv, so a
+        # bare interpreter here resolves to the system one and cannot import
+        # langchain_core. (The `pytest` hook below gets away with it only
+        # because it is stages: [push] and CI activates the venv first.)
+        # On Windows this path is .venv/Scripts/python.exe.
+        #
+        # The Zod stage needs `json-schema-to-zod` from frontends/ui/node_modules,
+        # which CI's repo-lint job does not install — it failed every run until
+        # this guard existed. It is skipped where the modules are absent and
+        # covered instead by `task fe:cards:check`, which the frontend CI job
+        # runs after `task fe:install`.
+        entry: >-
+          bash -c 'PYTHONPATH=src .venv/bin/python scripts/generate_card_schema.py
+          && if [ -d frontends/ui/node_modules ];
+          then node frontends/ui/scripts/generate-card-schemas.mjs;
+          else echo "skipping the Zod stage, frontends/ui/node_modules is absent
+          (task fe:cards:check covers it)"; fi'
+        language: system
+        pass_filenames: false
+        files: ^(src/aiq_agent/cards/models\.py|shared/cards/schemas\.json|scripts/generate_card_schema\.py|frontends/ui/scripts/generate-card-schemas\.mjs|frontends/ui/src/shared/cards/generated\.ts)$
+
+      - id: agent-docs
+        name: every AGENTS.md is reachable by the agents that need it
+        # Claude Code reads CLAUDE.md, never AGENTS.md, and bridges them with an
+        # `@AGENTS.md` import. The root bridge here was the ten bytes
+        # "AGENTS.md\n" — no `@`, so it was prose, and the root guide loaded in
+        # exactly zero sessions while /context still showed a memory file.
+        # A missing guide has no symptom, so it needs a gate, not a gotcha.
+        entry: python3 scripts/check_agent_docs.py
+        language: system
+        pass_filenames: false
+        files: ^(.*/)?(AGENTS|CLAUDE)\.md$|^scripts/check_agent_docs\.py$
+
+      - id: adr-check
+        name: the ADR directory and its index tell the same story
+        # Four numbers used twice, two statuses that disagreed with the index,
+        # and one record indexed nowhere — none of which has a symptom until
+        # somebody acts on a decision that was superseded a month ago.
+        entry: python3 scripts/check_adrs.py
+        language: system
+        pass_filenames: false
+        files: ^docs/adr/.*\.md$|^scripts/check_adrs\.py$
+
+      - id: validate-skills
+        name: skill bundles are well-formed
+        # The script existed and nothing ran it — not pre-commit, not the
+        # Taskfile, not CI. A validator nobody invokes is a validator that is
+        # not ratcheting.
+        entry: .venv/bin/python scripts/validate_skills.py
+        language: system
+        pass_filenames: false
+        files: ^skills/.*$|^scripts/validate_skills\.py$
 
       - id: pytest
         name: pytest

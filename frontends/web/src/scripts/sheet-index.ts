@@ -1,4 +1,7 @@
-import { scrollInfo } from 'motion'
+import { gsap } from 'gsap'
+import { ScrollTrigger } from 'gsap/ScrollTrigger'
+
+gsap.registerPlugin(ScrollTrigger)
 
 /**
  * Drives the drafting-sheet marker in the page margin.
@@ -58,10 +61,20 @@ export function initSheetIndex() {
     marker.style.opacity = visible ? '1' : '0'
   }
 
+  // One trigger per section rather than a measurement on every scroll frame:
+  // the marker only changes when a section takes over the middle of the screen,
+  // which is exactly what a ScrollTrigger is for.
   apply()
-  scrollInfo(apply)
-  window.addEventListener('resize', () => {
+  sections.forEach((section) =>
+    ScrollTrigger.create({
+      trigger: section,
+      start: 'top center',
+      end: 'bottom center',
+      onToggle: apply,
+      onRefresh: apply,
+    })
+  )
+  ScrollTrigger.addEventListener('refreshInit', () => {
     padding = new WeakMap()
-    apply()
   })
 }

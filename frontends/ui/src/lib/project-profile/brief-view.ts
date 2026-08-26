@@ -141,29 +141,40 @@ export function buildProjectBriefView(rawProfile: unknown): ProjectBriefView {
   }
 
   // Goals: focus areas rendered via their option labels.
-  const focusQuestion = flattenIntakeQuestions(projectIntakeDefinitionV1).find((q) => q.id === 'focus_areas')
-  const rawFocus = profile.goals['focus_areas']
-  const focusValues = Array.isArray(rawFocus) ? rawFocus : typeof rawFocus === 'string' ? [rawFocus] : []
-  const focusAreas = focusValues.map(
-    (value) => focusQuestion?.options?.find((option) => option.value === value)?.label ?? value,
+  const focusQuestion = flattenIntakeQuestions(projectIntakeDefinitionV1).find(
+    (q) => q.id === 'focus_areas'
   )
-  const goalDetails = typeof profile.goals['goal_details'] === 'string' ? profile.goals['goal_details'] : null
+  const rawFocus = profile.goals['focus_areas']
+  const focusValues = Array.isArray(rawFocus)
+    ? rawFocus
+    : typeof rawFocus === 'string'
+      ? [rawFocus]
+      : []
+  const focusAreas = focusValues.map(
+    (value) => focusQuestion?.options?.find((option) => option.value === value)?.label ?? value
+  )
+  const goalDetails =
+    typeof profile.goals['goal_details'] === 'string' ? profile.goals['goal_details'] : null
 
   const missing: BriefMissingFact[] = [...new Set(profile.unknowns)]
     .filter((key) => !(key in profile.facts))
     .map((key) => ({ key, label: byKey.get(baseKeyOf(key))?.question.label ?? humanizeKey(key) }))
 
-  const assumptions: BriefAssumption[] = Object.entries(profile.assumptions).map(([key, assumption]) => {
-    const entry = byKey.get(baseKeyOf(key))
-    return {
-      key,
-      label: entry?.question.label ?? humanizeKey(key),
-      value: entry ? formatIntakeAnswer(entry.question, assumption.value) : formatBareValue(assumption.value),
-      rawValue: assumption.value,
-      reason: assumption.reason,
-      source: assumption.source,
+  const assumptions: BriefAssumption[] = Object.entries(profile.assumptions).map(
+    ([key, assumption]) => {
+      const entry = byKey.get(baseKeyOf(key))
+      return {
+        key,
+        label: entry?.question.label ?? humanizeKey(key),
+        value: entry
+          ? formatIntakeAnswer(entry.question, assumption.value)
+          : formatBareValue(assumption.value),
+        rawValue: assumption.value,
+        reason: assumption.reason,
+        source: assumption.source,
+      }
     }
-  })
+  )
 
   const answeredCount = groups.reduce((n, group) => n + group.facts.length, 0) + other.facts.length
   return {

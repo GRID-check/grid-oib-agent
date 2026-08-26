@@ -8,12 +8,23 @@ import type { ProjectAssumption, ProjectFact } from './types'
 
 /** A well-formed confirmed fact for a given value. */
 function fact(value: ProjectFact['value']): ProjectFact {
-  return { value, confidence: 'confirmed', source: 'onboarding', updatedAt: '2026-01-01T00:00:00.000Z' }
+  return {
+    value,
+    confidence: 'confirmed',
+    source: 'onboarding',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
 }
 
 /** A well-formed unconfirmed assumption for a given value. */
 function assumption(value: ProjectAssumption['value']): ProjectAssumption {
-  return { value, status: 'unconfirmed', reason: 'agent guess', source: 'agent_suggested', updatedAt: '2026-01-01T00:00:00.000Z' }
+  return {
+    value,
+    status: 'unconfirmed',
+    reason: 'agent guess',
+    source: 'agent_suggested',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
 }
 
 describe('salvageProjectProfile', () => {
@@ -113,7 +124,12 @@ describe('salvageProjectProfile', () => {
 
 describe('deriveIntakeEntry', () => {
   it('opens an assumptions-only profile in edit mode with the assumptions kept', () => {
-    const raw = { facts: {}, goals: {}, unknowns: [], assumptions: { widmung: assumption('wohnen') } }
+    const raw = {
+      facts: {},
+      goals: {},
+      unknowns: [],
+      assumptions: { widmung: assumption('wohnen') },
+    }
     const entry = deriveIntakeEntry(raw)
     expect(entry.mode).toBe('edit')
     expect(entry.initialProfile).not.toBeNull()
@@ -143,7 +159,12 @@ describe('deriveIntakeEntry', () => {
   })
 
   it('opens an edit session for a facts-bearing profile', () => {
-    const raw = { facts: { hauptnutzung: fact('wohnen') }, goals: {}, unknowns: [], assumptions: {} }
+    const raw = {
+      facts: { hauptnutzung: fact('wohnen') },
+      goals: {},
+      unknowns: [],
+      assumptions: {},
+    }
     const entry = deriveIntakeEntry(raw)
     expect(entry.mode).toBe('edit')
     expect(entry.initialProfile?.facts.hauptnutzung?.value).toBe('wohnen')

@@ -76,7 +76,10 @@ const CALLS: Array<[string, () => Promise<unknown>]> = [
         collectionName: 'c',
       }),
   ],
-  ['setProjectWorkosResourceId', () => repository.setProjectWorkosResourceId('proj-1', 'org-1', 'res-1')],
+  [
+    'setProjectWorkosResourceId',
+    () => repository.setProjectWorkosResourceId('proj-1', 'org-1', 'res-1'),
+  ],
   ['renameProjectInOrg', () => repository.renameProjectInOrg('proj-1', 'org-1', 'n')],
   [
     'softDeleteProjectAndEnqueue',
@@ -84,7 +87,7 @@ const CALLS: Array<[string, () => Promise<unknown>]> = [
       repository.softDeleteProjectAndEnqueue(
         { id: 'proj-1', name: 'n', organizationId: 'org-1', collectionName: 'c' },
         'user-1',
-        new Date('2026-08-01T00:00:00Z'),
+        new Date('2026-08-01T00:00:00Z')
       ),
   ],
   ['findProjectProfileInOrg', () => repository.findProjectProfileInOrg('proj-1', 'org-1')],
@@ -116,11 +119,13 @@ describe('projects repository establishes its own tenant scope', () => {
       await call()
     })
 
-    expect(observed.length, 'the function ran no query — the recorder never fired').toBeGreaterThan(0)
+    expect(observed.length, 'the function ran no query — the recorder never fired').toBeGreaterThan(
+      0
+    )
     expect(
       observed.filter((context) => context === undefined),
       'a query ran with no tenant context. Wrap it in withTenant({ organizationId }) — or, if it ' +
-        'genuinely spans tenants, withPlatformAccess(reason).',
+        'genuinely spans tenants, withPlatformAccess(reason).'
     ).toEqual([])
   })
 

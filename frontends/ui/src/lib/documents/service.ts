@@ -902,7 +902,7 @@ export async function reindexProject(
   session: AuthorizedSession,
   projectId: string,
 ): Promise<ReindexProjectResult> {
-  await requireProjectAccess(session, projectId, 'project:documents:write')
+  await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
 
   const rows = await listProjectDocuments(projectId, session.organizationId)
   const result: ReindexProjectResult = { projectId, queued: 0, skipped: 0, failed: [] }

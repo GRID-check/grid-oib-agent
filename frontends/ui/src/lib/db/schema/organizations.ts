@@ -38,7 +38,7 @@ export type NewOrganization = typeof organizations.$inferInsert
  * The bag has one write path and no schema, so before this list the owner of a
  * key was expressed only by which service function a caller happened to reach
  * for. `setStorageQuota` is platform-only by construction — explicit
- * `organizationId`, a refusal below current usage, `requirePlatformOwner` on the
+ * `organizationId`, a refusal below current usage, `requirePlatformPermission` on the
  * route — and every bit of that was bypassable through
  * `PUT /api/organization/settings`, which merges arbitrary keys under
  * `org:settings:manage`, a permission tenant admins hold. A tenant could raise

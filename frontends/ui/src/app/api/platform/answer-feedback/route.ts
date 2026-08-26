@@ -27,5 +27,9 @@ export const GET = apiRoute(
       throw error
     }
   },
-  { authz: { enforcedBy: 'getAnswerFeedbackHealth (requirePlatformOwner)' } }
+  {
+    authz: {
+      enforcedBy: 'getAnswerFeedbackHealth (requirePlatformPermission platform:organizations:view)',
+    },
+  }
 )

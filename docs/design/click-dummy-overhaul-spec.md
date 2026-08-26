@@ -4,7 +4,7 @@
 **Sources:** the team's click dummy `Ask_Piloti_v6_standalone2.html` (external, not in
 repo — a self-contained React bundle; fully reverse-engineered for this spec),
 the current `frontends/ui` implementation, `docs/design/grid-design-language.md`,
-`feedback_backlog.md` (FB-2/4/6/8/9/10/11/12), `ux_audit_log.md`.
+`docs/audit/feedback-backlog.md` (FB-2/4/6/8/9/10/11/12), `docs/audit/ux-system-audit.md`.
 
 **Scope guard:** the **Herleitung reasoning-trace** (chain-of-thought UI, §7) is
 **specified here but explicitly NOT implemented in this pass** — it depends on the
@@ -157,7 +157,7 @@ paired with icon + label so color is never the only carrier (a11y).
    conversations + research-runs store (server truth, FB-10) — one model,
    two surfaces (page + panel).
 9. **Wordmark "Piloti".** Originally the pilot office's colloquial name (see
-   `feedback_backlog.md`). Since decided (2026-07-17, §8 item 1): the
+   `docs/audit/feedback-backlog.md`). Since decided (2026-07-17, §8 item 1): the
    user-facing wordmark IS **Piloti**; GRID stays the internal/platform name.
 10. **No mobile, no loading/error/empty states, no a11y semantics.** The
     dummy is a happy-path desktop demo (fixed 720px thread, 3-col grids).

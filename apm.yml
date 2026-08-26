@@ -1,0 +1,81 @@
+# Agent Package Manager manifest: third-party agent skills, pinned and locked.
+#
+# Skills we did not write are dependencies, so they get a manifest and a
+# lockfile rather than a hand copy. `apm install --frozen` reproduces the same
+# bytes everywhere, the contract `uv.lock` and `bun.lockb` already give us.
+#
+#   task agents:setup   install from this file
+#   task agents:audit   drift and hidden-Unicode scan
+#
+# One source, many harnesses. `skills/` holds every skill this repo authors;
+# apm deploys them, alongside the third-party ones, into each harness path
+# below. Those paths (.claude/, .agents/) are generated and gitignored.
+#
+# Add a harness here and its directory starts getting the same set. Pinned
+# rather than auto-detected because apm 0.28 resolves targets differently in
+# `install` and in the `audit` replay, so autodetection reported permanent
+# drift against files install never wrote.
+name: grid-oib-agent
+version: 1.0.0
+description: Agent skills for working on the Grid OIB agent repository
+
+targets:
+  - claude        # .claude/skills/
+  - agent-skills  # .agents/skills/, the shared Agent Skills path
+
+dependencies:
+  apm:
+    # This repo's own skills. Local paths, so editing one and re-running
+    # `task agents:setup` republishes it to every target.
+    - ./skills/aiq-add-data-source
+    - ./skills/aiq-add-tool
+    - ./skills/aiq-customize-prompts-models
+    - ./skills/aiq-definition-of-done
+    - ./skills/aiq-deploy
+    - ./skills/aiq-maintain-ci
+    - ./skills/aiq-prepare-pr
+    - ./skills/aiq-release-qa
+    - ./skills/aiq-research
+
+    # Writing documents an agent consumes: skills, AGENTS.md, CLAUDE.md.
+    # Pinned to a commit; an unpinned ref drifts silently under `apm install`.
+    - mattpocock/skills/skills/productivity/writing-for-agents#6654f6b60cd9d5be8b54c6fafe44346dabeb3b76
+
+    # `improve-codebase-architecture` is a BUNDLE, not one skill: it calls the
+    # Skill tool for `codebase-design` (the module/interface/depth/seam/adapter/
+    # leverage/locality vocabulary it refuses to drift from), `grilling` (the
+    # decision loop once you pick a candidate) and `domain-modeling` (keeping
+    # CONTEXT.md current). Pinning it alone leaves three dead Skill calls, so
+    # all four are pinned together at the same commit.
+    #
+    # It reads `docs/adr/` to avoid re-proposing decisions we already recorded,
+    # which is why it is worth more here than in a repo without an ADR log. It
+    # also wants a `CONTEXT.md` domain glossary, which this repo does not have
+    # yet; the skill creates one lazily.
+    - mattpocock/skills/skills/engineering/improve-codebase-architecture#6654f6b60cd9d5be8b54c6fafe44346dabeb3b76
+    - mattpocock/skills/skills/engineering/codebase-design#6654f6b60cd9d5be8b54c6fafe44346dabeb3b76
+    - mattpocock/skills/skills/engineering/domain-modeling#6654f6b60cd9d5be8b54c6fafe44346dabeb3b76
+    - mattpocock/skills/skills/productivity/grilling#6654f6b60cd9d5be8b54c6fafe44346dabeb3b76
+
+    # pstack (poteto's stack). unslop, typescript-best-practices, `how` and
+    # `why` carry no disable-model-invocation and so fire on their own; the
+    # rest only run when asked for by name.
+    #
+    # `why` is the sibling of `how`: `how` explains what the code does, `why`
+    # reconstructs the forces behind it from source control, issues and docs.
+    # That is the question this repo answers with `docs/adr/`, so the two meet.
+    #
+    # `technical-writing` covers human-facing prose — docs, RFCs, PR bodies —
+    # where `writing-for-agents` covers the documents an agent consumes.
+    - cursor/plugins/pstack/skills/unslop#bdf7aa355337897f167153e05069aca505dae17c
+    - cursor/plugins/pstack/skills/typescript-best-practices#bdf7aa355337897f167153e05069aca505dae17c
+    - cursor/plugins/pstack/skills/how#bdf7aa355337897f167153e05069aca505dae17c
+    - cursor/plugins/pstack/skills/why#bdf7aa355337897f167153e05069aca505dae17c
+    - cursor/plugins/pstack/skills/technical-writing#bdf7aa355337897f167153e05069aca505dae17c
+    - cursor/plugins/pstack/skills/interrogate#bdf7aa355337897f167153e05069aca505dae17c
+    - cursor/plugins/pstack/skills/blast-radius#bdf7aa355337897f167153e05069aca505dae17c
+    - cursor/plugins/pstack/skills/principle-model-the-domain#bdf7aa355337897f167153e05069aca505dae17c
+  mcp: []
+
+includes: auto
+scripts: {}

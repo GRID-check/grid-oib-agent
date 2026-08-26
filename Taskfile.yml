@@ -20,6 +20,9 @@ version: '3'
 
 vars:
   UI: frontends/ui
+  # Agent Package Manager CLI, pinned so every machine and CI resolve the same
+  # skill bytes. Bump deliberately and re-run `task agents:audit`.
+  APM_VERSION: 0.28.0
   WEB: frontends/web
   # go-task ships its own POSIX shell, so command SYNTAX is already portable and
   # nothing below needs an OS branch. These two are the exception, because they
@@ -93,9 +96,43 @@ tasks:
       - uv sync --group dev
       - task: fe:install
       - task: web:install
-      # The policy pack is its own Node program with its own lockfile; CI
-      # installs it separately and `infra:types` typechecks it.
+      # Two Node programs under deploy/pulumi, each with its own lockfile: the
+      # Pulumi program itself (which `infra:types` typechecks and `infra:test`
+      # runs) and the policy pack beside it. Installing only the policy pack
+      # left a fresh clone failing `task verify` at `infra:types`, because the
+      # program's own TypeScript and Vitest were never fetched.
+      - npm --prefix deploy/pulumi ci
       - npm --prefix deploy/pulumi/policy ci
+      - task: agents:setup
+
+  # ── agent skills (apm) ──────────────────────────────────────────────────────
+  #
+  # `skills/` is the single source: this repo's own skills live there, declared
+  # in `apm.yml` as local paths beside the pinned third-party ones. apm
+  # publishes the whole set into every target in that manifest, so `.claude/`
+  # and `.agents/` are GENERATED and gitignored. Adding a harness is one line
+  # in `apm.yml`, not a new copy step here.
+  #
+  # Run through `uvx` rather than a global install: uv is already required for
+  # the backend venv, and this way the CLI version is pinned in one line here
+  # instead of depending on whatever `apm` happens to be on someone's PATH.
+  # `--frozen` refuses to install when the lockfile is missing or out of sync,
+  # which is what makes this reproducible in CI.
+
+  agents:setup:
+    desc: Publish every skill in apm.yml into the harness directories it targets
+    cmds:
+      - uvx --from apm-cli=={{.APM_VERSION}} apm install --frozen
+
+  agents:audit:
+    desc: Scan installed agent skills for drift and hidden Unicode
+    cmds:
+      - uvx --from apm-cli=={{.APM_VERSION}} apm audit
+
+  agents:update:
+    desc: Refresh agent-skill pins in apm.yml, then review the diff before committing
+    cmds:
+      - uvx --from apm-cli=={{.APM_VERSION}} apm update --yes
 
   # ── frontend (frontends/ui) ─────────────────────────────────────────────────
 
@@ -170,6 +207,16 @@ tasks:
     cmds:
       - bun run screenshots -- {{.CLI_ARGS}}
 
+  fe:touch-audit:
+    desc: 'Measure every /dev surface at a phone viewport (optional: -- <registry id>)'
+    dir: '{{.UI}}'
+    cmds:
+      # Reports overflow and sub-44px targets. NOT part of `verify`: the shape
+      # errors it exists for are held statically by `mobile-affordances.spec.ts`,
+      # and a browser measurement of ~120 surfaces is a deliberate run, not a
+      # per-commit tax. Reach for it when you build a user-visible surface.
+      - bun run touch-audit -- {{.CLI_ARGS}}
+
   fe:provision:authz:
     desc: 'Check WorkOS authz drift against the catalog (add `-- --apply` to reconcile)'
     dir: '{{.UI}}'
@@ -188,9 +235,20 @@ tasks:
     cmds:
       - bun run provision:workos-env {{.CLI_ARGS}}
 
+  fe:cards:check:
+    desc: The committed Zod card schema still matches shared/cards/schemas.json
+    # The other half of the `card-schemas` pre-commit hook. That hook skips this
+    # stage where frontends/ui/node_modules is absent, which is every repo-lint
+    # CI run, so the check lives here too and the frontend job runs it after
+    # `fe:install`. Running the generator IS the check.
+    cmds:
+      - node frontends/ui/scripts/generate-card-schemas.mjs
+      - git diff --exit-code -- frontends/ui/src/shared/cards/generated.ts
+
   fe:verify:
     desc: Everything CI runs for the frontend tier
     cmds:
+      - task: fe:cards:check
       - task: fe:lint
       - task: fe:types
       - task: fe:test:ci
