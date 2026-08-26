@@ -41,7 +41,9 @@ describe('KeyTakeawaysCard', () => {
   it('renders the title and every takeaway', () => {
     render(<KeyTakeawaysCard title="Gebäudeklasse 4 – das Wichtigste" items={items} />)
 
-    expect(screen.getByText('Das Wichtigste')).toBeInTheDocument()
+    // No eyebrow: §A2 retires the uppercase type label inside every card, so
+    // the title is the only heading and „Das Wichtigste" is not printed at all.
+    expect(screen.queryByText('Das Wichtigste')).not.toBeInTheDocument()
     expect(screen.getByText('Gebäudeklasse 4 – das Wichtigste')).toBeInTheDocument()
     expect(screen.getByText('Fluchtniveau 9,80 m → Gebäudeklasse 4')).toBeInTheDocument()
     expect(screen.getByText('Tragende Bauteile mindestens REI 60')).toBeInTheDocument()
@@ -66,23 +68,24 @@ describe('KeyTakeawaysCard', () => {
     expect(screen.getAllByRole('button')).toHaveLength(1)
   })
 
-  it('spends the card’s one figure on the first takeaway and nothing else', () => {
-    // §A2: a card carries exactly one element above 14px and it must be the
-    // card's answer. This card's answer is five things, so the figure goes to
-    // the first — a reader who reads nothing else reads takeaway one.
+  it('spends no figure at all — five roughly equal points are not a ranking', () => {
+    // §A2: a card with no single answer spends no figure rather than picking
+    // one arbitrarily. The previous revision typeset takeaway one larger,
+    // which asserted an ordering the payload does not carry.
     render(<KeyTakeawaysCard title="Gebäudeklasse 4" items={items} />)
 
-    expect(screen.getByText(items[0].text)).toHaveClass('card-value')
-    expect(screen.getByText(items[1].text)).toHaveClass('card-body')
-    expect(screen.getByText(items[1].text)).not.toHaveClass('card-value')
-    // The title is the Title step, NOT a second thing above 14px.
+    for (const item of items) {
+      expect(screen.getByText(item.text)).toHaveClass('card-title')
+      expect(screen.getByText(item.text)).not.toHaveClass('card-figure-20')
+      expect(screen.getByText(item.text)).not.toHaveClass('card-value')
+    }
     expect(screen.getByText('Gebäudeklasse 4')).toHaveClass('card-title')
   })
 
-  it('steps each takeaway further right than the one above it, with no rules between rows', () => {
-    // The §A5 mark: "ordinals in a descending staircase". Hairlines between
-    // rows are what made this a generic list — four cards in the set drew the
-    // same rules around the same rows — so the rank is drawn, not ruled.
+  it('gives each takeaway its own recessed panel, with no rules between rows', () => {
+    // The §A5 mark: separate recessed panels, not rows in a divided list.
+    // Hairlines between rows are what made this a generic list — four cards in
+    // the set drew the same rules around the same rows.
     const four = [
       { text: 'Erstens' },
       { text: 'Zweitens' },
@@ -91,17 +94,28 @@ describe('KeyTakeawaysCard', () => {
     ]
     const { container } = render(<KeyTakeawaysCard title={null} items={four} />)
 
-    const staircase = ['pl-0', 'pl-1.5', 'pl-3', 'pl-4.5']
-    four.forEach((item, index) => {
-      expect(
-        screen.getByText(item.text),
-        `takeaway ${index + 1} should sit ${index * 6}px in from the one above it`,
-      ).toHaveClass(staircase[index])
-    })
+    expect(container.querySelectorAll('.bg-input-background')).toHaveLength(4)
     expect(
       container.querySelector('[class*="divide-y"]'),
-      'a hairline per row is the generic-list look the staircase replaces',
+      'a hairline per row is the generic-list look the panels replace',
     ).toBeNull()
+  })
+
+  it('lightens a takeaway from the recessed ground to the card surface when it opens', async () => {
+    // The disclosure state is carried by the SURFACE, so an open row is
+    // legible before it is read. Nothing else in the set changes ground on
+    // disclosure, which is what makes the mark this card's alone.
+    const user = userEvent.setup()
+    const { container } = render(<KeyTakeawaysCard title={null} items={items} />)
+
+    expect(container.querySelectorAll('.bg-input-background')).toHaveLength(2)
+
+    await user.click(screen.getByRole('button', { name: /Fluchtniveau/ }))
+
+    expect(container.querySelectorAll('.bg-input-background')).toHaveLength(1)
+    // Scoped to the list: the card itself is `bg-card` too, and the assertion
+    // is about the PANEL having changed ground, not about the card having one.
+    expect(container.querySelectorAll('ol .bg-card')).toHaveLength(1)
   })
 
   it('skips a takeaway with no text and keeps the ordinals contiguous', () => {
@@ -163,17 +177,26 @@ describe('CalloutCard', () => {
     expect(screen.getByText(/§ 60/)).toBeInTheDocument()
   })
 
-  it('is capped narrower than the column it sits in', () => {
-    // The §A5 mark: "the only card narrower than the column". A remark that
-    // spans the full 636px reads as a section of the answer; one that stops
-    // short of it reads as an aside, which is what a callout is. `ch` rather
-    // than px so the cap is a measure and follows the type.
+  it('is a bare recessed panel, capped narrower than the column it sits in', () => {
+    // The §A5 mark, both halves: no card around it (FLAT register — a remark
+    // on the same white plate as the evidence beside it reads AS evidence),
+    // and a cap so it stops short of the column. `ch` rather than px so the
+    // cap is a measure and follows the type.
     const { container } = render(
       <CalloutCard kind="hinweis" text="Die Frist läuft ab Zustellung des Bescheids." />,
     )
 
     expect(
       container.querySelector('[data-slot="card"]'),
+      'a frame around a margin note is what makes it read as evidence',
+    ).toBeNull()
+
+    const panel = container.firstElementChild
+    expect(panel, 'the callout IS its panel — recessed ground and a hairline').toHaveClass(
+      'bg-input-background',
+    )
+    expect(
+      panel,
       'without the cap the callout is the same width as every other card and stops reading as an aside',
     ).toHaveClass('max-w-[46ch]')
   })

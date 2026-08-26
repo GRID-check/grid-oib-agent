@@ -23,8 +23,7 @@
  */
 
 import { type FC } from 'react'
-import { CornerDownRight, MessageCircleQuestion } from 'lucide-react'
-import { SectionLabel } from '@/components/ui/section-label'
+import { CornerDownRight } from 'lucide-react'
 import { useChatStore } from '@/features/chat/store'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -77,7 +76,13 @@ export const FollowUpChips: FC<FollowUpChipsProps> = ({ title, items, className 
 
   return (
     <div className={cn('flex flex-col gap-2.5', className)}>
-      <SectionLabel icon={MessageCircleQuestion}>{t('cards.followUps.eyebrow')}</SectionLabel>
+      {/* No eyebrow (§A2). „Anschlussfragen" over a row of questions is a
+          caption on a picture the reader is already looking at, and this block
+          closes every answer — a hundred repetitions of a label nobody needed.
+          The chips' own mark carries it: framed offers with no card around
+          them, at the end of an answer, are the one thing here that is not
+          evidence. The optional `title` still renders when the model had a
+          real headline to add. */}
       {title && <p className="card-title text-foreground">{title}</p>}
 
       <div

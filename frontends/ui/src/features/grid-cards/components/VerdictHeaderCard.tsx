@@ -33,9 +33,7 @@
  */
 
 import { type FC } from 'react'
-import { Gavel } from 'lucide-react'
 import { Card } from '@/components/ui/card'
-import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations, type Translator } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { NormRefFooter } from '../cards/shell'
@@ -80,6 +78,42 @@ const SEGMENTS = [1, 2, 3] as const
  */
 const LONG_VERDICT = 24
 
+/**
+ * Three cells, filled to level, plus the German word.
+ *
+ * `aria-hidden` on the cells because the word beside them says the same thing
+ * to a screen reader, and two readings of one field is one too many.
+ *
+ * The cells are SQUARE, not the charter's original 12×3px bars. Drawn as bars
+ * they were correct at „gering" and „mittel" — one lit, two grey, obviously a
+ * level — and wrong at „hohe Sicherheit", where all three light up, there is no
+ * unlit portion left to see, and three short strokes in a row read as an
+ * em-dash rule leading into the label rather than as three of three. A full
+ * meter and a rule are the same picture; that is a property of filling to
+ * level, not a tuning problem, and tightening the gaps did not fix it. A square
+ * is a token rather than a stroke, so ▪▪▪ still counts.
+ *
+ * The 2026-08 design canvas drops confidence from this card entirely. It is
+ * kept, and moved into the header row instead: a level is the only thing that
+ * makes two answers comparable, and it costs three squares.
+ */
+const ConfidenceGauge: FC<{ conf: { label: (t: Translator) => string; level: 1 | 2 | 3 }; t: Translator }> = ({
+  conf,
+  t,
+}) => (
+  <span className="flex shrink-0 items-center gap-2">
+    <span aria-hidden="true" className="flex shrink-0 items-center gap-1">
+      {SEGMENTS.map((segment) => (
+        <span
+          key={segment}
+          className={cn('size-[5px] rounded-[1px]', segment <= conf.level ? 'bg-foreground' : 'bg-foreground/20')}
+        />
+      ))}
+    </span>
+    <span className="card-meta text-muted-foreground">{conf.label(t)}</span>
+  </span>
+)
+
 export const VerdictHeaderCard: FC<VerdictHeaderCardProps> = ({
   verdict,
   subject,
@@ -92,8 +126,16 @@ export const VerdictHeaderCard: FC<VerdictHeaderCardProps> = ({
   const text = verdict ?? ''
 
   return (
-    <Card className="gap-2.5 border-l-2 border-l-primary/40 p-5 shadow-xs">
-      <SectionLabel icon={Gavel}>{subject}</SectionLabel>
+    <Card className="gap-2 border-l-2 border-l-primary/40 p-5 shadow-xs">
+      {/* Subject and gauge on ONE line, the same header row every other card
+          now has: what was checked at the left, how sure we are at the right.
+          The subject was an uppercase `SectionLabel` with a gavel — a type
+          label on the one card whose type is unmistakable from four metres
+          away — and §A2 retires that everywhere inside a card. */}
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="card-body min-w-0 text-muted-foreground">{subject}</p>
+        {conf && <ConfidenceGauge conf={conf} t={t} />}
+      </div>
 
       {/* `hyphens-auto break-words` is not belt-and-braces, it is the phone.
           „Hauptgeschoßfußbodenoberkante" is one 29-character token and at 20px
@@ -109,36 +151,6 @@ export const VerdictHeaderCard: FC<VerdictHeaderCardProps> = ({
       >
         {text}
       </p>
-
-      {conf && (
-        <div className="flex items-center gap-2">
-          {/* Three cells, filled to level. `aria-hidden` because the word
-              beside it says the same thing to a screen reader, and two readings
-              of one field is one too many.
-
-              The cells are SQUARE, not the charter's 12×3px bars. Drawn as
-              bars they were correct at „gering" and „mittel" — one lit, two
-              grey, obviously a level — and wrong at „hohe Sicherheit", where
-              all three light up, there is no unlit portion left to see, and
-              three short strokes in a row read as an em-dash rule leading into
-              the label rather than as three of three. A full meter and a rule
-              are the same picture; that is a property of filling to level, not
-              a tuning problem, and tightening the gaps did not fix it. A square
-              is a token rather than a stroke, so ▪▪▪ still counts. */}
-          <span aria-hidden="true" className="flex shrink-0 items-center gap-1">
-            {SEGMENTS.map((segment) => (
-              <span
-                key={segment}
-                className={cn(
-                  'size-[5px] rounded-[1px]',
-                  segment <= conf.level ? 'bg-foreground' : 'bg-foreground/20',
-                )}
-              />
-            ))}
-          </span>
-          <span className="card-meta text-muted-foreground">{conf.label(t)}</span>
-        </div>
-      )}
 
       {confidence_reason && (
         <p className="card-meta max-w-prose text-muted-foreground">{confidence_reason}</p>

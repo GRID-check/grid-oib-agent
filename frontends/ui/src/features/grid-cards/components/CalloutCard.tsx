@@ -1,13 +1,20 @@
 'use client'
 
 /**
- * CalloutCard — one framed remark, for the sentence that must not drown.
+ * CalloutCard — one remark, for the sentence that must not drown.
  *
- * The smallest card in the set and the only one with no domain in it: a
+ * The smallest block in the set and the only one with no domain in it: a
  * Land-specific deviation, a Frist, an easily-missed condition. Inside a
  * paragraph such a sentence reads at exactly the weight of the sentence beside
- * it — which is the one weight it must not have — so it gets a frame, an
- * accent edge in its own tone and an icon well to scan to.
+ * it — which is the one weight it must not have — so it gets a recessed panel,
+ * an accent edge in its own tone and an icon well to scan to.
+ *
+ * FLAT register (§A1), and that is the 2026-08 revision's change here: the
+ * white card around the panel is gone. A remark arriving on the same plate as
+ * the evidence beside it reads AS evidence, and this is the one block on the
+ * result surface that is explicitly not — it is the margin note. Recessed, it
+ * says so before it is read. Several callouts stack with 10px between them and
+ * nothing around the stack.
  *
  * The kind is ALWAYS written out („Hinweis", „Achtung", „Frist", „Tipp") next
  * to the tint. Colour alone would leave a reader who cannot separate the four
@@ -19,8 +26,9 @@
  * Local `useState` only — nothing is committed, so there is nothing to persist
  * (`presentational` in CARD_INTERACTIVITY).
  *
- * THE WIDTH CAP is the card's mark (`docs/design/grid-card-charter.md` §A5:
- * "the only card narrower than the column"). A remark that spans the whole
+ * THE WIDTH CAP is half the mark (`docs/design/grid-card-charter.md` §A5 —
+ * "the only block that is a bare recessed panel with an icon well and no card
+ * around it"; the other half is the missing frame). A remark that spans the whole
  * column reads as a section of the answer; one that stops short of it reads as
  * an aside, which is exactly what it is. `46ch` is a measure rather than a
  * pixel width, so it stays an aside whatever the column does, and on a phone
@@ -29,7 +37,6 @@
 
 import { useState, type FC } from 'react'
 import { CalendarClock, ChevronDown, CircleAlert, Info, Lightbulb, type LucideIcon } from 'lucide-react'
-import { Card } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useTranslations, type Translator } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -95,8 +102,14 @@ export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail })
   const Icon = tone.icon
 
   return (
-    <Card className="relative max-w-[46ch] gap-0 overflow-hidden py-3.5 pl-5 pr-4 shadow-xs">
-      {/* The accent edge rides the card's own left border rather than being a
+    // FLAT register (§A1): the callout IS its panel — recessed ground, hairline,
+    // `rounded-md` — with no card around it. A remark that arrives inside the
+    // same white plate as the evidence beside it reads as evidence; recessed,
+    // it reads as a note in the margin, which is what it is. It is also the one
+    // block in the set narrower than the column (`max-w-[46ch]`), and the two
+    // together are what make it identifiable before it is read.
+    <div className="relative max-w-[46ch] overflow-hidden rounded-md border bg-input-background py-3 pl-5 pr-4">
+      {/* The accent edge rides the panel's own left border rather than being a
           border-left of its own: `overflow-hidden` clips it to the radius, so
           the tone reads at full strength without rounding the corner twice. */}
       <span aria-hidden="true" className={cn('absolute inset-y-0 left-0 w-[3px]', tone.edge)} />
@@ -111,13 +124,18 @@ export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail })
 
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            {/* Hand-rolled rather than `SectionLabel`, because this eyebrow
-                carries the kind's ink where SectionLabel hard-codes the muted
-                one — so it reaches for the ramp's Eyebrow step directly. And
-                it shares a baseline with the title instead of sitting on a row
+            {/* The kind word is CONTENT, not a type label: it is the word the
+                tone's colour travels with, and without it the ink would be a
+                signal on its own (§A3, §A8.4). So it survives §A2's retirement
+                of the eyebrow — but it stops being SET as one. Uppercase at
+                10.5px made it look like the card announcing its own type; at
+                Body/600 in the tone ink it reads as the first word of the
+                remark, which is what it is.
+
+                It shares a baseline with the title instead of sitting on a row
                 of its own: that quirk is this card's identity and stays
                 (grid-card-charter.md §B1 — do not "fix" it). */}
-            <span className={cn('card-eyebrow', tone.ink)}>{tone.label(t)}</span>
+            <span className={cn('card-body font-semibold', tone.ink)}>{tone.label(t)}</span>
             {title && <p className="card-title text-foreground">{title}</p>}
           </div>
 
@@ -158,6 +176,6 @@ export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail })
           )}
         </div>
       </div>
-    </Card>
+    </div>
   )
 }

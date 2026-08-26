@@ -78,9 +78,7 @@
  */
 
 import { type FC } from 'react'
-import { Workflow } from 'lucide-react'
 import { Card } from '@/components/ui/card'
-import { SectionLabel } from '@/components/ui/section-label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CodeBlock } from '@/shared/components/CodeBlock'
 import { useTranslations } from '@/i18n'
@@ -124,7 +122,6 @@ const DrawingSkeleton: FC = () => (
 )
 
 export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, reference }) => {
-  const t = useTranslations('chat')
   const tDiagrams = useTranslations('diagrams')
   const { svg, fileSvg, failed } = useRenderedDiagram(source)
   // `fileSvg`, never `svg`: the bytes that go into the project are the paper
@@ -135,7 +132,6 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
 
   return (
     <Card data-testid="diagram-card" data-state={state} className="gap-3 p-5 shadow-xs">
-      <SectionLabel icon={Workflow}>{t('cards.diagram.eyebrow')}</SectionLabel>
       <p className="card-title text-foreground">{title}</p>
 
       <figure className="m-0 flex flex-col gap-2">

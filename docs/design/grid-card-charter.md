@@ -680,7 +680,7 @@ superseded by the 2026-08 revision.
 | Type ramp: add **Prose** and **Value**, delete `.card-figure-24/30` | A2 | **Done** |
 | Weight rule (rows and labels 500, running sentences 400) | A2 | **Done** — in the ramp; call sites migrate per sprint |
 | Figure rule at 20px, one per card | A2 | **Done** — one figure class exists, so a second size cannot be written |
-| Eyebrow retired inside cards; `SchematicCard`'s default eyebrow removed | A2 | Partly — gone from `SchematicCard` and its 24 callers; `key_takeaways`, `follow_ups`, `diagram` and `callout` still carry one until their sprint |
+| Eyebrow retired inside cards | A2 | **Done** — gone from `SchematicCard`'s 24 callers and from `key_takeaways`, `follow_ups`, `diagram` and `verdict_header`. `callout` keeps the kind WORD (colour may not travel alone) but no longer sets it as an eyebrow. Micro-labels inside not-yet-migrated card bodies are the remainder |
 | Axis 5: provenance colours pills, status colours glyph + word | A3 | **Done** — `StatusBadge` is a glyph and a word in the status ink |
 | Source line uses the product's own `SourceSignalChip` | A3 | **Done** — no new atom; a `NormReference` is `law` by definition, so nothing parses a document name |
 | `LimitBar` on the one-baseline shape | A3 / B3 | Pending |
@@ -694,12 +694,12 @@ superseded by the 2026-08 revision.
 
 | # | Card | Section | Effort | Status |
 |---|---|---|---|---|
-| 1 | follow_ups | B1 | S | **Done** — frame dropped; `title` deliberately KEPT, see note below. Canvas confirms |
+| 1 | follow_ups | B1 | S | **Done** — frame dropped, eyebrow dropped; `title` deliberately KEPT, see note below. Canvas confirms |
 | 2 | comparison_table | B1 | L | Pending — tinted column, not the vertical-rules grid |
 | 3 | requirement_checklist | B1 | M | Pending — glyph gutter, not the tally bar |
-| 4 | key_takeaways | B1 | S | **Reopened** — recessed panels that lighten on open, replacing Sprint 1's staircase |
+| 4 | key_takeaways | B1 | S | **Done** — recessed panels that lighten on open, replacing Sprint 1's staircase; no figure |
 | 5 | legal_basis | B1 | M | Pending — blockquote + two-pill footer, not the margin § column. Schema landed (`284b2625`) |
-| 6 | verdict_header | B1 | S | **Reopened** — 20px not 30px, three shapes incl. `bare`. Confidence squares KEPT against the canvas |
+| 6 | verdict_header | B1 | S | **Done** — 20px not 30px, subject and gauge on one header row. Confidence squares KEPT against the canvas |
 | 7 | deadline_timeline | B2 | M | Pending — keeps the numbered rail, gains the 20px figure |
 | 8 | change_impact | B2 | M | Pending — recessed hinge, no strike-through |
 | 9 | norm_chain | B1 | M | Pending — canvas silent, previous design stands |
@@ -710,8 +710,8 @@ superseded by the 2026-08 revision.
 | 14 | condition_tree | B1 | M | Pending — the breakout row, not the SVG brace. Includes the `shrink-0` mobile bug |
 | 15 | process_map | B1 | S–M | Pending — **gives up the rail**; ship with #7 |
 | 16 | parking_requirement | B3 | M | Pending |
-| 17 | summary | B1 | S | **Reopened** — drops its title outright under a `verdict_header` |
-| 18 | callout | B1 | S | **Reopened** — flat register, no outer card |
+| 17 | summary | B1 | S | **Done** — Value over Prose; demotes its title under a `verdict_header` rather than dropping it |
+| 18 | callout | B1 | S | **Done** — flat register, no outer card |
 | 19 | proposals (memory / patch) | B1 | S | Partly — `--warning` fix done; tinted perimeter and patch grid pending |
 | 20 | density_check | B3 | S | Pending |
 | 21 | document_grid | B1 | S | Pending (register check only) |

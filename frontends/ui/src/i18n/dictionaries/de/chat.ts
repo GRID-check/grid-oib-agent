@@ -291,11 +291,9 @@ export const chat: typeof en.chat = {
         'Die Messtoleranz reicht über den Grenzwert: bei dieser Genauigkeit ist nicht entschieden, ob der Wert eingehalten ist. Für einen Nachweis genauer aufmessen.',
     },
     followUps: {
-      eyebrow: 'Weiterfragen',
       groupAria: 'Weiterführende Fragen',
     },
     keyTakeaways: {
-      eyebrow: 'Das Wichtigste',
     },
     callout: {
       hinweis: 'Hinweis',
@@ -329,7 +327,6 @@ export const chat: typeof en.chat = {
     // ausdrücklich nichts misst. Die übrigen Worte teilt die Karte mit dem
     // Mermaid-Block im Fließtext (`diagrams.schematicOnly`, `diagrams.fallback`).
     diagram: {
-      eyebrow: 'Diagramm',
     },
     processMap: {
       current: 'hier stehen Sie',

@@ -304,11 +304,9 @@ export const chat = {
         'The measurement tolerance reaches across the limit: at this precision it is undecided whether the value is met. Measure more precisely for a formal check.',
     },
     followUps: {
-      eyebrow: 'Ask on',
       groupAria: 'Follow-up questions',
     },
     keyTakeaways: {
-      eyebrow: 'What matters most',
     },
     callout: {
       hinweis: 'Note',
@@ -343,7 +341,6 @@ export const chat = {
     // (`diagrams.schematicOnly`, `diagrams.fallback`): the same claim about the
     // same picture, said once.
     diagram: {
-      eyebrow: 'Diagram',
     },
     processMap: {
       current: 'you are here',

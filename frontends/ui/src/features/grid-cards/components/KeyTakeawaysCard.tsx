@@ -7,19 +7,24 @@
  * where the alternative is a markdown bullet list: three discs of equal weight
  * that a reader has to read in full to find out which one is theirs.
  *
- * THE SHAPE (`docs/design/grid-card-charter.md` §A5: "ordinals in a descending
- * staircase"). The rows used to be separated by `divide-y` hairlines, which is
- * what made this a generic list — four cards in the set drew the same rules
- * around the same rows. Now the rank is drawn instead of ruled: the ordinals
- * hang off one continuous hairline while each takeaway steps 6px further right
- * than the one above it, so „most important first" is visible before a word is
- * read, and no other card in the set indents by rank.
+ * THE SHAPE (`docs/design/grid-card-charter.md` §A5). Each takeaway is its own
+ * RECESSED PANEL, and the panel LIGHTENS TO THE CARD SURFACE WHEN IT OPENS.
+ * The disclosure state is carried by the ground rather than by a chevron alone,
+ * so an open row is legible from across the card before a word of it is read,
+ * and nothing else in the set changes surface on disclosure.
  *
- * THE FIGURE (§A2). A card carries exactly one element above 14px and it must
- * be the card's answer. This card's answer is five things, so the figure is
- * spent on the FIRST — 15px/600 with a full-ink ordinal, everything below it at
- * Body. A reader who reads nothing else reads takeaway one, which is what
- * „most important first" is supposed to buy.
+ * This replaced a descending staircase — each takeaway indented 6px further
+ * than the one above it — which is worth recording because the staircase was
+ * not a bad idea, it was the wrong claim. It encoded RANK, which a two-item
+ * card cannot show at all, which the .docx export cannot carry (§D.5), and
+ * which the model is not actually asked to order that strictly. The panel
+ * encodes DISCLOSURE, which is the thing this card genuinely does.
+ *
+ * NO FIGURE. The previous revision spent one on the first takeaway. §A2 now
+ * says a card with no single answer spends no figure at all rather than
+ * picking one arbitrarily — five roughly equal points are five roughly equal
+ * points, and typesetting the first one larger asserted a ranking the payload
+ * does not carry.
  *
  * A `detail` is a DISCLOSURE on its row, not a second line: it stays folded
  * until clicked, so the qualification (the derivation, the exception) survives
@@ -34,11 +39,9 @@
  */
 
 import { useState, type FC } from 'react'
-import { ChevronDown, Highlighter } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { SectionLabel } from '@/components/ui/section-label'
-import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { KeyTakeawayData } from '../schematics/types'
 
@@ -47,107 +50,77 @@ interface KeyTakeawaysCardProps {
   items: KeyTakeawayData[]
 }
 
-/** „01", „02" … — the ordinal in the gutter, so a rank is visible unread. */
+/** „01", „02" … — the ordinal in the gutter, so the count is visible unread. */
 const ordinal = (index: number): string => String(index + 1).padStart(2, '0')
 
 /**
- * The staircase, written out rather than computed.
+ * Shared row geometry: chevron, ordinal gutter, takeaway.
  *
- * Tailwind reads class names out of the source, so `pl-${n * 1.5}` would
- * produce a class that exists in the DOM and in no stylesheet. Five entries is
- * also the whole range — the schema caps `items` at 5 — and 24px of total
- * indent is what the charter budgeted for the narrow column: at 314px the
- * fifth takeaway still has ~250px of measure.
- */
-const INDENT = ['pl-0', 'pl-1.5', 'pl-3', 'pl-4.5', 'pl-6'] as const
-const indentFor = (index: number): string => INDENT[Math.min(index, INDENT.length - 1)]
-
-/**
- * Shared row geometry: ordinal gutter, takeaway, chevron column.
+ * The chevron leads rather than trails, which is what makes the panel read as
+ * openable before it is hovered — a chevron at the far right of a wide row is
+ * a control the eye finds only after it has read the row it belongs to.
  *
- * The 26px gutter is one of the two widths §A4 allows (22px for a rail, 26px
- * for a numbered node), so a takeaways card and a process map stacked in one
- * answer put their gutters on the same x. Here it is 8px of padding plus an
- * 18px ordinal column, hung off the list's own left hairline.
+ * The 18px ordinal column plus the gaps puts the takeaway's text at 66px, and
+ * the open body below is padded to the same x: the detail then hangs under the
+ * takeaway rather than under the panel.
  */
-const ROW = 'grid w-full grid-cols-[18px_minmax(0,1fr)_16px] items-start gap-2 py-2 pl-2 pr-1.5 text-left'
+const ROW = 'grid w-full grid-cols-[14px_18px_minmax(0,1fr)] items-start gap-[11px] px-4 py-3 text-left'
 
 /** The ordinal + the takeaway itself — identical whether or not the row opens. */
-const RowBody: FC<{ index: number; text: string }> = ({ index, text }) => {
-  const isFigure = index === 0
-  return (
-    <>
-      <span
-        className={cn(
-          'card-meta mt-1 font-mono',
-          // Full ink on the first ordinal, 60% on the rest: the ordinals are a
-          // scale and the first one is the top of it.
-          isFigure ? 'text-foreground' : 'text-muted-foreground/60',
-        )}
-        aria-hidden="true"
-      >
-        {ordinal(index)}
-      </span>
-      <span
-        className={cn(
-          'min-w-0 text-pretty text-foreground',
-          indentFor(index),
-          // NEVER truncated — a takeaway is the payload, and a German compound
-          // that wraps to two lines is still the answer.
-          isFigure ? 'card-value' : 'card-body',
-        )}
-      >
-        {text}
-      </span>
-    </>
-  )
-}
+const RowBody: FC<{ index: number; text: string }> = ({ index, text }) => (
+  <>
+    <span className="card-meta mt-px font-mono text-muted-foreground/70" aria-hidden="true">
+      {ordinal(index)}
+    </span>
+    {/* NEVER truncated — a takeaway is the payload, and a German compound that
+        wraps to two lines is still the answer. */}
+    <span className="card-title min-w-0 text-pretty leading-normal text-foreground">{text}</span>
+  </>
+)
+
+/** Recessed by default, card-surface when open. */
+const PANEL = 'rounded-md border transition-colors duration-quick ease-out motion-reduce:transition-none'
 
 const TakeawayRow: FC<{ item: KeyTakeawayData; index: number }> = ({ item, index }) => {
   const [open, setOpen] = useState(false)
 
   if (!item.detail) {
     return (
-      <div className={ROW}>
-        <RowBody index={index} text={item.text} />
+      <div className={cn(PANEL, 'bg-input-background')}>
+        <div className={ROW}>
+          <span aria-hidden="true" />
+          <RowBody index={index} text={item.text} />
+        </div>
       </div>
     )
   }
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
+    <Collapsible open={open} onOpenChange={setOpen} className={cn(PANEL, open ? 'bg-card' : 'bg-input-background')}>
       <CollapsibleTrigger
-        className={cn(
-          ROW,
-          'group rounded-md transition-colors duration-quick ease-out hover:bg-muted/50',
-          'focus-visible:ring-ring/60 focus-visible:outline-none focus-visible:ring-2',
-        )}
+        className={cn(ROW, 'rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60')}
       >
-        <RowBody index={index} text={item.text} />
-        <ChevronDown
+        <ChevronRight
           className={cn(
-            'mt-1 size-4 text-muted-foreground',
+            'mt-0.5 size-3.5 text-muted-foreground',
             'transition-transform duration-quick ease-out motion-reduce:transition-none',
-            open && 'rotate-180',
+            open && 'rotate-90',
           )}
           aria-hidden="true"
         />
+        <RowBody index={index} text={item.text} />
       </CollapsibleTrigger>
 
       <CollapsibleContent className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
-        {/* Indented to the takeaway's own text column and hung off a rule, so
-            the detail reads as belonging to the row above rather than as a
-            fifth takeaway. */}
-        <p className="card-body mb-2 ml-9 max-w-prose border-l-2 border-border pl-3 text-muted-foreground">
-          {item.detail}
-        </p>
+        {/* Aligned to the takeaway's own text column, so the detail reads as
+            belonging to the row above rather than as a further takeaway. */}
+        <p className="card-body max-w-prose pb-4 pl-[66px] pr-4 text-muted-foreground">{item.detail}</p>
       </CollapsibleContent>
     </Collapsible>
   )
 }
 
 export const KeyTakeawaysCard: FC<KeyTakeawaysCardProps> = ({ title, items }) => {
-  const t = useTranslations('chat')
   // An item with no `text` is skipped rather than rendered empty: every field
   // inside every array item reaches the renderer unvalidated (§0.5.1), and a
   // blank numbered row would claim the card has a takeaway it does not have.
@@ -158,13 +131,10 @@ export const KeyTakeawaysCard: FC<KeyTakeawaysCardProps> = ({ title, items }) =>
   if (takeaways.length === 0) return null
 
   return (
-    <Card className="gap-2 p-5 shadow-xs">
-      <SectionLabel icon={Highlighter}>{t('cards.keyTakeaways.eyebrow')}</SectionLabel>
+    <Card className="gap-3 p-5 shadow-xs">
       {title && <p className="card-title text-foreground">{title}</p>}
 
-      {/* One continuous hairline down the gutter, and no rules between rows:
-          the rank is carried by the indent, not by a box per takeaway. */}
-      <ol className="mt-0.5 flex flex-col border-l border-border/70">
+      <ol className="flex flex-col gap-2">
         {takeaways.map((item, index) => (
           <li key={`${item.text}-${index}`}>
             <TakeawayRow item={item} index={index} />
