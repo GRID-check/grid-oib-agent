@@ -147,6 +147,22 @@
           "key": "fixes",
           "notes": [
             {
+              "en": "A filed Recherchebericht now always lands in the project the research was actually run for. If you started a run outside a project, or reopened an older run while a different project was open, the report could previously be filed somewhere it did not belong — carrying a cover sheet naming that other project's Bundesland, which is the line that says which Bauordnung the report was checked against.",
+              "de": "A filed Recherchebericht now always lands in the project the research was actually run for. If you started a run outside a project, or reopened an older run while a different project was open, the report could previously be filed somewhere it did not belong — carrying a cover sheet naming that other project's Bundesland, which is the line that says which Bauordnung the report was checked against."
+            },
+            {
+              "en": "Files Piloti writes no longer misspell their own names. A report on „Fluchtweglängen Gebäudeklasse 4\" is now saved as fluchtweglaengen-gebaeudeklasse-4, the way you would write it yourself and the way you would search for it a year later, and a client name with a Polish or Czech letter in it survives intact.",
+              "de": "Files Piloti writes no longer misspell their own names. A report on „Fluchtweglängen Gebäudeklasse 4\" is now saved as fluchtweglaengen-gebaeudeklasse-4, the way you would write it yourself and the way you would search for it a year later, and a client name with a Polish or Czech letter in it survives intact."
+            },
+            {
+              "en": "A report Piloti wrote can no longer be mistaken for one of your own documents when the two happen to share a name. Search results, file summaries, tags, page details and renaming now always act on the document you actually opened, and deleting a report can no longer take the corresponding Gutachten out of what Piloti can cite.",
+              "de": "A report Piloti wrote can no longer be mistaken for one of your own documents when the two happen to share a name. Search results, file summaries, tags, page details and renaming now always act on the document you actually opened, and deleting a report can no longer take the corresponding Gutachten out of what Piloti can cite."
+            },
+            {
+              "en": "Opening a file on a phone shows its name again. In the file preview, long filenames and the „Von Piloti erstellt\" line were being squeezed out by the row of buttons beside them.",
+              "de": "Opening a file on a phone shows its name again. In the file preview, long filenames and the „Von Piloti erstellt\" line were being squeezed out by the row of buttons beside them."
+            },
+            {
               "en": "Using the research agent inside a project now requires the chat permission on every path, not only when starting a new conversation. A member with read-only access to a project could continue an existing conversation in it, which still ran the agent and still spent the organization's budget.",
               "de": "Using the research agent inside a project now requires the chat permission on every path, not only when starting a new conversation. A member with read-only access to a project could continue an existing conversation in it, which still ran the agent and still spent the organization's budget."
             },
@@ -350,12 +366,44 @@
               "de": "The assistant now knows how you filed your project documents. It can tell you what is in Brandschutz, name the folder when it points you at a file, and search inside one folder — including everything nested under it, so Brandschutz also covers Brandschutz/Fluchtwege. Renaming or moving a folder updates what it sees, with nothing to re-upload."
             },
             {
+              "en": "A finished Recherchebericht now lands in your project instead of only in the chat. You will find it under „Berichte\", where you can open it, preview it, download it and delete it like any other file — and share it with the people on the project without copying anything out.",
+              "de": "A finished Recherchebericht now lands in your project instead of only in the chat. You will find it under „Berichte\", where you can open it, preview it, download it and delete it like any other file — and share it with the people on the project without copying anything out."
+            },
+            {
+              "en": "You are told where the report will go before it is written, not after. The banner names the destination while the Tiefenrecherche is starting — the one moment you can still stop it — and names the finished file with „Im Projekt öffnen\" when it lands. If nothing could be filed, it says nothing rather than promising a file.",
+              "de": "You are told where the report will go before it is written, not after. The banner names the destination while the Tiefenrecherche is starting — the one moment you can still stop it — and names the finished file with „Im Projekt öffnen\" when it lands. If nothing could be filed, it says nothing rather than promising a file."
+            },
+            {
+              "en": "Every file Piloti writes says so. In the app it carries the line „Von Piloti erstellt\", and the Word export opens with „KI-generiert — nicht geprüft\", so a document that leaves your hands still says what it is.",
+              "de": "Every file Piloti writes says so. In the app it carries the line „Von Piloti erstellt\", and the Word export opens with „KI-generiert — nicht geprüft\", so a document that leaves your hands still says what it is."
+            },
+            {
+              "en": "A filter beside „Alle · Meine · Unvergeben\" shows only what Piloti wrote, so a project's generated reports are one click away however they were filed.",
+              "de": "A filter beside „Alle · Meine · Unvergeben\" shows only what Piloti wrote, so a project's generated reports are one click away however they were filed."
+            },
+            {
+              "en": "A report arrives „Unvergeben\" — it belongs to nobody until somebody takes it on. Assigning it to yourself is the moment it becomes your work, and the same sweep you already use before an Einreichung will find any report nobody has claimed.",
+              "de": "A report arrives „Unvergeben\" — it belongs to nobody until somebody takes it on. Assigning it to yourself is the moment it becomes your work, and the same sweep you already use before an Einreichung will find any report nobody has claimed."
+            },
+            {
               "en": "A document can now be moved between folders. Until now a file was filed once, when it was uploaded, and stayed there — one dropped in the wrong folder could not be re-filed at all. Move to folder is in the document's ⋯ menu; each destination is listed by its full path, the folder it is in now is marked and cannot be picked, and All Files takes it out of every folder.",
               "de": "A document can now be moved between folders. Until now a file was filed once, when it was uploaded, and stayed there — one dropped in the wrong folder could not be re-filed at all. Move to folder is in the document's ⋯ menu; each destination is listed by its full path, the folder it is in now is marked and cannot be picked, and All Files takes it out of every folder."
             },
             {
               "en": "Moving a document also tells Piloti where it went, so an answer that mentions where a document lives follows the move immediately, with nothing re-indexed.",
               "de": "Moving a document also tells Piloti where it went, so an answer that mentions where a document lives follows the move immediately, with nothing re-indexed."
+            },
+            {
+              "en": "Piloti can now draw a procedure. Where an answer turns on a sequence a paragraph cannot hold — who hands what to whom, a step that sends you back a stage, a Nachweis that two others wait on — it returns a drawing beside the text, and one click files that drawing into the project as an SVG and a PDF you can attach to an Einreichung.",
+              "de": "Piloti can now draw a procedure. Where an answer turns on a sequence a paragraph cannot hold — who hands what to whom, a step that sends you back a stage, a Nachweis that two others wait on — it returns a drawing beside the text, and one click files that drawing into the project as an SVG and a PDF you can attach to an Einreichung."
+            },
+            {
+              "en": "Drawings never carry a measurement. A Schnitt, a Treppe, a Fluchtweg or ein Abstand still comes back as one of the fifteen technical schematics, where Piloti supplies the values and the drawing is computed from them, so the picture cannot disagree with its own numbers.",
+              "de": "Drawings never carry a measurement. A Schnitt, a Treppe, a Fluchtweg or ein Abstand still comes back as one of the fifteen technical schematics, where Piloti supplies the values and the drawing is computed from them, so the picture cannot disagree with its own numbers."
+            },
+            {
+              "en": "Whether Piloti may put the documents it writes into your project is now a permission of its own, called \"File agent-authored documents\". Give it to the roles that should let Piloti file a report or a diagram, and withhold it from the rest. Anyone you withhold it from can still upload, rename and delete their own files exactly as before.",
+              "de": "Whether Piloti may put the documents it writes into your project is now a permission of its own, called \"File agent-authored documents\". Give it to the roles that should let Piloti file a report or a diagram, and withhold it from the rest. Anyone you withhold it from can still upload, rename and delete their own files exactly as before."
             },
             {
               "en": "The website now shows what Piloti is worth to an office before anyone signs anything. Enter how many planners would use it and what they earn, and the calculation gives the value per year, the hours it hands back and how quickly a seat pays for itself.",
@@ -468,8 +516,46 @@
               "de": "The upload panel no longer retires itself out from under you. A wholly successful batch still clears after a few seconds, but the countdown holds while your pointer is on the panel or your keyboard focus is inside it."
             },
             {
+              "en": "When a deep-research run promised to file its report in the project and the filing then failed, the banner said nothing at all — so the report looked filed and „Berichte\" was empty. It now takes the promise back in one quiet line, and the report itself is still there in the research panel either way.",
+              "de": "When a deep-research run promised to file its report in the project and the filing then failed, the banner said nothing at all — so the report looked filed and „Berichte\" was empty. It now takes the promise back in one quiet line, and the report itself is still there in the research panel either way."
+            },
+            {
               "en": "Re-uploading or re-processing a document no longer discards its name, its document type or its folder. Re-generating a summary quietly reset everything stored alongside it, so a renamed file went back to its raw file name the next time it was processed.",
               "de": "Re-uploading or re-processing a document no longer discards its name, its document type or its folder. Re-generating a summary quietly reset everything stored alongside it, so a renamed file went back to its raw file name the next time it was processed."
+            },
+            {
+              "en": "A diagram filed into a project now says, inside the file, that Piloti drew it. The SVG carries the line as the picture's own name, which is what a browser shows on hover and a screen reader reads out, and the PDF carries it in its document properties as well as under the drawing. Until now a filed drawing that left the office arrived indistinguishable from one a person had drawn.",
+              "de": "A diagram filed into a project now says, inside the file, that Piloti drew it. The SVG carries the line as the picture's own name, which is what a browser shows on hover and a screen reader reads out, and the PDF carries it in its document properties as well as under the drawing. Until now a filed drawing that left the office arrived indistinguishable from one a person had drawn."
+            }
+          ]
+        },
+        {
+          "key": "upgrade",
+          "notes": [
+            {
+              "en": "Reports from runs finished before this change stay where they were, in their conversation. Nothing was filed retroactively.",
+              "de": "Reports from runs finished before this change stay where they were, in their conversation. Nothing was filed retroactively."
+            },
+            {
+              "en": "Only runs you start yourself file a report at the moment. Scheduled runs still deliver into their conversation and will follow later.",
+              "de": "Only runs you start yourself file a report at the moment. Scheduled runs still deliver into their conversation and will follow later."
+            },
+            {
+              "en": "Nothing Piloti writes can be filed unmarked any more: the filing service reads the finished file and refuses one that does not say who wrote it. Files already in a project are unchanged; file a drawing again to get a marked copy.",
+              "de": "Nothing Piloti writes can be filed unmarked any more: the filing service reads the finished file and refuses one that does not say who wrote it. Files already in a project are unchanged; file a drawing again to get a marked copy."
+            },
+            {
+              "en": "The new permission has to be granted before Piloti files anything. The built-in Project Editor and Project Admin roles receive it when your organization is next provisioned. A custom project role does not: grant it there yourself, or leave it out if you would rather Piloti only answered.",
+              "de": "The new permission has to be granted before Piloti files anything. The built-in Project Editor and Project Admin roles receive it when your organization is next provisioned. A custom project role does not: grant it there yourself, or leave it out if you would rather Piloti only answered."
+            }
+          ]
+        },
+        {
+          "key": "other",
+          "notes": [
+            {
+              "en": "Piloti does not read its own reports back. They are deliberately kept out of the knowledge base, so an answer can never cite something Piloti wrote as if it were a document you supplied. If you want a report's content to inform later answers, upload it yourself once you have checked it.",
+              "de": "Piloti does not read its own reports back. They are deliberately kept out of the knowledge base, so an answer can never cite something Piloti wrote as if it were a document you supplied. If you want a report's content to inform later answers, upload it yourself once you have checked it."
             }
           ]
         }
