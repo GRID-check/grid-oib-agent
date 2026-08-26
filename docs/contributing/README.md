@@ -7,11 +7,12 @@ holds the depth behind it.
 
 | Page | What it covers |
 |---|---|
-| [working-style.md](working-style.md) | The cases behind the four rules in `AGENTS.md`: what each one cost before it was written down |
+| [working-style.md](working-style.md) | The cases behind each working-style rule in `AGENTS.md`: what it cost before it was written down |
 | [testing-and-verification.md](testing-and-verification.md) | `task verify` as the merge gate, which task to run while iterating, and the traps the task list cannot tell you about |
 | [code-conventions.md](code-conventions.md) | House rules with a history: the `any` ban, coercing raw `sql<T>` results, where a shared helper belongs, the capability doctrine |
 | [release-notes.md](release-notes.md) | reno mechanics, what makes a note customer copy, publishing and the translation cache |
 | [gotchas.md](gotchas.md) | Known failures indexed by the symptom you arrive with. Read it before debugging a surprise |
+| [agent-onboarding-files.md](agent-onboarding-files.md) | What `AGENTS.md` and its `CLAUDE.md` bridge are for, how each one loads, and which rules belong at the root versus in a service |
 | [agent-skills.md](agent-skills.md) | How `.claude/` is generated, which skills are installed and why, what to know before trusting them |
 | [correction-ratchet.md](correction-ratchet.md) | Closing the layer that allowed an error, instead of only fixing the output |
 | [documentation.md](documentation.md) | Which doc to update for which kind of change, and why that is part of the change |

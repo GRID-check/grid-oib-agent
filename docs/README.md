@@ -6,14 +6,14 @@ with. See the [root README](../README.md) for what Grid is, and
 
 ## New here? Read these five, in order
 
-1. [`architecture/system-overview.md`](architecture/system-overview.md) — what
+1. [`architecture/system-overview.md`](architecture/system-overview.md) for what
    the system is, how the pieces fit, and what lives where in the checkout (§12).
-2. [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — setup, branching, the merge gate.
+2. [`../CONTRIBUTING.md`](../CONTRIBUTING.md) for setup, branching, the merge gate.
 3. [`contributing/testing-and-verification.md`](contributing/testing-and-verification.md)
-   — `task verify`, and the traps behind it.
-4. [`contributing/code-conventions.md`](contributing/code-conventions.md) —
+   for `task verify` and the traps behind it.
+4. [`contributing/code-conventions.md`](contributing/code-conventions.md) for
    house rules that already cost somebody an afternoon.
-5. [`adr/README.md`](adr/README.md) — the decisions, and why they went that way.
+5. [`adr/README.md`](adr/README.md) for the decisions and why they went that way.
 
 ## Where things live
 
@@ -42,6 +42,7 @@ Start with [`system-overview.md`](architecture/system-overview.md), then
 
 | Area | Documents |
 |---|---|
+| Patterns | [`patterns-in-use.md`](architecture/patterns-in-use.md) |
 | Whole system | [`system-overview.md`](architecture/system-overview.md), [`overview.md`](architecture/overview.md), [`backend-deep-dive.md`](architecture/backend-deep-dive.md) |
 | BFF and data | [`bff-service-architecture.md`](architecture/bff-service-architecture.md), [`grid-app-database.md`](architecture/grid-app-database.md), [`multitenancy-and-auth-spec.md`](architecture/multitenancy-and-auth-spec.md) |
 | Documents and projects | [`document-roles.md`](architecture/document-roles.md) |
@@ -58,11 +59,12 @@ Index: [`contributing/README.md`](contributing/README.md).
 
 | File | Description |
 |---|---|
-| [Working style](contributing/working-style.md) | The cases behind the four rules in `AGENTS.md` |
+| [Working style](contributing/working-style.md) | The cases behind each working-style rule in `AGENTS.md` |
 | [Testing and verification](contributing/testing-and-verification.md) | `task verify` as the merge gate, CI's sharding, the security stack, visual evidence |
 | [Code conventions](contributing/code-conventions.md) | The `any` ban, coercing raw `sql<T>`, where shared helpers belong, capability doctrine |
 | [Release notes](contributing/release-notes.md) | reno, what makes a note customer copy, publishing |
 | [Gotchas](contributing/gotchas.md) | Known failures by symptom. Read before debugging a surprise |
+| [Agent onboarding files](contributing/agent-onboarding-files.md) | What `AGENTS.md` and its `CLAUDE.md` bridge are for, and which rules belong where |
 | [Agent skills](contributing/agent-skills.md) | How `.claude/` is generated and which skills are installed |
 | [Correction ratchet](contributing/correction-ratchet.md) | Closing the layer that allowed an error |
 | [Documentation obligations](contributing/documentation.md) | Which doc to update for which change |
