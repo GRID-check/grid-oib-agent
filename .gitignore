@@ -136,3 +136,6 @@ apm_modules/
 # containing a path (git mode 100644) that never resolved for anyone.
 .claude/
 .agents/
+
+# The trivy layer-analysis cache, if you reproduce the `image-scan` job locally.
+.trivy-cache/

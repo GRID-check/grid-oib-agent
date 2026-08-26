@@ -22,8 +22,7 @@ name: Security
 # make them required checks.
 on:
   push:
-    # TEMPORARY: validates the trivy layer cache on the branch before the PR.
-    branches: [develop, "release/**", "claude/trivy-performance-**"]
+    branches: [develop, "release/**"]
   pull_request:
     branches: [develop, "release/**"]
   schedule:
