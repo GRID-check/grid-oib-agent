@@ -407,7 +407,7 @@ jobs:
           # The require-a-note check diffs against the merge base, so the base
           # branch has to be there. Shallow-by-default checkout has neither.
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
 
