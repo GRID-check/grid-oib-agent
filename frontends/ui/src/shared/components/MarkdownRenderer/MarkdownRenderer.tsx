@@ -186,9 +186,17 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           className: codeClassName,
           ...props
         }: React.ComponentPropsWithoutRef<'code'> & ExtraProps) => {
-          // Check if this is a block code (has language class) vs inline
-          const isBlock = codeClassName?.startsWith('language-')
-          const codeContent = String(children).replace(/\n$/, '')
+          // Block code vs inline. The class alone cannot decide it: a BARE
+          // fence (``` with no language — the fence the model actually writes
+          // when it forgets the tag) reaches here with no className at all, and
+          // keying on the class rendered whole diagrams and listings as inline
+          // code, so `isMermaidFence`'s content sniff never even ran. The
+          // trailing newline is the discriminator remark itself provides: a
+          // fenced block's text is always `value + '\n'`, an inline span can
+          // never contain a newline.
+          const rawContent = String(children)
+          const isBlock = codeClassName?.startsWith('language-') || rawContent.includes('\n')
+          const codeContent = rawContent.replace(/\n$/, '')
 
           if (isBlock) {
             const language = getLanguageFromClassName(codeClassName)

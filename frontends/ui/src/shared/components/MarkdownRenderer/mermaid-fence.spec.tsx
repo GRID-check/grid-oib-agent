@@ -105,4 +105,31 @@ describe('a fence the model forgot to tag', () => {
     // The tag is the model saying what it meant; content sniffing only ADDS.
     expect(isMermaidFence('language-mermaid', 'something mermaid 12 has that this list does not')).toBe(true)
   })
+
+  // The unit tests above call `isMermaidFence` as a pure function, and it
+  // passed while the renderer never reached it: `code` keyed block-vs-inline on
+  // the className, a bare fence has none, so the whole block rendered as INLINE
+  // code and the sniff never ran. These two go through the real renderer so the
+  // wiring cannot regress behind a green pure-function suite again.
+  it('draws a BARE fence whose first line declares a diagram, through the real renderer', async () => {
+    renderer.mockResolvedValue(DRAWN)
+    render(<MarkdownRenderer content={'```\nflowchart TD\n  A[OIB 2] --> B[Brandschutz]\n```'} />)
+    await waitFor(
+      () => expect(screen.getByTestId('mermaid-diagram')).toHaveAttribute('data-state', 'drawn'),
+      DYNAMIC_IMPORT_BUDGET
+    )
+  }, 15000)
+
+  it('renders a bare non-diagram fence as a code block, not as inline code', () => {
+    const { container } = render(<MarkdownRenderer content={'```\necho eins\necho zwei\n```'} />)
+    expect(screen.queryByTestId('mermaid-diagram')).toBeNull()
+    // CodeBlock, not the inline <code> styling.
+    expect(container.querySelector('code.rounded-md.bg-muted')).toBeNull()
+    expect(screen.getByText(/echo eins/)).toBeInTheDocument()
+  })
+
+  it('still renders inline code inline', () => {
+    const { container } = render(<MarkdownRenderer content={'Der Befehl `task setup` reicht.'} />)
+    expect(container.querySelector('code.rounded-md.bg-muted')).toHaveTextContent('task setup')
+  })
 })
