@@ -495,7 +495,7 @@ body {
 /* =============================================================================
    The card type ramp — `docs/design/grid-card-charter.md` §A2
 
-   Six steps and one figure, for `src/features/grid-cards/**`. The audit that
+   Seven steps and one figure, for `src/features/grid-cards/**`. The audit that
    produced the charter counted THIRTEEN distinct sizes across the card set,
    ten of them arbitrary values, with `text-[12px]` sitting beside `text-xs`
    and `text-[14px]` beside `text-sm` — the same size written two ways. That
@@ -507,27 +507,33 @@ body {
    The colour classes above are `@utility` because they are single-property and
    nothing ever needs to beat them. A type step is different: it sets four or
    five properties at once, and a card legitimately needs to vary ONE of them
-   (`card-caption font-medium` on a disclosure trigger, `card-body font-mono` on
-   a measured value). `@utility` lands in the utilities layer alongside
-   `font-medium`, so which one won would depend on Tailwind's internal ordering
-   — the kind of rule that works until someone renames a class. In the
-   components layer the ramp is a BASE: every Tailwind utility overrides it, in
-   both directions, by layer order rather than by luck.
+   (`card-body font-mono` on a measured value). `@utility` lands in the
+   utilities layer alongside `font-medium`, so which one won would depend on
+   Tailwind's internal ordering — the kind of rule that works until someone
+   renames a class. In the components layer the ramp is a BASE: every Tailwind
+   utility overrides it, in both directions, by layer order rather than by luck.
+
+   WEIGHT IS PART OF THE STEP, and that is the 2026-08 revision's largest
+   single change. Labels and list rows are 500; running sentences are 400. A
+   field of 400-weight rows has no internal hierarchy, and before this every
+   card was one — which is most of why the set read flat next to the design
+   canvas it was measured against.
 
    No colour and no margin here on purpose. A step says how big the text is and
    nothing about what it means; ink stays with `text-muted-foreground` and
-   friends so the four colour axes in §A3 keep their own vocabulary.
+   friends so the five colour axes in §A3 keep their own vocabulary.
 
    Enforced by `grid/card-type-scale` (eslint-rules/card-type-scale.mjs), which
    is switched on per file as each card is migrated — see eslint.config.mjs.
    ============================================================================= */
 @layer components {
-  /* Eyebrow — card type, micro-labels, column headers. Reached through
-     `SectionLabel`, which adds the muted ink; the one hand-rolled exception is
-     CalloutCard, whose eyebrow carries the tone's ink instead.
-     Deliberately sets NO line-height: `SectionLabel` has ~39 call sites across
-     the product that inherit theirs today, and a step here would move all of
-     them. */
+  /* Eyebrow — RETIRED INSIDE CARDS (§A2). The canvas carries no uppercase
+     label on any of its forty-five sections: the title identifies the card,
+     helped by its §A5 mark, and fifteen schematics all saying the same word
+     earned nothing. The step survives because `SectionLabel` is the
+     product-wide section label with ~39 call sites OUTSIDE the card set.
+     Deliberately sets NO line-height: those call sites inherit theirs today,
+     and a step here would move all of them. */
   .card-eyebrow {
     font-size: 10.5px;
     font-weight: 500;
@@ -535,80 +541,77 @@ body {
     letter-spacing: 0.05em;
   }
 
-  /* Meta — ordinals, chips, units, ± bands, counts. */
+  /* Meta — ordinals, units, ± bands, counts, small print. The quietest step,
+     and 400 because it is never the thing being read. */
   .card-meta {
     font-size: 11px;
     line-height: 1.3;
-    font-weight: 500;
+    font-weight: 400;
     font-variant-numeric: tabular-nums;
   }
 
-  /* Caption — details, notes, excerpt attributions. */
+  /* Caption — pill and chip text, and nothing else. 12px appears in exactly
+     one place in the canvas and it is always inside a tinted rect at 600. Text
+     that used to sit here (a note, a detail, an attribution) belongs at Body
+     or Meta; there is no 12px prose step. */
   .card-caption {
     font-size: 12px;
-    line-height: 1.625;
-    font-weight: 400;
+    line-height: 1.35;
+    font-weight: 600;
   }
 
-  /* Body — every row of every list. The default. */
+  /* Body — every row of every list, every label. The default. */
   .card-body {
     font-size: 13.5px;
     line-height: 1.55;
+    font-weight: 500;
+  }
+
+  /* Prose — running sentences: `summary`'s content, the proposals' lede. The
+     one step at 400 above Meta, because a paragraph set at 500 reads as a
+     shout and a card's prose is the part that is meant to recede. */
+  .card-prose {
+    font-size: 15px;
+    line-height: 1.62;
     font-weight: 400;
   }
 
-  /* Title — the card title, and nothing else. */
+  /* Title — the card title, AND every row title inside it. One step for both
+     is deliberate: a row that names something is doing the title's job at the
+     row's scale, and giving it its own size is how the set got to thirteen. */
   .card-title {
     font-size: 14px;
     line-height: 1.35;
     font-weight: 600;
-  }
-
-  /* Headline — 17px, and the ONE size above Title that is not a figure:
-     `summary`'s title is the answer's H1 rather than a card's answer, and §A2
-     exempts it by name. It drops to `card-title` when a `verdict_header` is
-     present, so the two never compete for the top of an answer. */
-  .card-headline {
-    font-size: 17px;
-    line-height: 1.3;
-    font-weight: 600;
-    letter-spacing: -0.04em;
-  }
-
-  /* Figure — the one thing the card exists to say, and the only element a card
-     may carry above 14px. Four sizes because the charter spends four: 15px
-     inside a dense list (a takeaway, a tally, an outcome row), 20px for a value
-     standing on its own, 24px for a computed result, 30px for a verdict.
-     Named by their size so `grep card-figure-` finds every figure in the set
-     and a fifth size cannot appear without appearing here first. */
-  .card-figure-15,
-  .card-figure-20,
-  .card-figure-24,
-  .card-figure-30 {
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .card-figure-15 {
-    font-size: 15px;
-    line-height: 1.35;
-  }
-
-  .card-figure-20 {
-    font-size: 20px;
-    line-height: 1.25;
     letter-spacing: -0.01em;
   }
 
-  .card-figure-24 {
-    font-size: 24px;
-    line-height: 1.2;
-    letter-spacing: -0.02em;
+  /* Value — a measured quantity sitting IN a row: a formula, a tally, an
+     outcome, a limit band. Not a figure. The distinction exists because
+     `calculation` legitimately carries formulas, a result and a limit, and the
+     figure rule is unenforceable if all three are called figures. */
+  .card-value {
+    font-size: 15px;
+    line-height: 1.35;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
   }
 
-  .card-figure-30 {
-    font-size: 30px;
-    line-height: 1.15;
+  /* Figure — the one thing the card exists to say, and the only element a card
+     may carry above the Value step. ONE size, not four.
+
+     It was 15/20/24/30, and `verdict_header` spent the 30. The canvas puts
+     every figure in the set at 20 and reads harder than the code does, because
+     it reaches its hierarchy by LOWERING THE FLOOR — no uppercase eyebrow, no
+     status pills, body rows that recede — rather than by raising the ceiling.
+     A 30px number in a column that shouts at every other level is not louder,
+     it is just bigger. */
+  .card-figure-20 {
+    font-size: 20px;
+    line-height: 1.25;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
     letter-spacing: -0.02em;
   }
 }

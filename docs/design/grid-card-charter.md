@@ -161,7 +161,7 @@ Collapse the five chromes to one component with three declared registers. A regi
 >
 > **Consequence:** `verdict_header` drops from 30px to 20px, and `.card-figure-24` / `.card-figure-30` lose their last callers and are deleted. `.card-figure-15` becomes `.card-value`.
 >
-> **`summary`'s 17px exemption is withdrawn.** The canvas sets it at Title over Prose, and the cross-card rule survives in a simpler form: **when a `verdict_header` is present, `summary` drops its title entirely** and renders as prose plus its key-point rule (canvas §21). `card-set.tsx` already carries `hasVerdictHeader`; only what it switches changes.
+> **`summary`'s 17px exemption is withdrawn.** The canvas sets it at Value over Prose — 15px both, one at 600 and one at 400 — and the cross-card rule survives as a demotion: **when a `verdict_header` is present, `summary`'s title drops to Body/600 in muted ink**, a lead-in label rather than a second headline. `card-set.tsx` already carries `hasVerdictHeader`; only what it switches changes. `.card-headline` is deleted.
 
 **Migration.** The steps replace thirteen sizes. `text-xs` → Caption and nothing else; its use as body text is the drift to eliminate. `text-[12px]`, `text-[14px]`, `text-[13px]`, `text-[12.5px]`, `text-[10px]` all fold into the nearest step. A card migrates when it goes through its §C slice; a card that has been through a slice and still carries an off-ramp size has not passed, and `grid/card-type-scale` is switched on for it at the end of that slice so it cannot drift back.
 
@@ -438,7 +438,7 @@ Keep: `duration` carries the Bauordnung's own words and is never a computed date
 #### `summary`
 **Job.** The answer's headline and intro, flat on the result surface.
 **Grammar.** Flat register. Title at the **Value step (15px/600)**, the content at the **Prose step (15px/400)** in full ink. Key points hang off a **2px `--foreground/20` left rule** at Body in muted ink — these are the answer's own emphasis, not a nested aside, so the rule is heavier than the hairline every disclosure panel uses.
-**Cross-card rule (§A2): when a `verdict_header` is present, `summary` drops its title entirely** and renders as prose plus the key-point rule (canvas §21). Two headlines at the top of one answer is the failure this rule exists to prevent, and dropping the title outright is cleaner than shrinking it — the `verdict_header` above already names the subject. `card-set.tsx` carries `hasVerdictHeader`; only what it switches changes.
+**Cross-card rule (§A2): when a `verdict_header` is present, `summary`'s title demotes to Body/600 in muted ink** — a lead-in label rather than a headline. Two headlines at the top of one answer is the failure this rule exists to prevent, and demotion solves it without discarding a field the model filled. Dropping it outright was considered and refused for the reason the charter already gave about `follow_ups`' title: every sentence of this entry argues about **competing for the top**, none argues about the field. `card-set.tsx` carries `hasVerdictHeader`; only what it switches changes.
 **Degradation.** No `content` → title + points. No `key_points` → title + intro, and the rule is absent rather than empty.
 **Effort: S.**
 

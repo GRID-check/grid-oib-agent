@@ -180,7 +180,7 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
               outrank "save this". Outside a project the control is absent, not
               disabled: `DiagramFilingControls` renders nothing without a
               target. */}
-          <p className="card-caption flex flex-wrap items-center gap-x-3 text-muted-foreground">
+          <p className="card-meta flex flex-wrap items-center gap-x-3 text-muted-foreground">
             {state === 'failed' ? tDiagrams('fallback') : tDiagrams('schematicOnly')}
             {/* A drawing that could not be laid out has no bytes to file, so
                 the control appears only on a real picture — the same rule the

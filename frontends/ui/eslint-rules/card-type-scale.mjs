@@ -1,11 +1,13 @@
 /**
- * The card type ramp is six steps and one figure. This rule is what keeps it
- * six.
+ * The card type ramp is seven steps and one figure. This rule is what keeps it
+ * seven.
  *
  * `docs/design/grid-card-charter.md` §A2 fixes the scale for
- * `src/features/grid-cards/**`: Eyebrow 10.5, Meta 11, Caption 12, Body 13.5,
- * Title 14, Figure 15/20/24/30 — expressed as the `card-*` classes in
- * `src/app/globals.css`. The audit that produced the charter found THIRTEEN
+ * `src/features/grid-cards/**`: Eyebrow 10.5 (outside cards only), Meta 11,
+ * Caption 12, Body 13.5, Prose 15/400, Title 14, Value 15/600, Figure 20 —
+ * expressed as the `card-*` classes in `src/app/globals.css`.
+ *
+ * The audit that produced the charter found THIRTEEN
  * distinct sizes in the folder, ten of them arbitrary values, with
  * `text-[12px]` next to `text-xs` and `text-[14px]` next to `text-sm`: the same
  * size written two ways, twice. Nothing was wrong with any single call site,
@@ -16,7 +18,7 @@
  * Tailwind's own scale and every arbitrary `text-[…px|rem|em]`. The repo's
  * semantic ink utilities (`text-muted-foreground`, `text-subtle`, `text-error`,
  * `text-success`, …) are also spelled `text-*` and are untouched — a colour is
- * not a size, and §A3 gives colour its own four axes.
+ * not a size, and §A3 gives colour its own five axes.
  *
  * It is switched on PER FILE in eslint.config.mjs rather than across the
  * folder. The charter's migration policy is deliberate (§A2): a flag-day
@@ -52,16 +54,12 @@ const ARBITRARY_TEXT_SIZE = /^text-\[[\d.]+(?:px|rem|em|pt)\]$/
 
 /** The step to reach for, by the size the author wrote. */
 const NEAREST_STEP = [
-  [10.75, 'card-eyebrow (10.5px) — or `SectionLabel`, which is the eyebrow'],
   [11.5, 'card-meta (11px)'],
-  [12.75, 'card-caption (12px)'],
+  [12.75, 'card-caption (12px) — pill and chip text; a NOTE belongs at card-body'],
   [13.75, 'card-body (13.5px)'],
   [14.5, 'card-title (14px)'],
-  [16, 'card-figure-15 (15px) — and only if this is the card ANSWER'],
-  [18.5, "card-headline (17px) — `summary`'s title, the one §A2 exemption"],
-  [22, 'card-figure-20 (20px)'],
-  [27, 'card-figure-24 (24px)'],
-  [Infinity, 'card-figure-30 (30px)'],
+  [16, 'card-value (15px) for a measured quantity, or card-prose (15px) for a sentence'],
+  [Infinity, 'card-figure-20 (20px) — and only if this is the card ANSWER (§A2: one per card)'],
 ]
 
 /** Tailwind's `text-*` scale in px, so a bare `text-sm` gets advice too. */
@@ -130,7 +128,7 @@ export default {
     type: 'problem',
     docs: {
       description:
-        'Grid cards use the six-step type ramp from grid-card-charter.md §A2 (the card-* classes in globals.css), never a raw Tailwind or arbitrary font size',
+        'Grid cards use the seven-step type ramp from grid-card-charter.md §A2 (the card-* classes in globals.css), never a raw Tailwind or arbitrary font size',
     },
     schema: [],
     messages: {

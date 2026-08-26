@@ -94,7 +94,7 @@ const RowBody: FC<{ index: number; text: string }> = ({ index, text }) => {
           indentFor(index),
           // NEVER truncated — a takeaway is the payload, and a German compound
           // that wraps to two lines is still the answer.
-          isFigure ? 'card-figure-15' : 'card-body',
+          isFigure ? 'card-value' : 'card-body',
         )}
       >
         {text}
@@ -138,7 +138,7 @@ const TakeawayRow: FC<{ item: KeyTakeawayData; index: number }> = ({ item, index
         {/* Indented to the takeaway's own text column and hung off a rule, so
             the detail reads as belonging to the row above rather than as a
             fifth takeaway. */}
-        <p className="card-caption mb-2 ml-9 max-w-prose border-l-2 border-border pl-3 text-muted-foreground">
+        <p className="card-body mb-2 ml-9 max-w-prose border-l-2 border-border pl-3 text-muted-foreground">
           {item.detail}
         </p>
       </CollapsibleContent>

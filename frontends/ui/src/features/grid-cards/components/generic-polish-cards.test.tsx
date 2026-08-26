@@ -72,9 +72,9 @@ describe('KeyTakeawaysCard', () => {
     // the first — a reader who reads nothing else reads takeaway one.
     render(<KeyTakeawaysCard title="Gebäudeklasse 4" items={items} />)
 
-    expect(screen.getByText(items[0].text)).toHaveClass('card-figure-15')
+    expect(screen.getByText(items[0].text)).toHaveClass('card-value')
     expect(screen.getByText(items[1].text)).toHaveClass('card-body')
-    expect(screen.getByText(items[1].text)).not.toHaveClass('card-figure-15')
+    expect(screen.getByText(items[1].text)).not.toHaveClass('card-value')
     // The title is the Title step, NOT a second thing above 14px.
     expect(screen.getByText('Gebäudeklasse 4')).toHaveClass('card-title')
   })

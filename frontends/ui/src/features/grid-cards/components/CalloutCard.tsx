@@ -133,7 +133,7 @@ export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail })
                   // in the card on phones only. The utility widens the CATCHMENT to 44px
                   // and leaves the drawn control exactly where the card's rhythm puts it.
                   '-ml-1 mt-1 inline-flex items-center gap-1 rounded px-1 py-0.5 touch-target',
-                  'card-caption font-medium text-muted-foreground',
+                  'card-meta text-muted-foreground',
                   'transition-colors duration-quick ease-out hover:text-foreground',
                   'focus-visible:ring-ring/60 focus-visible:outline-none focus-visible:ring-2',
                 )}
@@ -150,7 +150,7 @@ export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail })
               </CollapsibleTrigger>
 
               <CollapsibleContent className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
-                <p className="card-caption mt-1.5 border-l-2 border-border pl-3 text-muted-foreground">
+                <p className="card-meta mt-1.5 border-l-2 border-border pl-3 text-muted-foreground">
                   {detail}
                 </p>
               </CollapsibleContent>

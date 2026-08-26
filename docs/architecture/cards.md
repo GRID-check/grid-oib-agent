@@ -607,21 +607,26 @@ deliberately so: a marker the model only learns about from the tool result
 arrives after it has already committed to the paragraph the card belongs to, so
 placement could only ever be retrofitted. Named up front, it can be planned.
 
-### Type sizes: six classes, and lint per card
+### Type sizes: seven classes, and lint per card
 
-`docs/design/grid-card-charter.md` §A2 fixes the card type scale at six steps
+`docs/design/grid-card-charter.md` §A2 fixes the card type scale at seven steps
 and one figure. They exist as classes in `src/app/globals.css`, declared in
 `@layer components` so any Tailwind utility still overrides them:
 
 | Step | Class | Spec |
 |---|---|---|
-| Eyebrow | `card-eyebrow` (via `SectionLabel`) | 10.5 / 500 / uppercase / +0.05em |
-| Meta | `card-meta` | 11 / 500 / tabular-nums |
-| Caption | `card-caption` | 12 / 400 |
-| Body | `card-body` | 13.5 / 400 / 1.55 |
-| Title | `card-title` | 14 / 600 |
-| Headline | `card-headline` | 17 / 600 — `summary`'s title only, the one §A2 exemption |
-| Figure | `card-figure-15/20/24/30` | 600 / tabular-nums — **one per card, and it must be the card's answer** |
+| Eyebrow | `card-eyebrow` (via `SectionLabel`) | 10.5 / 500 / uppercase / +0.05em — **retired inside cards**; the step survives for `SectionLabel`'s ~39 call sites elsewhere |
+| Meta | `card-meta` | 11 / 400 / tabular-nums |
+| Caption | `card-caption` | 12 / 600 — pill and chip text, and nothing else |
+| Body | `card-body` | 13.5 / 500 / 1.55 — every row, every label |
+| Prose | `card-prose` | 15 / 400 / 1.62 — running sentences |
+| Title | `card-title` | 14 / 600 / −0.01em — the card title AND every row title |
+| Value | `card-value` | 15 / 600 / tabular-nums — a measured quantity sitting in a row |
+| Figure | `card-figure-20` | 20 / 600 / tabular-nums — **one per card, and it must be the card's answer** |
+
+**Weight is part of the step.** Labels and rows are 500, running sentences 400.
+A field of 400-weight rows has no internal hierarchy, and before the 2026-08
+revision every card was one.
 
 Reach for a step; never write a `text-*` size in a card. The audit behind the
 charter counted thirteen distinct sizes in `features/grid-cards/`, ten of them
@@ -633,9 +638,10 @@ charter migrates a card when a sprint touches it rather than in one flag day, so
 a card joins the list when it is clean, and a card already on it cannot regress.
 Adding a new card? Put it on the list from the start.
 
-One cross-card rule exists and only one: `summary` drops its 17px headline to
-`card-title` when the answer also carries a `verdict_header`, so the two do not
-both claim the top. It reads `features/grid-cards/card-set.tsx`, whose provider
+One cross-card rule exists and only one: `summary` demotes its title from
+`card-value` to a muted `card-body font-semibold` when the answer also carries a
+`verdict_header`, so the two do not both claim the top. Demoted rather than
+dropped — the field the model filled still renders. It reads `features/grid-cards/card-set.tsx`, whose provider
 must wrap anything that renders cards — `GridCards` does it, and so does
 `AgentResponse`'s inline `[[card:N]]` slot, because neither sees the whole
 answer's card array on its own.

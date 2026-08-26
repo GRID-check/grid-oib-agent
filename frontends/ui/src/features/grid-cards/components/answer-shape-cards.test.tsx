@@ -43,13 +43,13 @@ describe('VerdictHeaderCard', () => {
     const { unmount } = render(
       <VerdictHeaderCard verdict="1,10 m" subject="Geländerhöhe" confidence={null} />,
     )
-    expect(screen.getByText('1,10 m')).toHaveClass('card-figure-30')
+    expect(screen.getByText('1,10 m')).toHaveClass('card-figure-20')
     unmount()
 
     const long = 'Hauptgeschoßfußbodenoberkante über 22 m'
     render(<VerdictHeaderCard verdict={long} subject="Hochhaus" confidence={null} />)
-    expect(screen.getByText(long), `${long.length} characters cannot hold 30px`).toHaveClass(
-      'card-figure-24',
+    expect(screen.getByText(long), `${long.length} characters cannot hold 20px`).toHaveClass(
+      'card-value',
     )
   })
 

@@ -43,20 +43,21 @@ const VERDICT = {
 } as const
 
 describe('SummaryCard', () => {
-  it('keeps its 17px headline when it opens the answer alone', () => {
+  it('sets its title at the Value step when it opens the answer alone', () => {
     render(<GridCards cards={[SUMMARY] as unknown as GridCard[]} projectId={null} />)
 
-    expect(screen.getByText(SUMMARY.title)).toHaveClass('card-headline')
+    expect(screen.getByText(SUMMARY.title)).toHaveClass('card-value')
   })
 
-  it('drops to the Title step when a verdict header is also in the answer', () => {
+  it('demotes the title to a muted lead-in when a verdict header is also in the answer', () => {
     render(<GridCards cards={[VERDICT, SUMMARY] as unknown as GridCard[]} projectId={null} />)
 
     const title = screen.getByText(SUMMARY.title)
-    expect(title, 'a 17px headline four pixels under a 30px verdict is two ledes').toHaveClass(
-      'card-title',
-    )
-    expect(title).not.toHaveClass('card-headline')
+    expect(title, 'two 15px+ lines at the top of one answer is two ledes').toHaveClass('card-body')
+    expect(title).toHaveClass('text-muted-foreground')
+    expect(title).not.toHaveClass('card-value')
+    // Demoted, never dropped: the field the model filled still renders.
+    expect(title).toBeInTheDocument()
   })
 
   it('applies the rule even when the verdict header was placed inline and only the summary falls through', () => {
@@ -73,7 +74,7 @@ describe('SummaryCard', () => {
     )
 
     expect(screen.queryByText(VERDICT.verdict)).not.toBeInTheDocument()
-    expect(screen.getByText(SUMMARY.title)).toHaveClass('card-title')
+    expect(screen.getByText(SUMMARY.title)).toHaveClass('card-body')
   })
 
   it('hangs the key points off the answer’s own rule, not a disclosure hairline', () => {

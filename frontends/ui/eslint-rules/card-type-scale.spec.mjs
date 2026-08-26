@@ -21,7 +21,9 @@ ruleTester.run('card-type-scale', rule, {
     `const a = 'card-meta font-mono text-muted-foreground/60'`,
     `const a = 'card-body text-pretty'`,
     `const a = 'card-title text-foreground'`,
-    `const a = 'card-figure-30 tracking-tight text-balance'`,
+    `const a = 'card-figure-20 tracking-tight text-balance'`,
+    `const a = 'card-value font-mono'`,
+    `const a = 'card-prose text-default'`,
     // Semantic INK, which is spelled `text-*` too and is not a size.
     `const a = 'text-muted-foreground text-subtle text-error text-success'`,
     // Sizes of things that are not type.
@@ -77,8 +79,10 @@ describe('grid/card-type-scale', () => {
     expect(collected.map((d) => d.step)).toEqual([
       'card-body (13.5px)',
       'card-title (14px)',
-      'card-figure-24 (24px)',
-      'card-eyebrow (10.5px) — or `SectionLabel`, which is the eyebrow',
+      'card-figure-20 (20px) — and only if this is the card ANSWER (§A2: one per card)',
+      // 10px lands on Meta, not on Eyebrow: the eyebrow is retired inside
+      // cards (§A2), so the rule must never suggest reaching for it there.
+      'card-meta (11px)',
     ])
   })
 })

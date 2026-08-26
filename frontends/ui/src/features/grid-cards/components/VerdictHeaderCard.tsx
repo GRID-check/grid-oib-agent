@@ -58,12 +58,18 @@ const CONFIDENCE: Record<Confidence, { label: (t: Translator) => string; level: 
 const SEGMENTS = [1, 2, 3] as const
 
 /**
- * Above this many characters the verdict steps down 30px → 24px.
+ * Above this many characters the verdict steps down from the Figure step to
+ * the Value step (20px → 15px).
  *
  * Branching on the STRING, not on the viewport: „Brandabschnittsbildende
  * Bauteile REI 90" is too long for one line in the 636px desktop column and in
- * the 314px phone one alike, and it is the string that is the problem. 30px
+ * the 314px phone one alike, and it is the string that is the problem. 20px
  * itself survives 314px comfortably.
+ *
+ * The compound case is a real shape rather than an overflow guard —
+ * `verdict_header_long` in the design canvas is a whole sentence („Bebauung
+ * bis an die Grundgrenze ist nur zulässig, wenn …"), and a sentence set at the
+ * Figure step is a banner, not an answer.
  */
 const LONG_VERDICT = 24
 
@@ -91,7 +97,7 @@ export const VerdictHeaderCard: FC<VerdictHeaderCardProps> = ({
       <p
         className={cn(
           'hyphens-auto break-words text-balance tracking-tight text-foreground',
-          text.length > LONG_VERDICT ? 'card-figure-24' : 'card-figure-30',
+          text.length > LONG_VERDICT ? 'card-value' : 'card-figure-20',
         )}
       >
         {text}
@@ -128,7 +134,7 @@ export const VerdictHeaderCard: FC<VerdictHeaderCardProps> = ({
       )}
 
       {confidence_reason && (
-        <p className="card-caption max-w-prose text-muted-foreground">{confidence_reason}</p>
+        <p className="card-meta max-w-prose text-muted-foreground">{confidence_reason}</p>
       )}
 
       <NormRefFooter reference={reference} />

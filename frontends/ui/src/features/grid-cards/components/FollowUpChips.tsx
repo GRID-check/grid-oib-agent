@@ -49,7 +49,7 @@ const CHIP = cn(
   // usable offer where „Wie…" is not. On desktop the chips size to their
   // content, because four of them fit across 636px and a set the eye takes in
   // at once is the whole affordance.
-  'max-sm:min-w-[12rem] bg-card text-foreground/85 shadow-xs card-caption font-medium',
+  'max-sm:min-w-[12rem] bg-card text-foreground/85 shadow-xs card-body',
   'transition-colors duration-quick ease-out motion-reduce:transition-none',
   'hover:bg-accent hover:text-foreground',
   'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-2',
