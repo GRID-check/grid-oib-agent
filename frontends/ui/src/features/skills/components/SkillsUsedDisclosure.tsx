@@ -82,6 +82,12 @@ export const SkillsUsedDisclosure: FC<SkillsUsedDisclosureProps> = ({
           'text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 flex items-center gap-1.5',
           'rounded-md text-xs leading-relaxed transition-colors duration-quick ease-out',
           'focus-visible:outline-none focus-visible:ring-2',
+          // A 20px caption line under the answer, and the only way to find out
+          // which skills the agent used. `touch-target` widens the catchment to
+          // 44px without moving the line: it is the last thing in the turn, so
+          // the overhang has the gap below the answer to spend and no other
+          // control to take a tap from.
+          'touch-target',
         )}
         data-testid="skills-used-trigger"
       >

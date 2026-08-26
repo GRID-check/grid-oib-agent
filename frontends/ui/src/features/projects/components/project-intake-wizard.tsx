@@ -1321,7 +1321,17 @@ function BauwerkStage({
                 value={bw.name}
                 onChange={(e) => onRenameBauwerk(bw.id, e.target.value)}
                 aria-label={t('intake.bauwerk.nameAria')}
-                className="hover:border-border focus:border-primary min-w-0 flex-1 border-b border-dashed border-transparent bg-transparent py-0.5 text-sm font-medium outline-none"
+                // A raw `<input>`, so none of the Input primitive's phone
+                // handling reaches it: `text-sm` is 14px, and iOS Safari zooms
+                // the page in whenever a field under 16px takes focus — mid-way
+                // through a nine-step wizard, on the field that renames the
+                // building everything after it refers to. `text-base` below the
+                // breakpoint is the same treatment `ui/input.tsx` and the chat
+                // composer already carry. The height comes with it: 25px was
+                // half the floor for a control whose whole affordance is a
+                // dashed underline you have to find.
+                enterKeyHint="done"
+                className="hover:border-border focus:border-primary min-w-0 flex-1 border-b border-dashed border-transparent bg-transparent py-0.5 text-base font-medium outline-none pointer-coarse:py-2.5 md:text-sm"
               />
             ) : (
               <span className="flex-1 truncate text-sm font-medium">{bw.name}</span>
@@ -2018,7 +2028,13 @@ function QuestionHeader({ question, domId }: { question: ProjectIntakeQuestion; 
             aria-controls={whyId}
             aria-label={t('intake.why')}
             title={t('intake.why')}
-            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/40 pointer-coarse:-m-2.5 pointer-coarse:size-9 inline-flex size-4 shrink-0 items-center justify-center self-center rounded-full outline-none transition-colors duration-200 ease-out focus-visible:ring-2 motion-reduce:transition-none"
+            // The negative margin is what lets this grow without moving the
+            // label it sits beside: the box is 44px and the margin gives 14px of
+            // it back on each side, so the footprint stays the glyph's own 16px.
+            // It was `size-9`/`-m-2.5` — the same trick stopped 8px short of the
+            // floor, on the only control that explains what a wizard field is
+            // asking for.
+            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/40 pointer-coarse:-m-3.5 pointer-coarse:size-11 inline-flex size-4 shrink-0 items-center justify-center self-center rounded-full outline-none transition-colors duration-200 ease-out focus-visible:ring-2 motion-reduce:transition-none"
           >
             <HelpCircle className="size-3.5" aria-hidden />
           </button>

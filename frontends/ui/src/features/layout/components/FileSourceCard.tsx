@@ -291,7 +291,12 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
         <Button
           variant="ghost"
           size="icon"
-          className="ml-2 size-8 flex-shrink-0 rounded-full text-muted-foreground opacity-0 transition-opacity duration-quick ease-out hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+          // `focus-visible:opacity-100` already gave the keyboard a way in;
+          // `pointer-coarse:opacity-100` is the same admission for a finger.
+          // Hover is the only trigger a touch device cannot generate, so without
+          // it this row's delete was a control that existed, took a tab stop, and
+          // could never be seen on a phone.
+          className="ml-2 size-8 flex-shrink-0 rounded-full text-muted-foreground opacity-0 transition-opacity duration-quick ease-out hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
           onClick={handleDelete}
           disabled={deleteDisabled}
           aria-label={

@@ -145,7 +145,10 @@ export function ComposerSubjectBar({
               // is the undo for the move they just made. See `PeekToolbar`.
               data-testid="composer-show-file"
               onClick={onShowFile}
-              className="text-muted-foreground hover:text-foreground shrink-0 rounded-md px-1.5 py-1 text-xs"
+              // 24px, sitting directly beside the clear button below — the two
+              // controls of this bar grow rather than overhang so a tap on one
+              // cannot be taken by the other.
+              className="text-muted-foreground hover:text-foreground shrink-0 rounded-md px-1.5 py-1 text-xs pointer-coarse:min-h-11 pointer-coarse:px-3"
             >
               {t('assignment.showFile')}
             </button>
@@ -154,7 +157,9 @@ export function ComposerSubjectBar({
             type="button"
             onClick={onClear}
             aria-label={t('assignment.subjectClear')}
-            className="focus-visible:ring-ring/60 text-muted-foreground hover:text-foreground shrink-0 rounded-md p-1 transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2"
+            // "Stop asking about this file" — 22px, and the one control that
+            // undoes the bar it lives in.
+            className="focus-visible:ring-ring/60 text-muted-foreground hover:text-foreground shrink-0 rounded-md p-1 transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2 pointer-coarse:inline-flex pointer-coarse:size-11 pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:p-0"
           >
             <X className="size-3.5" aria-hidden />
           </button>

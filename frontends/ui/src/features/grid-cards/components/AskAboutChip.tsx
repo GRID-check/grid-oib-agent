@@ -108,7 +108,11 @@ export const AskAboutChip: FC<AskAboutChipProps> = ({ subject, missing, classNam
         'transition-colors duration-quick ease-out motion-reduce:transition-none',
         'hover:bg-accent hover:text-foreground',
         'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-2',
-        'pointer-coarse:h-8',
+        // `h-8` was a step up from the mouse size, not a floor — 32px, on the one
+        // control that turns "I have read this card" into the next question. It
+        // sits alone under the card's body with the card's own padding beneath
+        // it, so it grows for real; nothing is adjacent to lose a tap to.
+        'pointer-coarse:h-11 pointer-coarse:px-3',
         className
       )}
     >

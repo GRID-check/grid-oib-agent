@@ -52,6 +52,21 @@ const chipClasses =
   '[&>svg]:size-3 [&>svg]:shrink-0 ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
 
+/**
+ * The touch floor, added ONLY where the chip is something you press.
+ *
+ * Two of the three renderings below are real targets — the link opens a law in a
+ * new tab, the toggle switches a retrieval scope — and both sat at the static
+ * chip's 24px, which is where a label belongs and not where a control does.
+ *
+ * Kept out of {@link chipClasses} on purpose. That base is shared with the span
+ * rendering, which is a LABEL: it names the provenance inside a peek card and a
+ * detail panel, and growing every one of those to 44px on a phone would inflate
+ * a dense metadata block to say nothing new. A target earns the floor by being a
+ * target, not by looking like its neighbour.
+ */
+const chipTouchClasses = 'pointer-coarse:h-11 pointer-coarse:px-3.5'
+
 interface SourceSignalChipSpanProps {
   signal: SourceTint
   children: ReactNode
@@ -88,7 +103,7 @@ export const SourceSignalChipLink = ({
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className={cn(chipClasses, 'hover:brightness-95 dark:hover:brightness-125', className)}
+      className={cn(chipClasses, chipTouchClasses, 'hover:brightness-95 dark:hover:brightness-125', className)}
       style={sourceSignalStyle(signal)}
       title={title ?? href}
     >
@@ -121,6 +136,7 @@ export const SourceSignalChipToggle = forwardRef<HTMLButtonElement, SourceSignal
         aria-pressed={active}
         className={cn(
           chipClasses,
+          chipTouchClasses,
           'cursor-pointer',
           active ? 'shadow-xs' : 'border-transparent hover:shadow-xs',
           className

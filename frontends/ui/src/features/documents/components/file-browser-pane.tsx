@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useLocale, useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import { useSemanticSearch } from '../hooks/use-semantic-search'
@@ -75,6 +76,11 @@ export function FileBrowserPane({
   const t = useTranslations('files')
   const { locale } = useLocale()
   const [search, setSearch] = useState('')
+
+  // A WIDTH question, so it is asked on the width axis (`useIsMobile` is the
+  // `md` breakpoint): how many characters of placeholder the field can show is
+  // about the viewport, not about what is driving the pointer.
+  const isNarrow = useIsMobile()
 
   const semanticBody = useMemo(() => ({ projectId }), [projectId])
   const semantic = useSemanticSearch({ endpoint: '/api/documents/search', extraBody: semanticBody })
@@ -169,7 +175,17 @@ export function FileBrowserPane({
         onChange={handleSearchChange}
         onSubmit={runSemantic}
         onClear={clearSearch}
-        placeholder={canSearch ? t('browser.semantic.searchPlaceholder') : t('browser.searchPlaceholder')}
+        // The long placeholder TEACHES ("press Enter for semantic search"), and a
+        // lesson that gets cut off at "Search files — pres" teaches nothing while
+        // still costing the field its whole width. Below the breakpoint it is the
+        // plain one, because on a phone the lesson has already been given twice
+        // over: the field carries `enterKeyHint="search"`, so the keyboard's own
+        // action key reads "Search", and the run button sits right beside it.
+        placeholder={
+          canSearch && !isNarrow
+            ? t('browser.semantic.searchPlaceholder')
+            : t('browser.searchPlaceholder')
+        }
         searchLabel={t('browser.searchLabel')}
         resetLabel={t('browser.resetSearch')}
         canSearch={canSearch}

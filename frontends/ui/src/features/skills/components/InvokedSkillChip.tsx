@@ -63,7 +63,10 @@ export function InvokedSkillChip({
           type="button"
           onClick={onRemove}
           aria-label={t('composer.invoked.remove', { name })}
-          className="focus-visible:ring-ring/60 text-muted-foreground hover:text-foreground shrink-0 rounded-md p-1 transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2"
+          // The only way to take a wrongly-invoked skill back off a message,
+          // at 22px. It is the last thing in its row with the composer edge
+          // beside it, so the box grows into space that was padding anyway.
+          className="focus-visible:ring-ring/60 text-muted-foreground hover:text-foreground shrink-0 rounded-md p-1 transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2 pointer-coarse:inline-flex pointer-coarse:size-11 pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:p-0"
         >
           <X className="size-3.5" aria-hidden />
         </button>

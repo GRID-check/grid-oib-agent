@@ -47,11 +47,27 @@ const geistMono = Geist_Mono({
 /**
  * Mobile-first viewport: edge-to-edge rendering on notched devices
  * (safe-area insets are handled per-surface with env() padding).
+ *
+ * `interactiveWidget: 'resizes-content'` is what makes the on-screen keyboard
+ * part of the layout instead of something that happens on top of it. The shell
+ * is `h-dvh overflow-hidden` with the composer at the bottom of a flex column,
+ * and under the browser default (`resizes-visual`) the keyboard does not change
+ * the layout viewport at all: `dvh` keeps reporting the full screen, so the
+ * shell keeps laying itself out to a height that is now partly behind the
+ * keyboard, and the composer goes with it. The browser then rescues the focused
+ * field by shifting the visual viewport, which leaves the app's own chrome
+ * half-scrolled and the transcript in a position nothing in our code chose.
+ *
+ * `resizes-content` shrinks the layout viewport instead, so `h-dvh` becomes the
+ * space actually left above the keyboard and the existing flex column does the
+ * rest: the transcript gets shorter and the composer sits on the keyboard,
+ * which is what every messaging surface does and what this one was built to do.
  */
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
+  interactiveWidget: 'resizes-content',
 }
 
 export const metadata: Metadata = {

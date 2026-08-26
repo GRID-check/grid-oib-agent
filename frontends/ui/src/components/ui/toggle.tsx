@@ -28,10 +28,16 @@ const toggleVariants = cva(
       // and a button placed side by side in a toolbar line up. The scale used
       // to sit one step low (Toggle `default` was Button `sm`), which is why
       // every filter row next to a button read a notch short.
+      // `min-w-11` alongside `h-11`, for the same reason Button carries both
+      // (see `touch-target.spec.ts`): height alone leaves a SHORT LABEL under the
+      // floor on the axis nobody checks. Measured on the Archiv category filters,
+      // "All" came out 40px wide inside a 44px-tall pill — a control that passes
+      // every height assertion and is still too narrow to hit, in a row where the
+      // chip beside it is three times the width and hits fine.
       size: {
-        default: 'h-9 px-3 text-[13px] pointer-coarse:h-11',
-        sm: 'h-8 px-3 text-[12.5px] pointer-coarse:h-11',
-        lg: 'h-10 px-3.5 pointer-coarse:h-11',
+        default: 'h-9 px-3 text-[13px] pointer-coarse:h-11 pointer-coarse:min-w-11',
+        sm: 'h-8 px-3 text-[12.5px] pointer-coarse:h-11 pointer-coarse:min-w-11',
+        lg: 'h-10 px-3.5 pointer-coarse:h-11 pointer-coarse:min-w-11',
         // Icon sizes are the glyph's own square and are NOT part of that
         // remap — they pair with `Button size="icon"` by area, not by height.
         icon: 'size-8 pointer-coarse:size-11',

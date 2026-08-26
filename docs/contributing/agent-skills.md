@@ -99,11 +99,13 @@ diversity, so a single-vendor panel is a diminished version of the skill. The
 vendored text also says `Task` tool and `subagent_type: generalPurpose`; here
 that is the `Agent` tool with `subagent_type: general-purpose`.
 
-**`unslop` rule 13 bans em dashes outright.** Every `AGENTS.md`, every
-`CLAUDE.md` and all of this directory now hold to it, so a dash appearing in one
-of those is a regression rather than a house style. The rest of `docs/` does
-not, and a punctuation sweep of the audits and specs is not worth a diff on its
-own. Two deliberate exceptions: the `next dev` block at the top of
+**`unslop` rule 13 bans em dashes outright.** Every `AGENTS.md` and `CLAUDE.md`
+holds to it. This directory was swept once and drifts back on every merge that
+adds a row, because nothing enforces the rule: it lives in this paragraph and in
+review, not in a gate. Sweeping a contributor's merged prose to keep the claim
+true is not worth the diff either, so treat it as the house style for anything
+you write here rather than as a property of the directory. The rest of `docs/`
+was never swept at all. Two deliberate exceptions: the `next dev` block at the top of
 `frontends/ui/AGENTS.md`, which regenerates itself, and ADR titles quoted in
 `docs/adr/README.md`, which have to match the records they point at.
 

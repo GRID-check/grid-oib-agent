@@ -32,6 +32,16 @@ string you are seeing.
 | Cached project context comes back belonging to another tenant | `getCached` returns before the loader runs, so a key without the organization serves whatever the first caller populated, never entering the tenant scope | Put the organization in the cache key. `lib/project-profile/prompt-view.ts` is the pattern |
 | A tenant-scoped query returns rows it should not | The `WHERE organization_id` was lost, widened by a join, or written as a raw fragment | Row-level security is the backstop, not the plan. Check the table joined the boundary via `grid_secure_table` |
 
+## On a phone
+
+| Symptom | Cause | Do this |
+|---|---|---|
+| A region of a page swallows every swipe — the finger moves, the page does not, but taps still work | Something in the ancestor chain sets `touch-action` to a value that refuses the vertical pan, usually a third-party stylesheet claiming a gesture. React Flow's `.react-flow__pane` did exactly that to the whole reasoning graph, for pan and zoom the graph had already disabled in its props | The browser intersects `touch-action` over the touched element **and every ancestor**, so reading the computed style of the thing you touched tells you nothing — walk outward. `task fe:touch-audit` reports these as `SCROLL TRAP`. Scope the override to a class the component opts into, so a component that really does own the gesture keeps the default |
+| `truncate` does nothing and a list scrolls sideways instead | The cell is in a `table-layout: auto` table, where a column is sized to its content's **minimum** — and a filename does not wrap, so the minimum is the whole name | `table-fixed` plus a declared width on every column but one. Hiding columns at `sm`/`md` does not help: it removes the columns that were not the problem |
+| Tapping a control does something, but not the thing under the finger | Two `touch-target` catchments overlap, and the later element in the DOM takes the tap | The utility is for a control with room around it. Stacked rows and inline neighbours must GROW (`pointer-coarse:py-*`) instead. `features/grid-cards/components/card-rows.ts` explains the split |
+| iOS zooms into the page when a field is focused and never zooms back out | A text field under 16px. The primitives carry `text-base … md:text-sm`; a hand-written `<input>` inherits none of it | `mobile-affordances.spec.ts` fails on this now. Use the primitive, or carry the same floor |
+| A control is invisible on a phone but present in the DOM and focusable | `opacity-0 group-hover:opacity-100` with no touch escape — a touch device generates no hover | Add `pointer-coarse:opacity-100`, or invert to `md:opacity-0` so it is visible below the breakpoint. Also guarded by `mobile-affordances.spec.ts` |
+
 ## Documentation and agent setup
 
 | Symptom | Cause | Do this |
