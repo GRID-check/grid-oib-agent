@@ -446,6 +446,26 @@ class TestShallowResearcherAgent:
             requires_sources=requires_sources,
         )
 
+    def test_the_formatting_block_tells_the_model_to_tag_a_mermaid_fence(self, mock_llm_provider, real_tool):
+        """The model-side half of "a diagram printed as a shell listing".
+
+        Asked for a diagram the model reaches for mermaid and then opens the
+        fence bare, and `getLanguageFromClassName` answers `bash` for everything
+        it does not recognise — so the answer promised a drawing and printed a
+        listing. The renderer now recovers an untagged fence by sniffing its
+        first line, but that only covers the openers it knows; the fence carrying
+        the word is what makes it deterministic. Asserted on BOTH turn shapes,
+        because `<formatting>` is outside the `requires_sources` guards and a
+        diagram is at least as likely on the conversational one.
+        """
+        for requires_sources in (True, False):
+            rendered = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=requires_sources)
+            formatting = rendered.split("<formatting>")[1].split("</formatting>")[0]
+            assert "mermaid" in formatting
+            # The reason, not just the rule: a bare fence is not a neutral
+            # choice, it is a listing where a drawing was promised.
+            assert "code listing" in formatting
+
     def test_meta_turn_prompt_suppresses_marker_mandate(self, mock_llm_provider, real_tool):
         """requires_sources=False renders a deterministic suppression note and no marker mandate."""
         rendered = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=False)

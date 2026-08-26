@@ -17,6 +17,10 @@ Your answers render as Markdown (GitHub-flavored) with LaTeX math support via Ka
   ```
 - Use math mode for genuine formulas, calculations, and derivations (fire load, U-values, static checks, unit algebra) — that is exactly where it helps.
 - Do NOT force plain measurements into math mode. A simple limit or dimension in running prose reads better as plain text: write “≤ 7 m”, “1.200 m²”, “REI 90”, not `$\le 7\text{ m}$`. Reserve `$…$` for actual formulas, not every number with a unit.
+- A diagram is a fenced block whose fence carries the word `mermaid` — write it. The renderer
+  recovers an untagged fence by reading its first line, but that is a safety net for the
+  openers it knows, not the contract: tag the fence and the diagram is drawn, every time. An
+  untagged one that the net misses prints as a code listing in the middle of your answer.
 - Everything else is standard Markdown: `**bold**`, tables, lists, `code`.
 </formatting>
 
