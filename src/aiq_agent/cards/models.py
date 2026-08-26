@@ -2064,6 +2064,32 @@ class DiagramCard(CardModel):
         ),
     )
 
+    @field_validator("source", mode="before")
+    @classmethod
+    def _unwrap_a_fenced_source(cls, value: object) -> object:
+        """A markdown fence around the source is decoration, not information.
+
+        Everything this product teaches the model about mermaid — the chat
+        prompt, the diagrams skill, the renderer's own fallback — says "mermaid
+        lives in a fenced block", so the single most natural way to fill this
+        field in is to wrap the source in one. Refusing that wrapper cost three
+        field turns in a row: the drawing inside was valid, the refusal named
+        only the fence, and the model apologised instead of unwrapping. Strip
+        the wrapper and validate what it contains; a real defect (a `journey`,
+        a missing declaration, a grammar mismatch) is still refused below.
+        """
+        if not isinstance(value, str):
+            return value
+        lines = value.strip().splitlines()
+        if not lines:
+            return value
+        if re.fullmatch(r"(`{3,}|~{3,})\s*(mermaid)?\s*", lines[0]):
+            lines = lines[1:]
+            if lines and re.fullmatch(r"(`{3,}|~{3,})\s*", lines[-1]):
+                lines = lines[:-1]
+            return "\n".join(lines)
+        return value
+
     @model_validator(mode="after")
     def _source_declares_the_grammar_it_says_it_does(self) -> "DiagramCard":
         """Refuse a source that declares nothing, or declares something else.

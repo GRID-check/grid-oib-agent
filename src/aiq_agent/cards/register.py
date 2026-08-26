@@ -116,7 +116,11 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
         each one is a card the reader was supposed to get and did not.
         """
         try:
-            payload = json.loads(card_json) if isinstance(card_json, str) else card_json
+            # strict=False: a raw newline inside a JSON string is how a model
+            # writes the ONE card whose payload is a multi-line mermaid source.
+            # Refusing it as "not valid JSON" rejected every diagram the field
+            # produced while every short-fielded card sailed through.
+            payload = json.loads(card_json, strict=False) if isinstance(card_json, str) else card_json
         except (json.JSONDecodeError, TypeError) as exc:
             logger.warning("emit_card rejected a card: card_json is not valid JSON (%s)", exc)
             return f"Error: card_json is not valid JSON ({exc}). Pass a single JSON object with a 'type' field."
