@@ -45,6 +45,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { useTranslations, type Translator } from '@/i18n'
 import { SchematicCard, statusColor } from '../schematics/kit'
 import { cn } from '@/lib/utils'
+import { CARD_LIST_ROW } from './card-rows'
 import type { ChangeConsequenceData, ChangeDirection, NormReferenceData } from '../schematics/types'
 
 interface ChangeImpactCardProps {
@@ -115,7 +116,7 @@ const ConsequenceRow: FC<ConsequenceRowProps> = ({ consequence, open, onToggle, 
         <CollapsibleTrigger
           aria-label={t('cards.changeImpact.consequenceAria', { aspect: consequence.aspect })}
           className={cn(
-            'group flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left',
+            CARD_LIST_ROW,
             'transition-colors duration-quick ease-out motion-reduce:transition-none',
             'focus-visible:ring-ring/60 focus-visible:outline-none focus-visible:ring-2',
             open ? 'bg-muted/60' : 'hover:bg-muted/50'

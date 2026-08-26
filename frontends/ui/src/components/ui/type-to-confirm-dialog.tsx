@@ -84,6 +84,16 @@ export const TypeToConfirmDialog: FC<TypeToConfirmDialogProps> = ({
               placeholder={confirmName}
               autoComplete="off"
               spellCheck={false}
+              // The field asks for one exact string, character for character —
+              // which is precisely what a phone's autocapitalize breaks. A
+              // project named "hofgasse 12" comes back as "Hofgasse 12", the
+              // comparison fails, and the reader is told they typed it wrong
+              // while looking at what appears to be the right name.
+              // `enterKeyHint="done"` because this is the confirmation step: the
+              // action key finishes the dialog.
+              autoCapitalize="off"
+              autoCorrect="off"
+              enterKeyHint="done"
               disabled={pending}
             />
           </Field>

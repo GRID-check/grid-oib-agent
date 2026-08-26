@@ -130,6 +130,99 @@ documented `text-xl` title-size question becomes a single knob.
   running prose (the WCAG 2.2 inline exception), a 24×24 source chip that meets
   the AA minimum, and one chip-internal icon button capped at 36px by its chip.
   Guarded by `src/components/ui/touch-target.spec.ts`.
+
+  **Corrected by the pass below.** "All deliberate" did not survive re-measuring.
+  The Herleitung's source row — the control the whole surface exists to offer —
+  was 290×19 because a `p-0` override on the shared chip stripped away the
+  padding that had been its target, and it was not on anybody's exception list.
+  More to the point, the audit that produced this entry measured SIZE, so it
+  could only find defects that are about size; the reachability and layout
+  failures below were invisible to it.
+- **[done] M · The three mobile failures a size audit cannot see** — a second
+  pass over the customer-facing surfaces (chat, projects, Archiv, Postfach,
+  files; not Plattform) at 390×844, with `visual/touch-audit.mjs` — the harness
+  that pass produced, and the reason the numbers here are measured rather than
+  read off the markup.
+
+  1. **Reachable at all.** `opacity-0 group-hover:opacity-100` is the whole
+     affordance of a reveal, and a touch device cannot generate a hover. Copying
+     your own message and deleting an attached source were mounted, focusable and
+     permanently invisible on a phone. `project-memory-panel` already had the
+     escape (`pointer-coarse:opacity-100`); two sites had never adopted it.
+  2. **Laid out at all.** The Files/Archiv list rendered its Name column 437px
+     wide inside a 308px wrapper: `truncate` cannot fire under `table-layout:
+     auto`, because auto layout sizes a column to its content's minimum and a
+     filename does not wrap. The Table primitive's `overflow-x-auto` caught the
+     overflow, so nothing looked broken — the reader simply had to drag the list
+     sideways to read a filename. `table-fixed` is the fix. The PDF viewer's
+     toolbar was the same shape of bug at page level (445px inside 390).
+  3. **The keyboard.** `enterKeyHint` appeared nowhere in `src/`. The composer's
+     return key was drawn as a newline and wired to send; search fields ran a
+     semantic search off a key labelled "go". Three raw `<input>`s were under
+     16px, which makes iOS Safari zoom the page in on focus and never zoom back
+     out — including the field that renames the conversation you are reading.
+     Search fields also inherited the phone's autocapitalize and autocorrect,
+     which edit a query on its way into a matcher.
+
+  Plus the bespoke controls in `features/` that the primitive-level pass could
+  not reach: citation markers, mention pills, card disclosures, the four
+  card list rows (now one `CARD_LIST_ROW`), the report outline, sort headers,
+  file chips. Inline markers in prose grow but stay under 44 on purpose — 44px
+  catchments on two adjacent citations overlap, and the later one in the DOM
+  takes every tap meant for the earlier, which is worse than a small target.
+  See the note in `CitationMarker.tsx`.
+
+  Ratcheted by `src/components/ui/mobile-affordances.spec.ts` (hover reveals need
+  a touch escape; hand-written fields need the 16px floor; the shared molecules
+  declare their `enterKeyHint`) and by `task fe:touch-audit`, which is the
+  measurement half and is deliberately not in `verify`.
+- **[done] M · The Herleitung ate the scroll** — reported from a phone, and the
+  worst of the lot: a drag anywhere on the reasoning graph moved nothing, so the
+  transcript trapped the reader at the trace and the answer under it could not be
+  reached by the only gesture anyone tries. Taps kept working, which is what made
+  it read as the page being frozen rather than as a control misbehaving.
+
+  React Flow's stylesheet sets `touch-action: none` on `.react-flow__pane`
+  unconditionally — a graph normally owns pan and pinch. Ours owns neither
+  (`panOnDrag`, `panOnScroll`, `zoomOnScroll`, `zoomOnPinch`, `zoomOnDoubleClick`
+  all false, `preventScrolling={false}`), and CSS does not know the props are off.
+  The node viewport is a child of that pane, and the browser decides a gesture by
+  intersecting `touch-action` across every ancestor, so the declaration covered
+  the whole graph: measured 877px of dead region on an 844px screen, which leaves
+  no margin to start the gesture from.
+
+  Fixed with a scoped `touch-action: auto` the graph opts into by class, so a
+  future graph that genuinely wants to pan keeps the library default by saying
+  nothing. Guarded three ways in `mobile-affordances.spec.ts` — the class, the
+  rule, and a stale-check on the upstream default so the override cannot outlive
+  its cause.
+
+  Found alongside it, and fixed: `CardAction` made every card header
+  `grid-cols-[1fr_auto]` at any width, and a grid item's default `min-width: auto`
+  means the title column cannot shrink — so a header with two buttons grew past
+  its card, right edge at 418px inside a 390px viewport, with the buttons off the
+  screen. It is a shared primitive, so every card in the app carried it. The
+  action now stacks under the title below `sm` and the title column is
+  `minmax(0,1fr)` above it. Note the breakpoint is a VIEWPORT one and not the
+  `@container/card-header` the header declares: a `container-type` element is a
+  query container for its descendants, never for itself, so `@sm/card-header:`
+  on the header matches nothing — the first version of this fix made every
+  header single-column at every width.
+
+  A correction the audit tool needed too: `scrollWidth > clientWidth` is not "the
+  page scrolls sideways". An ancestor's `scrollWidth` counts content laid out
+  inside a nested horizontal scroller, so the composer's chip rail read as 453px
+  on a 390px screen and moved nowhere. The check now asks the browser to scroll
+  and reads back how far it went, and two of the findings above turned out to be
+  that false positive rather than real page overflow.
+
+  Three settings the app had never made, all of which decide how a phone treats
+  it: `interactiveWidget: 'resizes-content'` so the on-screen keyboard shortens
+  the layout viewport and the `h-dvh` shell puts the composer on top of it
+  instead of behind it; `-webkit-tap-highlight-color: transparent`, because the
+  platform's grey flash is a rectangle that ignores border-radius and duplicates
+  the press states the design system already draws; and the mobile top bar
+  finally honouring `env(safe-area-inset-top)` the way `ChatToolbar` always has.
 - **[done] M · Mobile drawer focus trap** — `app-sidebar.tsx` cycles Tab and
   Shift-Tab inside the panel, restores focus to the opener on close, closes on
   Escape and locks background scroll. (Noted here because the line above claimed

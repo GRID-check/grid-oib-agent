@@ -102,6 +102,10 @@ export function ProjectRenameButton({ projectId, projectName }: ProjectRenameBut
                 value={name}
                 maxLength={255}
                 autoFocus
+                // One field, one submit: the soft keyboard's action key is the
+                // shortest path out of a dialog that opens with the keyboard
+                // already up.
+                enterKeyHint="done"
                 onChange={(event) => setName(event.target.value)}
               />
             </Field>
