@@ -225,9 +225,20 @@ tasks:
     cmds:
       - bun run provision:workos-env {{.CLI_ARGS}}
 
+  fe:cards:check:
+    desc: The committed Zod card schema still matches shared/cards/schemas.json
+    # The other half of the `card-schemas` pre-commit hook. That hook skips this
+    # stage where frontends/ui/node_modules is absent, which is every repo-lint
+    # CI run, so the check lives here too and the frontend job runs it after
+    # `fe:install`. Running the generator IS the check.
+    cmds:
+      - node frontends/ui/scripts/generate-card-schemas.mjs
+      - git diff --exit-code -- frontends/ui/src/shared/cards/generated.ts
+
   fe:verify:
     desc: Everything CI runs for the frontend tier
     cmds:
+      - task: fe:cards:check
       - task: fe:lint
       - task: fe:types
       - task: fe:test:ci

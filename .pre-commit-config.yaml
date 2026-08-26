@@ -98,13 +98,25 @@ repos:
         # Running the generators IS the check: pre-commit fails the commit if
         # they modify anything. Neither stamps a timestamp, so a clean tree
         # stays clean (verified).
+        #
         # The venv python explicitly, not a bare `python`: `task lint:repo`
         # invokes `.venv/bin/pre-commit` WITHOUT activating the venv, so a
         # bare interpreter here resolves to the system one and cannot import
         # langchain_core. (The `pytest` hook below gets away with it only
         # because it is stages: [push] and CI activates the venv first.)
         # On Windows this path is .venv/Scripts/python.exe.
-        entry: bash -c 'PYTHONPATH=src .venv/bin/python scripts/generate_card_schema.py && node frontends/ui/scripts/generate-card-schemas.mjs'
+        #
+        # The Zod stage needs `json-schema-to-zod` from frontends/ui/node_modules,
+        # which CI's repo-lint job does not install — it failed every run until
+        # this guard existed. It is skipped where the modules are absent and
+        # covered instead by `task fe:cards:check`, which the frontend CI job
+        # runs after `task fe:install`.
+        entry: >-
+          bash -c 'PYTHONPATH=src .venv/bin/python scripts/generate_card_schema.py
+          && { [ -d frontends/ui/node_modules ]
+          && node frontends/ui/scripts/generate-card-schemas.mjs
+          || echo "skipping the Zod stage, frontends/ui/node_modules is absent
+          (task fe:cards:check covers it)"; }'
         language: system
         pass_filenames: false
         files: ^(src/aiq_agent/cards/models\.py|shared/cards/schemas\.json|scripts/generate_card_schema\.py|frontends/ui/scripts/generate-card-schemas\.mjs|frontends/ui/src/shared/cards/generated\.ts)$
@@ -136,7 +148,7 @@ repos:
         # The script existed and nothing ran it — not pre-commit, not the
         # Taskfile, not CI. A validator nobody invokes is a validator that is
         # not ratcheting.
-        entry: python3 scripts/validate_skills.py
+        entry: .venv/bin/python scripts/validate_skills.py
         language: system
         pass_filenames: false
         files: ^skills/.*$|^scripts/validate_skills\.py$

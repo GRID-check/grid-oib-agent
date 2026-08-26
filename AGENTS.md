@@ -8,7 +8,7 @@ and a custom OIB knowledge source.
 
 ```bash
 task setup          # first, and after any pull that moves a lockfile
-pre-commit install  # separate from setup, and CI lints the whole repo
+.venv/bin/pre-commit install   # separate from setup, and CI lints the whole repo
 task verify         # the merge gate
 ```
 
@@ -110,11 +110,15 @@ asked for it in this session:
 | Run it freely | Ask first |
 |---|---|
 | `task fe:provision:authz` and its siblings, which check | the same task with `-- --apply`, which writes the catalog into WorkOS |
-| `npm run preview` in `deploy/pulumi` | `npm run up`, which mutates the cluster |
+| `npm run preview` in `deploy/pulumi` | `npm run up`, which mutates the cluster, and `npm run destroy`, which deletes it |
 | writing a migration file | `bun run db:migrate` or `migrate:storage` against a database you did not create |
 | a commit, a branch, a push to your own branch | a force-push, or any history rewrite on a branch someone else may have checked out |
 
-Everything else is reversible, so it does not get a checkpoint.
+The rest of the work in this repo is reversible and gets no checkpoint. That is
+a statement about the tasks above, not a blanket permission: anything that
+destroys what you cannot regenerate needs the same confirmation whether or not
+it is listed here. `rm -rf`, `git clean -fdx`, a `DROP` or unfiltered `DELETE`
+against a database anyone else uses, and removing a Docker volume all qualify.
 
 **When something surprises you or breaks, read
 [`docs/contributing/gotchas.md`](docs/contributing/gotchas.md) before you start

@@ -97,21 +97,80 @@ def normalise(status: str) -> str:
     return first.strip(":.*")
 
 
-def index_rows(readme: Path) -> dict[str, str]:
-    """Map each indexed ADR filename to the status its index row claims."""
-    return {m.group(2).strip(): m.group(4).strip() for m in INDEX_ROW_RE.finditer(readme.read_text(encoding="utf-8"))}
+def index_rows(readme: Path, errors: list[str]) -> dict[str, str]:
+    """Map each indexed ADR filename to the status its index row claims.
+
+    Two rows for one file would otherwise be invisible: the dict keeps the last
+    and the check passes while readers see contradictory statuses.
+    """
+    rows: dict[str, str] = {}
+    for m in INDEX_ROW_RE.finditer(readme.read_text(encoding="utf-8")):
+        name, status = m.group(2).strip(), m.group(4).strip()
+        if name in rows:
+            errors.append(f"docs/adr/README.md: {name} has more than one index row.")
+        rows[name] = status
+    return rows
+
+
+SUPERSEDED_RE = re.compile(r"^superseded by ADR-\d{4}$")
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def check_madr(path: Path, status: str, errors: list[str]) -> None:
+    """Validate what the template promises, for records numbered MADR_FROM and up.
+
+    The guides tell an author that ``task lint:repo`` checks the metadata. Until
+    this existed it checked only that frontmatter and a status line were present,
+    so an ADR missing its date, its deciders or its Confirmation section passed
+    the gate it was told to trust.
+    """
+    text = path.read_text(encoding="utf-8")
+    fm = FRONTMATTER_RE.match(text)
+    if not fm:
+        errors.append(
+            f"{path.name}: ADRs from {MADR_FROM:04d} use the MADR template "
+            f"(YAML frontmatter). Copy docs/adr/0000-template.md."
+        )
+        return
+
+    clean = status.strip()
+    if clean not in STATUSES[:4] and not SUPERSEDED_RE.match(clean):
+        errors.append(
+            f"{path.name}: status {clean!r} is not one of {', '.join(STATUSES[:4])}, "
+            f"superseded by ADR-NNNN. Qualifications belong in Consequences."
+        )
+
+    body = fm.group(1)
+    date = re.search(r"^date:\s*(.+)$", body, re.MULTILINE)
+    if not date or not DATE_RE.match(date.group(1).strip().strip("\"'")):
+        errors.append(f"{path.name}: frontmatter needs a `date:` as YYYY-MM-DD.")
+
+    deciders = re.search(r"^decision-makers:\s*(.+)$", body, re.MULTILINE)
+    if not deciders or not deciders.group(1).strip():
+        errors.append(f"{path.name}: frontmatter needs a non-empty `decision-makers:`.")
+
+    if not re.search(r"^###\s+Confirmation\s*$", text, re.MULTILINE):
+        errors.append(
+            f"{path.name}: no `### Confirmation` section. Name the gate that keeps "
+            f"the decision true, or say that nothing enforces it yet."
+        )
 
 
 def check(errors: list[str]) -> int:
     """Run every check, appending to ``errors``. Returns the ADR count."""
     files = adr_files()
     readme = ADR_DIR / "README.md"
-    indexed = index_rows(readme)
+    indexed = index_rows(readme, errors)
 
     seen: dict[int, Path] = {}
+    counts: dict[int, int] = {}
     for path in files:
         num = number_of(path)
-        if num in seen and num not in KNOWN_COLLISIONS:
+        counts[num] = counts.get(num, 0) + 1
+        # The recorded collisions are exempt for their SECOND file only. A third
+        # would leave the directory ambiguous with nothing to say so.
+        exempt = num in KNOWN_COLLISIONS and counts[num] <= 2
+        if num in seen and not exempt:
             errors.append(
                 f"{path.name}: number {num:04d} is already used by {seen[num].name}. Take the next one from `--next`."
             )
@@ -127,11 +186,8 @@ def check(errors: list[str]) -> int:
                 f"Qualifications belong in Consequences."
             )
 
-        if num >= MADR_FROM and not FRONTMATTER_RE.match(path.read_text(encoding="utf-8")):
-            errors.append(
-                f"{path.name}: ADRs from {MADR_FROM:04d} use the MADR template "
-                f"(YAML frontmatter). Copy docs/adr/0000-template.md."
-            )
+        if num >= MADR_FROM:
+            check_madr(path, status, errors)
 
         if path.name not in indexed:
             errors.append(f"{path.name}: missing from the index in docs/adr/README.md.")

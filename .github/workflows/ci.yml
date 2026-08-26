@@ -196,6 +196,7 @@ jobs:
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/setup-task
       - run: task fe:install
+      - run: task fe:cards:check
       - run: task fe:lint
       - run: task fe:types
       - run: task fe:build

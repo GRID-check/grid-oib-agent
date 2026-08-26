@@ -69,10 +69,20 @@ def agents_files(tracked: set[str]) -> list[Path]:
     return sorted(Path(p) for p in tracked if Path(p).name == "AGENTS.md")
 
 
-def check_bridge(agents: Path, errors: list[str]) -> None:
-    """Assert ``agents`` has a sibling ``CLAUDE.md`` that really imports it."""
+def check_bridge(agents: Path, tracked: set[str], errors: list[str]) -> None:
+    """Assert ``agents`` has a *tracked* sibling ``CLAUDE.md`` that imports it.
+
+    Tracked, not merely present: an untracked local bridge satisfies the author's
+    working tree and nobody else's checkout, which is the same class of bug as
+    the missing ``@`` this script exists for.
+    """
     bridge = agents.with_name("CLAUDE.md")
-    if not bridge.exists():
+    if bridge.as_posix() not in tracked:
+        if bridge.exists():
+            errors.append(
+                f"{bridge}: exists but is not tracked by git, so {agents} loads for you and for nobody else. Commit it."
+            )
+            return
         errors.append(
             f"{agents}: no CLAUDE.md beside it. Claude Code reads CLAUDE.md, "
             f"never AGENTS.md, so this guide never loads. "
@@ -133,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
 
     errors: list[str] = []
     for guide in guides:
-        check_bridge(guide, errors)
+        check_bridge(guide, tracked, errors)
         check_links(guide, tracked, errors)
 
     if errors:

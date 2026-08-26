@@ -16,8 +16,12 @@ packages also sit outside the uv workspace; `ifc-spatial-py` carries its own
 npm --prefix packages/ifc-spatial install      # `task setup` skips this too
 npm --prefix packages/ifc-spatial run typecheck
 npm --prefix packages/ifc-spatial test
-(cd packages/ifc-spatial-py && uv run pytest)
+(cd packages/ifc-spatial-py && uv run --all-extras pytest)   # 636 tests, ~5 min
 ```
+
+`--all-extras`, not `--extra dev`: `pytest` is the `dev` extra, and the suite
+also collects `test_ids_export.py`, which needs `ifctester` from the `ids`
+extra. Plain `uv run pytest` installs neither.
 
 A change here is unverified until you have pasted that output. Extending either
 package makes wiring it into `Taskfile.yml` and the CI paths filter the
