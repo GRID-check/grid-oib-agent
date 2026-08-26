@@ -43,7 +43,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       web: ${{ steps.filter.outputs.web }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # paths-filter diffs the pushed range against `github.event.before`.
           # In the default shallow clone that commit is missing, so the action
@@ -91,13 +91,13 @@ jobs:
     steps:
       # No persisted checkout token: images are pushed via docker/login-action
       # below, never git credentials.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -112,7 +112,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/develop' }}
             type=ref,event=tag
       - name: Build & push (release target)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deploy/Dockerfile
@@ -120,14 +120,28 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Layer cache, scoped per image so the three do not evict each other.
+          # Layer cache lives in GHCR (a `buildcache` tag per image), NOT in
+          # type=gha. The three mode=max caches are an estimated 3-5 GB and
+          # shared the repo's 10 GB Actions cache budget with the trivy layer
+          # analysis, the Astro asset cache and every CI node/uv cache; LRU
+          # eviction then made publishes cold, and re-exporting gigabytes
+          # through the Actions cache API is what left a publish hanging in
+          # "exporting to GitHub Actions cache" for half an hour. The registry
+          # has no such budget, skips blobs it already holds, and uploads over
+          # the same path as the image push itself, which takes seconds.
+          #
           # `mode=max` is required: these are multi-stage builds and the layer
           # worth reusing is the dependency install in an intermediate stage,
           # which `mode=min` does not export. This does NOT make an unchanged
           # `RUN build` reusable — `COPY . .` invalidates it on any source
           # change; it saves the install, not the build.
-          cache-from: type=gha,scope=backend
-          cache-to: type=gha,mode=max,scope=backend
+          #
+          # `image-manifest=true,oci-mediatypes=true`: GHCR rejects the legacy
+          # cache-manifest media type without them. The owner is written
+          # lowercase because image refs must be, and unlike metadata-action's
+          # `images:` input, nothing lowercases this string for us.
+          cache-from: type=registry,ref=ghcr.io/grid-check/grid-oib-backend:buildcache
+          cache-to: type=registry,ref=ghcr.io/grid-check/grid-oib-backend:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
 
   frontend:
     name: Build & push frontend image
@@ -135,13 +149,13 @@ jobs:
     needs: changes
     if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/develop' || needs.changes.outputs.frontend == 'true' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -156,21 +170,17 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/develop' }}
             type=ref,event=tag
       - name: Build & push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: frontends/ui
           file: frontends/ui/deploy/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Layer cache, scoped per image so the three do not evict each other.
-          # `mode=max` is required: these are multi-stage builds and the layer
-          # worth reusing is the dependency install in an intermediate stage,
-          # which `mode=min` does not export. This does NOT make an unchanged
-          # `RUN build` reusable — `COPY . .` invalidates it on any source
-          # change; it saves the install, not the build.
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,mode=max,scope=frontend
+          # Layer cache in GHCR, mode=max for the intermediate dependency
+          # stage — the backend job's cache comment carries the full rationale.
+          cache-from: type=registry,ref=ghcr.io/grid-check/grid-oib-frontend:buildcache
+          cache-to: type=registry,ref=ghcr.io/grid-check/grid-oib-frontend:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
 
   web:
     name: Build & push web image
@@ -178,13 +188,13 @@ jobs:
     needs: changes
     if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/develop' || needs.changes.outputs.web == 'true' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -215,18 +225,14 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/develop' }}
             type=ref,event=tag
       - name: Build & push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: frontends/web
           file: frontends/web/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Layer cache, scoped per image so the three do not evict each other.
-          # `mode=max` is required: these are multi-stage builds and the layer
-          # worth reusing is the dependency install in an intermediate stage,
-          # which `mode=min` does not export. This does NOT make an unchanged
-          # `RUN build` reusable — `COPY . .` invalidates it on any source
-          # change; it saves the install, not the build.
-          cache-from: type=gha,scope=web
-          cache-to: type=gha,mode=max,scope=web
+          # Layer cache in GHCR, mode=max for the intermediate dependency
+          # stage — the backend job's cache comment carries the full rationale.
+          cache-from: type=registry,ref=ghcr.io/grid-check/grid-oib-web:buildcache
+          cache-to: type=registry,ref=ghcr.io/grid-check/grid-oib-web:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
