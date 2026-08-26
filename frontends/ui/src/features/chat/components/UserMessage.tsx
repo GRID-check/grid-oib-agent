@@ -172,7 +172,7 @@ export const UserMessage: FC<UserMessageProps> = ({
         {/* Three corners are the token radius; the 4px top-right is the
             bubble's tail-side notch — the one deliberate value, and what makes
             an input bubble identifiable at a glance. */}
-        <div className="group relative w-[400px] max-w-full rounded-lg rounded-tr-[4px] border border-input bg-card px-[14px] py-[11px] text-sm leading-[1.55] text-default shadow-xs">
+        <div className="group relative w-[400px] max-w-full rounded-lg rounded-tr-[4px] border border-input bg-card px-[14px] py-[11px] text-sm leading-[1.55] text-default shadow-xs pointer-coarse:pr-14">
           {body}
           <button
             type="button"
@@ -227,6 +227,13 @@ export const UserMessage: FC<UserMessageProps> = ({
           // bubble's tail-side notch — the one deliberate value.
           'group relative w-[400px] max-w-full rounded-lg rounded-tr-[4px] border border-input bg-card',
           'px-[14px] py-[11px] text-sm leading-[1.55] text-default shadow-xs',
+          // Room for the copy control, which is 44px and ALWAYS VISIBLE on a
+          // coarse pointer (see COPY_BUTTON_CLASS). On a mouse it fades in over
+          // the text and that is fine — it is only there while the cursor is —
+          // but a permanent 44px square in the top-right corner of a bubble sits
+          // on the first line of the message and makes it unreadable and
+          // unselectable. The padding is the price of the control being present.
+          'pointer-coarse:pr-14',
           // A grouped follow-up squares off the corner that pointed at the header
           // it no longer draws, so a run reads as one block of speech. It stays
           // flush with the bubble above — the header sits over the bubble here, not

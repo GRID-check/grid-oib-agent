@@ -1322,16 +1322,15 @@ function BauwerkStage({
                 onChange={(e) => onRenameBauwerk(bw.id, e.target.value)}
                 aria-label={t('intake.bauwerk.nameAria')}
                 // A raw `<input>`, so none of the Input primitive's phone
-                // handling reaches it: `text-sm` is 14px, and iOS Safari zooms
-                // the page in whenever a field under 16px takes focus — mid-way
-                // through a nine-step wizard, on the field that renames the
-                // building everything after it refers to. `text-base` below the
-                // breakpoint is the same treatment `ui/input.tsx` and the chat
-                // composer already carry. The height comes with it: 25px was
-                // half the floor for a control whose whole affordance is a
-                // dashed underline you have to find.
+                // handling reaches it: at 14px iOS Safari zooms the page in when
+                // the field takes focus — mid-way through a nine-step wizard, on
+                // the field that renames the building everything after it refers
+                // to. `pointer-coarse:text-base` is the same treatment
+                // `ui/input.tsx` and the chat composer carry, on the same axis.
+                // The height comes with it: 25px was half the floor for a control
+                // whose whole affordance is a dashed underline you have to find.
                 enterKeyHint="done"
-                className="hover:border-border focus:border-primary min-w-0 flex-1 border-b border-dashed border-transparent bg-transparent py-0.5 text-base font-medium outline-none pointer-coarse:py-2.5 md:text-sm"
+                className="hover:border-border focus:border-primary min-w-0 flex-1 border-b border-dashed border-transparent bg-transparent py-0.5 text-sm font-medium outline-none pointer-coarse:py-2.5 pointer-coarse:text-base"
               />
             ) : (
               <span className="flex-1 truncate text-sm font-medium">{bw.name}</span>
@@ -1999,7 +1998,10 @@ function QuestionHeader({ question, domId }: { question: ProjectIntakeQuestion; 
   const whyId = `${domId}-why`
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-baseline gap-2">
+      {/* `items-center` on touch: the rationale glyph beside the label is a full
+          44px control there, and baseline alignment would hang it off the label's
+          text baseline instead of centring it in the row it now defines. */}
+      <div className="flex items-baseline gap-2 pointer-coarse:items-center">
         <Label htmlFor={domId} className="text-sm font-medium">
           {question.label}
           {/* Mark the handful of hard-required fields so they're distinguishable
@@ -2028,13 +2030,22 @@ function QuestionHeader({ question, domId }: { question: ProjectIntakeQuestion; 
             aria-controls={whyId}
             aria-label={t('intake.why')}
             title={t('intake.why')}
-            // The negative margin is what lets this grow without moving the
-            // label it sits beside: the box is 44px and the margin gives 14px of
-            // it back on each side, so the footprint stays the glyph's own 16px.
-            // It was `size-9`/`-m-2.5` — the same trick stopped 8px short of the
-            // floor, on the only control that explains what a wizard field is
-            // asking for.
-            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/40 pointer-coarse:-m-3.5 pointer-coarse:size-11 inline-flex size-4 shrink-0 items-center justify-center self-center rounded-full outline-none transition-colors duration-200 ease-out focus-visible:ring-2 motion-reduce:transition-none"
+            // 44px of REAL layout space, not a negative-margin overhang.
+            //
+            // The overhang is the tempting version — it grows the target and
+            // moves nothing — and it is wrong here because this control has
+            // neighbours on every side it would grow into: the `<Label>` is 8px
+            // to its left and the field it annotates is 4px below. A 14px
+            // overhang therefore covers the end of the label (which focuses the
+            // field) and the top edge of the field itself, so the two taps a
+            // reader is most likely to make in this row would both open the
+            // rationale instead. A target that big by theft is worse than a
+            // small one: it is wrong on purpose rather than by omission.
+            //
+            // The cost is the honest one — the label row is 44px tall on touch.
+            // `pointer-coarse:items-center` below keeps the glyph and the label
+            // aligned once the row is taller than its baseline.
+            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/40 pointer-coarse:size-11 inline-flex size-4 shrink-0 items-center justify-center self-center rounded-full outline-none transition-colors duration-200 ease-out focus-visible:ring-2 motion-reduce:transition-none"
           >
             <HelpCircle className="size-3.5" aria-hidden />
           </button>

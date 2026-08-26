@@ -110,9 +110,27 @@ async function resolveChromium() {
       if (existsSync(candidate)) return candidate
     }
   } catch {
-    /* fall through to Playwright's own resolution */
+    /* fall through below */
   }
-  return undefined
+  // `playwright-core` ships NO browser, so there is nothing to fall through to:
+  // without one of the two paths above, `chromium.launch()` throws a stack trace
+  // about a missing executable, which reads as the harness being broken rather
+  // than as a machine that has never had a browser installed. Say the actual
+  // thing, with the two ways out.
+  throw new Error(
+    [
+      'No Chromium found for the touch audit.',
+      '',
+      `  Looked in: ${process.env.CHROMIUM_PATH ?? '(CHROMIUM_PATH unset)'}`,
+      `             ${base}`,
+      '',
+      'This repo pins `playwright-core`, which ships no browser of its own. Either:',
+      '  • install one:  npx playwright install chromium',
+      '  • or point at an existing binary:  CHROMIUM_PATH=/path/to/chrome task fe:touch-audit',
+      '',
+      'The devcontainer and CI images already provide one at /opt/pw-browsers.',
+    ].join('\n'),
+  )
 }
 
 /**
@@ -253,7 +271,21 @@ const AUDIT = ({ interactive, floor, slack }) => {
   }
 }
 
-/** Boot a private `next dev`, with the same stub auth env the capture harness uses. */
+/**
+ * Boot a private `next dev`, with the same stub auth env the capture harness uses.
+ *
+ * `detached: true` and killing the PROCESS GROUP, not the child: `npx` is a
+ * wrapper, so `child.kill()` reaps the wrapper and leaves `next dev` holding the
+ * port. That orphan then answers the next audit's readiness probe from stale
+ * state, or blocks the boot outright — it happened during this harness's own
+ * development, twice, and cost a machine to a `next-server` nobody could see.
+ *
+ * `REQUIRE_AUTH: 'false'` is FORCED rather than defaulted. Everything else here
+ * falls back to an ambient value because a real credential is more useful than a
+ * stub, but this one decides whether `/dev/*` renders the preview or an auth
+ * redirect — inherit a `true` from the surrounding shell and the audit measures
+ * a sign-in page while reporting on the surface it thinks it loaded.
+ */
 async function startServer() {
   const { spawn } = await import('node:child_process')
   const port = Number(process.env.PORT) || 3411
@@ -261,8 +293,10 @@ async function startServer() {
   const child = spawn('npx', ['next', 'dev', '--turbopack', '-p', String(port), '-H', '127.0.0.1'], {
     cwd: UI_ROOT,
     stdio: 'ignore',
+    detached: true,
     env: {
       ...process.env,
+      REQUIRE_AUTH: 'false',
       NEXT_PUBLIC_WORKOS_REDIRECT_URI:
         process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI || `${baseUrl}/api/auth/callback`,
       WORKOS_API_KEY: process.env.WORKOS_API_KEY || 'sk_test_touch_audit',
@@ -271,19 +305,61 @@ async function startServer() {
         process.env.WORKOS_COOKIE_PASSWORD || 'touch_audit_cookie_password_at_least_32b',
     },
   })
+
+  const stop = () => {
+    try {
+      process.kill(-child.pid, 'SIGTERM')
+    } catch {
+      /* already gone */
+    }
+  }
+
+  let exited = null
+  child.on('exit', (code, signal) => {
+    exited = `code ${code}${signal ? `, signal ${signal}` : ''}`
+  })
+
   const deadline = Date.now() + 240_000
   while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`${baseUrl}/dev/chat-turn`, { method: 'HEAD' })
-      if (res.status < 500) return { baseUrl, stop: () => child.kill() }
-    } catch {
-      /* not up yet */
-    }
+    if (exited) throw new Error(`Dev server exited before becoming ready (${exited})`)
+    if (await servesPreviews(baseUrl)) return { baseUrl, stop }
     await new Promise((r) => setTimeout(r, 500))
   }
-  child.kill()
+  stop()
   throw new Error(`Dev server did not become ready at ${baseUrl}`)
 }
+
+/**
+ * Is THIS app serving previews at `baseUrl`?
+ *
+ * Not "did something answer below 500". A 3xx to a sign-in page and an unrelated
+ * service already on port 3411 both clear that bar, and the audit would then
+ * measure whatever they returned and report it as a clean surface. So: no
+ * redirect, a 200, and a body carrying the marker the `/dev` layout renders.
+ */
+async function servesPreviews(baseUrl) {
+  try {
+    const res = await fetch(`${baseUrl}${PROBE_TARGET.path}`, { redirect: 'manual' })
+    const body = await res.text()
+    if (res.status !== 200) return false
+    return PROBE_MARKER ? body.includes(PROBE_MARKER) : true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The surface readiness is checked against, and a string its HTML must contain.
+ *
+ * `waitFor` in the registry is a Playwright selector, and this probe is a plain
+ * `fetch` — so the marker is the selector's own text where that is a `text=`
+ * locator, and otherwise readiness settles for a clean 200. Either way it is
+ * THIS app answering, not a redirect and not whatever else holds the port.
+ */
+const PROBE_TARGET = SCREENSHOT_TARGETS.find((t) => t.id === 'chat-turn') ?? SCREENSHOT_TARGETS[0]
+const PROBE_MARKER = PROBE_TARGET?.waitFor?.startsWith('text=')
+  ? PROBE_TARGET.waitFor.slice('text='.length)
+  : null
 
 const targets = SCREENSHOT_TARGETS.filter((t) => {
   if (only.length) return only.includes(t.id)
@@ -308,6 +384,7 @@ const context = await browser.newContext({
 const page = await context.newPage()
 
 let flagged = 0
+let failed = 0
 try {
   for (const target of targets) {
     let report
@@ -317,7 +394,11 @@ try {
       await page.waitForTimeout(700)
       report = await page.evaluate(AUDIT, { interactive: INTERACTIVE, floor: FLOOR, slack: SLACK })
     } catch (error) {
-      console.log(`\n## ${target.id}  FAILED: ${String(error.message).split('\n')[0]}`)
+      // A target that did not load is a FINDING, not a skip. Counting it as
+      // neither is how an audit that measured nothing reports "0 with findings"
+      // and exits 0 — the failure mode that makes a green harness worthless.
+      failed += 1
+      console.log(`\n## ${target.id}  FAILED TO LOAD: ${String(error.message).split('\n')[0]}`)
       continue
     }
 
@@ -352,4 +433,14 @@ try {
   server?.stop()
 }
 
-console.log(`\n${targets.length} target(s) audited at ${VIEWPORT.width}x${VIEWPORT.height}; ${flagged} with findings.`)
+const loaded = targets.length - failed
+console.log(
+  `\n${loaded}/${targets.length} target(s) audited at ${VIEWPORT.width}x${VIEWPORT.height}; ` +
+    `${flagged} with findings${failed ? `, ${failed} failed to load` : ''}.`,
+)
+// Non-zero only for targets that could not be measured. Findings themselves do
+// not fail the run: `SMALL` is a prompt to read (an inline target in a sentence
+// legitimately stays under the floor), so exiting on them would train everyone
+// to pass `|| true`. A target that never loaded is different — it means the
+// numbers above are describing fewer surfaces than they claim to.
+if (failed > 0) process.exitCode = 1

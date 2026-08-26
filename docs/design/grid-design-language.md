@@ -143,13 +143,16 @@ across the whole ancestor chain — so a library stylesheet can freeze a region
 none of our code mentions. Only a surface that genuinely owns its gestures (the
 3D model canvas) may keep one.
 
-**Text fields are 16px below `md`**, or iOS Safari zooms the page on focus and
-does not zoom back out. **The action key is labelled**: `enterKeyHint` says what
+**Text fields are 16px on a coarse pointer** (`text-sm pointer-coarse:text-base`),
+or iOS Safari zooms the page on focus and does not zoom back out. On the pointer
+axis and never a breakpoint — `text-base md:text-sm` looks like a floor and is
+not one, since a touch tablet past `md` drops to 14px and zooms as a phone would. **The action key is labelled**: `enterKeyHint` says what
 Enter does, and a field that matches strings turns off autocapitalize and
 autocorrect so the phone cannot edit a query on its way into a matcher.
 
 Measured, not eyeballed: `task fe:touch-audit`. Held statically by
-`components/ui/touch-target.spec.ts` and `components/ui/mobile-affordances.spec.ts`.
+`frontends/ui/src/components/ui/touch-target.spec.ts` and
+`frontends/ui/src/components/ui/mobile-affordances.spec.ts`.
 
 ## Component patterns
 

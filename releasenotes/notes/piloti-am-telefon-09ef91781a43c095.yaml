@@ -20,8 +20,9 @@ fixes:
     sideways to read a document's name. Long filenames now shorten to fit the
     screen instead of stretching the list past the edge of it.
   - >
-    Renaming a conversation, a file or a building in the project wizard no
-    longer zooms an iPhone into the page and leaves it there.
+    Typing into any field on an iPhone or iPad no longer zooms the page in and
+    leaves it there. This affected tablets everywhere and phones when renaming a
+    conversation, a file or a building in the project wizard.
   - >
     The controls for zooming a cited PDF were laid out past the right-hand edge
     of a phone screen, where they could not be reached. They now wrap onto a
