@@ -44,8 +44,9 @@ that rule has to hold before the first read. It also never arrives at all for a
 question answered without opening a file, and other harnesses handle nesting
 differently or not at all.
 
-So the root `AGENTS.md` carries a map of the scoped guides and tells the agent to
-open the relevant one directly. One read, and the mechanism stops mattering.
+So the root `AGENTS.md` tells the agent to open the guide for its area before
+starting, rather than listing the guides. The list is `ls */AGENTS.md`, and a
+copy of it in an always-loaded file is one more thing to keep true. One read, and the mechanism stops mattering.
 
 ## What goes where
 

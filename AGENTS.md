@@ -33,25 +33,14 @@ to add here has no home yet: give it one under
 
 ## Where the scoped guides are
 
-This file is what holds everywhere. Each service keeps its own `AGENTS.md` for
-what holds only there. **Read the one for the area you are about to touch,
-before you touch it.** They are additive: this file still applies.
+Each service keeps its own `AGENTS.md` beside the code, for what holds only
+there. **Read the one for the area you are about to touch, before you touch
+it.** They are additive: this file still applies.
 
-| Working in | What it is | Read |
-|---|---|---|
-| `src/aiq_agent/` | the Python agent | [`src/aiq_agent/AGENTS.md`](src/aiq_agent/AGENTS.md) |
-| `frontends/ui/` | Next.js UI, the BFF, the database | [`frontends/ui/AGENTS.md`](frontends/ui/AGENTS.md) |
-| `frontends/aiq_api/` | the FastAPI plugin and async jobs | [`frontends/aiq_api/AGENTS.md`](frontends/aiq_api/AGENTS.md) |
-| `frontends/web/` | the public Astro site | [`frontends/web/AGENTS.md`](frontends/web/AGENTS.md) |
-| `sources/` | NAT data-source packages | [`sources/AGENTS.md`](sources/AGENTS.md) |
-| `packages/` | standalone libraries, gated by nothing yet | [`packages/AGENTS.md`](packages/AGENTS.md) |
-| `deploy/` | Compose, Helm, Pulumi | [`deploy/AGENTS.md`](deploy/AGENTS.md) |
-| `tests/` | the backend suite | [`tests/AGENTS.md`](tests/AGENTS.md) |
-| `docs/adr/` | decision records | [`docs/adr/AGENTS.md`](docs/adr/AGENTS.md) |
-
-Harnesses differ in whether they load these for you, and Claude reaches one
-only after it has opened a file in that directory. How they are wired, and what
-belongs in which:
+Harnesses find them on their own, but late. Claude reaches one only after it has
+opened a file in that directory, and never for a question answered without
+opening one, so opening it yourself is the difference. How they are wired, and
+what belongs in which:
 [`docs/contributing/agent-onboarding-files.md`](docs/contributing/agent-onboarding-files.md).
 
 ## Working style

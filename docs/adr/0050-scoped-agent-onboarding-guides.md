@@ -75,8 +75,8 @@ services.
   written in the wrong scope.
 * Bad, because Claude loads a scoped guide only *after* reading a file in that
   directory, so it arrives one step late and never at all for a question
-  answered without opening a file. Mitigated by a map of the scopes in the root
-  guide that tells the agent to open the relevant one directly.
+  answered without opening a file. Mitigated by the root guide telling the agent
+  to open the guide for its area before starting.
 
 ### Confirmation
 
