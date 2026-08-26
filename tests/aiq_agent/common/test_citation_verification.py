@@ -2174,6 +2174,73 @@ class TestVerifyQuotedSpans:
             )
         return reg
 
+    def test_a_mermaid_label_is_not_a_quote(self):
+        """The bug this guard was breaking rather than catching.
+
+        A mermaid node label is written `A["Anwendungsbereich"]`, which the ASCII
+        branch of the quote grammar reads as a quoted claim. The labels are not
+        in any retrieved passage, so every one of them was flagged and the
+        annotation went in after the closing quote — INSIDE the bracket:
+
+            A["OIB-Richtlinie 2" [nicht wörtlich in der Quelle belegt]]
+
+        The diagram then stops parsing, the frontend falls back to printing the
+        source, and the reader gets a listing where the answer promised a
+        drawing. The confidence chip was collateral: the same flags cap the turn
+        at "low" on an otherwise well-sourced answer.
+        """
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        reg = self._registry(self.CHUNK)
+        answer = (
+            "Der Ablauf:\n\n"
+            "```mermaid\n"
+            "flowchart TD\n"
+            '  A["OIB-Richtlinie 2<br/>Brandschutz"] --> B["1. Anwendungsbereich"]\n'
+            '  A --> C["2. Allgemeine Anforderungen"]\n'
+            "```\n\n"
+            "## Sources\n[1] doc1.pdf, p.1"
+        )
+        assert verify_quoted_spans(answer, reg) == []
+
+    def test_an_untagged_code_fence_is_skipped_too(self):
+        # The model opens a fence bare at least as often as it tags it, so the
+        # skip cannot be keyed on the language.
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        reg = self._registry(self.CHUNK)
+        answer = 'Beispiel:\n\n```\nprint("eine voellig erfundene Behauptung")\n```\n\n## Sources\n[1] doc1.pdf, p.1'
+        assert verify_quoted_spans(answer, reg) == []
+
+    def test_inline_code_is_skipped(self):
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        reg = self._registry(self.CHUNK)
+        answer = 'Schreiben Sie `A["erfundener Knoten"]` in den Graphen.\n\n## Sources\n[1] doc1.pdf, p.1'
+        assert verify_quoted_spans(answer, reg) == []
+
+    def test_an_unterminated_fence_runs_to_the_end(self):
+        # A streaming answer meets this function mid-fence routinely; half a
+        # diagram is still code.
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        reg = self._registry(self.CHUNK)
+        answer = 'Der Ablauf:\n\n```mermaid\nflowchart TD\n  A["noch unfertig"] --> B["zweiter Knoten"]'
+        assert verify_quoted_spans(answer, reg) == []
+
+    def test_prose_around_a_fence_is_still_verified(self):
+        """The guard must survive the fix — this is its whole purpose."""
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        reg = self._registry(self.CHUNK)
+        answer = (
+            '```mermaid\nflowchart TD\n  A["Knoten"]\n```\n\n'
+            'Die Norm verlangt „Bauwerke muessen mit einer Loeschanlage ausgestattet sein" [1].\n\n'
+            "## Sources\n[1] doc1.pdf, p.1"
+        )
+        unverified = verify_quoted_spans(answer, reg)
+        assert [q.quote for q in unverified] == ["Bauwerke muessen mit einer Loeschanlage ausgestattet sein"]
+
     def test_verbatim_quote_passes(self):
         from aiq_agent.common.citation_verification import verify_quoted_spans
 

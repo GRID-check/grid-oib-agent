@@ -1,0 +1,12 @@
+---
+fixes:
+  - >
+    Diagrams in an answer are drawn again instead of appearing as a block of
+    code. A diagram whose source was written without a language label was
+    printed as a shell listing, and one whose labels were in quotation marks was
+    also broken outright by the note that marks an unverified quotation.
+  - >
+    An answer containing a diagram is no longer marked low confidence because of
+    it. The words inside a diagram were being checked as if they were quotations
+    from a source, so a well-supported answer lost its rating for drawing a
+    picture.
