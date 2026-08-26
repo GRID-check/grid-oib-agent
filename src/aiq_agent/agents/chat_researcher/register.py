@@ -651,36 +651,6 @@ class ChatDeepResearcherConfig(FunctionBaseConfig, name="chat_deepresearcher_age
     )
 
 
-def _async_job_dispatch() -> str | None:
-    """The backend that can run a chat-initiated deep-research job out of process,
-    or ``None`` when there is none and the turn has to research inline.
-
-    Two backends accept a job. Dask, addressed by ``NAT_DASK_SCHEDULER_ADDRESS``,
-    and DB-claimed workers, which need no address at all: the submit path writes
-    a claimable queue row and a dedicated worker replica picks it up
-    (``GRID_JOB_EXECUTION=db``, ADR-0021). The source of truth for both is
-    ``aiq_api.jobs.submit.submit_agent_job``, which refuses a submission only
-    when *neither* is configured; this mirrors that condition and reuses its
-    ``job_execution_mode`` so the two cannot drift.
-
-    Gating on the scheduler address alone silently downgrades every deployment
-    that runs db mode — staging and production do, and nothing there ever sets a
-    scheduler address — so the chat turn researched synchronously, returned no
-    job id, and everything downstream that keys off one was unreachable.
-    """
-    import os
-
-    from aiq_api.jobs.submit import job_execution_mode
-
-    # db first, mirroring submit_agent_job's own branch order: when both are
-    # configured it is the queue row, not the cluster, that runs the job.
-    if job_execution_mode() == "db":
-        return "db"
-    if os.environ.get("NAT_DASK_SCHEDULER_ADDRESS"):
-        return "dask"
-    return None
-
-
 def _build_deep_research_job_submitter(
     config: ChatDeepResearcherConfig,
 ) -> Callable[[ChatResearcherState], Awaitable[str]] | None:
@@ -693,7 +663,12 @@ def _build_deep_research_job_submitter(
     if not config.use_async_deep_research:
         return None
 
-    dispatch = _async_job_dispatch()
+    # THE acceptance condition, imported from the submitter itself rather than
+    # mirrored: submit_agent_job refuses exactly when this returns None, and a
+    # second copy of the condition is how the db-mode blindness happened.
+    from aiq_api.jobs.submit import async_job_dispatch
+
+    dispatch = async_job_dispatch()
     if dispatch is None:
         logger.info(
             "use_async_deep_research is enabled but neither NAT_DASK_SCHEDULER_ADDRESS nor "

@@ -292,8 +292,8 @@ usable for general research requests.
   need no address at all — the chat workflow submits the job via
   `aiq_api.jobs.submit.submit_agent_job` and immediately returns the job
   id. That is the same condition `submit_agent_job` itself enforces; the chat
-  gate mirrors it (`_async_job_dispatch` in
-  `agents/chat_researcher/register.py`) so a deployment whose submit path would
+  gate imports the same predicate (`aiq_api.jobs.submit.async_job_dispatch`)
+  rather than mirroring it, so a deployment whose submit path would
   accept the job never silently researches inline instead. With neither
   configured the synchronous path above runs. The worker
   (`aiq_api.jobs.runner`, replayed identically by the Dask worker and by

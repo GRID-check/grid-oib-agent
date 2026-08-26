@@ -30,6 +30,24 @@ def job_execution_mode() -> str:
     return os.environ.get("GRID_JOB_EXECUTION", "dask").strip().lower()
 
 
+def async_job_dispatch() -> str | None:
+    """The backend that can run an agent job out of process, or ``None``.
+
+    ``db`` wins when both are configured: it is the queue row, not the cluster,
+    that runs the job. This is THE acceptance condition — ``submit_agent_job``
+    refuses exactly when this returns ``None``, and the chat dispatch gate
+    (``chat_researcher.register``) imports this same function, so the two
+    cannot drift. They once did: the chat gate read only the scheduler address,
+    which no db-mode deployment sets, and every deployment that actually had
+    workers researched synchronously instead.
+    """
+    if job_execution_mode() == "db":
+        return "db"
+    if os.environ.get("NAT_DASK_SCHEDULER_ADDRESS"):
+        return "dask"
+    return None
+
+
 def _build_run_agent_payload(
     *,
     configure_logging,
@@ -429,8 +447,10 @@ async def submit_agent_job(
     use_threads = os.environ.get("NAT_USE_DASK_THREADS", "0") == "1"
 
     db_execution = job_execution_mode() == "db"
-    if not scheduler_address and not db_execution:
-        raise SchedulerNotConfiguredError("Async job submission requires NAT_DASK_SCHEDULER_ADDRESS to be set")
+    if async_job_dispatch() is None:
+        raise SchedulerNotConfiguredError(
+            "Async job submission requires NAT_DASK_SCHEDULER_ADDRESS or GRID_JOB_EXECUTION=db"
+        )
 
     # Auto-capture auth token if not explicitly provided
     if auth_token is None:
