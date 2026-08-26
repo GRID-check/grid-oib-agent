@@ -4,25 +4,27 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { AlertCircle, Boxes, FileText, LayoutGrid, List, ListTree, RotateCcw, X } from 'lucide-react'
+import { AlertCircle, Boxes, FileText, RotateCcw, X } from 'lucide-react'
 import { sourceBase } from '@/lib/ui/source-tint'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
+import { useFileSearch } from '../hooks/use-file-search'
 import { inferDocumentKind } from '../document-kind'
 import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
+import { FileWorkspaceActions, FileWorkspaceSearchField } from './file-workspace-actions'
 import { DocumentActionsMenu } from './document-actions'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
 import { UploadTray } from './upload-tray'
 import { ProjectSectionActions } from '@/components/shell/project-section-frame'
+import { ShellContent } from '@/components/shell'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
 
@@ -377,6 +379,12 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
 
   const [assignmentFilter, setAssignmentFilter] = useState<'all' | 'mine' | 'unassigned'>('all')
 
+  // The search lives up here, not in the browsing pane, because its FIELD lives
+  // further up still — in the section header, beside the view toggles. The pane
+  // renders the banner and the results.
+  const semanticBody = useMemo(() => ({ projectId }), [projectId])
+  const search = useFileSearch({ endpoint: '/api/documents/search', extraBody: semanticBody })
+
   const docParam = searchParams?.get('doc')
   const filteredFiles = useMemo(() => {
     const inFolder = selectedFolderId ? files.filter((f) => f.folderId === selectedFolderId) : files
@@ -618,57 +626,20 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       )}
 
       <ProjectSectionActions>
-        <div className="flex shrink-0 items-center gap-2">
-          <ToggleGroup
-            type="single"
-            value={view}
-            onValueChange={(value) => {
-              if (value === 'cards' || value === 'list' || value === 'tree') selectView(value)
-            }}
-            segmented
-            size="icon-sm"
-            aria-label={t('workspace.view.label')}
-          >
-            <ToggleGroupItem value="cards" aria-label={t('workspace.view.cards')} title={t('workspace.view.cards')}>
-              <LayoutGrid />
-            </ToggleGroupItem>
-            <ToggleGroupItem value="list" aria-label={t('workspace.view.list')} title={t('workspace.view.list')}>
-              <List />
-            </ToggleGroupItem>
-            <ToggleGroupItem value="tree" aria-label={t('workspace.view.tree')} title={t('workspace.view.tree')}>
-              <ListTree />
-            </ToggleGroupItem>
-          </ToggleGroup>
-          {canCollaborate && (
-            <ToggleGroup
-              type="single"
-              value={assignmentFilter}
-              onValueChange={(value) => {
-                if (value === 'all' || value === 'mine' || value === 'unassigned') setAssignmentFilter(value)
-              }}
-              size="sm"
-              aria-label={t('assignment.responsible')}
-            >
-              {(['all', 'mine', 'unassigned'] as const).map((key) => (
-                <ToggleGroupItem key={key} value={key} className="px-2 text-xs">
-                  {t(
-                    key === 'all'
-                      ? 'assignment.filterAll'
-                      : key === 'mine'
-                        ? 'assignment.filterMine'
-                        : 'assignment.filterUnassigned',
-                  )}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-          )}
-          <ProjectUppyUpload
-            projectId={projectId}
-            folderId={selectedFolderId}
-            onUpload={(files) => uploadFiles(files)}
-            isUploading={isUploading}
-          />
-        </div>
+        <FileWorkspaceActions
+          search={search}
+          view={view}
+          onViewChange={selectView}
+          {...(canCollaborate ? { assignmentFilter, onAssignmentFilterChange: setAssignmentFilter } : {})}
+          upload={
+            <ProjectUppyUpload
+              projectId={projectId}
+              folderId={selectedFolderId}
+              onUpload={(files) => uploadFiles(files)}
+              isUploading={isUploading}
+            />
+          }
+        />
       </ProjectSectionActions>
 
       {/* Error banner */}
@@ -704,8 +675,8 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
           preview as a full-screen overlay. */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
         {/* Folder tree — only in the tree view; the card view navigates folders
-            through the chip row instead. All tree functionality (expand/collapse,
-            selection, drill-in, create) is preserved. */}
+            through the tiles above its grid instead. All tree functionality
+            (expand/collapse, selection, drill-in, create) is preserved. */}
         {view === 'tree' && (
           <div className="max-h-72 w-full shrink-0 overflow-y-auto border-b animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none md:max-h-none md:w-60 md:border-b-0 md:border-r">
             {foldersError ? (
@@ -724,18 +695,24 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
           </div>
         )}
 
-        {/* File browser */}
+        {/* File browser. The scroll lives on this column; the content inside it
+            is held to the app's own card-grid measure rather than running edge
+            to edge — a document surface is a page like every other, and at
+            1600px the grid used to lay out six thumbnails the size of stamps. */}
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+          <ShellContent width="wide" className="py-4 md:py-6">
           {filesError ? (
             <PaneLoadError message={t('workspace.documentsLoadError')} onRetry={loadFiles} />
           ) : (
             <FileBrowserPane
               files={filteredFiles}
+              allFiles={files}
               selectedFileId={selectedFileId}
               onSelectFile={handleSelectFile}
               isLoading={isLoadingFiles}
               hasFolderSelected={selectedFolderId !== null}
-              projectId={projectId}
+              search={search}
+              searchField={<FileWorkspaceSearchField search={search} />}
               view={view === 'list' ? 'list' : 'cards'}
               showAssignment={canCollaborate}
               renderActions={(file) => (
@@ -777,6 +754,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               }
             />
           )}
+          </ShellContent>
         </div>
 
       </div>

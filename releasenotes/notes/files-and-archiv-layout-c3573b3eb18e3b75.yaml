@@ -1,0 +1,12 @@
+---
+improvements:
+  - >
+    Files and the Archiv now read like the rest of Piloti. Search has moved up
+    into the page header, beside the view and upload controls, and the documents
+    sit in the same content column every other page uses — so the previews are
+    large enough to recognise a plan by, instead of six thumbnails the size of
+    stamps across a wide screen.
+  - >
+    Folders in a project are shown as tiles above the documents, each naming how
+    much is filed inside it. Subfolders can now be opened from the card view as
+    well, and the trail above the tiles leads back out again.

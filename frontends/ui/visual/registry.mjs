@@ -318,7 +318,8 @@ export const SCREENSHOT_TARGETS = [
     id: 'file-browser',
     mobile: true,
     path: '/dev/file-browser',
-    description: 'Files browser grid — the shared raised FileCard in its home surface.',
+    description:
+      'The Files page as a page. Three things moved at once and they only make sense together: the search left the listing for the header band, where every other control on this screen already was; the grid moved inside the app\u2019s own content column instead of running edge to edge, so four previews fill a row where six stamps used to; and the folder chip row became tiles that carry what is inside each folder. Compare the preview height with `document-grid` \u2014 the chat card keeps the compact metric, because widening cells in a chat column costs it a column.',
     waitFor: '[data-testid="file-card"]',
   },
   {
@@ -358,6 +359,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-list-relevance"]',
   },
   {
+    id: 'file-browser-folder-tiles',
+    mobile: true,
+    path: '/dev/file-browser?variant=folder-tiles',
+    description:
+      'Inside a folder \u2014 the level the chip row could never reach. Chips listed TOP-LEVEL folders only, so \u201cFluchtwege\u201d existed nowhere but the tree view, and a chip carried a name with nothing behind it where a tile carries what is inside (subfolders counted, so a folder whose files all sit one step down is not reported as empty). The trail above is the way back out: tiles only drill down, so without it this level would be the dead end the chips never were.',
+    waitFor: '[data-testid="folder-tile"]',
+  },
+  {
     id: 'file-browser-folder-menu',
     path: '/dev/file-browser?variant=folder-menu',
     description:
@@ -384,7 +393,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/archiv-library?state=loading',
     description:
-      'The Archiv while it loads. Evidence for the transition, so compare it band for band with `archiv-library`: search row, chip row and card cells sit at the same heights in the same bordered bands, which is what stops the whole surface from jumping when the documents arrive. The previous skeleton was a bare bar over six cells and moved every row on the screen.',
+      'The Archiv while it loads. Evidence for the transition, so compare it band for band with `archiv-library`: chip row and card cells sit at the same heights in the same bordered bands, which is what stops the whole surface from jumping when the documents arrive. The search row is no longer one of those bands \u2014 the field sits in the identity row above, which is drawn either way, so there is nothing left to reserve for it.',
     waitFor: '[aria-busy="true"]',
   },
   {

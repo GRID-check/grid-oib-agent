@@ -1,24 +1,29 @@
 'use client'
 
-import { useMemo, useState, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import type { FileItem, FolderItem } from './project-file-workspace'
 import { Search, SearchX, FolderOpen, Sparkles, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { SectionLabel } from '@/components/ui/section-label'
-import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useTranslations } from '@/i18n'
-import { documentDisplayName } from '@/lib/documents/display-name'
-import { useSemanticSearch } from '../hooks/use-semantic-search'
+import type { FileSearchState } from '../hooks/use-file-search'
 import { FileCard } from './file-card'
 import { FileGrid, FileCardSkeleton } from './file-grid'
 import { FileListSkeleton, FileListView } from './file-list-view'
-import { FileSearchBar } from './file-search-bar'
-import { FilterChip } from './filter-chip'
+import { SemanticSearchBanner } from './file-search'
+import { FolderTiles, FolderTrail } from './folder-tiles'
 import { AssignmentFaces } from './assignment-faces'
 
 interface FileBrowserPaneProps {
+  /** The listing to show — already narrowed by folder and assignment filter. */
   files: FileItem[]
+  /**
+   * The project's WHOLE corpus, unnarrowed. Only the folder tiles read it, and
+   * they have to: a tile's count is about what is inside that folder, not about
+   * what survived the filter the reader is currently looking through.
+   */
+  allFiles: FileItem[]
   selectedFileId: string | null
   onSelectFile: (id: string | null) => void
   isLoading: boolean
@@ -29,21 +34,26 @@ interface FileBrowserPaneProps {
   /** Dashed upload card rendered as the last tile of the grid (project corpus). */
   uploadCard?: ReactNode
   /**
-   * Top-level folders presented as a quick-filter chip row above the grid
-   * (mirrors the sidebar tree — same selection state, no separate data model).
-   * Omitted by callers without folders (Archiv).
+   * The search field, for the narrow window where the page header cannot hold
+   * it (below `lg`). Rendered full width at the top of the listing — where it
+   * used to live for every window — and hidden from `lg`, when the copy in the
+   * header takes over. The two are one control: only ever one is displayed.
+   */
+  searchField?: ReactNode
+  /**
+   * The query, the semantic run and the instant filter. Owned by the workspace,
+   * because the field itself lives up in the page header — see
+   * {@link import('../hooks/use-file-search').useFileSearch}.
+   */
+  search: FileSearchState
+  /**
+   * The project's folders, presented as tiles above the grid: the children of
+   * the current level, with what each holds. Omitted by callers without folders
+   * (Archiv).
    */
   folders?: FolderItem[]
   selectedFolderId?: string | null
   onSelectFolder?: (id: string | null) => void
-  /**
-   * Project whose corpus the explicit-run semantic search queries. When
-   * provided, pressing Enter (or the search button) runs a deterministic vector
-   * search via `/api/documents/search`; the instant substring filter over the
-   * current listing keeps working as the user types. Omit to disable semantic
-   * mode (the substring filter still works).
-   */
-  projectId?: string
   /**
    * How the listing renders. `cards` is the browsing surface; `list` is the
    * explorer's sortable detail view for a corpus too large to skim as tiles.
@@ -58,89 +68,52 @@ interface FileBrowserPaneProps {
 
 export function FileBrowserPane({
   files,
+  allFiles,
   selectedFileId,
   onSelectFile,
   isLoading,
   hasFolderSelected,
   uploadControl,
   uploadCard,
+  searchField,
+  search,
   folders,
   selectedFolderId = null,
   onSelectFolder,
-  projectId,
   view = 'cards',
   showAssignment = false,
   renderActions,
 }: FileBrowserPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
-  const [search, setSearch] = useState('')
-
-  const semanticBody = useMemo(() => ({ projectId }), [projectId])
-  const semantic = useSemanticSearch({ endpoint: '/api/documents/search', extraBody: semanticBody })
-  const canSearch = projectId !== undefined
-
-  // Commit the current query to the semantic search (Enter / search button).
-  const runSemantic = () => {
-    if (canSearch) semantic.run(search)
-  }
-  // Any edit to the query drops back to the live substring filter so the two
-  // modes never show a stale mix; the reset control does the same explicitly.
-  const handleSearchChange = (value: string) => {
-    setSearch(value)
-    if (semantic.active) semantic.reset()
-  }
-  const clearSearch = () => {
-    setSearch('')
-    semantic.reset()
-  }
-
-  // Client-side filter over the current listing: name, plus AI tags and
-  // summary when the backend generated them.
-  const filteredFiles = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return files
-    // Both names, deliberately: somebody who renamed a document looks for what
-    // they called it, and somebody who uploaded it looks for the file they sent.
-    return files.filter(
-      (f) =>
-        documentDisplayName(f).toLowerCase().includes(q) ||
-        f.filename.toLowerCase().includes(q) ||
-        (f.summary ?? '').toLowerCase().includes(q) ||
-        (f.tags ?? []).some((tag) => tag.toLowerCase().includes(q))
-    )
-  }, [files, search])
-
-  const topLevelFolders = useMemo(
-    () => (folders ?? []).filter((f) => f.parentId === null),
-    [folders]
-  )
+  const { query, semantic } = search
+  const filteredFiles = search.filter(files)
 
   if (isLoading) {
     // Same rule as the search skeleton below: placeholders take the shape of the
     // view the reader chose, so the first paint is not a layout that was never
     // going to be there.
     return view === 'list' ? (
-      <div className="space-y-3 p-4">
-        <Skeleton className="h-9 w-full" />
-        <FileListSkeleton />
-      </div>
+      <FileListSkeleton />
     ) : (
-      <div className="space-y-3 p-4">
-        <Skeleton className="h-9 w-full" />
-        <FileGrid>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <FileCardSkeleton key={i} />
-          ))}
-        </FileGrid>
-      </div>
+      <FileGrid size="roomy">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <FileCardSkeleton key={i} size="roomy" />
+        ))}
+      </FileGrid>
     )
   }
 
-  // First-run empty state — the whole corpus (or selected folder) has no files.
-  if (files.length === 0) {
+  // Folders come before the emptiness check on purpose: a folder whose files all
+  // sit one level further down holds no documents of its own, and returning the
+  // "nothing here" state for it would hide the very subfolders that hold them —
+  // a dead end for anybody not in the tree view.
+  const hasChildFolders = (folders ?? []).some((folder) => folder.parentId === selectedFolderId)
+
+  // First-run empty state — this level has neither documents nor folders.
+  if (files.length === 0 && !hasChildFolders) {
     return (
-      <div className="flex h-full items-center justify-center p-8">
+      <div className="flex items-center justify-center py-16">
         {hasFolderSelected ? (
           <EmptyState
             icon={FolderOpen}
@@ -161,74 +134,50 @@ export function FileBrowserPane({
   }
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Search bar — instant substring filter as you type; Enter (or the search
-          button) runs the semantic search over the project corpus. */}
-      <FileSearchBar
-        value={search}
-        onChange={handleSearchChange}
-        onSubmit={runSemantic}
-        onClear={clearSearch}
-        placeholder={canSearch ? t('browser.semantic.searchPlaceholder') : t('browser.searchPlaceholder')}
-        searchLabel={t('browser.searchLabel')}
-        resetLabel={t('browser.resetSearch')}
-        canSearch={canSearch}
-        runLabel={t('browser.semantic.run')}
-        isSearching={semantic.isSearching}
-        semanticActive={semantic.active}
-        bannerText={
-          semantic.isSearching
-            ? t('browser.semantic.searching', { query: semantic.query ?? '' })
-            : // The count is a claim about the corpus, and a search that never
-              // ran has not counted anything. Reporting "0 results" above a
-              // panel that says the search failed is the same lie twice, in the
-              // one line the reader takes at face value.
-              semantic.error
-              ? t('browser.semantic.failedBanner', { query: semantic.query ?? '' })
-              : t('browser.semantic.banner', {
-                  count: String(semantic.hits.length),
-                  query: semantic.query ?? '',
-                })
-        }
-        resetSemanticLabel={t('browser.semantic.reset')}
-        onResetSemantic={clearSearch}
-        bannerTestId="semantic-banner"
-      />
+    <div className="min-w-0">
+      {searchField && <div className="mb-4 lg:hidden">{searchField}</div>}
 
-      {/* Top-level folder quick filter — chip presentation of the same folder
-          selection the sidebar tree drives (no separate navigation model).
-          Hidden in semantic mode (the query is the context). */}
-      {!semantic.active && onSelectFolder && topLevelFolders.length > 0 && (
-        <div
-          // Wrap on mobile so the last folder pill is never clipped at the
-          // right edge; keep a single scrollable row from md up (where it fits).
-          //
-          // `shrink-0` is what keeps the pills READABLE. This row is a flex item
-          // of a column that is `h-full` — one viewport tall — while the grid
-          // below it is as tall as the corpus, so the column runs a negative free
-          // space the moment the listing scrolls. Every other child refuses to
-          // absorb it (an item whose overflow is visible cannot shrink below its
-          // content), but `overflow-x-auto` drops this one's automatic minimum
-          // size to zero, so the whole deficit landed here: the row collapsed to
-          // its padding and clipped the pills through the middle of their labels.
-          className="flex shrink-0 flex-wrap items-center gap-1.5 border-b px-4 py-2 md:flex-nowrap md:overflow-x-auto"
-          role="group"
-          aria-label={t('folders.heading')}
-        >
-          <FilterChip
-            label={t('folders.allFiles')}
-            active={selectedFolderId === null}
-            onClick={() => onSelectFolder(null)}
-          />
-          {topLevelFolders.map((folder) => (
-            <FilterChip
-              key={folder.id}
-              label={folder.name}
-              active={selectedFolderId === folder.id}
-              onClick={() => onSelectFolder(folder.id)}
-            />
-          ))}
-        </div>
+      {semantic.active && (
+        <SemanticSearchBanner
+          isSearching={semantic.isSearching}
+          bannerText={
+            semantic.isSearching
+              ? t('browser.semantic.searching', { query: semantic.query ?? '' })
+              : // The count is a claim about the corpus, and a search that never
+                // ran has not counted anything. Reporting "0 results" above a
+                // panel that says the search failed is the same lie twice, in the
+                // one line the reader takes at face value.
+                semantic.error
+                ? t('browser.semantic.failedBanner', { query: semantic.query ?? '' })
+                : t('browser.semantic.banner', {
+                    count: String(semantic.hits.length),
+                    query: semantic.query ?? '',
+                  })
+          }
+          resetLabel={t('browser.semantic.reset')}
+          onReset={search.clear}
+          testId="semantic-banner"
+        />
+      )}
+
+      {/* Where in the tree the listing is, and the way back up. Hidden in
+          semantic mode (the query is the context, not the folder). */}
+      {!semantic.active && onSelectFolder && folders && (
+        <FolderTrail
+          folders={folders}
+          selectedFolderId={selectedFolderId}
+          onSelectFolder={onSelectFolder}
+        />
+      )}
+
+      {/* The folders at this level, as objects rather than as a filter row. */}
+      {!semantic.active && onSelectFolder && folders && (
+        <FolderTiles
+          folders={folders}
+          files={allFiles}
+          parentId={selectedFolderId}
+          onOpenFolder={onSelectFolder}
+        />
       )}
 
       {semantic.active ? (
@@ -242,13 +191,11 @@ export function FileBrowserPane({
           view === 'list' ? (
             <FileListSkeleton />
           ) : (
-            <div className="p-4">
-              <FileGrid>
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <FileCardSkeleton key={i} />
-                ))}
-              </FileGrid>
-            </div>
+            <FileGrid size="roomy">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <FileCardSkeleton key={i} size="roomy" />
+              ))}
+            </FileGrid>
           )
         ) : semantic.error ? (
           // A SEARCH THAT NEVER RAN IS NOT A SEARCH THAT FOUND NOTHING.
@@ -258,7 +205,7 @@ export function FileBrowserPane({
           // Treffer für 'Brandschutz'". The surface told the reader their own
           // corpus does not contain what they were looking for, and offered
           // them a reset for it.
-          <div className="p-8">
+          <div className="py-12">
             <EmptyState
               variant="bare"
               icon={SearchX}
@@ -269,10 +216,10 @@ export function FileBrowserPane({
                   {/* Retries the SAME query — offering only "show all files"
                       asks the reader to give up and retype a search they have
                       already made. */}
-                  <Button size="sm" onClick={() => semantic.run(search)}>
+                  <Button size="sm" onClick={() => semantic.run(query)}>
                     {t('browser.semantic.retry')}
                   </Button>
-                  <Button variant="outline" size="sm" onClick={clearSearch}>
+                  <Button variant="outline" size="sm" onClick={search.clear}>
                     {t('browser.semantic.reset')}
                   </Button>
                 </div>
@@ -280,14 +227,14 @@ export function FileBrowserPane({
             />
           </div>
         ) : semantic.hits.length === 0 ? (
-          <div className="p-8">
+          <div className="py-12">
             <EmptyState
               variant="bare"
               icon={Sparkles}
               title={t('browser.semantic.noResults', { query: semantic.query ?? '' })}
               description={t('browser.semantic.noResultsDescription')}
               action={
-                <Button variant="outline" size="sm" onClick={clearSearch}>
+                <Button variant="outline" size="sm" onClick={search.clear}>
                   {t('browser.semantic.reset')}
                 </Button>
               }
@@ -309,72 +256,85 @@ export function FileBrowserPane({
             renderActions={renderActions}
           />
         ) : (
-          <div className="p-4">
-            <FileGrid>
-              {semantic.hits.map((hit) => (
-                <FileCard
-                  key={hit.id}
-                  file={hit}
-                  isSelected={selectedFileId === hit.id}
-                  onSelect={() => onSelectFile(selectedFileId === hit.id ? null : hit.id)}
-                  locale={locale}
-                  match={{ snippet: hit.snippet, page: hit.page, score: hit.score }}
-                  footerLead={showAssignment ? <AssignmentFaces assignees={hit.assignees} /> : undefined}
-                  actions={renderActions?.(hit)}
-                />
-              ))}
-            </FileGrid>
-          </div>
+          <FileGrid size="roomy">
+            {semantic.hits.map((hit) => (
+              <FileCard
+                key={hit.id}
+                file={hit}
+                size="roomy"
+                isSelected={selectedFileId === hit.id}
+                onSelect={() => onSelectFile(selectedFileId === hit.id ? null : hit.id)}
+                locale={locale}
+                match={{ snippet: hit.snippet, page: hit.page, score: hit.score }}
+                footerLead={
+                  showAssignment ? <AssignmentFaces assignees={hit.assignees} /> : undefined
+                }
+                actions={renderActions?.(hit)}
+              />
+            ))}
+          </FileGrid>
         )
+      ) : files.length === 0 ? (
+        // Nothing filed HERE, but the folders above are the point of the screen.
+        <div className="py-10">
+          <EmptyState
+            variant="bare"
+            icon={FolderOpen}
+            title={t('browser.folderEmptyTitle')}
+            description={t('browser.folderEmptyDescription')}
+            action={uploadControl}
+          />
+        </div>
       ) : /* Substring-filtered card grid (instant, as you type). */
       filteredFiles.length === 0 ? (
-        <div className="p-8">
+        <div className="py-12">
           <EmptyState
             variant="bare"
             icon={Search}
-            title={t('browser.noMatch', { query: search })}
+            title={t('browser.noMatch', { query })}
             description={t('browser.noMatchDescription')}
             action={
-              <Button variant="outline" size="sm" onClick={clearSearch}>
+              <Button variant="outline" size="sm" onClick={search.clear}>
                 {t('browser.clearSearch')}
               </Button>
             }
           />
         </div>
+      ) : view === 'list' ? (
+        <FileListView
+          files={filteredFiles}
+          selectedFileId={selectedFileId}
+          onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
+          renderActions={renderActions}
+        />
       ) : (
-        view === 'list' ? (
-          <FileListView
-            files={filteredFiles}
-            selectedFileId={selectedFileId}
-            onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
-            renderActions={renderActions}
-          />
-        ) : (
-          <div className="p-4">
-            {/* Section label — "Recently uploaded" at the corpus root, matching
-                the click-dummy. Hidden inside a folder view (the chip already
-                names it) and while searching (the query is the context). */}
-            {search === '' && selectedFolderId === null && (
-              <SectionLabel as="p" className="mb-3 font-semibold tracking-[0.05em]">
-                {t('browser.recentlyUploaded')}
-              </SectionLabel>
-            )}
-            <FileGrid>
-              {filteredFiles.map((file) => (
-                <FileCard
-                  key={file.id}
-                  file={file}
-                  isSelected={selectedFileId === file.id}
-                  onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
-                  locale={locale}
-                  footerLead={showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined}
-                  actions={renderActions?.(file)}
-                />
-              ))}
-              {uploadCard}
-            </FileGrid>
-          </div>
-        )
+        <>
+          {/* Section label — "Recently uploaded" at the corpus root, matching
+              the click-dummy. Hidden inside a folder view (the trail already
+              names it) and while searching (the query is the context). */}
+          {query === '' && selectedFolderId === null && (
+            <SectionLabel as="p" className="mb-3 font-semibold tracking-[0.05em]">
+              {t('browser.recentlyUploaded')}
+            </SectionLabel>
+          )}
+          <FileGrid size="roomy">
+            {filteredFiles.map((file) => (
+              <FileCard
+                key={file.id}
+                file={file}
+                size="roomy"
+                isSelected={selectedFileId === file.id}
+                onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
+                locale={locale}
+                footerLead={
+                  showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined
+                }
+                actions={renderActions?.(file)}
+              />
+            ))}
+            {uploadCard}
+          </FileGrid>
+        </>
       )}
     </div>
   )

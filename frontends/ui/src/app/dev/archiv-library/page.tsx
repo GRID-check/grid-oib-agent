@@ -2,8 +2,9 @@
 
 /**
  * Dev preview for the org Archiv surface — the whole sheet, not just the grid:
- * the back control, the Büroarchiv identity row with its document count, and the
- * library pane inside the raised frame the real page renders. That is what the
+ * the back control, the Büroarchiv identity row — which now also carries the
+ * SEARCH, moved out of the listing — and the library pane inside the raised
+ * frame the real page renders. That is what the
  * screenshot evidence has to show, since the premium pass changed the chrome
  * around the cards rather than the cards themselves (which stay comparable with
  * `/dev/file-browser`).
@@ -29,6 +30,8 @@ import { CountPill } from '@/components/ui/count-pill'
 import { sourceTint } from '@/lib/ui/source-tint'
 import { writeTrail } from '@/lib/navigation/return-trail'
 import { ArchivLibraryPane } from '@/features/documents/components/archiv-library-pane'
+import { FileSearchField } from '@/features/documents/components/file-search'
+import { useFileSearch } from '@/features/documents/hooks/use-file-search'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
 
 function makeFile(
@@ -131,6 +134,21 @@ export default function ArchivLibraryDevPage(): JSX.Element {
   // Read after mount (not during render) so the fixture is identical on server
   // and client — the same rule the other /dev previews follow.
   const [isLoading, setIsLoading] = useState(false)
+  const search = useFileSearch({ endpoint: '/api/archiv/documents/search' })
+  const searchField = (
+    <FileSearchField
+      value={search.query}
+      onChange={search.setQuery}
+      onSubmit={search.submit}
+      onClear={search.clear}
+      placeholder="Archiv durchsuchen…"
+      searchLabel="Suche"
+      resetLabel="Suche zurücksetzen"
+      canSearch={search.canSearch}
+      runLabel="Suchen"
+      isSearching={search.semantic.isSearching}
+    />
+  )
   useEffect(() => {
     setIsLoading(new URLSearchParams(window.location.search).get('state') === 'loading')
   }, [])
@@ -160,6 +178,9 @@ export default function ArchivLibraryDevPage(): JSX.Element {
               </p>
             </div>
           </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="hidden lg:flex">{searchField}</div>
+          </div>
         </div>
         <div className="scroll-fade-bottom flex-1 overflow-y-auto">
           <ArchivLibraryPane
@@ -167,6 +188,8 @@ export default function ArchivLibraryDevPage(): JSX.Element {
             selectedFileId={selected}
             onSelectFile={setSelected}
             isLoading={isLoading}
+            search={search}
+            searchField={searchField}
           />
         </div>
       </div>

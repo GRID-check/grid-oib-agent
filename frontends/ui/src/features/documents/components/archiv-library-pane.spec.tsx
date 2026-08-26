@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
+import { useTranslations } from '@/i18n'
+import { useFileSearch } from '../hooks/use-file-search'
 import { ArchivLibraryPane } from './archiv-library-pane'
+import { FileSearchField } from './file-search'
 import type { FileItem } from './project-file-workspace'
 
 const baseFile: Omit<FileItem, 'id' | 'filename'> = {
@@ -32,16 +35,45 @@ const files: FileItem[] = [
   { ...baseFile, id: 'a3', filename: 'notes.pdf' },
 ]
 
-function renderPane(overrides: Partial<Parameters<typeof ArchivLibraryPane>[0]> = {}) {
-  return render(
-    <ArchivLibraryPane
-      files={files}
-      selectedFileId={null}
-      onSelectFile={vi.fn()}
-      isLoading={false}
-      {...overrides}
-    />
+type PaneProps = Parameters<typeof ArchivLibraryPane>[0]
+
+/**
+ * The pane with the header band that owns its search — the workspace's job now,
+ * since the field moved up out of the listing. Mounting both halves keeps these
+ * tests about the behaviour they were written for and pins that the two still
+ * talk to each other.
+ */
+function Harness(paneProps: Partial<Omit<PaneProps, 'search'>>) {
+  const t = useTranslations('archiv')
+  const search = useFileSearch({ endpoint: '/api/archiv/documents/search' })
+  return (
+    <>
+      <FileSearchField
+        value={search.query}
+        onChange={search.setQuery}
+        onSubmit={search.submit}
+        onClear={search.clear}
+        placeholder={t('library.searchPlaceholder')}
+        searchLabel={t('library.searchLabel')}
+        resetLabel={t('library.resetSearch')}
+        canSearch={search.canSearch}
+        runLabel={t('library.semantic.run')}
+        isSearching={search.semantic.isSearching}
+      />
+      <ArchivLibraryPane
+        files={files}
+        selectedFileId={null}
+        onSelectFile={vi.fn()}
+        isLoading={false}
+        {...paneProps}
+        search={search}
+      />
+    </>
   )
+}
+
+function renderPane(overrides: Partial<Omit<PaneProps, 'search'>> = {}) {
+  return render(<Harness {...overrides} />)
 }
 
 describe('ArchivLibraryPane — card grid', () => {
@@ -208,15 +240,15 @@ describe('ArchivLibraryPane — empty and loading states', () => {
     const busy = container.querySelector('[aria-busy="true"]')
     expect(busy).not.toBeNull()
 
-    // The three bands of the real pane are all present as placeholders: the
-    // search row, the category-chip row, and a full grid of card cells. The
-    // previous skeleton had only a bar and six cells, so the search bar, the
-    // chip row and every card jumped position the moment the Archiv loaded.
+    // Both bands of the real pane are present as placeholders: the category-chip
+    // row and a full grid of card cells. (The search row is no longer one of
+    // them — the field lives in the header band above, which is always drawn.)
+    // The skeleton before this had a bar over six cells, so the chip row and
+    // every card jumped position the moment the Archiv loaded.
     const bands = busy!.children
-    expect(bands).toHaveLength(3)
-    expect(bands[0].querySelectorAll('[data-slot="skeleton"]')).toHaveLength(1)
-    expect(bands[1].querySelectorAll('[data-slot="skeleton"]')).toHaveLength(4)
-    expect(bands[2].querySelectorAll('.rounded-xl.border')).toHaveLength(8)
+    expect(bands).toHaveLength(2)
+    expect(bands[0].querySelectorAll('[data-slot="skeleton"]')).toHaveLength(4)
+    expect(bands[1].querySelectorAll('.rounded-xl.border')).toHaveLength(8)
   })
 })
 

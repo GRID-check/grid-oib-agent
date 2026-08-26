@@ -102,7 +102,11 @@ The ramp targets the dummy's 9.5–24px scale: **20px page titles**, **23px hero
 
 ## Spacing & layout rhythm
 
-- **Page container:** `mx-auto w-full max-w-5xl px-4 py-8 md:px-8` (content pages). Chat/full-bleed surfaces are exceptions.
+- **Page container:** `mx-auto w-full max-w-5xl px-4 py-8 md:px-8` (content pages), or the
+  `ShellContent` primitive, whose `wide` (max-w-6xl) opt-in is for card grids. Chat is the
+  only full-bleed exception left: Files and the Archiv are card grids inside a fill frame,
+  and both put `ShellContent width="wide"` around their listing rather than running edge to
+  edge — a 1600px window laid out six document previews the size of stamps.
 - **Vertical section gap:** `space-y-8` between major sections; `space-y-4` within a section; `gap-3` in tight lists.
 - **Card padding:** `p-6` for feature cards, `p-5` for stat cards, `px-4 py-3` for list rows.
 - **Radius:** cards `rounded-lg` (var --radius, 12px — inside the dummy's 7–14px range), inputs/buttons follow shadcn defaults, pills/badges `rounded-md`.

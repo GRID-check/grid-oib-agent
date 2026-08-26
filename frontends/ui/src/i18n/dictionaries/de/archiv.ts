@@ -19,7 +19,6 @@ export const archiv = {
     clearFilters: 'Filter zurücksetzen',
     provenance: 'Aus „{source}“',
     semantic: {
-      searchPlaceholder: 'Archiv durchsuchen – Enter für semantische Suche …',
       run: 'Suchen',
       reset: 'Alle Dokumente anzeigen',
       banner: 'Semantische Suche: {count} Treffer für „{query}“',

@@ -174,7 +174,6 @@ export const files = {
     resetSearch: 'Reset search',
     recentlyUploaded: 'Recently uploaded',
     semantic: {
-      searchPlaceholder: 'Search files — press Enter for semantic search…',
       run: 'Search',
       reset: 'Show all files',
       banner: 'Semantic search: {count, plural, one {# result} other {# results}} for “{query}”',
@@ -213,6 +212,8 @@ export const files = {
     addSubfolder: 'Add subfolder',
     allFiles: 'All Files',
     newFolder: 'New folder',
+    /** On a folder tile: how much is inside, subfolders counted. */
+    count: '{count, plural, one {# file} other {# files}}',
   },
   workspace: {
     renameFolderError: 'The folder could not be renamed. Please try again.',

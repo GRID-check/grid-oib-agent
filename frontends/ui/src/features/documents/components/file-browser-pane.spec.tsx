@@ -1,7 +1,11 @@
+import { useMemo } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
+import { useTranslations } from '@/i18n'
+import { useFileSearch } from '../hooks/use-file-search'
 import { FileBrowserPane } from './file-browser-pane'
+import { FileSearchField } from './file-search'
 import type { FileItem, FolderItem } from './project-file-workspace'
 
 const files: FileItem[] = [
@@ -39,17 +43,56 @@ const files: FileItem[] = [
   },
 ]
 
-function renderPane(overrides: Partial<Parameters<typeof FileBrowserPane>[0]> = {}) {
-  return render(
-    <FileBrowserPane
-      files={files}
-      selectedFileId={null}
-      onSelectFile={vi.fn()}
-      isLoading={false}
-      hasFolderSelected={false}
-      {...overrides}
-    />
+type PaneProps = Parameters<typeof FileBrowserPane>[0]
+
+/**
+ * The pane WITH the chrome that owns its search — which is the workspace's job
+ * now, not the pane's. The field moved into the page header, so a spec that
+ * mounted the pane alone could no longer type a query at all; mounting the same
+ * two pieces the workspace mounts keeps these tests about the behaviour they
+ * were written for, and additionally pins that the two halves still talk.
+ */
+function Harness({
+  projectId,
+  ...paneProps
+}: { projectId?: string } & Partial<Omit<PaneProps, 'search'>>) {
+  const t = useTranslations('files')
+  const extraBody = useMemo(() => ({ projectId }), [projectId])
+  const search = useFileSearch({
+    endpoint: '/api/documents/search',
+    extraBody,
+    canSearch: projectId !== undefined,
+  })
+  return (
+    <>
+      <FileSearchField
+        value={search.query}
+        onChange={search.setQuery}
+        onSubmit={search.submit}
+        onClear={search.clear}
+        placeholder={t('browser.searchPlaceholder')}
+        searchLabel={t('browser.searchLabel')}
+        resetLabel={t('browser.resetSearch')}
+        canSearch={search.canSearch}
+        runLabel={t('browser.semantic.run')}
+        isSearching={search.semantic.isSearching}
+      />
+      <FileBrowserPane
+        files={files}
+        allFiles={files}
+        selectedFileId={null}
+        onSelectFile={vi.fn()}
+        isLoading={false}
+        hasFolderSelected={false}
+        {...paneProps}
+        search={search}
+      />
+    </>
   )
+}
+
+function renderPane(overrides: { projectId?: string } & Partial<Omit<PaneProps, 'search'>> = {}) {
+  return render(<Harness {...overrides} />)
 }
 
 describe('FileBrowserPane — card grid', () => {
@@ -115,43 +158,93 @@ describe('FileBrowserPane — document descriptions', () => {
   })
 })
 
-describe('FileBrowserPane — folder chips', () => {
+describe('FileBrowserPane — folder tiles', () => {
   const folders: FolderItem[] = [
     { id: 'root-1', parentId: null, name: 'Pläne', path: '/Pläne' },
     { id: 'root-2', parentId: null, name: 'Bescheide', path: '/Bescheide' },
     { id: 'child-1', parentId: 'root-1', name: 'EG', path: '/Pläne/EG' },
   ]
 
-  it('renders top-level folders (only) as a chip row and forwards selection', async () => {
+  it('shows the folders at THIS level as tiles and forwards selection', async () => {
     const user = userEvent.setup()
     const onSelectFolder = vi.fn()
     renderPane({ folders, selectedFolderId: null, onSelectFolder })
 
-    expect(screen.getByRole('button', { name: 'Pläne' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Bescheide' })).toBeInTheDocument()
-    // Nested folders stay in the sidebar tree, not the chip row.
-    expect(screen.queryByRole('button', { name: 'EG' })).not.toBeInTheDocument()
-    // The "All Files" chip is the root selection.
-    expect(screen.getByRole('button', { name: 'All Files' })).toHaveAttribute('aria-pressed', 'true')
+    const tiles = screen.getAllByTestId('folder-tile')
+    expect(tiles.map((tile) => tile.getAttribute('data-folder-id'))).toEqual(['root-1', 'root-2'])
+    // A nested folder belongs to its parent's level, not the root's.
+    expect(screen.queryByText('EG')).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Pläne' }))
+    await user.click(tiles[0])
     expect(onSelectFolder).toHaveBeenCalledWith('root-1')
   })
 
-  it('renders no chip row without folders or handler', () => {
-    renderPane()
-    expect(screen.queryByRole('button', { name: 'All Files' })).not.toBeInTheDocument()
+  it('opens the SUBfolders once inside a folder — the chip row could not reach them', () => {
+    renderPane({
+      folders,
+      selectedFolderId: 'root-1',
+      onSelectFolder: vi.fn(),
+      hasFolderSelected: true,
+    })
+    const tiles = screen.getAllByTestId('folder-tile')
+    expect(tiles).toHaveLength(1)
+    expect(tiles[0]).toHaveAttribute('data-folder-id', 'child-1')
   })
 
-  // The row is a flex item of a column that is one viewport tall while the grid
-  // under it is as tall as the corpus, and `overflow-x-auto` waives its
-  // automatic minimum size — so without `shrink-0` the browser hands it the
-  // whole negative free space and it collapses onto its own padding, clipping
-  // the pills through the middle of their labels. jsdom does no layout, so what
-  // is pinned here is the declaration that prevents it.
-  it('never absorbs the column’s overflow — the chip row cannot shrink', () => {
-    renderPane({ folders, selectedFolderId: null, onSelectFolder: vi.fn() })
-    expect(screen.getByRole('group', { name: 'Folders' })).toHaveClass('shrink-0')
+  it('counts what is inside a folder, subfolders included', () => {
+    // Nothing is filed at Pläne's own level — everything sits one step down. A
+    // count that stopped at the direct children would call the folder empty.
+    const filed = [
+      { ...files[0], folderId: 'child-1' },
+      { ...files[1], folderId: 'root-2' },
+    ]
+    renderPane({
+      files: filed,
+      allFiles: filed,
+      folders,
+      selectedFolderId: null,
+      onSelectFolder: vi.fn(),
+    })
+    const plaene = screen
+      .getAllByTestId('folder-tile')
+      .find((t) => t.dataset.folderId === 'root-1')!
+    expect(within(plaene).getByText('1 file')).toBeInTheDocument()
+  })
+
+  it('leads back out of a folder through the trail', async () => {
+    const user = userEvent.setup()
+    const onSelectFolder = vi.fn()
+    renderPane({ folders, selectedFolderId: 'child-1', onSelectFolder, hasFolderSelected: true })
+
+    const trail = screen.getByTestId('folder-trail')
+    // Tiles only drill down, so without this a subfolder is a dead end for
+    // anyone who is not in the tree view.
+    await user.click(within(trail).getByRole('button', { name: 'Pläne' }))
+    expect(onSelectFolder).toHaveBeenCalledWith('root-1')
+
+    await user.click(within(trail).getByRole('button', { name: 'All Files' }))
+    expect(onSelectFolder).toHaveBeenCalledWith(null)
+  })
+
+  it('renders no tiles and no trail without folders or handler', () => {
+    renderPane()
+    expect(screen.queryByTestId('folder-tiles')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('folder-trail')).not.toBeInTheDocument()
+  })
+
+  it('keeps the subfolders reachable in a folder that holds no documents of its own', () => {
+    // The emptiness check used to run first and return before the tiles, so a
+    // folder whose files all live one level down answered "nothing here" over
+    // the folders that held them.
+    renderPane({
+      files: [],
+      allFiles: files,
+      folders,
+      selectedFolderId: 'root-1',
+      onSelectFolder: vi.fn(),
+      hasFolderSelected: true,
+    })
+    expect(screen.getByTestId('folder-tile')).toHaveAttribute('data-folder-id', 'child-1')
   })
 })
 
@@ -225,7 +318,7 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
     fetchMock.mockImplementation((url: string | URL) =>
       String(url).includes('/api/documents/search')
         ? Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({}) })
-        : Promise.resolve({ ok: false, json: () => Promise.resolve({}) }),
+        : Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
     )
     const user = userEvent.setup()
     renderPane({ projectId: 'proj-1' })
@@ -286,9 +379,10 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
     fetchMock.mockImplementation((url: string | URL) =>
       String(url).includes('/api/documents/search')
         ? new Promise((resolve) => {
-            release = () => resolve({ ok: true, json: () => Promise.resolve({ hits: [searchHit] }) })
+            release = () =>
+              resolve({ ok: true, json: () => Promise.resolve({ hits: [searchHit] }) })
           })
-        : Promise.resolve({ ok: false, json: () => Promise.resolve({}) }),
+        : Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
     )
     const user = userEvent.setup()
     renderPane({ projectId: 'proj-1', view: 'list' })
@@ -315,7 +409,9 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
     expect(screen.getByText('permit.pdf')).toBeInTheDocument()
     expect(screen.queryByText('site-plan.pdf')).not.toBeInTheDocument()
     // Substring filtering never hits the semantic endpoint.
-    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/api/documents/search'))).toBe(false)
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/api/documents/search'))).toBe(
+      false
+    )
   })
 
   it('runs the semantic search on Enter and renders the snippet, page and relevance', async () => {

@@ -3,9 +3,10 @@
 /**
  * Archiv library pane (WS-6) — the org Archiv's curated presentation of the
  * office knowledge store: a card grid of archive documents with content-aware
- * skeleton thumbnails, a category-chip filter row driven by the REAL controlled
- * ingestion tags present on the loaded documents, and a search field over
- * name / AI summary / tags (mirroring the Files workspace behavior).
+ * skeleton thumbnails and a category-chip filter row driven by the REAL
+ * controlled ingestion tags present on the loaded documents. The search over
+ * name / AI summary / tags is the same one the Files workspace runs, owned by
+ * {@link ArchivWorkspace} because its field sits in the header band above.
  *
  * Honesty rules (spec §2.3, "detail library" caveat):
  *   - Category chips only ever show tags that actually exist on the loaded
@@ -27,12 +28,11 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useLocale, useTranslations } from '@/i18n'
-import { documentDisplayName } from '@/lib/documents/display-name'
 import { inferDocumentKind } from '../document-kind'
-import { useSemanticSearch } from '../hooks/use-semantic-search'
+import type { FileSearchState } from '../hooks/use-file-search'
 import { FileCard } from './file-card'
 import { FileGrid, FileCardSkeleton } from './file-grid'
-import { FileSearchBar } from './file-search-bar'
+import { SemanticSearchBanner } from './file-search'
 import { FilterChip } from './filter-chip'
 
 /** The kinds of result region the pane can show (see `view` below). */
@@ -53,6 +53,19 @@ interface ArchivLibraryPaneProps {
   uploadControl?: ReactNode
   /** Per-file rename / delete / download on the card. */
   renderActions?: (file: FileItem) => ReactNode
+  /**
+   * The search field, for the narrow window where the Archiv's header band
+   * cannot hold it beside the identity mark and the upload button (below `lg`).
+   * Rendered as the top band of the listing and hidden from `lg`, where the copy
+   * in the header takes over — the two are one control, only one ever shown.
+   */
+  searchField?: ReactNode
+  /**
+   * The query, the semantic run and the instant filter. Owned by the workspace,
+   * because the field itself sits in the Archiv's header band — see
+   * {@link import('../hooks/use-file-search').useFileSearch}.
+   */
+  search: FileSearchState
 }
 
 export function ArchivLibraryPane({
@@ -62,25 +75,20 @@ export function ArchivLibraryPane({
   isLoading,
   uploadControl,
   renderActions,
+  searchField,
+  search,
 }: ArchivLibraryPaneProps) {
   const t = useTranslations('archiv')
   const { locale } = useLocale()
-  const [search, setSearch] = useState('')
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
+  const { semantic } = search
 
-  const semantic = useSemanticSearch({ endpoint: '/api/archiv/documents/search' })
-
-  const runSemantic = () => semantic.run(search)
-  // Any edit to the query drops back to the live substring filter so the two
-  // modes never show a stale mix; the reset control does the same explicitly.
-  const handleSearchChange = (value: string) => {
-    setSearch(value)
-    if (semantic.active) semantic.reset()
-  }
-  const clearSearch = () => {
-    setSearch('')
+  // The reset offered by every empty state clears BOTH narrowings. A reader who
+  // asks to see everything again after a fruitless search means it, and leaving
+  // a category chip pressed would answer them with a still-filtered Archiv.
+  const clearFilters = () => {
     setSelectedTag(null)
-    semantic.reset()
+    search.clear()
   }
 
   // Category chips = the distinct controlled ingestion tags actually present on
@@ -104,22 +112,15 @@ export function ArchivLibraryPane({
   // Combined filter: category chip (exact tag match, case-insensitive) AND the
   // search query over filename, AI summary, and tags — same fields the Files
   // workspace searches.
-  const filteredFiles = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return files.filter((f) => {
-      if (selectedTag && !(f.tags ?? []).some((tag) => tag.toLowerCase() === selectedTag)) {
-        return false
-      }
-      if (!q) return true
-      // Both names — see the same filter in `file-browser-pane`.
-      return (
-        documentDisplayName(f).toLowerCase().includes(q) ||
-        f.filename.toLowerCase().includes(q) ||
-        (f.summary ?? '').toLowerCase().includes(q) ||
-        (f.tags ?? []).some((tag) => tag.toLowerCase().includes(q))
-      )
-    })
-  }, [files, search, selectedTag])
+  const filteredFiles = useMemo(
+    () =>
+      search.filter(
+        selectedTag === null
+          ? files
+          : files.filter((f) => (f.tags ?? []).some((tag) => tag.toLowerCase() === selectedTag))
+      ),
+    [files, search, selectedTag]
+  )
 
   /**
    * Which kind of result the pane is showing. Named rather than inlined into
@@ -152,18 +153,21 @@ export function ArchivLibraryPane({
   if (isLoading) {
     return (
       <div className="flex h-full flex-col" aria-busy="true">
-        <div className="border-b px-4 py-2.5">
-          <Skeleton className="h-9 min-h-9 w-full" />
-        </div>
+        {/* Only below `lg`, where the loaded pane carries the search band too. */}
+        {searchField && (
+          <div className="shrink-0 border-b px-4 py-2.5 lg:hidden">
+            <Skeleton className="h-9 min-h-9 w-full" />
+          </div>
+        )}
         <div className="flex min-h-12 gap-1.5 border-b px-4 py-2">
           {['all', 'one', 'two', 'three'].map((key) => (
             <Skeleton key={key} className="h-8 w-20 shrink-0 rounded-lg" />
           ))}
         </div>
         <div className="p-4">
-          <FileGrid>
+          <FileGrid size="roomy">
             {Array.from({ length: 8 }).map((_, i) => (
-              <FileCardSkeleton key={i} />
+              <FileCardSkeleton key={i} size="roomy" />
             ))}
           </FileGrid>
         </div>
@@ -187,38 +191,39 @@ export function ArchivLibraryPane({
 
   return (
     <div className="animate-in fade-in-0 flex h-full flex-col duration-base ease-out motion-reduce:animate-none">
-      {/* Search bar — instant substring filter as you type; Enter (or the search
-          button) runs the semantic search over the Archiv collection. */}
-      <FileSearchBar
-        value={search}
-        onChange={handleSearchChange}
-        onSubmit={runSemantic}
-        onClear={clearSearch}
-        placeholder={t('library.semantic.searchPlaceholder')}
-        searchLabel={t('library.searchLabel')}
-        resetLabel={t('library.resetSearch')}
-        canSearch
-        runLabel={t('library.semantic.run')}
-        isSearching={semantic.isSearching}
-        semanticActive={semantic.active}
-        bannerText={
-          semantic.isSearching
-            ? t('library.semantic.searching', { query: semantic.query ?? '' })
-            : // The count is a claim about the corpus, and a search that never
-              // ran has not counted anything. Reporting "0 results" above a
-              // panel that says the search failed is the same lie twice, in the
-              // one line the reader takes at face value.
-              semantic.error
-              ? t('library.semantic.failedBanner', { query: semantic.query ?? '' })
-              : t('library.semantic.banner', {
-                  count: String(semantic.hits.length),
-                  query: semantic.query ?? '',
-                })
-        }
-        resetSemanticLabel={t('library.semantic.reset')}
-        onResetSemantic={clearSearch}
-        bannerTestId="archiv-semantic-banner"
-      />
+      {/* From `lg` the search FIELD is up in the Archiv's header band, with the
+          upload button; below that it is this band, where it used to live for
+          every window. What stays here either way is the band that describes
+          the result set. */}
+      {searchField && (
+        <div className="bg-background/95 shrink-0 border-b px-4 py-2.5 lg:hidden">
+          {searchField}
+        </div>
+      )}
+
+      {semantic.active && (
+        <SemanticSearchBanner
+          variant="band"
+          isSearching={semantic.isSearching}
+          bannerText={
+            semantic.isSearching
+              ? t('library.semantic.searching', { query: semantic.query ?? '' })
+              : // The count is a claim about the corpus, and a search that never
+                // ran has not counted anything. Reporting "0 results" above a
+                // panel that says the search failed is the same lie twice, in the
+                // one line the reader takes at face value.
+                semantic.error
+                ? t('library.semantic.failedBanner', { query: semantic.query ?? '' })
+                : t('library.semantic.banner', {
+                    count: String(semantic.hits.length),
+                    query: semantic.query ?? '',
+                  })
+          }
+          resetLabel={t('library.semantic.reset')}
+          onReset={clearFilters}
+          testId="archiv-semantic-banner"
+        />
+      )}
 
       {/* Category chips — filter over the tags that really exist. Hidden in
           semantic mode (the query is the context). */}
@@ -263,9 +268,9 @@ export function ArchivLibraryPane({
       >
         {view === 'semantic-searching' ? (
           <div className="p-4">
-            <FileGrid>
+            <FileGrid size="roomy">
               {Array.from({ length: 6 }).map((_, i) => (
-                <FileCardSkeleton key={i} />
+                <FileCardSkeleton key={i} size="roomy" />
               ))}
             </FileGrid>
           </div>
@@ -284,7 +289,7 @@ export function ArchivLibraryPane({
                   <Button size="sm" onClick={() => semantic.run(semantic.query ?? '')}>
                     {t('library.semantic.retry')}
                   </Button>
-                  <Button variant="outline" size="sm" onClick={clearSearch}>
+                  <Button variant="outline" size="sm" onClick={clearFilters}>
                     {t('library.semantic.reset')}
                   </Button>
                 </div>
@@ -299,7 +304,7 @@ export function ArchivLibraryPane({
               title={t('library.semantic.noResults', { query: semantic.query ?? '' })}
               description={t('library.semantic.noResultsDescription')}
               action={
-                <Button variant="outline" size="sm" onClick={clearSearch}>
+                <Button variant="outline" size="sm" onClick={clearFilters}>
                   {t('library.semantic.reset')}
                 </Button>
               }
@@ -310,7 +315,7 @@ export function ArchivLibraryPane({
           // evidence (snippet + page + relevance). A backend error/timeout fails
           // open to an empty result set (never a crash).
           <div className="p-4">
-            <FileGrid>
+            <FileGrid size="roomy">
               {semantic.hits.map((hit) => (
                 <ArchivDocumentCard
                   key={hit.id}
@@ -332,7 +337,7 @@ export function ArchivLibraryPane({
               title={t('library.noMatchTitle')}
               description={t('library.noMatchDescription')}
               action={
-                <Button variant="outline" size="sm" onClick={clearSearch}>
+                <Button variant="outline" size="sm" onClick={clearFilters}>
                   {t('library.clearFilters')}
                 </Button>
               }
@@ -341,7 +346,7 @@ export function ArchivLibraryPane({
         ) : (
           /* Substring-filtered card grid (instant, as you type). */
           <div className="p-4">
-            <FileGrid>
+            <FileGrid size="roomy">
               {filteredFiles.map((file) => (
                 <ArchivDocumentCard
                   key={file.id}
@@ -395,6 +400,7 @@ function ArchivDocumentCard({
       locale={locale}
       match={match}
       testId="archiv-document-card"
+      size="roomy"
       source="buero"
       sourceLabel={kindLabel}
       actions={actions}

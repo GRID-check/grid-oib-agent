@@ -6,10 +6,12 @@ import { sourceBase, sourceTint } from '@/lib/ui/source-tint'
 import { AlertCircle, Archive, RotateCcw, X } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { useArchivDocuments } from '../hooks/use-archiv-documents'
+import { useFileSearch } from '../hooks/use-file-search'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { ArchivLibraryPane } from './archiv-library-pane'
+import { FileSearchField } from './file-search'
 import { DocumentActionsMenu } from './document-actions'
 import { FilePreviewDialog } from './file-preview-dialog'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
@@ -238,6 +240,30 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
     <ProjectUppyUpload onUpload={(f) => uploadFiles(f)} isUploading={isUploading} />
   ) : undefined
 
+  // The search lives on the workspace, not in the library pane: its FIELD
+  // belongs in the header band beside the upload button, and the pane below is
+  // a scroll container two levels down from it.
+  const search = useFileSearch({ endpoint: '/api/archiv/documents/search' })
+
+  // One field, rendered in whichever of the two places has room: the header
+  // band from `lg`, the top of the listing below it. `display:none` keeps the
+  // other out of the accessibility tree as well, so it is never two search
+  // boxes for the same corpus.
+  const searchField = (
+    <FileSearchField
+      value={search.query}
+      onChange={search.setQuery}
+      onSubmit={search.submit}
+      onClear={search.clear}
+      placeholder={t('library.searchPlaceholder')}
+      searchLabel={t('library.searchLabel')}
+      resetLabel={t('library.resetSearch')}
+      canSearch={search.canSearch}
+      runLabel={t('library.semantic.run')}
+      isSearching={search.semantic.isSearching}
+    />
+  )
+
   return (
     <div
       className="relative flex h-full flex-col"
@@ -280,7 +306,14 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
             <p className="text-muted-foreground truncate text-xs">{t('subtitle')}</p>
           </div>
         </div>
-        {uploadButton}
+        {/* Searching the Archiv is something you do to the Archiv, so it sits
+            with the Archiv's own controls rather than as a strip over the
+            listing — from `lg`, where there is room for it beside the identity
+            mark and the upload button. Below that the listing carries it. */}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="hidden lg:flex">{searchField}</div>
+          {uploadButton}
+        </div>
       </div>
 
       {/* Error banner */}
@@ -346,6 +379,8 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
               selectedFileId={selectedFileId}
               onSelectFile={setSelectedFileId}
               isLoading={isLoading}
+              search={search}
+              searchField={searchField}
               uploadControl={uploadButton}
               renderActions={(file) => (
                 <DocumentActionsMenu

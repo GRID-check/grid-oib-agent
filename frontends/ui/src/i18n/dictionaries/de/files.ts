@@ -160,7 +160,6 @@ export const files: typeof en.files = {
     resetSearch: 'Suche zurücksetzen',
     recentlyUploaded: 'Zuletzt hochgeladen',
     semantic: {
-      searchPlaceholder: 'Dateien durchsuchen – Enter für semantische Suche …',
       run: 'Suchen',
       reset: 'Alle Dateien anzeigen',
       banner: 'Semantische Suche: {count} Treffer für „{query}“',
@@ -192,6 +191,8 @@ export const files: typeof en.files = {
     addSubfolder: 'Unterordner hinzufügen',
     allFiles: 'Alle Dateien',
     newFolder: 'Neuer Ordner',
+    /** Auf der Ordner-Kachel: wie viel darin liegt, Unterordner mitgezählt. */
+    count: '{count, plural, one {# Datei} other {# Dateien}}',
   },
   workspace: {
     renameFolderError: 'Der Ordner konnte nicht umbenannt werden. Bitte versuchen Sie es erneut.',
