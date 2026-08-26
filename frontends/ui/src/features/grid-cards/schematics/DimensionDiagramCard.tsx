@@ -12,7 +12,6 @@
  */
 
 import { type FC, type ReactNode } from 'react'
-import { Ruler } from 'lucide-react'
 import { DimChecksList, fmtDim, SchematicCard, statusColor, worstStatus } from '../cards/shell'
 import { DimensionArrow, ExtensionLine, fitScale, SchematicCanvas, SvgLabel } from './draw'
 import { sketchCircle, sketchPath, sketchPolygon, sketchRect, type Point } from './rough'
@@ -594,7 +593,6 @@ export const DimensionDiagramCard: FC<DimensionDiagramCardProps> = ({
 
   return (
     <SchematicCard
-      icon={Ruler}
       title={title}
       verdict={worstStatus(dimensions.map((d) => d.status))}
       note={note}

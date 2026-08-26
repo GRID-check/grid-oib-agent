@@ -12,7 +12,6 @@
  */
 
 import { type FC } from 'react'
-import { TrendingUp } from 'lucide-react'
 import { DimChecksList, fmtDim, fmtNum, SchematicCard, worstStatus } from '../cards/shell'
 import { DimensionArrow, ExtensionLine, fitScale, SchematicCanvas, SvgLabel } from './draw'
 import { sketchPolygon, sketchRect, type Point } from './rough'
@@ -108,7 +107,6 @@ export const StairDiagramCard: FC<StairDiagramCardProps> = ({
 
   return (
     <SchematicCard
-      icon={TrendingUp}
       title={title}
       verdict={worstStatus([riser_height.status, tread_depth.status, width.status])}
       reference={reference}

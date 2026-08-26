@@ -13,7 +13,6 @@
  */
 
 import { type FC } from 'react'
-import { Gauge } from 'lucide-react'
 import { fmtDim, LimitBar, missingLabel, SchematicCard } from '../cards/shell'
 import { SchematicCanvas, SvgLabel } from './draw'
 import { useTranslations } from '@/i18n'
@@ -123,7 +122,6 @@ export const EnergyPerformanceCard: FC<EnergyPerformanceCardProps> = ({
 
   return (
     <SchematicCard
-      icon={Gauge}
       title={title}
       verdict={hwbCheck.status}
       note={note}

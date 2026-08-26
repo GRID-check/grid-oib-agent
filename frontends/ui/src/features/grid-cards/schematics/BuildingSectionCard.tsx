@@ -11,7 +11,6 @@
  */
 
 import { type FC, type ReactNode } from 'react'
-import { Building2 } from 'lucide-react'
 import { fmtNum, SchematicCard } from '../cards/shell'
 import { DimensionArrow, ExtensionLine, SchematicCanvas, SvgLabel } from './draw'
 import { sketchLine, sketchRect } from './rough'
@@ -140,7 +139,7 @@ export const BuildingSectionCard: FC<BuildingSectionCardProps> = ({
   }
 
   return (
-    <SchematicCard icon={Building2} title={title} note={note} reference={reference}>
+    <SchematicCard title={title} note={note} reference={reference}>
       <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         {/* below-grade block behind the ground line */}
         {belowBands}

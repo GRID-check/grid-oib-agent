@@ -41,7 +41,7 @@
  */
 
 import { useState, type FC } from 'react'
-import { Check, ChevronDown, Route, Scale } from 'lucide-react'
+import { Check, ChevronDown, Scale } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useTranslations, type Translator } from '@/i18n'
 import { SchematicCard, statusColor } from '../cards/shell'
@@ -329,7 +329,7 @@ export const ProcessMapCard: FC<ProcessMapCardProps> = ({
   const [openIndex, setOpenIndex] = useState<number | null>(currentIndex)
 
   return (
-    <SchematicCard icon={Route} eyebrow={t('cards.processMap.eyebrow')} title={title} note={note} reference={reference}>
+    <SchematicCard title={title} note={note} reference={reference}>
       <ol className="flex flex-col">
         {steps.map((step, index) => (
           <Station

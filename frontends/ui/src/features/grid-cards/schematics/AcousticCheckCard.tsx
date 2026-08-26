@@ -13,7 +13,6 @@
  */
 
 import { type FC } from 'react'
-import { Volume2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { useTranslations, type Translator } from '@/i18n'
 import { fmtNum, LimitBar, SchematicCard, statusColor, worstStatus } from '../cards/shell'
@@ -54,7 +53,6 @@ export const AcousticCheckCard: FC<AcousticCheckCardProps> = ({
 
   return (
     <SchematicCard
-      icon={Volume2}
       title={title}
       verdict={worstStatus(checks.map((c) => c.check.status))}
       note={note}

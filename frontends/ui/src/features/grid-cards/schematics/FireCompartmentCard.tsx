@@ -11,7 +11,6 @@
  */
 
 import { type FC } from 'react'
-import { Flame } from 'lucide-react'
 import { DimChecksList, fmtDim, missingLabel, SchematicCard, statusColor, worstStatus } from '../cards/shell'
 import { SchematicCanvas, SvgLabel } from './draw'
 import { sketchRect } from './rough'
@@ -128,7 +127,6 @@ export const FireCompartmentCard: FC<FireCompartmentCardProps> = ({
 
   return (
     <SchematicCard
-      icon={Flame}
       title={title}
       verdict={worstStatus(compartments.map((c) => c.area.status))}
       note={note}

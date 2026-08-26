@@ -42,7 +42,7 @@
  */
 
 import { useState, type FC } from 'react'
-import { GitBranch, ChevronDown, Info, Scale } from 'lucide-react'
+import { ChevronDown, Info, Scale } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useTranslations, type Translator } from '@/i18n'
 import { SchematicCard, statusColor } from '../cards/shell'
@@ -310,8 +310,6 @@ export const ConditionTreeCard: FC<ConditionTreeCardProps> = ({
 
   return (
     <SchematicCard
-      icon={GitBranch}
-      eyebrow={t('cards.conditionTree.eyebrow')}
       title={title}
       reference={reference}
     >

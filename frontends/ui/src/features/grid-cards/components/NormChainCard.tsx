@@ -11,7 +11,6 @@
  */
 
 import { type FC } from 'react'
-import { ListTree } from 'lucide-react'
 import { SchematicCard } from '../cards/shell'
 import { useTranslations, type Translator } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -49,7 +48,7 @@ const RANK: Record<NormChainRank, RankMeta> = {
 export const NormChainCard: FC<NormChainCardProps> = ({ title, links }) => {
   const t = useTranslations('chat')
   return (
-    <SchematicCard icon={ListTree} eyebrow={t('cards.normChain.eyebrow')} title={title}>
+    <SchematicCard title={title}>
       <ol className="flex flex-col">
         {links.map((link, index) => {
           const meta = RANK[link.rank] ?? { label: () => link.rank, binding: false }

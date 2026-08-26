@@ -12,7 +12,6 @@
  */
 
 import { type FC } from 'react'
-import { Grid2x2 } from 'lucide-react'
 import { fmtNum, LimitBar, missingLabel, SchematicCard, statusColor, worstStatus } from '../cards/shell'
 import { fitScale, SchematicCanvas, SvgLabel } from './draw'
 import { sketchRect } from './rough'
@@ -115,7 +114,6 @@ export const DensityCheckCard: FC<DensityCheckCardProps> = ({
 
   return (
     <SchematicCard
-      icon={Grid2x2}
       title={title}
       verdict={worstStatus([coverageCheck.status, densityCheck.status])}
       note={note}

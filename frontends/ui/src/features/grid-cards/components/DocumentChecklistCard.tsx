@@ -41,7 +41,7 @@
  */
 
 import { useState, type FC } from 'react'
-import { ChevronDown, Circle, CircleCheck, CircleHelp, ClipboardList, Scale } from 'lucide-react'
+import { ChevronDown, Circle, CircleCheck, CircleHelp, Scale } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useTranslations, type Translator } from '@/i18n'
 import { SchematicCard, statusColor } from '../cards/shell'
@@ -228,8 +228,6 @@ export const DocumentChecklistCard: FC<DocumentChecklistCardProps> = ({ title, i
 
   return (
     <SchematicCard
-      icon={ClipboardList}
-      eyebrow={t('cards.documentChecklist.eyebrow')}
       title={title}
       note={note}
       reference={reference}

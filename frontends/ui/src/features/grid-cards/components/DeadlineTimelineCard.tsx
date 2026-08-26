@@ -33,7 +33,7 @@
  */
 
 import { useState, type FC } from 'react'
-import { ChevronDown, Hourglass, Scale } from 'lucide-react'
+import { ChevronDown, Scale } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useTranslations, type Translator } from '@/i18n'
 import { SchematicCard } from '../cards/shell'
@@ -170,8 +170,6 @@ export const DeadlineTimelineCard: FC<DeadlineTimelineCardProps> = ({ title, dea
 
   return (
     <SchematicCard
-      icon={Hourglass}
-      eyebrow={t('cards.deadlineTimeline.eyebrow')}
       title={title}
       note={note}
       reference={reference}

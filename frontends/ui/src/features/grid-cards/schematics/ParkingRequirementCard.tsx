@@ -12,7 +12,6 @@
  */
 
 import { type FC, type ReactNode } from 'react'
-import { SquareParking } from 'lucide-react'
 import { fmtNum, LimitBar, missingLabel, SchematicCard, statusColor, worstStatus } from '../cards/shell'
 import { SchematicCanvas } from './draw'
 import { useTranslations, type Translator } from '@/i18n'
@@ -145,7 +144,6 @@ export const ParkingRequirementCard: FC<ParkingRequirementCardProps> = ({
 
   return (
     <SchematicCard
-      icon={SquareParking}
       title={title}
       verdict={worstStatus([car.status, ...(bike ? [bike.status] : [])])}
       note={note}

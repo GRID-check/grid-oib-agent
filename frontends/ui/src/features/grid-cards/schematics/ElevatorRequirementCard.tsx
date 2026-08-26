@@ -13,7 +13,7 @@
  */
 
 import { type FC } from 'react'
-import { ArrowUpDown, CircleHelp } from 'lucide-react'
+import { CircleHelp } from 'lucide-react'
 import { DimChecksList, SchematicCard, worstStatus } from '../cards/shell'
 import { SchematicCanvas, SvgLabel } from './draw'
 import { cn } from '@/lib/utils'
@@ -77,7 +77,6 @@ export const ElevatorRequirementCard: FC<ElevatorRequirementCardProps> = ({
 
   return (
     <SchematicCard
-      icon={ArrowUpDown}
       title={title}
       verdict={worstStatus(checks.map((c) => c.status))}
       note={note}

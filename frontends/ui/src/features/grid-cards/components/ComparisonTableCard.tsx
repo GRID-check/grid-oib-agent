@@ -9,7 +9,7 @@
  */
 
 import { type FC } from 'react'
-import { Columns3, ThumbsUp } from 'lucide-react'
+import { ThumbsUp } from 'lucide-react'
 import { SchematicCard, statusColor } from '../cards/shell'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -37,8 +37,6 @@ export const ComparisonTableCard: FC<ComparisonTableCardProps> = ({
 
   return (
     <SchematicCard
-      icon={Columns3}
-      eyebrow={t('cards.comparison.eyebrow')}
       title={title}
       note={note}
       reference={reference}

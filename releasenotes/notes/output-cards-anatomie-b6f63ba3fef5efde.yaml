@@ -1,0 +1,8 @@
+---
+improvements:
+  - >
+    The result cards in an answer have been rebuilt around what each one is
+    for. A card now opens with its subject and its verdict on one line — a
+    checkmark or a cross with the word beside it, not a coloured pill — and
+    closes with the source it rests on, shown the way citations are shown
+    everywhere else. The type label above every card is gone.

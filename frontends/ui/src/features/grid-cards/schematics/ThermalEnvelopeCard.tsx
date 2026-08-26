@@ -12,7 +12,6 @@
  */
 
 import { type FC } from 'react'
-import { Thermometer } from 'lucide-react'
 import { LimitBar, SchematicCard, statusColor, worstStatus } from '../cards/shell'
 import { SchematicCanvas, SvgLabel } from './draw'
 import { sketchLine, sketchPath, sketchRect } from './rough'
@@ -108,7 +107,6 @@ export const ThermalEnvelopeCard: FC<ThermalEnvelopeCardProps> = ({
 
   return (
     <SchematicCard
-      icon={Thermometer}
       title={title}
       verdict={worstStatus(components.map((c) => c.u_value.status))}
       note={note}

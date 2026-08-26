@@ -14,7 +14,6 @@
  */
 
 import { type FC } from 'react'
-import { Sun } from 'lucide-react'
 import { DimChecksList, fmtDim, fmtNum, LimitBar, SchematicCard, statusColor, worstStatus } from '../cards/shell'
 import { DimensionArrow, ExtensionLine, fitScale, SchematicCanvas, SvgLabel } from './draw'
 import { sketchLine, sketchRect } from './rough'
@@ -115,7 +114,6 @@ export const DaylightIncidenceCard: FC<DaylightIncidenceCardProps> = ({
 
   return (
     <SchematicCard
-      icon={Sun}
       title={title}
       verdict={worstStatus(checks.map((c) => c.status))}
       note={note}

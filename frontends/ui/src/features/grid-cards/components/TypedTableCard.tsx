@@ -11,7 +11,6 @@
  */
 
 import { type FC } from 'react'
-import { Table2 } from 'lucide-react'
 import { SchematicCard, statusColor, statusLabel } from '../cards/shell'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -80,11 +79,8 @@ export const TypedTableCard: FC<TypedTableCardProps> = ({
   reference,
   note,
 }) => {
-  const t = useTranslations('chat')
   return (
     <SchematicCard
-      icon={Table2}
-      eyebrow={t('cards.typedTable.eyebrow')}
       title={title}
       note={note}
       reference={reference}

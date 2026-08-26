@@ -40,7 +40,7 @@
  */
 
 import { useState, type FC } from 'react'
-import { ArrowDownRight, ArrowUpRight, ChevronDown, GitCompareArrows, Minus, Scale } from 'lucide-react'
+import { ArrowDownRight, ArrowUpRight, ChevronDown, Minus, Scale } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useTranslations, type Translator } from '@/i18n'
 import { SchematicCard, statusColor } from '../cards/shell'
@@ -216,8 +216,6 @@ export const ChangeImpactCard: FC<ChangeImpactCardProps> = ({
 
   return (
     <SchematicCard
-      icon={GitCompareArrows}
-      eyebrow={t('cards.changeImpact.eyebrow')}
       title={title}
       note={note}
       reference={reference}

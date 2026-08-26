@@ -3,13 +3,20 @@
  * TOP of an answer.
  *
  * THE CARD IS THE FIGURE (`docs/design/grid-card-charter.md` §B1). The subject
- * reads as a quiet eyebrow, the verdict is the one large thing — 30px, the
- * biggest type anywhere in the card set — and there is no body list at all.
- * The card lands at roughly 100px tall and that height is its signature: it is
- * the only card in the system under 120px, so an answer that opens with one is
- * recognisable before it is read. Accented register (§A1): a 2px left edge in
- * INK, because this card makes a claim you may act on and ink is the action
- * colour here (chroma belongs to provenance).
+ * reads as a quiet eyebrow, the verdict is the one large thing — the Figure
+ * step, 20px, the biggest type anywhere in the card set — and there is no body
+ * list at all. The card lands at roughly 100px tall and that height is its
+ * signature: it is the only card in the system under 120px, so an answer that
+ * opens with one is recognisable before it is read.
+ *
+ * It was 30px until the 2026-08 revision, and the change is not a retreat: the
+ * whole set stopped shouting at every other level — no uppercase eyebrows, no
+ * tinted status pills, body rows that recede — so 20px now lands harder here
+ * than 30px did in a column where everything was loud.
+ *
+ * Accented register (§A1): a 2px left edge in INK, because this card makes a
+ * claim you may act on and ink is the action colour here (chroma belongs to
+ * provenance).
  *
  * CONFIDENCE IS A GAUGE, NOT A PILL. A pill („mittlere Sicherheit" on a tint)
  * is legible but not comparable: two answers side by side give the reader two
@@ -89,7 +96,7 @@ export const VerdictHeaderCard: FC<VerdictHeaderCardProps> = ({
       <SectionLabel icon={Gavel}>{subject}</SectionLabel>
 
       {/* `hyphens-auto break-words` is not belt-and-braces, it is the phone.
-          „Hauptgeschoßfußbodenoberkante" is one 29-character token and at 24px
+          „Hauptgeschoßfußbodenoberkante" is one 29-character token and at 20px
           it is wider than the whole 314px column, so with only `text-balance`
           it ran straight out of the card. Hyphenation breaks it properly where
           the browser knows German (the document carries `lang`), and the hard

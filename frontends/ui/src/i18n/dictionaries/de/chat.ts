@@ -235,7 +235,6 @@ export const chat: typeof en.chat = {
     viewOib: 'OIB-Richtlinie ansehen',
     verifyRis: 'In RIS prüfen',
     conditionTree: {
-      eyebrow: 'Bedingungsbaum',
       dependsOn: 'Abhängig von',
       applies: 'trifft zu',
       basis: 'Grundlage',
@@ -268,7 +267,6 @@ export const chat: typeof en.chat = {
     // `kit.tsx` zeichnet fünfzehn Karten. Sein Wortschatz steht hier, weil er
     // auf jeder einzelnen erscheint: Verdikt, fehlende Angabe, Herkunft.
     kit: {
-      eyebrow: 'Skizze',
       status: {
         pass: 'erfüllt',
         fail: 'nicht erfüllt',
@@ -308,7 +306,6 @@ export const chat: typeof en.chat = {
       less: 'Weniger',
     },
     calculation: {
-      eyebrow: 'Rechenweg',
       result: 'Ergebnis',
       limitLabel: 'Grenzwert',
       // Ein Bereich als Grenzwert, etwa 59–65 cm der Schrittmaßregel. Der
@@ -335,7 +332,6 @@ export const chat: typeof en.chat = {
       eyebrow: 'Diagramm',
     },
     processMap: {
-      eyebrow: 'Verfahrensablauf',
       current: 'hier stehen Sie',
       done: 'erledigt',
       stepAria: 'Schritt {step}: {label}',
@@ -353,7 +349,6 @@ export const chat: typeof en.chat = {
     // Die Zahlen in der Übersicht rechnet die Karte selbst aus den Zeilen —
     // es gibt kein Feld auf der Leitung, das ihnen widersprechen könnte.
     documentChecklist: {
-      eyebrow: 'Unterlagen',
       itemAria: 'Unterlage: {label}',
       requirement: {
         required: 'erforderlich',
@@ -387,7 +382,6 @@ export const chat: typeof en.chat = {
     },
     // ── Fristen ─────────────────────────────────────────────────────────
     deadlineTimeline: {
-      eyebrow: 'Fristen',
       deadlineAria: 'Frist {index}: {label}',
       startsFrom: 'Fristbeginn',
       consequence: 'Wenn versäumt',
@@ -402,7 +396,6 @@ export const chat: typeof en.chat = {
     },
     // ── Auswirkung einer Änderung ───────────────────────────────────────
     changeImpact: {
-      eyebrow: 'Auswirkung',
       consequenceAria: 'Auswirkung: {aspect}',
       changeWithBefore: '{factor}: {from} → {to}',
       changeWithoutBefore: '{factor} → {to}',
@@ -425,7 +418,6 @@ export const chat: typeof en.chat = {
       confidenceLow: 'geringe Sicherheit',
     },
     normChain: {
-      eyebrow: 'Normenkette',
       // Rang des Rechtsakts. Die Namen sind die der österreichischen
       // Rechtsordnung und bleiben auch im Englischen stehen.
       rank: {
@@ -443,11 +435,9 @@ export const chat: typeof en.chat = {
       interpretive: 'auslegend',
     },
     comparison: {
-      eyebrow: 'Vergleich',
       criterion: 'Kriterium',
     },
     typedTable: {
-      eyebrow: 'Tabelle',
     },
     // ── Beschriftungen in den Zeichnungen ──────────────────────────────────
     // Was in der Skizze selbst steht. Symbole (±0,00, Ø, N), Einheiten und

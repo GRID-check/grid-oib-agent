@@ -676,13 +676,13 @@ superseded by the 2026-08 revision.
 | Item | Section | Status |
 |---|---|---|
 | Split `kit.tsx` into `cards/shell.tsx` + `schematics/draw.tsx` | A7 | **Done** |
-| One shell, three registers (two accent forms) | A1 | Pending |
-| Type ramp: add **Prose** and **Value**, delete `.card-figure-24/30` | A2 | Pending |
-| Weight rule (rows and labels 500, running sentences 400) | A2 | Pending |
-| Figure rule at 20px, one per card | A2 | Partly — rule written, `verdict_header` still at 30px |
-| Eyebrow retired inside cards; `SchematicCard`'s default eyebrow removed | A2 | Pending |
-| Axis 5: provenance colours pills, status colours glyph + word | A3 | Pending — `StatusBadge` is still a tinted pill |
-| Source pill atom resolved through `accentForLane`, replacing `NormRefFooter` | A3 | Pending |
+| One shell, three registers (two accent forms) | A1 | Partly — `SchematicCard` is the one Framed shell; the accent forms land with their cards |
+| Type ramp: add **Prose** and **Value**, delete `.card-figure-24/30` | A2 | **Done** |
+| Weight rule (rows and labels 500, running sentences 400) | A2 | **Done** — in the ramp; call sites migrate per sprint |
+| Figure rule at 20px, one per card | A2 | **Done** — one figure class exists, so a second size cannot be written |
+| Eyebrow retired inside cards; `SchematicCard`'s default eyebrow removed | A2 | Partly — gone from `SchematicCard` and its 24 callers; `key_takeaways`, `follow_ups`, `diagram` and `callout` still carry one until their sprint |
+| Axis 5: provenance colours pills, status colours glyph + word | A3 | **Done** — `StatusBadge` is a glyph and a word in the status ink |
+| Source line uses the product's own `SourceSignalChip` | A3 | **Done** — no new atom; a `NormReference` is `law` by definition, so nothing parses a document name |
 | `LimitBar` on the one-baseline shape | A3 / B3 | Pending |
 | `ProposalShell` pending-tone fix (no `--warning`) | A3 | **Done** (Sprint 1) |
 | Card spacing scale (12 / 6 / 20, no arbitrary values) | A4 | Pending |

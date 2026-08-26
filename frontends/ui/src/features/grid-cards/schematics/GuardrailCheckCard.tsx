@@ -13,7 +13,6 @@
  */
 
 import { type FC } from 'react'
-import { Fence } from 'lucide-react'
 import { DimChecksList, fmtDim, SchematicCard, statusColor, worstStatus } from '../cards/shell'
 import { DimensionArrow, ExtensionLine, fitScale, SchematicCanvas, SvgLabel } from './draw'
 import { sketchLine, sketchRect } from './rough'
@@ -137,7 +136,6 @@ export const GuardrailCheckCard: FC<GuardrailCheckCardProps> = ({
 
   return (
     <SchematicCard
-      icon={Fence}
       title={title}
       verdict={worstStatus(checks.map((c) => c.status))}
       note={note}

@@ -91,9 +91,10 @@ function Gallery() {
       </Section>
 
       {/* The §A2 cross-card rule, which only exists when both cards are on
-          screen: the same summary under a verdict header drops its 17px H1 to
-          the 14px Title step, because a 17px headline and a 30px verdict
-          arriving together give the reader two places to start. Rendered
+          screen: the same summary under a verdict header demotes its title
+          from the Value step to a muted Body/600 lead-in, because two 15px+
+          lines arriving together give the reader two places to start. Demoted
+          and not dropped — the field the model filled still renders. Rendered
           through the dispatcher so it goes through the same provider the chat
           uses — the rule is invisible from either component alone. */}
       <Section id="summary_under_verdict">
@@ -494,8 +495,9 @@ function Gallery() {
       </Section>
 
       {/* The card IS the figure, so the thing to review is the figure: a short
-          verdict at 30px, a long compound at the 24px step it drops to above 24
-          characters, and the confidence gauge at all three of its levels —
+          verdict at the 20px Figure step, a long compound at the 15px Value
+          step it drops to above 24 characters, and the gauge at all three of
+          its levels —
           including the answer with no confidence at all, where the gauge is
           absent rather than empty. */}
       <Section id="verdict_header">

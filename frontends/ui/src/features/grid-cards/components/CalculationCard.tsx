@@ -36,7 +36,7 @@
  */
 
 import { useState, type FC } from 'react'
-import { ChevronDown, Sigma } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useTranslations, type Translator } from '@/i18n'
 import { SchematicCard, fmtComparator, fmtNum, fmtTolerance, missingLabel, provenanceLabel, provenanceTitle, statusColor } from '../cards/shell'
@@ -228,8 +228,6 @@ export const CalculationCard: FC<CalculationCardProps> = ({ title, steps, limit,
 
   return (
     <SchematicCard
-      icon={Sigma}
-      eyebrow={t('cards.calculation.eyebrow')}
       title={title}
       verdict={verdict}
       note={note}

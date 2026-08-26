@@ -248,7 +248,6 @@ export const chat = {
     aiGenerated:
       'AI-generated citation — check the excerpt against the primary source (OIB / RIS).',
     conditionTree: {
-      eyebrow: 'Condition tree',
       dependsOn: 'Depends on',
       applies: 'applies here',
       basis: 'Basis',
@@ -279,7 +278,6 @@ export const chat = {
     // `kit.tsx` draws fifteen cards. Its vocabulary lives here because it
     // appears on every one of them: verdict, missing figure, provenance.
     kit: {
-      eyebrow: 'Sketch',
       status: {
         pass: 'met',
         fail: 'not met',
@@ -321,7 +319,6 @@ export const chat = {
       less: 'Less',
     },
     calculation: {
-      eyebrow: 'Derivation',
       result: 'Result',
       limitLabel: 'Limit',
       // A range limit, e.g. the Schrittmaßregel's 59–65 cm. Built by the code
@@ -349,7 +346,6 @@ export const chat = {
       eyebrow: 'Diagram',
     },
     processMap: {
-      eyebrow: 'Procedure',
       current: 'you are here',
       done: 'done',
       stepAria: 'Step {step}: {label}',
@@ -367,7 +363,6 @@ export const chat = {
     // The counts in the overview are worked out by the card from its own rows,
     // so there is no field on the wire for a summary to disagree with.
     documentChecklist: {
-      eyebrow: 'Documents',
       itemAria: 'Document: {label}',
       requirement: {
         required: 'required',
@@ -400,7 +395,6 @@ export const chat = {
     },
     // ── Deadlines ───────────────────────────────────────────────────────
     deadlineTimeline: {
-      eyebrow: 'Deadlines',
       deadlineAria: 'Deadline {index}: {label}',
       startsFrom: 'Clock starts',
       consequence: 'If missed',
@@ -414,7 +408,6 @@ export const chat = {
     },
     // ── Impact of a change ──────────────────────────────────────────────
     changeImpact: {
-      eyebrow: 'Impact',
       consequenceAria: 'Impact: {aspect}',
       changeWithBefore: '{factor}: {from} → {to}',
       changeWithoutBefore: '{factor} → {to}',
@@ -437,7 +430,6 @@ export const chat = {
       confidenceLow: 'low confidence',
     },
     normChain: {
-      eyebrow: 'Chain of norms',
       // Rank of the legal instrument. These are the names of the Austrian
       // legal order and stay in German here too.
       rank: {
@@ -455,11 +447,9 @@ export const chat = {
       interpretive: 'interpretive',
     },
     comparison: {
-      eyebrow: 'Comparison',
       criterion: 'Criterion',
     },
     typedTable: {
-      eyebrow: 'Table',
     },
     // ── Labels inside the drawings ─────────────────────────────────────────
     // What is written on the sketch itself. Symbols (±0,00, Ø, N), units and

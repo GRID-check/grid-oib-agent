@@ -14,6 +14,9 @@
  *   never the brand accent: pass=green, fail=red, warning=amber,
  *   needs_input=muted + dashed. Unknown values are ALWAYS shown as the
  *   `cards.kit.missingValue` phrase — never a guessed number.
+ * - A status is a GLYPH AND A WORD in the status ink, never a tinted pill
+ *   (§A3 axis 5). Provenance owns the tinted-rect shape; giving a verdict the
+ *   same shape puts two unrelated hues in one row wearing the same clothes.
  * - Every reader-facing word comes from the dictionary. The pure helpers below
  *   (`statusLabel`, `missingLabel`, `fmtDim`, `provenanceLabel`) therefore take
  *   a {@link Translator} as their last argument rather than closing over German
@@ -26,9 +29,9 @@
 'use client'
 
 import { type FC, type ReactNode, useState } from 'react'
-import { CircleCheck, CircleHelp, CircleX, FileText, Scale, TriangleAlert, type LucideIcon } from 'lucide-react'
+import { CircleCheck, CircleHelp, CircleX, FileText, TriangleAlert, type LucideIcon } from 'lucide-react'
 import { Card } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+import { SourceSignalChip } from '@/features/layout/components/SourceSignalChip'
 import { useTranslations, type Translator } from '@/i18n'
 import { AskAboutChip } from '../components/AskAboutChip'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
@@ -72,13 +75,6 @@ const STATUS_ICON: Record<DimStatus, LucideIcon> = {
   fail: CircleX,
   warning: TriangleAlert,
   needs_input: CircleHelp,
-}
-
-const STATUS_BADGE_CLASS: Record<DimStatus, string> = {
-  pass: 'bg-success-subtle text-success',
-  fail: 'bg-danger-subtle text-error',
-  warning: 'bg-warning-subtle text-warning',
-  needs_input: 'bg-muted text-muted-foreground',
 }
 
 const STATUS_RANK: Record<DimStatus, number> = { fail: 3, needs_input: 2, warning: 1, pass: 0 }
@@ -218,33 +214,42 @@ export const LimitBar: FC<LimitBarProps> = ({ check, className }) => {
       : false
 
   return (
-    <div className={cn('flex flex-col gap-1.5', className)}>
-      <div className="flex items-baseline justify-between gap-3 text-xs">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-mono text-foreground">
+    <div className={cn('flex flex-col gap-2', className)}>
+      {/* Label, value and limit on ONE baseline, in that order, with the label
+          taking the slack. The limit used to trail the value inside the same
+          span — „2,47 m ±5 mm gemessen ≥ 2,50 m" as one run of text — so the
+          two numbers the reader is comparing were separated by everything that
+          qualified the first one. Given its own slot at the end of the row it
+          sits under the reader's eye where the comparison actually happens,
+          and the band and the provenance chip stay attached to the value they
+          belong to. */}
+      <div className="flex items-baseline gap-2.5">
+        <span className="card-body min-w-0 flex-1 text-muted-foreground">{label}</span>
+        <span className="card-value shrink-0 font-mono text-foreground">
           {value == null ? (
-            <span className="font-sans italic text-muted-foreground">{missingLabel(t)}</span>
+            <span className="card-body font-sans font-normal italic text-muted-foreground">
+              {missingLabel(t)}
+            </span>
           ) : (
             fmtDim(value, unit, t)
           )}
-          {band && <span className="ml-1 text-[0.9em] text-muted-foreground">{band}</span>}
-          {check.provenance && (
-            <span
-              className="ml-1.5 rounded bg-muted px-1 py-px font-sans text-[0.85em] text-muted-foreground"
-              title={provenanceTitle(check.provenance, t)}
-            >
-              {provenanceLabel(check.provenance, t)}
-            </span>
-          )}
-          {required != null && (
-            <span className="text-muted-foreground">
-              {' '}
-              {fmtComparator(comparator)} {fmtDim(required, unit, t)}
-            </span>
-          )}
+          {band && <span className="card-body ml-1 font-normal text-muted-foreground">{band}</span>}
         </span>
+        {check.provenance && (
+          <span
+            className="card-meta shrink-0 rounded bg-muted px-1 py-px text-muted-foreground"
+            title={provenanceTitle(check.provenance, t)}
+          >
+            {provenanceLabel(check.provenance, t)}
+          </span>
+        )}
+        {required != null && (
+          <span className="card-body shrink-0 whitespace-nowrap font-mono text-muted-foreground">
+            {fmtComparator(comparator)} {fmtDim(required, unit, t)}
+          </span>
+        )}
       </div>
-      <div className="relative h-2 rounded-full bg-muted">
+      <div className="relative h-[7px] rounded-full bg-muted">
         {value != null && (
           <div
             className="absolute inset-y-0 left-0 rounded-full"
@@ -260,19 +265,17 @@ export const LimitBar: FC<LimitBarProps> = ({ check, className }) => {
         )}
         {requiredPct != null && (
           <div
-            className="absolute -top-1 h-4 w-0.5 -translate-x-1/2 rounded-full bg-foreground/70"
+            className="absolute -top-[3px] h-[13px] w-0.5 -translate-x-1/2 rounded-full bg-foreground/70"
             style={{ left: `${requiredPct}%` }}
             aria-hidden="true"
           />
         )}
       </div>
       {straddlesLimit && (
-        <p className="text-[0.92em] leading-snug text-muted-foreground">
-          {t('cards.kit.toleranceStraddlesLimit')}
-        </p>
+        <p className="card-body text-muted-foreground">{t('cards.kit.toleranceStraddlesLimit')}</p>
       )}
       {status === 'needs_input' && check.missing && (
-        <p className="text-[0.92em] leading-snug text-muted-foreground">{check.missing}</p>
+        <p className="card-body text-muted-foreground">{check.missing}</p>
       )}
     </div>
   )
@@ -371,9 +374,25 @@ interface NormRefFooterProps {
   reference: NormReferenceData | null | undefined
 }
 
-/** Footer chip echoing LegalBasisCard: document + section badge + edition.
+/**
+ * The card's source line — where the value in it came from.
+ *
+ * It is a {@link SourceSignalChip}, the same provenance chip the citations,
+ * the composer presets and the history filters draw, rather than a lookalike
+ * assembled here out of an icon and an outline `Badge`. Provenance is the one
+ * place this product spends colour, so a second rendering of it is not a
+ * styling detail — it is the reader learning two shapes for one meaning.
+ *
+ * The tint is `law` and is NOT derived from the document's name. A
+ * `NormReference` is a pointer into a regulation by definition
+ * (`cards/models.py`), so the stratum is known without parsing anything; the
+ * fine lane that would refine it to the OIB accent does not travel on this
+ * type, and guessing it from „OIB-Richtlinie 2" by hand is exactly the drift
+ * `accentForLane` exists to prevent (charter §A3).
+ *
  * When the referenced document resolves to a base-corpus PDF, the citation
- * opens the actual source in the in-app viewer. */
+ * opens the actual source in the in-app viewer.
+ */
 export const NormRefFooter: FC<NormRefFooterProps> = ({ reference }) => {
   // Named for its namespace: every other translator in this file is scoped to
   // `chat`, and two `t`s in one file bound to different namespaces are
@@ -383,22 +402,30 @@ export const NormRefFooter: FC<NormRefFooterProps> = ({ reference }) => {
   const [viewerOpen, setViewerOpen] = useState(false)
   if (!reference?.document) return null
   const corpusFileName = resolveCorpusFileName(reference.document, corpusFiles)
+  // ONE chip carrying the whole citation. The section used to be an outline
+  // `Badge` sitting NEXT to the source line — a second pill in the same row,
+  // holding half of one identifier, which is not how anyone writes a citation
+  // down. Document and section stay separate ELEMENTS inside it, because they
+  // are separate fields and the „·" between them belongs to neither.
+  const citation = [reference.document, reference.section].filter(Boolean).join(' · ')
   return (
     <div className="flex flex-col gap-2 border-t pt-3">
-      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <Scale className="size-3.5" aria-hidden="true" />
-        <span className="font-medium text-foreground">{reference.document}</span>
-        {reference.section && (
-          <Badge variant="outline" className="font-mono text-xs font-normal">
-            {reference.section}
-          </Badge>
-        )}
-        {reference.edition && <span>{reference.edition}</span>}
+      <div className="flex flex-wrap items-center gap-2">
+        <SourceSignalChip signal="law" title={citation}>
+          <span className="font-mono">{reference.document}</span>
+          {reference.section && (
+            <>
+              <span aria-hidden="true"> · </span>
+              <span className="font-mono">{reference.section}</span>
+            </>
+          )}
+        </SourceSignalChip>
+        {reference.edition && <span className="card-meta text-muted-foreground">{reference.edition}</span>}
         {corpusFileName && (
           <button
             type="button"
             onClick={() => setViewerOpen(true)}
-            className="inline-flex items-center gap-1 font-medium text-primary transition-opacity duration-200 ease-out hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+            className="card-meta inline-flex items-center gap-1 font-medium text-primary transition-opacity duration-quick ease-out hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
           >
             <FileText className="size-3.5" aria-hidden="true" />
             {tKnowledge('viewer.view')}
@@ -406,7 +433,7 @@ export const NormRefFooter: FC<NormRefFooterProps> = ({ reference }) => {
         )}
       </div>
       {reference.excerpt && (
-        <blockquote className="max-w-prose border-l-2 border-border pl-3 text-xs italic leading-relaxed text-muted-foreground">
+        <blockquote className="card-body max-w-prose border-l-2 border-border pl-3 text-muted-foreground">
           {reference.excerpt}
         </blockquote>
       )}
@@ -423,30 +450,37 @@ interface StatusBadgeProps {
   status: DimStatus
 }
 
-/** Small verdict pill for the card header. */
+/**
+ * The card's verdict: a glyph and the German word, in the status ink.
+ *
+ * NOT a pill, and that is charter §A3 axis 5 rather than taste. A card already
+ * carries tinted rounded rects — they are its source chips, and provenance is
+ * the product's one deliberate use of colour. Drawing the verdict in the same
+ * shape put two unrelated hues in one row wearing identical clothes, so the
+ * reader had to read both to learn which axis each was on. Splitting them by
+ * SHAPE means a tinted rect is always a source and a bare coloured glyph is
+ * always a verdict, and neither needs to be read to be identified.
+ *
+ * Colour still never travels alone: the icon carries an `aria-label` and the
+ * word is printed beside it, so the row survives greyscale, a screen reader
+ * and a photocopy of a screenshot.
+ */
 export const StatusBadge: FC<StatusBadgeProps> = ({ status }) => {
   const t = useTranslations('chat')
   const Icon = STATUS_ICON[status]
+  const label = statusLabel(status, t)
   return (
     <span
-      className={cn(
-        'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
-        STATUS_BADGE_CLASS[status]
-      )}
+      className="card-body inline-flex shrink-0 items-center gap-1.5 font-semibold"
+      style={{ color: statusColor(status) }}
     >
-      <Icon className="size-3.5" aria-hidden="true" />
-      {statusLabel(status, t)}
+      <Icon className="size-3.5 shrink-0" aria-label={label} />
+      {label}
     </span>
   )
 }
 
 interface SchematicCardProps {
-  icon: LucideIcon
-  /**
-   * The kind of card, in small caps above the title. Omit it on a drawing:
-   * fifteen schematics all say the same word, so the default says it once.
-   */
-  eyebrow?: string
   title: string
   verdict?: DimStatus | null
   note?: string | null
@@ -455,36 +489,36 @@ interface SchematicCardProps {
 }
 
 /**
- * Shared chrome for schematic cards, matching Summary/LegalBasis: eyebrow with
- * icon, title, optional verdict pill, drawing + legend, note, norm footer.
+ * The shared card shell: title with its verdict, body, note, source line.
+ *
+ * THE EYEBROW IS GONE, and with it the `icon` that sat beside it (§A2). Every
+ * card in the set opened with an uppercase label naming its own type, which is
+ * a caption on a picture the reader is already looking at — and on the fifteen
+ * schematics it was literally the same word fifteen times. What identifies a
+ * card is its first 40px of geometry (§A5) and its title; a type label is what
+ * you reach for when the card has not earned either.
+ *
+ * The verdict moves onto the title's baseline, right-aligned. That is where the
+ * canvas puts it and it is also where it belongs: the title says what was
+ * checked and the verdict says how it came out, and they are one sentence.
  */
 export const SchematicCard: FC<SchematicCardProps> = ({
-  icon: Icon,
-  eyebrow,
   title,
   verdict,
   note,
   reference,
   children,
-}) => {
-  const t = useTranslations('chat')
-  return (
-    <Card className="animate-in fade-in-0 slide-in-from-bottom-1 gap-3 p-5 shadow-xs">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          <Icon className="size-3.5" aria-hidden="true" />
-          <span>{eyebrow ?? t('cards.kit.eyebrow')}</span>
-        </div>
-        {verdict && <StatusBadge status={verdict} />}
-      </div>
+}) => (
+  <Card className="animate-in fade-in-0 slide-in-from-bottom-1 gap-3 p-5 shadow-xs">
+    <div className="flex items-start justify-between gap-3">
+      <p className="card-title min-w-0 text-foreground">{title}</p>
+      {verdict && <StatusBadge status={verdict} />}
+    </div>
 
-      <p className="text-sm font-semibold text-foreground">{title}</p>
+    {children}
 
-      {children}
+    {note && <p className="card-body max-w-prose text-muted-foreground">{note}</p>}
 
-      {note && <p className="max-w-prose text-xs leading-relaxed text-muted-foreground">{note}</p>}
-
-      <NormRefFooter reference={reference} />
-    </Card>
-  )
-}
+    <NormRefFooter reference={reference} />
+  </Card>
+)

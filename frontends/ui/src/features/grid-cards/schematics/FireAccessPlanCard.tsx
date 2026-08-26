@@ -13,7 +13,6 @@
  */
 
 import { type FC } from 'react'
-import { Flame } from 'lucide-react'
 import { DimChecksList, fmtDim, fmtNum, SchematicCard, statusColor, worstStatus } from '../cards/shell'
 import { DimensionArrow, ExtensionLine, fitScale, SchematicCanvas, SvgLabel } from './draw'
 import { sketchRect } from './rough'
@@ -149,7 +148,6 @@ export const FireAccessPlanCard: FC<FireAccessPlanCardProps> = ({
 
   return (
     <SchematicCard
-      icon={Flame}
       title={title}
       verdict={worstStatus(checks.map((c) => c.status))}
       note={note}

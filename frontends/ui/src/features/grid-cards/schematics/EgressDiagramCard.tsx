@@ -11,7 +11,6 @@
  */
 
 import { type FC } from 'react'
-import { Route } from 'lucide-react'
 import { fmtNum, LimitBar, SchematicCard, statusColor } from '../cards/shell'
 import { fitScale, SchematicCanvas, SvgLabel } from './draw'
 import { sketchPath, type Point } from './rough'
@@ -104,7 +103,7 @@ export const EgressDiagramCard: FC<EgressDiagramCardProps> = ({
   }
 
   return (
-    <SchematicCard icon={Route} title={title} verdict={total_length.status} reference={reference}>
+    <SchematicCard title={title} verdict={total_length.status} reference={reference}>
       <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         {/* corridor underlay */}
         <polyline

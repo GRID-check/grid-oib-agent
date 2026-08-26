@@ -11,7 +11,6 @@
  */
 
 import { type FC } from 'react'
-import { LandPlot } from 'lucide-react'
 import { DimChecksList, fmtDim, fmtNum, SchematicCard, statusColor, worstStatus } from '../cards/shell'
 import { DimensionArrow, fitScale, SchematicCanvas, SvgLabel } from './draw'
 import { sketchRect } from './rough'
@@ -106,7 +105,6 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
 
   return (
     <SchematicCard
-      icon={LandPlot}
       title={title}
       verdict={worstStatus(sides.map((s) => s.status))}
       reference={reference}
