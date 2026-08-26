@@ -15,6 +15,7 @@ import { DocumentStatusBadge, isCitableStatus, isSettlingStatus } from './docume
 import { SemanticMatch } from './semantic-match'
 import { RaisedCard, RaisedCardBody, RaisedCardFooter, RaisedCardMedia } from '@/components/ui/raised-card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { FILE_CARD_MEDIA, type FileCardSize } from './file-card-size'
 
 /** Provenance tint per corpus, from the shared `--source-*` token family. */
 const SOURCE_TINT: Record<'projekt' | 'buero', CSSProperties> = {
@@ -184,6 +185,12 @@ export interface FileCardProps {
   /** Override the card's test id (e.g. the Archiv surface keeps its own). */
   testId?: string
   /**
+   * How much room the card is given — see {@link FileCardSize}. The browsing
+   * surfaces pass `roomy`; chat keeps the default. It has to match the `size`
+   * its {@link FileGrid} got, which is why both read the same map.
+   */
+  size?: FileCardSize
+  /**
    * Rename / delete / download, rendered on the card so the reader does not
    * have to open the preview to act on a file (#435). Must be a control of
    * its own — this card is a `<button>`, so the slot sits beside it.
@@ -213,6 +220,7 @@ export function FileCard({
   footerLead,
   hideFooter,
   testId = 'file-card',
+  size = 'compact',
   actions,
 }: FileCardProps) {
   const t = useTranslations('files')
@@ -259,7 +267,7 @@ export function FileCard({
             the white block instead puts every footer on the bottom edge, so the
             row reads as one strip whatever each card carries above it. */}
         <RaisedCardBody className={cn('flex-1 p-0', hideFooter && 'rounded-none')}>
-          <RaisedCardMedia className="h-[124px]">
+          <RaisedCardMedia className={FILE_CARD_MEDIA[size]}>
             <ThumbnailWithFallback file={file} />
             {showStatus && (
               <DocumentStatusBadge
