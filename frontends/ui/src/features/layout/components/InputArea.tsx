@@ -1407,14 +1407,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             {/* Text Input */}
             <Textarea
               ref={textareaRef}
-              // text-base (16px) below md keeps iOS Safari from zooming the page
-              // when the composer gains focus; desktop drops to the body ramp step.
+              // 16px on a coarse pointer keeps iOS Safari from zooming the page
+              // when the composer gains focus; a mouse gets the body ramp step. The
+              // pointer axis, not `md:` — see the note in `ui/input.tsx`.
               // The composer CARD signals focus with its focus-within ring (see the
               // card class above), so the textarea shows no ring/border/outline of
               // its own. `outline-hidden!` beats the app's global :focus-visible
               // outline (globals.css, unlayered) with an important utility — otherwise
               // focus is drawn twice: a nested box inside the card's ring.
-              className="outline-none! pointer-coarse:min-h-11 max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-base leading-[1.5] shadow-none focus-visible:ring-0 md:text-sm"
+              className="outline-none! pointer-coarse:min-h-11 pointer-coarse:text-base max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-sm leading-[1.5] shadow-none focus-visible:ring-0"
               value={message}
               onChange={(e) => handleValueChange(e.target.value, e.target.selectionStart)}
               onKeyDown={handleKeyDown}

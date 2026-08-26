@@ -129,7 +129,7 @@ documented `text-xl` title-size question becomes a single knob.
   still report, all deliberate: inline mention pills and citation markers in
   running prose (the WCAG 2.2 inline exception), a 24×24 source chip that meets
   the AA minimum, and one chip-internal icon button capped at 36px by its chip.
-  Guarded by `src/components/ui/touch-target.spec.ts`.
+  Guarded by `frontends/ui/src/components/ui/touch-target.spec.ts`.
 
   **Corrected by the pass below.** "All deliberate" did not survive re-measuring.
   The Herleitung's source row — the control the whole surface exists to offer —
@@ -172,7 +172,7 @@ documented `text-xl` title-size question becomes a single knob.
   takes every tap meant for the earlier, which is worse than a small target.
   See the note in `CitationMarker.tsx`.
 
-  Ratcheted by `src/components/ui/mobile-affordances.spec.ts` (hover reveals need
+  Ratcheted by `frontends/ui/src/components/ui/mobile-affordances.spec.ts` (hover reveals need
   a touch escape; hand-written fields need the 16px floor; the shared molecules
   declare their `enterKeyHint`) and by `task fe:touch-audit`, which is the
   measurement half and is deliberately not in `verify`.
@@ -193,7 +193,7 @@ documented `text-xl` title-size question becomes a single knob.
 
   Fixed with a scoped `touch-action: auto` the graph opts into by class, so a
   future graph that genuinely wants to pan keeps the library default by saying
-  nothing. Guarded three ways in `mobile-affordances.spec.ts` — the class, the
+  nothing. Guarded three ways in `frontends/ui/src/components/ui/mobile-affordances.spec.ts` — the class, the
   rule, and a stale-check on the upstream default so the override cannot outlive
   its cause.
 
@@ -209,12 +209,29 @@ documented `text-xl` title-size question becomes a single knob.
   on the header matches nothing — the first version of this fix made every
   header single-column at every width.
 
-  A correction the audit tool needed too: `scrollWidth > clientWidth` is not "the
-  page scrolls sideways". An ancestor's `scrollWidth` counts content laid out
-  inside a nested horizontal scroller, so the composer's chip rail read as 453px
-  on a 390px screen and moved nowhere. The check now asks the browser to scroll
-  and reads back how far it went, and two of the findings above turned out to be
-  that false positive rather than real page overflow.
+  The audit's page-overflow check took two wrong forms before a right one, and
+  both are worth knowing because each *looked* like the careful answer.
+
+  `scrollWidth > clientWidth` is not "the page runs past the viewport": an
+  ancestor's `scrollWidth` counts content laid out inside a nested horizontal
+  scroller, so the composer's chip rail read as 453px on a 390px screen while
+  being perfectly reachable.
+
+  Scrolling and reading back how far it went replaced it, and is worse — it
+  cannot work at all in this harness. Under Playwright's `isMobile` emulation the
+  layout viewport does not pan programmatically, so `window.scrollX` stays 0 for
+  every page. Measured against a deliberately 900px-wide document it returns 510
+  with `isMobile: false` and 0 with it on. The check answered "no page overflow"
+  to everything, which is the failure mode that reads as evidence. (A reviewer
+  caught a *different* defect in the same probe — `scroll-behavior: smooth` means
+  the read lands mid-animation — which is also true, and would have been the only
+  bug if the first one had not made it moot.)
+
+  It is now derived rather than probed: an element sticking out past the viewport
+  with nothing above it clipping or scrolling the overhang. That walk already
+  existed for the `OVERFLOW` list. Verified by injecting an over-wide element and
+  watching the count go 0 → 1 → 0, which is the check the first two versions
+  never had.
 
   Three settings the app had never made, all of which decide how a phone treats
   it: `interactiveWidget: 'resizes-content'` so the on-screen keyboard shortens

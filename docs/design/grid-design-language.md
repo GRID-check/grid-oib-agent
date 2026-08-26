@@ -143,13 +143,17 @@ across the whole ancestor chain — so a library stylesheet can freeze a region
 none of our code mentions. Only a surface that genuinely owns its gestures (the
 3D model canvas) may keep one.
 
-**Text fields are 16px below `md`**, or iOS Safari zooms the page on focus and
-does not zoom back out. **The action key is labelled**: `enterKeyHint` says what
+**Text fields are 16px on a coarse pointer** (`text-sm pointer-coarse:text-base`),
+or iOS Safari zooms the page on focus and does not zoom back out. On the pointer
+axis and never a breakpoint — `text-base md:text-sm` looks like a floor and is
+not one, since a touch tablet past `md` drops to 14px and zooms as a phone would. **The action key is labelled**: `enterKeyHint` says what
 Enter does, and a field that matches strings turns off autocapitalize and
 autocorrect so the phone cannot edit a query on its way into a matcher.
 
 Measured, not eyeballed: `task fe:touch-audit`. Held statically by
-`components/ui/touch-target.spec.ts` and `components/ui/mobile-affordances.spec.ts`.
+`frontends/ui/src/components/ui/touch-target.spec.ts` and
+`frontends/ui/src/components/ui/mobile-affordances.spec.ts`.
+
 ## Component layers (atomic design)
 
 The UI is built atomically: **atoms** compose into **molecules**, molecules into
@@ -202,17 +206,24 @@ inventory, the honesty constraints on status and timestamps, and the decision
 procedure are in **`docs/design/project-surfaces.md`**.
 
 **Page header** — every content page opens with `PageHeader`
-(`components/ui/page-header.tsx`), so the title stays on-spec (`text-xl`)
-instead of drifting:
+(`frontends/ui/src/components/ui/page-header.tsx`), so the title stays on-spec
+(`text-xl`) instead of drifting:
 ```tsx
-<header className="flex items-end justify-between gap-4">
-  <div>
+<header className="flex min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+  <div className="min-w-0">
     <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
     <p className="mt-1 text-sm text-muted-foreground">{oneLineContext}</p>
   </div>
-  {primaryAction}
+  <div className="sm:shrink-0">{primaryAction}</div>
 </header>
 ```
+The action stacks below the title on a narrow screen and only refuses to shrink
+once there is a row to sit in. It was an unconditional row with a `shrink-0`
+action, which a phone cannot honour: the action takes its natural width — a
+256px search field, a toggle group — and the title column absorbs the whole
+shortfall. Measured at 390px, the History subtitle rendered 44px wide across
+eight lines, one word per line. Never reintroduce a bare `shrink-0` here;
+`page-header.spec.ts` fails it.
 
 **Project section chrome** — every project section except **Ask Piloti**
 (chat) opens with the same block: a muted `{project} / {section}` breadcrumb

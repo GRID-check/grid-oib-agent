@@ -133,10 +133,21 @@ past the viewport, and interactive elements under the 44px floor — the last
 measured including any `touch-target` catchment, so a control that widens its
 catchment correctly does not report. Add `-- <registry id>` for one surface.
 
+It needs a Chromium, which the repo does not ship (`playwright-core` has no
+browser). It looks in `CHROMIUM_PATH`, `PLAYWRIGHT_BROWSERS_PATH`,
+`/opt/pw-browsers` (present in the devcontainer and the CI image) and
+Playwright's own per-OS cache. That last one is where `npx playwright install
+chromium` installs, so on a bare machine that single command is enough — no
+`PLAYWRIGHT_BROWSERS_PATH` to set afterwards. The error names every path it
+tried. A target that fails to load is reported as a
+failure and exits non-zero — findings themselves do not, because `SMALL` is a
+prompt to read rather than a verdict.
+
 It is NOT part of `verify`, on purpose: the shape errors it exists for are held
-statically by `src/components/ui/mobile-affordances.spec.ts` and
-`touch-target.spec.ts`, and a browser pass over ~120 surfaces is a deliberate
-run rather than a per-commit tax. Reach for it when you build a user-visible
+statically by `frontends/ui/src/components/ui/mobile-affordances.spec.ts` and
+`frontends/ui/src/components/ui/touch-target.spec.ts`, and a browser pass over
+~120 surfaces is a deliberate run rather than a per-commit tax. Reach for it
+when you build a user-visible
 surface, and read `SMALL` as a prompt rather than a verdict — an inline target
 inside a sentence cannot reach 44px without stealing its neighbour's taps, which
 is why WCAG 2.5.8 exempts it.

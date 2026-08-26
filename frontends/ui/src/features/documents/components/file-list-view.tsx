@@ -163,9 +163,16 @@ export function FileListView({
               column="status"
               sort={sort}
               onSort={setSort}
-              // The one reference column that stays at every width, so it pays
-              // for itself: narrower where the Name column is fighting for room.
-              className="w-[84px] sm:w-[104px]"
+              // 104px at every width, and NOT the 84px this briefly narrowed to.
+              // The badge is `whitespace-nowrap w-fit`, so a cell too small for
+              // it does not clip — the badge simply renders over its neighbour.
+              // Sized in English that looked fine; German is where it showed:
+              // "Wird hochgeladen" and "Wird verarbeitet" are ~122px at
+              // `text-xs` + `px-2.5`, against the 68px an 84px cell leaves after
+              // its own padding. The cell is the containing box, so the width has
+              // to be one the badge can be made to fit inside — see the `truncate`
+              // on the badge below, which is the other half of this.
+              className="w-[104px]"
             />
             {/* Below `sm` the row keeps only what identifies and what acts:
                 name and status. Pages, size and date are reference columns. */}
@@ -286,7 +293,16 @@ export function FileListView({
                   </TableCell>
                 )}
                 <TableCell className={CELL}>
-                  {file.status && <DocumentStatusBadge status={file.status} />}
+                  {/* `max-w-full truncate` is what keeps a long localized status
+                      inside its column. The badge is `w-fit whitespace-nowrap`,
+                      so without a ceiling it renders at whatever width its label
+                      needs and simply overlaps the cell beside it — invisible in
+                      English ("Citable"), plainly wrong in German ("Wird
+                      hochgeladen"). `title` carries the full label for the states
+                      that do get clipped, which are the transient ones. */}
+                  {file.status && (
+                    <DocumentStatusBadge status={file.status} className="max-w-full truncate" />
+                  )}
                 </TableCell>
                 <TableCell
                   className={cn(

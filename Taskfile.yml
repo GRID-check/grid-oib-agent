@@ -211,10 +211,18 @@ tasks:
     desc: 'Measure every /dev surface at a phone viewport (optional: -- <registry id>)'
     dir: '{{.UI}}'
     cmds:
-      # Reports overflow and sub-44px targets. NOT part of `verify`: the shape
-      # errors it exists for are held statically by `mobile-affordances.spec.ts`,
-      # and a browser measurement of ~120 surfaces is a deliberate run, not a
-      # per-commit tax. Reach for it when you build a user-visible surface.
+      # Reports overflow, scroll traps and sub-44px targets. NOT part of
+      # `verify`: the shape errors it exists for are held statically by
+      # `mobile-affordances.spec.ts`, and a browser measurement of ~120 surfaces
+      # is a deliberate run, not a per-commit tax. Reach for it when you build a
+      # user-visible surface.
+      #
+      # NEEDS A CHROMIUM. The repo pins `playwright-core`, which ships none, so
+      # this reads `CHROMIUM_PATH`, `PLAYWRIGHT_BROWSERS_PATH`, `/opt/pw-browsers`
+      # (devcontainer and CI image) and Playwright's own per-OS cache — which is
+      # where `npx playwright install chromium` puts it, so on a bare machine that
+      # one command is the whole story. The script says so itself rather than
+      # failing on a missing-executable stack trace.
       - bun run touch-audit -- {{.CLI_ARGS}}
 
   fe:provision:authz:

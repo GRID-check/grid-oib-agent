@@ -154,12 +154,14 @@ export function UploadTray({ files, onRetry, onCancel, onCancelAll, onDismiss }:
           type="button"
           onClick={() => setIsExpanded((open) => !open)}
           aria-expanded={isExpanded}
-          // The row is 53px tall and this control was 33 of them: the tray's own
-          // `py-2.5` sits OUTSIDE the button, so the strip a reader obviously
-          // aims at — the whole band — was dead along its top and bottom edges.
-          // `-my-2.5 py-2.5` cancels to the same margin box, so nothing moves;
-          // the button simply stops leaving its own padding on the table.
-          className="min-w-40 flex-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:-my-2.5 pointer-coarse:py-2.5"
+          // `min-h-11` and NOT the `-my-2.5 py-2.5` trick this used to carry.
+          // That trick let the button claim the tray's own padding without
+          // moving anything, which was right while the row could not wrap — and
+          // wrong the moment it could: `flex-wrap` above puts the actions on a
+          // second line separated by `gap-3` (12px), and a 10px overhang eats
+          // most of that gap, so a tap aimed at "Retry all" lands on the summary
+          // instead. A hit box has to stay inside its own flex line.
+          className="min-w-40 flex-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:min-h-11"
         >
           {/* Polite, not assertive: the phase changes two or three times per
               batch and each one is worth hearing, but the byte counter beneath
