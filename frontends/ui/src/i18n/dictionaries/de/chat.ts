@@ -97,20 +97,6 @@ export const chat: typeof en.chat = {
     afternoon: 'Guten Tag',
     evening: 'Guten Abend',
     withName: '{greeting}, {name}.',
-    subtitle: 'Fragen Sie zu Ihrem Projekt – Antworten belegen ihre Quellen.',
-  },
-  // Beispielhafte österreichische Baurecht-Fragen im leeren Chat — ein Klick
-  // füllt den Verfasser vor (sendet nicht automatisch), gegen die Blockade des
-  // leeren Blatts.
-  examples: {
-    label: 'Zum Beispiel',
-    questions: {
-      modelElements: 'Wie viele Außenwände hat das Erdgeschoß?',
-      modelRequirements: 'Welche Anforderungen kann mein Modell noch nicht beantworten?',
-      fluchtweg: 'Fluchtweglänge nach OIB-2?',
-      barrierefreiheit: 'Barrierefreiheit Wohnbau Wien?',
-      brandabschnitte: 'Brandabschnitte Gebäudeklasse 4?',
-    },
   },
   // Empty-state lock chip + thread role tabs (click-dummy overhaul, WS-3).
   workspace: {

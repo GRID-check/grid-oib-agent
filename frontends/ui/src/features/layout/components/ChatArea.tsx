@@ -21,7 +21,7 @@ import {
   useState,
   useMemo,
 } from 'react'
-import { ArrowDown, Boxes, FileText, Lock, Sparkles } from 'lucide-react'
+import { ArrowDown, FileText, Lock } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
 import {
@@ -57,7 +57,6 @@ import { TypingPresence } from '@/features/collaboration/components/TypingPresen
 import { useAwaitingState } from '@/features/collaboration/hooks/use-sharing'
 import { AnimatePresence, motion, fadeRise, motionQuick } from '@/components/motion'
 import { useAuth } from '@/adapters/auth'
-import { useProjectBimModels } from '@/features/bim/hooks/use-bim-model'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
@@ -1291,7 +1290,6 @@ const TurnInFlightBanner: FC<{ label: string }> = ({ label }) => (
     role="status"
     data-testid="turn-in-flight"
   >
-    <Sparkles className="text-muted-foreground size-3.5 shrink-0" aria-hidden="true" />
     <span className="animate-text-shimmer text-foreground text-xs font-medium motion-reduce:animate-none">
       {label}
     </span>
@@ -1380,10 +1378,17 @@ const MessageListSkeleton: FC = () => {
  * Welcome state shown when no messages exist.
  *
  * Signed in: a time-of-day greeting (with the user's first name when known),
- * hero-sized per the click dummy, centered above the floating composer — the
- * source-preset shortcut chips render with the composer itself (InputArea).
- * Signed out: a compact sign-in prompt. Bottom padding keeps the centered
- * content clear of the floating composer.
+ * hero-sized per the click dummy, and nothing else unless the thread is about a
+ * named file. It used to carry a subtitle and a row of example questions too;
+ * both were addressed to a first-timer and were paid for by every user on every
+ * new thread forever. What replaces them is the composer itself, lifted off the
+ * floor to sit with the greeting as one group in the middle of the screen (see
+ * `useComposerMetrics`) — an empty canvas that offers the one thing there is to
+ * do, rather than explaining it.
+ *
+ * Signed out: a compact sign-in prompt. Bottom padding in both keeps the
+ * centered content clear of the floating composer, and is what the lift is
+ * calculated against — do not change one without the other.
  */
 interface WelcomeStateProps {
   isAuthenticated?: boolean
@@ -1397,50 +1402,21 @@ const greetingKeyForHour = (hour: number): 'morning' | 'afternoon' | 'evening' =
   return 'evening'
 }
 
-/**
- * Example Austrian Baurecht questions offered on the empty chat state. Clicking
- * one PREFILLS the composer (never auto-sends) via the store's composer-prefill
- * path — the same one used by `?ask=` deep links — so a blank canvas offers an
- * obvious first move instead of paralysis.
- */
-const EXAMPLE_QUESTION_KEYS = ['fluchtweg', 'barrierefreiheit', 'brandabschnitte'] as const
-
-/**
- * The two chips offered on top when this project has a readable IFC model.
- *
- * Chat is where a model is actually used, and until these existed nothing on
- * the empty canvas said the building could be asked anything at all: the three
- * questions above are about the OIB corpus, and an architect who has just
- * uploaded 150 MB of their own building had no reason to suspect the difference.
- *
- * Both are answerable against ANY single ready model — one is an exact count
- * (the promise retrieval cannot keep), the other is the requirement check's
- * "nicht entscheidbar" list (the promise the corpus alone cannot keep). Nothing
- * here needs two revisions or a property a given export may not carry, because
- * a suggested question that answers "there is only one revision" teaches the
- * opposite of what it is for.
- */
-const MODEL_QUESTION_KEYS = ['modelElements', 'modelRequirements'] as const
-
 const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn }) => {
   const t = useTranslations('research')
   const tChat = useTranslations('chat')
   const { user } = useAuth()
-  const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
   const composerSubject = useChatStore((s) => s.composerSubject)
   const tFiles = useTranslations('files')
-  // Only a project can have a model, so the global chat never asks. A failed
-  // or forbidden list (the `ifc-models` flag is off) leaves `data` null and the
-  // building chips simply do not appear — this is an offer, not a diagnostic.
-  const projectId = useChatStore((s) => s.projectId)
-  const { data: bimModels } = useProjectBimModels(projectId ?? null)
-  const hasReadyModel = (bimModels ?? []).some((model) => model.status === 'ready')
 
   if (!isAuthenticated) {
     return (
       <div
-        className="flex flex-1 items-center justify-center px-4 pt-20 sm:pt-16"
-        style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
+        className="flex flex-1 items-end justify-center px-4 pt-20 sm:pt-16"
+        style={{
+          paddingBottom:
+            'calc(var(--composer-h, 11rem) + var(--composer-lift, 0px) + var(--composer-gap, 2rem))',
+        }}
       >
         <div className="flex w-full max-w-md flex-col items-center gap-4 text-center">
           <div className="bg-muted text-brand flex size-12 items-center justify-center rounded-xl border">
@@ -1462,8 +1438,19 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
 
   return (
     <div
-      className="flex flex-1 flex-col items-center justify-center px-6 pt-20 sm:pt-16"
-      style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
+      // Bottom-aligned against the composer's ACTUAL top edge — its height plus
+      // however far it has been lifted off the floor (--composer-lift) on the
+      // empty canvas. That leaves the greeting exactly one --composer-gap above
+      // the input by construction, whatever the lift turns out to be and
+      // whatever this column's own top padding is. Both of those defeated an
+      // earlier version that centred here and worked the clearance out
+      // arithmetically: it omitted the `pt-20`, and the composer landed on the
+      // greeting on a phone.
+      className="flex flex-1 flex-col items-center justify-end px-6 pt-20 sm:pt-16"
+      style={{
+        paddingBottom:
+          'calc(var(--composer-h, 11rem) + var(--composer-lift, 0px) + var(--composer-gap, 2rem))',
+      }}
     >
       {/* "Privater Workspace" lock chip — h28, radius8, hairline, raised */}
       <div className="bg-card shadow-xs mb-4 inline-flex h-7 items-center gap-[7px] rounded-md border px-[11px]">
@@ -1479,82 +1466,19 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
         {heading}
       </h1>
 
-      {/* One-line subtitle under the greeting: tells a first-timer that answers
-          cite their sources (copy already in both locales — chat.greeting.subtitle). */}
-      <p className="text-muted-foreground mt-2 max-w-md text-center text-sm leading-relaxed">
-        {composerSubject
-          ? tFiles('assignment.welcomeAbout', {
-              name: composerSubject.title?.trim() || tFiles('assignment.thisFile'),
-            })
-          : tChat('greeting.subtitle')}
-      </p>
-
-      {/* Example question chips — quiet bg-card hairline chips that prefill the
-          composer (do not auto-send), so the empty canvas offers a first move. */}
-      <div
-        className="mt-6 flex max-w-xl flex-wrap items-center justify-center gap-2"
-        role="group"
-        aria-label={tChat('examples.label')}
-      >
-        {/* The building first, when there is one. It is this project's own
-            content and the thing the corpus cannot answer, so it leads — and it
-            carries the model glyph, because "this asks your building" and "this
-            asks the Richtlinien" are two different offers that must not look
-            like one list. */}
-        {composerSubject &&
-          (['starterKeyPoints', 'starterOib'] as const).map((key) => {
-            const name = composerSubject.title?.trim() || tFiles('assignment.thisFile')
-            const question =
-              key === 'starterKeyPoints'
-                ? tFiles('assignment.starterKeyPointsNamed', { name })
-                : tFiles('assignment.starterOibNamed', { name })
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setComposerPrefill(question, undefined, composerSubject)}
-                className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 duration-quick pointer-coarse:h-11 inline-flex h-8 items-center gap-1.5 rounded-md border px-[13px] text-xs font-medium transition-colors ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none"
-              >
-                <FileText
-                  className="size-3.5 shrink-0"
-                  style={{ color: 'var(--source-project)' }}
-                  aria-hidden="true"
-                />
-                {question}
-              </button>
-            )
+      {/* The chat is about one file: say which. This is the only line left under
+          the greeting — the generic "answers cite their sources" subtitle was
+          removed, because it explained the product to someone who has already
+          bought it, every single time they opened a thread. A named file is a
+          different thing: it is the state of THIS canvas, and it is not
+          recoverable from anything else on screen. */}
+      {composerSubject && (
+        <p className="text-muted-foreground mt-2 max-w-md text-center text-sm leading-relaxed">
+          {tFiles('assignment.welcomeAbout', {
+            name: composerSubject.title?.trim() || tFiles('assignment.thisFile'),
           })}
-        {!composerSubject &&
-          hasReadyModel &&
-          MODEL_QUESTION_KEYS.map((key) => {
-            const question = tChat(`examples.questions.${key}`)
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setComposerPrefill(question)}
-                className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 duration-quick pointer-coarse:h-11 inline-flex h-8 items-center gap-1.5 rounded-md border px-[13px] text-xs font-medium transition-colors ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none"
-              >
-                <Boxes className="text-subtle size-3.5 shrink-0" aria-hidden="true" />
-                {question}
-              </button>
-            )
-          })}
-        {!composerSubject &&
-          EXAMPLE_QUESTION_KEYS.map((key) => {
-            const question = tChat(`examples.questions.${key}`)
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setComposerPrefill(question)}
-                className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 duration-quick pointer-coarse:h-11 inline-flex h-8 items-center rounded-md border px-[13px] text-xs font-medium transition-colors ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none"
-              >
-                {question}
-              </button>
-            )
-          })}
-      </div>
+        </p>
+      )}
     </div>
   )
 }

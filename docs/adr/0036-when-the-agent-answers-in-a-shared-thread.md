@@ -139,7 +139,9 @@ a message was for.**
 
 6. **The composer keeps a hard promise in both modes.** Before sending, the user is told
    who receives the message, and that statement is always true. This is the property the
-   listener design cannot have, and it is not negotiable.
+   listener design cannot have, and it is not negotiable. — **Narrowed: see the
+   2026-08-25 addendum.** The promise now binds only where the addressee departs from
+   the default; the default itself is stated by silence.
 
 7. **A non-addressed human message still reaches the agent as context, not as a turn.**
    Unchanged from the current `context_only` path: `aupdate_state` into the checkpoint, no
@@ -156,6 +158,40 @@ a message was for.**
    contradicts the OIB guideline"), evaluated on an event or a schedule and posting only on
    change — the Claude Tag routine shape. Deferred, but this ADR fixes its form: a rule a
    person wrote, not an inference about intent.
+
+## Addendum (2026-08-25): the default addressee is stated by silence
+
+Decision 6 was implemented as a line in the composer that is *always* rendered,
+including the default case, where it read "Geht an Piloti". The reasoning was that a
+reader should never have to infer a fact from an absence: if the line only appeared in
+the unusual case, the usual case would be an inference.
+
+That reasoning holds for the two departures and does not hold for the default. The
+default is the case a user is in on every thread they have ever opened, and stating it
+costs a line of standing text under the composer in exchange for confirming what has
+not changed. The cost came due on the empty canvas: with the greeting's subtitle and
+the example-question chips removed, that sentence was the last piece of explanatory
+furniture on a screen whose whole job is to offer one action.
+
+So the promise is narrowed rather than dropped. The composer still states the
+addressee wherever it is not the agent — a person is tagged, or the thread is waiting
+on somebody — and those statements are unchanged, as is `MN-8`'s awaiting state. What
+changed is that the agent-default renders no icon and no sentence.
+
+Two properties are load-bearing in the narrowed form and are pinned by tests:
+
+- **The routing is unchanged**, and still reported as `data-mode="agent"`. Nothing
+  about who receives a message moved; only the sentence about it.
+- **The `@` affordance stays exactly where it was.** It renders on the same line in the
+  same default state, and it remains the only thing in the product that teaches
+  mentions exist (spec `MN-3`'s discovery story). It is an offer, not a statement,
+  which is why the narrowing does not reach it.
+
+The risk accepted: a user who has just come out of a wait sees the "Geht an den Chat"
+line disappear rather than change into something else. The transition is still visible
+— a line vanishing is a state change — but it is a weaker signal than a swap. Judged
+acceptable because `@Piloti` is a deliberate keystroke: the user who caused that
+transition is the one who typed it.
 
 ## Consequences
 

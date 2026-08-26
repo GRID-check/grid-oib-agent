@@ -108,19 +108,6 @@ export const chat = {
     afternoon: 'Good afternoon',
     evening: 'Good evening',
     withName: '{greeting}, {name}.',
-    subtitle: 'Ask about your project — answers cite their sources.',
-  },
-  // Example Austrian Baurecht questions on the empty chat state — clicking one
-  // prefills the composer (does not auto-send) to break blank-page paralysis.
-  examples: {
-    label: 'Try asking',
-    questions: {
-      modelElements: 'How many external walls are on the ground floor?',
-      modelRequirements: 'Which requirements can my model not answer yet?',
-      fluchtweg: 'Escape route length per OIB-2?',
-      barrierefreiheit: 'Accessibility in Vienna residential construction?',
-      brandabschnitte: 'Fire compartments for building class 4?',
-    },
   },
   // Empty-state lock chip + thread role tabs (click-dummy overhaul, WS-3).
   workspace: {

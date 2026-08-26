@@ -1610,26 +1610,31 @@ describe('InputArea', () => {
    * The composer's statement of who receives the message (ADR-0034 addendum).
    *
    * The behaviour was already right server-side and completely invisible, which is
-   * the defect these tests pin: the line must be there in EVERY state (an absence
-   * teaches nothing), and it must change as the state changes — that transition is
-   * what teaches the two-state model.
+   * the defect these tests pin: the line must change as the state changes, and that
+   * transition is what teaches the two-state model. It no longer states the DEFAULT
+   * out loud — that sentence was rendered on every thread forever to describe the
+   * case a user is already in — so what is pinned here is the pair of departures
+   * from it, and that the default itself is quiet.
    */
   describe('addressee indicator', () => {
     const composer = () => screen.getByPlaceholderText('Ask Piloti about this project …')
     const addressee = () => screen.getByTestId('composer-addressee')
 
-    test('states that a plain message goes to Piloti, before anything happens', () => {
+    test('says nothing about a plain message, which goes to Piloti', () => {
       render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
 
-      expect(addressee()).toHaveTextContent('Goes to Piloti')
       expect(addressee()).toHaveAttribute('data-mode', 'agent')
+      // No statement. What remains on the line is the `@` offer, which is not
+      // one — it teaches that mentions exist and is deliberately untouched.
+      expect(addressee()).not.toHaveTextContent(/goes to/i)
+      expect(screen.getByTestId('composer-mention-offer')).toBeInTheDocument()
     })
 
     test('switches to the tagged person as the mention is inserted', async () => {
       const user = userEvent.setup()
       render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
 
-      expect(addressee()).toHaveTextContent('Goes to Piloti')
+      expect(addressee()).not.toHaveTextContent(/goes to/i)
 
       await user.click(composer())
       await user.keyboard('@anna')
@@ -1638,9 +1643,13 @@ describe('InputArea', () => {
 
       expect(addressee()).toHaveTextContent('Goes to Anna Weber')
       expect(addressee()).toHaveAttribute('data-mode', 'people')
-      // …and back again when the token is edited away (MN-3).
+      // …and back to silence when the token is edited away (MN-3).
       await user.clear(composer())
-      expect(addressee()).toHaveTextContent('Goes to Piloti')
+      expect(addressee()).toHaveAttribute('data-mode', 'agent')
+      // No statement. What remains on the line is the `@` offer, which is not
+      // one — it teaches that mentions exist and is deliberately untouched.
+      expect(addressee()).not.toHaveTextContent(/goes to/i)
+      expect(screen.getByTestId('composer-mention-offer')).toBeInTheDocument()
     })
 
     test('says the message goes to the CHAT while the thread awaits a person, and how to reach Piloti', () => {
@@ -1669,7 +1678,9 @@ describe('InputArea', () => {
       await screen.findByTestId('mention-picker')
       await user.keyboard('{Enter}')
 
-      expect(addressee()).toHaveTextContent('Goes to Piloti')
+      // Out of the wait: the mode flips, and the line falls silent with it.
+      expect(addressee()).toHaveAttribute('data-mode', 'agent')
+      expect(addressee()).not.toHaveTextContent('everyone in the chat')
       // The "type @Piloti" hint has done its job and steps aside.
       expect(screen.queryByTestId('composer-agent-hint')).not.toBeInTheDocument()
     })
