@@ -1,8 +1,8 @@
-# The agent — `src/aiq_agent`
+# The agent: `src/aiq_agent`
 
 The Python half of Grid: LangGraph agents on the NeMo Agent Toolkit (NAT), the
 card surface, the post-answer stages, and the knowledge layer. Stateless per
-turn — conversation state lives in Postgres and reaches this process in headers
+turn. Conversation state lives in Postgres and reaches this process in headers
 (ADR-0003, ADR-0013).
 
 ## The trap
@@ -32,7 +32,7 @@ everything passes.
 back. `messung` is reproducible instead, carries GlobalIds and a tolerance, and
 travels its own channel (`agents/bim/measurement_sources.py`). Putting one in
 the `SourceRegistry` would let a basement measurement ground an uncited legal
-verdict — the exact laundering path `shallow_researcher.grounding` exists to
+verdict, the exact laundering path `shallow_researcher.grounding` exists to
 close. The header of `common/source_kinds.py` is the full argument.
 
 **`doc_class` is human-set and beats every filename guess.** The fine

@@ -53,7 +53,7 @@ legend. Offer a diagram proactively for architecture/design discussions.
 Complexity that belongs to somebody else's domain is a dependency, not a module
 you write. Geometry, cryptography, time zones, PDF rendering, identity, object
 storage, observability: each is a field with its own decade of edge cases, and
-the hand-rolled version does not fail loudly — it works on your example and is
+the hand-rolled version does not fail loudly. It works on your example and is
 wrong on the one you did not think of.
 
 Most of this system is already somebody else's problem, on purpose, and each one
@@ -77,7 +77,7 @@ fit. "I looked and there is nothing" is a fine answer. Not looking is not.
 
 **The library's shape does not answer your question.** `ifc-spatial`'s minimum
 enclosing rectangle is the worked example. `shapely.minimum_rotated_rectangle`
-exists, is installed, and is trustworthy — it agrees with ours to 2.2e-16 m².
+exists, is installed, and is trustworthy. It agrees with ours to 2.2e-16 m².
 It is not used because it hands back a *polygon*, and the operator needs the
 axis and the two extents; re-deriving those from the corners is the same
 rotating-caliper arithmetic with an extra parse in front of it.
@@ -95,7 +95,7 @@ we are for.
 ### When you do build it, keep the library as the oracle
 
 This is the part people skip. `ifc-spatial-py` pins `shapely>=2.1.0` *for its
-test suite, not for its operators* — nothing under `src/` calls anything newer
+test suite, not for its operators*. Nothing under `src/` calls anything newer
 than 2.0. 2.1 is where `minimum_rotated_rectangle` and
 `maximum_inscribed_circle` arrived, and those two GEOS functions are what the
 suite checks the hand-rolled clearance and accessibility geometry against.
@@ -114,7 +114,7 @@ something a function would do.
 The two rules meet at scale. "The best part is no part" ([Scope](../../AGENTS.md#scope))
 decides whether the thing should exist. This rule decides who writes it once the
 answer is yes. For genuinely small, genuinely local things, neither buying nor
-building is the answer — deleting the requirement is.
+building is the answer. Deleting the requirement is.
 
 Prefer dependencies that are pure wheels, keep heavy transports optional
 (`ifc-spatial-py` puts the MCP SDK and `ifctester` behind extras so a host
@@ -137,13 +137,13 @@ The test that surfaced this: `InputArea.spec.tsx` took 45.9s of the UI suite's
 | Decompose the component | removes the work | fixes it |
 
 The first two move a 172ms-per-test mount around; only the third makes it stop
-costing 172ms. The slow test was never the problem — it was the readout on a
+costing 172ms. The slow test was never the problem. It was the readout on a
 1999-line component that needed eleven mocked modules to render at all. Optimise
 that away and the design fault is still there, minus the evidence.
 
 The cause is specific and this repo already solves it elsewhere. 37 of those 102
-tests assert on *logic* — mention rules, addressee resolution, draft persistence
-— and each mounts the whole React tree to do it, because the logic lives in the
+tests assert on *logic*, on mention rules, addressee resolution and draft
+persistence, and each mounts the whole React tree to do it, because the logic lives in the
 render function. Compare two specs in the same suite:
 
 | spec | tests | test time | per test |
@@ -152,13 +152,13 @@ render function. Compare two specs in the same suite:
 | `layout/components/InputArea.spec.tsx` (logic in a component) | 102 | 17,550ms | **172ms** |
 
 132x, from nothing but where the code sits. `src/features/layout/lib/` is the
-established pattern — pure modules with their own fast specs. Extend it rather
+established pattern, pure modules with their own fast specs. Extend it rather
 than reaching for shards.
 
 So: before optimising a measurement, establish what the measurement is *of*.
 Ask what would have to be true for this number to be legitimate, and if it
 isn't, fix that instead. When a fast fix and a correct fix disagree, take the
-correct one or say plainly that you are deferring it and why — never ship the
+correct one or say plainly that you are deferring it and why. Never ship the
 fast one described as the correct one.
 
 Corollary, learned the same way: verify the cause before acting on it. Two
@@ -178,22 +178,23 @@ permission to continue is not, because the answer is almost always yes and the
 question costs a whole turn to get it.
 
 The case that produced this rule. A user asked for a document-role system,
-"end to end". Two slices in — the domain model green against a real PostgreSQL,
-the BFF layer green with twelve tests — the agent stopped and asked: carry on
+"end to end". Two slices in, with the domain model green against a real
+PostgreSQL and the BFF layer green with twelve tests, the agent stopped and
+asked: carry on
 into the UI, or review the plan first? The user's reply was, in effect, keep
 going, and the instruction to treat the interruption itself as a failure.
 
 They were right to. Nothing about the next slice was irreversible or ambiguous:
 the plan had been stated and agreed two turns earlier, the work was on a branch,
 and every part of it was revertible. The pause bought no safety and spent a
-turn. Worse, it is the *shape* of diligence — checking in reads as careful — so
+turn. Worse, it is the *shape* of diligence, because checking in reads as careful, so
 it survives review while producing exactly the friction the user is paying an
 agent to remove.
 
 The tell is the question's own answer. Before asking "should I continue?",
 predict the reply. If the prediction is "yes", the question is a stall: proceed
 and report. Reserve the interruption for the cases where you genuinely cannot
-predict it, and there, say what you need rather than offering a menu — a menu is
+predict it, and there, say what you need rather than offering a menu. A menu is
 a way of making the user do the deciding you were asked to do.
 
 A related failure with the same root: stopping because the remaining work is

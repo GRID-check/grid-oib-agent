@@ -1,4 +1,4 @@
-# The public site — `frontends/web`
+# The public site: `frontends/web`
 
 The Piloti landing page, blog and changelog: an Astro service, German and
 English, with Keystatic as the CMS the platform owner writes in. Deployed as

@@ -5,7 +5,7 @@ project. An ADR captures a single architecturally significant decision together 
 its context, the decision itself, and its consequences, so the rationale survives
 team and template churn.
 
-New records use [MADR 4](https://adr.github.io/madr/) — see
+New records use [MADR 4](https://adr.github.io/madr/). The shape is in
 [`0000-template.md`](0000-template.md). Records 0001–0049 predate that template
 and follow the lightweight
 [Michael Nygard pattern](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions);
@@ -17,10 +17,10 @@ Working in here: [`AGENTS.md`](AGENTS.md).
 ## Why ADRs
 
 Grid is a small team rapidly evolving a product built on a third-party template
-(AI-Q). Decisions that are costly to reverse — new services, datastores, external
-dependencies, auth/tenancy/security models, data-model changes, cross-cutting
-patterns, or anything that changes a public contract — need a durable rationale
-trail. ADRs give us shared context and make onboarding easier.
+(AI-Q). Decisions that are costly to reverse need a durable rationale trail: new
+services, datastores, external dependencies, auth/tenancy/security models,
+data-model changes, cross-cutting patterns, or anything that changes a public
+contract. ADRs give us shared context and make onboarding easier.
 
 ## Process
 
@@ -34,8 +34,8 @@ python3 scripts/check_adrs.py           # what `task lint:repo` runs
    and reading the index is how four numbers ended up used twice.
 2. Open it as `proposed`. Fill in the frontmatter and the sections.
 3. Add its row to the index below **in the same commit**.
-4. When the team agrees, set `accepted` and update `date` in the same edit —
-   in the file *and* in the index row.
+4. When the team agrees, set `accepted` and update `date` in the same edit, in
+   the file *and* in the index row.
 5. When a later ADR replaces it, set `superseded by ADR-NNNN` here and name this
    one in the new record.
 
@@ -117,7 +117,7 @@ Consequences, where a reader looks for them.
 
 > Note: two ADRs were independently numbered 0027, two more 0039, and two more
 > 0047. Each collision is recorded rather than renumbered so existing links
-> keep resolving (the status column is authoritative —
+> keep resolving (the status column is authoritative;
 > `0027-platform-workflow-templates` is superseded, the others are in effect).
 > Number the next new ADR from the highest in this table.
 

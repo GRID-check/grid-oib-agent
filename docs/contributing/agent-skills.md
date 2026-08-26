@@ -38,7 +38,7 @@ Third-party skills sit in the same manifest, pinned to a commit and locked in
 | `typescript-best-practices` | automatically, on any `.ts`/`.tsx` | `frontends/ui` is most of the surface area |
 | `how` | automatically, on "how does X work" and placement questions | Four layers can own a feature here, so "which layer" recurs |
 | `why` | automatically, on "why does X work this way", rationale, postmortems | The question `docs/adr/` exists to answer. `how` reads the code, `why` reconstructs the forces from history, issues and docs |
-| `technical-writing` | by name | Human-facing prose — docs, RFCs, PR bodies — where `writing-for-agents` covers what an agent consumes |
+| `technical-writing` | by name | Human-facing prose: docs, RFCs, PR bodies. `writing-for-agents` covers what an agent consumes |
 | `interrogate` | by name | Adversarial multi-model review of a diff |
 | `blast-radius` | by name | Changes whose danger sits outside the diff |
 | `principle-model-the-domain` | by name | Encode the domain in a structure instead of scattered conditionals |
@@ -99,10 +99,18 @@ diversity, so a single-vendor panel is a diminished version of the skill. The
 vendored text also says `Task` tool and `subagent_type: generalPurpose`; here
 that is the `Agent` tool with `subagent_type: general-purpose`.
 
-**`unslop` rule 13 bans em dashes outright**, and most prose in this repo uses
-them. `AGENTS.md` and this directory are written under the rule. Nobody has
-decided whether the rest should follow, and a punctuation sweep of existing docs
-is not worth a diff on its own.
+**`unslop` rule 13 bans em dashes outright.** Every `AGENTS.md`, every
+`CLAUDE.md` and all of this directory now hold to it, so a dash appearing in one
+of those is a regression rather than a house style. The rest of `docs/` does
+not, and a punctuation sweep of the audits and specs is not worth a diff on its
+own. Two deliberate exceptions: the `next dev` block at the top of
+`frontends/ui/AGENTS.md`, which regenerates itself, and ADR titles quoted in
+`docs/adr/README.md`, which have to match the records they point at.
+
+Rule 26 bans some words this repo uses on purpose. "Ratchet" and "substrate
+debt" are defined terms here, each with a document behind it, and the
+`writing-for-agents` skill calls that a leading word rather than a metaphor to
+avoid. Keep them.
 
 **apm 0.28 resolves targets inconsistently, and names them inconsistently.**
 Autodetection in `install` and in the `audit` replay disagree, which reported

@@ -6,14 +6,14 @@ with. See the [root README](../README.md) for what Grid is, and
 
 ## New here? Read these five, in order
 
-1. [`architecture/system-overview.md`](architecture/system-overview.md) — what
+1. [`architecture/system-overview.md`](architecture/system-overview.md) for what
    the system is, how the pieces fit, and what lives where in the checkout (§12).
-2. [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — setup, branching, the merge gate.
+2. [`../CONTRIBUTING.md`](../CONTRIBUTING.md) for setup, branching, the merge gate.
 3. [`contributing/testing-and-verification.md`](contributing/testing-and-verification.md)
-   — `task verify`, and the traps behind it.
-4. [`contributing/code-conventions.md`](contributing/code-conventions.md) —
+   for `task verify` and the traps behind it.
+4. [`contributing/code-conventions.md`](contributing/code-conventions.md) for
    house rules that already cost somebody an afternoon.
-5. [`adr/README.md`](adr/README.md) — the decisions, and why they went that way.
+5. [`adr/README.md`](adr/README.md) for the decisions and why they went that way.
 
 ## Where things live
 

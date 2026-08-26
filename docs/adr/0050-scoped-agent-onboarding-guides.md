@@ -12,14 +12,15 @@ informed: everyone working in this repo
 
 `AGENTS.md` is the onboarding guide an agent gets instead of a colleague. This
 repository had exactly one, at the root, carrying rules for the Next.js BFF, the
-Python agent and the release process together — 158 lines, loaded on every turn
+Python agent and the release process together. 158 lines, loaded on every turn
 of every session, most of it irrelevant to whatever the session was doing.
 
 Two facts made that worse than it looks.
 
 Claude Code reads `CLAUDE.md` and never `AGENTS.md`; the bridge between them is
 an import, `@AGENTS.md`. The root `CLAUDE.md` here contained the ten bytes
-`AGENTS.md\n` — no `@` — which is prose naming a filename, not an import. **The
+`AGENTS.md\n`, with no `@`, which is prose naming a filename rather than an
+import. **The
 root guide had therefore never loaded in any Claude session**, while `/context`
 listed a memory file and reported nothing wrong. It is the second time this repo
 shipped a committed text file containing a path that resolved for nobody; the
@@ -41,8 +42,8 @@ the repo, while the root guide named `task verify` a dozen times.
 
 ## Considered Options
 
-* **One root `AGENTS.md`** — what we had.
-* **`.claude/rules/` with `paths:` frontmatter** — Claude Code's own
+* **One root `AGENTS.md`**, what we had.
+* **`.claude/rules/` with `paths:` frontmatter**, Claude Code's own
   path-scoping mechanism.
 * **Scoped `AGENTS.md` per service, each with a `CLAUDE.md` bridge.**
 
@@ -68,7 +69,7 @@ services.
   rather than all of them.
 * Good, because the guides stay in `AGENTS.md`, which every other harness reads.
 * Good, because writing a scoped guide forced the undocumented gaps into the
-  open — the ungated `sources/` and `packages/` suites are now stated in the
+  open. The ungated `sources/` and `packages/` suites are now stated in the
   file an agent working there reads.
 * Bad, because ten files drift more easily than one, and a rule can now be
   written in the wrong scope.
@@ -91,13 +92,13 @@ written at the wrong level.
 ## More Information
 
 * [`docs/contributing/agent-onboarding-files.md`](../contributing/agent-onboarding-files.md)
-  — the wiring, the loading rules, and what belongs in which file.
+  for the wiring, the loading rules and what belongs in which file.
 * [`docs/contributing/correction-ratchet.md`](../contributing/correction-ratchet.md#human-intervention-is-a-failure-signal)
-  — a human intervening is a failure signal, and the learning goes in one of
+  for why a human intervening is a failure signal, and why the learning goes in one of
   these files before the task continues.
 * ADR-0046 (agent skills) is the neighbouring mechanism: skills load on demand
   for a task, guides load for a location.
 * Revisit this if Claude Code gains native `AGENTS.md` support, which would
-  retire the ten bridge files, or if a scope's guide stops being read — the
+  retire the ten bridge files, or if a scope's guide stops being read. The
   honest signal there is a rule being re-explained in chat that the guide
   already contains.

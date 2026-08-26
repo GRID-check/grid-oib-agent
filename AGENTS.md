@@ -37,17 +37,17 @@ This file is what holds everywhere. Each service keeps its own `AGENTS.md` for
 what holds only there. **Read the one for the area you are about to touch,
 before you touch it.** They are additive: this file still applies.
 
-| You are working in | Read |
-|---|---|
-| `src/aiq_agent/` — the Python agent | [`src/aiq_agent/AGENTS.md`](src/aiq_agent/AGENTS.md) |
-| `frontends/ui/` — Next.js UI, the BFF, the database | [`frontends/ui/AGENTS.md`](frontends/ui/AGENTS.md) |
-| `frontends/aiq_api/` — the FastAPI plugin and async jobs | [`frontends/aiq_api/AGENTS.md`](frontends/aiq_api/AGENTS.md) |
-| `frontends/web/` — the public Astro site | [`frontends/web/AGENTS.md`](frontends/web/AGENTS.md) |
-| `sources/` — NAT data-source packages | [`sources/AGENTS.md`](sources/AGENTS.md) |
-| `packages/` — standalone libraries, gated by nothing yet | [`packages/AGENTS.md`](packages/AGENTS.md) |
-| `deploy/` — Compose, Helm, Pulumi | [`deploy/AGENTS.md`](deploy/AGENTS.md) |
-| `tests/` — the backend suite | [`tests/AGENTS.md`](tests/AGENTS.md) |
-| `docs/adr/` — decision records | [`docs/adr/AGENTS.md`](docs/adr/AGENTS.md) |
+| Working in | What it is | Read |
+|---|---|---|
+| `src/aiq_agent/` | the Python agent | [`src/aiq_agent/AGENTS.md`](src/aiq_agent/AGENTS.md) |
+| `frontends/ui/` | Next.js UI, the BFF, the database | [`frontends/ui/AGENTS.md`](frontends/ui/AGENTS.md) |
+| `frontends/aiq_api/` | the FastAPI plugin and async jobs | [`frontends/aiq_api/AGENTS.md`](frontends/aiq_api/AGENTS.md) |
+| `frontends/web/` | the public Astro site | [`frontends/web/AGENTS.md`](frontends/web/AGENTS.md) |
+| `sources/` | NAT data-source packages | [`sources/AGENTS.md`](sources/AGENTS.md) |
+| `packages/` | standalone libraries, gated by nothing yet | [`packages/AGENTS.md`](packages/AGENTS.md) |
+| `deploy/` | Compose, Helm, Pulumi | [`deploy/AGENTS.md`](deploy/AGENTS.md) |
+| `tests/` | the backend suite | [`tests/AGENTS.md`](tests/AGENTS.md) |
+| `docs/adr/` | decision records | [`docs/adr/AGENTS.md`](docs/adr/AGENTS.md) |
 
 Harnesses differ in whether they load these for you, and Claude reaches one
 only after it has opened a file in that directory. How they are wired, and what
@@ -69,9 +69,9 @@ sequence, render an Excalidraw diagram (`create_view`) rather than prose alone:
 layered left to right, aligned, orthogonal arrows that miss the boxes, short
 legend. Offer one proactively in design discussions.
 
-**Buy, don't build.** Complexity that belongs to somebody else's domain —
-geometry, cryptography, time zones, PDF, identity, storage, observability — is a
-dependency, not a module you write. Identity is WorkOS, the cache Dragonfly, the
+**Buy, don't build.** Complexity that belongs to somebody else's domain is a
+dependency, not a module you write: geometry, cryptography, time zones, PDF,
+identity, storage, observability. Identity is WorkOS, the cache Dragonfly, the
 object store SeaweedFS, LLM traces Langfuse; each was an ADR rather than a
 weekend. Before the second hundred lines of something general, search for the
 library, and say in the PR what you found and why it did or did not fit. Write
@@ -95,8 +95,8 @@ noticing. Reach for it when a reviewer corrects you, when something surprises
 you, or when you correct yourself twice for one reason.
 
 **Finish the task.** Reversible work does not get a permission checkpoint. A
-natural boundary — a layer done, a slice green, a commit pushed — is a place to
-report progress, never a place to stop and ask whether to continue. Asking costs
+natural boundary, a layer done or a slice green or a commit pushed, is a place
+to report progress, never a place to stop and ask whether to continue. Asking costs
 the user a turn to say "yes, keep going", and that turn is a correction: it
 means the plan was already agreed and you paused anyway. Carry on to the end
 state the user described, then present the result and let them redirect. Stop
@@ -104,8 +104,8 @@ early only for something genuinely irreversible or genuinely ambiguous, and when
 you do, say what you need rather than offering a menu.
 
 **Ask first only for a one-way door.** That list is short, and everything on it
-has a safe form that is the default — run the writing form when the user asked
-for it in this session:
+has a safe form that is the default. Run the writing form when the user has
+asked for it in this session:
 
 | Run it freely | Ask first |
 |---|---|
@@ -130,8 +130,8 @@ Which layer to close: [`docs/contributing/correction-ratchet.md`](docs/contribut
 
 ## Obligations
 
-Repo-wide. Each service adds its own — the map is above, and the rows there are
-the ones that will actually fail your PR.
+Repo-wide. Each service adds its own; the map is above, and those rows are the
+ones that will fail your PR.
 
 | When you | You must | What fails you |
 |---|---|---|

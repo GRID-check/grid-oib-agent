@@ -1,4 +1,4 @@
-# Writing a decision record — `docs/adr`
+# Writing a decision record: `docs/adr`
 
 An ADR captures one architecturally significant decision with the forces that
 produced it, so the rationale outlives the people and the branch. Costly to
@@ -11,7 +11,7 @@ anything that changes a public contract.
 ```bash
 python3 scripts/check_adrs.py --next     # the next free number, read from disk
 cp docs/adr/0000-template.md docs/adr/NNNN-short-kebab-title.md
-python3 scripts/check_adrs.py            # metadata, status, index — what lint:repo runs
+python3 scripts/check_adrs.py            # what `task lint:repo` runs
 ```
 
 New ADRs use [MADR 4](0000-template.md): YAML frontmatter, then *Context and
@@ -27,7 +27,7 @@ which and does not ask you to convert them.
 | Add an ADR | Add its row to [`README.md`](README.md) in the same commit | `check_adrs.py`. An ADR nobody can find from the index is one nobody reads |
 | Change a status | Change it in the file **and** the index row | `check_adrs.py`. The two drifted apart for 0021 and 0045, and the index was the one people trusted |
 | Supersede an ADR | Set the new one's status, and set the old one's to `superseded by ADR-NNNN` | A reader lands on the old decision with nothing saying it was replaced |
-| Accept an ADR | Fill in **Confirmation** — the gate that keeps the decision true, or an explicit "nothing enforces this yet" | Review. An unenforced decision decays quietly and reads as enforced |
+| Accept an ADR | Fill in **Confirmation**, the gate that keeps the decision true, or an explicit "nothing enforces this yet" | Review. An unenforced decision decays quietly and reads as enforced |
 
 ## Rules that need more than a row
 
@@ -45,8 +45,8 @@ the value of the record is that it says what was true *then*.
 
 ## Reference
 
-- [`README.md`](README.md) — the index, the status legend, and the four recorded
-  number collisions.
+- The index, the status legend and the four recorded number collisions:
+  [`README.md`](README.md).
 - The template's own comments carry the section-by-section guidance.
 - Ratcheting a decision so it stays true:
   [`../contributing/correction-ratchet.md`](../contributing/correction-ratchet.md).

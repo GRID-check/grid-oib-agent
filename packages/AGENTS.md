@@ -1,4 +1,4 @@
-# Standalone libraries — `packages/`
+# Standalone libraries: `packages/`
 
 Two implementations of the same spatial surface over IFC: `ifc-spatial`
 (TypeScript, MPL-2.0, also an MCP server) and `ifc-spatial-py` (a spike on
@@ -34,6 +34,6 @@ correlated substrate lift, in the same branch.
 
 ## Reference
 
-- ADR-0045 — IFC models are a queryable building, not another document.
+- ADR-0045, IFC models are a queryable building rather than another document.
 - `ifc-spatial-py/COVERAGE.md` and `CORPUS.md` record what the spike actually
   covers, which is less than the operator list suggests.

@@ -8,11 +8,11 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 <!-- END:nextjs-agent-rules -->
 
-# The UI and the BFF — `frontends/ui`
+# The UI and the BFF: `frontends/ui`
 
 Next.js App Router: the product UI, the BFF API routes under `src/app/api`, and
 the WebSocket proxy (`server.js`). This is also where tenancy, authorization and
-the database live — the Python agent is stateless and trusts what this tier
+the database live. The Python agent is stateless and trusts what this tier
 sends it.
 
 ## What the gate does not cover
@@ -35,7 +35,7 @@ installs and runs scripts here and is never the runtime: `--bun` exports
 | Write an endpoint | Route is a thin adapter, service owns logic and authorization, repository owns the SQL and bounds every list | Review. `publicApiRoute` needs an ADR |
 | Read a raw `sql<T>` result | Coerce at the repository boundary (`new Date(row.x)`, `Number(row.x)`) | Nothing. `tsc` believes the annotation and you get `toISOString is not a function` at runtime |
 | Reach for `any` | Use the real type, `Partial<T>`, `unknown`, or the fixtures in `@/test-utils/*` | `@typescript-eslint/no-explicit-any` is an error, in tests too |
-| Write a general-purpose helper | Put it in `lib/text/`, `lib/utils/`, `lib/format.ts` — and search first | A private copy is a fork, and the drift is invisible because each copy looks locally correct |
+| Write a general-purpose helper | Search first, then put it in `lib/text/`, `lib/utils/` or `lib/format.ts` | A private copy is a fork, and the drift is invisible because each copy looks locally correct |
 | Build a component | Compose atoms; if the kit lacks a shape, add the atom rather than a `<div className="…">` in the organism | Review. The viewport that ignored this had four floating panels in three materials, none testable |
 | Show something a surface already shows | Compose the same atoms, or reuse the organism | Two lookalikes drift on the first token retune. `project-atoms.tsx` exists for exactly this |
 | Add a card type | Classify it in `CARD_INTERACTIVITY` (`features/grid-cards/card-decision.ts`) | `task fe:types` |
@@ -57,12 +57,11 @@ the three rules that carry them:
 permissions: `org:projects:administer` reaches every project in one
 organization, and platform access is membership of the GRID Platform
 organization *plus* the specific `platform:*` permission the surface needs.
-`session.role === 'admin'` looks equivalent and is not — it denies a custom role
-holding every `org:*` permission, and grants any role that merely shares the
-name.
+`session.role === 'admin'` looks equivalent and is not. It denies a custom role
+holding every `org:*` permission, and grants any role that shares the name.
 
 **Stepping up is not authorization.** Row-level security guards application
-bugs — the missing `WHERE`, the widened join. Anything running arbitrary SQL as
+bugs, the missing `WHERE` and the widened join. Anything running arbitrary SQL as
 `grid_app_rw` can name any tenant, so every platform-scope caller keeps its own
 check. RLS is the backstop, never the plan.
 

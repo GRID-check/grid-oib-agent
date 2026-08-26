@@ -16,7 +16,7 @@ people reading the README index on the same day.
 
 `status` takes one of: proposed | rejected | accepted | deprecated |
 superseded by ADR-NNNN. Qualifications belong in Consequences, not in the
-field — `scripts/check_adrs.py` parses it and the index legend mirrors it.
+field. `scripts/check_adrs.py` parses it and the index legend mirrors it.
 `date` is the date of the CURRENT status, not of the first draft.
 
 Add the row to `README.md` in the same commit; the checker fails without it.
@@ -30,8 +30,8 @@ Delete these comments as you go.
 
 <!--
 Two or three sentences, or a short story. What is true today, and what makes
-the status quo untenable? If a number drove this — a cost, a latency, a failure
-rate — give it here with where it was measured. A reader two years out is
+the status quo untenable? If a number drove this, a cost or a latency or a
+failure rate, give it here with where it was measured. A reader two years out is
 deciding whether your forces still hold, and cannot do that from adjectives.
 -->
 
@@ -66,7 +66,7 @@ Chosen option: "", because .
 REQUIRED here, and the section most often skipped. Name what will catch the
 next person doing it the other way: a CHECK constraint, a coverage spec, a type
 that will not compile, a CI job, a lint rule. This is the correction ratchet
-applied to a decision — see docs/contributing/correction-ratchet.md.
+applied to a decision. See docs/contributing/correction-ratchet.md.
 
 When nothing enforces it yet, write exactly that: "Nothing enforces this yet;
 review is the only gate", and open the gap under More Information. An honest
@@ -86,7 +86,7 @@ review is the only gate", and open the gap under More Information. An honest
 ## More Information
 
 <!--
-Anything left: what would make us revisit this (the falsifiable trigger — "if
+Anything left. What would make us revisit this, the falsifiable trigger: "if
 write throughput passes ~2k/s", "if we add a second country profile"), open
 follow-ups, links, and the discussion this came out of. A reader who sees the
 trigger has fired knows to supersede this rather than work around it.

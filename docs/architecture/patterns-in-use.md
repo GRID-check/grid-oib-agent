@@ -2,7 +2,7 @@
 
 Structural patterns this codebase actually applies, written down because they
 were being learned by reading code. Each entry says where the pattern lives, why
-it is there, and **whether anything enforces it** — an unenforced pattern is a
+it is there, and **whether anything enforces it**. An unenforced pattern is a
 convention, and conventions decay.
 
 A pattern that already has an ADR gets a pointer here, not a second explanation.
@@ -42,7 +42,7 @@ it, so the guard cannot drift from what it guards.
 
 Several committed files are generated. The failure mode is always the same: a
 stale generated module type-checks perfectly, so nothing local objects and only
-CI knows — `platform-skills.ts` broke the build from behind three times before
+CI knows. `platform-skills.ts` broke the build from behind three times before
 its guard existed.
 
 The guard is the generator itself in `--check` mode: run it, diff the output,
@@ -50,9 +50,9 @@ fail on a difference.
 
 | Artifact | Generated from | Guarded |
 |---|---|---|
-| `frontends/ui/src/lib/skills/platform-skills.ts` | `src/aiq_agent/skills/builtin/*/SKILL.md` | yes — `sync-platform-skills` pre-commit hook |
-| `shared/cards/schemas.json` | `aiq_agent/cards/models.py`, via `scripts/generate_card_schema.py` | yes — `card-schemas` pre-commit hook |
-| `frontends/ui/src/shared/cards/generated.ts` | `shared/cards/schemas.json`, via `frontends/ui/scripts/generate-card-schemas.mjs` | yes — same hook |
+| `frontends/ui/src/lib/skills/platform-skills.ts` | `src/aiq_agent/skills/builtin/*/SKILL.md` | yes, the `sync-platform-skills` pre-commit hook |
+| `shared/cards/schemas.json` | `aiq_agent/cards/models.py`, via `scripts/generate_card_schema.py` | yes, the `card-schemas` pre-commit hook |
+| `frontends/ui/src/shared/cards/generated.ts` | `shared/cards/schemas.json`, via `frontends/ui/scripts/generate-card-schemas.mjs` | yes, the same hook |
 
 The card schema is a two-stage pipeline from Pydantic models to Zod. Neither
 generator has a `--check` flag, so the hook simply runs both: pre-commit fails
@@ -60,12 +60,12 @@ the commit when they modify anything, the same way `ruff format` does. That
 works because neither stamps a timestamp, so a clean tree stays clean.
 
 Until this hook existed, editing `cards/models.py` without re-running both
-generators left the frontend validating the previous schema — and it
+generators left the frontend validating the previous schema, and it
 type-checked.
 
 ## Per-turn state in a `ContextVar`
 
-The agent is stateless per turn but needs turn-scoped collectors — emitted
+The agent is stateless per turn but needs turn-scoped collectors: emitted
 cards, resolved citations, cost, traces. Each is a registry created and reset per
 turn behind a `ContextVar`, never module-level state, because the process serves
 many tenants concurrently and module state leaks across both turns and tenants.
@@ -95,7 +95,7 @@ a tool with heavy optional dependencies stay independently loadable:
 where ifcopenshell and shapely are not installed.
 
 A function that is registered but has no entry point does not exist at runtime.
-**Enforced by:** nothing — it fails as absence, which is why it is worth knowing.
+**Enforced by:** nothing. It fails as absence, which is why it is worth knowing.
 
 ## Declare in code, reconcile against the vendor, gate on drift
 
@@ -124,5 +124,5 @@ ADR-0038. **Enforced by:** the `workos-drift` workflow and `authz-coverage.spec.
 
 A pattern belongs here when it appears in more than one place, a newcomer would
 otherwise infer it by reading code, and it is not already an ADR. Say what
-enforces it. If the honest answer is "nothing", write that — it is the list of
-candidate ratchets.
+enforces it. If the honest answer is "nothing", write that. Those are the gaps
+worth closing next.

@@ -19,7 +19,7 @@ and did not. The intervention is the cheapest possible detection of that gap,
 and it is also the most expensive to repeat: it costs a human's attention every
 single time. So treat the first one as the signal, not the second.
 
-The move is the same as any other correction, with one addition — **write the
+The move is the same as any other correction, with one addition. **Write the
 learning down before you carry on with the task.** The intervention arrives
 mid-work, which is exactly when it is tempting to act on it and move on. Acting
 on it fixes this run. Writing it down fixes every run.
@@ -30,8 +30,8 @@ Two questions, both answered in the same pull request:
 2. Where would they have expected it to be said?
 
 Answer two literally. If they told you to run a setup command, the answer is
-"at the top of the file an agent reads first", and the fix is to put it there —
-not to remember it. A learning that lives only in the transcript is gone the
+"at the top of the file an agent reads first", and the fix is to put it there
+rather than to remember it. A learning that lives only in the transcript is gone the
 moment the session ends, which makes the next agent re-earn it from the same
 human.
 

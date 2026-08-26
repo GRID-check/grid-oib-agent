@@ -21,7 +21,7 @@ anywhere reports a problem.
 
 That is not hypothetical. The root `CLAUDE.md` in this repo contained the ten
 bytes `AGENTS.md\n` for its entire life. Every Claude session ran with the root
-guide — obligations table, working style, the lot — silently absent, while
+guide, obligations table and working style included, silently absent while
 `/context` showed a memory file present and healthy. It is the same failure the
 skills directory had once before: a committed text file containing a path that
 never resolved for anyone.
@@ -54,8 +54,8 @@ task. The scoped files are cheap and precise. Sort by reach, not by importance.
 
 | Put it in | When |
 |---|---|
-| Root `AGENTS.md` | It bears on work in any part of the repo — setup, working style, release notes, documentation obligations |
-| `<scope>/AGENTS.md` | It bears only on that service — its commands, its gates, its traps |
+| Root `AGENTS.md` | It bears on work in any part of the repo: setup, working style, release notes, documentation obligations |
+| `<scope>/AGENTS.md` | It bears only on that service: its commands, its gates, its traps |
 | `docs/contributing/` or `docs/architecture/`, with a one-line pointer | It is project *knowledge* rather than a rule to act on |
 | [`gotchas.md`](gotchas.md) | It is a symptom somebody will arrive with |
 
@@ -95,8 +95,8 @@ installed by `task agents:setup`. The three levers that matter most here:
 
 Keep each file short enough to stay read. Adherence falls off well before a file
 gets long, and the root one competes with the actual task for the same window.
-**Treat 200 lines as the root guide's ceiling** — Claude Code's own guidance —
-and pay for a new rule by deleting a stale or duplicated one rather than by
+**Treat 200 lines as the root guide's ceiling**, which is Claude Code's own
+guidance, and pay for a new rule by deleting a stale or duplicated one rather than by
 growing the file. The service guides run 30–95 lines and have room.
 
 One thing belongs at the root and nowhere else: **the list of one-way doors.**

@@ -8,7 +8,7 @@ follow-up. A change is not done until the docs it invalidates are correct.
 | You changed | Update |
 |---|---|
 | Architecture, a data flow, a subsystem, a cross-cutting mechanism | `docs/architecture/backend-deep-dive.md` and the specific subsystem doc |
-| A significant or hard-to-reverse decision (new subsystem, transport, storage, provider model, security boundary) | Add an ADR under `docs/adr/` — `python3 scripts/check_adrs.py --next` for the number, `0000-template.md` for the shape, and its row in the index in the same commit |
+| A significant or hard-to-reverse decision (new subsystem, transport, storage, provider model, security boundary) | Add an ADR under `docs/adr/`, taking the number from `python3 scripts/check_adrs.py --next` and the shape from `0000-template.md`, with its row in the index in the same commit |
 | An environment variable, config key, or default | [`../deployment/environment-variables.md`](../deployment/environment-variables.md) |
 | An API route, WebSocket message, or tool contract | `docs/api/` |
 | A database schema or migration | `docs/database/` |
@@ -36,7 +36,7 @@ everyone, one at a time.
 
 `markdown-link-check` runs in CI, so links must resolve on disk, and
 `scripts/check_agent_docs.py` additionally resolves every link in an `AGENTS.md`
-against `git ls-files` — a link into `.claude/`, `.agents/` or `node_modules/`
+against `git ls-files`. A link into `.claude/`, `.agents/` or `node_modules/`
 resolves on your machine and for nobody else. Use
 repo-relative paths rather than guessed ones, and match GitHub's heading slugs
 (lowercase, spaces to hyphens). Details in
