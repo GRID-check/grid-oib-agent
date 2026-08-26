@@ -14,6 +14,7 @@ holds the depth behind it.
 | [gotchas.md](gotchas.md) | Known failures indexed by the symptom you arrive with. Read it before debugging a surprise |
 | [agent-onboarding-files.md](agent-onboarding-files.md) | What `AGENTS.md` and its `CLAUDE.md` bridge are for, how each one loads, and which rules belong at the root versus in a service |
 | [agent-skills.md](agent-skills.md) | How `.claude/` is generated, which skills are installed and why, what to know before trusting them |
+| [agent-preflight.md](agent-preflight.md) | Why `task setup` is enforced rather than requested, how Claude Code is gated on it, and what that gate does not cover |
 | [correction-ratchet.md](correction-ratchet.md) | Closing the layer that allowed an error, instead of only fixing the output |
 | [documentation.md](documentation.md) | Which doc to update for which kind of change, and why that is part of the change |
 

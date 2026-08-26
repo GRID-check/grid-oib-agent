@@ -8,6 +8,11 @@ third-party ones. apm publishes the whole set into each harness directory named
 in that manifest's `targets`, so `.claude/` and `.agents/` are **generated and
 gitignored** and nothing in them is source.
 
+The one exception is the three committed files at the top of `.claude/` —
+`settings.json` and the two hooks under `.claude/hooks/` that run the
+[preflight](agent-preflight.md). apm writes only `.claude/skills/`, so the two
+sets never meet, and `.gitignore` un-ignores exactly those three paths.
+
 ```bash
 task agents:setup   # publish every skill in apm.yml to every target
 task agents:audit   # drift against the lock, plus a hidden-Unicode scan

@@ -407,3 +407,13 @@ HTML (a baked host is how prod once linked at the dev app).
 |----------|----------|---------|-------------|
 | `PUBLIC_APP_URL` | No | `https://app.piloti.at` | Base URL of the app the landing site's "Anmelden" link hands off to (`GET /sign-in` 302s to `/?sign-in` there). Read at **runtime** by the `/sign-in` endpoint; injected by the Kubernetes deployment from `ingress.appDomain`. Unset falls back to prod, matching `GRID_LANDING_URL`'s fail-safe rule on the app side. |
 | `PUBLIC_SITE_URL` | No | `https://piloti.at` | Canonical site URL for OG/sitemap metadata, baked at build time (`astro.config.mjs`). Prod default on purpose: dev canonicalizing to prod is harmless — dev should not be indexed anyway. |
+
+## Local developer tooling (never set on a deployment)
+
+One variable, listed here because every environment variable this repo reads has
+a row in this file. It is read by a shell script on a contributor's machine, not
+by any service, and setting it on a deployment does nothing.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GRID_AGENT_PREFLIGHT` | No | unset | Set to `skip` to disable [the agent preflight](../contributing/agent-preflight.md): the Claude Code session hook that runs `scripts/agent-preflight.sh`, and the guard that refuses file edits until it succeeds. The escape hatch for a checkout that cannot be provisioned (no network, a missing toolchain). Expect lint, tests and builds to fail for reasons unrelated to your change while it is set. |

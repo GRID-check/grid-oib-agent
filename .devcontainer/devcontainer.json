@@ -13,7 +13,7 @@
     "8000": { "label": "AI-Q Backend" },
     "5432": { "label": "PostgreSQL" }
   },
-  "postCreateCommand": "uv pip install ruff~=0.15.1 pytest pytest-asyncio pytest-cov >/dev/null 2>&1; cd frontends/ui && npm install",
+  "postCreateCommand": "bash scripts/agent-preflight.sh",
   "postStartCommand": "git config --global --add safe.directory /app || true",
   "remoteUser": "root",
   "customizations": {

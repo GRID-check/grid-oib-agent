@@ -7,15 +7,20 @@ and a custom OIB knowledge source.
 ## Setup
 
 ```bash
-task setup          # first, and after any pull that moves a lockfile
-.venv/bin/pre-commit install   # separate from setup, and CI lints the whole repo
-task verify         # the merge gate
+scripts/agent-preflight.sh   # FIRST, before you edit anything
+task verify                  # the merge gate
 ```
 
+The preflight is `task setup` plus the two steps setup cannot do for itself: it
+bootstraps go-task, which nothing in this repo installs, and installs the
+pre-commit hooks, which CI runs over the whole repo. It is idempotent, a no-op
+once the checkout is current, and it re-provisions itself when a pull moves a
+lockfile. Claude Code runs it at session start and refuses file edits until it
+succeeds; every other harness runs it because this line says so. `uv`, `bun` and
+Node must already be on PATH — install lines: [`CONTRIBUTING.md`](CONTRIBUTING.md).
 `Taskfile.yml` defines every command named here and `task --list` is the live
-list. `task` is go-task, which nothing in this repo installs; `uv`, `bun` and
-Node must already be on the PATH. Install lines:
-[`CONTRIBUTING.md`](CONTRIBUTING.md).
+list. Mechanism, escape hatch, wiring another harness:
+[`docs/contributing/agent-preflight.md`](docs/contributing/agent-preflight.md).
 
 ## Start here
 

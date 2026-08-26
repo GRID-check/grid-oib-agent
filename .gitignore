@@ -134,5 +134,19 @@ apm_modules/
 # Committing the generated copies let a skill be edited in place with nothing
 # to detect it, and it hid that ten committed "symlinks" were plain text files
 # containing a path (git mode 100644) that never resolved for anyone.
-.claude/
+#
+# Two files under `.claude/` are SOURCE and are committed: the settings file and
+# the hooks it registers, which run `scripts/agent-preflight.sh` before Claude
+# edits anything. Claude Code reads hooks from `.claude/settings.json` and
+# nowhere else, so a gitignored copy reaches no one who clones this repo. apm
+# writes only `.claude/skills/`, so the two sets do not meet.
+# docs/contributing/agent-preflight.md
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
 .agents/
+
+# Bootstrapped go-task, installed by scripts/agent-preflight.sh when nothing
+# else put `task` on PATH, plus the stamp recording which lockfiles it set up.
+.tools/
+.agent-preflight.stamp

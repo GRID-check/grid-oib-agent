@@ -66,6 +66,7 @@ Index: [`contributing/README.md`](contributing/README.md).
 | [Gotchas](contributing/gotchas.md) | Known failures by symptom. Read before debugging a surprise |
 | [Agent onboarding files](contributing/agent-onboarding-files.md) | What `AGENTS.md` and its `CLAUDE.md` bridge are for, and which rules belong where |
 | [Agent skills](contributing/agent-skills.md) | How `.claude/` is generated and which skills are installed |
+| [Agent preflight](contributing/agent-preflight.md) | How `task setup` is enforced before an agent edits anything, and what the gate misses |
 | [Correction ratchet](contributing/correction-ratchet.md) | Closing the layer that allowed an error |
 | [Documentation obligations](contributing/documentation.md) | Which doc to update for which change |
 
