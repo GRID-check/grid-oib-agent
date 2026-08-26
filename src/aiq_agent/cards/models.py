@@ -1970,7 +1970,7 @@ def _first_statement(source: str) -> str | None:
 
 
 class DiagramCard(CardModel):
-    """Emit for a fork that rejoins, an ordered exchange or a dependency — drawn as mermaid, never a measurement.
+    """Emit when the user asks for a Diagramm, and for a fork, exchange or dependency — mermaid, never a measurement.
 
     A relationship prose cannot hold: a Verfahren whose stages fork and come back
     together, several Stellen handing something to each other in order, a
