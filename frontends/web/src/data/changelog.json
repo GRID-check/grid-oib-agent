@@ -80,6 +80,10 @@
               "de": "An answer can once again carry more than one card. Building a card counted against the same budget as looking things up, so on any question that took real research the second card was dropped before it was drawn, however well it fitted the answer."
             },
             {
+              "en": "Diagramme erscheinen jetzt zuverlässig als Zeichnung in der Antwort. Bisher konnte ein angefordertes Diagramm kommentarlos fehlen, obwohl die Antwort es ankündigte — die Diagrammkarte wurde intern in zwei häufigen Fällen verworfen, statt gezeichnet zu werden.",
+              "de": "Diagramme erscheinen jetzt zuverlässig als Zeichnung in der Antwort. Bisher konnte ein angefordertes Diagramm kommentarlos fehlen, obwohl die Antwort es ankündigte — die Diagrammkarte wurde intern in zwei häufigen Fällen verworfen, statt gezeichnet zu werden."
+            },
+            {
               "en": "Diagramme in Antworten kommen unverändert an: die Quellenprüfung hat bisher in seltenen Fällen Links und Einrückung innerhalb einer Zeichnung umgeschrieben und sie damit beschädigt.",
               "de": "Diagramme in Antworten kommen unverändert an: die Quellenprüfung hat bisher in seltenen Fällen Links und Einrückung innerhalb einer Zeichnung umgeschrieben und sie damit beschädigt."
             },
