@@ -2100,6 +2100,40 @@ def _code_spans(text: str) -> list[tuple[int, int]]:
     return spans
 
 
+def _map_outside_code(text: str, transform: Callable[[str], str]) -> str:
+    """Apply ``transform`` to everything in ``text`` except code.
+
+    The companion to the skip in ``verify_quoted_spans``, for the passes that
+    REWRITE rather than read. `sanitize_report` strips URLs and collapses runs
+    of spaces across the whole answer body, and a mermaid fence is answer body:
+    a `click` directive's URL became `[1]`, and two-space indentation became
+    one. The diagram is the source, so editing it is editing the drawing.
+
+    Segments rather than offsets, because a rewrite changes lengths: the spans
+    are read once from the ORIGINAL text, the code between them is passed
+    through untouched, and only the prose around it is transformed.
+
+    Safe on the URL question, which is the one worth asking before declining to
+    sanitize something. A URL inside a fence cannot become a link: mermaid runs
+    at ``securityLevel: 'strict'`` (``features/diagrams/render-diagram.ts``),
+    which refuses click bindings and DOMPurifies labels, and a fence that is not
+    a diagram renders as a code listing, which is text.
+    """
+    spans = sorted(_code_spans(text))
+    if not spans:
+        return transform(text)
+    out: list[str] = []
+    cursor = 0
+    for start, end in spans:
+        if start > cursor:
+            out.append(transform(text[cursor:start]))
+        out.append(text[max(cursor, start) : end])
+        cursor = max(cursor, end)
+    if cursor < len(text):
+        out.append(transform(text[cursor:]))
+    return "".join(out)
+
+
 def _inside(offset: int, spans: Sequence[tuple[int, int]]) -> bool:
     """Whether ``offset`` falls inside any of ``spans``."""
     return any(start <= offset < end for start, end in spans)
@@ -2683,13 +2717,19 @@ def sanitize_report(report_text: str) -> ReportSanitizationResult:
         return ""
 
     # Collapse markdown links to display text
-    cleaned_body = _MD_LINK_RE.sub(r"\1", body)
-    # Replace matching bare URLs with [N], strip the rest
-    cleaned_body = _BODY_URL_RE.sub(_replace_body_url, cleaned_body)
-    # Clean up leftover empty parentheses and extra spaces
-    cleaned_body = re.sub(r"\(\s*\)", "", cleaned_body)
-    cleaned_body = re.sub(r"  +", " ", cleaned_body)
-    cleaned_body = _SPACE_BEFORE_PUNCTUATION_RE.sub("", cleaned_body)
+    def _clean_prose(segment: str) -> str:
+        segment = _MD_LINK_RE.sub(r"\1", segment)
+        # Replace matching bare URLs with [N], strip the rest
+        segment = _BODY_URL_RE.sub(_replace_body_url, segment)
+        # Clean up leftover empty parentheses and extra spaces
+        segment = re.sub(r"\(\s*\)", "", segment)
+        segment = re.sub(r"  +", " ", segment)
+        return _SPACE_BEFORE_PUNCTUATION_RE.sub("", segment)
+
+    # Prose only. Every rule above is about how a SENTENCE should read, and none
+    # of them is true of code: the space collapse alone rewrites a diagram's
+    # indentation. See `_map_outside_code`.
+    cleaned_body = _map_outside_code(body, _clean_prose)
 
     if body_urls_replaced:
         logger.debug("[ReportSanitize] Replaced %d body URL(s) with citation numbers", body_urls_replaced)

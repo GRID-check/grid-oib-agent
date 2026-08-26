@@ -2023,6 +2023,38 @@ class TestDeletionDoesNotStrandPunctuation:
         assert "eins\n." in sanitize_report(report).sanitized_report
 
 
+class TestSanitizeLeavesCodeAlone:
+    """`sanitize_report` rewrites prose; a fence or inline span is not prose."""
+
+    def test_a_code_fence_is_not_rewritten(self):
+        """Regression: URL hygiene edited INSIDE fences — a mermaid ``click``
+        directive's URL became ``[1]`` and two-space indentation collapsed to
+        one, so sanitizing the answer redrew the diagram. Code is not prose."""
+        fence = (
+            "```mermaid\n"
+            "flowchart TD\n"
+            '  A["OIB-Richtlinie 2"] --> B["Brandabschnitte"]\n'
+            '  click A "https://www.oib.or.at/de/oib-richtlinien" "OIB"\n'
+            "```"
+        )
+        report = (
+            "Der Ablauf: siehe https://www.oib.or.at/de/oib-richtlinien [1].\n\n"
+            f"{fence}\n\n"
+            "## Sources\n"
+            "[1] OIB: https://www.oib.or.at/de/oib-richtlinien\n"
+        )
+        result = sanitize_report(report)
+        assert fence in result.sanitized_report
+        # The guard must survive the skip: prose around the fence still gets
+        # its URL folded to the citation it matches.
+        assert "Der Ablauf: siehe [1] [1]." in result.sanitized_report
+
+    def test_inline_code_is_not_rewritten(self):
+        """The two-space collapse is a prose rule; a command's spacing is data."""
+        report = 'Der Befehl `pulumi config get  grid-oib:imageTag` zeigt es.\n\n## Quellen\n- [1] a: https://a.example/y\n'
+        assert "`pulumi config get  grid-oib:imageTag`" in sanitize_report(report).sanitized_report
+
+
 class TestSanitizeReportExposesRenumberMap:
     """Callers that put verify_citations' [N] on the wire must be able to remap."""
 
