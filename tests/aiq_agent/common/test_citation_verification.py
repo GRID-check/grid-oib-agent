@@ -2051,8 +2051,34 @@ class TestSanitizeLeavesCodeAlone:
 
     def test_inline_code_is_not_rewritten(self):
         """The two-space collapse is a prose rule; a command's spacing is data."""
-        report = 'Der Befehl `pulumi config get  grid-oib:imageTag` zeigt es.\n\n## Quellen\n- [1] a: https://a.example/y\n'
+        report = (
+            "Der Befehl `pulumi config get  grid-oib:imageTag` zeigt es.\n\n## Quellen\n- [1] a: https://a.example/y\n"
+        )
         assert "`pulumi config get  grid-oib:imageTag`" in sanitize_report(report).sanitized_report
+
+    def test_a_link_whose_text_carries_inline_code_still_collapses(self):
+        """Regression on the fence skip itself: segmenting the body at inline
+        code split a markdown link around its code span, so the link never
+        collapsed and its URL half rotted in place — an unbalanced ``(`` and
+        literal brackets in the reader-visible report."""
+        report = (
+            "Siehe [den `pulumi` Befehl](https://a.example/y) im Detail.\n\n## Quellen\n- [1] a: https://a.example/y\n"
+        )
+        body = sanitize_report(report).sanitized_report
+        assert "Siehe den `pulumi` Befehl im Detail." in body
+        assert "](" not in body.split("## Quellen")[0]
+
+    def test_an_unterminated_fence_does_not_exempt_the_rest_of_the_report(self):
+        """This runs on the COMPLETE report, so run-to-EOF (the streaming
+        reader's rule) would let one broken fence switch URL hygiene off for
+        everything after it."""
+        report = (
+            "Der Anfang [1].\n\n"
+            "```mermaid\nflowchart TD\n  A --> B\n\n"
+            "Danach steht https://leak.example/secret?q=1 im Text.\n\n"
+            "## Quellen\n- [1] a: https://a.example/y\n"
+        )
+        assert "leak.example" not in sanitize_report(report).sanitized_report.split("## Quellen")[0]
 
 
 class TestSanitizeReportExposesRenumberMap:
