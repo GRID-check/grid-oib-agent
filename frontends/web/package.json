@@ -13,7 +13,7 @@
     "@astrojs/check": "^0.9.4",
     "@astrojs/mdx": "^7.0.5",
     "@astrojs/node": "^11.0.2",
-    "@astrojs/react": "^6.0.2",
+    "@astrojs/react": "^6.0.4",
     "@keystatic/astro": "^5.0.6",
     "@keystatic/core": "^0.6.3",
     "astro": "^7.1.6",
