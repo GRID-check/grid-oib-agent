@@ -37,14 +37,53 @@ Third-party skills sit in the same manifest, pinned to a commit and locked in
 | `writing-for-agents` | automatically, when you touch a skill, `AGENTS.md` or `CLAUDE.md` | The rules `AGENTS.md` is now written to |
 | `typescript-best-practices` | automatically, on any `.ts`/`.tsx` | `frontends/ui` is most of the surface area |
 | `how` | automatically, on "how does X work" and placement questions | Four layers can own a feature here, so "which layer" recurs |
+| `why` | automatically, on "why does X work this way", rationale, postmortems | The question `docs/adr/` exists to answer. `how` reads the code, `why` reconstructs the forces from history, issues and docs |
+| `technical-writing` | by name | Human-facing prose: docs, RFCs, PR bodies. `writing-for-agents` covers what an agent consumes |
 | `interrogate` | by name | Adversarial multi-model review of a diff |
 | `blast-radius` | by name | Changes whose danger sits outside the diff |
 | `principle-model-the-domain` | by name | Encode the domain in a structure instead of scattered conditionals |
+| `improve-codebase-architecture` | by name | Scans for shallow modules, reports candidates, then walks the chosen one. Reads `docs/adr/` so it does not re-propose decisions we already recorded |
+| `codebase-design` | by name, and by the skill above | The architecture vocabulary the report is written in |
+| `grilling` | by name, and by the skill above | The decision loop once a candidate is picked |
+| `domain-modeling` | by name, and by the skill above | Keeps a `CONTEXT.md` glossary current as terms sharpen |
 
-Six of these are from [pstack](https://github.com/cursor/plugins/tree/main/pstack),
-picked out of its 44. `apm install cursor/plugins/pstack` takes the whole plugin
-in one dependency if you want the rest; the cost is context load from the ones
-that fire on their own.
+The last four are one capability. `improve-codebase-architecture` calls the
+Skill tool for the other three by name, so taking it alone leaves three dead
+calls. It also wants a `CONTEXT.md` domain glossary, which this repo does not
+have; the skill creates one lazily the first time a term needs a home.
+
+Eight are from [pstack](https://github.com/cursor/plugins/tree/main/pstack),
+picked out of its 44, and five from
+[mattpocock/skills](https://github.com/mattpocock/skills).
+`apm install cursor/plugins/pstack` takes the whole plugin in one dependency if
+you want the rest; the cost is context load from the ones that fire on their own.
+
+### Deliberately not taken
+
+pstack ships roughly twenty `principle-*` skills. Most of them restate something
+this repo already says in a place that loads earlier and carries our own worked
+examples, and a second copy of a rule is sediment rather than reinforcement:
+
+| Skill | Already covered by |
+|---|---|
+| `principle-encode-lessons-in-structure` | [the correction ratchet](correction-ratchet.md) |
+| `principle-fix-root-causes` | "Fix causes, not symptoms", `AGENTS.md` |
+| `principle-subtract-before-you-add` | "Question necessity first, then simplify", `AGENTS.md` |
+| `principle-never-block-on-the-human` | "Finish the task", `AGENTS.md` |
+| `principle-prove-it-works` | [`aiq-definition-of-done`](../../skills/aiq-definition-of-done/SKILL.md) |
+| `principle-type-system-discipline` | the `any` ban, [code-conventions.md](code-conventions.md) |
+| `principle-guard-the-context-window` | [agent-onboarding-files.md](agent-onboarding-files.md) |
+
+**`no-comments` would actively damage this codebase.** It deletes explanatory
+comments on application logic and keeps only constraint comments. The long "why"
+headers in `common/source_kinds.py`, `cards/registry.py`, `Taskfile.yml` and
+`.gitignore` are the design documents that stayed next to the code, and several
+scoped `AGENTS.md` files point readers at them on purpose. Do not add it.
+
+**`create-verification-skill`** generates its harness into `.cursor/skills/`, a
+fourth harness path that `apm.yml` does not target, and this repo already proves
+behaviour through `task verify` and committed screenshots from
+`task fe:screenshots`.
 
 A skill carrying `disable-model-invocation: true` never triggers by itself. Ask
 for it by name. That is deliberate for `interrogate` and `blast-radius`, which
@@ -60,10 +99,20 @@ diversity, so a single-vendor panel is a diminished version of the skill. The
 vendored text also says `Task` tool and `subagent_type: generalPurpose`; here
 that is the `Agent` tool with `subagent_type: general-purpose`.
 
-**`unslop` rule 13 bans em dashes outright**, and most prose in this repo uses
-them. `AGENTS.md` and this directory are written under the rule. Nobody has
-decided whether the rest should follow, and a punctuation sweep of existing docs
-is not worth a diff on its own.
+**`unslop` rule 13 bans em dashes outright.** Every `AGENTS.md` and `CLAUDE.md`
+holds to it. This directory was swept once and drifts back on every merge that
+adds a row, because nothing enforces the rule: it lives in this paragraph and in
+review, not in a gate. Sweeping a contributor's merged prose to keep the claim
+true is not worth the diff either, so treat it as the house style for anything
+you write here rather than as a property of the directory. The rest of `docs/`
+was never swept at all. Two deliberate exceptions: the `next dev` block at the top of
+`frontends/ui/AGENTS.md`, which regenerates itself, and ADR titles quoted in
+`docs/adr/README.md`, which have to match the records they point at.
+
+Rule 26 bans some words this repo uses on purpose. "Ratchet" and "substrate
+debt" are defined terms here, each with a document behind it, and the
+`writing-for-agents` skill calls that a leading word rather than a metaphor to
+avoid. Keep them.
 
 **apm 0.28 resolves targets inconsistently, and names them inconsistently.**
 Autodetection in `install` and in the `audit` replay disagree, which reported

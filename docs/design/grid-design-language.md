@@ -154,6 +154,46 @@ Measured, not eyeballed: `task fe:touch-audit`. Held statically by
 `frontends/ui/src/components/ui/touch-target.spec.ts` and
 `frontends/ui/src/components/ui/mobile-affordances.spec.ts`.
 
+## Component layers (atomic design)
+
+The UI is built atomically: **atoms** compose into **molecules**, molecules into
+**organisms**, and only then into a route. The vocabulary is already in the code:
+`project-atoms.tsx`, "the shared `SearchField` molecule", "the organisms import
+from HERE". This section is what it means, because the layering is
+a rule and not a filing convention.
+
+| Layer | Where it lives | What it is |
+|---|---|---|
+| Atom | `components/ui/` for the product-wide kit; a local `*-atoms.tsx` or a `viewer/`-style kit folder for a surface's own | One decision each: a shape, a control, a piece of material. Knows no domain |
+| Molecule | `components/ui/`, `components/<area>/` | A few atoms with one job. `SearchField`, `PageHeader`, `RaisedCard` |
+| Organism | `components/<area>/`, `features/<domain>/components/` | A meaningful chunk of a screen. `ProjectCard`, the viewer rail, the model stage |
+| Route | `app/**` | Composition and data, not markup |
+
+Three rules carry the weight:
+
+**An organism reaches for an atom, never for Tailwind.** If a control needs a
+shape the kit does not have, **the kit gains an atom** rather than the organism
+gaining a `<div className="…">`. `features/bim/components/viewer/index.ts` is a
+barrel that exists purely to enforce this: nine atoms, exported from one place,
+and everything the model stage draws is built from them. The viewport before it
+had four floating panels in three different materials, all written inline, none
+testable.
+
+**A second surface showing the same thing composes the same atoms.** It does not
+hand-roll a lookalike. Two lookalikes drift on the first token retune, and the
+divergence surfaces as one card with a different corner radius or a hover lift
+that does not match. `project-atoms.tsx` exists so a genuinely different
+*arrangement*, the dense list row next to the card grid, is still made of the
+same material.
+
+**Shape is a primitive; domain is an atom on top of it.** The raised white plate
+on a subtler tray is `components/ui/raised-card.tsx`. What makes it a *project*
+is `project-atoms.tsx`. Re-declaring the geometry in the domain file is how you
+get the fifth hand-rolled copy of `rounded-b-[10px] bg-card shadow-xs`.
+
+The layer names carry weight in review. "Make it an atom" and "that belongs in
+the kit" are the two most common notes on a UI diff.
+
 ## Component patterns
 
 **Project card** — "a project, listed" has ONE component: `ProjectCard`
@@ -166,17 +206,24 @@ inventory, the honesty constraints on status and timestamps, and the decision
 procedure are in **`docs/design/project-surfaces.md`**.
 
 **Page header** — every content page opens with `PageHeader`
-(`components/ui/page-header.tsx`), so the title stays on-spec (`text-xl`)
-instead of drifting:
+(`frontends/ui/src/components/ui/page-header.tsx`), so the title stays on-spec
+(`text-xl`) instead of drifting:
 ```tsx
-<header className="flex items-end justify-between gap-4">
-  <div>
+<header className="flex min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+  <div className="min-w-0">
     <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
     <p className="mt-1 text-sm text-muted-foreground">{oneLineContext}</p>
   </div>
-  {primaryAction}
+  <div className="sm:shrink-0">{primaryAction}</div>
 </header>
 ```
+The action stacks below the title on a narrow screen and only refuses to shrink
+once there is a row to sit in. It was an unconditional row with a `shrink-0`
+action, which a phone cannot honour: the action takes its natural width — a
+256px search field, a toggle group — and the title column absorbs the whole
+shortfall. Measured at 390px, the History subtitle rendered 44px wide across
+eight lines, one word per line. Never reintroduce a bare `shrink-0` here;
+`page-header.spec.ts` fails it.
 
 **Project section chrome** — every project section except **Ask Piloti**
 (chat) opens with the same block: a muted `{project} / {section}` breadcrumb
