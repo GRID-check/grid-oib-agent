@@ -6,9 +6,16 @@
 
 **Audience.** Implementation agents work from this file as their contract. Every claim about the current state carries a `file:line` so it stays checkable.
 
+**Sources.** §A and §B were rewritten in August 2026 against a design canvas in which the product owner rebuilt all forty-five card shapes side by side; it is recorded, with what was and was not taken from it, in [`output-cards-redesign.md`](output-cards-redesign.md). Where that canvas and this charter disagreed, the resolution is written into the section that resolves it — a decision that is not in this file did not happen.
+
 ---
 
-## 0. Audit findings — the current state
+## 0. Audit findings — the state on 2026-08-19
+
+> **This section is a dated record, not a description of today.** It is the
+> evidence the rules in §A were written against and it is left standing because
+> §0.2 in particular is the argument for the whole charter. Some of what it
+> reports has since been fixed — read **§E** for what is actually built.
 
 ### 0.1 There are five different chromes, not one
 
@@ -109,96 +116,131 @@ Two content cards is a turn's budget, one is usual, three is too many (catalog.p
 
 ## A. The system
 
+> **Revision, 2026-08-26.** §A1–§A5 are rewritten against the design canvas
+> recorded in [`output-cards-redesign.md`](output-cards-redesign.md). Where the
+> canvas and the previous text disagreed, the disagreement is named at the end
+> of the section that resolves it — this file is the contract, so a decision
+> that is not written here did not happen.
+
 ### A1. One shell, three registers
 
 Collapse the five chromes to one component with three declared registers. A register is a property of the card's **job**, never of taste.
 
 - **Framed** — `rounded-lg border bg-card p-5 shadow-xs`. The card is an object separable from the prose: it can be cropped and pasted into an Einreichung and still make sense. Default.
-- **Flat** — no border, no ground, sits directly on the answer surface. Only for blocks that are *part of the answer body*: `summary`, `requirement_checklist`, and (newly) `follow_ups`.
-- **Accented** — Framed plus a 2px left edge in a role colour. Means "this card makes a claim you may act on." Exactly three: `legal_basis` (source-law), `verdict_header` (ink), the two proposals (lifecycle).
+- **Flat** — no border, no ground, sits directly on the answer surface. Only for blocks that are *part of the answer body*: `summary`, `follow_ups`, and — newly, from the canvas — `callout`, which is a stack of recessed panels with no outer frame at all.
+- **Accented** — Framed plus a role mark. Exactly three cards, and the canvas shows the mark takes **two forms** depending on what the accent is about:
+  - a **2px left edge in ink** when the card makes a claim you may act on — `legal_basis` (source-law), `verdict_header` (ink);
+  - the **whole 1px border in the lifecycle tint** when the card is asking you for something and its appearance must change after you answer — the two proposals.
+
+  A left edge says "read this first". A tinted perimeter says "this is not settled yet". They are not interchangeable, and neither is available to a fourth card.
 
 **A fourth register is forbidden.** A new card picks one of these or it does not ship.
 
-### A2. Type scale — six steps, and one figure
+### A2. Type scale — seven steps, and one figure
 
 | Step | Spec | Role |
 |---|---|---|
-| **Eyebrow** | `text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground` — via `SectionLabel`, never hand-rolled | card type, micro-labels, column headers |
-| **Meta** | 11px / 500 / `tabular-nums` or `font-mono` | ordinals, chips, units, ± bands, counts |
-| **Caption** | 12px / 400 / `leading-relaxed` | details, notes, excerpt attributions |
-| **Body** | 13.5px / 400 / `leading-[1.55]` | every row of every list. The default. |
-| **Title** | 14px / 600 | the card title |
-| **Figure** | 20–30px / 600 / `tabular-nums` | **the one thing the card exists to say** |
+| **Eyebrow** | `text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground` — via `SectionLabel`, never hand-rolled | **Retired inside cards** (see below). Still the product-wide section label everywhere else |
+| **Meta** | 11px / 400 / `tabular-nums` or `font-mono` | ordinals, units, ± bands, counts, small print |
+| **Caption** | 12px / 600 | pill and chip text — the only place 12px appears |
+| **Body** | 13.5px / **500** / `leading-[1.55]` | every row of every list, every label. The default |
+| **Prose** | 15px / **400** / `leading-relaxed` | running sentences: `summary`, the proposals' lede, `project_impact` |
+| **Title** | 14px / 600 / `tracking-[-0.01em]` | the card title — **and every row title inside it** |
+| **Value** | 15px / 600 / `tabular-nums` / `tracking-[-0.01em]` | a measured quantity sitting in a row |
+| **Figure** | 20px / 600 / `tabular-nums` / `tracking-[-0.02em]` | **the one thing the card exists to say** |
 
-**The load-bearing rule: each card carries exactly one element above 14px, and it must be the card's answer.** Not its title. Not its icon. Its answer.
+**The load-bearing rule: each card carries exactly one element at the Figure step, and it must be the card's answer.** Not its title. Not its icon. Its answer. Where a card has no single answer, it spends no figure at all rather than picking one arbitrarily.
 
-Three cards satisfy this today (verdict_header at 24px, calculation at 15px, condition_tree's open outcome at 15px). Bringing the rest into compliance *is* most of this charter. Where a card has no single answer — `key_takeaways` is five equal things — the figure is spent on its **first** item and nothing else.
+**Weight is a rule, not a preference.** Labels and list rows are 500; running sentences are 400. This is most of why the canvas reads firmer than what ships: a field of 400-weight 13.5px rows has no internal hierarchy, and every card was one.
 
-`summary`'s 17px title (SummaryCard.tsx:18) is exempt: it is the answer's H1, not a card figure. Cross-card rule: **when a `verdict_header` is present, `summary` drops its title to 14px.** They must not compete for the top of an answer.
+**The eyebrow is gone from cards.** The canvas carries no uppercase label on any of its 45 sections — the title does the identifying, helped by the card's §A5 mark. §A5 already demoted the eyebrow to a caption; the canvas finishes the sentence. `SectionLabel` remains correct everywhere outside a card, and `SchematicCard`'s default eyebrow — fifteen drawings all saying the same word — is exactly the case that proves it earned nothing.
 
-**Migration.** The six steps replace thirteen sizes. `text-xs` → Caption (12px) and nothing else; its current use as body text is the drift to eliminate. `text-sm` → Title. `text-[12px]`, `text-[14px]`, `text-[13px]`, `text-[12.5px]`, `text-[10px]` are all deleted, folding into the nearest step. Migrate a card when you touch it for another reason in §C order — a flag-day rewrite of 200 call sites is not worth the review burden, but **a card that has been through a §C sprint and still carries an off-ramp size has not passed.**
+> **Where this departs from the previous text, and why.**
+>
+> **The figure was 20–30px and one element above 14px; it is now exactly 20px and one element at 20px.** Two changes, one reason. The canvas reaches its hierarchy by **lowering the floor rather than raising the ceiling** — no uppercase eyebrow, no pill badges, body rows that recede — so a 20px figure in a 636px column lands harder than 30px did in a column that shouted at every level. The old rule's arithmetic also failed against the canvas: `calculation` legitimately carries 15px formulas, a 20px result and a 15px limit. That is not three figures, it is one figure and two values, which is why **Value** is now a step with a name instead of an arbitrary size to be argued about.
+>
+> **Consequence:** `verdict_header` drops from 30px to 20px, and `.card-figure-24` / `.card-figure-30` lose their last callers and are deleted. `.card-figure-15` becomes `.card-value`.
+>
+> **`summary`'s 17px exemption is withdrawn.** The canvas sets it at Title over Prose, and the cross-card rule survives in a simpler form: **when a `verdict_header` is present, `summary` drops its title entirely** and renders as prose plus its key-point rule (canvas §21). `card-set.tsx` already carries `hasVerdictHeader`; only what it switches changes.
+
+**Migration.** The steps replace thirteen sizes. `text-xs` → Caption and nothing else; its use as body text is the drift to eliminate. `text-[12px]`, `text-[14px]`, `text-[13px]`, `text-[12.5px]`, `text-[10px]` all fold into the nearest step. A card migrates when it goes through its §C slice; a card that has been through a slice and still carries an off-ramp size has not passed, and `grid/card-type-scale` is switched on for it at the end of that slice so it cannot drift back.
 
 Forbidden: any size not in this table.
 
-### A3. Colour roles — four orthogonal axes, one rendering each
+### A3. Colour roles — five orthogonal axes, one rendering each
 
 Chroma belongs to provenance (`grid-design-language.md` §Principles 2). These axes must never trade renderings.
 
-**1. Verdict — "does it meet the rule?"** → the four `statusColor()` inks, always with an icon carrying `aria-label` **and** the German word. Unchanged; it is correct.
+**1. Verdict — "does it meet the rule?"** → the `statusColor()` inks, always with an icon carrying `aria-label` **and** the German word. Unchanged; it is correct.
 
 **2. Modality — "how hard does this bind?"** → **weight and ink only, zero hue.**
 - binding / decisive → `text-foreground font-semibold`
 - interpretive / advisory → `text-muted-foreground font-normal`
 - inactive / hypothetical → `text-muted-foreground` on `border-dashed bg-muted/30`
 
-NormChainCard.tsx:76–78 and ConditionTreeCard.tsx:203 already do this. Codify it so the next card does not invent a fifth hue family.
-
-**3. The binding constraint — "which one decides it?"** In a set of checks, exactly one usually decides the verdict, and nothing marks it today: `LimitBar` (kit.tsx:414–519) draws every check identically. The deciding row gets a **1px `--foreground` left rule and its value at the Figure step**; every other row stays Body with no rule. One per card, or none.
+**3. The binding constraint — "which one decides it?"** In a set of checks, exactly one usually decides the verdict. The deciding row gets a **1px `--foreground` left rule and its value at the Figure step**; every other row stays Body with no rule. One per card, or none.
 
 **4. Direction — "which way did it move?"** → glyph + word + a borrowed verdict ink:
 - `tightens` → ↑ + „strenger" in `--text-color-feedback-warning`
 - `relaxes` → ↓ + „milder" in `--text-color-feedback-success`
 - `unchanged` → = + „unverändert" in `--muted-foreground`
 
-Red is forbidden here: tightening is a cost, not an error, and error red is for errors only. `ChangeImpactCard.tsx:63–69` already reasons its way to exactly this.
+Red is forbidden here: tightening is a cost, not an error, and error red is for errors only.
 
-**Fix required:** `ProposalShell` `pending` → `border-l-warning` (ProposalShell.tsx:12). Change to ink (`border-l-foreground/40`).
+**5. Where each of the four is allowed to land — the canvas's sharpest rule, and it was never written down.**
+
+> **Provenance colours pills. Status colours the icon and the status word, and nothing else.**
+
+A card therefore carries at most two hues and they can never be confused, because they occupy different *shapes*: a tinted rounded rect with a border is always a source, a bare coloured glyph-plus-word is always a verdict. This is what lets `requirement_checklist` put a red cross and a blue OIB pill in the same row without the row becoming a traffic jam.
+
+Corollaries, all of them load-bearing:
+- **A status never becomes a pill.** `StatusBadge`'s tinted rounded-full chip is retired; a verdict is an icon and a word in the status ink, sitting in the card's header row or under the row it judges.
+- **A source pill is never coloured by anything but its lane**, resolved through `accentForLane` (`features/chat/lib/source-kinds.ts`) and never from a document name by hand.
+- **A tinted background is not a signal.** The recessed panel ground (`--input-background`) is a surface, carries no meaning and may appear in any card.
 
 ### A4. Density, spacing, geometry
 
 - Card padding `p-5` (20px). Flat register: no padding, `gap-3` from the prose.
-- Between blocks inside a card: 12px (`gap-3`). Within a block: 6px (`gap-1.5`). Above the `NormRefFooter` rule: 20px. **These four values are the card spacing scale**; there is no token layer for them yet, so they are written as Tailwind steps and never as arbitrary values (`gap-[11px]` and `pb-[17px]` are drift).
-- Scannable row min-height 36px, `pointer-coarse:` 44px. The expandable row that `condition_tree`, `process_map`, `document_checklist` and `change_impact` are each built from is now one exported class (`frontends/ui/src/features/grid-cards/components/card-rows.ts`, `CARD_LIST_ROW`) rather than four byte-identical copies, so the floor lands once. Rows GROW rather than take a `touch-target` catchment: stacked ~33px apart, 44px catchments overlap and the later row in the DOM takes taps meant for the one above it. A disclosure with prose around it (`CalloutCard`, `CalculationCard`) is the opposite case and takes the catchment, so the card's rhythm does not change on a phone.
-- **Two gutter widths only**: 22px for a rail (ConditionTreeCard.tsx:123), 26px for a numbered node (KeyTakeawaysCard.tsx:43, ProcessMapCard.tsx:117). Rails then align when two cards stack.
-- Radius: cards `rounded-lg` (12px), inner panels `rounded-md` (8px), chips `rounded-md`, status pills `rounded-full`.
+- Between blocks inside a card: 12px (`gap-3`). Within a block: 6px (`gap-1.5`). Above the source footer's rule: 20px. **These four values are the card spacing scale**; they are written as Tailwind steps and never as arbitrary values (`gap-[11px]` and `pb-[17px]` are drift).
+- Scannable row min-height 36px, `pointer-coarse:` 44px, through the one exported `CARD_LIST_ROW` class (`features/grid-cards/components/card-rows.ts`) rather than four byte-identical copies. Rows GROW rather than take a `touch-target` catchment: stacked ~33px apart, 44px catchments overlap and the later row in the DOM takes taps meant for the one above it. A disclosure with prose around it (`CalloutCard`, `CalculationCard`) is the opposite case and takes the catchment.
+- **Two gutter widths only**: 22px for a rail, 26px for a numbered node. Rails then align when two cards stack.
+- Radius: cards `rounded-lg`, inner panels `rounded-md`, chips and pills `rounded-md`, action buttons `rounded-full`.
 - Elevation: `shadow-xs` and nothing else in the transcript. Never two shadows in one card. In dark mode elevation is carried by the token, not by a `dark:` variant — see tokens.css:216–241.
-- **No card inside a card.** The opened panels in `condition_tree` / `process_map` (`rounded-md border` on the same surface) are the legal form.
-- Every table and every drawing scrolls inside its own `overflow-x-auto`. Already correct at ComparisonTableCard.tsx:46 and TypedTableCard.tsx:92.
-- **Design to 636px desktop / ~314px phone** (§0.5.3), not to the gallery's `max-w-2xl`.
+- **The recessed inner panel is the one legal nesting.** `bg-[--input-background]` + hairline + `rounded-md`, optionally with a Meta caption above it. It is a *surface*, not a card, and it is how `calculation`, `change_impact`, `callout` and every schematic's drawing frame are built. **No card inside a card** still holds absolutely.
+- Every table and every drawing scrolls inside its own `overflow-x-auto`.
+- **Design to 636px desktop / ~314px phone** (§0.5.3). The canvas is set to 760px − 28px, roughly 70px wider than production: every two-column row taken from it is re-checked against 636px before it ships, and `/dev/cards`' `max-w-2xl` is no better a measure in the other direction.
 
 ### A5. How a card announces its type — the shape vocabulary
 
-This is the mechanism that makes twenty voices one family. **The eyebrow is demoted to a caption; the card's first 40px of geometry does the identifying.** Each mark below belongs to exactly one card and may not be borrowed:
+This is the mechanism that makes twenty voices one family. **The card's first 40px of geometry does the identifying**, now that the eyebrow is gone (§A2). Each mark below belongs to exactly one card and may not be borrowed:
 
 | Mark | Means | Card |
 |---|---|---|
-| dots on a vertical rail | mutually exclusive alternatives | `condition_tree` |
-| numerals on a vertical rail | a sequence with a position | `process_map` |
-| ordinals in a descending staircase | a ranked list | `key_takeaways` |
-| folded-corner glyph column | documents with states | `document_checklist` |
-| rule **above** the content | a trigger / precondition | `deadline_timeline` |
-| rule **under** the content | a total | `calculation` |
-| vertical rules, no horizontals | a comparison | `comparison_table` |
+| numbered accordion rows on a recessed ground that lightens when opened | ranked points you can unfold | `key_takeaways` |
+| recessed calculation panels, each ending in a 20px result | a worked derivation | `calculation` |
+| a status glyph in the left gutter with its word beneath the row it judges | criteria read against this project | `requirement_checklist` |
+| numbered nodes on a continuous rail, one 20px figure per block | durations in the order they run | `deadline_timeline` |
+| a completion glyph and a right-hand state column, **no rail** | a sequence with a position | `process_map` |
+| one large figure under a title and nothing else, 2px ink edge | a ruling | `verdict_header` |
+| stacked recessed panels with no outer frame | remarks beside the answer | `callout` |
+| grid rows with one tinted column | a comparison | `comparison_table` |
+| the active row breaking out through the card's own padding | mutually exclusive alternatives | `condition_tree` |
+| a blockquote rule and a two-pill footer | a quotation | `legal_basis` |
+| a three-column count header over a document list | documents with states | `document_checklist` |
+| a recessed „before → after" hinge with the target at 20px | a delta | `change_impact` |
+| a fully tinted perimeter and two buttons | an offer you must answer | the proposals |
 | horizontal rules, no verticals | a data sheet | `typed_table` |
 | stepped horizontal inset | a hierarchy | `norm_chain` |
-| struck-through left value | superseded | `change_impact` |
-| segmented tally bar | a count of states | `requirement_checklist` |
-| recessed ground + margin § column | a quotation | `legal_basis` |
-| a large lone figure, no body | a ruling | `verdict_header` |
+| framed chips with no card around them | an offer, not evidence | `follow_ups` |
 | sketched stroke | drawn from your numbers | schematics only |
-| unframed chips at the end | an offer, not evidence | `follow_ups` |
 
 **This table is the charter's most reusable artefact.** A new card must claim a mark that is not in it, or argue that an existing mark genuinely belongs to it and the incumbent should give it up. "It looks like the process map" is not a design.
+
+> **Where this departs from the previous text, and why.**
+>
+> The previous table gave numbered nodes to `process_map` and ordered `deadline_timeline` to „vacate the numeral". The canvas does the opposite, and reading it settled the question better than either: **`process_map` vacates the rail.** Its steps become plain divided rows carrying a completion glyph and a state column; `deadline_timeline` keeps the rail and gains the 20px `period` figure the previous text asked for anyway. The two are then distinguishable at a glance because one has a rail and one does not — which is what the rule wanted — instead of by counting whether the circles have numbers in them, which it turns out nobody does.
+>
+> Marks that were specified and never built (`key_takeaways`' descending staircase, `requirement_checklist`'s segmented tally bar, `comparison_table`'s vertical-rules-only grid, `change_impact`'s struck-through ledger, `legal_basis`' right-margin § column) are replaced by what the canvas shows. They were good ideas argued from the code; these are good ideas argued from the whole set seen at once, which is the better vantage point for a rule about *distinctiveness*.
 
 ### A6. Motion policy
 
@@ -240,18 +282,19 @@ A reader should be able to tell a schematic from a generic card instantly — th
 
 ### A8. Deliberately forbidden
 
-1. No font size outside the six-step ramp in §A2.
-2. No card with two elements above 14px.
-3. No hand-rolled eyebrow — `SectionLabel` only. CalloutCard.tsx:111 is the one documented exception, and its reason (the eyebrow carries the tone's ink, which `cn` cannot dedupe against `SectionLabel`'s hardcoded muted) stands.
+1. No font size outside the seven-step ramp in §A2, and no weight outside 400 / 500 / 600.
+2. No card with two elements at the Figure step.
+3. **No eyebrow inside a card at all** (§A2). `SectionLabel` stays the product-wide section label everywhere else; a card that feels it needs a type label has not claimed its §A5 mark.
 4. No colour travelling alone. Every hue carries a word or an `aria-label`ed icon. Currently unbroken — keep it that way.
-5. No hex or `oklch` literal in JSX. `statusColor()` or a token. The `color-mix(in oklch, ${color} N%, transparent)` inline-style pattern (ComparisonTableCard.tsx:84, TypedTableCard.tsx:60, ConditionTreeCard.tsx:156) is the sanctioned escape hatch because Tailwind cannot compose a runtime colour — it may only ever mix a `statusColor()` result.
-6. No `rough` stroke outside `SchematicCanvas`.
-7. No nested card.
-8. No chart with an axis the data does not have (§D.1).
-9. No hardcoded user-facing string. `de/chat.ts` and `en/chat.ts` in lockstep, enforced by `key-coverage.spec.ts`. Translator keys are written as literals, never composed — a template-literal key silently ships the dot-path when it is wrong (DocumentChecklistCard.tsx:74–80).
-10. No new dependency. `motion`, `roughjs`, lucide and Tailwind are the entire toolkit.
-11. No serif, no display face, no third font family. Sans is prose; **mono means "a number or identifier you could go and check"** — spending it on a heading costs the product its one typographic signal.
-12. No per-item field read without a fallback (§0.5.1).
+5. No status rendered as a tinted pill, and no source rendered as a bare coloured word (§A3 axis 5). The shape is what tells them apart.
+6. No hex or `oklch` literal in JSX. `statusColor()` or a token. The `color-mix(in oklch, ${color} N%, transparent)` inline-style pattern (ComparisonTableCard.tsx:84, TypedTableCard.tsx:60, ConditionTreeCard.tsx:156) is the sanctioned escape hatch because Tailwind cannot compose a runtime colour — it may only ever mix a `statusColor()` result.
+7. No `rough` stroke outside `SchematicCanvas`.
+8. No nested card. The recessed inner panel (§A4) is the one legal form of nesting and it is a surface, not a card.
+9. No chart with an axis the data does not have (§D.1).
+10. No hardcoded user-facing string. `de/chat.ts` and `en/chat.ts` in lockstep, enforced by `key-coverage.spec.ts`. Translator keys are written as literals, never composed — a template-literal key silently ships the dot-path when it is wrong (DocumentChecklistCard.tsx:74–80).
+11. No new dependency. `motion`, `roughjs`, lucide and Tailwind are the entire toolkit.
+12. No serif, no display face, no third font family. Sans is prose; **mono means "a number or identifier you could go and check"** — spending it on a heading costs the product its one typographic signal.
+13. No per-item field read without a fallback (§0.5.1).
 
 ---
 
@@ -263,49 +306,50 @@ Format: **job** → **grammar** → **unmistakable** → **degradation** → **e
 
 #### `verdict_header`
 **Job.** Deliver the one number or ruling the reader came for, at the top of the answer.
-**Grammar.** The card is the figure. `subject` as Eyebrow above; verdict at **30px/600/tabular-nums/tracking-tight**, `text-balance`. Confidence stops being a pill (VerdictHeaderCard.tsx:66–75) and becomes a **hairline gauge**: three 12×3px segments filled to level, plus the word — so confidence is *comparable between two answers*, which a pill is not, and three segments is exact because the enum has exactly three values. `confidence_reason` at Caption beneath. No body list at all: **the card is ~96px tall, and that height is its signature — the only card under 120px.**
-**Unmistakable.** A single large number in a short accented card with nothing under it.
-**Degradation.** No confidence → gauge absent, verdict rises. Long compound verdict → wraps to two lines; drop 30 → 24px above 24 characters (branch on string length, not viewport — the string is the problem, not the column). 30px survives 314px comfortably.
+**Grammar.** The card is the figure, and it is deliberately the shortest thing in the set. Title at Title step; the verdict directly under it at the **Figure step (20px)**, `text-balance`. A 2px ink left edge (§A1 Accented). Below a hairline rule, the source pill and nothing else. **No body list, no eyebrow, no prose** — the card is ~110px tall and that height is its signature.
+Confidence is **not** dropped even though the canvas omits it: three 5px squares sit at the right of the title row, because a level is the only thing that makes two answers comparable and a pill never was. `confidence_reason` at Meta beneath the verdict.
+**Unmistakable.** A single large number in a short accented card with nothing under it but one pill.
+**Degradation.** Three shapes, all shown by the canvas and all required:
+- **a value** (canvas §05) — the ordinary case;
+- **a sentence** (canvas §22, `verdict_header_long`) — a compound ruling renders at the **Value step (15px/600)** rather than 20px, branching on string length and not on viewport, because the string is the problem;
+- **no reference** (canvas §23, `verdict_header_bare`) — a figure read out of the project files with no rule behind it. The pill row is **absent**, replaced by a Body line saying where it came from. A card that invents a Fundstelle for a project measurement is the worst failure this card can have.
+
+No confidence → the squares are absent and nothing shifts.
 **Effort: S.**
 
 #### `key_takeaways`
 **Job.** The 2–5 points a skimmer leaves with.
-**Grammar.** Kill `divide-y` (KeyTakeawaysCard.tsx:107) — hairlines between rows are what makes it a generic list. Replace with a **descending staircase**: item *n* indents `(n−1) × 6px`, ordinals hanging off one continuous vertical hairline in the 26px gutter. Ordinals at Meta mono in `--muted-foreground/60`. **Item 1 breaks the pattern**: its ordinal is full-weight `--foreground` and its text is **15px/600** — the card's one figure. A reader who reads nothing else reads takeaway one, which is what "most important first" is supposed to buy.
-Keep verbatim: a row with no `detail` is not a button (line 58).
-**Unmistakable.** Progressive indent plus one heavy first row. Nothing else indents by rank.
-**Degradation.** 2 items → one step, still reads. 5 items → 24px total indent, safe at 314px. Long compounds wrap with `text-pretty` — **never truncate a takeaway**, it is the payload. Missing `text` on an item → skip the row silently (§0.5.1).
+**Grammar.** Each takeaway is its own **recessed panel with a hairline and `rounded-md`**, stacked with 8px between them — not rows in a divided list, which is what made the card generic. A row opens on click: chevron at the left in muted ink, then the ordinal at Meta in a fixed 18px column, then the title at **Title step**. The panel's ground **lightens from recessed to card white when it opens** — the disclosure state is carried by the surface, so an open row is legible before you read it.
+Open body: the detail at Body, then the source pill, both indented to clear the ordinal column (66px).
+Keep verbatim: a row with no `detail` is not a button.
+**Unmistakable.** Separate recessed panels that lighten on open. Nothing else in the set changes ground on disclosure.
+**Degradation.** 2 items still reads. Long compounds wrap with `text-pretty` — **never truncate a takeaway**, it is the payload. Missing `text` → skip the row silently (§0.5.1).
+
+> **This replaces the descending staircase** specified in the previous revision and shipped in Sprint 1 (`b82f23e1`). The staircase encoded rank in indentation, which the export cannot carry (§D.5) and which a two-item card cannot show at all. The panel encodes *disclosure*, which is what the card actually does. The `lead` flag stops driving a type change — no card spends a figure on one of five equal things (§A2).
+
 **Effort: S.**
 
 #### `callout`
 **Job.** The one sentence that changes what the reader does.
-**Grammar.** The best generic card today (CalloutCard.tsx:91–146) — accent edge clipped to the radius, icon well, kind-word always written, disclosure. Two changes only:
-1. **Cap the width at `max-w-[46ch]`.** A remark narrower than the prose around it reads as an aside; one that spans the column reads as a section. This single change makes it identifiable at a glance and costs one class.
-2. It is the only card with **no eyebrow row of its own** — the kind word and the title share one baseline (line 106). Preserve that as identity; do not "fix" it.
-**Unmistakable.** The only card narrower than the column.
-**Degradation.** Unknown `kind` already falls back to `hinweis` (line 87) and must, because `kind` arrives through a `z.any()` union member. Long compound title wraps under the kind word (already `flex-wrap`).
+**Grammar.** **Flat register — no outer card at all.** The callout *is* its panel: recessed ground, hairline, `rounded-md`, `p-3`, a 21px icon well at the left in the tone's ink, the text at Body. Several callouts stack at 10px with no frame around the stack.
+The disclosure stays: a Meta-sized „Mehr dazu" / „Weniger anzeigen" with a rotating chevron, the extra text at Meta beneath it, indented to clear the chevron.
+The kind word and the title share one baseline; **the card has no eyebrow row of its own** and never did — preserve that, it is now the house rule rather than the exception.
+Cap the measure at `max-w-[46ch]`: a remark narrower than the prose around it reads as an aside, one that spans the column reads as a section.
+**Unmistakable.** The only block that is a bare recessed panel with an icon well and no card around it.
+**Degradation.** Unknown `kind` falls back to `hinweis` and must, because `kind` arrives through a `z.any()` union member. Long compound title wraps under the kind word.
 **Effort: S.**
 
 #### `legal_basis`
 **Job.** The product's proof-of-work — a citation you can verify.
-**Grammar.** It should look like a page from a Gesetzblatt, not a chat block:
-- The whole card sits on **`--input-background`** — the recessed surface. A quotation is *cut into* the page, not floated on it. It becomes the only recessed card in the system.
-- The law-signal rule goes to **3px, full height** (from 2px, LegalBasisCard.tsx:70).
-- `article` / `section` stop being inline `Badge`s and become **marginalia**: right-aligned in a fixed 72px right column at 11px mono, the way a statute prints its § in the margin. Every other card puts metadata inline; this one puts it in a margin, and that is the difference you see before you read.
-- `original_text` gets **hanging quotation marks**: a `„` at 24px in `--source-law/30` set outside the measure, with the quote at 13.5px `leading-[1.75]` and the italic dropped (italic at that measure hurts German compounds). **This is the only decorative mark permitted anywhere in the system**, granted because a quotation mark on a quotation is not decoration.
-- `summary` at Body. The AI-transparency line (line 130, EU AI Act Art. 50) stays, and stays last.
-**Unmistakable.** The only recessed card, the only right-margin § column, the only large quote mark.
-**Degradation.** No `original_text` → header + summary; the recessed ground still identifies it. No article/section → margin column collapses to 0 and text runs full width. Below 360px the margin column moves above the law name as a chip row.
+**Grammar.** Framed, with a 2px source-law left edge (§A1 Accented). Title at Title step. The `original_text` is an actual `<blockquote>`: a 2px muted left rule, 16px of padding, the quote at **Prose step (15px/400, `leading-[1.65]`)** in full-strength ink — not muted, not italic. Italic at that measure hurts German compounds, and a quotation that is greyed out reads as an aside rather than as the law.
+Below a hairline rule, a **two-pill footer**: the source pill carrying „OIB-Richtlinie 2 · Art. 3.1.1" with an external-link glyph and, beside it, a neutral outline pill „Zitat kopieren" with a copy glyph. Both `rounded-full`, because they are actions rather than labels. `edition` prints beside the identifier. `summary` at Body above the rule. The AI-transparency line (EU AI Act Art. 50) stays, and stays last.
+`lane` resolves the OIB accent through `accentForLane`; it shipped as `Literal["baurecht_oib", "baurecht_ris"] | None` and is never re-derived from the law's name.
+**Unmistakable.** The only card whose body is a real blockquote and the only one whose footer is two pills.
+**Degradation.** No `original_text` → title + summary; the accent edge still identifies it. No article/section → the pill carries the law name alone. No corpus file behind the citation → the copy pill stands alone.
 
-> **SCHEMA ADDITIONS — REQUESTED, NOT YET IMPLEMENTED.** Neither field exists today. The card cannot render either treatment until they land in `src/aiq_agent/cards/models.py` and are regenerated through `shared/cards/schemas.json` → `npm run generate:cards`.
->
-> 1. **`lane`** — the code already states the case verbatim (LegalBasisCard.tsx:61–68): the OIB accent cannot be resolved because `legalBasisCardSchema` carries no lane, and deriving `'oib'` from the law string by hand is precisely the drift `accentForLane` exists to prevent. OIB vs RIS is the distinction architects compare most (`grid-design-language.md` §Accents vs signals). **Highest-value schema addition in this charter.**
->
-> **IMPLEMENTED, and NOT in the shape this charter first asked for.** The charter specified `lane: 'oib' | 'law'`; that was wrong and the implementation correctly refused it. `accentForLane(lane, signal)` matches on `startsWith('baurecht_oib')` — the fine-lane vocabulary `norm_registry.lane_for_hit` stamps on every chunk and chip. `'oib' | 'law'` is the accent a lane RESOLVES TO (`SourceTint`), not a lane, so feeding it back in would have required a second hand-written mapping in the renderer — the exact drift the helper exists to prevent — and would have let the card and the „Belegt durch" chips disagree about one document. Shipped as `lane: Literal["baurecht_oib", "baurecht_ris"] | None`, with a `mode="before"` validator folding the other real lanes on. `baurecht_basis` is excluded by name so an unclassified upload can never inherit the RIS tier.
-> 2. **`edition: str | None`** — `NormReference` carries `edition` and the schematics print it (kit.tsx:637); `legal_basis` has no such field, so the product's most authoritative card is the one citation that cannot say *which Ausgabe*. „OIB-Richtlinie 2" without „Ausgabe Mai 2023" is not verifiable.
->
-> **IMPLEMENTED** as specified, optional, printed beside the identifiers exactly as `NormRefFooter` does.
+> **This replaces the recessed ground, the right-margin § column and the hanging quotation marks** of the previous revision, none of which were built. The margin column cannot survive 314px, and it was the one place the charter granted a decorative mark; the canvas gets the same authority out of a full-strength quotation and two honest actions, and it exports (§D.5) because both pills are text.
 
-**Effort: M** (plus backend work for the two fields).
+**Effort: M.**
 
 #### `norm_chain`
 **Job.** Which of these norms actually binds, and which only interprets.
@@ -317,76 +361,84 @@ Binding links get a solid 3px left edge on their row block; interpretive links g
 
 #### `requirement_checklist`
 **Job.** Several criteria read against this project.
-**Grammar.** Today the plainest thing in the set — a bullet list with coloured icons (RequirementChecklistCard.tsx:60–120). Its real information is **how many are open**, and nothing shows it.
-- **Signature: a segmented tally bar.** Full card width, 5px tall, one segment per item in verdict colour, 2px gaps. Beside it, at the **Figure step (15px tabular-nums)**: „3 von 7 offen". Fully derived from the rows; encodes exactly the counts with no interpolation, so it asserts nothing the data does not hold.
-- Rows: keep the icon. Move the verdict word out of the flow (line 100) into a **right-aligned fixed 88px column** so every verdict aligns vertically and the reader scans one column instead of hunting ragged line-ends. `needs_input` rows keep their `AskAboutChip` (line 104) — one of the best affordances in the product. Reference chip below the verdict word.
-**Unmistakable.** The segmented tally bar. Sole owner of that mark.
-**Degradation.** **Below 3 items, suppress the bar** — a one-segment bar is a joke. All-pass → solid green bar, „7 von 7 erfüllt". Unknown status already falls back to `CircleHelp` (line 74) and **must** (§0.5.1). Long compounds wrap; the 88px verdict column does not.
+**Grammar.** Framed. Title, then rows divided by hairlines with no rule under the last one. Each row: a **status glyph in the left gutter** at the top-left, coloured in the status ink and carrying an `aria-label` — check, cross, or a question glyph for „Angabe fehlt". Then the title at Title step, the note at Body, and — **only when the status is not `ok`** — the status word at Body/600 in the status ink beneath. A satisfied row states its verdict through the glyph alone; spelling out „erfüllt" on every passing row is what turns the card into a wall.
+Right-aligned in the row, the source pill. `needs_input` rows keep their `AskAboutChip`.
+This card is the clearest case of §A3 axis 5: a red cross and a blue OIB pill sit in the same row and cannot be confused, because one is a bare glyph and one is a tinted rect.
+**Unmistakable.** The only card with a status glyph in a left gutter and a source pill hard right on the same row.
+**Degradation.** Unknown status falls back to the question glyph (§0.5.1) — and that is not an error state, it is the most common one. Long compounds wrap; the pill does not.
+
+> **This replaces the segmented tally bar** of the previous revision. The bar was never built, it suppresses itself below three items, and „3 von 7 offen" is a sentence the card can simply say. It stays available as a derived Body line above the rows when the set is long; it is no longer the card's mark.
+
 **Effort: M.**
 
 #### `comparison_table`
 **Job.** Genuinely weigh 2–3 options against each other.
-**Grammar.** **Kill the `<table>`** (ComparisonTableCard.tsx:47–95). A table with a tinted cell is the archetype the brief is complaining about.
-- A CSS grid of criterion-rows × option-columns with **vertical rules only** (`divide-x`), **no horizontal rules**. Each option column is headed by its name at 14px/600 over a `bg-muted/40` band that **runs the full column height at ~3% opacity** — a column becomes a legible vertical body, which is what "side by side" actually means.
-- Favoured cell per row: a filled 4px dot before the value, `font-medium`, plus the existing success tint (line 84).
-- **Signature: a win-tally strip** under each column header — one small dot per row that column wins, derived from `highlight_index`. A reader sees "this option wins 4 of 6" before reading a single row. Exactly the summary a table cannot give, and it needs no new field.
-- `recommendation` moves out of the card footer (line 98) into the **winning column's foot**, tinted, with the ThumbsUp. It belongs to a column, not to the card.
-**Unmistakable.** Vertical rules and no horizontal ones, plus the tally strip. `typed_table` is deliberately the exact inverse.
-**Degradation.** Schema guarantees ≥2 options and the backend pads short rows to `''` and nulls out-of-range highlights (`_square_rows`, models.py:650–666), so the grid is always square — render '—' muted for empties (already line 88). 4+ options → `overflow-x-auto` with the criterion column `position: sticky; left: 0`. **Below 360px the card transposes**: one option per block, criteria as rows inside it. That transposition is the mobile *design*, not a fallback — three columns at ~100px each with „Brandabschnittsfläche" in them is unreadable at any type size.
+**Grammar.** A CSS grid — `minmax(0,1.2fr)` for the criterion column, `minmax(0,1fr)` per option — with **horizontal hairlines only**, including one above the header row. Column headers at Title step; criterion cells at Body in muted ink, hard left with no left padding; value cells at Body in full ink.
+**The mark is the tinted column**: the option that governs *this* project carries `bg-muted/40` down its whole height and its cells go to 600. A tinted band running the full height is what "side by side" actually means, and it is one derived decision rather than a favoured cell per row.
+A legend under the grid states it in words: a 9px swatch plus „Getönte Zellen: die für dieses Projekt maßgeblichen Werte". The tint is then §D.5-safe, because the sentence exports even though the band does not.
+**Unmistakable.** The only card with a tinted vertical band.
+**Degradation.** Schema guarantees ≥2 options and the backend squares short rows, so render '—' muted for empties. 4+ options → `overflow-x-auto` with the criterion column `position: sticky; left: 0`. **Below 360px the card transposes**: one option per block, criteria as rows inside it. That transposition is the mobile *design*, not a fallback — three columns at ~100px each with „Brandabschnittsfläche" in them is unreadable at any type size. No governing option → no band, and the legend is absent rather than empty.
+
+> **This replaces the vertical-rules-only grid and the win-tally strip** of the previous revision. The tally strip counted `highlight_index` wins per column, which reads as a scoreboard for a decision that is usually not a contest — most comparisons have one column that applies to you and one that does not. `typed_table` keeps horizontal rules too, and the two are told apart by the band and by mono figures, not by rule direction.
+
 **Effort: L.**
 
 #### `typed_table`
 **Job.** The tabular long tail where every row is true at once.
-**Grammar.** It should look like a table — that is its job, and it is the deliberate foil to `comparison_table`. Make it look like a **data sheet**:
+**Grammar.** It should look like a table — that is its job. Make it look like a **data sheet**:
 - Horizontal hairlines only (already `divide-y`), **no vertical rules ever**. A **1px `--foreground` rule under the header row**, replacing the current hairline (line 95).
-- Column headers move from 12px normal to **Eyebrow** — the header band reads as a legend, not as a first row.
+- Column headers move to **Title step**, matching every other card's column header; the 1px rule under them is what makes the band read as a legend rather than as a first row. (The eyebrow is retired inside cards, §A2.)
 - Numeric columns get `font-mono tabular-nums` (currently only `tabular-nums`, line 72).
 - **The one chart this card earns**: a 2px **magnitude underline** beneath each cell of a `mass` column, scaled to that column's own max. Drawn only when *every* cell in the column parses as a number; otherwise nothing. It sits under a printed figure, so it adds no precision the number does not already carry. Hand-rolled SVG or a styled div — there is no charting library (§0.5.4).
-**Unmistakable.** Mono figures with sub-cell magnitude rules; sole owner of that mark.
+**Unmistakable.** Mono figures with sub-cell magnitude rules; sole owner of that mark. `comparison_table` also rules horizontally — the two are told apart by that card's tinted vertical band and by this one's mono figures, not by rule direction.
 **Degradation.** Unparseable column → no bars, plain sheet. This must be the *common* case, not an error state. Unknown verdict word already renders a neutral chip (line 50) — keep, it is right. Wide table → `overflow-x-auto` (already) plus a sticky first column, which is the whole mobile design.
 **Effort: M.**
 
 #### `condition_tree`
 **Job.** The answer forks on one factor; here is your branch, and here is what the others would say.
-**Grammar.** **This is the best card in the product.** Four independent markings of the active branch (ConditionTreeCard.tsx:24–42), Konjunktiv vs Indikativ in the German itself, the correcting sentence *inside* the croppable rectangle. Keep all of it. Two changes:
-1. **The root connector is a straight rail** (line 303), so a fork does not look like a fork. Replace with an **SVG brace**: one stem from the root splitting into *n* elbows at a single junction y — the classic decision-tree bracket. Drawn, not typeset, because a border-based rail cannot express a junction. Geometry hand-computed; there is no auto-layout (§0.5.5). This is the one place the generic family draws a connector, and it stays crisp (§A7).
-2. The active branch's outcome is the card's figure: **15px/600 in the row itself**, not only inside the panel. Today the row truncates it (line 169), which puts the answer behind a click on the one card whose answer must survive a crop.
-**Unmistakable.** Already is. The brace makes it so at 40px.
-**Degradation.** No `active` → nothing marked, tree opens closed (line 288) — never pick a case for the reader. **Live mobile bug worth naming:** the condition chip is `shrink-0` (line 160); a long condition („Gebäudeklasse 5 mit Fluchtniveau über 22 m") squeezes the outcome to nothing at 314px. Let the chip wrap, with the outcome claiming a `flex-[1_1_9rem]` basis — the same fix ProcessMapCard.tsx:156–161 already documents for its own row.
+**Grammar.** **This is the best card in the product.** Keep the four independent markings of the active branch, the Konjunktiv/Indikativ distinction in the German itself, and the correcting sentence inside the croppable rectangle.
+Branches are divided rows under a hairline: the case at Title step in a fixed 88px column, then the outcome; the note at Body indented to clear the case column.
+**The mark: the active row breaks out through the card's own padding.** It takes the recessed ground and negative horizontal margins equal to `p-5`, so it runs edge to edge of the card while every other row is inset. Its outcome goes to the **Value step (15px/600)** while the inactive ones stay at Title, and it carries „gilt hier" with a check in the project-green ink, right-aligned. A reader sees which branch is theirs from across the room, and the breakout survives greyscale and cropping.
+The card closes with a recessed panel carrying the deciding factor in one sentence — „Maßgeblich ist die Gebäudeklasse — sie ergibt sich aus dem obersten Fluchtniveau."
+**Unmistakable.** The only card where one row is wider than the others.
+**Degradation.** No `active` → nothing breaks out, nothing is marked, and no case is picked for the reader. **Live mobile bug to fix here:** the condition chip is `shrink-0` (ConditionTreeCard.tsx:160); a long condition squeezes the outcome to nothing at 314px. Let the chip wrap with the outcome claiming a `flex-[1_1_9rem]` basis.
+
+> **This replaces the SVG brace** of the previous revision. A brace draws the *shape* of a fork; the breakout draws the *answer*, which is what the reader came for, and it needs no hand-computed geometry (§0.5.5).
+
 **Effort: M.**
 
 #### `calculation`
 **Job.** The Rechenweg, auditable by looking rather than by re-deriving.
-**Grammar.** The operand-over-label stack (CalculationCard.tsx:98–116) is already the right idea — that is how a Rechenweg is written on paper. Two changes make it unmistakable:
-1. **Draw the rule.** A worked derivation draws a line before the total. Give the final step a 1px `--foreground` rule above its result, and set the result at the **Figure step: 24px/600 mono tabular** (from 15px, line 163). The final number is what the card is for; it should be the largest thing in it.
-2. **Bind the limit to the result.** The limit currently sits in its own line under the card (`LimitLine`, :193–219). Put the result and the limit on **one baseline with the `≤`/`≥` between them, both at 24px**, so the comparison reads as arithmetic rather than as two separate facts. The limit's label and reference drop to Caption beneath.
-Untouched, and untouchable: no `result` on the wire, `resultDecimals` precision escalation, tolerance-band propagation, the straddle sentence at `warning`. That is the card's soul (:10–35).
-**Unmistakable.** The only card with a horizontal rule inside a computation and a 24px mono figure.
-**Degradation.** Missing operand → already italic „fehlende Angabe" (line 104), result undecidable (line 181). The rule and figure still draw, but the missing phrase renders at **15px, not 24px** — a missing value must never be the biggest thing on screen. Operand labels truncate at 11rem with a `title` (line 112); drop to 7rem below 360px. More than 4 operands in a step → **stack them vertically, one term per line**, which is also how a long Rechenweg is written on paper.
+**Grammar.** Framed, with the verdict as a glyph and word in the header row, right of the title (§A3 axis 5).
+Each step is its own **recessed panel**: the step label at Title step, then the arithmetic on one baseline — the formula at the **Value step**, a muted `=`, the result at the **Figure step (20px)** — and the legend beneath at Body („2 × Steigung + Auftritt · zulässig ≤ 0,60"). All of it `tabular-nums`, and every quantity `font-mono`: mono is the product's claim that a number is checkable, and this is the card that most needs to make it (§A8.12).
+Under a hairline, the limit row: „Zulässig" at Body muted, the band at the **Value step**, then the source pill hard right. The limit sits on the card's own baseline rather than inside a step, because it applies to the derivation and not to one line of it.
+Untouched, and untouchable: no `result` on the wire, `resultDecimals` precision escalation, tolerance-band propagation, the straddle sentence at `warning`. That is the card's soul.
+**Unmistakable.** The only card built out of stacked recessed panels each ending in a 20px number.
+**Degradation.** Missing operand → the existing italic „fehlende Angabe", and the result is undecidable. The panel and the layout still draw, but the missing phrase renders at the **Value step, never at the Figure step** — a missing value must not be the biggest thing on screen. Operand labels truncate at 11rem with a `title`; 7rem below 360px. More than 4 operands in a step → stack them one term per line, which is also how a long Rechenweg is written on paper.
 **Effort: M.**
 
 #### `process_map`
 **Job.** The Verfahren, and where this project stands in it.
-**Grammar.** Excellent already (ProcessMapCard.tsx). The rail is vertical and reads as a list; a Verfahren is a *route*. Two changes:
-1. **Progress spine.** The rail above the current node draws solid `--foreground/40` (already, line 126); the rail **below** it draws **dashed**. Travelled and untravelled at a glance — the entire meaning of `current_step`.
-2. **Signature: a progress cap** at the top of the card — a 3px hairline track with the filled portion = `currentIndex / (steps−1)`, and „Schritt 3 von 5" at Meta beside it. Derived, never sent.
-Keep: `duration` chips carry the Bauordnung's own words and are never a computed date (:35–37).
-**Unmistakable.** Solid-above/dashed-below spine plus the step-of-n cap. It shares a rail with `condition_tree` and `deadline_timeline`, so codify the distinction and never violate it: **numerals mean sequence, plain dots mean alternatives** — and `deadline_timeline` must vacate the numeral (see §B2).
-**Degradation.** No `current_step` → no cap, no dashes, everything neutral (:32–33). That rule is correct and must not be softened. The row already has the wrap fixes for a narrow column (:156–187); do not regress them.
+**Grammar.** **The rail goes.** Steps become plain rows under a hairline, divided by hairlines. Each row: a 20px mark in the left gutter — a **check glyph in project green when the step is done**, otherwise a hairline circle carrying the step number at Meta — then the title at Title step with the `duration` chip beside it at Body muted, the note at Body beneath, and the state word right-aligned at Body/600, green when done and muted otherwise.
+Keep: `duration` carries the Bauordnung's own words and is never a computed date.
+**Unmistakable.** A completion glyph and a right-hand state column, with no rail anywhere.
+**Degradation.** No `current_step` → every mark is a numbered circle, every state word muted, and nothing claims to know where the project stands. That rule is correct and must not be softened. Keep the existing wrap fixes for a narrow column.
+
+> **This is the resolution of the `deadline_timeline` collision** (§A5). The previous revision ordered `deadline_timeline` to give up the numeral; the canvas gives up the rail here instead, which separates the two cards at a glance rather than by counting. `process_map` also loses the progress cap it was specified to gain — „Schritt 3 von 5" over a filled track is a second rendering of the state column, and the card only needs one.
+
 **Effort: S–M.**
 
 #### `follow_ups`
 **Job.** Hand the reader their next question, already phrased.
-**Grammar.** **Drop the card.** Today: chips inside a `Card` with an eyebrow (FollowUpsCard.tsx). The chips are right; the frame around them is wrong. This card closes *every subject-matter answer by default* (catalog.py `_FOLLOW_UPS_RULE`), so it is the single most-seen card in the product — and it puts a bordered box at the bottom of every answer. **A large share of the "everything is a box" feeling is this one card's frame, seen a hundred times.**
-Flat register: Eyebrow + chips directly on the answer surface, 20px above, nothing else. The chips already carry their own border and shadow (CHIP, lines 52–59).
-Rationale beyond aesthetics: this is the one card that is **not evidence** and must never be screenshotted into a submission. Making it the only unframed trailing block is honest as well as recognisable.
-**Unmistakable.** The only thing at the end of an answer with no frame.
-**Degradation.** Keep one line per chip with the whole question in `title` (:82–84). At 314px set `min-w-[12rem]` and let the row wrap — „Wie wird das Hauptgeschoß…" is still useful, „Wie…" is not. Empty `items` → render nothing at all, not an empty eyebrow.
-**Effort: S.**
+**Grammar.** Flat register, as shipped: the optional `title` at Title step, then chips directly on the answer surface. Each chip is its own bordered `rounded-md` plate, `w-fit`, with a return-arrow glyph in muted ink and the question at Body. This is the one card that is **not evidence** and must never be screenshotted into a submission; being the only unframed trailing block is honest as well as recognisable.
+**Unmistakable.** The only thing at the end of an answer with no frame around it.
+**Degradation.** One line per chip with the whole question in `title`. At 314px set `min-w-[12rem]` and let the row wrap — „Wie wird das Hauptgeschoß…" is still useful, „Wie…" is not. Empty `items` → render nothing at all, not an empty heading.
+**Effort: S.** Shipped in Sprint 1; the canvas confirms it.
 
 #### `summary`
 **Job.** The answer's headline and intro, flat on the result surface.
-**Grammar.** Nearly correct already (SummaryCard.tsx:17–30). The key-point rule is `border-border` (line 23), the same hairline every disclosure panel uses — promote it to **2px `--foreground/20`**; these are the answer's own emphasis, not a nested aside. Apply the cross-card rule from §A2: **with a `verdict_header` present, the title renders at 14px/600.**
+**Grammar.** Flat register. Title at the **Value step (15px/600)**, the content at the **Prose step (15px/400)** in full ink. Key points hang off a **2px `--foreground/20` left rule** at Body in muted ink — these are the answer's own emphasis, not a nested aside, so the rule is heavier than the hairline every disclosure panel uses.
+**Cross-card rule (§A2): when a `verdict_header` is present, `summary` drops its title entirely** and renders as prose plus the key-point rule (canvas §21). Two headlines at the top of one answer is the failure this rule exists to prevent, and dropping the title outright is cleaner than shrinking it — the `verdict_header` above already names the subject. `card-set.tsx` carries `hasVerdictHeader`; only what it switches changes.
 **Degradation.** No `content` → title + points. No `key_points` → title + intro, and the rule is absent rather than empty.
 **Effort: S.**
 
@@ -397,55 +449,63 @@ Rationale beyond aesthetics: this is the one card that is **not evidence** and m
 
 #### `memory_proposal` / `project_profile_patch`
 **Job.** Ask the user to commit something.
-**Grammar.** Correct and already unique — the only cards with buttons and the only ones whose appearance changes after you act (`ProposalShell`, lifecycle-tracking accent). One fix, from §A3: `pending` must stop spending `--warning` (ProposalShell.tsx:12). Use `border-l-foreground/40`.
-**Effort: S.**
+**Grammar.** Accented register in its second form (§A1): **the whole 1px border carries the lifecycle tint**, not a left edge. A perimeter is right here and an edge is not — the card is asking for something, and the state it is in belongs to the whole object rather than to its first column.
+`memory_proposal`: title at Title step with the memory kind as a source-tinted pill on the same baseline; the proposition at the **Prose step**; under a hairline the scope question at Body and two `rounded-full` actions, „Verwerfen" outlined neutral and „Merken" in the lifecycle tint.
+`project_profile_patch`: title, the reasoning at Prose, then a three-column grid — Feld / Vorher / Nachher — with hairlines top and bottom, the field at Title step, the old value at Body muted and **the new value at Body/600 on a recessed ground**. The recess marks the cell that would change; nothing is struck through, because the patch has not been applied yet and a strike would claim it had.
+Disabled state (no project in context) keeps the button visible and muted with the reason spelled out beside it, never hidden.
+**Unmistakable.** The only cards with a fully tinted perimeter, and the only ones with buttons.
+**Degradation.** `pending` must not spend `--warning`; it collides with "near a limit" everywhere else. Post-decision the perimeter goes neutral and the buttons are replaced by the outcome in words.
+**Effort: S.** The `--warning` fix shipped in Sprint 1; the perimeter and the patch grid are new.
 
 #### IFC cards (`ifc_viewer`, `ifc_schedule`, `ifc_element`, `ifc_diff`, `ifc_compliance`, `ifc_model_picker`)
 **Job.** Point at the actual building.
 **Grammar.** Leave the interiors alone. They are a coherent family already, and their identity is structural: they contain live data the agent never supplied (IfcDataCards.tsx:5–11). Only ask: adopt the common shell so the reader does not meet a sixth chrome.
 **Effort: S each, shell swap only.**
 
-### B2. The three newest cards — built 2026-08-19, and what remains
+### B2. The three cards of 2026-08-19
 
-All three landed in commit `67c2ee03`. **They are well-built**: derived tallies with no summary field on the wire, honest three-state unknowns, no fabricated values, correct wrap treatment for the narrow column. Nothing below asks for a rewrite. What they lack is **differentiation from each other and from `process_map`** — see §0.2. Each needs its §A5 mark and its §A2 figure, and nothing else.
+All three landed in commit `67c2ee03`. **They are well-built**: derived tallies with no summary field on the wire, honest three-state unknowns, no fabricated values, correct wrap treatment for the narrow column. Nothing below asks for a rewrite. What they lacked is **differentiation from each other and from `process_map`** — §0.2, the finding that started this charter. Each now has its §A5 mark and its §A2 figure, and needs nothing else.
+
+They stay in their own section rather than being folded into §B1 because §0.2 is the charter's central evidence: three competent cards, built on one afternoon by someone following the shared pattern, arriving as the same card three times. The rules in §A exist to stop the next one, and this section is what they were written against.
 
 #### `document_checklist`
 **Job.** The Einreichliste as *states*, not names.
-**As built.** `SchematicCard`; rows with a status icon (`CircleCheck` / `Circle` / `CircleHelp` for present / missing / unknown, DocumentChecklistCard.tsx:65–69); a derived count row at 13px mono (`Count`, :92–99); condition printed in the row for conditional documents (:145–148); independent per-row disclosure using a `Set` rather than one-at-a-time, correctly reasoned (:34–36). The three-state face including a distinct "unknown" is exactly right and must not be collapsed (:60–63).
-**What remains.**
-1. **Claim the mark**: replace the round status icon with the **folded-corner document glyph** in a 32px column — filled for `present`, outlined for `missing`, hairline-dashed for unknown. Three states legible without colour, which matters because unknown is the most common.
-2. **Indent conditional rows 16px.** The card then reads as two tiers — always-required and it-depends — which is the reader's actual first question. Nothing else in the set indents by requirement kind.
-3. **The tally becomes the figure**: „4 von 11 vorhanden · 3 offen · 4 unbekannt" at **15px tabular-nums**, up from 13px, with each count carrying its glyph inline.
-**Degradation (already handled, keep).** No status anywhere → a sentence rather than a „0 von 5" progress line that would be a claim about the project (:22–27). 16 items → cap at 8 rows with an „alle 16 anzeigen" disclosure (local state, presentational). Long compounds wrap; the issuer column collapses under the label below 360px.
-**Schema:** fully served. No addition needed.
+**Grammar.** Framed. Title, then **the mark: a three-column count header** — „erforderlich 3 · bedingt 2 · vorhanden 1" — ruled top and bottom, each column a Body label over a **Value-step** number, divided by vertical hairlines, the „vorhanden" figure in project green. It is derived entirely from the rows and asserts nothing the data does not hold. Below it the documents as divided rows: a status glyph in the left gutter (present / missing / unknown — three faces, and the distinct unknown must not be collapsed), title at Title step, note at Body, and the requirement tag as a pill right-aligned.
+Conditional rows indent 16px, so the card reads as two tiers — always-required and it-depends — which is the reader's actual first question.
+**Unmistakable.** The only card that opens with a ruled three-column count band.
+**Degradation.** No status anywhere → the count band is **absent** and a sentence takes its place; a „0 von 5" line would be a claim about the project. 16 items → cap at 8 rows with an „alle 16 anzeigen" disclosure (local state, presentational). Long compounds wrap; the issuer column collapses under the label below 360px.
+**Schema:** fully served.
 **Effort: M.**
 
 #### `deadline_timeline`
 **Job.** Several Fristen in the order they run, each with what starts its clock.
-**As built.** `SchematicCard`; an evenly-spaced rail with **numbered round nodes** (DeadlineTimelineCard.tsx:80–94); label at 13.5px, `period` at 13.5px semibold, `starts_from` under it behind an Eyebrow label (:112–124); a footer stating out loud that the rail is not to scale and no date is computed. The refusal to scale the rail is correct and load-bearing (:21–25) — a bar whose length meant anything would claim that four weeks and four years sit on one timeline.
-**What remains.**
-1. **Vacate the numeral.** Numbered round nodes are `process_map`'s mark (§A5), and side by side the two cards are indistinguishable. Replace the rail with the **ratchet**: each Frist is a block whose **top edge is a solid 2px rule** carrying `starts_from`, with **dashed spine between blocks**. The dash states that the gap is unknown — the same honesty the footer currently carries in prose, moved into the drawing where it cannot be skipped.
-2. **`period` becomes the figure**: 20px/600, up from 13.5px semibold. It is what the reader came for.
-3. `consequence` moves onto the block's bottom edge prefixed `→`, in warning ink with its word (a lapsed Frist is a cost, not an error — no red).
-**Unmistakable.** The only card that puts a rule **above** its content, and the only stack of 20px figures down a dashed spine.
-**Degradation.** 2 deadlines is the schema minimum → two blocks and one dash; still reads. **Guard:** `period` at 20px for ≤18 characters, 16px above, so „binnen vier Jahren ist mit dem Bau zu beginnen" (a real fixture value) cannot dwarf the card.
-**Schema:** fully served. No addition needed.
+**Grammar.** Framed. **The mark: numbered nodes on a continuous rail** — a 19px hairline circle carrying the ordinal at Meta, on a 1px vertical line that runs from block to block and **stops halfway through the last one**, so the sequence visibly ends rather than trailing off. The rail keeps the numeral now that `process_map` has given up the rail entirely (§A5).
+Each block: the label at Body muted, `period` at the **Figure step (20px)**, „ab {starts_from}" at Body, then the source pill. `consequence` sits on the block's last line prefixed `→` in warning ink with its word — a lapsed Frist is a cost, not an error, so no red.
+The rail is **never scaled to duration** and the footer says so out loud. A bar whose length meant anything would claim that four weeks and four years sit on one timeline; the refusal is load-bearing and the footer sentence is what carries it into the export (§D.5).
+**Unmistakable.** The only stack of 20px figures down a numbered rail.
+**Degradation.** 2 deadlines is the schema minimum → two blocks, still reads. **Guard:** `period` at 20px for ≤18 characters, at the Value step above that, so „binnen vier Jahren ist mit dem Bau zu beginnen" cannot dwarf the card.
+**Schema:** fully served.
 **Effort: M.**
 
 #### `change_impact`
 **Job.** What one moved fact costs.
-**As built.** `SchematicCard`; a header panel carrying `factor: from → to` at 13.5px medium with the derived direction tally beneath (ChangeImpactCard.tsx:212–245); rows of `aspect` at 13.5px over `after` at 13.5px semibold, a direction glyph, a direction chip, a disclosure holding `before`, `detail` and the required Fundstelle. **`tightens` is amber with an explicit note that red would be wrong (:63)** — it arrived at §A3 axis 4 independently. The absent-`from_value` case is handled in words rather than by inventing a plausible value (:27–31), which is exactly right.
-**What remains.**
-1. **The hinge becomes the figure**: `from_value → to_value` on one baseline at **20px/600** with the arrow at 20px muted. When `from_value` is absent the left slot renders as an **empty dashed outline** with the existing caption — an absent origin must be *visible as an absence*, because the card is a delta and a delta with an unknown origin is a materially different claim.
-2. **Claim the mark: strike the superseded value.** Bring `before` out of the disclosure into a left ledger column, **struck through** wherever direction ≠ `unchanged`. A struck value is the clearest possible "this no longer applies" and costs zero colour. Nothing else in the system strikes text. Where `before` is absent the column shows the existing „bisher nicht bekannt".
-3. `reference` is **required on this card and optional almost everywhere else** — so this is the only card where every row is cited. Give it a permanent right-margin 11px mono column rather than hiding it in the disclosure, and let that always-populated column be part of the card's look.
-**Degradation.** 1 consequence is the minimum and still earns the card. All `before` absent → ledger collapses to a single cited list; the hinge still carries the change. `unchanged` rows (validator guarantees `before == after`, models.py:1640–1650) → **print the value once, centred, with „unverändert"** — never twice. Below 360px the ledger stacks per row: aspect, then before → after on its own line.
-**Schema:** fully served. No addition needed.
+**Grammar.** Framed. **The mark: a recessed hinge panel at the top** — the factor's name at Body muted, then `from_value → to_value` on one baseline with the old value at the **Value step in muted 400**, a muted arrow, and the new value at the **Figure step (20px)**. The weight and size difference *is* the delta; nothing is struck through, because a strike says "deleted" where the card means "superseded".
+Under a hairline, the derived direction tally in words — „**3** verschärft · **1** unverändert" at Body with the counts in full ink. Then the consequences as divided rows: `aspect` at Title step with the direction tag as a pill on the same baseline, and `before → after` beneath at Body with the after value at 600.
+`reference` is required on this card and optional almost everywhere else, so **every row is cited** — that always-populated pill is part of the card's look.
+**Unmistakable.** The only card that opens with a recessed before/after hinge.
+**Degradation.** When `from_value` is absent the left slot is an **empty dashed outline** with the existing „bisher nicht bekannt" — an absent origin must be visible as an absence, because a delta with an unknown origin is a materially different claim. 1 consequence is the minimum and still earns the card. `unchanged` rows (validator guarantees `before == after`) → print the value once with „unverändert", never twice. Below 360px the hinge stacks: factor, then before → after on its own line.
+**Schema:** fully served.
 **Effort: M.**
 
 ### B3. The schematics — honest judgement
 
 **Eleven are genuinely good and need nothing but the shell and token pass.** Saying so plainly is part of the job; manufacturing work here would cost the schematics the quality they already have. Verified by reading the code and by looking at `visual/screenshots/cards-gallery.{light,dark}.png` and `.mobile.*`.
+
+> **What the 2026-08 canvas contributes here, and what it does not.** It supplies the **outer anatomy** — title with the verdict as a glyph and word in the header row, the drawing inside a recessed panel under a Meta caption, limit rows as label / value / limit on one baseline over a 7px track, a source pill to close. That is §A applied, and it lands through `SchematicCard` and `LimitBar` rather than card by card.
+>
+> It supplies **no geometry.** `stair_diagram` stands in the canvas at 15 SVG primitives against 619 lines of real architectural templates in the code; it illustrates what the card says, it does not specify it. The eleven strong drawings are untouched.
+>
+> Two canvas sections go **backwards** and are deliberately not followed: `acoustic_check` (§24) and `energy_performance` (§25) are drawn there as plain bar rows. The first is the defect this section names below; the second removes a ladder that is correct and exempted by name. A design source is evidence, not an instruction, and this is where it is overruled.
 
 | Card | Verdict | Raise | Effort |
 |---|---|---|---|
@@ -465,7 +525,7 @@ All three landed in commit `67c2ee03`. **They are well-built**: derived tallies 
 
 | Card | Verdict | Raise | Effort |
 |---|---|---|---|
-| `acoustic_check` | **A drawing in name only.** Measured: canvas 0, svg 0, rough 0. Three `LimitBar`s in a `SchematicCard` (:71–131). The widest gap in the product between promise and delivery. | Draw the real thing: **two rooms separated by the building part under test, with the sound path drawn** — an airborne arrow *through* the wall for DnT,w / Rw,res, a footfall arrow *down through the slab* for LnT,w. The drawing then does visually what the card currently explains in words (`lowerIsBetter` / `higherIsBetter`, :100–104): direction. Keep the margin figure („Reserve +3 dB") and promote it to the card's figure at 15px. | **L** |
+| `acoustic_check` | **A drawing in name only.** Measured: canvas 0, svg 0, rough 0. Three `LimitBar`s in a `SchematicCard` (:71–131). The widest gap in the product between promise and delivery. | Draw the real thing: **two rooms separated by the building part under test, with the sound path drawn** — an airborne arrow *through* the wall for DnT,w / Rw,res, a footfall arrow *down through the slab* for LnT,w. The drawing then does visually what the card currently explains in words (`lowerIsBetter` / `higherIsBetter`, :100–104): direction. Keep the margin figure („Reserve +3 dB") and promote it to the **Value step**. | **L** |
 | `parking_requirement` | Slot grid is a decent idea, but drawn crisp with **zero rough** — it reads as an icon field, not a plan. | Draw a real **Stellplatz plan**: parallel bays at the standard 2.5 × 5.0 m proportion, sketched; missing bays as dashed voids in the same row. Keep the count bars. | **M** |
 | `density_check` | Honest and clever (√-scaled footprint keeps the *area* ratio true) but thin — one small box plus two bars, and the drawing carries no number. | Annotate the shaded footprint with its ratio **inside the box** („25 % bebaut"), so the drawing states the fact the bars measure. | **S** |
 
@@ -505,12 +565,38 @@ Poverty was assessed by reading the JSX **and by looking at the captured gallery
 | 22 | **the eleven strong schematics** | Shell and token hygiene only. **Do not redesign them.** | S each |
 | 23 | **the six IFC cards** | Shell alignment only. | S each |
 
-**Sprint shape.**
+**Sprint shape.** Sprint 1 (items 1, 4, 6, 17, 18, 19) shipped in `b82f23e1` and
+established the ramp and the colour-role fix in real code. The 2026-08 revision
+reopens several of those cards — that is a revision and not a regression, and
+what it costs is stated in §E.
 
-- **Sprint 1 — the cheap frequent ones.** Items 1, 4, 6, 17, 18, 19. All S, all in the top half, all touching every answer. Ship them together: they establish the §A2 figure rule and the §A3 colour-role fixes in real code, which every later card then builds against.
-- **Sprint 2 — the three newest cards** (7, 8, 10) while they are days old. Differentiating them now costs three mornings; after they accumulate tests and pinned screenshots it costs a week.
-- **Sprint 3 — `comparison_table` alone** (2). Its transposing mobile layout is the hardest single thing in this charter, and everything after it is easier.
-- Then §C order.
+What follows is organised by **what shares a shell**, not by card, because §A2's
+ramp and §A3's axis 5 land once in `SchematicCard` / `LimitBar` / the source
+pill and restyle twenty-four cards before a single card file is opened.
+
+- **Sprint 2 — the shared shell.** Split `kit.tsx` (§A7). Drop the eyebrow row
+  and move the title into the header (§A2). Retire `StatusBadge`'s pill for a
+  glyph and a word (§A3 axis 5). Replace `NormRefFooter` with the source pill
+  atom, tinted through `accentForLane` and never by hand. Rebuild `LimitBar` on
+  the one-baseline shape, leaving the tolerance and straddle logic untouched.
+  Extend the ramp with **Prose** and **Value**, delete `.card-figure-24/30`.
+  Nothing here is a card, and everything after it is cheaper.
+- **Sprint 3 — the answer's top.** `summary`, `verdict_header` and its two
+  shapes, `key_takeaways`, `callout`, `follow_ups`. Every answer opens and
+  closes with these; they are also where §A1's registers get proved.
+- **Sprint 4 — the reasoning.** `calculation`, `condition_tree`,
+  `requirement_checklist`, `legal_basis`, then `comparison_table` last. Its
+  transposing mobile layout is the hardest single thing in this charter.
+- **Sprint 5 — sequence and inventory.** `deadline_timeline`, `process_map`,
+  `document_checklist`, `change_impact`. `process_map` gives up its rail in the
+  same commit `deadline_timeline` keeps one, or the two are briefly identical.
+- **Sprint 6 — the rest.** `norm_chain`, `typed_table`, `diagram`,
+  `document_grid`, the proposals, the fifteen schematics (anatomy only) and the
+  six IFC cards (shell only).
+
+A card falls under `grid/card-type-scale` at the end of the sprint that touches
+it — that is the ratchet, and it is why the allow-list lives in
+`eslint.config.mjs` rather than inside the rule.
 
 ---
 
@@ -565,21 +651,42 @@ There is no visual-regression diffing, no render-time budget and no bundle-size 
 
 ## E. Status
 
-**Last updated: 2026-08-19.** Sprint 1 has shipped (`b82f23e1`): the §A2 type ramp, the §A3 colour-role fix, and items 1, 4, 6, 17, 18, 19. Everything else below is still a design contract, not a description of shipped work — read the Status column per row rather than assuming either way.
+**Last updated: 2026-08-26.** Two things have happened to this file.
 
-### Implemented
-*(none)*
+**Sprint 1 shipped** (`b82f23e1`, 2026-08-19): the type ramp, the §A3 colour-role
+fix, and items 1, 4, 6, 17, 18, 19.
+
+**§A1–§A5 and most of §B were rewritten** against the design canvas recorded in
+[`output-cards-redesign.md`](output-cards-redesign.md). That revision **reopens
+four cards Sprint 1 had closed** — `key_takeaways`, `verdict_header`, `summary`
+and `callout` — and it is worth being plain about the cost: roughly a morning of
+shipped work is being redone. It is worth it because Sprint 1 designed those
+four cards one at a time against the code, and the canvas designed forty-five at
+once against each other, which is the only vantage point from which a rule about
+*distinctiveness* can actually be checked. Three of the four changes are also
+simplifications (a staircase becomes a panel, 30px becomes 20px, a shrunken
+title becomes no title).
+
+Below, **Pending** means designed and not built; **Done** means built and
+matching this file as it now stands; **Reopened** means built, shipped, and
+superseded by the 2026-08 revision.
 
 ### Pending — system
 
 | Item | Section | Status |
 |---|---|---|
 | Split `kit.tsx` into `cards/shell.tsx` + `schematics/draw.tsx` | A7 | Pending |
-| One shell, three registers | A1 | Pending |
-| Six-step type ramp + migration off the other seven sizes | A2 | Pending |
-| Figure rule (one element above 14px, and it is the answer) | A2 | Pending |
-| Colour-role axes written down; `ProposalShell` pending-tone fix | A3 | Pending |
+| One shell, three registers (two accent forms) | A1 | Pending |
+| Type ramp: add **Prose** and **Value**, delete `.card-figure-24/30` | A2 | Pending |
+| Weight rule (rows and labels 500, running sentences 400) | A2 | Pending |
+| Figure rule at 20px, one per card | A2 | Partly — rule written, `verdict_header` still at 30px |
+| Eyebrow retired inside cards; `SchematicCard`'s default eyebrow removed | A2 | Pending |
+| Axis 5: provenance colours pills, status colours glyph + word | A3 | Pending — `StatusBadge` is still a tinted pill |
+| Source pill atom resolved through `accentForLane`, replacing `NormRefFooter` | A3 | Pending |
+| `LimitBar` on the one-baseline shape | A3 / B3 | Pending |
+| `ProposalShell` pending-tone fix (no `--warning`) | A3 | **Done** (Sprint 1) |
 | Card spacing scale (12 / 6 / 20, no arbitrary values) | A4 | Pending |
+| Recessed inner panel named as the one legal nesting | A4 | Pending |
 | Shape-vocabulary table adopted as the gate for new cards | A5 | Pending |
 | Motion policy (no in-card entrance, no springs in card bodies) | A6 | Pending |
 
@@ -587,58 +694,59 @@ There is no visual-regression diffing, no render-time budget and no bundle-size 
 
 | # | Card | Section | Effort | Status |
 |---|---|---|---|---|
-| 1 | follow_ups | B1 | S | **Done** (Sprint 1, `b82f23e1`) — frame dropped; `title` deliberately KEPT, see note below |
-| 2 | comparison_table | B1 | L | Pending |
-| 3 | requirement_checklist | B1 | M | Pending |
-| 4 | key_takeaways | B1 | S | **Done** (Sprint 1, `b82f23e1`) |
-| 5 | legal_basis | B1 | M | Pending — schema now LANDED (`284b2625`), so no longer blocked; the recessed ground / margin § column / hanging quote marks remain |
-| 6 | verdict_header | B1 | S | **Done** (Sprint 1, `b82f23e1`) — gauge shipped as three 5px squares, NOT 12×3 bars; see note below |
-| 7 | deadline_timeline | B2 | M | Pending |
-| 8 | change_impact | B2 | M | Pending |
-| 9 | norm_chain | B1 | M | Pending |
-| 10 | document_checklist | B2 | M | Pending |
-| 11 | acoustic_check | B3 | L | Pending |
-| 12 | typed_table | B1 | M | Pending |
-| 13 | calculation | B1 | M | Pending |
-| 14 | condition_tree | B1 | M | Pending (includes the `shrink-0` mobile bug) |
-| 15 | process_map | B1 | S–M | Pending |
+| 1 | follow_ups | B1 | S | **Done** — frame dropped; `title` deliberately KEPT, see note below. Canvas confirms |
+| 2 | comparison_table | B1 | L | Pending — tinted column, not the vertical-rules grid |
+| 3 | requirement_checklist | B1 | M | Pending — glyph gutter, not the tally bar |
+| 4 | key_takeaways | B1 | S | **Reopened** — recessed panels that lighten on open, replacing Sprint 1's staircase |
+| 5 | legal_basis | B1 | M | Pending — blockquote + two-pill footer, not the margin § column. Schema landed (`284b2625`) |
+| 6 | verdict_header | B1 | S | **Reopened** — 20px not 30px, three shapes incl. `bare`. Confidence squares KEPT against the canvas |
+| 7 | deadline_timeline | B2 | M | Pending — keeps the numbered rail, gains the 20px figure |
+| 8 | change_impact | B2 | M | Pending — recessed hinge, no strike-through |
+| 9 | norm_chain | B1 | M | Pending — canvas silent, previous design stands |
+| 10 | document_checklist | B2 | M | Pending — three-column count band |
+| 11 | acoustic_check | B3 | L | Pending — canvas goes backwards here and is overruled (§B3) |
+| 12 | typed_table | B1 | M | Pending — canvas silent, previous design stands |
+| 13 | calculation | B1 | M | Pending — recessed step panels, 20px results |
+| 14 | condition_tree | B1 | M | Pending — the breakout row, not the SVG brace. Includes the `shrink-0` mobile bug |
+| 15 | process_map | B1 | S–M | Pending — **gives up the rail**; ship with #7 |
 | 16 | parking_requirement | B3 | M | Pending |
-| 17 | summary | B1 | S | **Done** (Sprint 1, `b82f23e1`) |
-| 18 | callout | B1 | S | **Done** (Sprint 1, `b82f23e1`) |
-| 19 | proposals (memory / patch) | B1 | S | **Done** (Sprint 1, `b82f23e1`) — accent kept at `foreground/40`; verified legible at pixel level, an amendment to /60 was considered and declined |
+| 17 | summary | B1 | S | **Reopened** — drops its title outright under a `verdict_header` |
+| 18 | callout | B1 | S | **Reopened** — flat register, no outer card |
+| 19 | proposals (memory / patch) | B1 | S | Partly — `--warning` fix done; tinted perimeter and patch grid pending |
 | 20 | density_check | B3 | S | Pending |
 | 21 | document_grid | B1 | S | Pending (register check only) |
-| 22 | the eleven strong schematics | B3 | S each | Pending (hygiene only — **do not redesign**) |
+| 22 | the eleven strong schematics | B3 | S each | Pending (anatomy only — **do not redesign**) |
 | 23 | the six IFC cards | B1 | S each | Pending (shell alignment only) |
 
 ### Sprint 1 — what shipped, and where it departed from this charter
 
-Landed in `b82f23e1`: the §A2 type ramp, the §A3 colour-role fix, and items 1, 4, 6, 17, 18, 19.
+Landed in `b82f23e1`. Two departures were argued and upheld on review; both are
+recorded because the reasoning outlives the code.
 
 **The ramp is `@layer components`, not `@utility`.** A type step sets four or five
 properties and a card legitimately overrides one of them. In the utilities layer,
 which of `card-title` and `font-semibold` wins depends on Tailwind's internal
 ordering; in the components layer the ramp is a base every utility beats, by layer
-order rather than by luck. Enforced by a new `grid/card-type-scale` eslint rule,
-switched on per file through `CARDS_ON_THE_TYPE_RAMP` in `eslint.config.mjs` — the
-compliant set is real project state and belongs in config, not in an exemption list
-inside the rule, which would report "clean" with eleven cards still off the ramp.
+order rather than by luck. Enforced by `grid/card-type-scale`, switched on per
+file through `CARDS_ON_THE_TYPE_RAMP` in `eslint.config.mjs` — the compliant set
+is real project state and belongs in config, not in an exemption list inside the
+rule, which would report "clean" with eleven cards still off the ramp.
 
-**Two deliberate departures, both upheld on review:**
+**`follow_ups` keeps its `title`.** §B1 said "Eyebrow + chips … nothing else",
+which read literally deletes a wire field the backend describes as an optional
+headline. Every sentence of that entry argued about the FRAME; none argued about
+the field. Silently discarding model output is not a change this charter makes,
+so the frame went and the field stayed. The canvas shows the same headline and
+settles it.
 
-1. **The confidence gauge is three 5px squares, not three 12×3px bars.** As specified
-   the mark failed at the top of its own range: a meter filled to full and a rule are
-   the same picture, so at „hohe Sicherheit" it read as a decorative em-dash and the
-   comparability the gauge exists for was exactly what it lost. Tightening the gaps
-   and grooving the unlit cells did not fix it, because the problem is the cell
-   SHAPE — a square is a token, a bar is a stroke. ▪▪▪ reads as three-of-three;
-   ▪▪▫ and ▪▫▫ still read as levels.
-
-2. **`follow_ups` keeps its `title`.** §B1 says "Eyebrow + chips … nothing else",
-   which read literally deletes a wire field the backend describes as an optional
-   headline. Every sentence of that entry argues about the FRAME; none argues about
-   the field. Silently discarding model output is not a change this charter makes,
-   so the frame went and the field stayed.
+**The confidence gauge is three 5px squares, not three 12×3px bars.** As first
+specified the mark failed at the top of its own range: a meter filled to full and
+a rule are the same picture, so at „hohe Sicherheit" it read as a decorative
+em-dash and the comparability the gauge exists for was exactly what it lost. The
+problem is the cell SHAPE — a square is a token, a bar is a stroke. ▪▪▪ reads as
+three-of-three; ▪▪▫ and ▪▫▫ still read as levels. **The 2026-08 canvas drops the
+gauge entirely and is overruled** (§B1 `verdict_header`): it is the only thing
+that makes two answers comparable, and its cost is three squares.
 
 **One thing measured rather than assumed:** the Accented register's 2px
 `foreground/40` edge is invisible in a downscaled screenshot and legible at pixel

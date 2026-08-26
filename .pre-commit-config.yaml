@@ -50,7 +50,15 @@ repos:
         # secret by none. Excluded rather than baselined for the reason the note
         # below gives — a baseline entry pins a hash to a LINE NUMBER, and this
         # file grows by a block every time a skill is added.
-        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$)
+        #
+        # docs/design/assets/*.html are committed design canvases: self-unpacking
+        # bundles whose payload is the gzip+base64 of the design itself, which is
+        # high entropy by construction (8 findings in the first one) and a secret
+        # by none. The same reasoning as the screenshots exclusion two hooks up —
+        # this is committed UI evidence, and it trips a generic detector rather
+        # than a real one. Excluded rather than baselined because each bundle
+        # contributes a fresh set of line-pinned hashes.
+        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$|^docs/design/assets/.*\.html$)
         # REGENERATING THE BASELINE — keep the --exclude-lines flag, or CI starts
         # failing again a few commits later:
         #

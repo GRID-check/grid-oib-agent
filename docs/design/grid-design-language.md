@@ -287,7 +287,12 @@ surface that already has a border.
 
 **Scroll boundaries** — a bounded list that clips its next row through the middle of its text reads as broken, not as "there is more below". Dissolve the edge with the `scroll-fade-bottom` utility (`app/globals.css`) on the scroll container itself. It is a **mask**, not an overlay gradient: masking composites against whatever surface the list happens to sit on (popover, card, dialog), so it names no colour and light/dark are free — an overlay would have to hard-code a surface token and be wrong on the next surface. It stays a one-line utility rather than a wrapper component precisely because it is one paint rule with no DOM, no state and no children. Anything that must stay sharp (a keyboard-hint footer, a dialog footer) belongs *outside* the faded scroll region.
 
-**Status badges** — Badge variants: `success` (ready/completed — project green family), `info` (in-progress/running — law blue family), `warning` (needs attention — office gold family), `destructive` (failed — signal red), `secondary` (neutral/cancelled). Project status chips: "Aktiv" = `--status-active(-tint)` (green), "Abgeschlossen" = `--status-done(-tint)` (warm gray) — always dot/icon + label, never a bare color dot.
+**Status badges** — **inside a chat card a status is never a badge**: it is a
+glyph and a word in the status ink, because a tinted pill there collides with the
+provenance pills the card already carries. That is Principle 2 above — colour
+never travels alone — resolved for cards in
+[`grid-card-charter.md`](grid-card-charter.md) §A3 axis 5. Everywhere else,
+Badge variants: `success` (ready/completed — project green family), `info` (in-progress/running — law blue family), `warning` (needs attention — office gold family), `destructive` (failed — signal red), `secondary` (neutral/cancelled). Project status chips: "Aktiv" = `--status-active(-tint)` (green), "Abgeschlossen" = `--status-done(-tint)` (warm gray) — always dot/icon + label, never a bare color dot.
 
 ## Motion vocabulary
 
