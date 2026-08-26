@@ -107,7 +107,7 @@ just the commits.
 - Security scanning runs in
   [`.github/workflows/security.yml`](.github/workflows/security.yml): Semgrep
   (SAST), OSV-Scanner (dependency CVEs), pip-audit / npm audit, and gitleaks —
-  fully in-CI, no paid licence. What each tool blocks on, and the two
+  fully in-CI, no paid licence. What each tool blocks on, and the three
   non-obvious things about the trivy job:
   [docs/contributing/testing-and-verification.md](docs/contributing/testing-and-verification.md).
 - Dependency-update PRs are opened by Dependabot

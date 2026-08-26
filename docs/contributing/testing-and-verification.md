@@ -92,13 +92,22 @@ The dependency audits being advisory is worth knowing before you rely on them: a
 vulnerable dependency passes CI today. Making them block means removing both the
 `continue-on-error` and the `|| true`, not just one.
 
-Two things about the trivy job that are not obvious:
+Three things about the trivy job that are not obvious:
 
 - It asserts the exact image count (five as of ADR-0044), so a new pin fails CI
   until it is added to the scan list rather than going unscanned forever.
 - The vulnerability database is downloaded once into a shared cache and the five
   scans reuse it with `--skip-db-update`. Five fresh `docker run --rm` pulls of
   `trivy-db` from GCR return 429 and fail the job with `failed=0`.
+- What trivy learns by *walking* the images is cached across runs
+  (`actions/cache`, keyed on the pin set and the trivy version). The
+  vulnerability database is not, and the split is the point: a digest cannot
+  change, but the advisories about it do, so only the immutable half is reused
+  and a CVE disclosed this morning is still caught on the next run. That half
+  was nearly the whole job — 199s of a 245s step went into walking the Langfuse
+  web image, 192s of it secret-scanning the npm cache and Next.js source maps
+  baked into that image. Restored, it is 0s with every scanner still on.
+  Moving a digest costs one full walk, once.
 
 Findings inside those upstream images that no digest bump can clear go in
 `.trivyignore.yaml` as time-boxed exceptions with a justification and an
