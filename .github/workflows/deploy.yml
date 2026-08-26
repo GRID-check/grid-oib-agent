@@ -422,6 +422,27 @@ jobs:
             fi
           }
 
+          # The newest develop commit at which publish-images actually BUILT
+          # this service, from run history. This is what a mutable stored ref
+          # resolves to: ':latest' names whatever the node happens to have
+          # cached, and — the failure that forced this — writing it back
+          # verbatim means an unchanged image string, so Kubernetes rolls
+          # nothing. Three times in one day a real change built fresh images
+          # and then a docs-only commit arrived minutes later, superseded the
+          # real commit's deploy (its CI is cancelled, the gate skips), and
+          # the docs commit's own deploy "kept" :latest — so the built images
+          # sat in GHCR unused and the fleet stayed stale, silently.
+          newest_built_sha() {
+            for rid in $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/publish-images.yml/runs?branch=develop&status=success&per_page=25" --jq '.workflow_runs[].id'); do
+              hit="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$rid/jobs?per_page=50" --jq "[.jobs[] | select(.conclusion == \"success\") | .name] | index(\"Build & push $1 image\")")"
+              if [ -n "$hit" ] && [ "$hit" != "null" ]; then
+                gh api "repos/$GITHUB_REPOSITORY/actions/runs/$rid" --jq .head_sha
+                return 0
+              fi
+            done
+            return 1
+          }
+
           resolve_ref() {
             service="$1"
             if is_built "$service"; then
@@ -433,25 +454,48 @@ jobs:
                 tag="$IMAGE_TAG"
               fi
             else
-              # Not rebuilt: keep what the stack currently deploys. The
-              # per-service key already holds the FULL image ref the last
-              # deploy pinned (this workflow writes $*_IMAGE_REF verbatim), so
-              # echo it as-is — prefixing would double the registry/name.
+              # Not rebuilt: keep what the stack currently deploys — but only
+              # an IMMUTABLE ref is "what it deploys". The per-service key
+              # holds the FULL image ref the last deploy pinned (this workflow
+              # writes $*_IMAGE_REF verbatim), so echo it as-is — prefixing
+              # would double the registry/name.
               deployed="$(pulumi config get "grid-oib:${service}Image" 2>/dev/null || true)"
-              if [ -n "$deployed" ]; then
-                if [[ "$deployed" == *:* ]]; then
+              case "$deployed" in
+                *:latest)
+                  # Mutable: resolve to the newest commit this service was
+                  # built at, so the pin becomes immutable and the rollout
+                  # actually happens. See newest_built_sha above.
+                  built="$(newest_built_sha "$service" || true)"
+                  if [ -n "$built" ]; then
+                    tag="sha-${built}"
+                  else
+                    # No build found in recent history: keeping :latest is
+                    # then genuinely all there is. Say so.
+                    echo "::warning::${service} has no recent develop build; keeping ${deployed}" >&2
+                    echo "$deployed"
+                    return 0
+                  fi
+                  ;;
+                *:*)
                   echo "$deployed"
                   return 0
-                fi
-                # A bare tag (e.g. hand-set in the stack): normalize it.
-                tag="$deployed"
-              else
-                # Fallback for stacks that predate per-service pinning: the
-                # global imageTag (all images were historically built at every
-                # develop sha), then `latest`.
-                tag="$(pulumi config get grid-oib:imageTag 2>/dev/null || true)"
-                [ -n "$tag" ] || tag="latest"
-              fi
+                  ;;
+                ?*)
+                  # A bare tag (e.g. hand-set in the stack): normalize it.
+                  tag="$deployed"
+                  ;;
+                *)
+                  # Fallback for stacks that predate per-service pinning: the
+                  # global imageTag (all images were historically built at
+                  # every develop sha), then the newest built sha, then
+                  # `latest` as the very last resort.
+                  tag="$(pulumi config get grid-oib:imageTag 2>/dev/null || true)"
+                  if [ -z "$tag" ]; then
+                    built="$(newest_built_sha "$service" || true)"
+                    if [ -n "$built" ]; then tag="sha-${built}"; else tag="latest"; fi
+                  fi
+                  ;;
+              esac
             fi
             echo "${registry}/grid-oib-${service}:${tag}"
           }
