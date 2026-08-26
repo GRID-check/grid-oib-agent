@@ -62,11 +62,53 @@ every tenant's answers. The prompt section mirrors this: lessons carry zero
 factual authority, are never citable, and retrieval, documents, profile and
 the live conversation all outrank them.
 
+## Adjudicated: why serving is NOT retrieval (RAG)
+
+The obvious alternative — put lessons in ChromaDB and retrieve the relevant
+ones per turn — was considered and rejected, for reasons that are the repo's
+own, not taste:
+
+1. **The two-knowledge-systems doctrine already decides this.** Retrieval is
+   "the library, searched on demand" — citable, verified, evidence. Memory and
+   context are "the briefing, carried every turn" — never embedded, never a
+   citation source (system-overview §5.2). A lesson is unambiguously
+   briefing-class: it is guidance *about* answering, not material *for* an
+   answer. Putting it in the retrieval path is the same category error
+   `common/source_kinds.py` exists to prevent for measurements — anything that
+   travels the source channel can end up grounding an uncited claim.
+2. **Retrieval keys on content; the best lessons are content-poor.** "Don't
+   guess submission deadlines" has weak semantic similarity to any particular
+   question — exactly the lessons a similarity search misses. And a missed
+   retrieval here is not degraded ranking; it is the silent recurrence of the
+   one failure the system promises won't recur. A probabilistic recall channel
+   under a deterministic guarantee is a design contradiction.
+3. **The corpus-size problem RAG solves is designed not to exist.** Dedup plus
+   the power law plus capacity eviction keep the *active* register at ~20
+   items. Retrieval infrastructure to select from twenty things costs an
+   embedding call per turn, a global vector collection, and store/DB
+   consistency — to save a few hundred always-injected tokens.
+4. **Auditability.** With always-inject, "what was the fleet told at time T"
+   has an exact answer, reconstructible from the event trail. With per-turn
+   retrieval it becomes a distribution.
+
+Where vectors DO belong: **matching**, not serving. When the live register
+outgrows the top-60 matcher window, candidate selection for dedup should come
+from embedding similarity over lesson content (Phase 2, same recall channel
+the memory design specifies). And if the register is ever deliberately allowed
+to grow past the prompt budget (e.g. per-topic lanes), similarity may *select
+which lessons fill the fixed budget* — selection inside the briefing channel,
+never passage-retrieval through the citation path.
+
 ## Data model
 
 Three global tables (no `organization_id`), secured with
-`grid_secure_platform_table` — every tenant reads, only the platform role
-writes (migration `0068_platform_lessons.sql`):
+`grid_secure_platform_table` and then **tightened past the platform-table
+norm**: migration `0068` revokes even the tenant-role read grant, because
+nothing tenant-facing queries these tables (the digest is built under the
+platform role behind the internal route) and a candidate lesson is exactly
+the text the auditor flagged as possibly identifying. Tenant-invisible in
+both directions, platform-role only; `tenant-isolation.integration.spec.ts`
+pins the posture.
 
 | Table | Holds |
 |---|---|
@@ -103,6 +145,35 @@ automatic; the supervision is a held-back state, not a required click):
 - the active set is hard-capped (20 lessons / 1600-char digest — a prompt
   budget, paid on every turn of every tenant). Past the cap the
   least-recently-reported lesson is auto-retired (`evicted_capacity`).
+- **candidates expire too** (45 days without a repeat report, or beyond a cap
+  of 40 — `candidate_expired`, reversible, evented). Without this, flagged
+  singletons nobody reviews would accumulate, crowd the bounded matcher
+  window, and make new reports spawn duplicates of lessons the matcher can no
+  longer see — a divergence loop. Every sweep runs the expiry first.
+
+Sweep robustness, because the failure modes of a background LLM loop are
+quiet ones:
+
+- **No head-of-line wedging.** A deferral (distiller error) leaves no row so
+  the next sweep retries — but oldest-first ordering would let one permanently
+  failing report block everything behind it. An in-process attempt memo skips
+  a report after 3 failed tries per process (resets on deploy, when a
+  permanent failure is most likely fixed); the 30-day sweep window is the
+  durable backstop.
+- **Single-flight per process.** A burst of down-votes starts one sweep, not
+  N racing sweeps paying the same LLM calls; the manual sweep waits for an
+  in-flight kick and then runs its own pass. Cross-replica duplicates remain
+  possible, are bounded by replica count, and cost only a wasted call — the
+  UNIQUE provenance key keeps them correct — which is why there is no lock
+  held across model calls.
+
+Threat model note: the pipeline's input is adversarial by definition — anyone
+who can vote can author it. The distiller treats report text as fenced data
+and is told to describe manipulation attempts as the failure they are; the
+auditor never sees the raw report (so injected text cannot lobby its own
+screening) and flags manipulative or fact-asserting candidates; the residual —
+an attacker-influenced process caution passing both models — is bounded by the
+meta-only rule and the everything-outranks-lessons framing.
 
 ## Scaling posture (tens of thousands of reports)
 
@@ -164,6 +235,12 @@ indexes at once.
 - **Effectiveness is not yet measured.** Counters record reports, not whether
   an active lesson reduced them; a helpful/harmful signal (down-vote rate on
   turns where a lesson was in context) is the natural next ratchet.
+
+- **The event-driven trigger depends on BFF request volume.** Sweeps run
+  inside the BFF process (kicks + the dashboard button); there is no scheduled
+  worker. A deployment with heavy down-vote backlogs and no traffic would
+  drain slowly — the scheduler/purger machinery is the home for a periodic
+  sweep if that ever bites.
 
 ## Where things are
 

@@ -43,6 +43,7 @@ import {
   countLessonsByStatus,
   createLessonFromReport,
   evictActiveOverCapacity,
+  expireStaleCandidates,
   findLiveLessonByContent,
   getLesson,
   linkReportToLesson,
@@ -75,9 +76,48 @@ export const MAX_ACTIVE_LESSONS = 20
 /** Character budget of the injected digest (compare: memory digest 1800). */
 export const DIGEST_MAX_CHARS = 1600
 
+/**
+ * Candidates expire like anything else that must not grow without bound: not
+ * re-reported within the age window, or beyond the cap, they are auto-retired
+ * ('candidate_expired', reversible in the dashboard). Without this, flagged
+ * singletons accumulate forever and crowd the bounded matcher window until new
+ * reports stop matching and spawn more duplicates.
+ */
+export const CANDIDATE_MAX_AGE_DAYS = 45
+export const MAX_HELD_CANDIDATES = 40
+
 /** Reports processed per event-driven kick vs. per manual sweep. */
 const KICK_SWEEP_LIMIT = 3
 const MANUAL_SWEEP_LIMIT = 25
+
+/**
+ * A report is retried at most this often per process. Deferral (a distiller
+ * error) leaves no row on purpose — the next sweep retries — but oldest-first
+ * ordering then means a PERMANENTLY failing report would sit at the head of
+ * every sweep and wedge the pipeline behind it. The memo is deliberately
+ * in-process (resets on deploy, which is exactly when a permanent failure is
+ * most likely to have been fixed); the 30-day sweep window is the durable
+ * backstop.
+ */
+const MAX_ATTEMPTS_PER_PROCESS = 3
+const ATTEMPT_MEMO_CAP = 512
+const distillAttempts = new Map<string, number>()
+
+/**
+ * One sweep at a time per process. Kicks arrive per down-vote, so a burst
+ * would otherwise start N concurrent sweeps that all pick the same oldest
+ * reports and all pay the same LLM calls — the UNIQUE backstop keeps that
+ * correct but not cheap. Cross-replica duplicates remain possible and bounded
+ * by replica count; that residual is accepted rather than serialized through a
+ * lock held across model calls.
+ */
+let sweepInFlight: Promise<SweepResult> | null = null
+
+/** Test hook: clear the per-process sweep state. */
+export function resetLessonSweepStateForTests(): void {
+  distillAttempts.clear()
+  sweepInFlight = null
+}
 
 const DIGEST_CACHE_KEY = 'platformlessons:digest:v1'
 const DIGEST_CACHE_TTL_MS = 5 * 60 * 1000
@@ -113,7 +153,19 @@ export interface SweepResult {
  */
 async function sweep(limit: number): Promise<SweepResult> {
   const result: SweepResult = { processed: 0, created: 0, linked: 0, skipped: 0, deferred: 0 }
-  const pending = await listUnprocessedDownvotes(limit)
+
+  // Register hygiene first, every sweep: cheap (two indexed reads over
+  // candidates), and skipping it is how the candidate pile would out-grow the
+  // matcher window between manual visits to the dashboard.
+  await expireStaleCandidates(CANDIDATE_MAX_AGE_DAYS, MAX_HELD_CANDIDATES, SYSTEM_ACTOR)
+
+  // Over-fetch, then drop reports this process has already failed on
+  // repeatedly — otherwise a permanently failing report at the oldest-first
+  // head is re-fetched by every sweep and wedges everything behind it.
+  const fetched = await listUnprocessedDownvotes(limit * 2)
+  const pending = fetched
+    .filter((report) => (distillAttempts.get(report.feedbackId) ?? 0) < MAX_ATTEMPTS_PER_PROCESS)
+    .slice(0, limit)
 
   for (const report of pending) {
     result.processed++
@@ -145,9 +197,11 @@ async function sweep(limit: number): Promise<SweepResult> {
     })
 
     if (outcome.error) {
-      // Deliberately NOT recorded: an unprocessed report is retried by the
-      // next sweep, a mis-recorded one is lost. The sweep window bounds how
-      // long a permanently-failing report keeps costing calls.
+      // Deliberately NOT recorded in the DB: an unprocessed report is retried
+      // by the next sweep, a mis-recorded one is lost. The in-process memo is
+      // what stops the retrying from wedging the queue's head.
+      if (distillAttempts.size >= ATTEMPT_MEMO_CAP) distillAttempts.clear()
+      distillAttempts.set(report.feedbackId, (distillAttempts.get(report.feedbackId) ?? 0) + 1)
       result.deferred++
       continue
     }
@@ -214,19 +268,38 @@ async function sweep(limit: number): Promise<SweepResult> {
  * manual sweep.
  */
 export async function kickLessonDistillation(): Promise<void> {
+  // A kick that finds a sweep already running has nothing to add: the running
+  // sweep (or the next one) will pick the new report up, and joining it would
+  // only race the same oldest-first head.
+  if (sweepInFlight) return
   try {
-    await withPlatformAccess('platform lessons: distill new answer feedback', () =>
+    sweepInFlight = withPlatformAccess('platform lessons: distill new answer feedback', () =>
       sweep(KICK_SWEEP_LIMIT)
     )
+    await sweepInFlight
   } catch (error) {
     console.error('[PlatformLessons] Distillation kick failed (non-fatal):', error)
+  } finally {
+    sweepInFlight = null
   }
 }
 
-/** The manual catch-up run behind the dashboard's sweep button. */
+/**
+ * The manual catch-up run behind the dashboard's sweep button. Waits for any
+ * in-flight kick rather than racing it, then runs its own (larger) pass so the
+ * result it reports describes work it actually did.
+ */
 export async function runLessonSweep(session: GridSession | null): Promise<SweepResult> {
   await requirePlatformPermission(session, PLATFORM_PERMISSIONS.settingsManage)
-  return withPlatformAccess('platform lessons: manual sweep', () => sweep(MANUAL_SWEEP_LIMIT))
+  if (sweepInFlight) await sweepInFlight.catch(() => undefined)
+  try {
+    sweepInFlight = withPlatformAccess('platform lessons: manual sweep', () =>
+      sweep(MANUAL_SWEEP_LIMIT)
+    )
+    return await sweepInFlight
+  } finally {
+    sweepInFlight = null
+  }
 }
 
 /**

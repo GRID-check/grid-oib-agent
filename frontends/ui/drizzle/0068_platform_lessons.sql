@@ -138,3 +138,17 @@ SELECT grid_secure_platform_table('platform_lessons');
 SELECT grid_secure_platform_table('platform_lesson_reports');
 --> statement-breakpoint
 SELECT grid_secure_platform_table('platform_lesson_events');
+--> statement-breakpoint
+-- Tighter than the platform-table norm, deliberately. The helper grants every
+-- tenant SELECT because fleet configuration is meant to be read per tenant
+-- (model defaults, skills). No tenant-facing code reads ANY lesson table: the
+-- injected digest is built under the platform role behind the internal route.
+-- And one of these tables holds text that must not be one tenant-side bug away
+-- from other organizations — a CANDIDATE lesson is exactly the text the
+-- auditor model flagged as possibly identifying. So the read grant is revoked
+-- and the three tables are platform-role-only in both directions.
+REVOKE SELECT ON "platform_lessons" FROM grid_app_rw;
+--> statement-breakpoint
+REVOKE SELECT ON "platform_lesson_reports" FROM grid_app_rw;
+--> statement-breakpoint
+REVOKE SELECT ON "platform_lesson_events" FROM grid_app_rw;

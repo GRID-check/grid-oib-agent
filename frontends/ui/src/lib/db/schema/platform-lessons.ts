@@ -24,6 +24,11 @@ import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } fr
  * pseudonymous org hash for distinct-org counting), so the raw report stays
  * behind the tenant boundary in `answer_feedback` and is dereferenced only
  * under the audited platform bypass.
+ *
+ * Unlike the other platform tables, the tenant role holds NO read grant here
+ * (0068 revokes the helper's SELECT): nothing tenant-facing queries these
+ * tables — the digest is built under the platform role — and a candidate
+ * lesson is exactly the text the auditor flagged as possibly identifying.
  */
 
 /** Lesson categories — the reporter's down-vote reason keys, verbatim. */

@@ -381,6 +381,62 @@ export async function updateLessonWithEvent(
 }
 
 /**
+ * Retire stale or over-cap CANDIDATES (each with its own event); returns the
+ * retired ids.
+ *
+ * Candidates are the register's growth risk: an auditor-flagged singleton
+ * nobody reviews would otherwise sit "held" forever, and enough of them crowd
+ * the bounded matcher window until new reports stop matching and spawn MORE
+ * duplicate candidates — a divergence loop. So a candidate earns its slot the
+ * same way an active lesson does: by being re-reported. Not re-reported within
+ * `maxAgeDays`, or beyond `maxCandidates` (most-reported, then freshest,
+ * survive) → retired as 'candidate_expired'. Retirement is reversible in the
+ * dashboard and fully evented, so nothing is lost — only de-prioritized.
+ */
+export async function expireStaleCandidates(
+  maxAgeDays: number,
+  maxCandidates: number,
+  actor: string
+): Promise<string[]> {
+  const db = getDb()
+  return db.transaction(async (tx) => {
+    const candidates = await tx
+      .select({ id: platformLessons.id, lastReportedAt: platformLessons.lastReportedAt })
+      .from(platformLessons)
+      .where(eq(platformLessons.status, 'candidate'))
+      .orderBy(desc(platformLessons.reportCount), desc(platformLessons.lastReportedAt))
+    const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000
+    const expired = new Set<string>()
+    for (const candidate of candidates.slice(maxCandidates)) expired.add(candidate.id)
+    for (const candidate of candidates) {
+      if (candidate.lastReportedAt.getTime() < cutoff) expired.add(candidate.id)
+    }
+    const ids = [...expired]
+    if (ids.length === 0) return []
+    const now = new Date()
+    await tx
+      .update(platformLessons)
+      .set({
+        status: 'retired',
+        retiredAt: now,
+        retiredBy: actor,
+        retiredReason: 'candidate_expired',
+        updatedAt: now,
+      })
+      .where(inArray(platformLessons.id, ids))
+    await tx.insert(platformLessonEvents).values(
+      ids.map((id) => ({
+        lessonId: id,
+        action: 'retired' as const,
+        actor,
+        detail: { reason: 'candidate_expired' },
+      }))
+    )
+    return ids
+  })
+}
+
+/**
  * Retire the least-recently-reported active lessons beyond `maxActive`
  * (capacity eviction, each with its own event). Returns the ids retired.
  */

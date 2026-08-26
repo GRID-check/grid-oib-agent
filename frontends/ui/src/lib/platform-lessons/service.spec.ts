@@ -26,6 +26,7 @@ vi.mock('./repository', () => ({
   countLessonsByStatus: vi.fn(async () => ({})),
   createLessonFromReport: vi.fn(),
   evictActiveOverCapacity: vi.fn(async () => []),
+  expireStaleCandidates: vi.fn(async () => []),
   findLiveLessonByContent: vi.fn(async () => null),
   getLesson: vi.fn(),
   linkReportToLesson: vi.fn(async () => true),
@@ -45,6 +46,7 @@ vi.mock('./distill-client', () => ({
 import {
   createLessonFromReport,
   evictActiveOverCapacity,
+  expireStaleCandidates,
   findLiveLessonByContent,
   linkReportToLesson,
   listActiveLessonsForDigest,
@@ -52,7 +54,11 @@ import {
   recordSkippedReport,
 } from './repository'
 import { distillReport } from './distill-client'
-import { buildPlatformLessonsDigest, kickLessonDistillation } from './service'
+import {
+  buildPlatformLessonsDigest,
+  kickLessonDistillation,
+  resetLessonSweepStateForTests,
+} from './service'
 import type { DistillOutcome } from './types'
 
 const DOWNVOTE = {
@@ -80,6 +86,7 @@ function outcome(overrides: Partial<DistillOutcome>): DistillOutcome {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  resetLessonSweepStateForTests()
 })
 
 describe('kickLessonDistillation', () => {
@@ -213,6 +220,33 @@ describe('kickLessonDistillation', () => {
   it('never throws — a broken pipeline must not break voting', async () => {
     vi.mocked(listUnprocessedDownvotes).mockRejectedValue(new Error('db down'))
     await expect(kickLessonDistillation()).resolves.toBeUndefined()
+  })
+
+  it('expires stale candidates on every sweep, before processing', async () => {
+    vi.mocked(listUnprocessedDownvotes).mockResolvedValue([])
+    await kickLessonDistillation()
+    expect(expireStaleCandidates).toHaveBeenCalled()
+  })
+
+  it('stops retrying a report this process has failed on three times', async () => {
+    // A permanently failing report at the oldest-first head must not wedge
+    // the queue: after MAX_ATTEMPTS_PER_PROCESS deferrals it is skipped and
+    // the reports behind it get the slots.
+    vi.mocked(listUnprocessedDownvotes).mockResolvedValue([DOWNVOTE])
+    vi.mocked(distillReport).mockResolvedValue(outcome({ error: 'llm_request_failed' }))
+    for (let attempt = 0; attempt < 3; attempt++) await kickLessonDistillation()
+    expect(distillReport).toHaveBeenCalledTimes(3)
+
+    await kickLessonDistillation()
+    expect(distillReport).toHaveBeenCalledTimes(3)
+  })
+
+  it('collapses concurrent kicks into one sweep', async () => {
+    vi.mocked(listUnprocessedDownvotes).mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve([]), 10))
+    )
+    await Promise.all([kickLessonDistillation(), kickLessonDistillation(), kickLessonDistillation()])
+    expect(listUnprocessedDownvotes).toHaveBeenCalledTimes(1)
   })
 })
 
