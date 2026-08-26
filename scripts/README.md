@@ -4,9 +4,30 @@ This directory contains helper scripts for developing and running the AI-Q bluep
 
 ## Available Scripts
 
-### `setup.sh` - Initial Setup
+### `agent-preflight.sh` - Initial setup, and the one every agent runs
 
-Initializes the development environment, including Python dependencies and UI dependencies.
+The entry point for a fresh checkout, for humans and agents alike. Bootstraps
+go-task, runs `task setup`, installs the pre-commit hooks, and records which
+lockfiles it set up so a pull that moves one re-provisions. Idempotent, and a
+no-op once the checkout is current.
+
+```bash
+./scripts/agent-preflight.sh              # provision if needed
+./scripts/agent-preflight.sh --check      # verify only
+eval "$(./scripts/agent-preflight.sh --print-env)"   # task + venv on PATH
+```
+
+Claude Code runs it at session start and blocks file edits until it succeeds:
+[`docs/contributing/agent-preflight.md`](../docs/contributing/agent-preflight.md).
+
+### `setup.sh` - Legacy blueprint bootstrap
+
+The original NVIDIA blueprint installer: the `frontends/cli`, `frontends/debug`
+and benchmark packages, `deploy/.env` from its template, and `npm ci` in the UI.
+It is **not** the setup path for developing this repo — `task setup` is, and
+`agent-preflight.sh` wraps it. `setup.sh` survives because
+[`ci/scripts/test_scripts.sh`](../ci/scripts/test_scripts.sh) and the
+`start_*.sh` scripts below still call it for the blueprint entry points.
 
 ```bash
 ./scripts/setup.sh
