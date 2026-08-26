@@ -174,10 +174,7 @@ export const files = {
     resetSearch: 'Reset search',
     recentlyUploaded: 'Recently uploaded',
     semantic: {
-      run: 'Search',
       reset: 'Show all files',
-      banner: 'Semantic search: {count, plural, one {# result} other {# results}} for “{query}”',
-      searching: 'Searching your files for “{query}”…',
       noResults: 'No semantic matches for “{query}”',
       /**
        * A search that could not RUN, held apart from one that ran and found
@@ -190,7 +187,6 @@ export const files = {
       failedDescription:
         'Something went wrong on the way to the index. Your files are untouched — try the same search again, or go back to all of them.',
       retry: 'Try again',
-      failedBanner: 'Semantic search for “{query}” could not be run',
       noResultsDescription:
         'Nothing in this project matched the meaning of your query. Try different wording, or clear the search to browse every file.',
       page: 'Page {page}',

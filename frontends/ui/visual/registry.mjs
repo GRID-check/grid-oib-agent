@@ -355,7 +355,7 @@ export const SCREENSHOT_TARGETS = [
     id: 'file-browser-search-list',
     path: '/dev/file-browser?variant=search-list',
     description:
-      'A semantic search answered in the DETAIL view. The card/list toggle was read only on the un-searched branch, so pressing Enter threw a reader who had deliberately chosen the list back into cards, and clearing the query threw them back again. The ranking comes with it: relevance is the column the list opens sorted by \u2014 its own default is newest-first, which would have silently discarded the order the backend ranked \u2014 and every row carries the passage that matched, with its page, in the slot the summary usually holds.',
+      'A semantic search answered in the DETAIL view, with no banner above it: the hits are the answer, and a tinted strip restating their count pushed the whole listing down a row on every search. The field\u2019s own \u2715 is the way back out. The card/list toggle was read only on the un-searched branch, so pressing Enter threw a reader who had deliberately chosen the list back into cards, and clearing the query threw them back again. The ranking comes with it: relevance is the column the list opens sorted by \u2014 its own default is newest-first, which would have silently discarded the order the backend ranked \u2014 and every row carries the passage that matched, with its page, in the slot the summary usually holds.',
     waitFor: '[data-testid="file-list-relevance"]',
   },
   {

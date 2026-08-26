@@ -32,7 +32,6 @@ import { inferDocumentKind } from '../document-kind'
 import type { FileSearchState } from '../hooks/use-file-search'
 import { FileCard } from './file-card'
 import { FileGrid, FileCardSkeleton } from './file-grid'
-import { SemanticSearchBanner } from './file-search'
 import { FilterChip } from './filter-chip'
 
 /** The kinds of result region the pane can show (see `view` below). */
@@ -193,36 +192,10 @@ export function ArchivLibraryPane({
     <div className="animate-in fade-in-0 flex h-full flex-col duration-base ease-out motion-reduce:animate-none">
       {/* From `lg` the search FIELD is up in the Archiv's header band, with the
           upload button; below that it is this band, where it used to live for
-          every window. What stays here either way is the band that describes
-          the result set. */}
+          every window. There is no result banner either way — see
+          {@link FileSearchField}. */}
       {searchField && (
-        <div className="bg-background/95 shrink-0 border-b px-4 py-2.5 lg:hidden">
-          {searchField}
-        </div>
-      )}
-
-      {semantic.active && (
-        <SemanticSearchBanner
-          variant="band"
-          isSearching={semantic.isSearching}
-          bannerText={
-            semantic.isSearching
-              ? t('library.semantic.searching', { query: semantic.query ?? '' })
-              : // The count is a claim about the corpus, and a search that never
-                // ran has not counted anything. Reporting "0 results" above a
-                // panel that says the search failed is the same lie twice, in the
-                // one line the reader takes at face value.
-                semantic.error
-                ? t('library.semantic.failedBanner', { query: semantic.query ?? '' })
-                : t('library.semantic.banner', {
-                    count: String(semantic.hits.length),
-                    query: semantic.query ?? '',
-                  })
-          }
-          resetLabel={t('library.semantic.reset')}
-          onReset={clearFilters}
-          testId="archiv-semantic-banner"
-        />
+        <div className="bg-background/95 shrink-0 border-b px-4 py-2.5 lg:hidden">{searchField}</div>
       )}
 
       {/* Category chips — filter over the tags that really exist. Hidden in

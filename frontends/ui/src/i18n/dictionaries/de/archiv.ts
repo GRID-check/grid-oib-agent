@@ -19,16 +19,12 @@ export const archiv = {
     clearFilters: 'Filter zurücksetzen',
     provenance: 'Aus „{source}“',
     semantic: {
-      run: 'Suchen',
       reset: 'Alle Dokumente anzeigen',
-      banner: 'Semantische Suche: {count} Treffer für „{query}“',
-      searching: 'Archiv wird nach „{query}“ durchsucht …',
       noResults: 'Keine semantischen Treffer für „{query}“',
       failed: 'Die Suche konnte nicht ausgeführt werden',
       failedDescription:
         'Auf dem Weg zum Index ist etwas schiefgegangen. Das Archiv ist unverändert — versuchen Sie dieselbe Suche erneut oder kehren Sie zu allen Dokumenten zurück.',
       retry: 'Erneut versuchen',
-      failedBanner: 'Semantische Suche nach „{query}“ konnte nicht ausgeführt werden',
       noResultsDescription:
         'Nichts im Archiv entsprach dem Sinn Ihrer Anfrage. Versuchen Sie eine andere Formulierung oder löschen Sie die Suche, um alle Dokumente zu durchsuchen.',
     },

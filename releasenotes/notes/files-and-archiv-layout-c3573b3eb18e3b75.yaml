@@ -7,6 +7,11 @@ improvements:
     large enough to recognise a plan by, instead of six thumbnails the size of
     stamps across a wide screen.
   - >
+    The search itself is quieter. It reads as the plain filter it mostly is, and
+    pressing Enter still searches your documents by meaning; the coloured strip
+    that used to count the hits above them is gone, since the results were
+    already there to be counted.
+  - >
     Folders in a project are shown as tiles above the documents, each naming how
     much is filed inside it, and a folder is created, renamed and deleted right
     there. Subfolders can be opened from the card view now, and the trail above

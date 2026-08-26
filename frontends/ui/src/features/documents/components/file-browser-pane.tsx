@@ -14,7 +14,6 @@ import { FileCard } from './file-card'
 import { FILE_GRID_TEMPLATE } from './file-card-size'
 import { FileGrid, FileCardSkeleton } from './file-grid'
 import { FileListSkeleton, FileListView } from './file-list-view'
-import { SemanticSearchBanner } from './file-search'
 import { FolderTiles, FolderTrail } from './folder-tiles'
 import { AssignmentFaces } from './assignment-faces'
 
@@ -169,28 +168,12 @@ export function FileBrowserPane({
     <div className="min-w-0">
       {searchField && <div className="mb-4 lg:hidden">{searchField}</div>}
 
-      {semantic.active && (
-        <SemanticSearchBanner
-          isSearching={semantic.isSearching}
-          bannerText={
-            semantic.isSearching
-              ? t('browser.semantic.searching', { query: semantic.query ?? '' })
-              : // The count is a claim about the corpus, and a search that never
-                // ran has not counted anything. Reporting "0 results" above a
-                // panel that says the search failed is the same lie twice, in the
-                // one line the reader takes at face value.
-                semantic.error
-                ? t('browser.semantic.failedBanner', { query: semantic.query ?? '' })
-                : t('browser.semantic.banner', {
-                    count: String(semantic.hits.length),
-                    query: semantic.query ?? '',
-                  })
-          }
-          resetLabel={t('browser.semantic.reset')}
-          onReset={search.clear}
-          testId="semantic-banner"
-        />
-      )}
+      {/* No banner over the results. It restated in a tinted strip what the
+          listing below already shows — how many hits, for which query — and it
+          pushed the whole listing down a row the moment a search ran. What it
+          carried has better homes: the skeletons say a search is running, the
+          empty and failed panels say what came back, and the field's own ✕ is
+          the way out. */}
 
       {/* Where in the tree the listing is, and the way back up. Hidden in
           semantic mode (the query is the context, not the folder). */}

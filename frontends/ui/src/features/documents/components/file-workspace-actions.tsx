@@ -34,12 +34,12 @@ export function FileWorkspaceSearchField({
       onChange={search.setQuery}
       onSubmit={search.submit}
       onClear={search.clear}
+      // The short placeholder: the long one spelled out "press Enter for
+      // semantic search" because the sticky band had no other way to say it,
+      // and at this width it only truncated.
       placeholder={t('browser.searchPlaceholder')}
       searchLabel={t('browser.searchLabel')}
       resetLabel={t('browser.resetSearch')}
-      canSearch={search.canSearch}
-      runLabel={t('browser.semantic.run')}
-      isSearching={search.semantic.isSearching}
     />
   )
 }
@@ -68,8 +68,8 @@ export interface FileWorkspaceActionsProps {
  * out as if the line were infinite, so nothing ever moves to a second row and
  * the whole row simply runs off the side.
  *
- * First, the SEARCH FIELD is not here below `lg` — a field, two toggle groups
- * and an upload button do not share a line with a page title on a phone, and
+ * First, the SEARCH FIELD is not here below `lg` — a field, a toggle group and
+ * an upload button do not share a line with a page title on a phone, and
  * squeezing them until they do would leave the title a word wide. Below `lg`
  * the listing renders the same field full width at its top instead, which is
  * where it used to live anyway.

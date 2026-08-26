@@ -56,9 +56,6 @@ function Harness(paneProps: Partial<Omit<PaneProps, 'search'>>) {
         placeholder={t('library.searchPlaceholder')}
         searchLabel={t('library.searchLabel')}
         resetLabel={t('library.resetSearch')}
-        canSearch={search.canSearch}
-        runLabel={t('library.semantic.run')}
-        isSearching={search.semantic.isSearching}
       />
       <ArchivLibraryPane
         files={files}

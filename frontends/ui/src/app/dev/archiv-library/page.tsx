@@ -144,9 +144,6 @@ export default function ArchivLibraryDevPage(): JSX.Element {
       placeholder="Archiv durchsuchen…"
       searchLabel="Suche"
       resetLabel="Suche zurücksetzen"
-      canSearch={search.canSearch}
-      runLabel="Suchen"
-      isSearching={search.semantic.isSearching}
     />
   )
   useEffect(() => {

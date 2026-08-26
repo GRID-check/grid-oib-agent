@@ -73,9 +73,6 @@ function Harness({
         placeholder={t('browser.searchPlaceholder')}
         searchLabel={t('browser.searchLabel')}
         resetLabel={t('browser.resetSearch')}
-        canSearch={search.canSearch}
-        runLabel={t('browser.semantic.run')}
-        isSearching={search.semantic.isSearching}
       />
       <FileBrowserPane
         files={files}
@@ -325,13 +322,12 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
 
     await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
 
-    // The banner AND the panel both say it now, which is why this counts two.
-    expect(await screen.findAllByText(/could not be run/i)).toHaveLength(2)
+    // The panel says which of the two happened, in the reader's own terms.
+    expect(await screen.findByText(/could not be run/i)).toBeInTheDocument()
     expect(screen.queryByText(/no semantic matches/i)).not.toBeInTheDocument()
-    // And the banner above it: a count is a claim about the corpus, and a
-    // search that never ran has not counted anything. "0 results" over a panel
-    // that says the search failed is the same lie twice.
-    expect(await screen.findByTestId('semantic-banner')).not.toHaveTextContent(/0 results/i)
+    // A count is a claim about the corpus, and a search that never ran has not
+    // counted anything — so nothing on screen reports a number at all.
+    expect(screen.queryByText(/0 results/i)).not.toBeInTheDocument()
   })
 
   it('retries the SAME query, instead of only offering to give up', async () => {
@@ -396,9 +392,19 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
     expect(await screen.findByTestId('file-list-view')).toBeInTheDocument()
   })
 
-  it('shows no search button (and no semantic call) without a projectId', () => {
+  it('runs no semantic search at all without a projectId', async () => {
+    // There is no run button to hide any more, so Enter is the only way in —
+    // and on a surface with no corpus to query it has to be a no-op rather
+    // than a request to an endpoint that cannot answer.
+    const user = userEvent.setup()
     renderPane()
-    expect(screen.queryByRole('button', { name: /^search$/i })).not.toBeInTheDocument()
+
+    await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
+
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/api/documents/search'))).toBe(
+      false
+    )
+    expect(screen.queryByTestId('semantic-match')).not.toBeInTheDocument()
   })
 
   it('keeps the instant substring filter working as you type, before any semantic run', async () => {
@@ -420,10 +426,9 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
 
     await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
 
-    // Transparent banner naming the mode + result count for the query.
-    const banner = await screen.findByTestId('semantic-banner')
-    expect(banner).toHaveTextContent(/semantic search: 1 result for/i)
-    expect(banner).toHaveTextContent(/fire escape/)
+    // The hits ARE the answer: no tinted strip restating their count above
+    // them, which is what pushed the listing down a row on every search.
+    expect(screen.queryByTestId('semantic-banner')).not.toBeInTheDocument()
 
     // The match evidence: snippet + page + relevance percent.
     const match = await screen.findByTestId('semantic-match')
@@ -439,16 +444,18 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
     })
   })
 
-  it('reset returns to the normal list and clears the banner', async () => {
+  it('leaves semantic mode through the field’s own clear', async () => {
     const user = userEvent.setup()
     renderPane({ projectId: 'proj-1' })
 
     await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
-    await screen.findByTestId('semantic-banner')
+    await screen.findByTestId('semantic-match')
 
-    await user.click(screen.getByRole('button', { name: /show all files/i }))
+    // With the banner gone this ✕ is the way out, so it has to be one.
+    await user.click(screen.getByRole('button', { name: /reset search/i }))
 
-    expect(screen.queryByTestId('semantic-banner')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('semantic-match')).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: /search files/i })).toHaveValue('')
     // Back to the full list.
     expect(screen.getByText('site-plan.pdf')).toBeInTheDocument()
     expect(screen.getByText('permit.pdf')).toBeInTheDocument()
