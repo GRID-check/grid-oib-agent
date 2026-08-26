@@ -134,5 +134,13 @@ apm_modules/
 # Committing the generated copies let a skill be edited in place with nothing
 # to detect it, and it hid that ten committed "symlinks" were plain text files
 # containing a path (git mode 100644) that never resolved for anyone.
-.claude/
+# ...with two exceptions, which are SOURCE and not generated: the SessionStart
+# hook that installs this repo's toolchain (including the `apm install` that
+# publishes the skills below it) and the settings file that registers it. They
+# have to be tracked or every fresh container starts without them, which is the
+# exact failure they exist to prevent. `.claude/*` rather than `.claude/`, so
+# git descends into the directory and honours the negations.
+.claude/*
+!.claude/hooks/
+!.claude/settings.json
 .agents/
