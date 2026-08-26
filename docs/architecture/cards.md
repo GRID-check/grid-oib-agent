@@ -359,6 +359,37 @@ be fabricated to fill a card out — a card with an invented limit in it is wors
 than the prose alone, because it is the part that gets screenshotted into a
 submission.
 
+### What a card costs the turn, and what it used to cost
+
+Two content cards is the doctrine's ceiling. For a long time it was also
+unreachable, for a reason that had nothing to do with the doctrine.
+
+The shallow agent forces synthesis at `tool_iteration_ceiling`
+(`max_tool_iterations`, five in production, plus a reserve sized to the standard
+skills the deployment forces on every turn), and every tool call was charged to
+it — `emit_card` and `describe_card` included. Those are the answer's OUTPUT
+channel, and they are called last, after the searching is done, so on any turn
+that actually researched, the ceiling landed on the cards rather than on the
+research. The forced-synthesis anchor then says "Do not attempt any further tool
+calls", which made the second card unreachable by construction: the model had
+already decided to draw it, and nothing in the answer, the log or the
+`research_truncated` note said what had been lost.
+
+So the interaction tools have their own allowance
+(`_INTERACTION_TOOL_ALLOWANCE`, six — one shape lookup, three `emit_card` calls,
+a `remember`, and one spare for the retry a validation failure invites), spent
+before the research budget is touched. It is sized at the doctrine's most
+generous reading on purpose: it decides only when a card starts costing
+research, never how many cards an answer should carry. It is a CEILING on the
+exemption rather than a second budget: a call past it is charged to research
+again, so the tool loop still terminates where it always did. The counter is
+`interaction_iterations` on the shallow agent's state, per turn.
+
+The rule this leaves is the one that was always meant to be in force: how many
+cards an answer carries is a judgement about the answer, decided by the doctrine
+and the `piloti-cards` skill — never a leftover of how much searching the
+question happened to need.
+
 ### Which turns may emit a card
 
 Every turn, including one the intent classifier routed as `meta`. This used to be

@@ -65,6 +65,15 @@ vi.mock('@/adapters/auth', () => ({
 const mockImportJobStream = vi.fn()
 const mockLoadResearchPanelTab = vi.fn()
 
+// The typing reveal is off under vitest (see `use-typed-reveal.ts`), so the one
+// thing this component does with it — treat a half-shown answer as still
+// arriving — has to be driven explicitly. `text: null` means "whatever the
+// component was handed", which is what every other test in this file wants.
+const { reveal } = vi.hoisted(() => ({ reveal: { text: null as string | null, isTyping: false } }))
+vi.mock('../hooks/use-typed-reveal', () => ({
+  useTypedReveal: (content: string) => ({ text: reveal.text ?? content, isTyping: reveal.isTyping }),
+}))
+
 vi.mock('../hooks', () => ({
   useLoadJobData: () => ({
     loadReport: vi.fn(),
@@ -86,6 +95,8 @@ describe('AgentResponse', () => {
     vi.clearAllMocks()
     mockImportJobStream.mockClear()
     mockLoadResearchPanelTab.mockClear()
+    reveal.text = null
+    reveal.isTyping = false
   })
 
   test('renders response content', () => {
@@ -748,6 +759,58 @@ describe('AgentResponse', () => {
       render(<AgentResponse content="Die Antwort." variant="inline" citations={citations} />)
 
       expect(screen.queryByRole('button', { name: 'Copy answer' })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('the typing reveal', () => {
+    // The answer is finished before its first delta leaves the agent, so
+    // `isStreaming` lasts a frame or two and the WRITING is this reveal. Every
+    // affordance that acts on a whole answer has to follow it rather than the
+    // socket, or it lands over half an answer.
+    test('an answer half revealed shows only what has been revealed', () => {
+      reveal.text = 'Die Antwort'
+      reveal.isTyping = true
+
+      render(<AgentResponse content="Die Antwort ist ja, ab GK4." />)
+
+      expect(screen.getByText('Die Antwort')).toBeInTheDocument()
+      expect(screen.queryByText('Die Antwort ist ja, ab GK4.')).not.toBeInTheDocument()
+    })
+
+    test('an answer still being revealed cannot be copied', () => {
+      reveal.text = 'Die Antwort'
+      reveal.isTyping = true
+
+      render(<AgentResponse content="Die Antwort ist ja, ab GK4." />)
+
+      expect(screen.queryByRole('button', { name: 'Copy answer' })).not.toBeInTheDocument()
+    })
+
+    test('a card no marker claimed waits for the reveal to finish', () => {
+      // "Unplaced" is read off the body SO FAR. A card whose `[[card:N]]` has
+      // not been typed out yet looks unplaced, and drawing it here would put it
+      // below the prose for a second and then jump it up the answer.
+      const cards = [
+        {
+          type: 'summary' as const,
+          title: 'Nachgestellte Karte',
+          content: 'Summary content',
+          key_points: null,
+        },
+      ]
+      reveal.text = 'Die '
+      reveal.isTyping = true
+
+      const midReveal = render(<AgentResponse content="Die Antwort." cards={cards} />)
+      expect(midReveal.container.textContent).not.toContain('Nachgestellte Karte')
+      midReveal.unmount()
+
+      // A second render rather than a rerender: the component is memoized on
+      // its props, and the reveal is not one of them.
+      reveal.text = null
+      reveal.isTyping = false
+      const revealed = render(<AgentResponse content="Die Antwort." cards={cards} />)
+      expect(revealed.container.textContent).toContain('Nachgestellte Karte')
     })
   })
 })
