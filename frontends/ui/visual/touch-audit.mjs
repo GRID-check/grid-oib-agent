@@ -341,7 +341,7 @@ const AUDIT = ({ interactive, floor, slack }) => {
  * a sign-in page while reporting on the surface it thinks it loaded.
  */
 async function startServer() {
-  const { spawn } = await import('node:child_process')
+  const { spawn, spawnSync } = await import('node:child_process')
   const port = Number(process.env.PORT) || 3411
   const baseUrl = `http://127.0.0.1:${port}`
   if (await portIsBusy(port)) {
@@ -372,7 +372,18 @@ async function startServer() {
 
   const stop = () => {
     try {
-      process.kill(-child.pid, 'SIGTERM')
+      if (process.platform === 'win32') {
+        // Windows has no process groups, so `process.kill(-pid)` throws EINVAL and
+        // the catch below would swallow it — leaving `next dev` holding the port.
+        // That used to be a silent leak; with `portIsBusy` above it is now a hard
+        // failure on the NEXT run, so the platform needs its own path rather than
+        // a shared one that only works on POSIX. `/t` takes the tree (the `npx`
+        // wrapper AND the server under it), `/f` because the server ignores a
+        // polite close once Turbopack is up.
+        spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' })
+      } else {
+        process.kill(-child.pid, 'SIGTERM')
+      }
     } catch {
       /* already gone */
     }
