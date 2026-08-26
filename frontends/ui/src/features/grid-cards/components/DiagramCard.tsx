@@ -87,7 +87,7 @@ import { useTranslations } from '@/i18n'
 import { useRenderedDiagram } from '@/features/diagrams/use-rendered-diagram'
 import { useDiagramFiling } from '@/features/diagrams/use-diagram-filing'
 import { DiagramFilingControls } from '@/features/diagrams/components/diagram-filing-controls'
-import { NormRefFooter } from '../schematics/kit'
+import { NormRefFooter } from '../cards/shell'
 import type { NormReferenceData } from '../schematics/types'
 
 interface DiagramCardProps {

@@ -13,18 +13,8 @@
 
 import { type FC, type ReactNode } from 'react'
 import { Ruler } from 'lucide-react'
-import {
-  DimChecksList,
-  DimensionArrow,
-  ExtensionLine,
-  fitScale,
-  fmtDim,
-  SchematicCanvas,
-  SchematicCard,
-  statusColor,
-  SvgLabel,
-  worstStatus,
-} from './kit'
+import { DimChecksList, fmtDim, SchematicCard, statusColor, worstStatus } from '../cards/shell'
+import { DimensionArrow, ExtensionLine, fitScale, SchematicCanvas, SvgLabel } from './draw'
 import { sketchCircle, sketchPath, sketchPolygon, sketchRect, type Point } from './rough'
 import { useTranslations, type Translator } from '@/i18n'
 import type { DimensionCheckData, NormReferenceData } from './types'

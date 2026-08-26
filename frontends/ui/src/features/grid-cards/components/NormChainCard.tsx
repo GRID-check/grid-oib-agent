@@ -12,7 +12,7 @@
 
 import { type FC } from 'react'
 import { ListTree } from 'lucide-react'
-import { SchematicCard } from '../schematics/kit'
+import { SchematicCard } from '../cards/shell'
 import { useTranslations, type Translator } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { NormChainLinkData, NormChainRank } from '../schematics/types'

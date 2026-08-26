@@ -45,8 +45,11 @@ answer it has just written.
 | `change_impact` | „Was passiert, wenn X sich ändert" — one moving fact, its two values, and what each consequence COSTS, each marked as tightening or relaxing | `title`, `factor`, `from_value`, `to_value`, `consequences[]`, `reference`, `note` |
 | `diagram` | A relationship prose cannot hold — a Verfahren that forks and rejoins, several Stellen exchanging in order, a Nachweis others depend on — drawn as mermaid. Never anything measured, and the card renders rather than files; see [The `diagram` card](#the-diagram-card-the-one-drawing-whose-renderer-cannot-check-it) | `title`, `diagram_type` (`flowchart` / `sequence` / `state` / `pie`), `source`, `caption`, `reference` |
 
-**Schematic cards** — fifteen programmatically-drawn technical diagrams (SVG kit
-in `features/grid-cards/schematics/`, Rough.js sketch stroke). The model emits
+**Schematic cards** — fifteen programmatically-drawn technical diagrams
+(`features/grid-cards/schematics/draw.tsx` for the crisp measurement layer,
+`rough.tsx` for the sketch stroke; the shell and the status vocabulary they
+share with every other card live one directory up in `cards/shell.tsx`, and
+importing `draw.tsx` is what declares that a card draws — charter §A7). The model emits
 **parameters only**; the renderer draws to scale and does every piece of
 geometry and ratio arithmetic itself, so a card cannot show a diagram that
 disagrees with its own numbers. Each measured dimension is a `DimensionCheck`

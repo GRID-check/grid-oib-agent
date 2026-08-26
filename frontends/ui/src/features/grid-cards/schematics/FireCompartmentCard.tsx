@@ -12,16 +12,8 @@
 
 import { type FC } from 'react'
 import { Flame } from 'lucide-react'
-import {
-  DimChecksList,
-  fmtDim,
-  missingLabel,
-  SchematicCanvas,
-  SchematicCard,
-  statusColor,
-  SvgLabel,
-  worstStatus,
-} from './kit'
+import { DimChecksList, fmtDim, missingLabel, SchematicCard, statusColor, worstStatus } from '../cards/shell'
+import { SchematicCanvas, SvgLabel } from './draw'
 import { sketchRect } from './rough'
 import { useTranslations } from '@/i18n'
 import type { FireCompartmentData, NormReferenceData } from './types'

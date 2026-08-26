@@ -14,18 +14,8 @@
 
 import { type FC } from 'react'
 import { Fence } from 'lucide-react'
-import {
-  DimChecksList,
-  DimensionArrow,
-  ExtensionLine,
-  fitScale,
-  fmtDim,
-  SchematicCanvas,
-  SchematicCard,
-  statusColor,
-  SvgLabel,
-  worstStatus,
-} from './kit'
+import { DimChecksList, fmtDim, SchematicCard, statusColor, worstStatus } from '../cards/shell'
+import { DimensionArrow, ExtensionLine, fitScale, SchematicCanvas, SvgLabel } from './draw'
 import { sketchLine, sketchRect } from './rough'
 import { useTranslations, type Translator } from '@/i18n'
 import type { DimensionCheckData, NormReferenceData } from './types'

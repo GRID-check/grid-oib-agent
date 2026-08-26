@@ -12,15 +12,8 @@
 
 import { type FC } from 'react'
 import { Route } from 'lucide-react'
-import {
-  fitScale,
-  fmtNum,
-  LimitBar,
-  SchematicCanvas,
-  SchematicCard,
-  statusColor,
-  SvgLabel,
-} from './kit'
+import { fmtNum, LimitBar, SchematicCard, statusColor } from '../cards/shell'
+import { fitScale, SchematicCanvas, SvgLabel } from './draw'
 import { sketchPath, type Point } from './rough'
 import { useTranslations } from '@/i18n'
 import type { DimensionCheckData, EgressSegmentData, NormReferenceData } from './types'

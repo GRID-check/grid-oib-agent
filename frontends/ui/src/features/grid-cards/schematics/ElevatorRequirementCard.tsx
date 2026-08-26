@@ -14,13 +14,8 @@
 
 import { type FC } from 'react'
 import { ArrowUpDown, CircleHelp } from 'lucide-react'
-import {
-  DimChecksList,
-  SchematicCanvas,
-  SchematicCard,
-  SvgLabel,
-  worstStatus,
-} from './kit'
+import { DimChecksList, SchematicCard, worstStatus } from '../cards/shell'
+import { SchematicCanvas, SvgLabel } from './draw'
 import { cn } from '@/lib/utils'
 import { sketchLine, sketchRect } from './rough'
 import { useTranslations, type Translator } from '@/i18n'

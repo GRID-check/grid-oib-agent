@@ -36,7 +36,7 @@ import { useState, type FC } from 'react'
 import { ChevronDown, Hourglass, Scale } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useTranslations, type Translator } from '@/i18n'
-import { SchematicCard } from '../schematics/kit'
+import { SchematicCard } from '../cards/shell'
 import { cn } from '@/lib/utils'
 import type { DeadlineData, NormReferenceData } from '../schematics/types'
 

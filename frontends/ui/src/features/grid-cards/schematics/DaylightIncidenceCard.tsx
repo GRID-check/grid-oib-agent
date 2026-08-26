@@ -15,20 +15,8 @@
 
 import { type FC } from 'react'
 import { Sun } from 'lucide-react'
-import {
-  DimChecksList,
-  DimensionArrow,
-  ExtensionLine,
-  fitScale,
-  fmtDim,
-  fmtNum,
-  LimitBar,
-  SchematicCanvas,
-  SchematicCard,
-  statusColor,
-  SvgLabel,
-  worstStatus,
-} from './kit'
+import { DimChecksList, fmtDim, fmtNum, LimitBar, SchematicCard, statusColor, worstStatus } from '../cards/shell'
+import { DimensionArrow, ExtensionLine, fitScale, SchematicCanvas, SvgLabel } from './draw'
 import { sketchLine, sketchRect } from './rough'
 import { useTranslations } from '@/i18n'
 import type { DimensionCheckData, DimStatus, NormReferenceData, ObstructionData } from './types'

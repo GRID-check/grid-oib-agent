@@ -12,18 +12,8 @@
 
 import { type FC } from 'react'
 import { LandPlot } from 'lucide-react'
-import {
-  DimChecksList,
-  DimensionArrow,
-  fitScale,
-  fmtDim,
-  fmtNum,
-  SchematicCanvas,
-  SchematicCard,
-  statusColor,
-  SvgLabel,
-  worstStatus,
-} from './kit'
+import { DimChecksList, fmtDim, fmtNum, SchematicCard, statusColor, worstStatus } from '../cards/shell'
+import { DimensionArrow, fitScale, SchematicCanvas, SvgLabel } from './draw'
 import { sketchRect } from './rough'
 import { useTranslations, type Translator } from '@/i18n'
 import type { DimensionCheckData, NormReferenceData, SetbackSideData } from './types'

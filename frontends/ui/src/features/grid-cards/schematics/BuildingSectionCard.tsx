@@ -12,14 +12,8 @@
 
 import { type FC, type ReactNode } from 'react'
 import { Building2 } from 'lucide-react'
-import {
-  DimensionArrow,
-  ExtensionLine,
-  fmtNum,
-  SchematicCanvas,
-  SchematicCard,
-  SvgLabel,
-} from './kit'
+import { fmtNum, SchematicCard } from '../cards/shell'
+import { DimensionArrow, ExtensionLine, SchematicCanvas, SvgLabel } from './draw'
 import { sketchLine, sketchRect } from './rough'
 import type { NormReferenceData, SectionMarkerData, SectionStoreyData } from './types'
 

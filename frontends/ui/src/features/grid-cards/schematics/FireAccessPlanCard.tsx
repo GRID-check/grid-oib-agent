@@ -14,19 +14,8 @@
 
 import { type FC } from 'react'
 import { Flame } from 'lucide-react'
-import {
-  DimChecksList,
-  DimensionArrow,
-  ExtensionLine,
-  fitScale,
-  fmtDim,
-  fmtNum,
-  SchematicCanvas,
-  SchematicCard,
-  statusColor,
-  SvgLabel,
-  worstStatus,
-} from './kit'
+import { DimChecksList, fmtDim, fmtNum, SchematicCard, statusColor, worstStatus } from '../cards/shell'
+import { DimensionArrow, ExtensionLine, fitScale, SchematicCanvas, SvgLabel } from './draw'
 import { sketchRect } from './rough'
 import { useTranslations } from '@/i18n'
 import type { AufstellflaechePlanData, DimensionCheckData, NormReferenceData } from './types'

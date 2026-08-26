@@ -14,7 +14,8 @@
 
 import { type FC } from 'react'
 import { Gauge } from 'lucide-react'
-import { fmtDim, LimitBar, missingLabel, SchematicCanvas, SchematicCard, SvgLabel } from './kit'
+import { fmtDim, LimitBar, missingLabel, SchematicCard } from '../cards/shell'
+import { SchematicCanvas, SvgLabel } from './draw'
 import { useTranslations } from '@/i18n'
 import type { DimensionCheckData, NormReferenceData } from './types'
 

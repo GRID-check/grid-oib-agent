@@ -26,7 +26,7 @@ import {
 import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
 import { AskAboutChip } from './AskAboutChip'
-import { statusColor, statusLabel } from '../schematics/kit'
+import { statusColor, statusLabel } from '../cards/shell'
 import type { ChecklistItemData, DimStatus, NormReferenceData } from '../schematics/types'
 
 interface RequirementChecklistCardProps {

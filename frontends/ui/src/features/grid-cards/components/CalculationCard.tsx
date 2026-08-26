@@ -39,16 +39,7 @@ import { useState, type FC } from 'react'
 import { ChevronDown, Sigma } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useTranslations, type Translator } from '@/i18n'
-import {
-  SchematicCard,
-  fmtComparator,
-  fmtNum,
-  fmtTolerance,
-  missingLabel,
-  provenanceLabel,
-  provenanceTitle,
-  statusColor,
-} from '../schematics/kit'
+import { SchematicCard, fmtComparator, fmtNum, fmtTolerance, missingLabel, provenanceLabel, provenanceTitle, statusColor } from '../cards/shell'
 import { evaluate, resultDecimals, verdictFor, type StepResult } from '../lib/calculate'
 import { cn } from '@/lib/utils'
 import type {

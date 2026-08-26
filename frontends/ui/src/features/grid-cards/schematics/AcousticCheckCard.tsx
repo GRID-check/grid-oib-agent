@@ -16,7 +16,7 @@ import { type FC } from 'react'
 import { Volume2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { useTranslations, type Translator } from '@/i18n'
-import { fmtNum, LimitBar, SchematicCard, statusColor, worstStatus } from './kit'
+import { fmtNum, LimitBar, SchematicCard, statusColor, worstStatus } from '../cards/shell'
 import type { AcousticCheckItemData, AcousticMetric, DimensionCheckData } from './types'
 
 interface AcousticCheckCardProps {

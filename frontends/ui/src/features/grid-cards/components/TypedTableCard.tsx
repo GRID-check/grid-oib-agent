@@ -12,7 +12,7 @@
 
 import { type FC } from 'react'
 import { Table2 } from 'lucide-react'
-import { SchematicCard, statusColor, statusLabel } from '../schematics/kit'
+import { SchematicCard, statusColor, statusLabel } from '../cards/shell'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { DimStatus, NormReferenceData, TypedColumnData, TypedColumnKind } from '../schematics/types'

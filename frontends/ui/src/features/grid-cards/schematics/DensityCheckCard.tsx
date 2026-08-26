@@ -13,17 +13,8 @@
 
 import { type FC } from 'react'
 import { Grid2x2 } from 'lucide-react'
-import {
-  fitScale,
-  fmtNum,
-  LimitBar,
-  missingLabel,
-  SchematicCanvas,
-  SchematicCard,
-  statusColor,
-  SvgLabel,
-  worstStatus,
-} from './kit'
+import { fmtNum, LimitBar, missingLabel, SchematicCard, statusColor, worstStatus } from '../cards/shell'
+import { fitScale, SchematicCanvas, SvgLabel } from './draw'
 import { sketchRect } from './rough'
 import { useTranslations } from '@/i18n'
 import type { DimensionCheckData, NormReferenceData } from './types'

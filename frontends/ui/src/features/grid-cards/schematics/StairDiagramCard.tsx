@@ -13,18 +13,8 @@
 
 import { type FC } from 'react'
 import { TrendingUp } from 'lucide-react'
-import {
-  DimChecksList,
-  DimensionArrow,
-  ExtensionLine,
-  fitScale,
-  fmtDim,
-  fmtNum,
-  SchematicCanvas,
-  SchematicCard,
-  SvgLabel,
-  worstStatus,
-} from './kit'
+import { DimChecksList, fmtDim, fmtNum, SchematicCard, worstStatus } from '../cards/shell'
+import { DimensionArrow, ExtensionLine, fitScale, SchematicCanvas, SvgLabel } from './draw'
 import { sketchPolygon, sketchRect, type Point } from './rough'
 import { useTranslations } from '@/i18n'
 import type { DimensionCheckData, NormReferenceData } from './types'

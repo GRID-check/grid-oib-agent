@@ -18,7 +18,7 @@ import type { ReactElement } from 'react'
 import { I18nProvider } from '@/i18n'
 import { AskAboutChip } from './AskAboutChip'
 import { RequirementChecklistCard } from './RequirementChecklistCard'
-import { DimChecksList } from '../schematics/kit'
+import { DimChecksList } from '../cards/shell'
 
 const setComposerPrefill = vi.fn()
 const chatSendFn = vi.fn()

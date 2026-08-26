@@ -31,7 +31,7 @@ import { Card } from '@/components/ui/card'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations, type Translator } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { NormRefFooter } from '../schematics/kit'
+import { NormRefFooter } from '../cards/shell'
 import type { NormReferenceData } from '../schematics/types'
 
 type Confidence = 'low' | 'medium' | 'high'

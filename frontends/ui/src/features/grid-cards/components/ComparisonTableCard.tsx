@@ -10,7 +10,7 @@
 
 import { type FC } from 'react'
 import { Columns3, ThumbsUp } from 'lucide-react'
-import { SchematicCard, statusColor } from '../schematics/kit'
+import { SchematicCard, statusColor } from '../cards/shell'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { ComparisonRowData, NormReferenceData } from '../schematics/types'

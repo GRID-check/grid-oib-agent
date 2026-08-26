@@ -13,14 +13,8 @@
 
 import { type FC } from 'react'
 import { Thermometer } from 'lucide-react'
-import {
-  LimitBar,
-  SchematicCanvas,
-  SchematicCard,
-  statusColor,
-  SvgLabel,
-  worstStatus,
-} from './kit'
+import { LimitBar, SchematicCard, statusColor, worstStatus } from '../cards/shell'
+import { SchematicCanvas, SvgLabel } from './draw'
 import { sketchLine, sketchPath, sketchRect } from './rough'
 import { useTranslations } from '@/i18n'
 import type { DimStatus, EnvelopeComponentData, NormReferenceData } from './types'

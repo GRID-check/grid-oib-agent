@@ -253,12 +253,12 @@ Governed by `grid-design-language.md` §Motion vocabulary. Card-specific rulings
 
 ### A7. The drawing kit, and where `rough` stops
 
-`kit.tsx` (731 lines) is really two modules wearing one name:
+`kit.tsx` was 731 lines and two modules wearing one name. **Split, and it stays split:**
 
-- **Shell + vocabulary** (used by everything): `statusColor`/`statusLabel`/`worstStatus` (:49–96), Austrian formatting `fmtNum`/`fmtDim`/`fmtTolerance` (:103–166), `LimitBar` (:414), `DimChecksList` (:544), `NormRefFooter` (:618), `SchematicCard` (:702).
-- **Drawing layer** (schematics only): `fitScale` (:174), `SvgLabel` (:195), `ExtensionLine` (:236), `DimensionArrow` (:271), `SchematicCanvas` + `MAX_CANVAS_SCALE` (:368–400).
+- **`cards/shell.tsx`** — shell + vocabulary, imported by all twenty-four carded types: `statusColor` / `statusLabel` / `worstStatus`, the Austrian formatting `fmtNum` / `fmtDim` / `fmtTolerance`, `LimitBar`, `DimChecksList`, `NormRefFooter`, `StatusBadge`, `SchematicCard`.
+- **`schematics/draw.tsx`** — the drawing layer, imported by the fifteen schematics and by nothing else: `fitScale`, `SvgLabel`, `ExtensionLine`, `DimensionArrow`, `SchematicCanvas` + `MAX_CANVAS_SCALE`.
 
-**Split it.** `cards/shell.tsx` and `schematics/draw.tsx`. This is not cosmetic: it makes "may I sketch here?" a question of which module you import, and it stops `SchematicCard` — the chrome nine non-drawn cards depend on — living in a file called `schematics`.
+This is not cosmetic: it makes "may I sketch here?" a question of **which module you import**, and it stops `SchematicCard` — the chrome nine non-drawn cards depend on — living in a file called `schematics`. `draw.tsx` may import the shell's status vocabulary (an arrow is coloured by the verdict on the dimension it measures); the shell may never import `draw.tsx`, and nothing outside `schematics/` may import either `draw.tsx` or `rough.tsx`.
 
 #### The ruling on `rough`: confined to the schematics, permanently
 
@@ -675,7 +675,7 @@ superseded by the 2026-08 revision.
 
 | Item | Section | Status |
 |---|---|---|
-| Split `kit.tsx` into `cards/shell.tsx` + `schematics/draw.tsx` | A7 | Pending |
+| Split `kit.tsx` into `cards/shell.tsx` + `schematics/draw.tsx` | A7 | **Done** |
 | One shell, three registers (two accent forms) | A1 | Pending |
 | Type ramp: add **Prose** and **Value**, delete `.card-figure-24/30` | A2 | Pending |
 | Weight rule (rows and labels 500, running sentences 400) | A2 | Pending |
