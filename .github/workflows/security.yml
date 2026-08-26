@@ -191,6 +191,11 @@ jobs:
   image-scan:
     name: Image vulns (trivy)
     runs-on: ubuntu-latest
+    env:
+      # One place, because the scanner version and the layer-cache key below
+      # must move together: a trivy upgrade changes the analyzers, so it must
+      # not reuse the previous version's analysis.
+      TRIVY_VERSION: "0.61.1"
     steps:
       # Needed for the digest extraction below to see deploy/pulumi/src/config.ts.
       - uses: actions/checkout@v7
@@ -227,6 +232,29 @@ jobs:
           for image in "${expected[@]}"; do
             grep -qE "^${image}@sha256:[a-f0-9]{64}$" pinned-images.txt
           done
+      # What trivy learns by WALKING these images — their packages, and the
+      # secret matches `.trivyignore.yaml` suppresses — is a pure function of
+      # `pinned-images.txt` and the analyzers in TRIVY_VERSION. Digests are
+      # immutable, so it cannot change until one of those two does. It is also
+      # nearly the entire cost of this job: walking the Langfuse web image
+      # measured 199s of a 245s step, and 192s of that is secret-scanning the
+      # npm cache and Next.js source maps baked into it. Restored, the same
+      # scan takes 0s with every scanner still enabled.
+      #
+      # The vulnerability DATABASE is deliberately not cached — it is
+      # downloaded fresh below on every run. So a CVE disclosed this morning
+      # is still caught on the next run; only the immutable half is reused,
+      # which is precisely the half that cannot go stale.
+      #
+      # Exact key, no restore-keys, on purpose: an entry then holds the
+      # analysis of exactly one pin set and never accumulates layers of images
+      # we stopped deploying. Moving a digest costs one full walk, once.
+      - name: Restore the pinned images' layer analysis
+        id: layers
+        uses: actions/cache/restore@v6
+        with:
+          path: .trivy-cache/fanal
+          key: trivy-layers-${{ env.TRIVY_VERSION }}-${{ hashFiles('pinned-images.txt') }}
       # `.trivyignore.yaml` carries deliberate, time-boxed exceptions for
       # findings inside the upstream images that we cannot fix by bumping (each
       # entry states why it is not exploitable here and expires, so the gate
@@ -239,23 +267,28 @@ jobs:
       # Download the DB once into a host bind-mount, retry across GCR then
       # GHCR, and scan with --skip-db-update so the five images share it.
       - name: Scan each pinned image
+        id: scan
         run: |
           set -euo pipefail
           cache="$PWD/.trivy-cache"
           mkdir -p "$cache"
 
+          # Run as the runner's own uid rather than root: actions/cache has to
+          # read these files back out to store them, and bolt creates its
+          # databases 0600. HOME follows so nothing reaches for /root.
           trivy() {
             docker run --rm \
-              -v "$cache:/root/.cache/trivy" \
+              --user "$(id -u):$(id -g)" \
+              --env HOME=/tmp \
+              -v "$cache:/cache" \
               -v "$PWD/.trivyignore.yaml:/config/.trivyignore.yaml:ro" \
-              aquasec/trivy:0.61.1 \
+              "aquasec/trivy:${TRIVY_VERSION}" \
+              --cache-dir /cache \
               "$@"
           }
 
           download_db() {
-            trivy image --download-db-only \
-              --cache-dir /root/.cache/trivy \
-              --db-repository "$1"
+            trivy image --download-db-only --db-repository "$1"
           }
 
           downloaded=0
@@ -278,8 +311,22 @@ jobs:
             echo "=== trivy: $img"
             trivy image \
               --skip-db-update \
-              --cache-dir /root/.cache/trivy \
               --ignorefile /config/.trivyignore.yaml \
               --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$img" || failed=1
           done < pinned-images.txt
+
+          # Every image was walked, whatever the verdict. Only now is the
+          # analysis complete enough to be worth storing.
+          echo "analysed=true" >> "$GITHUB_OUTPUT"
           exit "$failed"
+      # `always()` so a run that FAILS the gate still leaves its analysis
+      # behind: a red gate must not also make every run after it slow. The
+      # `analysed` output is what keeps that honest — a run that died before
+      # the loop finished (the DB never arrived, the job was cancelled) never
+      # stores a partial cache under a key that nothing would overwrite.
+      - name: Save the pinned images' layer analysis
+        if: always() && steps.scan.outputs.analysed == 'true' && steps.layers.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .trivy-cache/fanal
+          key: trivy-layers-${{ env.TRIVY_VERSION }}-${{ hashFiles('pinned-images.txt') }}
