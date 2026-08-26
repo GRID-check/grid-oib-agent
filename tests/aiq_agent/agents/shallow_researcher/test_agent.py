@@ -461,10 +461,16 @@ class TestShallowResearcherAgent:
         for requires_sources in (True, False):
             rendered = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=requires_sources)
             formatting = rendered.split("<formatting>")[1].split("</formatting>")[0]
-            assert "mermaid" in formatting
-            # The reason, not just the rule: a bare fence is not a neutral
-            # choice, it is a listing where a drawing was promised.
-            assert "code listing" in formatting
+            # The NOTATION, not only the fence label. The third field transcript
+            # drew box-drawing characters into an untagged fence — there was no
+            # mermaid to tag and nothing for the renderer's sniff to recognise,
+            # so an instruction about tagging could not have helped.
+            assert "Draw with **mermaid**" in formatting
+            assert "flowchart TD" in formatting
+            # And the consequence, so an edit that keeps the rule and drops the
+            # reason still fails: a listing where a drawing was promised.
+            assert "monospace listing" in formatting
+            assert "│" in formatting
 
     def test_meta_turn_prompt_suppresses_marker_mandate(self, mock_llm_provider, real_tool):
         """requires_sources=False renders a deterministic suppression note and no marker mandate."""
