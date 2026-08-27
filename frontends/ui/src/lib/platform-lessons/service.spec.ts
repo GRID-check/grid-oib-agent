@@ -38,6 +38,8 @@ vi.mock('./repository', () => ({
   createLessonFromReport: vi.fn(),
   evictActiveOverCapacity: vi.fn(async () => []),
   expireStaleCandidates: vi.fn(async () => []),
+  flagIneffectiveActiveLessons: vi.fn(async () => []),
+  retireQuietAddressedLessons: vi.fn(async () => []),
   findLiveLessonByContent: vi.fn(async () => null),
   getLesson: vi.fn(),
   linkReportToLesson: vi.fn(async () => true),
@@ -61,10 +63,12 @@ import {
   evictActiveOverCapacity,
   expireStaleCandidates,
   findLiveLessonByContent,
+  flagIneffectiveActiveLessons,
   linkReportToLesson,
   listActiveLessonsForDigest,
   listUnprocessedDownvotes,
   recordSkippedReport,
+  retireQuietAddressedLessons,
 } from './repository'
 import { distillReport } from './distill-client'
 import {
@@ -239,6 +243,23 @@ describe('kickLessonDistillation', () => {
     vi.mocked(listUnprocessedDownvotes).mockResolvedValue([])
     await kickLessonDistillation()
     expect(expireStaleCandidates).toHaveBeenCalled()
+  })
+
+  it('runs both effectiveness passes on every sweep: recurrence flagging and quiet-addressed retirement', async () => {
+    vi.mocked(listUnprocessedDownvotes).mockResolvedValue([])
+    await kickLessonDistillation()
+    // Threshold and quiet window ride through from the service constants —
+    // the repository owns the SQL, the service owns the policy numbers.
+    expect(flagIneffectiveActiveLessons).toHaveBeenCalledWith(3, 'system:distiller')
+    expect(retireQuietAddressedLessons).toHaveBeenCalledWith(14, 'system:distiller')
+  })
+
+  it('effectiveness passes failing is non-fatal — the sweep still processes reports', async () => {
+    vi.mocked(flagIneffectiveActiveLessons).mockRejectedValue(new Error('db down'))
+    vi.mocked(retireQuietAddressedLessons).mockRejectedValue(new Error('db down'))
+    vi.mocked(listUnprocessedDownvotes).mockResolvedValue([])
+    await expect(kickLessonDistillation()).resolves.toBeUndefined()
+    expect(listUnprocessedDownvotes).toHaveBeenCalled()
   })
 
   it('stops retrying a report this process has failed on three times', async () => {

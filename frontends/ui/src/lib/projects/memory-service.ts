@@ -894,3 +894,85 @@ export async function organizationExists(organizationId: string): Promise<boolea
     .limit(1)
   return rows.length > 0
 }
+
+/**
+ * How near a down-vote comment must sit to a note before the note is
+ * implicated in the complaint. Deliberately higher than digest relevance needs
+ * to be: relevance ranks candidates against each other, this one levies a
+ * penalty, and penalizing a bystander note is worse than missing a culprit.
+ */
+const IMPLICATION_THRESHOLD = 0.78
+/** At most this many notes are implicated per report — the closest matches. */
+const IMPLICATION_LIMIT = 2
+/**
+ * Salience decays multiplicatively and floors above zero: one report dents a
+ * note, repeated reports bury it, and nothing erases it — the recall floor
+ * keeps even a buried note reachable when it is the only relevant one.
+ */
+const IMPLICATION_SALIENCE_DECAY = 0.6
+const IMPLICATION_SALIENCE_FLOOR = 0.05
+
+/**
+ * The memory half of feedback attribution — the analog of the lesson
+ * pipeline's effectiveness signal, inside one tenant's own scope.
+ *
+ * A down-vote with a comment is a human saying "this answer was wrong" in
+ * their own words. When that complaint sits semantically next to an active
+ * memory note, the note plausibly shaped the answer, so it takes the hit:
+ * salience decays (recoverable — reflection can supersede it with a corrected
+ * finding, and recall reinforcement still works) and confidence drops to
+ * 'low', which is the digest's honest marker for "hold this loosely". Notes
+ * are never deleted here, and PINNED notes are exempt: a pin is explicit
+ * human intent, and one human's down-vote does not outrank another's pin.
+ *
+ * Runs fire-and-forget off the vote path, inside the caller's tenant scope —
+ * the raw comment never leaves the org boundary (unlike the lesson pipeline,
+ * which scrubs before distilling precisely because it crosses it).
+ * Returns the number of implicated notes; never throws.
+ */
+export async function implicateMemoryFromFeedback(input: {
+  organizationId: string
+  projectId: string | null
+  comment: string
+}): Promise<number> {
+  const text = input.comment.trim()
+  if (!text) return 0
+  try {
+    const embedded = await embedNote(text.slice(0, 500))
+    if (!embedded) return 0
+    const db = getDb()
+    const owner = input.projectId
+      ? sql`m.organization_id = ${input.organizationId} and ((m.scope = 'project' and m.project_id = ${input.projectId}) or (m.scope = 'organization' and m.project_id is null))`
+      : sql`m.organization_id = ${input.organizationId} and m.scope = 'organization' and m.project_id is null`
+    // Vector literal travels once (scored CTE), same discipline as the
+    // near-match query above; RLS remains the backstop under the org filter.
+    const result = await db.execute(sql`
+      with scored as (
+        select m.id, grid_cosine_similarity(m.embedding, ${toVectorLiteral(embedded.vector)}::real[]) as similarity
+        from project_memory m
+        where ${owner}
+          and m.status = 'active'
+          and m.pinned = false
+          and m.embedding_model = ${embedded.fingerprint}
+      ),
+      implicated as (
+        select id from scored
+        where similarity >= ${IMPLICATION_THRESHOLD}
+        order by similarity desc
+        limit ${IMPLICATION_LIMIT}
+      )
+      update project_memory p
+      set salience = greatest(${IMPLICATION_SALIENCE_FLOOR}, p.salience * ${IMPLICATION_SALIENCE_DECAY}),
+          confidence = 'low',
+          updated_at = now()
+      from implicated i
+      where p.id = i.id
+      returning p.id
+    `)
+    const rows = (result as { rows?: Record<string, unknown>[] })?.rows ?? []
+    return rows.length
+  } catch (error) {
+    console.warn('[memory] Feedback implication failed (non-fatal):', error)
+    return 0
+  }
+}

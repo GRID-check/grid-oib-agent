@@ -123,7 +123,7 @@ pins the posture.
 |---|---|
 | `platform_lessons` | The injectable text + lifecycle (`candidate`/`active`/`retired`), category, counters, `root_cause_status`. CHECK-pinned vocabularies; partial unique index on German-normalized content over non-retired rows. |
 | `platform_lesson_reports` | Provenance, one row per processed down-vote. `feedback_id` UNIQUE = the pipeline's idempotency key. |
-| `platform_lesson_events` | Append-only trail of every transition, system or human. |
+| `platform_lesson_events` | Append-only trail of every transition, system or human. 0070 adds `flagged_ineffective` — the sweep's once-per-activation verdict that reports keep linking to an active lesson, i.e. the bandage is not holding (the lesson stays active; the flag routes a human at the root cause). |
 
 **Anonymization is structural, not procedural.** The provenance row carries a
 sha256 `org_hash` (enough to count distinct organizations) and the feedback
@@ -227,7 +227,7 @@ indexes at once.
 
 ## Measuring whether any of this works
 
-Two signals, and the difference between them is the point.
+Three signals, and the differences between them are the point.
 
 **The counters** (`helpful_votes` / `harmful_votes`) count up/down votes cast
 while a lesson was active. With an always-injected digest, exposure is a
@@ -257,6 +257,22 @@ Three deliberate choices:
   conversation from it, so a change does not reshuffle both arms and invalidate
   everything measured before it.
 
+**Recurrence** (0070) is the only per-lesson signal, and the sweep acts on it
+in both directions. A report the matcher semantically LINKS to an
+already-active lesson means the failure the lesson exists to prevent happened
+again under treatment — the counters, being a shared clock over all active
+lessons, can never say that about one lesson. At
+`LESSON_RECURRENCE_FLAG_THRESHOLD` linked reports since activation the sweep
+records `flagged_ineffective` (once per activation; the lesson STAYS active —
+the wound is demonstrably open, the flag routes a human at the root cause).
+The mirror rule closes the lifecycle: once `root_cause_status` is `addressed`
+and `LESSON_ADDRESSED_QUIET_DAYS` pass with zero recurrences, the sweep
+retires the lesson automatically (`detail.automatic = true`) — 0068's "the
+owner retires once the fix is verified" with the verification made mechanical:
+no recurrence after the fix IS the evidence, and reactivation exists for the
+fix that turns out not to have held. Re-opening and re-addressing the root
+cause restarts the quiet clock.
+
 Honest limitation, stated because it decides how to read the result: at low
 traffic a holdout is under-powered. Interleaving is far more sensitive but does
 not apply to a prompt block that is either present or absent, so a holdout is
@@ -279,9 +295,11 @@ means anything.
   construction and audited; `org_count` is surfaced so an owner can weigh
   single-org lessons differently. Raising the bar to k distinct orgs is a
   one-line change in the activation gate if the posture changes.
-- **Effectiveness is not yet measured.** Counters record reports, not whether
-  an active lesson reduced them; a helpful/harmful signal (down-vote rate on
-  turns where a lesson was in context) is the natural next ratchet.
+- **Effectiveness attribution is layered, not solved.** Counters are
+  correlational, the holdout needs traffic and an operator to turn it on, and
+  recurrence (the per-lesson signal the sweep flags and retires on) depends on
+  the matcher linking the repeat report to the right lesson — a recurrence the
+  matcher files as a NEW lesson is invisible to the flag.
 
 - **There is no scheduler container, on purpose.** Sweeps are event-driven
   (every down-vote kicks one) and the kick widens from 3 to 12 reports when a

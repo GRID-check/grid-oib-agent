@@ -900,7 +900,7 @@ project-ownership `EXISTS`.
 
 ---
 
-## platform_lessons / platform_lesson_reports / platform_lesson_events (migrations 0068, 0069)
+## platform_lessons / platform_lesson_reports / platform_lesson_events (migrations 0068, 0069, 0070)
 
 The fleet-wide lesson register distilled from answer feedback
 (`docs/architecture/platform-failure-learning.md`). **Global — no
@@ -926,7 +926,14 @@ reaches every tenant) and the anonymization boundary.
   provenance of a lesson already distilled from it. `org_hash` is sha256 of
   the WorkOS org id: enough to count distinct organizations, nothing more.
 - `platform_lesson_events`: append-only trail of every transition, whether the
-  actor was the pipeline (`system:distiller`) or a platform owner.
+  actor was the pipeline (`system:distiller`) or a platform owner. 0070 adds
+  the action `flagged_ineffective`: the sweep's per-lesson effectiveness
+  verdict, recorded once per activation when reports keep LINKING to an
+  already-active lesson (the shared-clock vote counters cannot indict one
+  lesson; recurrence under treatment can). The mirror rule auto-retires an
+  active lesson whose `root_cause_status` has been `addressed` for a quiet
+  period with zero recurrences — the ordinary `retired` action with
+  `detail.automatic = true`.
 - Migration 0069 also adds `grid_cosine_similarity(real[], real[])` — a
   set-based IMMUTABLE SQL function — plus the same vector columns and
   `recall_count` on `project_memory`. See

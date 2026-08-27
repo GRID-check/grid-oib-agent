@@ -197,6 +197,18 @@ where the actual defect was.
   names the must-have — exists in both consolidation gates via the polarity
   check. What IS pinned already: only `user_confirmed` notes carry a confirmed
   fact's weight in the prompt, and a note is never citable.
+- **Feedback now reaches memory, with a deliberate asymmetry.** A down-vote
+  with NEW comment text implicates the active, unpinned notes it sits
+  semantically next to (`implicateMemoryFromFeedback`, fired from
+  `submitAnswerFeedback` off the vote path, inside the tenant's own scope —
+  the raw comment never crosses the org boundary): salience decays ×0.6
+  (floored at 0.05), confidence drops to `low`. Decay, never deletion — the
+  same-comment re-vote guard stops double punishment, pinned notes are exempt
+  (a pin is explicit human intent), and recovery paths stay open: reflection
+  supersedes the note with a corrected finding, or a later `user_confirmed`
+  restores standing. The asymmetry is intended: complaints demote, but nothing
+  automatically promotes on an up-vote — praise for an answer is far weaker
+  evidence about one note than a complaint next to it.
 - **Effectiveness attribution is correlational by default.** See the holdout
   section in [`platform-failure-learning.md`](platform-failure-learning.md):
   the counters are a temporal correlation, the holdout is the credible

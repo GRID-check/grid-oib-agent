@@ -79,6 +79,14 @@ export const PLATFORM_LESSON_EVENT_ACTIONS = [
   'reactivated',
   'edited',
   'root_cause_updated',
+  /**
+   * Sweep verdict (0070): reports kept linking to this lesson AFTER it was
+   * activated — the failure it exists to prevent is still happening, so the
+   * bandage is demonstrably not holding. Recorded once per activation; the
+   * lesson STAYS active (the wound is open) and the flag routes attention to
+   * the root cause.
+   */
+  'flagged_ineffective',
 ] as const
 export type PlatformLessonEventAction = (typeof PLATFORM_LESSON_EVENT_ACTIONS)[number]
 

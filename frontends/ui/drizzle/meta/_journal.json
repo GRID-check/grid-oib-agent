@@ -491,6 +491,13 @@
       "when": 1788393600005,
       "tag": "0069_semantic_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1788480000005,
+      "tag": "0070_lesson_effectiveness",
+      "breakpoints": true
     }
   ]
 }

@@ -27,11 +27,15 @@ Getting that right is not a prompt. It is a pipeline with six layers, and this p
     { label: 'VERIFICATION', sublabel: 'QUOTES CHECKED AGAINST SOURCE', glyph: 'check' },
     { label: 'ANSWER', sublabel: 'CITED DOWN TO THE PAGE', glyph: 'doc' },
   ]}
+  satellites={[
+    { layer: 5, side: 'left', label: 'PROJECT MEMORY', sub: 'NOTES, RECALLED PER QUESTION' },
+    { layer: 5, side: 'right', label: 'LESSONS', sub: 'FROM YOUR REPORTS, PLATFORM-WIDE' },
+  ]}
 />
 
 Reading the stack top to bottom: **sources** are the documents as your office keeps them. **Ingestion** turns those documents into machine-searchable pieces. The **index** stores every piece twice, once as a semantic fingerprint and once as plain searchable text. **Retrieval** asks both representations at the same time for every question. **Verification** checks the evidence before it is allowed to appear. And the **answer** is what you see: a response that carries its sources with it.
 
-Two systems ride alongside this stack rather than inside it: a project memory that keeps later conversations from starting at zero, and a learning loop fed by your thumbs-down clicks. Both get their own section below; the loop even gets [its own post](/en/blog/a-system-that-learns-from-your-frustration/).
+The two dashed boxes feed the answer without being layers themselves: a project memory that keeps later conversations from starting at zero, and the lessons distilled from thumbs-down reports across the whole platform. Both get their own section below; the lesson loop even gets [its own post](/en/blog/a-system-that-learns-from-your-frustration/).
 
 ## Where knowledge lives
 
@@ -67,7 +71,7 @@ Each chunk is then stored twice in the index layer. Once as an embedding, a nume
 
 The official guidelines get one extra layer of care. Piloti syncs OIB documents against a registry of content hashes, so a revised guideline replaces its predecessor instead of quietly coexisting with it. Two versions of the same fire protection rule in one index is how you end up citing the wrong one with full confidence.
 
-This is also where we part ways with a ranking trick that is popular in systems built on chat archives: letting newer content outrank older content, because chatter goes stale. Law does not go stale, it gets replaced. A newer text is not a more in-force text, so nothing in our document ranking rewards age. Versions are resolved at ingestion, where the revision replaces its predecessor outright, and what remains in the index is current by construction.
+This is also where we part ways with a ranking trick that is popular in systems built on chat archives: letting newer content outrank older content, because chatter goes stale. Law does not go stale, it gets replaced. A newer text is not a more in-force text, so nothing in our document ranking rewards age. Versions are resolved at ingestion, where the revision replaces its predecessor outright, and what remains in the index is current by construction. The same rule covers your own uploads: a document re-uploaded under the same name replaces its earlier version in the index instead of competing with it.
 
 ## Why vector search alone was not enough
 
@@ -108,7 +112,7 @@ Answering one question well is table stakes. The more interesting problem is the
 
 After every answer, a reflection step runs in the background and writes down what mattered: decisions, constraints, corrections. It runs after the reply has already reached you, so it never costs you a second of waiting, and it checks its finding against what is already remembered, so the memory does not fill up with restatements of itself.
 
-When the next question comes in, the stored notes compete for a small budget of space, scored on three things at once: how relevant they are to this question, how important they were judged to be when written, and how recently they last helped. Notes that keep proving useful stay vivid. Notes that never help sink down the ranking, though irrelevance alone never deletes them, because the note you have not needed for a year is sometimes the one that decides a dispute. What does retire a note is being corrected: when a new finding contradicts an old one, the old one is superseded by it, with the record of what replaced it. And this is the one place in Piloti where recency gets a vote at all, deliberately the smallest of the three.
+When the next question comes in, the stored notes compete for a small budget of space, scored on three things at once: how relevant they are to this question, how important they were judged to be when written, and how recently they last helped. Notes that keep proving useful stay vivid. Notes that never help sink down the ranking, though irrelevance alone never deletes them, because the note you have not needed for a year is sometimes the one that decides a dispute. What does retire a note is being corrected: when a new finding contradicts an old one, the old one is superseded by it, with the record of what replaced it. Your thumbs-down reaches the memory as well: a complaint that sits semantically next to a stored note costs that note standing and confidence, inside your own project and nowhere else. And this is the one place in Piloti where recency gets a vote at all, deliberately the smallest of the three.
 
 Two more rules keep the memory honest. It never outranks what you type in the moment; the live turn always wins. And it is never a citation source; memory shapes an answer, the cited clause still has to come from a document.
 

@@ -2842,6 +2842,77 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         except Exception:
             logger.warning("Failed to upload thumbnail", exc_info=True)
 
+    def _replace_previous_versions(
+        self, chroma_collection, collection_name: str, incoming_names: list[str]
+    ) -> None:
+        """Delete the chunks of any EARLIER upload of these file names, so a
+        re-upload REPLACES its predecessor instead of coexisting with it.
+
+        Law does not go stale, it gets replaced — and the OIB sync already has
+        replacement semantics through its hash registry. Uploaded office and
+        project documents had none: re-uploading `statik-standard.pdf` appended
+        a second full set of chunks next to the first, and both versions then
+        competed in retrieval on similarity alone, so an answer could cite the
+        superseded one with full confidence. The newest upload of a name is the
+        version the user means; this enforces exactly that, per collection.
+
+        Matching mirrors delete_file's normalization (tmp[8]_ prefix strip plus
+        percent-decoding), because stored names carry either form depending on
+        how the file reached the backend. One metadata scan per ingestion JOB,
+        not per file. Defensive: replacement failing must never fail the
+        ingest — worst case is the pre-existing duplicate behavior, logged.
+
+        Deliberately name-based only: a NEW name is a new document, even when
+        its content supersedes an old one. Detecting renamed versions
+        semantically would guess, and a wrong guess silently deletes a document
+        someone still cites — the human-classification-wins rule applies.
+        """
+        try:
+            from urllib.parse import unquote
+
+            from aiq_agent.knowledge import unregister_summary
+            from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
+
+            tmp_prefix = re.compile(r"^tmp.{8}_")
+
+            def normalize(name: str) -> str:
+                return unquote(tmp_prefix.sub("", name or ""))
+
+            targets = {normalize(name) for name in incoming_names if name}
+            targets.discard("")
+            if not targets:
+                return
+            existing = chroma_collection.get(include=["metadatas"])
+            ids_by_stored: dict[str, list[str]] = {}
+            for chunk_id, meta in zip(
+                existing.get("ids", []), existing.get("metadatas", []) or [], strict=False
+            ):
+                stored = (meta or {}).get("file_name", "") or ""
+                if normalize(stored) in targets:
+                    ids_by_stored.setdefault(stored, []).append(chunk_id)
+            if not ids_by_stored:
+                return
+            all_ids = [cid for ids in ids_by_stored.values() for cid in ids]
+            chroma_collection.delete(ids=all_ids)
+            bump_collection_version(collection_name)
+            for stored in ids_by_stored:
+                unregister_summary(collection_name, stored)
+                get_chunk_text_store().delete_by_file(collection_name, stored)
+                normalized = normalize(stored)
+                if normalized != stored:
+                    get_chunk_text_store().delete_by_file(collection_name, normalized)
+            logger.info(
+                "Replaced previous version(s): removed %d chunk(s) of %s from %s before re-ingest",
+                len(all_ids),
+                sorted(ids_by_stored),
+                collection_name,
+            )
+        except Exception:  # noqa: BLE001 — replacement must never break ingestion
+            logger.warning(
+                "Could not remove previous versions before ingest; duplicate chunks may remain",
+                exc_info=True,
+            )
+
     def _run_ingestion(
         self,
         job_id: str,
@@ -2923,6 +2994,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # Set up vector store
             vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
             storage_context = StorageContext.from_defaults(vector_store=vector_store)
+
+            # A re-upload replaces its predecessor (same normalized file name,
+            # this collection) before anything new is written — see
+            # _replace_previous_versions for why versions must not coexist.
+            incoming_names = [
+                (config.get("original_filenames", [])[i] if i < len(config.get("original_filenames", [])) else Path(fp).name)
+                for i, fp in enumerate(file_paths)
+            ]
+            self._replace_previous_versions(chroma_collection, collection_name, incoming_names)
 
             # Track extraction stats
             total_chunks = 0

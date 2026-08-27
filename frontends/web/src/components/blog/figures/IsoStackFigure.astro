@@ -20,15 +20,27 @@ interface Layer {
   glyph?: 'tiles' | 'funnel' | 'disc' | 'lines' | 'doc' | 'check'
 }
 
+interface Satellite {
+  /** Uppercase mono label, e.g. "PROJECT MEMORY". */
+  label: string
+  sub?: string
+  /** Index of the layer this satellite feeds (0 = top). */
+  layer: number
+  side: 'left' | 'right'
+}
+
 interface Props {
   layers: Layer[]
+  /** Side systems that feed a layer without being a layer: drawn as dashed
+   *  boxes below the stack with a dashed arrow into their target slab. */
+  satellites?: Satellite[]
   kicker?: string
   title?: string
   caption?: string
   alt: string
 }
 
-const { layers, kicker, title, caption, alt } = Astro.props
+const { layers, satellites = [], kicker, title, caption, alt } = Astro.props
 
 const W = 960
 const CX = W / 2
@@ -58,6 +70,23 @@ const slabs = layers.map((layer, i) => {
 
 const firstY = TOP
 const lastY = TOP + (layers.length - 1) * GAP
+
+const SAT_W = 232
+const SAT_H = 64
+const sats = satellites.map((sat) => {
+  const target = slabs[Math.min(sat.layer, slabs.length - 1)]
+  const x = sat.side === 'left' ? 40 : W - 40 - SAT_W
+  const y = target.y + 46
+  return {
+    ...sat,
+    x,
+    y,
+    arrowX1: sat.side === 'left' ? x + SAT_W - 8 : x + 8,
+    arrowX2: sat.side === 'left' ? CX - HALF_W / 2 - 8 : CX + HALF_W / 2 + 8,
+    arrowY1: y + 10,
+    arrowY2: target.y + HALF_H / 2 + THICK,
+  }
+})
 ---
 
 <FigureFrame kicker={kicker} title={title} caption={caption} alt={alt}>
@@ -176,6 +205,30 @@ const lastY = TOP + (layers.length - 1) * GAP
               {s.sublabel}
             </text>
           )}
+        </g>
+      ))
+    }
+
+    {
+      sats.map((sat) => (
+        <g>
+          <rect class="fp-stroke fp-dash fp-fill--soft" x={sat.x} y={sat.y} width={SAT_W} height={SAT_H} />
+          <text class="fp-label" x={sat.x + 14} y={sat.y + (sat.sub ? 26 : 37)}>
+            {sat.label}
+          </text>
+          {sat.sub && (
+            <text class="fp-label--muted" x={sat.x + 14} y={sat.y + 46}>
+              {sat.sub}
+            </text>
+          )}
+          <line
+            class="fp-stroke fp-dash"
+            marker-end="url(#iso-arrow)"
+            x1={sat.arrowX1}
+            y1={sat.arrowY1}
+            x2={sat.arrowX2}
+            y2={sat.arrowY2}
+          />
         </g>
       ))
     }

@@ -651,3 +651,126 @@ export async function countLessonsByStatus(): Promise<Record<string, number>> {
     .groupBy(platformLessons.status)
   return Object.fromEntries(rows.map((row) => [row.status, Number(row.count)]))
 }
+
+/**
+ * Flag active lessons whose failure keeps happening anyway.
+ *
+ * The vote counters above are a shared clock — every active lesson counts the
+ * same fleet-wide feedback window — so they cannot indict one lesson. What
+ * can: a report the matcher semantically LINKED to a lesson after that lesson
+ * was already being injected. The failure the lesson exists to prevent
+ * recurred under treatment. At `minRecurrences` of those, a
+ * 'flagged_ineffective' event is recorded (once per activation — the anti-join
+ * on events keeps a long-running sweep from re-flagging every pass) and the
+ * lesson STAYS active: the wound is demonstrably open, so the bandage stays
+ * on; the flag exists to route a human at the root cause. Returns flagged ids.
+ */
+export async function flagIneffectiveActiveLessons(
+  minRecurrences: number,
+  actor: string
+): Promise<string[]> {
+  const db = getDb()
+  return db.transaction(async (tx) => {
+    const result = await tx.execute(sql`
+      select l.id, count(r.id) as recurrences
+      from platform_lessons l
+      join platform_lesson_reports r
+        on r.lesson_id = l.id
+       and r.outcome = 'linked'
+       and r.created_at > l.activated_at
+      where l.status = 'active'
+        and l.activated_at is not null
+        and not exists (
+          select 1 from platform_lesson_events e
+          where e.lesson_id = l.id
+            and e.action = 'flagged_ineffective'
+            and e.created_at > l.activated_at
+        )
+      group by l.id
+      having count(r.id) >= ${minRecurrences}
+    `)
+    const raw = (result as { rows?: Record<string, unknown>[] })?.rows ?? []
+    const rows = raw.map((row) => ({
+      id: String(row.id),
+      recurrences: Number(row.recurrences),
+    }))
+    if (rows.length === 0) return []
+    await tx.insert(platformLessonEvents).values(
+      rows.map((row) => ({
+        lessonId: row.id,
+        action: 'flagged_ineffective' as const,
+        actor,
+        detail: { recurrences: row.recurrences },
+      }))
+    )
+    return rows.map((row) => row.id)
+  })
+}
+
+/**
+ * Retire lessons whose root cause is addressed AND whose failure stayed gone.
+ *
+ * 0068's rule is that 'addressed' does not retire a lesson by itself — the
+ * owner retires it once the fix is VERIFIED. This makes the verification
+ * mechanical instead of a thing a person must remember: once the root cause
+ * has been 'addressed' for `quietDays` with not one report linking to the
+ * lesson since, the absence of recurrence IS the evidence the fix holds, and
+ * the sweep takes the bandage off. Fully evented (detail.automatic = true) and
+ * reversible — reactivation exists precisely for the fix that turns out not to
+ * have held. `addressedAt` is the newest root_cause_updated event that set
+ * 'addressed', so re-opening and re-addressing restarts the quiet clock.
+ * Returns the retired ids.
+ */
+export async function retireQuietAddressedLessons(
+  quietDays: number,
+  actor: string
+): Promise<string[]> {
+  const db = getDb()
+  return db.transaction(async (tx) => {
+    const result = await tx.execute(sql`
+      with addressed as (
+        select l.id, max(e.created_at) as addressed_at
+        from platform_lessons l
+        join platform_lesson_events e
+          on e.lesson_id = l.id
+         and e.action = 'root_cause_updated'
+         and e.detail->>'rootCauseStatus' = 'addressed'
+        where l.status = 'active'
+          and l.root_cause_status = 'addressed'
+        group by l.id
+      )
+      select a.id
+      from addressed a
+      where a.addressed_at <= now() - make_interval(days => ${quietDays})
+        and not exists (
+          select 1 from platform_lesson_reports r
+          where r.lesson_id = a.id
+            and r.outcome = 'linked'
+            and r.created_at > a.addressed_at
+        )
+    `)
+    const raw = (result as { rows?: Record<string, unknown>[] })?.rows ?? []
+    const ids = raw.map((row) => String(row.id))
+    if (ids.length === 0) return []
+    const now = new Date()
+    await tx
+      .update(platformLessons)
+      .set({
+        status: 'retired',
+        retiredAt: now,
+        retiredBy: actor,
+        retiredReason: 'root_cause_addressed_quiet',
+        updatedAt: now,
+      })
+      .where(inArray(platformLessons.id, ids))
+    await tx.insert(platformLessonEvents).values(
+      ids.map((id) => ({
+        lessonId: id,
+        action: 'retired' as const,
+        actor,
+        detail: { reason: 'root_cause_addressed_quiet', automatic: true, quietDays },
+      }))
+    )
+    return ids
+  })
+}

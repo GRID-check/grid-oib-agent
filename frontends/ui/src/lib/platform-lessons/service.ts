@@ -45,6 +45,7 @@ import {
   createLessonFromReport,
   evictActiveOverCapacity,
   expireStaleCandidates,
+  flagIneffectiveActiveLessons,
   findLiveLessonByContent,
   getLesson,
   linkReportToLesson,
@@ -59,6 +60,7 @@ import {
   recomputeLessonVoteCounters,
   recordSkippedReport,
   reopenSkippedReport,
+  retireQuietAddressedLessons,
   setLessonEmbedding,
   updateLessonWithEvent,
 } from './repository'
@@ -91,6 +93,22 @@ export const DIGEST_MAX_CHARS = 1600
  */
 export const CANDIDATE_MAX_AGE_DAYS = 45
 export const MAX_HELD_CANDIDATES = 40
+
+/**
+ * Linked reports since activation at which a lesson is flagged as not holding
+ * ('flagged_ineffective', once per activation). One recurrence can be one
+ * stubborn user re-reporting; three distinct reports the matcher tied to the
+ * same active lesson is the failure class demonstrably surviving treatment.
+ */
+export const LESSON_RECURRENCE_FLAG_THRESHOLD = 3
+/**
+ * Days a root-cause-'addressed' lesson must stay recurrence-free before the
+ * sweep retires it automatically. Two weeks is enough turns for a recurring
+ * failure class to resurface (the median relink gap in the register is days,
+ * not weeks), short enough that a healed wound's bandage does not spend the
+ * quarter riding every prompt.
+ */
+export const LESSON_ADDRESSED_QUIET_DAYS = 14
 
 /**
  * Reports processed per event-driven kick, per manual sweep, and the ceiling a
@@ -223,6 +241,26 @@ async function sweep(limit: number): Promise<SweepResult> {
   await recomputeLessonVoteCounters().catch((error: unknown) => {
     console.warn('[PlatformLessons] Vote counter refresh failed (non-fatal):', error)
   })
+
+  // Effectiveness, per lesson, from the one signal that can indict one lesson:
+  // recurrence. A report the matcher LINKS to an already-active lesson means
+  // the failure recurred under treatment — at the threshold the lesson is
+  // flagged (it stays active; the flag routes a human at the root cause). The
+  // mirror rule closes the other end of the lifecycle: root cause addressed
+  // plus a quiet period with zero recurrences retires the bandage without a
+  // person having to remember to.
+  await flagIneffectiveActiveLessons(LESSON_RECURRENCE_FLAG_THRESHOLD, SYSTEM_ACTOR).catch(
+    (error: unknown) => {
+      console.warn('[PlatformLessons] Ineffectiveness flagging failed (non-fatal):', error)
+    }
+  )
+  await retireQuietAddressedLessons(LESSON_ADDRESSED_QUIET_DAYS, SYSTEM_ACTOR)
+    .then(async (ids) => {
+      if (ids.length > 0) await invalidateCached(DIGEST_CACHE_KEY)
+    })
+    .catch((error: unknown) => {
+      console.warn('[PlatformLessons] Quiet-addressed retirement failed (non-fatal):', error)
+    })
 
   // Embedding backfill, same rhythm: lessons written while the embedder was
   // down — or before an embedding-model change — fall back to the popularity

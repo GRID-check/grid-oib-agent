@@ -28,6 +28,7 @@ import {
 import type { AnswerFeedbackView, UpsertAnswerFeedbackInput } from './types'
 import {
   deleteAnswerFeedbackForUser,
+  getAnswerFeedbackForUser,
   getFeedbackHealth,
   listAnswerFeedbackForConversation,
   upsertAnswerFeedback,
@@ -37,6 +38,7 @@ import {
 import { getFeedbackDigest, type FeedbackDigestOptions, type FeedbackDigestResult } from './digest'
 import { resolveLessonsHoldout } from '@/lib/platform-lessons/holdout'
 import { reopenReportForRedistillation } from '@/lib/platform-lessons/service'
+import { implicateMemoryFromFeedback } from '@/lib/projects/memory-service'
 
 /** Upsert the caller's vote on one assistant answer. */
 export async function submitAnswerFeedback(
@@ -68,6 +70,11 @@ export async function submitAnswerFeedback(
   // the holdout is off, which is the default — see lib/platform-lessons/holdout.
   const lessonsHoldout = await resolveLessonsHoldout(input.conversationId ?? null)
 
+  // Read the prior vote before the upsert: memory implication (below) must
+  // fire on NEW complaint text only, or a re-saved identical comment would
+  // penalize the same notes twice.
+  const prior = await getAnswerFeedbackForUser(session.userId, input.messageId)
+
   const row = await upsertAnswerFeedback({
     lessonsHoldout,
     organizationId: session.organizationId,
@@ -86,6 +93,18 @@ export async function submitAnswerFeedback(
   // business, this is ours.
   if (row.verdict === 'down') {
     void reopenReportForRedistillation(row.id)
+  }
+
+  // The memory half of feedback attribution: a fresh complaint implicates the
+  // active notes it sits semantically next to, inside this tenant's own scope
+  // (the raw comment never leaves it). Fire-and-forget like the sweep kick —
+  // the vote is the user's business, this is ours.
+  if (row.verdict === 'down' && row.comment && row.comment !== prior?.comment) {
+    void implicateMemoryFromFeedback({
+      organizationId: session.organizationId,
+      projectId: row.projectId ?? null,
+      comment: row.comment,
+    })
   }
 
   return toView(row)

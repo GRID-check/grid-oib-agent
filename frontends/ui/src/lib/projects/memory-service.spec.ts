@@ -42,7 +42,16 @@ vi.mock('@/lib/db/schema', () => ({
   },
 }))
 
+// Pure helpers stay real (enrichment/normalization behavior is under test in
+// other cases); only the network-reaching embed calls are stubbed, defaulting
+// to null — exactly the fail-open "no embedder" behavior of the real module.
+vi.mock('@/lib/knowledge/embeddings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/knowledge/embeddings')>()
+  return { ...actual, embedNote: vi.fn(async () => null), embedNotes: vi.fn(async () => null) }
+})
+
 import { getDb } from '@/lib/db'
+import { embedNote } from '@/lib/knowledge/embeddings'
 import type { ProjectMemoryItem } from '@/lib/db/schema'
 import { asDb, makeMemoryItem } from '@/test-utils/db-fixtures'
 import {
@@ -50,6 +59,7 @@ import {
   createProjectMemoryItem,
   deleteProjectMemoryItem,
   formatDigestLines,
+  implicateMemoryFromFeedback,
   listProjectMemory,
   organizationExists,
   updateProjectMemoryItem,
@@ -786,5 +796,53 @@ describe('organizationExists', () => {
   it('is false for an unknown org', async () => {
     mockSelectChain([])
     await expect(organizationExists('org-nope')).resolves.toBe(false)
+  })
+})
+
+describe('implicateMemoryFromFeedback', () => {
+  it('does nothing without an embedder — no penalty on a lexical-only deployment', async () => {
+    const execute = vi.fn()
+    vi.mocked(getDb).mockReturnValue(asDb({ execute }))
+    const count = await implicateMemoryFromFeedback({
+      organizationId: 'org-1',
+      projectId: 'proj-1',
+      comment: 'Die Antwort hat OIB 4 mit der Wiener BO vermischt.',
+    })
+    expect(count).toBe(0)
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('penalizes the semantically implicated notes and reports how many', async () => {
+    vi.mocked(embedNote).mockResolvedValue({ vector: [0.1, 0.2], fingerprint: 'model-a' })
+    const execute = vi.fn(async () => ({ rows: [{ id: 'mem-1' }, { id: 'mem-2' }] }))
+    vi.mocked(getDb).mockReturnValue(asDb({ execute }))
+    const count = await implicateMemoryFromFeedback({
+      organizationId: 'org-1',
+      projectId: 'proj-1',
+      comment: 'Die Antwort hat OIB 4 mit der Wiener BO vermischt.',
+    })
+    expect(count).toBe(2)
+    expect(execute).toHaveBeenCalledTimes(1)
+    // The one statement carries the policy numbers: decay, floor, threshold,
+    // limit — and the org id that keeps it inside the tenant.
+    const flat = JSON.stringify((execute.mock.calls as unknown[][])[0]?.[0])
+    expect(flat).toContain('0.6')
+    expect(flat).toContain('0.05')
+    expect(flat).toContain('0.78')
+    expect(flat).toContain('org-1')
+  })
+
+  it('returns 0 for a blank comment and never throws on db failure', async () => {
+    expect(
+      await implicateMemoryFromFeedback({ organizationId: 'org-1', projectId: null, comment: '   ' })
+    ).toBe(0)
+    vi.mocked(embedNote).mockResolvedValue({ vector: [0.1], fingerprint: 'model-a' })
+    const execute = vi.fn(async () => {
+      throw new Error('db down')
+    })
+    vi.mocked(getDb).mockReturnValue(asDb({ execute }))
+    await expect(
+      implicateMemoryFromFeedback({ organizationId: 'org-1', projectId: null, comment: 'kaputt' })
+    ).resolves.toBe(0)
   })
 })

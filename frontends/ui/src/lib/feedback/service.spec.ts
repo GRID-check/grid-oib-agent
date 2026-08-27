@@ -10,9 +10,16 @@ vi.mock('@/lib/authz/projects', () => ({
 vi.mock('./repository', () => ({
   upsertAnswerFeedback: vi.fn(),
   deleteAnswerFeedbackForUser: vi.fn(),
+  getAnswerFeedbackForUser: vi.fn(async () => null),
   listAnswerFeedbackForConversation: vi.fn(),
   getFeedbackHealth: vi.fn(),
   listFeedbackTurns: vi.fn(),
+}))
+
+// The memory-implication trigger: mocked wholesale — its own behavior is
+// covered in memory-service.spec; here only the firing conditions matter.
+vi.mock('@/lib/projects/memory-service', () => ({
+  implicateMemoryFromFeedback: vi.fn(async () => 0),
 }))
 
 vi.mock('./digest', () => ({ getFeedbackDigest: vi.fn() }))
@@ -28,10 +35,12 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import { PlatformAccessDeniedError, requirePlatformPermission } from '@/lib/authz/platform'
 import {
   deleteAnswerFeedbackForUser,
+  getAnswerFeedbackForUser,
   getFeedbackHealth,
   listAnswerFeedbackForConversation,
   upsertAnswerFeedback,
 } from './repository'
+import { implicateMemoryFromFeedback } from '@/lib/projects/memory-service'
 import { getFeedbackDigest } from './digest'
 import {
   getAnswerFeedbackDigest,
@@ -43,6 +52,8 @@ import {
 
 const mockRequireProjectAccess = vi.mocked(requireProjectAccess)
 const mockUpsert = vi.mocked(upsertAnswerFeedback)
+const mockGetPrior = vi.mocked(getAnswerFeedbackForUser)
+const mockImplicate = vi.mocked(implicateMemoryFromFeedback)
 const mockDelete = vi.mocked(deleteAnswerFeedbackForUser)
 const mockList = vi.mocked(listAnswerFeedbackForConversation)
 
@@ -79,6 +90,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockRequireProjectAccess.mockResolvedValue({ role: 'project-viewer' } as never)
   mockUpsert.mockResolvedValue(storedRow)
+  mockGetPrior.mockResolvedValue(null)
 })
 
 describe('submitAnswerFeedback', () => {
@@ -120,6 +132,42 @@ describe('submitAnswerFeedback', () => {
   it('accepts a down vote without a reason (reason arrives on chip click)', async () => {
     await submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'down' })
     expect(mockUpsert).toHaveBeenCalledWith(expect.objectContaining({ verdict: 'down', reason: null }))
+  })
+
+  it('implicates memory when a down vote carries new comment text', async () => {
+    mockUpsert.mockResolvedValue({
+      ...storedRow,
+      verdict: 'down',
+      reason: 'inaccurate',
+      comment: 'OIB 4 falsch zitiert',
+      projectId: 'proj_1',
+    })
+    await submitAnswerFeedback(session, {
+      messageId: 'msg_1',
+      verdict: 'down',
+      reason: 'inaccurate',
+      comment: 'OIB 4 falsch zitiert',
+      projectId: 'proj_1',
+    })
+    expect(mockImplicate).toHaveBeenCalledWith({
+      organizationId: 'org_1',
+      projectId: 'proj_1',
+      comment: 'OIB 4 falsch zitiert',
+    })
+  })
+
+  it('does not implicate memory again for an unchanged re-vote comment', async () => {
+    mockGetPrior.mockResolvedValue({ ...storedRow, verdict: 'down', comment: 'gleich' })
+    mockUpsert.mockResolvedValue({ ...storedRow, verdict: 'down', comment: 'gleich' })
+    await submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'down', comment: 'gleich' })
+    expect(mockImplicate).not.toHaveBeenCalled()
+  })
+
+  it('never implicates memory on an up vote or a comment-less down vote', async () => {
+    await submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'up' })
+    mockUpsert.mockResolvedValue({ ...storedRow, verdict: 'down' })
+    await submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'down' })
+    expect(mockImplicate).not.toHaveBeenCalled()
   })
 
   it('rejects a reason on an up vote', async () => {
