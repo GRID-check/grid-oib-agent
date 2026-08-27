@@ -146,13 +146,21 @@ def _build_report_block(request: LessonDistillRequest) -> str:
     question = _clip(request.question, _MAX_QUESTION_CHARS)
     answer = _clip(request.answer, _MAX_ANSWER_CHARS)
     comment = _clip(request.comment, _MAX_COMMENT_CHARS)
+    # Semgrep's raw-html-format rule fires on these f-strings, but this is an
+    # LLM prompt, not HTML: nothing renders it, and the <report> fence with
+    # every user-supplied `<` neutralised by _fence IS the injection defense
+    # (the model is told to treat fenced content as data). Suppressed per line
+    # rather than excluding the rule repo-wide.
     if question:
+        # nosemgrep: python.django.security.injection.raw-html-format.raw-html-format
         lines.append(f"Question: <report>{_fence(question)}</report>")
     if answer:
+        # nosemgrep: python.django.security.injection.raw-html-format.raw-html-format
         lines.append(f"Rated answer (excerpt): <report>{_fence(answer)}</report>")
     if request.reason:
         lines.append(f"Reporter's category: {_fence(request.reason)}")
     if comment:
+        # nosemgrep: python.django.security.injection.raw-html-format.raw-html-format
         lines.append(f"Reporter's comment: <report>{_fence(comment)}</report>")
 
     lines.append("")

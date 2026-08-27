@@ -46,7 +46,7 @@ def registries(monkeypatch):
     mirror_deleted: list[tuple[str, str]] = []
     bumped: list[str] = []
 
-    import aiq_agent.knowledge as knowledge
+    from aiq_agent import knowledge
 
     monkeypatch.setattr(
         knowledge, "unregister_summary", lambda coll, name: unregistered.append((coll, name))

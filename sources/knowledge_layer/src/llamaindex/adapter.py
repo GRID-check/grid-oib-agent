@@ -2998,8 +2998,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # A re-upload replaces its predecessor (same normalized file name,
             # this collection) before anything new is written — see
             # _replace_previous_versions for why versions must not coexist.
+            provided_names = config.get("original_filenames", [])
             incoming_names = [
-                (config.get("original_filenames", [])[i] if i < len(config.get("original_filenames", [])) else Path(fp).name)
+                provided_names[i] if i < len(provided_names) else Path(fp).name
                 for i, fp in enumerate(file_paths)
             ]
             self._replace_previous_versions(chroma_collection, collection_name, incoming_names)
