@@ -7,7 +7,7 @@ translationSlug: how-piloti-works
 ---
 
 import IsoStackFigure from '../../../components/blog/figures/IsoStackFigure.astro'
-import SourcesFigure from '../../../components/blog/figures/SourcesFigure.astro'
+import ScopeFigure from '../../../components/blog/figures/ScopeFigure.astro'
 import HybridFigure from '../../../components/blog/figures/HybridFigure.astro'
 
 Eine typische Piloti-Frage sieht harmlos aus. "Welche Fluchtwegbreiten gelten für diesen Kindergarten?" Dahinter stehen eine OIB-Richtlinie, eine von neun Landesbauordnungen, das Raumprogramm des Projekts und womöglich ein Erlass, der sich im Frühjahr geändert hat. Die Antwort ist nur dann etwas wert, wenn sie die Bestimmung nennt, aus der sie stammt, korrekt zitiert und den Stand wiedergibt, der tatsächlich in Kraft ist.
@@ -33,32 +33,29 @@ Den Stapel von oben nach unten gelesen: **Quellen** sind die Dokumente, wie Ihr 
 
 Zwei Systeme laufen neben diesem Stapel statt in ihm: ein Projektgedächtnis, das spätere Gespräche nicht bei null anfangen lässt, und eine Lernschleife, die von Ihren Daumen-runter-Klicks gespeist wird. Beide bekommen unten ihren eigenen Abschnitt; die Schleife sogar [einen eigenen Beitrag](/blog/ein-system-das-aus-ihrem-frust-lernt/).
 
-## Vier Arten von Wissen, ein Index
+## Wo Wissen wohnt
 
 Früh haben wir eine Entscheidung getroffen, die alles danach geprägt hat: Wir verlangen von keinem Büro, seine Dokumente für uns umzusortieren. Wissen entsteht dort, wo es gerade praktisch ist. Baurecht liegt in amtlichen PDFs, Bürostandards in Ordnern, die über fünfzehn Jahre gewachsen sind, Projektwissen in Raumprogrammen und E-Mail-Anhängen. All das in eine neue Struktur zu zwingen ist die Art von Migration, die zweimal geplant und nie abgeschlossen wird.
 
-Piloti nimmt deshalb vier Arten von Quellen so auf, wie sie sind: Baurecht, Bürowissen, Projektdokumente und das Web. Alle landen im selben durchsuchbaren Index mit derselben Schnittstelle, und jede Quelle in einer Antwort trägt eine Markierung, die zeigt, aus welcher der vier Welten sie kommt.
+Zwei strukturelle Tatsachen ordnen, was Piloti aufnimmt. Die erste ist, was eine Quelle *ist*: Baurecht, Bürowissen, Projektdokument oder Web. Jede Quelle in einer Antwort trägt eine Markierung mit ihrer Art, damit Sie immer sehen, welche Klasse von Beleg vor Ihnen liegt.
 
-<SourcesFigure
+Die zweite Tatsache ist die wichtigere, und sie ist eine Hierarchie: wo eine Quelle *wohnt*. Wissen liegt auf vier ineinander geschachtelten Ebenen. Ganz außen das Baurecht, das alle teilen. Darin das Archiv Ihres Büros, das kein anderes Büro sehen kann. Darin jedes Projekt mit seinen Dokumenten, sichtbar für seine Mitglieder. Ganz innen das einzelne Gespräch mit dem, was Sie ihm gerade angehängt haben.
+
+<ScopeFigure
   kicker="ABB. 02"
-  title="EIN INDEX, VIER WELTEN"
-  alt="Vier Quellarten speisen einen Index, der jede Antwort mit gekennzeichneter Herkunft versorgt"
-  caption="Jede Quelle landet im selben Index mit derselben Form. Die Antwort zeigt, aus welcher Welt eine Quelle kommt, und die Einordnung eines Menschen schlägt jede Dateinamen-Vermutung."
-  labels={{
-    sources: [
-      { label: 'BAURECHT', sub: 'OIB-RICHTLINIEN, LANDESRECHT' },
-      { label: 'BÜROWISSEN', sub: 'STANDARDS, DETAILS' },
-      { label: 'PROJEKTDOKUMENTE', sub: 'RAUMPROGRAMME, BESCHEIDE' },
-      { label: 'WEB', sub: 'AKTUELLE ERLÄSSE' },
-    ],
-    sourcesFooter: 'VIER WELTEN, WIE SIE SIND',
-    index: 'EIN INDEX',
-    indexRows: ['TEXTABSCHNITT', 'SEMANTISCHER FINGERABDRUCK', 'HERKUNFT + SEITE', 'KLASSE, VON HAND GESETZT'],
-    consumersTag: 'CHAT - DEEP RESEARCH',
-    consumer: 'JEDE ANTWORT',
-    consumerSub: 'MARKIERUNG ZEIGT DIE WELT',
-  }}
+  title="VIER EBENEN, GESCHACHTELT"
+  alt="Vier ineinander geschachtelte Rahmen: Plattform mit geteiltem Baurecht, Büro-Archiv, Projektdokumente, Gespräch. Ein Pfeil zeigt, wie eine Frage von innen nach außen sucht."
+  caption="Eine Frage sucht von dort nach außen, wo sie gestellt wird: ihr Gespräch, ihr Projekt, Ihr Büro, das geteilte Baurecht. Nie von außen nach innen, und nie seitwärts in ein anderes Büro."
+  levels={[
+    { label: 'PLATTFORM', holds: 'BAURECHT, GETEILTE LEKTIONEN', visible: 'ALLE' },
+    { label: 'BÜRO', holds: 'IHR ARCHIV, IHRE STANDARDS', visible: 'IHR BÜRO' },
+    { label: 'PROJEKT', holds: 'RAUMPROGRAMME, BESCHEIDE, PLÄNE', visible: 'PROJEKTMITGLIEDER' },
+    { label: 'GESPRÄCH', holds: 'WAS SIE GERADE ANHÄNGEN', visible: 'DIESER CHAT' },
+  ]}
+  search="EINE FRAGE SUCHT NACH AUSSEN"
 />
+
+Die Schachtelung macht die Antwort in beide Richtungen vertrauenswürdig. Nach außen heißt sie: Eine Frage erreicht alles, was für sie zählt, auf einmal, von der Skizze, die Sie vor einer Minute angehängt haben, bis zur OIB-Richtlinie, die alle teilen. Nach innen heißt sie: Die Grenze hält. Das Wissen Ihres Büros verbessert die Antworten Ihres Büros und niemandes sonst.
 
 Über der ganzen Automatik steht eine Regel: Wenn ein Mensch ein Dokument einordnet, gilt diese Einordnung. Ein Dateiname kann nahelegen, was ein Dokument ist. Er kann nicht die Architektin überstimmen, die es weiß.
 
@@ -69,6 +66,8 @@ Baurecht kommt meist als PDF, und PDFs wehren sich. Das ist die Aufbereitungssch
 Jeder Abschnitt wird dann doppelt im Index abgelegt. Einmal als Embedding, ein numerischer Fingerabdruck seiner Bedeutung, mit dem das System eine Bestimmung auch dann findet, wenn die Frage ganz andere Wörter benutzt. Und einmal als Klartext in einem Volltextindex, damit ein exakter Begriff exakt gefunden wird. Dass wir beides behalten, ist Absicht, und der nächste Abschnitt erklärt warum.
 
 Die amtlichen Richtlinien bekommen eine zusätzliche Schicht Sorgfalt. Piloti gleicht OIB-Dokumente gegen ein Register von Inhalts-Prüfsummen ab, damit eine überarbeitete Richtlinie ihre Vorgängerin ersetzt, statt still neben ihr weiterzuleben. Zwei Fassungen derselben Brandschutzregel in einem Index sind der sicherste Weg, mit voller Überzeugung die falsche zu zitieren.
+
+An dieser Stelle trennen wir uns auch von einem Ranking-Trick, der in Systemen über Chat-Archiven beliebt ist: Neueres schlägt Älteres, weil Geplauder veraltet. Baurecht veraltet nicht, es wird ersetzt. Ein neuerer Text ist kein geltenderer Text, deshalb belohnt unser Dokumenten-Ranking das Alter nicht. Fassungen werden bei der Aufnahme aufgelöst, wo die Überarbeitung ihre Vorgängerin vollständig ersetzt, und was im Index steht, ist dadurch von Haus aus aktuell.
 
 ## Warum Vektorsuche allein nicht gereicht hat
 
@@ -107,7 +106,11 @@ An diesem Punkt sind wir am wenigsten kompromissbereit. Im Baurecht ist "vertrau
 
 Eine Frage gut zu beantworten ist Pflicht. Das interessantere Problem ist das fünfte Gespräch zum selben Projekt, das nicht bei null anfangen sollte.
 
-Nach einem Gespräch hält ein Reflexionsschritt fest, was zählte: Entscheidungen, Randbedingungen, Korrekturen. Jede Notiz bekommt beim Schreiben eine Wichtigkeit. Kommt die nächste Frage, konkurrieren die gespeicherten Notizen um ein kleines Platzbudget in der Antwort, bewertet nach drei Dingen zugleich: wie gut sie zu dieser Frage passen, wie wichtig sie eingestuft wurden und wann sie zuletzt geholfen haben. Notizen, die sich immer wieder als nützlich erweisen, bleiben präsent. Notizen, die nie helfen, sinken in der Rangfolge, gelöscht werden sie aber nicht. Manchmal entscheidet genau die Notiz einen Streitfall, die ein Jahr lang niemand gebraucht hat.
+Nach jeder Antwort läuft im Hintergrund ein Reflexionsschritt und hält fest, was zählte: Entscheidungen, Randbedingungen, Korrekturen. Er läuft, nachdem die Antwort Sie schon erreicht hat, kostet Sie also keine Sekunde Wartezeit, und er prüft seinen Fund gegen das bereits Gemerkte, damit sich das Gedächtnis nicht mit Wiederholungen seiner selbst füllt.
+
+Kommt die nächste Frage, konkurrieren die gespeicherten Notizen um ein kleines Platzbudget, bewertet nach drei Dingen zugleich: wie gut sie zu dieser Frage passen, wie wichtig sie beim Schreiben eingestuft wurden und wann sie zuletzt geholfen haben. Notizen, die sich immer wieder als nützlich erweisen, bleiben präsent. Notizen, die nie helfen, sinken in der Rangfolge, doch Bedeutungslosigkeit allein löscht keine Notiz. Manchmal entscheidet genau die Notiz einen Streitfall, die ein Jahr lang niemand gebraucht hat. Was eine Notiz wirklich ablöst, ist eine Korrektur: Widerspricht ein neuer Fund einem alten, ersetzt er ihn, und die Ablöse bleibt nachvollziehbar. Das ist übrigens die eine Stelle in Piloti, an der Aktualität überhaupt mitstimmt, absichtlich als schwächstes der drei Signale.
+
+Zwei weitere Regeln halten das Gedächtnis ehrlich. Es überstimmt nie, was Sie im Moment eintippen; die laufende Eingabe gewinnt immer. Und es ist nie eine Zitatquelle; das Gedächtnis prägt eine Antwort, die zitierte Bestimmung muss trotzdem aus einem Dokument kommen.
 
 Dieses Bewertungsschema haben wir nicht erfunden. Die Form stammt aus der Generative-Agents-Arbeit in Stanford, die Vergessenskurve aus dem MemoryBank-Paper. Ein veröffentlichtes, geprüftes Design zu übernehmen hat unsere eigene Wochenend-Intuition geschlagen, und wir vermuten, das gilt öfter, als Ingenieure zugeben.
 

@@ -7,7 +7,7 @@ translationSlug: wie-piloti-funktioniert
 ---
 
 import IsoStackFigure from '../../../components/blog/figures/IsoStackFigure.astro'
-import SourcesFigure from '../../../components/blog/figures/SourcesFigure.astro'
+import ScopeFigure from '../../../components/blog/figures/ScopeFigure.astro'
 import HybridFigure from '../../../components/blog/figures/HybridFigure.astro'
 
 A typical Piloti question looks harmless. "Which escape route widths apply to this kindergarten?" Behind it sit an OIB guideline, one of nine state building codes, the project brief, and possibly a decree that changed last spring. The answer is only worth something if it names the clause it came from, quotes it correctly, and reflects the version that is actually in force.
@@ -33,32 +33,29 @@ Reading the stack top to bottom: **sources** are the documents as your office ke
 
 Two systems ride alongside this stack rather than inside it: a project memory that keeps later conversations from starting at zero, and a learning loop fed by your thumbs-down clicks. Both get their own section below; the loop even gets [its own post](/en/blog/a-system-that-learns-from-your-frustration/).
 
-## Four kinds of knowledge, one index
+## Where knowledge lives
 
 Early on we made a decision that shaped everything after it: we do not ask offices to reorganize their documents for us. Knowledge is created wherever it is convenient. Building law lives in official PDFs, office standards live in folders that grew over fifteen years, project knowledge lives in briefs and email attachments. Forcing all of that into one new structure is the kind of migration that gets planned twice and finished never.
 
-So Piloti ingests four kinds of sources as they are: building law, office knowledge, project documents, and the web. All of them land in the same searchable index with the same interface, and every source in an answer carries a chip that tells you which of the four worlds it came from.
+Two structural facts organize what Piloti ingests. The first is what a source *is*: building law, office knowledge, project document, or web. Every source in an answer carries a chip naming its kind, so you always see what class of evidence you are looking at.
 
-<SourcesFigure
+The second fact is the important one, and it is a hierarchy: where a source *lives*. Knowledge sits on four nested levels. At the outermost level, the building law everyone shares. Inside it, your office's own archive, which no other office can see. Inside that, each project with its documents, visible to its members. Innermost, the single conversation with whatever you attached to it.
+
+<ScopeFigure
   kicker="FIG. 02"
-  title="ONE INDEX, FOUR WORLDS"
-  alt="Four source types feeding one index, which feeds every answer with a labelled origin"
-  caption="Every source lands in the same index with the same shape. The answer shows which world a source came from, and a person's classification always beats a filename guess."
-  labels={{
-    sources: [
-      { label: 'BUILDING LAW', sub: 'OIB GUIDELINES, STATE CODES' },
-      { label: 'OFFICE KNOWLEDGE', sub: 'STANDARDS, DETAILS' },
-      { label: 'PROJECT DOCUMENTS', sub: 'BRIEFS, PERMITS, PLANS' },
-      { label: 'WEB', sub: 'CURRENT DECREES' },
-    ],
-    sourcesFooter: 'FOUR WORLDS, TAKEN AS THEY ARE',
-    index: 'ONE INDEX',
-    indexRows: ['TEXT CHUNK', 'SEMANTIC FINGERPRINT', 'ORIGIN + PAGE', 'CLASS, SET BY A PERSON'],
-    consumersTag: 'CHAT - DEEP RESEARCH',
-    consumer: 'EVERY ANSWER',
-    consumerSub: 'CHIP SHOWS THE WORLD',
-  }}
+  title="FOUR LEVELS, NESTED"
+  alt="Four nested frames: platform with shared building law, office archive, project documents, conversation. An arrow shows a question searching outward from the conversation."
+  caption="A question searches outward from where it is asked: its conversation, its project, your office, the shared law. It never searches inward from outside, and never sideways into another office."
+  levels={[
+    { label: 'PLATFORM', holds: 'BUILDING LAW, SHARED LESSONS', visible: 'EVERYONE' },
+    { label: 'OFFICE', holds: 'YOUR ARCHIVE, YOUR STANDARDS', visible: 'YOUR OFFICE' },
+    { label: 'PROJECT', holds: 'BRIEFS, PERMITS, PLANS', visible: 'PROJECT MEMBERS' },
+    { label: 'CONVERSATION', holds: 'WHAT YOU ATTACH RIGHT NOW', visible: 'THIS CHAT' },
+  ]}
+  search="A QUESTION SEARCHES OUTWARD"
 />
+
+The nesting is what makes the answer trustworthy in both directions. Outward, it means one question reaches everything relevant to it at once, from the sketch you attached a minute ago to the OIB guideline everyone shares. Inward, it means the boundary holds: your office's knowledge improves your office's answers and nobody else's.
 
 One rule sits above all the automation: when a person classifies a document, that classification wins. A filename can suggest what a document is. It cannot outvote the architect who knows.
 
@@ -69,6 +66,8 @@ Most building law arrives as PDF, and PDF fights back. This is the ingestion lay
 Each chunk is then stored twice in the index layer. Once as an embedding, a numeric fingerprint of its meaning that lets the system find a clause even when the question uses entirely different words. And once as plain text in a full-text index, so an exact term can be found exactly. Keeping both is deliberate, and the next section is about why.
 
 The official guidelines get one extra layer of care. Piloti syncs OIB documents against a registry of content hashes, so a revised guideline replaces its predecessor instead of quietly coexisting with it. Two versions of the same fire protection rule in one index is how you end up citing the wrong one with full confidence.
+
+This is also where we part ways with a ranking trick that is popular in systems built on chat archives: letting newer content outrank older content, because chatter goes stale. Law does not go stale, it gets replaced. A newer text is not a more in-force text, so nothing in our document ranking rewards age. Versions are resolved at ingestion, where the revision replaces its predecessor outright, and what remains in the index is current by construction.
 
 ## Why vector search alone was not enough
 
@@ -107,7 +106,11 @@ This is the part we are least willing to compromise on. In building law, "trust 
 
 Answering one question well is table stakes. The more interesting problem is the fifth conversation about the same project, which should not start from zero.
 
-After a conversation, a reflection step writes down what mattered: decisions, constraints, corrections. Each note gets an importance score at write time. When the next question comes in, the stored notes compete for a small budget of space in the answer, scored on three things at once: how relevant they are to this question, how important they were judged to be, and how recently they last helped. Notes that keep proving useful stay vivid. Notes that never help sink down the ranking, though we never delete them, because the note you have not needed for a year is sometimes the one that decides a dispute.
+After every answer, a reflection step runs in the background and writes down what mattered: decisions, constraints, corrections. It runs after the reply has already reached you, so it never costs you a second of waiting, and it checks its finding against what is already remembered, so the memory does not fill up with restatements of itself.
+
+When the next question comes in, the stored notes compete for a small budget of space, scored on three things at once: how relevant they are to this question, how important they were judged to be when written, and how recently they last helped. Notes that keep proving useful stay vivid. Notes that never help sink down the ranking, though irrelevance alone never deletes them, because the note you have not needed for a year is sometimes the one that decides a dispute. What does retire a note is being corrected: when a new finding contradicts an old one, the old one is superseded by it, with the record of what replaced it. And this is the one place in Piloti where recency gets a vote at all, deliberately the smallest of the three.
+
+Two more rules keep the memory honest. It never outranks what you type in the moment; the live turn always wins. And it is never a citation source; memory shapes an answer, the cited clause still has to come from a document.
 
 We did not invent this scoring. The shape comes from Stanford's Generative Agents work, the decay curve from the MemoryBank paper. Borrowing a published, tested design beat a weekend of our own intuition, and we suspect that is true more often than engineers like to admit.
 

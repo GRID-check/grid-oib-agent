@@ -37,5 +37,5 @@ text does not reliably obey `text-transform`.
    global per page and two figures on one post must not collide.
 
 `IsoStackFigure` is the generic one: any layered system, one `layers` array.
-The others (`SourcesFigure`, `HybridFigure`, `LessonLoopFigure`) are bespoke
+The others (`ScopeFigure`, `HybridFigure`, `LessonLoopFigure`) are bespoke
 drawings for specific posts and templates for the next bespoke one.
