@@ -331,7 +331,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           pointer device, no shadow, a fainter fill — the pill is legibility
           over the scrolling transcript, not furniture of its own. Touch keeps
           the 44px targets. */}
-      <div className="pointer-events-auto flex min-h-12 min-w-0 max-w-[64%] items-center gap-0.5 rounded-lg border border-base/60 bg-card/60 p-0.5 backdrop-blur supports-[backdrop-filter]:bg-card/50 sm:min-h-8 sm:max-w-none">
+      <div className="pointer-events-auto flex min-h-12 min-w-0 max-w-[64%] items-center gap-0.5 rounded-lg border border-base bg-card/60 p-0.5 backdrop-blur supports-[backdrop-filter]:bg-card/50 sm:min-h-8 sm:max-w-none">
         {/* Global navigation opener — mobile only. The chat route hides the
             standalone top bar, so this hamburger is the way back out to
             projects / files / settings (opens the same AppSidebar drawer). */}
@@ -462,7 +462,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           New-chat button sideways. Reduced motion is handled globally by
           <MotionConfig reducedMotion="user">. */}
       {isChatStarted && (
-      <div className="pointer-events-auto flex min-h-12 shrink-0 items-center gap-0.5 rounded-lg border border-base/60 bg-card/60 p-0.5 backdrop-blur supports-[backdrop-filter]:bg-card/50 sm:min-h-8">
+      <div className="pointer-events-auto flex min-h-12 shrink-0 items-center gap-0.5 rounded-lg border border-base bg-card/60 p-0.5 backdrop-blur supports-[backdrop-filter]:bg-card/50 sm:min-h-8">
         {/* ── STATUS ────────────────────────────────────────────────────────────
             Who can reach this thread, stated ONCE, in whichever of the two forms is
             true of the audience (see `showFaces` / `showAccessChip` above), and
