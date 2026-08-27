@@ -15,28 +15,42 @@ import { FileCard } from './file-card'
 import { FileGrid, FileCardSkeleton } from './file-grid'
 import { FileListSkeleton, FileListView } from './file-list-view'
 import { FileSearchBar } from './file-search-bar'
-import { FilterChip } from './filter-chip'
+import { FolderBreadcrumbRow, FolderCard, FolderRow } from './folder-navigation'
 import { AssignmentFaces } from './assignment-faces'
 
+/** Finder-style drill-down wiring — see `folder-navigation.tsx`. */
+export interface FolderNavigation {
+  folders: FolderItem[]
+  /** The level the reader is standing in; null is the root. */
+  currentFolderId: string | null
+  onNavigate: (id: string | null) => void
+  onCreateFolder: (name: string, parentId?: string) => Promise<boolean>
+  onRenameFolder: (folderId: string, name: string) => Promise<boolean>
+  onDeleteFolder: (folderId: string) => Promise<boolean>
+}
+
 interface FileBrowserPaneProps {
+  /** The CURRENT LEVEL's files (the caller applies the folder filter). */
   files: FileItem[]
   selectedFileId: string | null
   onSelectFile: (id: string | null) => void
   isLoading: boolean
-  /** True when a specific folder is selected (vs. the "All Files" root). */
-  hasFolderSelected: boolean
   /** Upload control rendered inside the first-run empty state. */
   uploadControl?: ReactNode
   /** Dashed upload card rendered as the last tile of the grid (project corpus). */
   uploadCard?: ReactNode
   /**
-   * Top-level folders presented as a quick-filter chip row above the grid
-   * (mirrors the sidebar tree — same selection state, no separate data model).
-   * Omitted by callers without folders (Archiv).
+   * Folder drill-down: breadcrumb path on top, folder cards/rows beside the
+   * files, create/rename/delete in place. Omitted by callers without folders
+   * (the Archiv is flat by design, ADR-0024).
    */
-  folders?: FolderItem[]
-  selectedFolderId?: string | null
-  onSelectFolder?: (id: string | null) => void
+  folderNav?: FolderNavigation
+  /**
+   * The whole corpus (after the caller's other filters), for the type-ahead
+   * filter: a search escapes the current folder, so a document two levels down
+   * is findable from the root. Defaults to `files`.
+   */
+  searchFiles?: FileItem[]
   /**
    * Project whose corpus the explicit-run semantic search queries. When
    * provided, pressing Enter (or the search button) runs a deterministic vector
@@ -62,12 +76,10 @@ export function FileBrowserPane({
   selectedFileId,
   onSelectFile,
   isLoading,
-  hasFolderSelected,
   uploadControl,
   uploadCard,
-  folders,
-  selectedFolderId = null,
-  onSelectFolder,
+  folderNav,
+  searchFiles,
   projectId,
   view = 'cards',
   showAssignment = false,
@@ -101,26 +113,37 @@ export function FileBrowserPane({
     semantic.reset()
   }
 
-  // Client-side filter over the current listing: name, plus AI tags and
-  // summary when the backend generated them.
+  // Client-side filter: name, plus AI tags and summary when the backend
+  // generated them. A typed query escapes the current folder (the query is the
+  // context), so it runs over the corpus, not the level.
   const filteredFiles = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return files
     // Both names, deliberately: somebody who renamed a document looks for what
     // they called it, and somebody who uploaded it looks for the file they sent.
-    return files.filter(
+    return (searchFiles ?? files).filter(
       (f) =>
         documentDisplayName(f).toLowerCase().includes(q) ||
         f.filename.toLowerCase().includes(q) ||
         (f.summary ?? '').toLowerCase().includes(q) ||
         (f.tags ?? []).some((tag) => tag.toLowerCase().includes(q))
     )
-  }, [files, search])
+  }, [files, searchFiles, search])
 
-  const topLevelFolders = useMemo(
-    () => (folders ?? []).filter((f) => f.parentId === null),
-    [folders]
+  const currentFolderId = folderNav?.currentFolderId ?? null
+
+  /** The folders directly inside the current level — the drill-down tiles. */
+  const childFolders = useMemo(
+    () => (folderNav?.folders ?? []).filter((f) => f.parentId === currentFolderId),
+    [folderNav?.folders, currentFolderId]
   )
+
+  /** Documents + subfolders directly inside `folderId`, for the count line. */
+  const folderItemCount = (folderId: string): number => {
+    const docs = (searchFiles ?? files).filter((f) => (f.folderId ?? null) === folderId).length
+    const subs = (folderNav?.folders ?? []).filter((f) => f.parentId === folderId).length
+    return docs + subs
+  }
 
   if (isLoading) {
     // Same rule as the search skeleton below: placeholders take the shape of the
@@ -143,28 +166,25 @@ export function FileBrowserPane({
     )
   }
 
-  // First-run empty state — the whole corpus (or selected folder) has no files.
-  if (files.length === 0) {
+  // First-run empty state — nothing anywhere: no documents, no folders. An
+  // EMPTY FOLDER is not this case; it keeps the breadcrumb so the reader can
+  // walk back out or create something where they stand.
+  const corpusEmpty = (searchFiles ?? files).length === 0
+  if (corpusEmpty && (folderNav?.folders ?? []).length === 0) {
     return (
       <div className="flex h-full items-center justify-center p-8">
-        {hasFolderSelected ? (
-          <EmptyState
-            icon={FolderOpen}
-            title={t('browser.folderEmptyTitle')}
-            description={t('browser.folderEmptyDescription')}
-            action={uploadControl}
-          />
-        ) : (
-          <EmptyState
-            icon={UploadCloud}
-            title={t('browser.noDocumentsTitle')}
-            description={t('browser.noDocumentsDescription')}
-            action={uploadControl}
-          />
-        )}
+        <EmptyState
+          icon={UploadCloud}
+          title={t('browser.noDocumentsTitle')}
+          description={t('browser.noDocumentsDescription')}
+          action={uploadControl}
+        />
       </div>
     )
   }
+
+  const searching = search.trim() !== ''
+  const levelEmpty = files.length === 0 && childFolders.length === 0
 
   return (
     <div className="flex h-full flex-col">
@@ -211,40 +231,17 @@ export function FileBrowserPane({
         bannerTestId="semantic-banner"
       />
 
-      {/* Top-level folder quick filter — chip presentation of the same folder
-          selection the sidebar tree drives (no separate navigation model).
-          Hidden in semantic mode (the query is the context). */}
-      {!semantic.active && onSelectFolder && topLevelFolders.length > 0 && (
-        <div
-          // Wrap on mobile so the last folder pill is never clipped at the
-          // right edge; keep a single scrollable row from md up (where it fits).
-          //
-          // `shrink-0` is what keeps the pills READABLE. This row is a flex item
-          // of a column that is `h-full` — one viewport tall — while the grid
-          // below it is as tall as the corpus, so the column runs a negative free
-          // space the moment the listing scrolls. Every other child refuses to
-          // absorb it (an item whose overflow is visible cannot shrink below its
-          // content), but `overflow-x-auto` drops this one's automatic minimum
-          // size to zero, so the whole deficit landed here: the row collapsed to
-          // its padding and clipped the pills through the middle of their labels.
-          className="flex shrink-0 flex-wrap items-center gap-1.5 border-b px-4 py-2 md:flex-nowrap md:overflow-x-auto"
-          role="group"
-          aria-label={t('folders.heading')}
-        >
-          <FilterChip
-            label={t('folders.allFiles')}
-            active={selectedFolderId === null}
-            onClick={() => onSelectFolder(null)}
-          />
-          {topLevelFolders.map((folder) => (
-            <FilterChip
-              key={folder.id}
-              label={folder.name}
-              active={selectedFolderId === folder.id}
-              onClick={() => onSelectFolder(folder.id)}
-            />
-          ))}
-        </div>
+      {/* The path, Finder-style: where the reader stands, every ancestor a
+          click back out, and "New folder" for the level they are in. Hidden
+          while a query is active in either mode (the query is the context and
+          its results span the corpus). */}
+      {folderNav && !semantic.active && !searching && (
+        <FolderBreadcrumbRow
+          folders={folderNav.folders}
+          currentFolderId={folderNav.currentFolderId}
+          onNavigate={folderNav.onNavigate}
+          onCreateFolder={folderNav.onCreateFolder}
+        />
       )}
 
       {semantic.active ? (
@@ -316,16 +313,18 @@ export function FileBrowserPane({
              they pressed Enter — and back again when they cleared the query.
              `key` on the query so a new result set starts at the top of its own
              ranking rather than inheriting the last one's sort and tab stop. */
-          <FileListView
-            key={semantic.query ?? ''}
-            semantic
-            files={semantic.hits}
-            selectedFileId={selectedFileId}
-            onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
-            renderActions={renderActions}
-          />
+          <div className={CONTENT_MAX}>
+            <FileListView
+              key={semantic.query ?? ''}
+              semantic
+              files={semantic.hits}
+              selectedFileId={selectedFileId}
+              onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
+              renderActions={renderActions}
+            />
+          </div>
         ) : (
-          <div className="p-4">
+          <div className={`${CONTENT_MAX} p-4`}>
             <FileGrid>
               {semantic.hits.map((hit) => (
                 <FileCard
@@ -342,39 +341,34 @@ export function FileBrowserPane({
             </FileGrid>
           </div>
         )
-      ) : /* Substring-filtered card grid (instant, as you type). */
-      filteredFiles.length === 0 ? (
-        <div className="p-8">
-          <EmptyState
-            variant="bare"
-            icon={Search}
-            title={t('browser.noMatch', { query: search })}
-            description={t('browser.noMatchDescription')}
-            action={
-              <Button variant="outline" size="sm" onClick={clearSearch}>
-                {t('browser.clearSearch')}
-              </Button>
-            }
-          />
-        </div>
-      ) : (
-        view === 'list' ? (
-          <FileListView
-            files={filteredFiles}
-            selectedFileId={selectedFileId}
-            onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
-            renderActions={renderActions}
-          />
+      ) : searching ? (
+        /* Substring-filtered listing (instant, as you type) — over the CORPUS,
+           so a match two folders down is reachable from anywhere. */
+        filteredFiles.length === 0 ? (
+          <div className="p-8">
+            <EmptyState
+              variant="bare"
+              icon={Search}
+              title={t('browser.noMatch', { query: search })}
+              description={t('browser.noMatchDescription')}
+              action={
+                <Button variant="outline" size="sm" onClick={clearSearch}>
+                  {t('browser.clearSearch')}
+                </Button>
+              }
+            />
+          </div>
+        ) : view === 'list' ? (
+          <div className={CONTENT_MAX}>
+            <FileListView
+              files={filteredFiles}
+              selectedFileId={selectedFileId}
+              onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
+              renderActions={renderActions}
+            />
+          </div>
         ) : (
-          <div className="p-4">
-            {/* Section label — "Recently uploaded" at the corpus root, matching
-                the click-dummy. Hidden inside a folder view (the chip already
-                names it) and while searching (the query is the context). */}
-            {search === '' && selectedFolderId === null && (
-              <SectionLabel as="p" className="mb-3 font-semibold tracking-[0.05em]">
-                {t('browser.recentlyUploaded')}
-              </SectionLabel>
-            )}
+          <div className={`${CONTENT_MAX} p-4`}>
             <FileGrid>
               {filteredFiles.map((file) => (
                 <FileCard
@@ -387,11 +381,89 @@ export function FileBrowserPane({
                   actions={renderActions?.(file)}
                 />
               ))}
-              {uploadCard}
             </FileGrid>
           </div>
         )
+      ) : levelEmpty ? (
+        /* An empty folder keeps its breadcrumb (above) — the way back out and
+           the "New folder" control stay where the reader expects them. */
+        <div className="flex flex-1 items-center justify-center p-8">
+          <EmptyState
+            icon={FolderOpen}
+            title={t('browser.folderEmptyTitle')}
+            description={t('browser.folderEmptyDescription')}
+            action={uploadControl}
+          />
+        </div>
+      ) : view === 'list' ? (
+        <div className={CONTENT_MAX}>
+          {folderNav && childFolders.length > 0 && (
+            <div className="border-b px-2 py-2" role="group" aria-label={t('folders.heading')}>
+              {childFolders.map((folder) => (
+                <FolderRow
+                  key={folder.id}
+                  folder={folder}
+                  itemCount={folderItemCount(folder.id)}
+                  onOpen={folderNav.onNavigate}
+                  onRenameFolder={folderNav.onRenameFolder}
+                  onDeleteFolder={folderNav.onDeleteFolder}
+                />
+              ))}
+            </div>
+          )}
+          {files.length > 0 && (
+            <FileListView
+              files={files}
+              selectedFileId={selectedFileId}
+              onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
+              renderActions={renderActions}
+            />
+          )}
+        </div>
+      ) : (
+        <div className={`${CONTENT_MAX} p-4`}>
+          {/* Section label — "Recently uploaded" at the corpus root, matching
+              the click-dummy. Hidden inside a folder (the breadcrumb already
+              names it) and while searching (the query is the context). */}
+          {currentFolderId === null && files.length > 0 && (
+            <SectionLabel as="p" className="mb-3 font-semibold tracking-[0.05em]">
+              {t('browser.recentlyUploaded')}
+            </SectionLabel>
+          )}
+          <FileGrid>
+            {folderNav &&
+              childFolders.map((folder) => (
+                <FolderCard
+                  key={folder.id}
+                  folder={folder}
+                  itemCount={folderItemCount(folder.id)}
+                  onOpen={folderNav.onNavigate}
+                  onRenameFolder={folderNav.onRenameFolder}
+                  onDeleteFolder={folderNav.onDeleteFolder}
+                />
+              ))}
+            {files.map((file) => (
+              <FileCard
+                key={file.id}
+                file={file}
+                isSelected={selectedFileId === file.id}
+                onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
+                locale={locale}
+                footerLead={showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined}
+                actions={renderActions?.(file)}
+              />
+            ))}
+            {uploadCard}
+          </FileGrid>
+        </div>
       )}
     </div>
   )
 }
+
+/**
+ * The listing's width cap. With the tree band gone the browser owns the whole
+ * column, and a 4K monitor would otherwise stretch cards into a wall — the
+ * content centres inside the toolbars, which keep spanning the full width.
+ */
+const CONTENT_MAX = 'mx-auto w-full max-w-[1200px]'

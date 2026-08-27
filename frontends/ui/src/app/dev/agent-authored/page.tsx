@@ -181,7 +181,6 @@ function AgentAuthoredFixtures(): JSX.Element {
             selectedFileId={selected}
             onSelectFile={setSelected}
             isLoading={false}
-            hasFolderSelected={false}
             projectId="proj-demo"
             showAssignment
           />

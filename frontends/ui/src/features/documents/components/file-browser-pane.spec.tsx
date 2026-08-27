@@ -46,7 +46,6 @@ function renderPane(overrides: Partial<Parameters<typeof FileBrowserPane>[0]> = 
       selectedFileId={null}
       onSelectFile={vi.fn()}
       isLoading={false}
-      hasFolderSelected={false}
       {...overrides}
     />
   )
@@ -115,43 +114,81 @@ describe('FileBrowserPane — document descriptions', () => {
   })
 })
 
-describe('FileBrowserPane — folder chips', () => {
+describe('FileBrowserPane — folder drill-down', () => {
   const folders: FolderItem[] = [
     { id: 'root-1', parentId: null, name: 'Pläne', path: '/Pläne' },
     { id: 'root-2', parentId: null, name: 'Bescheide', path: '/Bescheide' },
     { id: 'child-1', parentId: 'root-1', name: 'EG', path: '/Pläne/EG' },
   ]
 
-  it('renders top-level folders (only) as a chip row and forwards selection', async () => {
+  const folderNav = (currentFolderId: string | null, onNavigate = vi.fn()) => ({
+    folders,
+    currentFolderId,
+    onNavigate,
+    onCreateFolder: vi.fn(async () => true),
+    onRenameFolder: vi.fn(async () => true),
+    onDeleteFolder: vi.fn(async () => true),
+  })
+
+  it('renders the current level’s folders as cards (only), and clicking one drills in', async () => {
     const user = userEvent.setup()
-    const onSelectFolder = vi.fn()
-    renderPane({ folders, selectedFolderId: null, onSelectFolder })
+    const onNavigate = vi.fn()
+    renderPane({ folderNav: folderNav(null, onNavigate) })
 
-    expect(screen.getByRole('button', { name: 'Pläne' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Bescheide' })).toBeInTheDocument()
-    // Nested folders stay in the sidebar tree, not the chip row.
-    expect(screen.queryByRole('button', { name: 'EG' })).not.toBeInTheDocument()
-    // The "All Files" chip is the root selection.
-    expect(screen.getByRole('button', { name: 'All Files' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Open folder “Pläne”' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open folder “Bescheide”' })).toBeInTheDocument()
+    // A nested folder belongs to ITS level, not the root.
+    expect(screen.queryByRole('button', { name: 'Open folder “EG”' })).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Pläne' }))
-    expect(onSelectFolder).toHaveBeenCalledWith('root-1')
+    await user.click(screen.getByRole('button', { name: 'Open folder “Pläne”' }))
+    expect(onNavigate).toHaveBeenCalledWith('root-1')
   })
 
-  it('renders no chip row without folders or handler', () => {
+  it('names the path in the breadcrumb, every ancestor a click back out', async () => {
+    const user = userEvent.setup()
+    const onNavigate = vi.fn()
+    renderPane({
+      // Standing inside Pläne › EG: its own level shows, the path walks up.
+      files: [],
+      searchFiles: files,
+      folderNav: folderNav('child-1', onNavigate),
+    })
+
+    const breadcrumb = screen.getByRole('navigation', { name: 'Folder path' })
+    expect(within(breadcrumb).getByText('EG')).toBeInTheDocument()
+    await user.click(within(breadcrumb).getByRole('button', { name: 'Pläne' }))
+    expect(onNavigate).toHaveBeenCalledWith('root-1')
+    await user.click(within(breadcrumb).getByRole('button', { name: 'All Files' }))
+    expect(onNavigate).toHaveBeenCalledWith(null)
+  })
+
+  it('counts what is directly inside a folder on its card', () => {
+    renderPane({
+      files,
+      searchFiles: [{ ...files[0], folderId: 'root-1' }, files[1]],
+      folderNav: folderNav(null),
+    })
+    // Pläne holds one document and one subfolder — two items.
+    const card = screen.getByTestId('folder-card-root-1')
+    expect(within(card).getByText('2 item(s)')).toBeInTheDocument()
+  })
+
+  it('a typed query escapes the current folder and searches the corpus', async () => {
+    const user = userEvent.setup()
+    renderPane({
+      // Standing inside an empty folder; the corpus lives elsewhere.
+      files: [],
+      searchFiles: files,
+      folderNav: folderNav('root-2'),
+    })
+
+    await user.type(screen.getByRole('textbox', { name: /search files/i }), 'permit')
+    expect(screen.getByText('permit.pdf')).toBeInTheDocument()
+  })
+
+  it('renders no folder navigation without folderNav (the Archiv is flat)', () => {
     renderPane()
-    expect(screen.queryByRole('button', { name: 'All Files' })).not.toBeInTheDocument()
-  })
-
-  // The row is a flex item of a column that is one viewport tall while the grid
-  // under it is as tall as the corpus, and `overflow-x-auto` waives its
-  // automatic minimum size — so without `shrink-0` the browser hands it the
-  // whole negative free space and it collapses onto its own padding, clipping
-  // the pills through the middle of their labels. jsdom does no layout, so what
-  // is pinned here is the declaration that prevents it.
-  it('never absorbs the column’s overflow — the chip row cannot shrink', () => {
-    renderPane({ folders, selectedFolderId: null, onSelectFolder: vi.fn() })
-    expect(screen.getByRole('group', { name: 'Folders' })).toHaveClass('shrink-0')
+    expect(screen.queryByRole('navigation', { name: 'Folder path' })).not.toBeInTheDocument()
   })
 })
 

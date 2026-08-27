@@ -70,7 +70,6 @@
         "postgres": "^3.4.0",
         "rate-limiter-flexible": "^11.2.0",
         "react": "^18.2.0",
-        "react-complex-tree": "^2.6.2",
         "react-dom": "^18.2.0",
         "react-markdown": "^10.1.0",
         "react-resizable-panels": "^4.12.3",
@@ -2038,8 +2037,6 @@
     "rate-limiter-flexible": ["rate-limiter-flexible@11.2.0", "", {}, "sha512-L0eIK+BmFMi6NcvmtEg7RSswOFKi9MMD5RhBIypFfOve+G6Jl1Xbb8qEHgK3uRzNtkOFYF0L9f7P4rSf2PnUVw=="],
 
     "react": ["react@18.3.1", "", { "dependencies": { "loose-envify": "^1.1.0" } }, "sha512-wS+hAgJShR0KhEvPJArfuPVN1+Hz1t0Y6n5jLrGQbkb4urgPE/0Rve+1kMB1v/oWgHgm4WIcV+i7F2pTVj+2iQ=="],
-
-    "react-complex-tree": ["react-complex-tree@2.6.2", "", { "peerDependencies": { "react": ">=16.0.0" } }, "sha512-6SEnSCMpxRlvTp4BUMEuQAv9Fiwo8EPr1HHjpJrk326JHIBw4S3f4M7nLhbzdFqbZ+2xfwKSswOFZaAjKWyWSw=="],
 
     "react-dom": ["react-dom@18.3.1", "", { "dependencies": { "loose-envify": "^1.1.0", "scheduler": "^0.23.2" }, "peerDependencies": { "react": "^18.3.1" } }, "sha512-5m4nQKp+rZRb09LNH59GM4BxTh9251/ylbKIbpe7TpGxfJ+9kv6BLkLBXIjjspbgbnIBNqlI23tRnTWT0snUIw=="],
 

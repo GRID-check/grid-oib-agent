@@ -193,10 +193,11 @@ export const files: typeof en.files = {
     namePlaceholder: 'Ordnername',
     newFolderName: 'Name des neuen Ordners',
     creating: 'Ordner wird erstellt …',
-    addSubfolderIn: 'Unterordner in {name} hinzufügen',
-    addSubfolder: 'Unterordner hinzufügen',
     allFiles: 'Alle Dateien',
     newFolder: 'Neuer Ordner',
+    items: '{count} Element(e)',
+    openFolder: 'Ordner „{name}“ öffnen',
+    breadcrumb: 'Ordnerpfad',
   },
   workspace: {
     renameFolderError: 'Der Ordner konnte nicht umbenannt werden. Bitte versuchen Sie es erneut.',
@@ -219,7 +220,6 @@ export const files: typeof en.files = {
       label: 'Ansicht',
       cards: 'Kacheln',
       list: 'Liste',
-      tree: 'Ordner',
     },
   },
   // Detailansicht des Explorers – Spaltenüberschriften der sortierbaren Liste.

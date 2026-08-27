@@ -7,17 +7,9 @@ export const research: typeof en.research = {
   detailsHelp:
     'Diese Details erscheinen während einer laufenden Recherche und sind für abgeschlossene Berichte möglicherweise nicht verfügbar.',
 
-  runsPage: {
-    title: 'Recherchedurchläufe',
-    subtitle:
-      'Deep-Research-Berichte, die Piloti für dieses Projekt erstellt hat, neueste zuerst.',
-  },
-
-  // Labels for the per-project research-runs list rows (research-runs-list.tsx).
+  // Label for a run whose chat has no local title (headless/CLI jobs).
   runsList: {
     untitledRun: 'Deep-Research-Durchlauf',
-    sessionLabel: 'Sitzung {id}',
-    viewThinking: 'Denkschritte anzeigen',
   },
 
   dockedPanel: {

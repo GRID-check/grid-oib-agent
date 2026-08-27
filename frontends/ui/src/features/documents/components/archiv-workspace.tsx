@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { sourceBase, sourceTint } from '@/lib/ui/source-tint'
 import { AlertCircle, Archive, RotateCcw, X } from 'lucide-react'
@@ -27,6 +27,12 @@ interface ArchivWorkspaceProps {
   canManage: boolean
   /** Gates the ingestion-metadata block, mirroring the project Files tab. */
   showMetadataPanel?: boolean
+  /**
+   * Controls appended at the end of the identity row, after the upload button.
+   * The Archiv sheet slots its close control here so the workspace's own
+   * header stays the sheet's ONE header instead of gaining a twin above it.
+   */
+  trailingActions?: ReactNode
 }
 
 /**
@@ -52,7 +58,11 @@ interface ArchivListResponse {
  * authorization differ. Members without manage rights get a read-only view
  * (list + preview + download).
  */
-export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivWorkspaceProps) {
+export function ArchivWorkspace({
+  canManage,
+  showMetadataPanel = true,
+  trailingActions,
+}: ArchivWorkspaceProps) {
   const t = useTranslations('archiv')
   const [files, setFiles] = useState<FileItem[]>([])
   const [collectionName, setCollectionName] = useState<string | undefined>(undefined)
@@ -280,7 +290,10 @@ export function ArchivWorkspace({ canManage, showMetadataPanel = true }: ArchivW
             <p className="text-muted-foreground truncate text-xs">{t('subtitle')}</p>
           </div>
         </div>
-        {uploadButton}
+        <div className="flex shrink-0 items-center gap-2">
+          {uploadButton}
+          {trailingActions}
+        </div>
       </div>
 
       {/* Error banner */}

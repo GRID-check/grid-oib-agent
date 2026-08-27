@@ -1,20 +1,21 @@
 /**
  * The persistent application frame.
  *
- * Everything the reader sees that is not the page itself lives here: the rail,
- * the `<main>` landmark, the scroll container and the route-change focus move.
- * It is a ROUTE GROUP layout — `(shell)` contributes nothing to any URL — which
- * is what lets seven sibling segments share one frame without a single link
- * changing (`lib/navigation/app-routes.spec.ts` holds that line).
+ * Everything the reader sees that is not the page itself lives here: the
+ * chrome (project rail or org header — see {@link AppShellChrome}), the
+ * `<main>` landmark, the scroll container, the route-change focus move, and
+ * the `@overlay` slot that lets the Archiv and the Postfach rise as sheets
+ * above the current page. It is a ROUTE GROUP layout — `(shell)` contributes
+ * nothing to any URL — which is what lets its sibling segments share one frame
+ * without a single link changing (`lib/navigation/app-routes.spec.ts` holds
+ * that line).
  *
- * WHY IT IS HERE AND NOT LOWER. The rail used to be mounted in
- * `projects/[id]/layout.tsx`, so it existed only inside a project. Navigating to
- * the Archiv, the Postfach, Organisation, Plattform or Profil unmounted it and
- * three things moved at once: 236px of rail vanished, the content column
- * changed width, and the scroll model flipped from `h-dvh` to `min-h-dvh` so the
- * document scrollbar itself appeared. Mounted in the common ancestor, none of
- * that can happen: Next.js does not re-render a layout on navigation, so the
- * frame is the same DOM before and after.
+ * WHY THE CHROME IS HERE AND NOT LOWER. The rail used to be mounted in
+ * `projects/[id]/layout.tsx`, so it existed only inside a project, and stepping
+ * out of one unmounted the whole chrome mid-navigation. Mounted in the common
+ * ancestor, Next.js does not re-render it on navigation, so the frame is the
+ * same DOM before and after. The org↔project chrome SWAP is the one deliberate
+ * exception, executed by the mounted component rather than by a remount.
  *
  * DELIBERATELY NOT A GATE. It resolves the session TOLERANTLY
  * ({@link resolveShellChrome} never throws and never redirects) because
@@ -31,15 +32,17 @@
  */
 
 import { type ReactNode } from 'react'
-import { AppShellRail } from '@/components/shell/app-shell-rail'
+import { AppShellChrome } from '@/components/shell/app-shell-chrome'
 import { RouteFocus } from '@/shared/components/route-focus'
 import { resolveShellChrome } from '@/lib/shell/chrome'
 import { runWithTenantSlot } from '@/lib/db/tenant-context'
 
 export default async function AppShellLayout({
   children,
+  overlay,
 }: {
   children: ReactNode
+  overlay: ReactNode
 }): Promise<JSX.Element> {
   // Its own tenant slot: React renders each layout as its own entry point, so
   // a slot opened by the `/app` layout above does not survive down to here
@@ -47,20 +50,20 @@ export default async function AppShellLayout({
   const chrome = await runWithTenantSlot(resolveShellChrome)
 
   return (
-    <div className="bg-background text-foreground flex h-dvh flex-col overflow-hidden md:flex-row">
-      <AppShellRail
-        projects={chrome.projects}
-        user={chrome.user}
-        organizationName={chrome.organizationName}
-        authRequired={chrome.authRequired}
-        canManageOrganization={chrome.navFlags.canManageOrganization}
-        canViewOrganization={chrome.navFlags.canViewOrganization}
-        canManagePlatform={chrome.navFlags.canManagePlatform}
-        canAccessArchiv={chrome.navFlags.canAccessArchiv}
-        canAccessInbox={chrome.navFlags.canAccessInbox}
-        showSkills={chrome.showSkills}
-        showModels={chrome.showModels}
-      />
+    <AppShellChrome
+      projects={chrome.projects}
+      user={chrome.user}
+      organizationName={chrome.organizationName}
+      authRequired={chrome.authRequired}
+      canManageOrganization={chrome.navFlags.canManageOrganization}
+      canViewOrganization={chrome.navFlags.canViewOrganization}
+      canManagePlatform={chrome.navFlags.canManagePlatform}
+      canAccessArchiv={chrome.navFlags.canAccessArchiv}
+      canAccessInbox={chrome.navFlags.canAccessInbox}
+      showSkills={chrome.showSkills}
+      showModels={chrome.showModels}
+      overlay={overlay}
+    >
       {/* `relative` is load-bearing for the docked chat panels: they position
           against this box, so "the inner edge of the rail" is true by
           construction rather than by a CSS variable that had to be published on
@@ -75,6 +78,6 @@ export default async function AppShellLayout({
         <RouteFocus />
         {children}
       </main>
-    </div>
+    </AppShellChrome>
   )
 }

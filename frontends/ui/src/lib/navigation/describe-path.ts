@@ -31,9 +31,7 @@ const PROJECT_SECTION_SEGMENTS: readonly ProjectSectionKey[] = [
   'chat',
   'files',
   'knowledge',
-  'history',
-  'skills',
-  'jobs',
+  'automation',
   'intake',
   'settings',
 ]
