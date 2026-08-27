@@ -20,8 +20,6 @@ export interface PageHeaderProps extends Omit<React.HTMLAttributes<HTMLElement>,
   subtitle?: React.ReactNode
   /** Optional primary action rendered on the right of the header row. */
   action?: React.ReactNode
-  /** Optional trail rendered above the title row. Absent = today's DOM. */
-  breadcrumb?: React.ReactNode
 }
 
 /**
@@ -48,12 +46,11 @@ export function PageHeader({
   title,
   subtitle,
   action,
-  breadcrumb,
   className,
   ...props
 }: PageHeaderProps): JSX.Element {
-  const titleRow = (
-    <>
+  return (
+    <header className={cn('min-w-0', TITLE_ROW_CLASS, className)} {...props}>
       <div className="min-w-0">
         <h1 className="text-balance text-xl font-semibold tracking-tight">{title}</h1>
         {subtitle && (
@@ -61,20 +58,6 @@ export function PageHeader({
         )}
       </div>
       {action ? <div className="sm:shrink-0">{action}</div> : null}
-    </>
-  )
-
-  return (
-    <header
-      className={cn(
-        'min-w-0',
-        breadcrumb ? 'flex flex-col gap-3' : TITLE_ROW_CLASS,
-        className,
-      )}
-      {...props}
-    >
-      {breadcrumb}
-      {breadcrumb ? <div className={TITLE_ROW_CLASS}>{titleRow}</div> : titleRow}
     </header>
   )
 }
