@@ -71,6 +71,10 @@
               "de": "Tabellen in Antworten behalten ihre Spaltenausrichtung (Zahlenspalten stehen rechtsbündig), Checklisten zeigen echte Häkchen statt Aufzählungspunkte, und tief gegliederte Antworten behalten alle Überschriftenebenen."
             },
             {
+              "en": "Piloti stellt jetzt öfter eine kurze Auswahlfrage, statt bei mehreren plausiblen Richtungen stillschweigend eine davon zu wählen — etwa wenn ein Thema in mehrere eigenständige Aspekte zerfällt oder ein Vergleich ohne genannte Kriterien gefragt wird.",
+              "de": "Piloti stellt jetzt öfter eine kurze Auswahlfrage, statt bei mehreren plausiblen Richtungen stillschweigend eine davon zu wählen — etwa wenn ein Thema in mehrere eigenständige Aspekte zerfällt oder ein Vergleich ohne genannte Kriterien gefragt wird."
+            },
+            {
               "en": "Re-uploading a document under the same name now replaces its earlier version in the knowledge index instead of competing with it, so an answer can no longer cite a superseded upload with full confidence. A document under a new name is still treated as a new document — deciding that one file supersedes a differently-named one stays a human call.",
               "de": "Re-uploading a document under the same name now replaces its earlier version in the knowledge index instead of competing with it, so an answer can no longer cite a superseded upload with full confidence. A document under a new name is still treated as a new document — deciding that one file supersedes a differently-named one stays a human call."
             },
@@ -97,6 +101,14 @@
             {
               "en": "Above your projects, the sidebar is gone — the page you land on now uses the full width of your screen, with a slim header for the archive, inbox and your account menu.",
               "de": "Above your projects, the sidebar is gone — the page you land on now uses the full width of your screen, with a slim header for the archive, inbox and your account menu."
+            },
+            {
+              "en": "Beim Rechercheplan gibt es jetzt einen Mittelweg: Neben „Recherche starten\" und „Abbrechen\" können Sie mit „Kurz beantworten\" Ihre Frage sofort und ohne den mehrminütigen Recherchelauf beantworten lassen. „Abbrechen\" beendet den Vorgang mit einer klaren Bestätigung statt kommentarlos.",
+              "de": "Beim Rechercheplan gibt es jetzt einen Mittelweg: Neben „Recherche starten\" und „Abbrechen\" können Sie mit „Kurz beantworten\" Ihre Frage sofort und ohne den mehrminütigen Recherchelauf beantworten lassen. „Abbrechen\" beendet den Vorgang mit einer klaren Bestätigung statt kommentarlos."
+            },
+            {
+              "en": "Die Plan-Vorschau spricht jetzt Ihre Sprache: Überschriften wie „Research Plan Preview\" und die englische Antwort-Anweisung sind lokalisiert, und nach einem Klick zeigt die Karte Ihre Entscheidung in Worten („Kurze Antwort angefordert\") statt des technischen Schlüsselworts.",
+              "de": "Die Plan-Vorschau spricht jetzt Ihre Sprache: Überschriften wie „Research Plan Preview\" und die englische Antwort-Anweisung sind lokalisiert, und nach einem Klick zeigt die Karte Ihre Entscheidung in Worten („Kurze Antwort angefordert\") statt des technischen Schlüsselworts."
             },
             {
               "en": "Piloti's project memory now recalls what is relevant to your question instead of simply the twenty most recent notes, and it recognises a note you have already saved even when it is worded differently — so the same fact stops being stored twice. Notes it keeps using stay fresh; notes nothing ever needs quietly fade into the background rather than crowding them out.",
@@ -134,6 +146,10 @@
             {
               "en": "Wer mit einer chinesischen, japanischen oder koreanischen Eingabemethode schreibt, kann Zeichen mit der Eingabetaste bestätigen, ohne dass die Nachricht vorzeitig abgeschickt wird.",
               "de": "Wer mit einer chinesischen, japanischen oder koreanischen Eingabemethode schreibt, kann Zeichen mit der Eingabetaste bestätigen, ohne dass die Nachricht vorzeitig abgeschickt wird."
+            },
+            {
+              "en": "Nach der Antwort auf eine Rückfrage war oft nicht erkennbar, dass Piloti weiterarbeitet: Der Chat wirkte für einen Moment fertig, obwohl im Hintergrund noch etwas lief. Jetzt erscheint unten im Chat ein Hinweis, solange auf die nächste Antwort gewartet wird.",
+              "de": "Nach der Antwort auf eine Rückfrage war oft nicht erkennbar, dass Piloti weiterarbeitet: Der Chat wirkte für einen Moment fertig, obwohl im Hintergrund noch etwas lief. Jetzt erscheint unten im Chat ein Hinweis, solange auf die nächste Antwort gewartet wird."
             },
             {
               "en": "Opening a project's Automation tab no longer crashes.",
