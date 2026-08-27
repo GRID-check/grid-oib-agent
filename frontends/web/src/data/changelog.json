@@ -113,6 +113,10 @@
             {
               "en": "Adding a comment to an answer you already marked as unhelpful now gives Piloti a second chance to learn from it — the extra detail is exactly what a bare thumbs-down was missing.",
               "de": "Adding a comment to an answer you already marked as unhelpful now gives Piloti a second chance to learn from it — the extra detail is exactly what a bare thumbs-down was missing."
+            },
+            {
+              "en": "Folder tiles in the file browser now show how many items they hold and when they last changed, matching the file tiles beside them. The project navigation rail keeps Archiv and your inbox pinned at the bottom, so the project work above them stays uncluttered.",
+              "de": "Folder tiles in the file browser now show how many items they hold and when they last changed, matching the file tiles beside them. The project navigation rail keeps Archiv and your inbox pinned at the bottom, so the project work above them stays uncluttered."
             }
           ]
         },
@@ -130,6 +134,10 @@
             {
               "en": "Wer mit einer chinesischen, japanischen oder koreanischen Eingabemethode schreibt, kann Zeichen mit der Eingabetaste bestätigen, ohne dass die Nachricht vorzeitig abgeschickt wird.",
               "de": "Wer mit einer chinesischen, japanischen oder koreanischen Eingabemethode schreibt, kann Zeichen mit der Eingabetaste bestätigen, ohne dass die Nachricht vorzeitig abgeschickt wird."
+            },
+            {
+              "en": "Opening a project's Automation tab no longer crashes.",
+              "de": "Opening a project's Automation tab no longer crashes."
             }
           ]
         },
