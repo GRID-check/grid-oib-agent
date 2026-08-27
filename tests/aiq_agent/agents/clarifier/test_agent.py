@@ -741,6 +741,27 @@ class TestClarifierAgentPlanFormatting:
         assert "byte-stable" in prompt
         assert "SKIP_COMMANDS" in prompt
 
+    def test_clarification_prompt_prefers_asking_over_silently_guessing(self, agent):
+        """The prompt used to bias hard against asking ("minimal friction",
+        clarification marked "(Rare)", a threshold of "genuinely cannot
+        proceed"). A live transcript pattern was the model silently picking
+        one of several plausible angles instead of offering the choice as
+        `options` — the exact UI users report enjoying, just rarely offered.
+
+        This locks in the calibration the other way: whenever 2-5 concrete,
+        distinct directions can already be named, the prompt must say to ask
+        rather than to guess.
+        """
+        prompt = agent.system_prompt
+
+        assert "2-5 concrete" in prompt
+        assert "do not silently pick one and proceed" in prompt.lower()
+        # The old framing that told the model clarification was rare/costly
+        # must be gone, not just supplemented — a stray copy would keep
+        # pulling the model back toward silence.
+        assert "(rare)" not in prompt.lower()
+        assert "minimal friction" not in prompt.lower()
+
     def test_plan_generation_prompt_localizes_content(self, agent):
         """Plan-generation prompt localizes title/sections but not the approval envelope."""
         prompt = agent.plan_generation_prompt

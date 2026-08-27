@@ -298,6 +298,8 @@ When the agent needs input — clarification, approval, or a choice — it sends
 
 The user responds through the chat UI; the response is sent back via the WebSocket's `sendInteractionResponse()` method. Pending interactions survive page refreshes through localStorage persistence and `pendingInteraction` state restoration.
 
+The answered prompt flips to "received" immediately (optimistic, before any server round-trip), and once the reply is on the wire a "Piloti antwortet …" cue appears at the bottom of the thread until the next thing streams in — a clarifying follow-up, the plan's answer, or the final response — so an answered prompt never sits there looking finished while the agent is still working on it.
+
 ## Data source toggles
 
 Open the **Data Sources** panel (right sidebar) to enable or disable knowledge connections. The panel has two tabs:

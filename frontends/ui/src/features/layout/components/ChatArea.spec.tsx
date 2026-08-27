@@ -112,6 +112,11 @@ vi.mock('@/features/chat', () => ({
     </div>
   ),
   ChatThinking: (props: unknown) => mockChatThinking(props),
+  // Only the bottom-of-thread typing cue (`TypingIndicator`, defined in
+  // ChatArea.tsx itself) reaches these — a real timer is not needed, a fixed
+  // "not elapsed yet" is enough to render.
+  useElapsedSeconds: () => 0,
+  formatElapsed: (seconds: number) => `${seconds}s`,
 }))
 
 // The ADR-0033 seam is mocked so this spec can drive the states it produces
@@ -721,6 +726,141 @@ describe('ChatArea', () => {
     // Second turn is actively streaming — shows spinner, not interrupted.
     expect(secondCallProps.isThinking).toBe(true)
     expect(secondCallProps.isInterrupted).toBe(false)
+  })
+})
+
+/**
+ * The bottom-of-thread "still working" cue after a HITL prompt is answered.
+ *
+ * A clarifying question, a Folgewege choice, or a plan decision all render as
+ * a `prompt` message. `respondToPrompt` flips it to answered the instant the
+ * reply is sent — before anything has streamed back — so without a cue here
+ * the answered bubble just sits there looking finished while Piloti is, in
+ * fact, still working on the next thing.
+ */
+describe('ChatArea — a working cue after an answered HITL prompt', () => {
+  const stateWithLastMessage = (message: MessageFixture, isStreaming: boolean): ChatStoreFixture => ({
+    currentConversation: {
+      id: 'c1',
+      messages: [
+        { id: 'user-1', role: 'user', content: 'Frage', messageType: 'user' },
+        message,
+      ],
+    },
+    isLoading: isStreaming,
+    isStreaming,
+    currentUserMessageId: 'user-1',
+    currentStatus: null,
+    hasHydrated: true,
+    thinkingSteps: [],
+    respondToPrompt: mockRespondToPrompt,
+    dismissErrorCard: mockDismissErrorCard,
+    getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+  })
+
+  const mount = (state: ChatStoreFixture) => {
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) =>
+      selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
+    )
+    render(<ChatArea isAuthenticated={true} />)
+  }
+
+  test('shows the working cue once an answered prompt is the last message and streaming resumed', () => {
+    mount(
+      stateWithLastMessage(
+        {
+          id: 'prompt-1',
+          role: 'assistant',
+          content: 'Welche Bauklasse?',
+          messageType: 'prompt',
+          promptType: 'choice',
+          isPromptResponded: true,
+          promptResponse: 'Bauklasse 4',
+        },
+        true
+      )
+    )
+
+    // English fallback without an i18n provider (see the AgentPrompt specs).
+    expect(screen.getByRole('status', { name: 'Piloti is responding …' })).toBeInTheDocument()
+  })
+
+  test('shows nothing while the prompt is still unanswered — that state is the prompt bubble itself', () => {
+    mount(
+      stateWithLastMessage(
+        {
+          id: 'prompt-1',
+          role: 'assistant',
+          content: 'Welche Bauklasse?',
+          messageType: 'prompt',
+          promptType: 'choice',
+          isPromptResponded: false,
+        },
+        true
+      )
+    )
+
+    // The stubbed AgentPrompt renders; the bottom "typing" cue must not also
+    // appear for a question that has not been answered yet.
+    expect(screen.getByTestId('agent-prompt')).toBeInTheDocument()
+    expect(screen.queryByRole('status', { name: 'Piloti is responding …' })).not.toBeInTheDocument()
+  })
+
+  test('shows nothing once the session has stopped streaming, even if the prompt is answered', () => {
+    mount(
+      stateWithLastMessage(
+        {
+          id: 'prompt-1',
+          role: 'assistant',
+          content: 'Welche Bauklasse?',
+          messageType: 'prompt',
+          promptType: 'choice',
+          isPromptResponded: true,
+          promptResponse: 'Bauklasse 4',
+        },
+        false
+      )
+    )
+
+    expect(screen.queryByRole('status', { name: 'Piloti is responding …' })).not.toBeInTheDocument()
+  })
+
+  test('an answer that has already arrived replaces the cue instead of stacking with it', () => {
+    mount({
+      currentConversation: {
+        id: 'c1',
+        messages: [
+          { id: 'user-1', role: 'user', content: 'Frage', messageType: 'user' },
+          {
+            id: 'prompt-1',
+            role: 'assistant',
+            content: 'Welche Bauklasse?',
+            messageType: 'prompt',
+            promptType: 'choice',
+            isPromptResponded: true,
+            promptResponse: 'Bauklasse 4',
+          },
+          {
+            id: 'answer-1',
+            role: 'assistant',
+            content: 'Für Bauklasse 4 gilt …',
+            messageType: 'agent_response',
+          },
+        ],
+      },
+      isLoading: true,
+      isStreaming: true,
+      currentUserMessageId: 'user-1',
+      currentStatus: null,
+      hasHydrated: true,
+      thinkingSteps: [],
+      respondToPrompt: mockRespondToPrompt,
+      dismissErrorCard: mockDismissErrorCard,
+      getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+    })
+
+    expect(screen.getByTestId('agent-response')).toBeInTheDocument()
+    expect(screen.queryByRole('status', { name: 'Piloti is responding …' })).not.toBeInTheDocument()
   })
 })
 

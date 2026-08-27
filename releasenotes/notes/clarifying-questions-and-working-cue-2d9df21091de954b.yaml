@@ -1,0 +1,13 @@
+---
+improvements:
+  - >
+    Piloti stellt jetzt öfter eine kurze Auswahlfrage, statt bei mehreren
+    plausiblen Richtungen stillschweigend eine davon zu wählen — etwa wenn
+    ein Thema in mehrere eigenständige Aspekte zerfällt oder ein Vergleich
+    ohne genannte Kriterien gefragt wird.
+fixes:
+  - >
+    Nach der Antwort auf eine Rückfrage war oft nicht erkennbar, dass Piloti
+    weiterarbeitet: Der Chat wirkte für einen Moment fertig, obwohl im
+    Hintergrund noch etwas lief. Jetzt erscheint unten im Chat ein Hinweis,
+    solange auf die nächste Antwort gewartet wird.

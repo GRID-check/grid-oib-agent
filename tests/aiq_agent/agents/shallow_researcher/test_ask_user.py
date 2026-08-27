@@ -276,3 +276,32 @@ class TestAskUserPendingSlot:
         assert "A.ifc" in first
         assert "A.ifc" in second
         assert prompt_user_input.await_count == 2
+
+
+class TestToolDescriptionPrefersAskingWhenOptionsAreNameable:
+    """The description used to tell the model "an agent that asks before
+    answering is worse than one that answers and names its assumption" —
+    framing that pushed it to guess even when it could already enumerate the
+    real alternatives, which is exactly the case this tool exists for. This
+    locks in the calibration the other way: naming 2-6 real options and
+    picking wrong mattering is a reason to ask, not a reason to guess.
+    """
+
+    def test_prefers_asking_when_options_would_change_the_answer(self):
+        description = ask_user_module._TOOL_DESCRIPTION.lower()
+
+        assert "prefer asking over silently guessing" in description
+        # The old hard "asking is worse" framing must be gone, not merely
+        # supplemented — a stray copy would keep pulling the model back.
+        assert "worse than one that answers" not in description
+
+    def test_keeps_the_necessity_and_frequency_guardrails(self):
+        """Loosening WHEN to ask must not loosen the unrelated guardrails:
+        still tool-answerable, still not already in context, still one ask
+        per turn, still never for an open-ended question."""
+        description = ask_user_module._TOOL_DESCRIPTION.lower()
+
+        assert "a search or another tool could" in description
+        assert "project context already states" in description
+        assert "at most one ask_user per turn" in description
+        assert "never for an open question" in description
