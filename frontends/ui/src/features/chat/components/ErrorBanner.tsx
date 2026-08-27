@@ -7,11 +7,11 @@
 
 'use client'
 
-import { type FC, useState } from 'react'
+import { type FC, useId, useState } from 'react'
 import { ChevronDown, ChevronUp, AlertTriangle, XCircle, X, RotateCw } from 'lucide-react'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
 import type { ErrorCode } from '../types'
 import { getErrorMeta } from '../lib/error-registry'
@@ -59,7 +59,14 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
 }) => {
   const t = useTranslations('chat')
   const tc = useTranslations('common')
+  // Same reason AgentResponse threads it: without the locale `formatTime` uses
+  // the RUNTIME default, so a German user on an en-US browser read "03:35 PM"
+  // under this card while every answer beside it said "15:35".
+  const { locale } = useLocale()
   const [isExpanded, setIsExpanded] = useState(false)
+  // Unique per banner: two error cards in one thread with a shared literal id
+  // would point both disclosures at the first card's <pre>.
+  const detailsId = useId()
   const errorMeta = getErrorMeta(code)
 
   // Prefer the caller-supplied (already-localized / interpolated) message.
@@ -89,7 +96,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
                   type="button"
                   onClick={() => setIsExpanded(!isExpanded)}
                   aria-expanded={isExpanded}
-                  aria-controls="error-details"
+                  aria-controls={detailsId}
                   className="inline-flex cursor-pointer items-center gap-1 rounded-xs border-none bg-transparent p-0 text-xs font-medium no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                 >
                   {isExpanded ? t('error.hideDetails') : t('error.showDetails')}
@@ -104,7 +111,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
           </span>
           {isExpanded && details && (
             <pre
-              id="error-details"
+              id={detailsId}
               className="text-error bg-surface-raised mt-2 w-full whitespace-pre-wrap rounded p-2 font-mono text-xs"
             >
               {details}
@@ -137,7 +144,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
       </Alert>
 
       {timestamp && (
-        <span className="text-subtle mr-2 self-end text-xs">{formatTime(timestamp)}</span>
+        <span className="text-subtle mr-2 self-end text-xs">{formatTime(timestamp, locale)}</span>
       )}
     </div>
   )

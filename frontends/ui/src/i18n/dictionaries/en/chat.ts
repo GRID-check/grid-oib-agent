@@ -217,6 +217,8 @@ export const chat = {
     // whichever button produced it.
     sourcesHeading: 'Sources',
     untitledSource: 'Untitled source',
+    downloadDocx: 'Download as Word document',
+    downloadFailed: 'The Word document could not be created.',
   },
   // Thread-header breadcrumb (project / session title) with inline rename.
   // The citation peek: what a Fundstelle IS, before you open it.

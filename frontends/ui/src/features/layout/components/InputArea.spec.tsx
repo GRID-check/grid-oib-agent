@@ -426,15 +426,13 @@ describe('InputArea', () => {
     await user.tab()
     expect(input).toHaveFocus()
 
-    // Order per the click-dummy composer: scope · Datengrundlage · Deep
-    // Research, then attach + send (the files counter appears only once files
-    // are attached, so it is absent here).
+    // Order per the click-dummy composer: scope · Deep Research, then attach +
+    // send (the files counter appears only once files are attached, so it is
+    // absent here). The Datengrundlage trigger is withheld with the picker —
+    // see the commented-out block in InputArea.
     await user.type(input, 'Hello')
     await user.tab()
     expect(screen.getByRole('button', { name: /search scope/i })).toHaveFocus()
-
-    await user.tab()
-    expect(screen.getByRole('button', { name: /data basis/i })).toHaveFocus()
 
     await user.tab()
     expect(screen.getByRole('button', { name: /deep research preference/i })).toHaveFocus()
@@ -1107,7 +1105,10 @@ describe('InputArea', () => {
      * knowledge layer the wire always carries, and "Disable / Enable All" was a
      * `role="button"` div wrapping a Switch. They assert the summary now.
      */
-    test('the trigger names the mix rather than counting it, and opens the picker', async () => {
+    /* The Datenbasis picker is WITHHELD from the composer for now (see the
+       commented-out block in InputArea). Its tests are skipped, not deleted,
+       so they resume with it. */
+    test.skip('the trigger names the mix rather than counting it, and opens the picker', async () => {
       const user = userEvent.setup()
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 
@@ -1131,7 +1132,7 @@ describe('InputArea', () => {
      * knowledge layer, which is not a toggleable source — so the old trigger
      * answered "Büroarchiv" with "Datengrundlage 0".
      */
-    test('the office preset reads "Büroarchiv" on the trigger, never "0"', () => {
+    test.skip('the office preset reads "Büroarchiv" on the trigger, never "0"', () => {
       mockActiveSourcePreset = 'office'
       mockEnabledDataSourceIds = []
 
@@ -1142,7 +1143,7 @@ describe('InputArea', () => {
       expect(trigger).not.toHaveTextContent('0')
     })
 
-    test('with every external source off the trigger says project knowledge only', () => {
+    test.skip('with every external source off the trigger says project knowledge only', () => {
       mockEnabledDataSourceIds = []
 
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
@@ -1152,7 +1153,7 @@ describe('InputArea', () => {
       )
     })
 
-    test('the always-on knowledge layer is listed in the picker instead of hidden', async () => {
+    test.skip('the always-on knowledge layer is listed in the picker instead of hidden', async () => {
       const user = userEvent.setup()
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 
@@ -1168,7 +1169,7 @@ describe('InputArea', () => {
       expect(within(alwaysOn).queryAllByRole('switch')).toHaveLength(0)
     })
 
-    test('switching a source off in the picker persists the new basis', async () => {
+    test.skip('switching a source off in the picker persists the new basis', async () => {
       const user = userEvent.setup()
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 
@@ -1179,7 +1180,7 @@ describe('InputArea', () => {
       expect(mockSaveDataSourcesToConversation).toHaveBeenCalledWith(['source-2'])
     })
 
-    test('turning the last external source off warns, where the banner stays silent', async () => {
+    test.skip('turning the last external source off warns, where the banner stays silent', async () => {
       const user = userEvent.setup()
       mockEnabledDataSourceIds = []
 
@@ -1193,7 +1194,7 @@ describe('InputArea', () => {
       ).toBeInTheDocument()
     })
 
-    test('the presets live in the picker permanently and apply the mapped subset', async () => {
+    test.skip('the presets live in the picker permanently and apply the mapped subset', async () => {
       const user = userEvent.setup()
       mockAvailableDataSources = [
         { id: 'web_search', name: 'Web Search' },
@@ -1214,7 +1215,7 @@ describe('InputArea', () => {
       expect(mockSaveDataSourcesToConversation).toHaveBeenCalledWith(['ris'])
     })
 
-    test('"All sources" makes the default all-on state a named choice', async () => {
+    test.skip('"All sources" makes the default all-on state a named choice', async () => {
       const user = userEvent.setup()
       mockActiveSourcePreset = 'law'
       mockAvailableDataSources = [
@@ -1864,13 +1865,12 @@ describe('InputArea', () => {
       // so they are writes too — `disabled` used to reach only the textarea and
       // the send button.
       expect(screen.getByLabelText(/deep.research/i)).toBeDisabled()
-      // Named in this test's title from the start, and not actually asserted
-      // until an independent review pointed out that the name promised more than
-      // the body checked.
-      expect(screen.getByRole('button', { name: /data basis/i })).toBeDisabled()
+      // The Datenbasis trigger is withheld from the composer for now — its
+      // disabled-for-viewers assertion resumes with the picker.
+      expect(screen.queryByRole('button', { name: /data basis/i })).not.toBeInTheDocument()
     })
 
-    test('cannot apply a preset either, which also writes the Datenbasis', async () => {
+    test.skip('cannot apply a preset either, which also writes the Datenbasis', async () => {
       // The gap the control-row gate left. Applying a preset calls
       // `saveDataSourcesToConversation`, so it rewrites which sources the next
       // person's turn will use. The presets used to live on a chip row gated
@@ -1938,10 +1938,9 @@ describe('InputArea', () => {
       // of those checks cannot pass because the query itself stopped matching.
       expect(screen.getByRole('button', { name: /^manage \d/i })).toBeInTheDocument()
       expect(screen.getByTestId('composer-mention-offer')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /data basis/i })).not.toBeDisabled()
     })
 
-    test('the presets outlive onboarding — they are in the picker, not on a chip row', async () => {
+    test.skip('the presets outlive onboarding — they are in the picker, not on a chip row', async () => {
       // They used to render only while `isEmptyThread && !hasHadAChat`, so the
       // one informative, colour-coded source control expired after the first
       // chat while the naked integer lasted forever. Backwards.

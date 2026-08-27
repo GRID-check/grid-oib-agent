@@ -55,7 +55,8 @@ import { latestDeepResearchJobStatus } from '@/features/chat/lib/session-activit
 import { useLayoutStore } from '../store'
 import { computePresetSourceIds } from '../lib/source-presets'
 import { researchSessionState } from '../lib/research-session-state'
-import { SourceBasisPicker, SourceBasisTrigger } from './source-basis'
+// Withheld with the Datenbasis picker below — restore together.
+// import { SourceBasisPicker, SourceBasisTrigger } from './source-basis'
 import { FileSourcesTab } from './FileSourcesTab'
 import { UploadDestinationNote } from './UploadDestination'
 import { useAppConfig } from '@/shared/context'
@@ -147,8 +148,13 @@ function mentionRefusalMessage(
   }
 }
 
-/** Maximum height of the auto-sizing textarea in pixels */
-const TEXTAREA_MAX_HEIGHT_PX = 200
+/**
+ * Maximum height of the auto-sizing textarea in pixels. Must equal the
+ * `max-h-52` (13rem) cap on the textarea itself: the JS autosize and the CSS
+ * clamp are the same limit stated twice, and when they drift the smaller one
+ * silently wins.
+ */
+const TEXTAREA_MAX_HEIGHT_PX = 208
 
 /**
  * Inline removable file chip shown above the composer textarea. Live status:
@@ -341,7 +347,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // Datenbasis popover. Controlled so the trigger knows whether a change the
   // reader just made is visible to them in the open picker, or needs its own
   // one-shot receipt on the closed trigger.
-  const [sourcesOpen, setSourcesOpen] = useState(false)
+  // Withheld with the Datenbasis picker below — restore together.
+  // const [sourcesOpen, setSourcesOpen] = useState(false)
   /** Last session upload this composer auto-bound, so clearing the bar does not re-bind. */
   const boundSessionUploadRef = useRef<string | null>(null)
   // Manage-files dialog/sheet open state — driven by BOTH the desktop button and
@@ -1099,6 +1106,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      // Mid-IME-composition, every key below belongs to the input method: the
+      // Enter that confirms a CJK candidate must never SEND, and the arrows
+      // that move through candidates must not drive the pickers. Same guard the
+      // shell shortcuts use (`keyboard-shortcuts.tsx`).
+      if (e.nativeEvent.isComposing) return
+
       // The `/` picker gets first refusal on the navigation keys. It and the
       // mention picker are mutually exclusive by caret position (a slash query
       // only exists while the caret is inside the message's opening token), so
@@ -1236,7 +1249,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const scopeLabel = projectName || tChat('composer.scopeFallback')
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-4">
+    <div className="mx-auto flex w-full max-w-5xl flex-col px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:pt-4 sm:pb-4">
       {/* The mention picker is anchored to the composer CARD and opens above it,
           spanning its full width — the Slack/Linear placement. Caret-pixel tracking
           inside a textarea is fragile and buys nothing here. */}
@@ -1417,7 +1430,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               // its own. `outline-hidden!` beats the app's global :focus-visible
               // outline (globals.css, unlayered) with an important utility — otherwise
               // focus is drawn twice: a nested box inside the card's ring.
-              className="outline-none! pointer-coarse:min-h-11 pointer-coarse:text-base max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-sm leading-[1.5] shadow-none focus-visible:ring-0"
+              className="outline-none! pointer-coarse:min-h-11 pointer-coarse:text-base max-h-52 min-h-10 resize-none border-0 bg-transparent px-1.5 py-1 text-sm leading-[1.5] shadow-none focus-visible:ring-0"
               value={message}
               onChange={(e) => handleValueChange(e.target.value, e.target.selectionStart)}
               onKeyDown={handleKeyDown}
@@ -1589,12 +1602,23 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 </PopoverContent>
               </Popover>
 
-              {/* Datenbasis — the one control for WHERE Piloti may look. The
-              trigger names the mix (a preset, a set of strata, "Alle Quellen");
-              it never renders a bare count, because the count it used to render
-              was wrong in both directions — see components/source-basis. Open
-              state is lifted so the trigger can tell "the reader is watching
-              the picker" from "a preset click landed off-screen". */}
+              {/* Datenbasis — the one control for WHERE Piloti may look.
+              WITHHELD for now (product decision, 2026-08): the picker is
+              commented out rather than deleted so it can return. While it is
+              hidden, every turn goes out with the fetch default — every
+              available source enabled (`fetchDataSources`) — so nothing
+              narrows silently; only a conversation that saved a narrower
+              selection while the control existed still restores it.
+              To restore: uncomment this block and the `SourceBasisPicker,
+              SourceBasisTrigger` import above.
+
+              The trigger names the mix (a preset, a set of strata, "Alle
+              Quellen"); it never renders a bare count, because the count it
+              used to render was wrong in both directions — see
+              components/source-basis. Open state is lifted so the trigger can
+              tell "the reader is watching the picker" from "a preset click
+              landed off-screen".
+
               <Popover open={sourcesOpen} onOpenChange={setSourcesOpen}>
                 <PopoverTrigger asChild>
                   <SourceBasisTrigger disabled={cannotContribute} pickerOpen={sourcesOpen} />
@@ -1606,7 +1630,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 >
                   <SourceBasisPicker />
                 </PopoverContent>
-              </Popover>
+              </Popover> */}
 
               {/* Deep-Research intent pill — preference, NOT a hard trigger:
               the agent auto-escalates on its own (spec §2.2(6)) */}

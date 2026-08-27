@@ -10,11 +10,15 @@
  *
  *   ⧉  Antwort kopieren                 → the markdown the answer was written in
  *   ☰  Antwort mit Quellenangaben       → the same prose, sources written out
+ *   ⤓  Als Word-Dokument               → the export route's .docx, cards and all
  *
- * Both put MARKDOWN on the clipboard, not the rendered DOM text: the markdown
- * keeps the numbering, the tables and the emphasis, and Word, Notion and every
- * mail client paste it cleanly. The internal `[[card:N]]` placement markers are
- * stripped — they mean nothing outside the app.
+ * The copy buttons put the answer on the clipboard in two flavors at once
+ * (`clipboard-rich`): rendered HTML, so Word, Outlook and Notion paste real
+ * tables and emphasis, and the markdown source as the plain-text fallback. The
+ * internal `[[card:N]]` placement markers are stripped — they mean nothing
+ * outside the app. The download hands over the server-built document, which
+ * carries what no clipboard copy can: the question, the resolved citations,
+ * the cards as tables and the confidence note.
  *
  * The second button is only rendered when the turn actually resolved sources. A
  * button that would copy an empty "Quellen" heading is a dead button, and this
@@ -29,11 +33,13 @@
  */
 
 import { useCallback, useState, type FC } from 'react'
-import { Check, ClipboardList, Copy } from 'lucide-react'
+import { Check, ClipboardList, Copy, FileDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { FOCUS_RING } from '@/components/ui/focus-ring'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { copyMarkdownToClipboard } from '@/shared/utils/clipboard-rich'
+import { startBrowserDownload } from '@/lib/browser-download'
 import {
   answerMarkdown,
   answerMarkdownWithSources,
@@ -59,6 +65,14 @@ export interface AnswerActionsProps {
    * markdown.
    */
   documents: CitedDocument[]
+  /**
+   * Where the .docx export lives:
+   * `/api/conversations/{conversationId}/messages/{messageId}/export`. Both
+   * halves are required — a local-only turn that has neither gets no download
+   * button rather than a dead one (the diagram-filing rule).
+   */
+  conversationId?: string | null
+  messageId?: string
   className?: string
 }
 
@@ -78,15 +92,25 @@ const actionButton = cn(
   FOCUS_RING
 )
 
-export const AnswerActions: FC<AnswerActionsProps> = ({ content, body, documents, className }) => {
+export const AnswerActions: FC<AnswerActionsProps> = ({
+  content,
+  body,
+  documents,
+  conversationId,
+  messageId,
+  className,
+}) => {
   const t = useTranslations('chat')
   const [copied, setCopied] = useState<Copied>(null)
+  const [exporting, setExporting] = useState(false)
 
   const copy = useCallback(
     async (text: string, which: Exclude<Copied, null>): Promise<void> => {
       if (!text.trim()) return
       try {
-        await navigator.clipboard.writeText(text)
+        // Both flavors: rendered HTML for Word/Outlook/Notion, the markdown
+        // source as the plain-text fallback — see `clipboard-rich`.
+        await copyMarkdownToClipboard(text)
         setCopied(which)
         window.setTimeout(() => setCopied(null), 1500)
       } catch {
@@ -96,6 +120,39 @@ export const AnswerActions: FC<AnswerActionsProps> = ({ content, body, documents
     },
     [t]
   )
+
+  /**
+   * The .docx the export route builds for this answer — question, citations,
+   * cards and confidence included, which no clipboard copy carries. Fetched
+   * rather than navigated to, so a failure (a turn the server never persisted,
+   * access lost meanwhile) is a toast instead of a JSON error filling a tab.
+   */
+  const handleDownloadDocx = useCallback(async (): Promise<void> => {
+    if (!conversationId || !messageId || exporting) return
+    setExporting(true)
+    try {
+      const response = await fetch(
+        `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/export`
+      )
+      if (!response.ok) throw new Error(`export failed: ${response.status}`)
+      const blob = await response.blob()
+      const filename =
+        /filename="([^"]+)"/.exec(response.headers.get('content-disposition') ?? '')?.[1] ??
+        'piloti.docx'
+      const url = URL.createObjectURL(blob)
+      try {
+        startBrowserDownload(url, filename)
+      } finally {
+        // The download has the blob by reference; the URL itself can go on the
+        // next tick without cutting it off.
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      }
+    } catch {
+      toast.error(t('answerActions.downloadFailed'))
+    } finally {
+      setExporting(false)
+    }
+  }, [conversationId, messageId, exporting, t])
 
   const handleCopyAnswer = useCallback((): void => {
     void copy(answerMarkdown(content), 'answer')
@@ -145,6 +202,18 @@ export const AnswerActions: FC<AnswerActionsProps> = ({ content, body, documents
           ) : (
             <ClipboardList className="size-3.5" aria-hidden="true" />
           )}
+        </button>
+      )}
+      {conversationId && messageId && (
+        <button
+          type="button"
+          onClick={() => void handleDownloadDocx()}
+          disabled={exporting}
+          aria-busy={exporting || undefined}
+          aria-label={t('answerActions.downloadDocx')}
+          className={cn(actionButton, exporting && 'cursor-progress opacity-50')}
+        >
+          <FileDown className="size-3.5" aria-hidden="true" />
         </button>
       )}
     </div>

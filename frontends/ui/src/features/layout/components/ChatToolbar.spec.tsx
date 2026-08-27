@@ -324,7 +324,6 @@ describe('ChatToolbar', () => {
       )
 
       expect(screen.getByRole('button', { name: 'Create new session' })).toBeInTheDocument()
-      expect(screen.getByText('Wohnbau Favoriten')).toBeInTheDocument()
       expect(screen.getByText('My Session')).toBeInTheDocument()
 
       await openThreadMenu(user)
@@ -385,22 +384,11 @@ describe('ChatToolbar', () => {
       expect(screen.getByText('My Session')).toBeInTheDocument()
     })
 
-    test('renders "{project} / {session title}" when a project name is given', () => {
+    test('does not repeat the project name — the scope chip, rail and URL already carry it', () => {
       render(<ChatToolbar sessionTitle="My Session" projectName="Wohnbau Favoriten" />)
 
-      expect(screen.getByText('Wohnbau Favoriten')).toBeInTheDocument()
-      expect(screen.getByText('/')).toBeInTheDocument()
+      expect(screen.queryByText('Wohnbau Favoriten')).not.toBeInTheDocument()
       expect(screen.getByText('My Session')).toBeInTheDocument()
-    })
-
-    test('the project segment does not shrink — it truncates at its own cap or not at all', () => {
-      render(<ChatToolbar sessionTitle="My Session" projectName="Wohnbau Favoriten" />)
-
-      // Guards the regression this rule exists for: as a shrinkable flex child the
-      // project name collapsed to "Wohnb…" — an ellipsis naming nothing while still
-      // charging for its space and its separator. Only a screenshot shows the
-      // crowding; this pins the fix that a refactor would otherwise drop.
-      expect(screen.getByText('Wohnbau Favoriten')).toHaveClass('shrink-0')
     })
 
     test('clicking the title opens the editor — the shortcut, alongside the menu', async () => {

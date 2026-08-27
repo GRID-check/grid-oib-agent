@@ -536,11 +536,18 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     const content = contentRef.current
     if (!content) return
     let raf = 0
-    const observer = new ResizeObserver(() => {
+    // Only GROWTH means "newer content below". The observer also fires when the
+    // list shrinks — collapsing a Herleitung or a code block above the viewport
+    // — and surfacing the jump button then claims an arrival that never was.
+    let lastHeight = content.getBoundingClientRect().height
+    const observer = new ResizeObserver((entries) => {
+      const height = entries[entries.length - 1]?.contentRect.height ?? lastHeight
+      const grew = height > lastHeight
+      lastHeight = height
       if (isAtBottomRef.current) {
         cancelAnimationFrame(raf)
         raf = requestAnimationFrame(() => scrollToBottom('auto'))
-      } else {
+      } else if (grew) {
         setShowScrollButton(true)
       }
     })
@@ -679,7 +686,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
           {accessLost && (
             <div
               role="status"
-              className="text-muted-foreground mx-auto mt-3 w-full max-w-3xl px-4 text-sm"
+              className="text-muted-foreground mx-auto mt-3 w-full max-w-5xl px-4 text-sm sm:px-6"
             >
               {tCollaboration('thread.accessLost')}
             </div>
@@ -706,7 +713,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               // overlay the top of this scroll plane, so the first message never
               // renders behind them — a little extra on mobile where the pills sit
               // edge-to-edge over the full-width column.
-              className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-20 sm:pt-16"
+              className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 pt-20 sm:px-6 sm:pt-14"
               style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
             >
               <AnimatePresence initial={false}>
@@ -778,7 +785,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       id={`message-${message.id}`}
                       data-chat-anchor={isAnchorTarget ? 'true' : undefined}
                       className={cn(
-                        'flex scroll-mt-20 flex-col gap-4 sm:scroll-mt-16',
+                        'flex scroll-mt-20 flex-col gap-4 sm:scroll-mt-14',
                         // The arrival mark: says "this is the one" for a beat, then
                         // fades. A ring rather than a background, so it reads on the
                         // user bubble and the answer card alike.
@@ -822,7 +829,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       right-aligned). Auto-expanded while the turn is live, it
                       collapses to a one-line bar once the answer lands. */}
                       {isUserMessage && hasThinkingSteps && (
-                        <div className="w-[680px] max-w-full">
+                        <div className="w-full">
                           <ChatThinking
                             steps={messageSteps}
                             isThinking={isStreaming && message.id === currentUserMessageId}
@@ -849,7 +856,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       {/* The questions this answer made askable, BELOW the
                       answer and outside its surface — the product owner's
                       ruling, and §6 of docs/architecture/post-answer-stages.md.
-                      Same column, same left edge, same 680px as the answer and
+                      Same column, same edges, same full width as the answer and
                       the Herleitung; no new layout concept.
 
                       LAST in the message column on purpose. A stage delivers
@@ -861,7 +868,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       reader not already typing) is enforced where the frame
                       arrives, in `applyStageFrame`. */}
                       {message.stages?.followUps && (
-                        <div className="w-[680px] max-w-full">
+                        <div className="w-full">
                           <FollowUpsRail items={message.stages.followUps.items} />
                         </div>
                       )}
@@ -1352,7 +1359,7 @@ const MessageListSkeleton: FC = () => {
   const t = useTranslations('research')
   return (
     <div
-      className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-20 sm:pt-16"
+      className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 pt-20 sm:px-6 sm:pt-14"
       style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
       role="status"
       aria-label={t('chatArea.loading')}

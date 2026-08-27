@@ -26,6 +26,13 @@ export const common = {
     empty: 'Nothing here yet',
     copyFailed: 'Could not copy',
   },
+  codeBlock: {
+    copy: 'Copy',
+    copied: 'Copied',
+    copyCode: 'Copy code',
+    showLess: 'Show less',
+    showAll: 'Show all ({count} lines)',
+  },
   theme: {
     label: 'Theme',
     system: 'System',

@@ -34,6 +34,25 @@ const MermaidDiagram = dynamic(
   { ssr: false }
 )
 
+/**
+ * The text alignment a GFM table wrote into its delimiter row (`|---:|`).
+ *
+ * react-markdown hands it to the custom `th`/`td` either as the legacy `align`
+ * prop or as `style.textAlign` (which of the two depends on the mdast→hast
+ * version in play), and the previous components read neither — so every column
+ * of every table rendered left-aligned, and the right-aligned number columns
+ * the agent deliberately writes (Werte, Breiten, Fristen) lost their alignment.
+ */
+function cellAlignClass(
+  align: string | undefined,
+  style: React.CSSProperties | undefined
+): string | undefined {
+  const alignment = style?.textAlign ?? align
+  if (alignment === 'center') return 'text-center'
+  if (alignment === 'right') return 'text-right'
+  return undefined
+}
+
 function getTextFromChildren(node: ReactNode): string {
   if (typeof node === 'string') return node
   if (typeof node === 'number') return String(node)
@@ -268,6 +287,26 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
             </h4>
           )
         },
+        // h5/h6 need a mapping too: Tailwind's preflight strips heading sizes
+        // and weights, so an unmapped level rendered as plain body text — a
+        // deeply structured answer (OIB guideline → section → clause) silently
+        // lost its two lowest levels of hierarchy.
+        h5: ({ children, node }: React.ComponentPropsWithoutRef<'h5'> & ExtraProps) => {
+          const id = headingId(node, children)
+          return (
+            <h5 id={id} className="mb-1 mt-3 block scroll-mt-4 text-sm font-semibold text-foreground">
+              {children}
+            </h5>
+          )
+        },
+        h6: ({ children, node }: React.ComponentPropsWithoutRef<'h6'> & ExtraProps) => {
+          const id = headingId(node, children)
+          return (
+            <h6 id={id} className="text-subtle mb-1 mt-3 block scroll-mt-4 text-sm font-semibold">
+              {children}
+            </h6>
+          )
+        },
 
         // Paragraphs
         p: ({ children }) => (
@@ -276,9 +315,19 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           </p>
         ),
 
-        // Lists
-        ul: ({ children }) => (
-          <ul className="mb-3 list-outside list-disc space-y-1 pl-5 text-foreground">{children}</ul>
+        // Lists. GFM task lists arrive with `contains-task-list` /
+        // `task-list-item` classes; forcing `list-disc` on them drew a bullet
+        // NEXT TO each checkbox, so a checklist read as two markers per row.
+        ul: ({ children, className: listClassName }) => (
+          <ul
+            className={
+              listClassName?.includes('contains-task-list')
+                ? 'mb-3 list-none space-y-1 pl-1 text-foreground'
+                : 'mb-3 list-outside list-disc space-y-1 pl-5 text-foreground'
+            }
+          >
+            {children}
+          </ul>
         ),
         ol: ({ children }) => (
           <ol className="mb-3 list-outside list-decimal space-y-1 pl-5 text-foreground">{children}</ol>
@@ -286,6 +335,23 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
         li: ({ children }) => (
           <li className={`text-foreground ${compact ? 'text-sm' : 'text-base'}`}>{children}</li>
         ),
+
+        // The task-list checkbox itself: read-only state, not a control. Sized
+        // and baseline-nudged so it reads as the line's marker; `readOnly`
+        // because react-markdown passes `checked` with no handler.
+        input: ({ type, checked, node: _node, ...props }: React.ComponentPropsWithoutRef<'input'> & ExtraProps) => {
+          if (type !== 'checkbox') return null
+          return (
+            <input
+              {...props}
+              type="checkbox"
+              checked={checked}
+              readOnly
+              disabled
+              className="accent-brand mr-1.5 size-3.5 translate-y-px"
+            />
+          )
+        },
 
         // Links — anchor hrefs scroll in-page; external hrefs open new tabs
         a: ({ href, children }) => {
@@ -360,11 +426,32 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
         thead: ({ children }) => <thead className="bg-muted/50">{children}</thead>,
         tbody: ({ children }) => <tbody>{children}</tbody>,
         tr: ({ children }) => <tr className="border-base border-b last:border-b-0">{children}</tr>,
-        th: ({ children }) => (
-          <th className="px-3 py-2 text-left text-sm font-semibold text-foreground">{children}</th>
+        th: ({ children, align, style }: React.ComponentPropsWithoutRef<'th'> & ExtraProps) => (
+          <th
+            className={`px-3 py-2 text-sm font-semibold text-foreground ${cellAlignClass(align, style) ?? 'text-left'}`}
+          >
+            {children}
+          </th>
         ),
-        td: ({ children }) => (
-          <td className="px-3 py-2 text-sm text-foreground">{children}</td>
+        td: ({ children, align, style }: React.ComponentPropsWithoutRef<'td'> & ExtraProps) => (
+          <td className={`px-3 py-2 text-sm text-foreground ${cellAlignClass(align, style) ?? ''}`}>
+            {children}
+          </td>
+        ),
+
+        // Images: bounded, softened, and lazy. Without the mapping an image
+        // rendered at natural size with square corners and loaded eagerly —
+        // and a broken source showed the browser's raw glyph full-bleed.
+        img: ({ src, alt }: React.ComponentPropsWithoutRef<'img'> & ExtraProps) => (
+          // Markdown images come from arbitrary hosts the Next image loader is
+          // not configured for; `next/image` would 400 on every one of them.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={src}
+            alt={alt ?? ''}
+            loading="lazy"
+            className="border-base my-3 h-auto max-w-full rounded-xl border"
+          />
         ),
       }) as Components,
       [compact, headingId, isStreaming, renderInPageAnchor, renderInternalLink, renderSlot]
