@@ -75,6 +75,14 @@
               "de": "Piloti stellt jetzt öfter eine kurze Auswahlfrage, statt bei mehreren plausiblen Richtungen stillschweigend eine davon zu wählen — etwa wenn ein Thema in mehrere eigenständige Aspekte zerfällt oder ein Vergleich ohne genannte Kriterien gefragt wird."
             },
             {
+              "en": "Dateien searches from its header now. The field sits with the controls that act on the same listing — the view switcher, the Alle / Meine / Nicht zugewiesen filter and Hochladen — so the documents start a row higher and there is one search on the page, not two places to look.",
+              "de": "Dateien searches from its header now. The field sits with the controls that act on the same listing — the view switcher, the Alle / Meine / Nicht zugewiesen filter and Hochladen — so the documents start a row higher and there is one search on the page, not two places to look."
+            },
+            {
+              "en": "That field behaves like the one in Historie: type, and the list narrows as you go. Press Enter and Piloti searches the whole project corpus instead. The header does not move while it does — the results simply take the place of the list, each one showing the passage that matched and on which page.",
+              "de": "That field behaves like the one in Historie: type, and the list narrows as you go. Press Enter and Piloti searches the whole project corpus instead. The header does not move while it does — the results simply take the place of the list, each one showing the passage that matched and on which page."
+            },
+            {
               "en": "Re-uploading a document under the same name now replaces its earlier version in the knowledge index instead of competing with it, so an answer can no longer cite a superseded upload with full confidence. A document under a new name is still treated as a new document — deciding that one file supersedes a differently-named one stays a human call.",
               "de": "Re-uploading a document under the same name now replaces its earlier version in the knowledge index instead of competing with it, so an answer can no longer cite a superseded upload with full confidence. A document under a new name is still treated as a new document — deciding that one file supersedes a differently-named one stays a human call."
             },
