@@ -22,7 +22,7 @@ import { Input } from '@/components/ui/input'
 import { InputGroup, InputGroupAddon } from '@/components/ui/input-group'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Spinner } from '@/components/ui/spinner'
-import { AnimatePresence, motion, motionEntrance, motionQuick } from '@/components/motion'
+import { AnimatePresence, motion, motionQuick } from '@/components/motion'
 import { useTranslations } from '@/i18n'
 import { useLocale } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -347,7 +347,7 @@ export function FolderCard({
   return (
     <GridTileShell variant="file" interactive className="group" data-testid={`folder-card-${folder.id}`}>
       <div
-        className="absolute right-1.5 top-1.5 z-[1] opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200"
+        className="absolute right-1.5 top-1.5 z-[1] md:opacity-0 md:group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200 motion-reduce:transition-none"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
@@ -379,20 +379,17 @@ export function FolderCard({
                 {folder.name}
               </p>
             )}
-            {!editing && <p className="mt-0.5 truncate text-xs leading-tight text-muted-foreground">{t('folders.items', { count: String(itemCount) })}</p>}
           </div>
         </GridTileBody>
         <GridTileFooter className="gap-1.5 px-3.5 pb-2.5 pt-[9px] text-xs text-muted-foreground/80">
           <span className="shrink-0 tabular-nums">{t('folders.items', { count: String(itemCount) })}</span>
-          {lastModified ? (
+          {lastModified && (
             <>
               <span aria-hidden className="text-muted-foreground/40">
                 ·
               </span>
               <TimeAgo date={lastModified} locale={locale} className="shrink-0 tabular-nums" />
             </>
-          ) : (
-            <span className="flex-1" />
           )}
           <span className="flex-1" />
         </GridTileFooter>
@@ -442,7 +439,7 @@ export function FolderRow({
       transition={motionQuick}
       className={cn(
         'group flex w-full items-center gap-2 rounded-lg border border-amber-200/40 bg-amber-50/40 px-3 py-2 text-sm dark:bg-amber-950/10 dark:border-amber-800/20',
-        'hover:bg-amber-50 hover:border-amber-200/60 dark:hover:bg-amber-950/20 transition-all duration-200 ease-out hover:shadow-sm',
+        'hover:bg-amber-50 hover:border-amber-200/60 dark:hover:bg-amber-950/20 transition-[background-color,border-color,box-shadow] duration-200 ease-out hover:shadow-sm',
       )}
       data-testid={`folder-row-${folder.id}`}
     >
