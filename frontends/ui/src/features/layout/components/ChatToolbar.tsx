@@ -50,7 +50,11 @@ const MENU_FOCUS_GUARD_MS = 250
 
 interface ChatToolbarProps {
   sessionTitle?: string
-  /** Active project name — first breadcrumb segment when present. */
+  /**
+   * Accepted and unused: the project is named by the composer's scope chip,
+   * the rail and the URL, so the toolbar no longer repeats it. The prop stays
+   * so callers and specs need no change while this ruling settles.
+   */
   projectName?: string
   onNewSession?: () => void
   isNewSessionDisabled?: boolean
@@ -81,7 +85,6 @@ interface ChatToolbarProps {
 
 export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   sessionTitle = '',
-  projectName,
   onNewSession,
   isNewSessionDisabled = false,
   isChatStarted = true,
@@ -310,16 +313,15 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
     // the right tab), and the panel closes from its own X and from Escape. So
     // the toggle here is the *re-entry* for a report you already have, and it
     // appears only when this thread actually has one.
-    <header className="pointer-events-none absolute inset-x-0 top-0 z-20 min-h-12 px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
-      {/* Center the floating controls on the SAME comfortable column as the
-          message list and composer (max-w-4xl, mx-auto), so the pills align to
-          the chat window instead of hugging the screen edges on wide viewports. */}
-      <div className="mx-auto flex w-full max-w-4xl items-start justify-between gap-3">
+    <header className="pointer-events-none absolute inset-x-0 top-0 z-20 min-h-12 px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-6">
+      {/* The SAME wide column as the message list and composer (max-w-5xl,
+          mx-auto), so the pills stay aligned with the chat window's edges. */}
+      <div className="mx-auto flex w-full max-w-5xl items-start justify-between gap-3">
       {/* LEFT pill: orientation only — the single history door + the current
           session title/rename, always visible (mobile included). Capped at ~64%
           of the row on mobile so a long title truncates inside the pill instead
           of growing under the right-hand actions pill.
-          min-h-12 (44px controls) on touch, min-h-9 (32px controls) on a
+          min-h-12 (44px controls) on touch, min-h-8 (28px controls) on a
           pointer device, so the pill never collapses when the breadcrumb is
           hidden on an empty chat. */}
       {/* The alpha pair is load-bearing: this toolbar FLOATS over the scrolling
@@ -329,14 +331,14 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           pointer device, no shadow, a fainter fill — the pill is legibility
           over the scrolling transcript, not furniture of its own. Touch keeps
           the 44px targets. */}
-      <div className="pointer-events-auto flex min-h-12 min-w-0 max-w-[64%] items-center gap-0.5 rounded-lg border border-base/60 bg-card/60 p-0.5 backdrop-blur supports-[backdrop-filter]:bg-card/50 sm:min-h-9 sm:max-w-none">
+      <div className="pointer-events-auto flex min-h-12 min-w-0 max-w-[64%] items-center gap-0.5 rounded-lg border border-base/60 bg-card/60 p-0.5 backdrop-blur supports-[backdrop-filter]:bg-card/50 sm:min-h-8 sm:max-w-none">
         {/* Global navigation opener — mobile only. The chat route hides the
             standalone top bar, so this hamburger is the way back out to
             projects / files / settings (opens the same AppSidebar drawer). */}
         <Button
           variant="ghost"
           size="icon"
-          className="relative size-11 shrink-0 rounded-md sm:size-8 md:hidden"
+          className="relative size-11 shrink-0 rounded-md sm:size-7 md:hidden"
           onClick={handleNavClick}
           aria-label={
             inboxPending > 0
@@ -361,7 +363,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
         <Button
           variant="ghost"
           size="icon"
-          className="size-11 shrink-0 rounded-md sm:size-8"
+          className="size-11 shrink-0 rounded-md sm:size-7"
           onClick={handleMenuClick}
           disabled={!isAuthenticated}
           aria-label={t('chatToolbar.toggleSessions')}
@@ -370,51 +372,17 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           <MessageSquareText className="size-4" aria-hidden="true" />
         </Button>
 
-        {/* Breadcrumb: {project} / {session title (click-to-rename)} — shown
-            once a chat has started so the current thread is identifiable. On a
-            fresh, empty chat there is no thread to name yet, so it stays hidden
-            to keep the start screen calm. */}
-        {isChatStarted && (sessionTitle || projectName) && (
+        {/* The session title (click-to-rename) — shown once a chat has started
+            so the current thread is identifiable. On a fresh, empty chat there
+            is no thread to name yet, so it stays hidden to keep the start
+            screen calm. The PROJECT name is deliberately absent: the composer's
+            scope chip, the rail and the URL all name it already, so here it was
+            a fourth copy paying rent in the row's scarcest space. */}
+        {isChatStarted && sessionTitle && (
           <nav
             className="flex min-w-0 items-center gap-1.5 pl-1 pr-1.5 text-sm"
             aria-label={tChat('breadcrumb.ariaLabel')}
           >
-              {projectName ? (
-                <>
-                  {/* On mobile the project name is redundant with the composer
-                      scope chip, so when a session title is present we hide it
-                      to give the title room. With no title yet, it stays so the
-                      pill isn't just a bare icon.
-
-                      `shrink-0` is load-bearing. Without it both breadcrumb
-                      segments are shrinkable flex children, so a crowded row
-                      squeezes them PROPORTIONALLY and the project collapses to
-                      "Test…" — an ellipsis that names nothing while still
-                      charging for the space and the separator. Fixed at its own
-                      cap it either reads or it does not appear; the title is the
-                      one segment that flexes.
-
-                      The cap is deliberately modest. The project is CONTEXT — the
-                      composer's scope chip, the rail and the URL all name it too —
-                      while the session title is the only place this thread is
-                      named at all, so the project must be the cheap segment. */}
-                  <span
-                    className={`max-w-24 shrink-0 truncate text-muted-foreground sm:max-w-28 lg:max-w-40 ${
-                      sessionTitle ? 'hidden sm:inline' : ''
-                    }`}
-                  >
-                    {projectName}
-                  </span>
-                  {sessionTitle ? (
-                    <span
-                      className="hidden text-muted-foreground/60 sm:inline"
-                      aria-hidden="true"
-                    >
-                      /
-                    </span>
-                  ) : null}
-                </>
-              ) : null}
               {sessionTitle ? (
                 isEditingTitle ? (
                   <input
@@ -443,7 +411,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                     // at the top of the thread, with the toolbar pinned over the
                     // conversation. The zoom is not undone on blur, so renaming a
                     // chat left the reader magnified inside their own answer.
-                    className="h-11 w-56 max-w-full rounded-md border bg-card px-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:text-base sm:h-8"
+                    className="h-11 w-56 max-w-full rounded-md border bg-card px-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:text-base sm:h-7"
                   />
                 ) : (
                   // Click-to-rename, kept as the SHORTCUT rather than as the only
@@ -494,7 +462,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           New-chat button sideways. Reduced motion is handled globally by
           <MotionConfig reducedMotion="user">. */}
       {isChatStarted && (
-      <div className="pointer-events-auto flex min-h-12 shrink-0 items-center gap-0.5 rounded-lg border border-base/60 bg-card/60 p-0.5 backdrop-blur supports-[backdrop-filter]:bg-card/50 sm:min-h-9">
+      <div className="pointer-events-auto flex min-h-12 shrink-0 items-center gap-0.5 rounded-lg border border-base/60 bg-card/60 p-0.5 backdrop-blur supports-[backdrop-filter]:bg-card/50 sm:min-h-8">
         {/* ── STATUS ────────────────────────────────────────────────────────────
             Who can reach this thread, stated ONCE, in whichever of the two forms is
             true of the audience (see `showFaces` / `showAccessChip` above), and
@@ -566,7 +534,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
         <Button
           variant="ghost"
           size="sm"
-          className="h-11 gap-1.5 rounded-md px-3 sm:h-8 sm:px-2.5"
+          className="h-11 gap-1.5 rounded-md px-3 sm:h-7 sm:px-2"
           onClick={handleNewSessionClick}
           disabled={!isAuthenticated || isNewSessionDisabled}
           aria-label={t('chatToolbar.createNewSession')}
@@ -598,12 +566,12 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
               <Button
                 variant="ghost"
                 // Square, and the SAME height as every other control in both
-                // pills — 44px where a finger has to land it, 32px on a pointer
+                // pills — 44px where a finger has to land it, 28px on a pointer
                 // device. The two pills are only as tall as their tallest control,
                 // so any control that opts out of this pair makes one pill taller
                 // than the other and the row stops lining up.
                 size="sm"
-                className="size-11 rounded-md px-0 sm:size-8"
+                className="size-11 rounded-md px-0 sm:size-7"
                 aria-label={t('chatToolbar.moreActions')}
                 title={t('chatToolbar.moreActions')}
                 data-testid="thread-menu"

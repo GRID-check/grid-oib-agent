@@ -686,7 +686,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
           {accessLost && (
             <div
               role="status"
-              className="text-muted-foreground mx-auto mt-3 w-full max-w-4xl px-4 text-sm"
+              className="text-muted-foreground mx-auto mt-3 w-full max-w-5xl px-4 text-sm sm:px-6"
             >
               {tCollaboration('thread.accessLost')}
             </div>
@@ -713,7 +713,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               // overlay the top of this scroll plane, so the first message never
               // renders behind them — a little extra on mobile where the pills sit
               // edge-to-edge over the full-width column.
-              className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 pt-20 sm:pt-14"
+              className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 pt-20 sm:px-6 sm:pt-14"
               style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
             >
               <AnimatePresence initial={false}>
@@ -1359,7 +1359,7 @@ const MessageListSkeleton: FC = () => {
   const t = useTranslations('research')
   return (
     <div
-      className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 pt-20 sm:pt-14"
+      className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 pt-20 sm:px-6 sm:pt-14"
       style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
       role="status"
       aria-label={t('chatArea.loading')}

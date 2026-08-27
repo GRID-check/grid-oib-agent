@@ -12,9 +12,10 @@ improvements:
     Markdown erhalten.
   - >
     Der Chat nutzt die Breite des Fensters besser: Die Gesprächsspalte ist
-    breiter geworden, und Antworten füllen sie ganz aus, statt als schmale
-    Karte am linken Rand zu stehen. Die Kopfleiste darüber ist kleiner und
-    zurückhaltender gestaltet.
+    deutlich breiter geworden, und Antworten füllen sie ganz aus, statt als
+    schmale Karte am linken Rand zu stehen. Die Kopfleiste darüber ist kleiner
+    und zurückhaltender gestaltet und wiederholt den Projektnamen nicht mehr —
+    den zeigen die Projektauswahl im Eingabefeld und die Navigation bereits.
   - >
     Tabellen in Antworten behalten ihre Spaltenausrichtung (Zahlenspalten
     stehen rechtsbündig), Checklisten zeigen echte Häkchen statt
