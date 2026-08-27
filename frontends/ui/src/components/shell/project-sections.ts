@@ -3,13 +3,11 @@ import {
   Archive,
   BookOpenCheck,
   ClipboardList,
-  Clock,
   Folder,
   Inbox,
   MessageSquare,
-  Repeat,
   Settings,
-  Sparkles,
+  Zap,
 } from 'lucide-react'
 
 /**
@@ -25,14 +23,16 @@ import {
  * ONE place, so the rail and the palette can never disagree again.
  *
  * One icon per destination. Rail order (top → bottom, Settings pinned
- * separately): Ask Piloti · Files · History · Jobs* · Skills* · Archiv* ·
- * Inbox*.
+ * separately): Ask Piloti · Files · Automation* · Archiv* · Inbox*.
  *
- * Ask Piloti is the primary job-to-be-done and leads. Files and History are
- * the other work surfaces. Jobs then Skills are setup you rarely open (Jobs is
- * project work; Skills is the org toolbox). Archiv then Inbox are
- * cross-project doorways; Inbox is last because the badge already draws the
- * eye. Settings stays pinned at the bottom.
+ * Ask Piloti is the primary job-to-be-done and leads; Files is the other work
+ * surface. History has no rail entry any more — the chat toolbar's history
+ * sheet is the record of the project's past. Automation is setup you rarely
+ * open — the merged home of Jobs (prompts this project runs on a timer) and
+ * Skills (the org toolbox), which ship together behind one flag and now live
+ * as tabs inside one section. Archiv then Inbox are cross-project doorways;
+ * Inbox is last because the badge already draws the eye. Settings stays
+ * pinned at the bottom.
  *
  * There is deliberately no Model entry: an IFC is a file, it opens
  * from the Files grid, and a second rail item for one file type was a
@@ -43,11 +43,9 @@ import {
 
 export type ProjectSectionKey =
   | 'chat'
-  | 'skills'
-  | 'jobs'
+  | 'automation'
   | 'files'
   | 'knowledge'
-  | 'history'
   | 'archiv'
   | 'inbox'
   | 'intake'
@@ -156,39 +154,18 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     shortcutKey: 'k',
   },
   {
-    key: 'history',
-    segment: 'history',
-    icon: Clock,
-    i18nKey: 'history',
-    inRail: true,
-    inPalette: true,
-    shortcutKey: 'h',
-    group: 'work',
-  },
-  {
-    // Jobs sit before Skills: a job is a prompt this project runs on a timer.
-    // Same `showSkills` gate — the two ship together, and a job builder whose
-    // skill picker resolves nothing is not worth having on its own.
-    key: 'jobs',
-    segment: 'jobs',
-    icon: Repeat,
-    i18nKey: 'jobs',
+    // The merged automation home: Jobs (prompts this project runs on a timer)
+    // and Skills (the org toolbox) as tabs inside one section. Same
+    // `showSkills` gate as before — the two ship together, and a job builder
+    // whose skill picker resolves nothing is not worth having on its own.
+    key: 'automation',
+    segment: 'automation',
+    icon: Zap,
+    i18nKey: 'automation',
     gate: 'showSkills',
     inRail: true,
     inPalette: true,
     shortcutKey: 'j',
-    group: 'automate',
-  },
-  {
-    // The org toolbox: reusable instructions written once, used from any project.
-    key: 'skills',
-    segment: 'skills',
-    icon: Sparkles,
-    i18nKey: 'skills',
-    gate: 'showSkills',
-    inRail: true,
-    inPalette: true,
-    shortcutKey: 'w',
     group: 'automate',
   },
   {

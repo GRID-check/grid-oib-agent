@@ -7,16 +7,9 @@ export const research = {
   detailsHelp:
     'These details appear during active research and may not be available for completed reports.',
 
-  runsPage: {
-    title: 'Research runs',
-    subtitle: 'Deep research reports Piloti has produced for this project, newest first.',
-  },
-
-  // Labels for the per-project research-runs list rows (research-runs-list.tsx).
+  // Label for a run whose chat has no local title (headless/CLI jobs).
   runsList: {
     untitledRun: 'Deep research run',
-    sessionLabel: 'Session {id}',
-    viewThinking: 'View thinking',
   },
 
   dockedPanel: {

@@ -34,9 +34,7 @@ import { cn } from '@/lib/utils'
 
 const PROJECT_SECTION_KEYS = [
   'files',
-  'history',
-  'jobs',
-  'skills',
+  'automation',
   'settings',
   'knowledge',
   'intake',
@@ -49,13 +47,11 @@ type ProjectChromeSection = (typeof PROJECT_SECTION_KEYS)[number]
 
 const PROJECT_SECTION_KEY_SET: ReadonlySet<string> = new Set(PROJECT_SECTION_KEYS)
 
-const FILL_SECTIONS: ReadonlySet<ProjectChromeSection> = new Set(['files', 'jobs'])
+const FILL_SECTIONS: ReadonlySet<ProjectChromeSection> = new Set(['files', 'automation'])
 
 const SUBTITLE_SECTIONS: ReadonlySet<ProjectChromeSection> = new Set([
   'files',
-  'history',
-  'skills',
-  'jobs',
+  'automation',
   'knowledge',
   'settings',
   'intake',

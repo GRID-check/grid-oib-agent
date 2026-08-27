@@ -12,6 +12,9 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useLayoutStore } from '@/features/layout/store'
@@ -87,6 +90,7 @@ export function SidebarUserMenu({
   const t = useTranslations('nav')
   const tc = useTranslations('common')
   const { locale, setLocale, localeNames } = useLocale()
+  const ActiveThemeIcon = THEME_ICONS[theme]
 
   const displayName = user?.name || user?.email || t('userMenu.defaultUser')
   // Two-letter monogram from the first two words (e.g. "Anna Kaufmann" → "AK"),
@@ -195,26 +199,44 @@ export function SidebarUserMenu({
           </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
-        <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">{tc('theme.label')}</DropdownMenuLabel>
-        {THEME_MODES.map((mode) => {
-          const Icon = THEME_ICONS[mode]
-          return (
-            <DropdownMenuItem key={mode} onSelect={(e) => { e.preventDefault(); setTheme(mode) }} className="gap-2">
-              <Icon className="size-4 text-muted-foreground" aria-hidden />
-              <span className="flex-1">{tc(`theme.${mode}`)}</span>
-              {theme === mode && <Check className="size-4" aria-hidden />}
-            </DropdownMenuItem>
-          )
-        })}
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">{tc('language.label')}</DropdownMenuLabel>
-        {locales.map((code) => (
-          <DropdownMenuItem key={code} onSelect={(e) => { e.preventDefault(); setLocale(code) }} className="gap-2">
+        {/* Theme and language are second-order settings: one submenu row each
+            (two clicks) instead of eight standing rows, so the menu is short
+            enough to scan. The trigger row names the CURRENT value — the one
+            fact a reader checks more often than they change it. */}
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger aria-label={tc('theme.label')}>
+            <ActiveThemeIcon className="size-4 text-muted-foreground" aria-hidden />
+            <span className="flex-1">{tc('theme.label')}</span>
+            <span className="text-xs font-normal text-muted-foreground">{tc(`theme.${theme}`)}</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-40">
+            {THEME_MODES.map((mode) => {
+              const Icon = THEME_ICONS[mode]
+              return (
+                <DropdownMenuItem key={mode} onSelect={(e) => { e.preventDefault(); setTheme(mode) }} className="gap-2">
+                  <Icon className="size-4 text-muted-foreground" aria-hidden />
+                  <span className="flex-1">{tc(`theme.${mode}`)}</span>
+                  {theme === mode && <Check className="size-4" aria-hidden />}
+                </DropdownMenuItem>
+              )
+            })}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger aria-label={tc('language.label')}>
             <Globe className="size-4 text-muted-foreground" aria-hidden />
-            <span className="flex-1">{localeNames[code]}</span>
-            {locale === code && <Check className="size-4" aria-hidden />}
-          </DropdownMenuItem>
-        ))}
+            <span className="flex-1">{tc('language.label')}</span>
+            <span className="text-xs font-normal text-muted-foreground">{localeNames[locale]}</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-40">
+            {locales.map((code) => (
+              <DropdownMenuItem key={code} onSelect={(e) => { e.preventDefault(); setLocale(code) }} className="gap-2">
+                <span className="flex-1">{localeNames[code]}</span>
+                {locale === code && <Check className="size-4" aria-hidden />}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
         {authRequired && (
           <>
             <DropdownMenuSeparator />

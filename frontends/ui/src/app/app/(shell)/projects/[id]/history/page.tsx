@@ -1,41 +1,16 @@
-import { type Metadata } from 'next'
-import { notFound } from 'next/navigation'
-import { withPageSession } from '@/lib/auth/require-auth'
-import { requireProjectAccess } from '@/lib/authz/projects'
-import { findProjectInOrg } from '@/lib/projects/repository'
-import { ProjectHistory } from '@/features/projects/components/project-history'
-import { getTranslations } from '@/i18n/server'
-
-interface ProjectHistoryPageProps {
-  params: Promise<{ id: string }>
-}
-
-export async function generateMetadata(): Promise<Metadata> {
-  const t = await getTranslations('nav')
-  return { title: t('sections.history') }
-}
+import { redirect } from 'next/navigation'
 
 /**
- * Project History (spec §5, FB-10) — one page over the two existing stores:
- * the project's conversations (the same BFF list the sessions panel hydrates
- * from) and the server-truth deep-research runs list. Rows deep-link back
- * into chat (`?session=` / `?job=`), reusing the chat page's existing URL
- * loaders — no new data model, no new API.
+ * The History page is gone: the chat's history sheet (opened from the chat
+ * toolbar) is the one record of a project's past — conversations and
+ * deep-research runs both. The URL keeps answering for old bookmarks and lands
+ * on the chat the sheet opens over.
  */
-export default async function ProjectHistoryPage({ params }: ProjectHistoryPageProps): Promise<JSX.Element> {
-  return withPageSession(async (session) => {
-    const { id } = await params
-
-    await requireProjectAccess(session, id, 'project:view')
-
-    // The research-runs list scopes its fetch to this project's Qdrant
-    // collection — same lookup the legacy research page performed.
-    const project = await findProjectInOrg(id, session.organizationId)
-
-    if (!project) {
-      notFound()
-    }
-
-    return <ProjectHistory projectId={id} projectCollection={project.collectionName} />
-  })
+export default async function HistoryRedirect({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}): Promise<never> {
+  const { id } = await params
+  redirect(`/app/projects/${encodeURIComponent(id)}/chat`)
 }

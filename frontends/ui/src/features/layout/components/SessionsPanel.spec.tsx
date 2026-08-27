@@ -312,12 +312,20 @@ describe('SessionsPanel', () => {
     // the store subscription does that job.
     rerender(<SessionsPanel sessions={[...mockSessions]} />)
 
-    // `hidden: true` because a closed panel is deliberately OUT of the
-    // accessibility tree (aria-hidden + inert) even though forceMount keeps it
-    // in the DOM — the assertion below would otherwise pass for the wrong reason.
-    expect(
-      screen.getByRole('textbox', { name: /search chats/i, hidden: true })
-    ).toHaveValue('')
+    // Closed, the sheet unmounts its content entirely (Radix dialog).
+    expect(screen.queryByRole('textbox', { name: /search chats/i })).not.toBeInTheDocument()
+
+    // Reopen: the stale query is gone and the list is unfiltered.
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
+        isSessionsPanelOpen: true,
+        setSessionsPanelOpen: mockSetSessionsPanelOpen,
+      }
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
+    })
+    rerender(<SessionsPanel sessions={[...mockSessions]} />)
+    expect(screen.getByRole('textbox', { name: /search chats/i })).toHaveValue('')
+    expect(screen.getByText('Second Session')).toBeInTheDocument()
   })
 
   test('checks persisted deep research jobs when the sessions panel opens', () => {
@@ -385,11 +393,10 @@ describe('SessionsPanel', () => {
 
     render(<SessionsPanel sessions={mockSessions} />)
 
-    // SidePanel has forceMount, so DOM exists but should be hidden
-    // Check that sessions heading is not accessible when closed
-    const sessionsHeading = screen.queryByText('Chat history')
-    // Panel content may be in DOM due to forceMount but not visible
-    expect(sessionsHeading).toBeInTheDocument() // forceMount keeps it in DOM
+    // A closed sheet renders NOTHING — the Radix dialog unmounts its content,
+    // so there is no hidden copy of the history in the DOM to leak into the
+    // tab order or the accessibility tree.
+    expect(screen.queryByText('Chat history')).not.toBeInTheDocument()
   })
 
   test('does not refresh deep research job state when panel is closed', () => {
@@ -842,8 +849,7 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
     )
   })
 
-  test('expands to show runs: session-title label, untitled fallback, and deep-link hrefs', async () => {
-    const user = userEvent.setup()
+  test('shows runs by default: session-title label, untitled fallback, and deep-link hrefs', async () => {
     mockListResearchRuns.mockResolvedValue({
       jobs: [
         makeRun({ job_id: 'job-completed', status: 'completed', conversation_id: 'conv-1' }),
@@ -861,8 +867,9 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
       />
     )
 
-    const toggle = await screen.findByRole('button', { name: /Deep Research \(2\)/i })
-    await user.click(toggle)
+    // Open by default — with the History page gone this sheet is the one
+    // record, so the runs are visible without a click.
+    await screen.findByRole('button', { name: /Deep Research \(2\)/i })
 
     // Completed run inherits its originating session's title and links to the report.
     const completed = await screen.findByRole('link', {
@@ -879,7 +886,6 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
   })
 
   test('a run states its status in words, not only in its icon', async () => {
-    const user = userEvent.setup()
     mockListResearchRuns.mockResolvedValue({
       jobs: [
         makeRun({ job_id: 'job-ok', status: 'completed', conversation_id: 'conv-1' }),
@@ -898,9 +904,9 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
       />
     )
 
-    await user.click(await screen.findByRole('button', { name: /Deep Research \(3\)/i }))
+    await screen.findByRole('button', { name: /Deep Research \(3\)/i })
 
-    expect(screen.getByText('Report ready')).toBeInTheDocument()
+    expect(await screen.findByText('Report ready')).toBeInTheDocument()
     expect(screen.getByText('Failed')).toBeInTheDocument()
     expect(screen.getByText('Running')).toBeInTheDocument()
     // ...and the same word reaches assistive tech through the row's own name.

@@ -1,18 +1,17 @@
 'use client'
 
 /**
- * Sessions dev preview: renders the REAL SessionsPanel inside the REAL app
- * shell (`AppSidebar` rail + a chat-plane stand-in), so the chat-history panel
- * can be reviewed and screenshotted exactly as it sits in the product
+ * Sessions dev preview: renders the REAL SessionsPanel — the history sheet —
+ * over the REAL app shell (`AppSidebar` rail + a chat-plane stand-in), so it
+ * can be reviewed and screenshotted exactly as it rises in the product
  * (visual/registry.mjs → `sessions*`). Not linked anywhere and 404s outside
  * development.
  *
- * Why the real rail. The panel docks to `--sidebar-current-width` (beside the
- * rail, not over it), so the meeting edge is only visible with the real
- * sidebar. Preview chrome must be the product's chrome.
+ * Why the real rail. The sheet dims the whole shell behind it, and whether
+ * that scrim reads correctly is only visible over the product's own chrome.
  *
  * The rail is wrapped in `hidden md:contents` because the chat route (the only
- * host of this panel) hides the mobile top bar and has no rail below `md` — its
+ * host of this sheet) hides the mobile top bar and has no rail below `md` — its
  * navigation lives in the chat toolbar's hamburger. `contents` keeps the rail a
  * direct flex child of the shell row on desktop.
  *
@@ -29,8 +28,9 @@
  *                  delete-all, one CTA rather than two.
  *   - `busy`     — a turn in flight. Every row is dimmed and unclickable, so the
  *                  panel says why instead of leaving the user to test rows.
- *   - `research` — the Deep Research section, expanded, plus the per-row chips
- *                  (FB-10). Runs come from a module-scope fetch shim.
+ *   - `research` — the Deep Research section (open by default) plus the
+ *                  per-row chips (FB-10). Runs come from a module-scope fetch
+ *                  shim.
  *
  * The fetch shim is installed at MODULE SCOPE (browser + development only,
  * idempotent) so it is in place before any effect can fire — the panel fetches
@@ -121,8 +121,7 @@ export default function SessionsPreviewPage() {
   const setSessionsPanelOpen = useLayoutStore((s) => s.setSessionsPanelOpen)
 
   useEffect(() => {
-    // The panel renders its list against the open state (it is force-mounted),
-    // so the preview has to open it explicitly.
+    // The sheet mounts against the open state, so the preview opens it.
     setSessionsPanelOpen(true)
   }, [setSessionsPanelOpen])
 
@@ -146,24 +145,6 @@ export default function SessionsPreviewPage() {
     input.dispatchEvent(new Event('input', { bubbles: true }))
   }, [variant])
 
-  // The Deep Research section is collapsed by default in the product (the chat
-  // list stays primary). Open it here so the shot is evidence of its CONTENT —
-  // the run rows — and not just of a closed disclosure. Polled because the runs
-  // arrive from the shimmed fetch a tick after mount.
-  useEffect(() => {
-    if (variant !== 'research') return
-    let frame = 0
-    const tryOpen = () => {
-      const toggle = document.querySelector<HTMLButtonElement>(
-        '[data-testid="deep-research-toggle"][aria-expanded="false"]'
-      )
-      if (toggle) toggle.click()
-      else frame = requestAnimationFrame(tryOpen)
-    }
-    frame = requestAnimationFrame(tryOpen)
-    return () => cancelAnimationFrame(frame)
-  }, [variant])
-
   const sessions = variant === 'empty' ? [] : SESSIONS
 
   return (
@@ -176,7 +157,6 @@ export default function SessionsPreviewPage() {
           chat route where the standalone mobile bar is suppressed. */}
       <div className="hidden md:contents">
         <AppSidebar
-          scope="project"
           projectId="p-1"
           projects={PROJECTS}
           user={{ name: 'Anna Berger', email: 'anna.berger@example.at' }}
@@ -188,15 +168,12 @@ export default function SessionsPreviewPage() {
         />
       </div>
 
-      {/* Chat-plane stand-in. `relative` and hosting the panel as a CHILD,
-          because that is now how the product hosts it: the shell's <main> is
-          the positioning context, so the panel's `left-0` IS the rail's inner
-          edge. Rendering it as a sibling here would position it against the
-          viewport and put it back on top of the rail — the exact defect the
-          absolute positioning removed. */}
+      {/* Chat-plane stand-in — the surface the sheet rises over. The sheet
+          itself portals to <body>, so where it is rendered from matters only
+          for props. */}
       <main className="relative min-w-0 flex-1 overflow-hidden">
-        <p className="text-muted-foreground p-6 pl-[26rem] font-mono text-xs">
-          /dev/sessions — chat plane stand-in (the panel docks beside the rail)
+        <p className="text-muted-foreground p-6 font-mono text-xs">
+          /dev/sessions — chat plane stand-in (the history sheet rises above it)
         </p>
 
         <SessionsPanel

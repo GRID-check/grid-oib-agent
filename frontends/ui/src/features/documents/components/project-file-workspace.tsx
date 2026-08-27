@@ -4,14 +4,13 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { AlertCircle, Boxes, FileText, LayoutGrid, List, ListTree, RotateCcw, X } from 'lucide-react'
+import { AlertCircle, Boxes, FileText, LayoutGrid, List, RotateCcw, X } from 'lucide-react'
 import { sourceBase } from '@/lib/ui/source-tint'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { inferDocumentKind } from '../document-kind'
-import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
 import { FileFilterStrip, type AssignmentFilter } from './file-filter-strip'
 import { DocumentActionsMenu } from './document-actions'
@@ -141,11 +140,12 @@ type OptionalWireField =
 /**
  * Presentation of the file browser.
  *
- * `cards` browses, `list` is the explorer detail view for a corpus too large to
- * skim as tiles, `tree` puts the folder hierarchy alongside the cards. All
- * three read the same documents through the same search and folder filter.
+ * `cards` browses, `list` is the explorer detail view for a corpus too large
+ * to skim as tiles. Both read the same documents through the same search and
+ * the same Finder-style folder drill-down (the tree view is gone — drilling
+ * IS the folder navigation now, in both views).
  */
-type FileView = 'cards' | 'list' | 'tree'
+type FileView = 'cards' | 'list'
 
 const VIEW_STORAGE_KEY = 'grid.files.view'
 
@@ -200,13 +200,14 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     const path = pathname ?? ''
     router.replace(query ? `${path}?${query}` : path, { scroll: false })
   }, [pathname, router, searchParams])
-  // Default to the card grid (the click-dummy). The folder-tree workspace stays
-  // one click away and the choice persists per browser (sidebar-collapse pattern).
+  // Default to the card grid (the click-dummy). The choice persists per
+  // browser (sidebar-collapse pattern). A stored 'tree' — the removed third
+  // view — falls back to cards rather than surviving as a dead value.
   const [view, setView] = useState<FileView>('cards')
   useEffect(() => {
     if (typeof window === 'undefined') return
     const stored = window.localStorage.getItem(VIEW_STORAGE_KEY)
-    if (stored === 'cards' || stored === 'list' || stored === 'tree') setView(stored)
+    if (stored === 'cards' || stored === 'list') setView(stored)
   }, [])
   const selectView = useCallback((next: FileView) => {
     setView(next)
@@ -405,14 +406,27 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilter>('all')
 
   const docParam = searchParams?.get('doc')
-  const filteredFiles = useMemo(() => {
-    const inFolder = selectedFolderId ? files.filter((f) => f.folderId === selectedFolderId) : files
-    if (!canCollaborate || assignmentFilter === 'all') return inFolder
+
+  /** Assignment/authorship filters, over the whole corpus — the search scope. */
+  const assignmentFiltered = useMemo(() => {
+    if (!canCollaborate || assignmentFilter === 'all') return files
     if (assignmentFilter === 'unassigned') {
-      return inFolder.filter((file) => !file.assignees || file.assignees.length === 0)
+      return files.filter((file) => !file.assignees || file.assignees.length === 0)
     }
-    return inFolder.filter((file) => file.assignees?.some((person) => person.userId === currentUserId))
-  }, [files, selectedFolderId, canCollaborate, assignmentFilter, currentUserId])
+    return files.filter((file) => file.assignees?.some((person) => person.userId === currentUserId))
+  }, [files, canCollaborate, assignmentFilter, currentUserId])
+
+  /**
+   * The current LEVEL, Finder-style: the root shows the unfiled documents plus
+   * the top-level folder cards; entering a folder shows what is directly in
+   * it. When the folder listing itself failed to load, folder scoping would
+   * hide every filed document behind an error, so the level falls open to the
+   * whole corpus instead.
+   */
+  const levelFiles = useMemo(() => {
+    if (foldersError) return assignmentFiltered
+    return assignmentFiltered.filter((file) => (file.folderId ?? null) === selectedFolderId)
+  }, [assignmentFiltered, selectedFolderId, foldersError])
 
   // After a successful re-ingestion the document is back to 'pending'; reflect
   // that locally so the badge flips to "Processing" and the dead-end failure UI
@@ -650,7 +664,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             type="single"
             value={view}
             onValueChange={(value) => {
-              if (value === 'cards' || value === 'list' || value === 'tree') selectView(value)
+              if (value === 'cards' || value === 'list') selectView(value)
             }}
             segmented
             size="icon-sm"
@@ -661,9 +675,6 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             </ToggleGroupItem>
             <ToggleGroupItem value="list" aria-label={t('workspace.view.list')} title={t('workspace.view.list')}>
               <List />
-            </ToggleGroupItem>
-            <ToggleGroupItem value="tree" aria-label={t('workspace.view.tree')} title={t('workspace.view.tree')}>
-              <ListTree />
             </ToggleGroupItem>
           </ToggleGroup>
           <FileFilterStrip
@@ -711,27 +722,14 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         onDismiss={dismissFiles}
       />
 
-      {/* Three-pane layout — stacks on mobile: folders on top, files below,
-          preview as a full-screen overlay. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
-        {/* Folder tree — only in the tree view; the card view navigates folders
-            through the chip row instead. All tree functionality (expand/collapse,
-            selection, drill-in, create) is preserved. */}
-        {view === 'tree' && (
-          <div className="max-h-72 w-full shrink-0 overflow-y-auto border-b animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none md:max-h-none md:w-60 md:border-b-0 md:border-r">
-            {foldersError ? (
-              <PaneLoadError message={t('workspace.foldersLoadError')} onRetry={loadFolders} />
-            ) : (
-              <FolderTreePane
-                folders={folders}
-                selectedFolderId={selectedFolderId}
-                onSelectFolder={setSelectedFolderId}
-                onCreateFolder={handleCreateFolder}
-                onRenameFolder={handleRenameFolder}
-                onDeleteFolder={handleDeleteFolder}
-                isLoading={isLoadingFolders}
-              />
-            )}
+      {/* The browser owns the whole column now (the tree band is gone); the
+          preview opens as a full-screen overlay. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {/* Folder listing failed: say so once, above a browser that falls open
+            to the whole corpus, instead of hiding every filed document. */}
+        {foldersError && (
+          <div className="border-b px-4 py-2">
+            <PaneLoadError message={t('workspace.foldersLoadError')} onRetry={loadFolders} inline />
           </div>
         )}
 
@@ -741,13 +739,13 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             <PaneLoadError message={t('workspace.documentsLoadError')} onRetry={loadFiles} />
           ) : (
             <FileBrowserPane
-              files={filteredFiles}
+              files={levelFiles}
+              searchFiles={assignmentFiltered}
               selectedFileId={selectedFileId}
               onSelectFile={handleSelectFile}
-              isLoading={isLoadingFiles}
-              hasFolderSelected={selectedFolderId !== null}
+              isLoading={isLoadingFiles || isLoadingFolders}
               projectId={projectId}
-              view={view === 'list' ? 'list' : 'cards'}
+              view={view}
               showAssignment={canCollaborate}
               renderActions={(file) => (
                 <DocumentActionsMenu
@@ -759,13 +757,18 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
                   onMoved={handleMoved}
                 />
               )}
-              {...(view !== 'tree'
-                ? {
-                    folders,
-                    selectedFolderId,
-                    onSelectFolder: setSelectedFolderId,
-                  }
-                : {})}
+              {...(foldersError
+                ? {}
+                : {
+                    folderNav: {
+                      folders,
+                      currentFolderId: selectedFolderId,
+                      onNavigate: setSelectedFolderId,
+                      onCreateFolder: handleCreateFolder,
+                      onRenameFolder: handleRenameFolder,
+                      onDeleteFolder: handleDeleteFolder,
+                    },
+                  })}
               uploadControl={
                 <ProjectUppyUpload
                   projectId={projectId}
@@ -816,8 +819,29 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
 }
 
 /** Inline pane-level load failure with a retry affordance. */
-function PaneLoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+function PaneLoadError({
+  message,
+  onRetry,
+  inline = false,
+}: {
+  message: string
+  onRetry: () => void
+  /** One-row banner variant, for a failure that degrades a pane without emptying it. */
+  inline?: boolean
+}) {
   const t = useTranslations('files')
+  if (inline) {
+    return (
+      <div className="text-muted-foreground flex items-center gap-2 text-sm">
+        <AlertCircle className="size-4 shrink-0" aria-hidden />
+        <span className="min-w-0 flex-1 truncate">{message}</span>
+        <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={onRetry}>
+          <RotateCcw className="size-3.5" aria-hidden />
+          {t('workspace.tryAgain')}
+        </Button>
+      </div>
+    )
+  }
   return (
     <EmptyState
       variant="bare"

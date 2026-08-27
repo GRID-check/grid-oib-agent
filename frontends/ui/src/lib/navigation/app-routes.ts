@@ -44,6 +44,7 @@ export const APP_ROUTE_URLS: readonly string[] = [
   '/app/profile',
   '/app/projects',
   '/app/projects/[id]',
+  '/app/projects/[id]/automation',
   '/app/projects/[id]/chat',
   '/app/projects/[id]/files',
   '/app/projects/[id]/history',

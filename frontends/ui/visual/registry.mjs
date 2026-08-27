@@ -87,15 +87,45 @@ export const SCREENSHOT_TARGETS = [
     id: 'app-shell-scopes',
     path: '/dev/app-shell-scopes',
     description:
-      'The persistent rail in BOTH scopes, side by side — project scope (switcher, project sections, pinned Settings) against org scope (a "Zurück zu <project>" control from the return trail, the org destinations, no Settings row) on a distinct surface tint. The comparison is the evidence: the top edge, the 36px context slot, the group rhythm, the footer edge and the 236px width line up across the seam, so stepping out of a project changes the contents and moves nothing.',
+      'The two chromes, side by side — project scope (the 236px rail: switcher, sections, pinned Settings, user footer) against org scope (the slim full-width header: wordmark, Archiv + Postfach doorways with the inbox badge, avatar). Since the org-nav redesign the scopes deliberately differ in SHAPE: above a project the rail is gone and the page owns the whole width, so the pair is the evidence for both chromes at once.',
     waitFor: '[data-testid="app-shell-scopes-preview"]',
+  },
+  {
+    id: 'user-menu',
+    path: '/dev/user-menu',
+    description:
+      'The avatar menu with theme and language as SUBMENU rows — one row each, naming the CURRENT value at its right edge, instead of eight standing rows. Account destinations above, sign-out below; the second click (the submenu itself) is the deliberate cost of a menu short enough to scan.',
+    waitFor: '[data-slot="dropdown-menu-sub-trigger"]',
+  },
+  {
+    id: 'page-sheet',
+    mobile: true,
+    path: '/dev/page-sheet',
+    description:
+      'The page sheet — the third overlay intent beside the modal and the side sheet: a whole PLACE (Archiv, Postfach) risen near-fullscreen over the current page, bottom-anchored with the app dimmed at the top and side margins, rounded top corners, one header band with title, subtitle and close.',
+    waitFor: '[data-slot="page-sheet-title"]',
+  },
+  {
+    id: 'page-sheet-reading',
+    path: '/dev/page-sheet?variant=reading',
+    description:
+      'The page sheet at reading width — the narrower column the history sheet uses: same geometry and scrim, capped at a text measure instead of the full 1400px, so a single column of rows does not stretch into whitespace.',
+    waitFor: '[data-slot="page-sheet-title"]',
+  },
+  {
+    id: 'automation-panel',
+    mobile: true,
+    path: '/dev/automation',
+    description:
+      'The merged Automation section — Jobs and Skills as a segmented tab control inside ONE project section (they were two rail entries with identical framing and one shared flag). Only the active tab is mounted; the shot shows the Jobs tab leading with the Skills tab beside it.',
+    waitFor: '[data-slot="tabs-trigger"]',
   },
   {
     id: 'sessions',
     mobile: true,
     path: '/dev/sessions',
     description:
-      'Chat-history panel over the real app rail — flush with the viewport top (it replaces the rail rather than starting below a header that the chat route does not have), pinned New chat + search, day-grouped list with sticky day headings, and a footer that owns the destructive delete-all. Fixture spans today/yesterday/older and overflows the panel so grouping and scroll behaviour are visible.',
+      'The history sheet risen over the real app shell — an Apple-style page sheet with the chrome dimmed behind it, pinned New chat + search, day-grouped list with sticky day headings, and a footer that owns the destructive delete-all. Fixture spans today/yesterday/older and overflows the list so grouping and scroll behaviour are visible.',
     waitFor: '[data-testid="sessions-preview"]',
   },
   {
@@ -131,7 +161,7 @@ export const SCREENSHOT_TARGETS = [
     id: 'sessions-research',
     path: '/dev/sessions?variant=research',
     description:
-      'Chat history with the FB-10 Deep Research section expanded — server-truth runs (running / completed / failed) above the day groups, and the per-row Deep Research chips.',
+      'The history sheet with the FB-10 Deep Research section — open by default now that this sheet is the one record of a project\u2019s past: server-truth runs (running / completed / failed) above the day groups, and the per-row Deep Research chips.',
     waitFor: '[data-testid="deep-research-toggle"]',
   },
   {
@@ -338,7 +368,8 @@ export const SCREENSHOT_TARGETS = [
     id: 'file-browser',
     mobile: true,
     path: '/dev/file-browser',
-    description: 'Files browser grid — the shared raised FileCard in its home surface.',
+    description:
+      'Files browser with the Finder-style folder drill-down — the breadcrumb path row ("All Files"), folder cards with item counts beside the file cards, the New-folder control, and the content column capped and centred now that the tree band is gone.',
     waitFor: '[data-testid="file-card"]',
   },
   {
@@ -410,14 +441,14 @@ export const SCREENSHOT_TARGETS = [
     id: 'file-browser-folder-menu',
     path: '/dev/file-browser?variant=folder-menu',
     description:
-      'A folder row\u2019s own \u22ef menu. Folders were create-only: a name typed wrong stayed wrong, and a folder made by mistake stayed in the tree forever. Rename and Delete now sit on the folder itself, one hover away, with the destructive one carrying its own colour \u2014 and the trigger stays lit while its menu is up, so the control that opened it does not vanish underneath the reader.',
+      'A folder card\u2019s own \u22ef menu. Rename and Delete sit on the folder itself, one hover away, with the destructive one carrying its own colour \u2014 and the trigger stays lit while its menu is up, so the control that opened it does not vanish underneath the reader.',
     waitFor: '[role="menuitem"]',
   },
   {
     id: 'file-browser-folder-rename',
     path: '/dev/file-browser?variant=folder-rename',
     description:
-      'Renaming a folder happens in the row itself \u2014 same indent, same width, pre-filled with the current name. The reader is looking at the name they want to change, so a dialog would take it off screen to ask about it. Enter commits, Escape cancels, an unchanged name makes no request at all, and a failed save leaves the field open with the typed text intact.',
+      'Renaming a folder happens on the card itself \u2014 the name swaps for its own field, pre-filled. The reader is looking at the name they want to change, so a dialog would take it off screen to ask about it. Enter commits, Escape cancels, an unchanged name makes no request at all, and a failed save leaves the field open with the typed text intact.',
     waitFor: '[data-testid="folder-rename-input-f-brand"]',
   },
   {

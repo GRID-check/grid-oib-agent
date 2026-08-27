@@ -1,20 +1,24 @@
 /**
  * SessionsPanel Component
  *
- * The chat-history panel: a docked aside listing this project's chats, newest
- * first, grouped by day. Opened from the chat toolbar's history door.
+ * The history sheet: this project's chats AND its deep-research runs, newest
+ * first, grouped by day. Opened from the chat toolbar's history door, it rises
+ * as a page sheet over the chat — the History page it replaced is gone, and
+ * this one surface is the whole record of the project's past.
  *
- * Anatomy, top to bottom — the order is the panel's argument about what it is
+ * Anatomy, top to bottom — the order is the sheet's argument about what it is
  * for:
  *
- *   heading      "Chat history · N chats" — the panel names itself and its size.
+ *   header       "Chat history · N chats" — the sheet names itself and its size.
  *   pinned block New chat, then the search field. Both stay put while the list
  *                scrolls: a search field that scrolls away is unusable exactly
- *                when the list is long enough to need it.
- *   list         the ONLY scrolling region, with sticky day headings.
+ *                when the list is long enough to need it. The search covers
+ *                runs as well as chats — one query over the whole past.
+ *   list         the ONLY scrolling region, with sticky day headings; the
+ *                Deep-research block leads, open by default.
  *   footer       what "saved" means here, a storage warning when one is due,
  *                and delete-all — the destructive bulk action, parked at the
- *                far end of the panel rather than one row above the list it
+ *                far end of the sheet rather than one row above the list it
  *                destroys.
  */
 
@@ -40,7 +44,6 @@ import {
   FlaskConical,
   Loader2,
   MessageSquare,
-  MessageSquareText,
   Pencil,
   Plus,
   Search,
@@ -54,9 +57,9 @@ import { Item, ItemList } from '@/components/ui/item'
 import { SearchField } from '@/components/ui/search-field'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Spinner } from '@/components/ui/spinner'
+import { PageSheet } from '@/components/ui/page-sheet'
 import { cn } from '@/lib/utils'
 import { formatAbsoluteTime, formatRelativeTime, formatTimeOfDay } from '@/lib/format'
-import { motion } from '@/components/motion'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useLocale, useTranslations } from '@/i18n'
 import { listResearchRuns, type ResearchRun } from '@/adapters/api/research-runs-client'
@@ -65,7 +68,6 @@ import { useChatStore } from '@/features/chat'
 import { checkStorageHealth } from '@/features/chat/lib/storage-manager'
 import { DeleteSessionConfirmationModal } from './DeleteSessionConfirmationModal'
 import { DeleteAllSessionsConfirmationModal } from './DeleteAllSessionsConfirmationModal'
-import { DockedPanel } from './DockedPanel'
 
 /**
  * Percentage of the browser storage quota above which the panel says so. Below
@@ -159,7 +161,9 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   // includes headless/CLI jobs that never touched local storage. Null = not yet
   // loaded; [] = loaded, empty.
   const [deepResearchRuns, setDeepResearchRuns] = useState<ResearchRun[] | null>(null)
-  const [isDeepResearchOpen, setIsDeepResearchOpen] = useState(false)
+  // Open by default: with the History page gone, this sheet is the ONE place a
+  // run's past is findable — hiding it behind a fold hid the record.
+  const [isDeepResearchOpen, setIsDeepResearchOpen] = useState(true)
   const deepResearchFetchInFlightRef = useRef(false)
   // Tracks the projectCollection the current fetch belongs to. Only an identity
   // change (a different collection) invalidates an in-flight result — closing the
@@ -327,72 +331,42 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
     [projectId]
   )
 
-  const hasDeepResearchRuns = (deepResearchRuns?.length ?? 0) > 0
-  const showDeepResearch = showDeepResearchSection && Boolean(projectId) && hasDeepResearchRuns
+  // The search covers runs as well as chats: one query over the whole past.
+  const filteredRuns = useMemo(() => {
+    const runs = deepResearchRuns ?? []
+    if (!trimmedQuery) return runs
+    const query = trimmedQuery.toLowerCase()
+    return runs.filter((run) => runLabel(run).toLowerCase().includes(query))
+  }, [deepResearchRuns, trimmedQuery, runLabel])
+
+  const showDeepResearch = showDeepResearchSection && Boolean(projectId) && filteredRuns.length > 0
 
   return (
-    <DockedPanel
+    <PageSheet
       open={isSessionsPanelOpen}
-      side="left"
-      onClose={handleClose}
-      forceMount
-      aria-label={t('sessionsPanel.title')}
-      // Finding a past chat is why this panel gets opened, so the search field
+      onOpenChange={(next) => {
+        if (!next) handleClose()
+      }}
+      title={t('sessionsPanel.title')}
+      // The sheet states its own size, so "is this all of them?" is answered
+      // before it is asked.
+      subtitle={
+        hasSessions
+          ? sessions.length === 1
+            ? t('sessionsPanel.countLabelOne')
+            : t('sessionsPanel.countLabel', { count: sessions.length })
+          : undefined
+      }
+      closeLabel={t('dockedPanel.closePanel')}
+      width="reading"
+      // Finding a past chat is why this sheet gets opened, so the search field
       // is where focus belongs — except on mobile, where it would throw up the
       // on-screen keyboard over the very list the user came to read.
       initialFocusRef={isMobile ? undefined : searchInputRef}
-      heading={
-        <>
-          <MessageSquareText className="size-4 shrink-0" aria-hidden="true" />
-          <span className="truncate">{t('sessionsPanel.title')}</span>
-          {/* The panel states its own size, so "is this all of them?" is
-              answered before it is asked. */}
-          {hasSessions && (
-            <span className="text-muted-foreground shrink-0 font-normal">
-              {sessions.length === 1
-                ? t('sessionsPanel.countLabelOne')
-                : t('sessionsPanel.countLabel', { count: sessions.length })}
-            </span>
-          )}
-        </>
-      }
-      footer={
-        <div className="flex flex-col gap-2">
-          {/* Only shown once the quota is close enough to act on, and then it
-              says what to do about it. */}
-          {storagePercent >= STORAGE_WARNING_PERCENT && (
-            <p className="text-warning text-xs font-medium">
-              {t('sessionsPanel.storageQuota', { percent: storagePercent })}
-            </p>
-          )}
-          <p className="text-muted-foreground text-xs">{t('sessionsPanel.storageNote')}</p>
-          {/* Delete-all lives HERE, not above the list. It used to sit in the
-              top row with equal weight to New chat — the loudest thing in the
-              panel was the one action that destroys everything in it, one row
-              above the rows it deletes. */}
-          {hasSessions && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-destructive hover:text-destructive -ml-2 h-8 w-fit justify-start px-2"
-              onClick={handleDeleteAllClick}
-              disabled={anySessionBusy}
-              aria-label={
-                anySessionBusy ? t('sessionsPanel.deleteAllDisabled') : t('sessionsPanel.deleteAll')
-              }
-              title={
-                anySessionBusy ? t('sessionsPanel.cannotDeleteBusy') : t('sessionsPanel.deleteAll')
-              }
-            >
-              <Trash2 className="size-4" aria-hidden="true" />
-              <span>{t('sessionsPanel.deleteAllButton')}</span>
-            </Button>
-          )}
-        </div>
-      }
+      bodyClassName="flex min-h-0 flex-col"
     >
       {/* ---- Pinned block: the two controls that must never scroll away ---- */}
-      <div className="flex shrink-0 flex-col gap-3 px-4 pb-3 pt-4">
+      <div className="flex shrink-0 flex-col gap-3 px-4 pb-3 pt-4 md:px-8">
         {/* New chat is disabled and every row is dimmed while a turn is in
             flight. Say why, ABOVE the controls it explains, rather than leaving
             the user to test them one by one. The spinner carries "temporary"
@@ -465,26 +439,14 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
       {/* ---- The one scrolling region ----
           It used to be nested inside a second scroller (the panel body), and
           being `flex-1` without `min-h-0` it could not shrink — so a full list
-          overflowed the panel and painted straight through the footer.
-
-          The list fades in as ONE surface, driven by the open state rather than
-          by mounting (forceMount keeps the panel in the DOM). It used to stagger
-          every row through `fadeRise` (`opacity: 0, y: 8`) with an uncapped
-          `staggerChildren: 0.05`, so row N only began animating after
-          0.05 + N×0.05s — with a couple of dozen sessions the lower rows sat
-          invisible AND pushed 8px down for over a second. A history panel is
-          also the wrong place for a cascade: the user opened it to reach a
-          specific row, and staggering delays precisely the row they are
-          reaching for. */}
-      <motion.div
-        className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 pb-4"
-        initial={false}
-        animate={{ opacity: isSessionsPanelOpen ? 1 : 0 }}
-        transition={{ duration: 0.18, ease: 'easeOut' }}
-      >
-        {/* Deep Research (FB-10) — server-truth runs for this project, collapsed
-            by default with a count badge. Includes headless/CLI jobs that have
-            no local session. Hidden entirely when there are no runs. */}
+          overflowed the panel and painted straight through the footer. No row
+          stagger, deliberately: the user opened this to reach a specific row,
+          and a cascade delays precisely the row they are reaching for — the
+          sheet's own rise is the arrival. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 pb-4 md:px-8">
+        {/* Deep Research (FB-10) — server-truth runs for this project, open by
+            default with a count badge. Includes headless/CLI jobs that have no
+            local session. Hidden entirely when there are no (matching) runs. */}
         {showDeepResearch && (
           <div className="border-border mb-3 shrink-0 border-b pb-3">
             <button
@@ -502,14 +464,12 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                 aria-hidden="true"
               />
               <FlaskConical className="size-4 shrink-0" aria-hidden="true" />
-              <span>
-                {t('sessionsPanel.deepResearchHeading', { count: deepResearchRuns?.length ?? 0 })}
-              </span>
+              <span>{t('sessionsPanel.deepResearchHeading', { count: filteredRuns.length })}</span>
             </button>
 
             {isDeepResearchOpen && (
               <ItemList className="mt-1 flex flex-col gap-1 overflow-visible rounded-none border-0 divide-y-0 animate-in fade-in-0 duration-snap ease-out motion-reduce:animate-none">
-                {(deepResearchRuns ?? []).map((run) => (
+                {filteredRuns.map((run) => (
                   <Item
                     key={run.job_id}
                     asChild
@@ -565,7 +525,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                 element is the scroll container, hence `top-0`; `-mx-4 px-4`
                 widens the opaque backing to the panel's full width so rows
                 pass UNDER it rather than beside it. */}
-            <SectionLabel className="bg-background sticky top-0 z-10 -mx-4 px-4 pb-1.5 pt-1">
+            <SectionLabel className="bg-background sticky top-0 z-10 -mx-4 px-4 pb-1.5 pt-1 md:-mx-8 md:px-8">
               {dateLabel}
             </SectionLabel>
             <ItemList className="flex flex-col gap-1 overflow-visible rounded-none border-0 divide-y-0">
@@ -617,7 +577,43 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
             )}
           </div>
         )}
-      </motion.div>
+      </div>
+
+      {/* ---- Footer: what "saved" means, and the bulk destroyer at the far end ---- */}
+      <div className="bg-background shrink-0 border-t px-4 py-3 md:px-8">
+        <div className="flex flex-col gap-2">
+          {/* Only shown once the quota is close enough to act on, and then it
+              says what to do about it. */}
+          {storagePercent >= STORAGE_WARNING_PERCENT && (
+            <p className="text-warning text-xs font-medium">
+              {t('sessionsPanel.storageQuota', { percent: storagePercent })}
+            </p>
+          )}
+          <p className="text-muted-foreground text-xs">{t('sessionsPanel.storageNote')}</p>
+          {/* Delete-all lives HERE, not above the list. It used to sit in the
+              top row with equal weight to New chat — the loudest thing in the
+              panel was the one action that destroys everything in it, one row
+              above the rows it deletes. */}
+          {hasSessions && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive -ml-2 h-8 w-fit justify-start px-2"
+              onClick={handleDeleteAllClick}
+              disabled={anySessionBusy}
+              aria-label={
+                anySessionBusy ? t('sessionsPanel.deleteAllDisabled') : t('sessionsPanel.deleteAll')
+              }
+              title={
+                anySessionBusy ? t('sessionsPanel.cannotDeleteBusy') : t('sessionsPanel.deleteAll')
+              }
+            >
+              <Trash2 className="size-4" aria-hidden="true" />
+              <span>{t('sessionsPanel.deleteAllButton')}</span>
+            </Button>
+          )}
+        </div>
+      </div>
 
       <DeleteSessionConfirmationModal
         open={deleteModalOpen}
@@ -632,7 +628,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
         onConfirm={handleConfirmDeleteAll}
         count={sessions.length}
       />
-    </DockedPanel>
+    </PageSheet>
   )
 })
 

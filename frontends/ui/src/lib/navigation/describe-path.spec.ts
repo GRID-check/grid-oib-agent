@@ -57,9 +57,7 @@ describe('describeAppPath', () => {
   })
 
   test('ignores a query string', () => {
-    expect(describeAppPath('/app/projects/p1/history?tag=brandschutz')?.key).toBe(
-      'sections.history'
-    )
+    expect(describeAppPath('/app/projects/p1/files?doc=abc')?.key).toBe('sections.files')
   })
 
   test('every label it can return resolves to a real string in the dictionary', () => {

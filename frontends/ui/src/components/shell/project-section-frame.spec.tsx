@@ -2,31 +2,31 @@ import { describe, expect, test, vi, beforeEach } from 'vitest'
 import { render, screen } from '@/test-utils'
 import { ProjectSectionActions, ProjectSectionFrame } from './project-section-frame'
 
-let pathname = '/app/projects/p1/history'
+let pathname = '/app/projects/p1/files'
 
 vi.mock('next/navigation', () => ({
   usePathname: () => pathname,
 }))
 
 beforeEach(() => {
-  pathname = '/app/projects/p1/history'
+  pathname = '/app/projects/p1/files'
 })
 
 describe('ProjectSectionFrame', () => {
   test('renders the section heading and a breadcrumb with the project name', () => {
     render(
       <ProjectSectionFrame projectId="p1" projectName="Stadthaus Wien">
-        <p>history body</p>
+        <p>files body</p>
       </ProjectSectionFrame>,
     )
 
-    expect(screen.getByRole('heading', { level: 1, name: 'History' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Files' })).toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Stadthaus Wien')
     expect(screen.getByRole('link', { name: 'Stadthaus Wien' })).toHaveAttribute(
       'href',
       '/app/projects/p1/settings',
     )
-    expect(screen.getByText('history body')).toBeInTheDocument()
+    expect(screen.getByText('files body')).toBeInTheDocument()
   })
 
   test('renders children only on the chat route — no page heading', () => {
@@ -43,18 +43,18 @@ describe('ProjectSectionFrame', () => {
   })
 
   test('places ProjectSectionActions in the header', () => {
-    pathname = '/app/projects/p1/skills'
+    pathname = '/app/projects/p1/automation'
     render(
       <ProjectSectionFrame projectId="p1" projectName="Stadthaus Wien">
         <ProjectSectionActions>
           <button type="button">New skill</button>
         </ProjectSectionActions>
-        <p>skills body</p>
+        <p>automation body</p>
       </ProjectSectionFrame>,
     )
 
     const action = screen.getByRole('button', { name: 'New skill' })
-    const heading = screen.getByRole('heading', { level: 1, name: 'Skills' })
+    const heading = screen.getByRole('heading', { level: 1, name: 'Automation' })
     expect(heading.closest('header')).toContainElement(action)
   })
 })
