@@ -14,8 +14,9 @@ import {
 } from './catalog'
 
 describe('retrieval settings catalog', () => {
-  it('contains the ten platform-tunable counts', () => {
+  it('contains the platform-tunable counts, plus the lessons control group', () => {
     expect(RETRIEVAL_SETTING_KEYS).toEqual([
+      'lessons.holdout_pct',
       'knowledge.top_k',
       'knowledge.max_chunks_per_document',
       'knowledge.relevance_floor_pct',
@@ -31,6 +32,7 @@ describe('retrieval settings catalog', () => {
 
   it('pins every default to the value the tools ship with', () => {
     expect(retrievalSettingDefaults()).toEqual({
+      'lessons.holdout_pct': 0,
       'knowledge.top_k': 16,
       'knowledge.max_chunks_per_document': 5,
       // 0 disables the floor, and that is the shipped default deliberately: measured on

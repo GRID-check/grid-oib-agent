@@ -1,4 +1,14 @@
-import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import {
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  real,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core'
 
 /**
  * Platform lessons — the product's own correction ratchet
@@ -107,6 +117,25 @@ export const platformLessons = pgTable(
       .notNull()
       .default('open'),
     rootCauseNote: text('root_cause_note'),
+    /**
+     * Semantic vector for the lesson text plus its model fingerprint
+     * (migration 0069). This is what makes dedup find a restatement that
+     * shares no tokens; a NULL vector, or one from a retired embedding model,
+     * degrades matching to the rank-window path rather than failing.
+     */
+    embedding: real('embedding').array(),
+    embeddingModel: text('embedding_model'),
+    embeddedAt: timestamp('embedded_at', { withTimezone: true }),
+    /**
+     * Up/down votes cast while this lesson was active. With an always-injected
+     * digest, exposure is a function of TIME, so this is a temporal
+     * correlation and NOT attribution — every active lesson is counted for
+     * every vote in its window. It is labelled as correlation in the UI, and
+     * the holdout experiment (`lessons.holdout_pct`) is the credible measure
+     * beside it.
+     */
+    helpfulVotes: integer('helpful_votes').notNull().default(0),
+    harmfulVotes: integer('harmful_votes').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

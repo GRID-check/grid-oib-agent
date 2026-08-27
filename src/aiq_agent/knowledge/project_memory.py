@@ -95,6 +95,7 @@ def fetch_memory_digest(
     *,
     project_id: str | None,
     organization_id: str | None,
+    query: str | None = None,
 ) -> str | None:
     """Fetch the CURRENT core-memory digest via the internal BFF endpoint.
 
@@ -120,10 +121,16 @@ def fetch_memory_digest(
         params["projectId"] = project_id
     if organization_id:
         params["organizationId"] = organization_id
-    query = urllib.parse.urlencode(params)
+    if query and query.strip():
+        # This turn's question. With it the BFF ranks recall by relevance
+        # instead of serving the twenty most recently touched notes; without it
+        # the digest is exactly what it was before. Bounded here as well as
+        # there — a caller must not be able to post a transcript as a param.
+        params["query"] = query.strip()[:2000]
+    query_string = urllib.parse.urlencode(params)
 
     request = urllib.request.Request(
-        f"{_internal_base_url()}/api/internal/memory/digest?{query}",
+        f"{_internal_base_url()}/api/internal/memory/digest?{query_string}",
         headers={"X-Grid-Internal-Token": token},
         method="GET",
     )

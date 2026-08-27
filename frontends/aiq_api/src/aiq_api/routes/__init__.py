@@ -10,6 +10,7 @@ from .ingest import add_ingest_routes
 from .jobs import register_job_routes
 from .lesson_distill import add_lesson_distill_routes
 from .maintenance import add_maintenance_routes
+from .note_embeddings import add_note_embedding_routes
 from .oib import add_oib_routes
 from .skill_review import add_skill_review_routes
 from .skills import add_skill_routes
@@ -23,6 +24,7 @@ __all__ = [
     "add_generate_summary_routes",
     "add_ingest_routes",
     "add_lesson_distill_routes",
+    "add_note_embedding_routes",
     "register_job_routes",
     "add_maintenance_routes",
     "add_oib_routes",

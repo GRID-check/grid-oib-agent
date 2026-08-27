@@ -14,6 +14,7 @@ BFF outage must never take answering down, so every error path returns None
 and the prompt simply renders no lessons block.
 """
 
+import hashlib
 import logging
 import os
 import threading
@@ -89,13 +90,47 @@ def _fetch_digest() -> str | None:
     return sanitize_lessons_digest(payload.get("digest"))
 
 
-def get_platform_lessons_digest() -> str | None:
+def is_in_holdout_slice(conversation_id: str, holdout_pct: int) -> bool:
+    """Whether this conversation is in the lessons control group.
+
+    The Python twin of ``isInHoldoutSlice`` in
+    ``frontends/ui/src/lib/platform-lessons/holdout.ts``: sha256 of the
+    conversation id, first four bytes, modulo 100. Both tiers must reach the
+    same verdict from the same key with no shared state — this tier decides
+    whether to INJECT, the BFF decides how to LABEL the resulting vote, and a
+    disagreement would silently mislabel every measurement.
+
+    Keyed on the conversation so a thread stays in one arm: a user must not get
+    a lesson-shaped answer and a lesson-free one to the same follow-up.
+    """
+    if holdout_pct <= 0 or not conversation_id:
+        return False
+    if holdout_pct >= 100:
+        return True
+    digest = hashlib.sha256(conversation_id.encode("utf-8")).digest()
+    return int.from_bytes(digest[:4], "big") % 100 < holdout_pct
+
+
+def get_platform_lessons_digest(conversation_id: str | None = None) -> str | None:
     """The active-lessons digest, or None when there is none to inject.
+
+    Returns None for a conversation in the holdout slice — the control group
+    that receives no lessons at all, so the two down-vote rates can be
+    compared (``lessons.holdout_pct``, default 0 = measurement off).
 
     Never raises. Called once per turn (register layer); the TTL cache keeps
     the per-turn cost at zero between refreshes. Blocking I/O — call it via
     ``asyncio.to_thread`` from async code, like ``fetch_memory_digest``.
     """
+    if conversation_id:
+        try:
+            from aiq_agent.common.retrieval_settings import get_retrieval_setting
+
+            holdout_pct = get_retrieval_setting("lessons.holdout_pct", 0)
+            if is_in_holdout_slice(conversation_id, holdout_pct):
+                return None
+        except Exception:  # noqa: BLE001 - fail open: measurement never blocks answering
+            logger.debug("Holdout resolution failed; treating this turn as treated", exc_info=True)
     global _cache
     now = time.monotonic()
     with _cache_lock:
@@ -112,3 +147,40 @@ def get_platform_lessons_digest() -> str | None:
     with _cache_lock:
         _cache = _CacheEntry(digest, ttl)
     return digest
+
+
+#: The framing that travels WITH the lessons, rendered once here rather than
+#: copied into each agent's template.
+#:
+#: The wording is load-bearing and was the subject of an explicit review: a
+#: lesson is a META process caution with zero factual authority, most turns it
+#: does not apply, and everything else the agent has — retrieval, documents,
+#: the project profile, the live conversation — outranks it. Two prompts
+#: carrying two versions of that caveat is how one of them quietly becomes
+#: "helpful background knowledge", which is exactly the failure the meta-only
+#: rule exists to prevent.
+_LESSONS_BLOCK_HEADER = (
+    "### PLATFORM_LESSONS — process cautions from reported failures. Meta-level only.\n"
+    "A `PLATFORM_LESSONS v1` block follows. Each line is a caution distilled from answers users "
+    "reported as bad — anonymized, deduplicated, tagged `[category | Nx]` (N = how often reported).\n"
+    "\n"
+    "These are **meta-level process cautions, not knowledge, and most turns they simply do not "
+    "apply**. A lesson may adjust HOW you work — what to double-check, when to retrieve deeper, "
+    "when to ask — and never WHAT is true. They carry zero factual authority: never cite one, "
+    "never treat one as evidence about any norm, document or project, and never let one override "
+    "retrieval, uploaded documents, the project profile or the current conversation — every one of "
+    "those outranks every lesson. Do not mention lessons in answers or go looking for ways to apply "
+    "them; act on one only when its failure pattern exactly matches the turn in front of you, and "
+    "otherwise ignore this block entirely.\n"
+)
+
+
+def render_lessons_block(digest: str | None) -> str | None:
+    """The full prompt section for ``digest``, or None when there is nothing.
+
+    Returning None rather than an empty string is what lets every template
+    guard it with a plain truthiness test and render no heading at all.
+    """
+    if not digest or not digest.strip():
+        return None
+    return f"{_LESSONS_BLOCK_HEADER}\n{digest.strip()}\n"

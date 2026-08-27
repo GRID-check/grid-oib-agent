@@ -35,6 +35,8 @@ import {
   type FeedbackHealthFilters,
 } from './repository'
 import { getFeedbackDigest, type FeedbackDigestOptions, type FeedbackDigestResult } from './digest'
+import { resolveLessonsHoldout } from '@/lib/platform-lessons/holdout'
+import { reopenReportForRedistillation } from '@/lib/platform-lessons/service'
 
 /** Upsert the caller's vote on one assistant answer. */
 export async function submitAnswerFeedback(
@@ -61,7 +63,13 @@ export async function submitAnswerFeedback(
     await requireProjectAccess(session, input.projectId, 'project:view')
   }
 
+  // Which arm of the lessons experiment this turn was in, decided by the same
+  // pure function the agent used when it chose whether to inject. Null when
+  // the holdout is off, which is the default — see lib/platform-lessons/holdout.
+  const lessonsHoldout = await resolveLessonsHoldout(input.conversationId ?? null)
+
   const row = await upsertAnswerFeedback({
+    lessonsHoldout,
     organizationId: session.organizationId,
     userId: session.userId,
     messageId: input.messageId,
@@ -71,6 +79,15 @@ export async function submitAnswerFeedback(
     conversationId: input.conversationId ?? null,
     projectId: input.projectId ?? null,
   })
+  // A re-vote that adds detail (a comment, a corrected reason) deserves another
+  // look from the lesson pipeline: clear a previous "nothing to learn here"
+  // verdict so the next sweep reconsiders the report. A report that already
+  // produced a lesson is untouched. Fire-and-forget — the vote is the user's
+  // business, this is ours.
+  if (row.verdict === 'down') {
+    void reopenReportForRedistillation(row.id)
+  }
+
   return toView(row)
 }
 

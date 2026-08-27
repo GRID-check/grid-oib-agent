@@ -40,6 +40,8 @@ export interface UpsertAnswerFeedbackValues {
   verdict: AnswerFeedbackVerdict
   reason: AnswerFeedbackReason | null
   comment: string | null
+  /** Lessons-experiment arm, or null when the holdout is off. */
+  lessonsHoldout?: boolean | null
 }
 
 /** Insert or update the caller's vote on one answer (re-vote semantics). */
@@ -57,6 +59,7 @@ export async function upsertAnswerFeedback(values: UpsertAnswerFeedbackValues): 
         conversationId: values.conversationId,
         projectId: values.projectId,
         organizationId: values.organizationId,
+        lessonsHoldout: values.lessonsHoldout ?? null,
         updatedAt: new Date(),
       },
     })

@@ -16,7 +16,7 @@
  */
 
 import 'server-only'
-import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   platformLessonEvents,
@@ -28,6 +28,7 @@ import {
   type PlatformLessonReport,
 } from '@/lib/db/schema'
 import { normalizeContentGerman } from '@/lib/knowledge/consolidation'
+import { cosineSimilaritySql, toVectorLiteral } from '@/lib/knowledge/embeddings'
 
 /** Hard ceilings on every dashboard list. */
 export const LESSON_LIST_LIMIT = 200
@@ -161,6 +162,124 @@ export async function listActiveLessonsForDigest(limit: number): Promise<Platfor
     .limit(limit)
 }
 
+/**
+ * Cosine above which a report is treated as restating an existing lesson.
+ *
+ * Lower than memory's 0.90 on purpose: two lesson texts are already
+ * generalized process cautions, so near-neighbours in that space really are
+ * the same failure class ("check which guideline applies before citing" vs
+ * "verify the referenced guideline matches the question"). Still calibrated
+ * toward separation — a wrong merge buries a distinct failure mode.
+ */
+export const LESSON_SEMANTIC_MATCH_THRESHOLD = 0.85
+
+/**
+ * The lessons a report most plausibly restates, by SEMANTIC similarity.
+ *
+ * This is what the top-N rank window was standing in for. A window ordered by
+ * report count answers "which lessons are popular", not "which lesson is this
+ * report about" — and past the window the matcher simply could not see the
+ * lesson it should have merged into, so the register grew a near-duplicate
+ * and the two then split future reports between them.
+ *
+ * Returns [] when nothing is embedded or the embedder was unavailable, which
+ * the caller reads as "fall back to the rank window".
+ */
+export async function listSemanticLessonCandidates(
+  vector: number[],
+  fingerprint: string,
+  limit: number
+): Promise<PlatformLesson[]> {
+  const db = getDb()
+  const rows = await db
+    .select({
+      lesson: platformLessons,
+      similarity: cosineSimilaritySql(platformLessons.embedding, vector),
+    })
+    .from(platformLessons)
+    .where(
+      and(
+        ne(platformLessons.status, 'retired'),
+        // Never compare across embedding models — same length, different space.
+        eq(platformLessons.embeddingModel, fingerprint),
+        sql`grid_cosine_similarity(${platformLessons.embedding}, ${toVectorLiteral(vector)}::real[]) >= ${LESSON_SEMANTIC_MATCH_THRESHOLD}`
+      )
+    )
+    .orderBy(desc(cosineSimilaritySql(platformLessons.embedding, vector)))
+    .limit(limit)
+  return rows.map((row) => row.lesson)
+}
+
+/** Store a lesson's vector after the fact (backfill / re-embed on model change). */
+export async function setLessonEmbedding(
+  lessonId: string,
+  vector: number[],
+  fingerprint: string
+): Promise<void> {
+  await getDb()
+    .update(platformLessons)
+    .set({ embedding: vector, embeddingModel: fingerprint, embeddedAt: new Date() })
+    .where(eq(platformLessons.id, lessonId))
+}
+
+/** Lessons still missing a usable vector, oldest first. Bounded. */
+export async function listLessonsMissingEmbedding(
+  fingerprint: string,
+  limit: number
+): Promise<PlatformLesson[]> {
+  const db = getDb()
+  return db
+    .select()
+    .from(platformLessons)
+    .where(
+      and(
+        ne(platformLessons.status, 'retired'),
+        or(
+          isNull(platformLessons.embedding),
+          ne(platformLessons.embeddingModel, fingerprint)
+        )
+      )
+    )
+    .orderBy(asc(platformLessons.createdAt))
+    .limit(limit)
+}
+
+/**
+ * Recompute both vote counters for every ACTIVE lesson from `answer_feedback`.
+ *
+ * Exposure is a function of time here — with an always-injected digest, a vote
+ * at T saw every lesson active at T — so this is a temporal join and needs no
+ * per-turn exposure table. Two honest caveats, both documented on the schema:
+ * it is a CORRELATION (every active lesson is credited for every vote in its
+ * window), and the digest caches mean a lesson activated minutes ago may not
+ * have reached every worker yet. Votes from the holdout arm are excluded:
+ * those turns saw no lessons at all, so counting them would credit a lesson
+ * for answers it demonstrably did not touch.
+ */
+export async function recomputeLessonVoteCounters(): Promise<void> {
+  await getDb().execute(sql`
+    update platform_lessons l
+    set helpful_votes = counts.up,
+        harmful_votes = counts.down
+    from (
+      select
+        l2.id,
+        count(*) filter (where f.verdict = 'up')   as up,
+        count(*) filter (where f.verdict = 'down') as down
+      from platform_lessons l2
+      left join answer_feedback f
+        on f.created_at >= l2.activated_at
+       and (l2.retired_at is null or f.created_at <= l2.retired_at)
+       and coalesce(f.lessons_holdout, false) = false
+      where l2.status = 'active' and l2.activated_at is not null
+      group by l2.id
+    ) counts
+    where l.id = counts.id
+      and (l.helpful_votes is distinct from counts.up
+        or l.harmful_votes is distinct from counts.down)
+  `)
+}
+
 /** Exact-duplicate check against the live register (JS twin of the 0068 index). */
 export async function findLiveLessonByContent(content: string): Promise<PlatformLesson | null> {
   const db = getDb()
@@ -213,6 +332,8 @@ interface ReportProvenance {
  * (the UNIQUE(feedback_id) backstop fired) — the caller treats that as "done".
  */
 export async function createLessonFromReport(values: {
+  /** Vector for the lesson text, when the embedder was reachable. */
+  embedding?: { vector: number[]; fingerprint: string } | null
   content: string
   category: PlatformLesson['category']
   status: PlatformLesson['status']
@@ -232,6 +353,13 @@ export async function createLessonFromReport(values: {
           category: values.category,
           status: values.status,
           heldReason: values.heldReason,
+          ...(values.embedding
+            ? {
+                embedding: values.embedding.vector,
+                embeddingModel: values.embedding.fingerprint,
+                embeddedAt: now,
+              }
+            : {}),
           activatedAt: values.status === 'active' ? now : null,
           activatedBy: values.status === 'active' ? values.activatedBy : null,
         })
@@ -317,6 +445,37 @@ export async function linkReportToLesson(
     if ((err as { code?: string } | null)?.code === '23505') return false
     throw err
   }
+}
+
+/**
+ * Let a re-voted report be distilled again — but only when the first pass
+ * produced nothing.
+ *
+ * A user who down-votes, then comes back and writes what was actually wrong,
+ * has supplied strictly more signal than the bare thumb the sweep already
+ * dismissed. The UNIQUE(feedback_id) provenance row is what stops the sweep
+ * from ever looking at it again, so a re-vote clears exactly that row.
+ *
+ * Deliberately limited to `outcome = 'skipped'`. A report that CREATED or was
+ * LINKED to a lesson keeps its row forever: the lesson exists, its evidence
+ * chain has to keep pointing at this report, and re-distilling it would count
+ * one user's opinion twice in `report_count` — which is the number the
+ * activation and eviction order are built on.
+ *
+ * Returns true when a row was actually cleared, so the caller only kicks the
+ * pipeline when there is new work.
+ */
+export async function reopenSkippedReport(feedbackId: string): Promise<boolean> {
+  const cleared = await getDb()
+    .delete(platformLessonReports)
+    .where(
+      and(
+        eq(platformLessonReports.feedbackId, feedbackId),
+        eq(platformLessonReports.outcome, 'skipped')
+      )
+    )
+    .returning({ id: platformLessonReports.id })
+  return cleared.length > 0
 }
 
 /** Record a report the pipeline deliberately did not turn into a lesson. */

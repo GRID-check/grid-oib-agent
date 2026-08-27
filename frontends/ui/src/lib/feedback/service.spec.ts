@@ -68,6 +68,9 @@ const storedRow = {
   verdict: 'up' as const,
   reason: null,
   comment: null,
+  // No experiment arm: the holdout is off by default (see
+  // lib/platform-lessons/holdout.ts), so an ordinary vote carries null.
+  lessonsHoldout: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 }
@@ -94,6 +97,7 @@ describe('submitAnswerFeedback', () => {
       reason: null,
       comment: null,
       conversationId: 'conv_1',
+      lessonsHoldout: null,
       projectId: null,
     })
     expect(view).toEqual({ messageId: 'msg_1', verdict: 'up', reason: null, comment: null })

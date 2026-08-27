@@ -345,9 +345,11 @@ ingestion is a one-time `scripts/ingest_oib.py` after first boot. → `docs/depl
   from the final report in the job runner and deliver them via the job SSE
   stream and job output; the synchronous inline deep-research path (no Dask)
   still returns no cards.
-- **Memory** — Phase 1 (capture + digest + curation). Consolidation/dedup and
-  RAG-recall of memory are designed but not built; org-wide memory writes are not
-  yet permission-gated to admins.
+- **Memory** — capture, curation, semantic consolidation and query-relevant
+  recall are built (see `architecture/semantic-notes.md`); what remains open
+  there is a re-embedding backfill, hybrid lexical+dense recall, and
+  validation-before-use. Org-wide memory writes are still not permission-gated
+  to admins.
 - **Runtime verification** — several fixes are statically verified but await one
   live end-to-end pass (chat project-knowledge, PDF preview/download, the
   research-tab 403, escalation-marker compliance, an end-to-end deletion).

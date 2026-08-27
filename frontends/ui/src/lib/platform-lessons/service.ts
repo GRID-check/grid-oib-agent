@@ -39,6 +39,7 @@ import type { PlatformLesson, PlatformLessonEvent, PlatformLessonReport } from '
 import { formatBoundedDigest } from '@/lib/knowledge/digest-format'
 import { redactPii } from '@/lib/text/redact-pii'
 import { distillReport } from './distill-client'
+import { embedNote, enrichForEmbedding } from '@/lib/knowledge/embeddings'
 import {
   countLessonsByStatus,
   createLessonFromReport,
@@ -52,8 +53,11 @@ import {
   listLessonReports,
   listLessons,
   listLiveLessons,
+  listSemanticLessonCandidates,
   listUnprocessedDownvotes,
+  recomputeLessonVoteCounters,
   recordSkippedReport,
+  reopenSkippedReport,
   updateLessonWithEvent,
 } from './repository'
 import {
@@ -86,8 +90,25 @@ export const DIGEST_MAX_CHARS = 1600
 export const CANDIDATE_MAX_AGE_DAYS = 45
 export const MAX_HELD_CANDIDATES = 40
 
-/** Reports processed per event-driven kick vs. per manual sweep. */
+/**
+ * Reports processed per event-driven kick, per manual sweep, and the ceiling a
+ * kick may rise to when a backlog has formed.
+ *
+ * The kick normally does a little work per vote, which is enough to keep pace:
+ * one down-vote arrives, up to three are distilled. A backlog only forms while
+ * the distiller is unavailable, and then a fixed three-per-kick would drain it
+ * at the rate people happen to vote — so the kick reads how much is waiting
+ * (the sweep already over-fetches) and widens up to `KICK_BACKLOG_LIMIT`.
+ *
+ * This is why there is no scheduler container: the work is event-driven and
+ * self-healing while anyone is voting, and a deployment where nobody votes is
+ * also a deployment where no backlog forms. An operator who wants a clock can
+ * point one at `POST /api/internal/platform-lessons/sweep`.
+ */
 const KICK_SWEEP_LIMIT = 3
+const KICK_BACKLOG_LIMIT = 12
+/** Waiting reports above which a kick widens toward `KICK_BACKLOG_LIMIT`. */
+const BACKLOG_WIDEN_THRESHOLD = 10
 const MANUAL_SWEEP_LIMIT = 25
 
 /**
@@ -159,13 +180,28 @@ async function sweep(limit: number): Promise<SweepResult> {
   // matcher window between manual visits to the dashboard.
   await expireStaleCandidates(CANDIDATE_MAX_AGE_DAYS, MAX_HELD_CANDIDATES, SYSTEM_ACTOR)
 
+  // Refresh the vote correlation while we are here. Cheap (one indexed
+  // aggregate over the active set) and it keeps the dashboard's numbers from
+  // depending on somebody opening the dashboard.
+  await recomputeLessonVoteCounters().catch((error: unknown) => {
+    console.warn('[PlatformLessons] Vote counter refresh failed (non-fatal):', error)
+  })
+
   // Over-fetch, then drop reports this process has already failed on
   // repeatedly — otherwise a permanently failing report at the oldest-first
   // head is re-fetched by every sweep and wedges everything behind it.
-  const fetched = await listUnprocessedDownvotes(limit * 2)
-  const pending = fetched
-    .filter((report) => (distillAttempts.get(report.feedbackId) ?? 0) < MAX_ATTEMPTS_PER_PROCESS)
-    .slice(0, limit)
+  // Over-fetch: it both skips reports this process keeps failing on and tells
+  // us how deep the backlog is, which is what lets a kick widen after an
+  // outage instead of draining three per vote forever.
+  const fetched = await listUnprocessedDownvotes(Math.max(limit, KICK_BACKLOG_LIMIT) * 2)
+  const eligible = fetched.filter(
+    (report) => (distillAttempts.get(report.feedbackId) ?? 0) < MAX_ATTEMPTS_PER_PROCESS
+  )
+  const effectiveLimit =
+    limit === KICK_SWEEP_LIMIT && eligible.length > BACKLOG_WIDEN_THRESHOLD
+      ? KICK_BACKLOG_LIMIT
+      : limit
+  const pending = eligible.slice(0, effectiveLimit)
 
   for (const report of pending) {
     result.processed++
@@ -187,7 +223,23 @@ async function sweep(limit: number): Promise<SweepResult> {
       continue
     }
 
-    const register = await listLiveLessons(MAX_DISTILL_REGISTER_SIZE)
+    // The register the matcher compares against. Semantic first: candidates
+    // that are actually ABOUT the same failure, wherever they sit in the
+    // register. The rank window survives only as the fallback for an
+    // unembedded register or an unavailable embedder — it answers "which
+    // lessons are popular", which is a different question.
+    const reportVector = await embedNote(
+      enrichForEmbedding([comment, question].filter(Boolean).join(' '), [report.reason ?? 'other'])
+    )
+    const semantic = reportVector
+      ? await listSemanticLessonCandidates(
+          reportVector.vector,
+          reportVector.fingerprint,
+          MAX_DISTILL_REGISTER_SIZE
+        )
+      : []
+    const register =
+      semantic.length > 0 ? semantic : await listLiveLessons(MAX_DISTILL_REGISTER_SIZE)
     const outcome = await distillReport({
       question,
       answer,
@@ -240,7 +292,14 @@ async function sweep(limit: number): Promise<SweepResult> {
     // the auditor flagged waits as a candidate for a human decision. That gate
     // placement (activation, not distillation) is what keeps the loop automatic
     // AND supervised.
+    // Embed the lesson TEXT (not the report) for future matching — one call,
+    // stored with the row, so the next report can find this lesson by meaning.
+    const lessonVector = await embedNote(
+      enrichForEmbedding(outcome.lesson, [outcome.category])
+    )
+
     const created = await createLessonFromReport({
+      embedding: lessonVector,
       content: outcome.lesson,
       category: outcome.category,
       status: outcome.auditPassed ? 'active' : 'candidate',
@@ -279,6 +338,43 @@ export async function kickLessonDistillation(): Promise<void> {
     await sweepInFlight
   } catch (error) {
     console.error('[PlatformLessons] Distillation kick failed (non-fatal):', error)
+  } finally {
+    sweepInFlight = null
+  }
+}
+
+/**
+ * A re-vote carrying new detail: clear a previous "nothing to learn here"
+ * verdict so the next sweep reconsiders it. No-op when the report already
+ * produced a lesson (its evidence chain must keep pointing at it, and
+ * re-distilling would count one user's opinion twice).
+ *
+ * Never throws — voting must not depend on the pipeline being healthy.
+ */
+export async function reopenReportForRedistillation(feedbackId: string): Promise<boolean> {
+  try {
+    return await withPlatformAccess('platform lessons: reopen a re-voted report', () =>
+      reopenSkippedReport(feedbackId)
+    )
+  } catch (error) {
+    console.warn('[PlatformLessons] Could not reopen a re-voted report (non-fatal):', error)
+    return false
+  }
+}
+
+
+/**
+ * The same catch-up run, for the token-guarded internal trigger (an external
+ * clock). No session: the internal token IS the authorization, exactly as it
+ * is for the digest route this sits beside.
+ */
+export async function runInternalLessonSweep(): Promise<SweepResult> {
+  if (sweepInFlight) await sweepInFlight.catch(() => undefined)
+  try {
+    sweepInFlight = withPlatformAccess('platform lessons: scheduled sweep', () =>
+      sweep(MANUAL_SWEEP_LIMIT)
+    )
+    return await sweepInFlight
   } finally {
     sweepInFlight = null
   }

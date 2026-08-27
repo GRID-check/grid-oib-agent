@@ -22,8 +22,17 @@ vi.mock('@/lib/cache', () => ({
   getCached: vi.fn(async (_key: string, _ttl: number, loader: () => Promise<unknown>) => loader()),
   invalidateCached: vi.fn(async () => undefined),
 }))
+vi.mock('@/lib/knowledge/embeddings', () => ({
+  // Unembedded by default: the sweep must work on the lexical path, and each
+  // test that cares about semantic matching opts in explicitly.
+  embedNote: vi.fn(async () => null),
+  enrichForEmbedding: (content: string) => content,
+}))
 vi.mock('./repository', () => ({
   countLessonsByStatus: vi.fn(async () => ({})),
+  listSemanticLessonCandidates: vi.fn(async () => []),
+  recomputeLessonVoteCounters: vi.fn(async () => undefined),
+  reopenSkippedReport: vi.fn(async () => false),
   createLessonFromReport: vi.fn(),
   evictActiveOverCapacity: vi.fn(async () => []),
   expireStaleCandidates: vi.fn(async () => []),
@@ -43,8 +52,10 @@ vi.mock('./distill-client', () => ({
   distillReport: vi.fn(),
 }))
 
+import { embedNote } from '@/lib/knowledge/embeddings'
 import {
   createLessonFromReport,
+  listSemanticLessonCandidates,
   evictActiveOverCapacity,
   expireStaleCandidates,
   findLiveLessonByContent,
@@ -239,6 +250,36 @@ describe('kickLessonDistillation', () => {
 
     await kickLessonDistillation()
     expect(distillReport).toHaveBeenCalledTimes(3)
+  })
+
+  it('prefers semantic candidates over the popularity window', async () => {
+    // The rank window answers "which lessons are popular"; the matcher needs
+    // "which lesson is this report about". When the embedder is reachable the
+    // semantic set is what reaches the distiller.
+    vi.mocked(listUnprocessedDownvotes).mockResolvedValue([DOWNVOTE])
+    vi.mocked(embedNote).mockResolvedValue({ vector: [0.1, 0.2], fingerprint: 'model-a' })
+    vi.mocked(listSemanticLessonCandidates).mockResolvedValue([
+      { id: 'lesson-semantic', content: 'Richtlinie prüfen.' },
+    ] as Awaited<ReturnType<typeof listSemanticLessonCandidates>>)
+    vi.mocked(distillReport).mockResolvedValue(outcome({ generalizable: false }))
+
+    await kickLessonDistillation()
+
+    expect(listSemanticLessonCandidates).toHaveBeenCalled()
+    expect(vi.mocked(distillReport).mock.calls[0][0].existingLessons).toEqual([
+      { id: 'lesson-semantic', content: 'Richtlinie prüfen.' },
+    ])
+  })
+
+  it('falls back to the popularity window when nothing is embedded', async () => {
+    vi.mocked(listUnprocessedDownvotes).mockResolvedValue([DOWNVOTE])
+    vi.mocked(embedNote).mockResolvedValue(null)
+    vi.mocked(distillReport).mockResolvedValue(outcome({ generalizable: false }))
+
+    await kickLessonDistillation()
+
+    expect(listSemanticLessonCandidates).not.toHaveBeenCalled()
+    expect(distillReport).toHaveBeenCalled()
   })
 
   it('collapses concurrent kicks into one sweep', async () => {

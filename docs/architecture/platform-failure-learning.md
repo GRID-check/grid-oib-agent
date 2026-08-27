@@ -8,8 +8,9 @@
 > auditably, and framed everywhere as what it is: a **symptomatic bandage**
 > that holds while the root cause is still open.
 >
-> Status: built 2026-08. Shallow-research/meta chat path only (see
-> [Honest gaps](#honest-gaps)).
+> Status: built 2026-08. Reaches shallow research, meta turns and both
+> deep-research paths; matching is semantic and effectiveness is measurable
+> (see [Honest gaps](#honest-gaps)).
 
 ## Why this exists
 
@@ -30,6 +31,7 @@ down-vote (existing WS-7 capture: verdict + reason chip + comment)
   └─ POST /api/feedback/answers ── after() ──► kickLessonDistillation()   [fail-open]
        └─ sweep: unprocessed down-votes (anti-joined, 30-day window, oldest first)
             1. deterministic PII scrub          lib/text/redact-pii.ts (@redactpii/node + AT/DE rules)
+            1b. semantic match candidates       cosine over the register (0069), rank window as fallback
             2. POST backend /v1/lesson-distill  two LLM calls:
                  distill+match: anonymized German META lesson, or the id of the
                                 existing lesson this report restates
@@ -91,13 +93,20 @@ own, not taste:
    has an exact answer, reconstructible from the event trail. With per-turn
    retrieval it becomes a distribution.
 
-Where vectors DO belong: **matching**, not serving. When the live register
-outgrows the top-60 matcher window, candidate selection for dedup should come
-from embedding similarity over lesson content (Phase 2, same recall channel
-the memory design specifies). And if the register is ever deliberately allowed
-to grow past the prompt budget (e.g. per-topic lanes), similarity may *select
-which lessons fill the fixed budget* — selection inside the briefing channel,
-never passage-retrieval through the citation path.
+Where vectors DO belong: **matching**, not serving — and that is now built.
+Dedup candidates come from cosine similarity over the register rather than a
+popularity window ([`semantic-notes.md`](semantic-notes.md)). If the register
+is ever deliberately allowed to grow past the prompt budget (e.g. per-topic
+lanes), similarity may additionally *select which lessons fill the fixed
+budget* — selection inside the briefing channel, never passage-retrieval
+through the citation path.
+
+The 2026 survey of shipping agent-memory systems in
+[`semantic-notes.md`](semantic-notes.md) strengthened this rather than
+weakening it: almost none of them use vector search for SERVING either.
+ChatGPT does not RAG its own chat history — it precomputes a profile and
+injects it — and Copilot, Cursor, Windsurf and Devin all select by having the
+model read a menu of short prose descriptions.
 
 ## Data model
 
@@ -188,14 +197,14 @@ meta-only rule and the everything-outranks-lessons framing.
   cost a duplicate call, never a duplicate row). The sweep's anti-join runs on
   a partial index (`verdict='down'`), so scan cost tracks down-votes in the
   window, not table size.
-- **Dedup is the real pressure point.** Reports deduplicate into lessons on a
-  power-law curve; the matcher compares against the top-`60` live lessons by
-  report count, so what falls outside the window is the long tail a new
-  report is least likely to duplicate. **Phase 2, when the live register
-  outgrows that window:** embed lesson content/summaries into the backend's
-  vector store and retrieve match candidates by similarity instead of rank —
-  the same recall channel the memory design specifies (§3.3) and for the same
-  reason, so building it once for both is the expected shape.
+- **Dedup was the real pressure point, and is now semantic.** Match candidates
+  come from cosine similarity over the lesson register (migration 0069,
+  threshold 0.85), not from a popularity window — a window ordered by report
+  count answers "which lessons are popular", and past its edge the matcher
+  simply could not see the lesson it should have merged into. The rank window
+  survives as the fallback when the embedder is unavailable or the register is
+  unembedded. Mechanics, and the point where a real ANN index becomes
+  necessary: [`semantic-notes.md`](semantic-notes.md).
 
 ## Shared substrate with project memory
 
@@ -216,17 +225,55 @@ RLS; lessons are platform-scoped under the platform-table pattern. A single
 mixed table would fight the 0031 policy, the scope CHECK and both unique
 indexes at once.
 
+## Measuring whether any of this works
+
+Two signals, and the difference between them is the point.
+
+**The counters** (`helpful_votes` / `harmful_votes`) count up/down votes cast
+while a lesson was active. With an always-injected digest, exposure is a
+function of TIME — a vote at T saw every lesson active at T — so this needs no
+per-turn exposure table, just a temporal join. It is a **correlation**: every
+active lesson is credited for every vote in its window, and the digest caches
+mean a lesson activated minutes ago may not have reached every worker yet.
+Labelled as correlation wherever it is shown.
+
+**The holdout** is the credible one. `lessons.holdout_pct` (Platform →
+Retrieval, **default 0 = off**) puts a deterministic slice of conversations in
+a control group that receives no lessons at all, and every vote records which
+arm it fell on, so the two down-vote rates are directly comparable. Both tiers
+decide with the same pure function over the same key — `isInHoldoutSlice` in
+TypeScript, `is_in_holdout_slice` in Python, with pinned cross-language test
+vectors on both sides — so nothing has to be plumbed between them and they
+cannot disagree.
+
+Three deliberate choices:
+
+- **Off by default.** A product does not degrade a slice of its own answers
+  unless an operator turns measurement on.
+- **Keyed on the conversation**, so a thread stays in one arm and a user never
+  gets a lesson-shaped answer and a lesson-free one to the same follow-up. The
+  conversation is therefore the unit of the experiment.
+- **Monotonic in the percentage** — raising the holdout never removes a
+  conversation from it, so a change does not reshuffle both arms and invalidate
+  everything measured before it.
+
+Honest limitation, stated because it decides how to read the result: at low
+traffic a holdout is under-powered. Interleaving is far more sensitive but does
+not apply to a prompt block that is either present or absent, so a holdout is
+the applicable design — and a small difference needs a long window before it
+means anything.
+
 ## Honest gaps
 
-- **Deep research and the clarifier do not receive lessons yet.** The
-  injection covers the shallow-research/meta path — the primary chat answer
-  path. Extending to deep research means threading the digest through
-  `submit_agent_job` and the deep prompts; nothing in the design blocks it.
-- **Semantic matching is windowed** (top-60 by report count). Sufficient
-  until the live register outgrows it; the Phase-2 vector recall above is the
-  designed successor, not an afterthought.
-- **A re-vote does not re-distill.** The first processing of a feedback row
-  is the signal; an edited comment on the same vote is not reconsidered.
+- **The clarifier does not receive lessons.** Shallow research, meta turns and
+  both deep-research paths (in-process and async job) do.
+- **Counters are correlational.** See above; the holdout is the answer, and it
+  is off until somebody turns it on.
+- **A re-vote only re-opens a SKIPPED report.** Adding a comment to a
+  down-vote the sweep dismissed sends it back for distillation; a report that
+  already produced a lesson keeps its provenance row, because re-distilling it
+  would count one user's opinion twice in `report_count` — the number the
+  activation and eviction order are built on.
 - **The k-anonymity trade-off is decided, not dodged:** a lesson can activate
   from a single organization's report because the text is anonymized by
   construction and audited; `org_count` is surfaced so an owner can weigh
@@ -236,11 +283,12 @@ indexes at once.
   an active lesson reduced them; a helpful/harmful signal (down-vote rate on
   turns where a lesson was in context) is the natural next ratchet.
 
-- **The event-driven trigger depends on BFF request volume.** Sweeps run
-  inside the BFF process (kicks + the dashboard button); there is no scheduled
-  worker. A deployment with heavy down-vote backlogs and no traffic would
-  drain slowly — the scheduler/purger machinery is the home for a periodic
-  sweep if that ever bites.
+- **There is no scheduler container, on purpose.** Sweeps are event-driven
+  (every down-vote kicks one) and the kick widens from 3 to 12 reports when a
+  backlog has formed, so the pipeline is self-healing while anyone is voting —
+  and a deployment where nobody votes is also one where no backlog forms. An
+  operator who wants a clock anyway points it at
+  `POST /api/internal/platform-lessons/sweep`.
 
 ## Where things are
 

@@ -25,6 +25,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `project-folders.ts` | `project_folders` |
 | `user-preferences.ts` | `user_preferences` |
 | `answer-feedback.ts` | `answer_feedback` |
+| `platform-lessons.ts` | `platform_lessons`, `platform_lesson_reports`, `platform_lesson_events` |
 | `agent-profiler.ts` | `agent_profiler_spans` |
 | `citation-events.ts` | `citation_events` |
 | `resource-shares.ts` | `resource_shares` |
@@ -604,13 +605,21 @@ Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
   (`up`/`down`), `reason` (nullable, fixed keys
   `inaccurate`/`too_slow`/`wrong_source`/`other`; down-votes only),
   `comment` (nullable free-text on a down-vote; migration 0052),
+  `lessons_holdout` (nullable boolean, migration 0069 — which arm of the
+  platform-lessons experiment this turn was in; NULL when the holdout is off,
+  which is the default, so those votes are excluded from the comparison rather
+  than counted as treated),
   `created_at`/`updated_at`.
 - Voting model (the simplest honest one): **re-vote = upsert** on the unique
   `(user_id, message_id)` index (`answer_feedback_user_message_uidx`);
   **toggle-off = delete** — no "retracted" tombstone state.
 - Indexes: `answer_feedback_org_conversation_idx`
   (`organization_id`,`conversation_id`) serves the per-conversation hydration
-  list; `answer_feedback_org_project_idx` (`organization_id`,`project_id`).
+  list; `answer_feedback_org_project_idx` (`organization_id`,`project_id`);
+  `idx_answer_feedback_down_created` (partial, `verdict='down'`) serves the
+  lesson pipeline's unprocessed-report anti-join; and
+  `idx_answer_feedback_holdout_created` (partial, arm assigned) serves the
+  effectiveness read.
   Schema: `frontends/ui/src/lib/db/schema/answer-feedback.ts`.
 
 ---
@@ -886,3 +895,39 @@ Unique on `(organization_id, project_id, rule_id)` — a rule has exactly one
 current human verdict, and re-confirming replaces it rather than growing a
 history nobody reads. RLS: `organization_id = grid_current_org()` plus a
 project-ownership `EXISTS`.
+
+---
+
+## platform_lessons / platform_lesson_reports / platform_lesson_events (migrations 0068, 0069)
+
+The fleet-wide lesson register distilled from answer feedback
+(`docs/architecture/platform-failure-learning.md`). **Global — no
+`organization_id` on any of the three**, which is both the point (one lesson
+reaches every tenant) and the anonymization boundary.
+
+- Secured with `grid_secure_platform_table`, then **tightened past the
+  platform-table norm**: 0068 REVOKES even the tenant role's SELECT. Nothing
+  tenant-facing queries them (the injected digest is built under the platform
+  role behind an internal route) and a `candidate` lesson is exactly the text
+  the auditor model flagged as possibly identifying. Pinned by
+  `tenant-isolation.integration.spec.ts`.
+- `platform_lessons`: the injectable `content`, `category`, lifecycle
+  `status` (`candidate`/`active`/`retired`), `report_count`/`org_count`,
+  `root_cause_status` (the bandage marker), `helpful_votes`/`harmful_votes`
+  (0069 — a temporal correlation, not attribution), and the semantic vector
+  (`embedding real[]` + `embedding_model` fingerprint + `embedded_at`, 0069).
+  CHECK constraints pin every vocabulary; a partial UNIQUE index on
+  German-normalized content over non-retired rows is the duplicate backstop.
+- `platform_lesson_reports`: provenance, one row per processed down-vote.
+  `feedback_id` is UNIQUE (the pipeline's idempotency key) and deliberately
+  carries **no FK** — a user retracting their vote must not erase the
+  provenance of a lesson already distilled from it. `org_hash` is sha256 of
+  the WorkOS org id: enough to count distinct organizations, nothing more.
+- `platform_lesson_events`: append-only trail of every transition, whether the
+  actor was the pipeline (`system:distiller`) or a platform owner.
+- Migration 0069 also adds `grid_cosine_similarity(real[], real[])` — a
+  set-based IMMUTABLE SQL function — plus the same vector columns and
+  `recall_count` on `project_memory`. See
+  `docs/architecture/semantic-notes.md` for why the vector is a column rather
+  than a second store, and where that stops being the right call.
+  Schema: `frontends/ui/src/lib/db/schema/platform-lessons.ts`.

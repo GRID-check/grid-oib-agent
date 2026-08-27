@@ -484,6 +484,13 @@
       "when": 1788307200005,
       "tag": "0068_platform_lessons",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1788393600005,
+      "tag": "0069_semantic_notes",
+      "breakpoints": true
     }
   ]
 }

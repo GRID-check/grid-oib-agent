@@ -22,11 +22,17 @@ const digestQuerySchema = z
   .object({
     projectId: z.string().optional(),
     organizationId: z.string().optional(),
+    /**
+     * This turn's question, for relevance-ranked recall. Bounded because it
+     * becomes an embedding call; never stored.
+     */
+    query: z.string().trim().max(2000).optional(),
   })
   // Empty strings behave like absent params (previous `|| undefined` behavior).
   .transform((query) => ({
     projectId: query.projectId || undefined,
     organizationId: query.organizationId || undefined,
+    query: query.query || undefined,
   }))
   .refine((query) => !!(query.projectId || query.organizationId), {
     message: 'projectId or organizationId is required',
@@ -35,7 +41,7 @@ const digestQuerySchema = z
 export const GET = internalApiRoute(
   'Internal Memory Digest',
   async ({ request }) => {
-    const { projectId, organizationId } = parseQuery(request, digestQuerySchema)
+    const { projectId, organizationId, query } = parseQuery(request, digestQuerySchema)
 
     // The schema accepts a projectId on its own, so the organization is not
     // always known here. It has to be RESOLVED rather than skipped: reading the
@@ -56,7 +62,11 @@ export const GET = internalApiRoute(
     return withTenant({ organizationId: tenant }, async () => {
       // `digest` is null when there is no active memory — a valid empty result,
       // not an error. The backend treats null as "no memory this turn".
-      const digest = await buildProjectMemoryDigest(projectId, tenant)
+      // `query` is this turn's question. With it, recall is relevance-ranked
+      // rather than recency-ordered; without it the digest is what it always
+      // was. Optional on purpose — a caller that has no question (the WS
+      // handshake) must still get a digest.
+      const digest = await buildProjectMemoryDigest(projectId, tenant, { query })
       return { digest }
     })
   },

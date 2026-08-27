@@ -28,6 +28,7 @@ from aiq_agent.common.citation_verification import get_or_create_session_registr
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.nat_converters import ensure_registered as _ensure_nat_converters_registered
+from aiq_agent.common.platform_lessons import render_lessons_block
 from aiq_agent.conversation_context import register_context_appender
 from aiq_agent.observability.otel_header_redaction_exporter import (
     ensure_registered as _ensure_otel_redaction_registered,
@@ -710,6 +711,7 @@ def _build_deep_research_job_submitter(
             data_sources=state.data_sources,
             collection_scope=state.collection_scope,
             project_context=state.project_context,
+            platform_lessons=render_lessons_block(state.platform_lessons),
             model_overrides=get_model_overrides_from_context() or None,
             # Structured fields (not prose-folded into input_text) so the
             # worker sets them on DeepResearchAgentState and the deep
@@ -950,7 +952,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             try:
                 from aiq_agent.common.platform_lessons import get_platform_lessons_digest
 
-                _platform_lessons = await asyncio.to_thread(get_platform_lessons_digest)
+                _platform_lessons = await asyncio.to_thread(get_platform_lessons_digest, nat_context_conversation_id)
             except Exception:
                 logger.warning("Platform-lessons digest fetch failed; continuing without", exc_info=True)
             # The request-scoped half of the post-answer stages' TurnFacts,
@@ -980,7 +982,10 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                         from aiq_agent.knowledge.project_memory import fetch_memory_digest
 
                         _live_digest = await asyncio.to_thread(
-                            fetch_memory_digest, project_id=_project_id, organization_id=_org_id
+                            fetch_memory_digest,
+                            project_id=_project_id,
+                            organization_id=_org_id,
+                            query=query_text,
                         )
                         # A successful fetch is authoritative even when empty (memory
                         # may have been cleared); only a failure keeps the header value.

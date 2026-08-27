@@ -510,3 +510,45 @@ class LessonDistillResponse(BaseModel):
             "(llm_not_configured, llm_request_failed, llm_response_malformed); None on success"
         ),
     )
+
+
+#: Ceiling on the notes one embedding request may carry. Mirrors `_MAX_TEXTS`
+#: in `routes/note_embeddings.py`.
+MAX_NOTE_EMBEDDING_TEXTS = 64
+
+
+class NoteEmbeddingRequest(BaseModel):
+    """Request body for embedding short notes (memory items, platform lessons).
+
+    Text only — never an identifier, never tenant context. The caller (the BFF,
+    which owns the notes) sends the strings it wants comparable and stores the
+    vectors next to its own rows.
+    """
+
+    texts: list[str] = Field(
+        default_factory=list,
+        description="Short texts to embed, in order; the response's vectors match this order",
+        max_length=MAX_NOTE_EMBEDDING_TEXTS,
+    )
+
+
+class NoteEmbeddingResponse(BaseModel):
+    """Vectors plus the fingerprint of the model that produced them.
+
+    ``fingerprint`` is not decoration: a vector is comparable only to vectors
+    from the same model, so the caller stores this alongside each vector and
+    treats a mismatch as "not embedded yet" rather than comparing across
+    models. Empty ``vectors`` with an ``error`` means the caller must fall back
+    to its lexical path.
+    """
+
+    vectors: list[list[float]] = Field(default_factory=list, description="One vector per input text, in order")
+    fingerprint: str = Field("", description="Embedding-model fingerprint to store beside each vector")
+    dimensions: int = Field(0, ge=0, description="Vector dimensionality, 0 when nothing was embedded")
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Failure code when embedding could not be done "
+            "(embedder_not_configured, embedder_unavailable, embedding_failed); None on success"
+        ),
+    )

@@ -39,6 +39,7 @@ from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 from aiq_agent.common import get_latest_user_query
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.job_admission import JobAdmissionError
+from aiq_agent.common.platform_lessons import render_lessons_block
 from aiq_agent.common.profiler import profiled_node
 
 try:
@@ -704,6 +705,7 @@ class ChatResearcherAgent:
                 available_documents=state.available_documents,
                 user_info=state.user_info,
                 project_context=state.project_context,
+                platform_lessons=render_lessons_block(state.platform_lessons),
             )
             try:
                 result = await self.deep_research_fn(deep_state)

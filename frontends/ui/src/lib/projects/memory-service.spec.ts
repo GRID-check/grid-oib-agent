@@ -210,11 +210,12 @@ describe('buildProjectMemoryDigest', () => {
         eq('pm.status', 'active')
       )
     )
-    // Pinned-first, then most recently updated.
-    expect(orderBy).toHaveBeenCalledWith(
-      { op: 'desc', col: 'pm.pinned' },
-      { op: 'desc', col: 'pm.updatedAt' }
-    )
+    // Most-recent-first is now the CANDIDATE order, not the digest order:
+    // recency is rank-based in `rankByRecallScore`, so the SQL supplies the
+    // recency signal and the ranking (relevance + importance + reinforcement)
+    // happens over the fetched candidates. Pinned-first is applied in JS,
+    // bounded by DIGEST_MAX_PINNED so pins can no longer starve recall.
+    expect(orderBy).toHaveBeenCalledWith({ op: 'desc', col: 'pm.updatedAt' })
   })
 
   it('does not filter by org when no organization is known (anonymous mode)', async () => {

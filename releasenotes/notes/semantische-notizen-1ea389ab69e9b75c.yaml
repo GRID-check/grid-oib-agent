@@ -1,0 +1,21 @@
+---
+improvements:
+  - >
+    Piloti's project memory now recalls what is relevant to your question
+    instead of simply the twenty most recent notes, and it recognises a note
+    you have already saved even when it is worded differently — so the same
+    fact stops being stored twice. Notes it keeps using stay fresh; notes
+    nothing ever needs quietly fade into the background rather than crowding
+    them out.
+  - >
+    When a project has more notes than fit in one answer, Piloti now says so
+    instead of silently showing a partial list, and pinned notes can no longer
+    push everything else out of view.
+  - >
+    Answers from deep research now benefit from the same platform-wide lessons
+    as ordinary answers, so a mistake reported once is less likely to reappear
+    in a long report.
+  - >
+    Adding a comment to an answer you already marked as unhelpful now gives
+    Piloti a second chance to learn from it — the extra detail is exactly what
+    a bare thumbs-down was missing.

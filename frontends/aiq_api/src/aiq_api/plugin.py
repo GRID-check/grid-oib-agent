@@ -58,6 +58,7 @@ from .routes.jobs import register_job_routes
 from .routes.lesson_distill import add_lesson_distill_routes
 from .routes.maintenance import add_maintenance_routes
 from .routes.norms import add_norm_routes
+from .routes.note_embeddings import add_note_embedding_routes
 from .routes.oib import add_oib_routes
 from .routes.skill_review import add_skill_review_routes
 from .routes.skills import add_skill_routes
@@ -230,6 +231,7 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         add_consistency_check_routes(knowledge_router)
         add_feedback_digest_routes(knowledge_router)
         add_lesson_distill_routes(knowledge_router)
+        add_note_embedding_routes(knowledge_router)
         add_ingest_routes(knowledge_router)
         add_oib_routes(knowledge_router)
         add_norm_routes(knowledge_router)

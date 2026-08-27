@@ -4,6 +4,8 @@ import httpx
 import pytest
 
 from aiq_agent.common.platform_lessons import get_platform_lessons_digest
+from aiq_agent.common.platform_lessons import is_in_holdout_slice
+from aiq_agent.common.platform_lessons import render_lessons_block
 from aiq_agent.common.platform_lessons import reset_platform_lessons_cache
 from aiq_agent.common.platform_lessons import sanitize_lessons_digest
 
@@ -115,3 +117,91 @@ class TestResolution:
         get_platform_lessons_digest()
         assert calls["url"] == "http://bff:3000/api/internal/platform-lessons/digest"
         assert calls["token"] == "tok"
+
+
+class TestHoldout:
+    """The control group both tiers must agree on.
+
+    These vectors are pinned on the TypeScript side too
+    (frontends/ui/src/lib/platform-lessons/holdout.spec.ts). The two
+    implementations decide different things — this tier whether to INJECT, the
+    BFF how to LABEL the resulting vote — so a disagreement would not fail
+    anything loudly; it would quietly mislabel every measurement.
+    """
+
+    def test_off_at_zero_and_total_at_hundred(self):
+        assert is_in_holdout_slice("conv-1", 0) is False
+        assert is_in_holdout_slice("conv-1", 100) is True
+
+    def test_missing_conversation_is_treated_never_control(self):
+        assert is_in_holdout_slice("", 50) is False
+
+    def test_stable_for_the_same_conversation(self):
+        first = is_in_holdout_slice("conv-stable", 30)
+        assert all(is_in_holdout_slice("conv-stable", 30) is first for _ in range(20))
+
+    def test_splits_roughly_at_the_requested_percentage(self):
+        ids = [f"conv-{index}" for index in range(4000)]
+        share = sum(is_in_holdout_slice(cid, 10) for cid in ids) / len(ids)
+        assert 0.08 < share < 0.12
+
+    def test_monotonic_in_percentage(self):
+        # Raising the holdout must not reshuffle the arms, or every measurement
+        # taken before the change becomes uninterpretable.
+        for index in range(500):
+            cid = f"conv-{index}"
+            if is_in_holdout_slice(cid, 10):
+                assert is_in_holdout_slice(cid, 25) is True
+
+    def test_agrees_with_the_typescript_twin_on_pinned_vectors(self):
+        assert is_in_holdout_slice("conv-8", 10) is True
+        assert is_in_holdout_slice("conv-12", 10) is True
+        assert is_in_holdout_slice("conv-16", 10) is True
+        assert is_in_holdout_slice("conv-0", 10) is False
+        assert is_in_holdout_slice("conv-13", 10) is False
+
+
+class TestHoldoutSuppression:
+    def test_holdout_conversation_receives_no_digest(self, monkeypatch):
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "tok")
+        calls = _mock_bff(monkeypatch, {"digest": DIGEST})
+        monkeypatch.setattr(
+            "aiq_agent.common.retrieval_settings.get_retrieval_setting",
+            lambda key, fallback: 100 if key == "lessons.holdout_pct" else fallback,
+        )
+        assert get_platform_lessons_digest("conv-1") is None
+        # And it costs nothing: a suppressed turn must not even fetch.
+        assert calls["n"] == 0
+
+    def test_treated_conversation_still_receives_the_digest(self, monkeypatch):
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "tok")
+        _mock_bff(monkeypatch, {"digest": DIGEST})
+        monkeypatch.setattr(
+            "aiq_agent.common.retrieval_settings.get_retrieval_setting",
+            lambda key, fallback: 0 if key == "lessons.holdout_pct" else fallback,
+        )
+        assert get_platform_lessons_digest("conv-1") == DIGEST
+
+    def test_unreadable_setting_fails_open_to_treated(self, monkeypatch):
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "tok")
+        _mock_bff(monkeypatch, {"digest": DIGEST})
+
+        def _boom(key, fallback):
+            raise RuntimeError("settings down")
+
+        monkeypatch.setattr("aiq_agent.common.retrieval_settings.get_retrieval_setting", _boom)
+        # Measurement must never decide whether a user gets an answer.
+        assert get_platform_lessons_digest("conv-1") == DIGEST
+
+
+class TestLessonsBlock:
+    def test_renders_nothing_without_a_digest(self):
+        assert render_lessons_block(None) is None
+        assert render_lessons_block("   ") is None
+
+    def test_carries_the_meta_only_framing_with_the_digest(self):
+        block = render_lessons_block(DIGEST)
+        assert block is not None
+        assert "Meta-level only" in block
+        assert "zero factual authority" in block
+        assert DIGEST.strip() in block

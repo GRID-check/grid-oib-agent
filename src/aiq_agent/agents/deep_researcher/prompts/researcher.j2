@@ -103,6 +103,10 @@ When the query references "me", "myself", or "my work", search for this person.
 {{ ris_catalog }}
 {% endif %}
 
+{% if platform_lessons is defined and platform_lessons %}
+{{ platform_lessons }}
+{% endif %}
+
 {% if project_context %}
 ## Project Context
 <project_context>
