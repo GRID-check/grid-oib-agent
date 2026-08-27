@@ -82,7 +82,8 @@ Each entry shows a name and a one-line description and nothing more. That is
 exactly what Piloti itself is told about each skill: the full instructions are
 loaded only when the skill is actually used. So a description that does not say
 *when* a skill applies is as unhelpful to the assistant as it looks to you —
-which is the signal to go and improve it in the project's **Skills** tab.
+which is the signal to go and improve it on the **Skills** tab of the
+project's **Automation** section.
 
 A message that starts with a slash but names no real skill is sent as the plain
 text it is.

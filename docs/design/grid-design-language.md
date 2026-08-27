@@ -228,10 +228,11 @@ eight lines, one word per line. Never reintroduce a bare `shrink-0` here;
 **Project section chrome** — every project section except **Ask Piloti**
 (chat) opens with the same block: a muted `{project} / {section}` breadcrumb
 trail, then the `PageHeader` title + one-line subtitle, then optional actions
-on the right. The three shapes are an action button (Files, Jobs, Skills),
-a search field (History), and title-only (Settings). The intake wizard is a
-content page too — `PageHeader` plus a `SectionLabel` eyebrow, never a second
-`text-2xl` title. Projects home (above a project) uses the same `PageHeader`.
+on the right. The two shapes are an action button (Files' view toggle,
+Automation's "New job"/"New skill") and title-only (Settings, Knowledge). The
+intake wizard is a content page too — `PageHeader` plus a `SectionLabel`
+eyebrow, never a second `text-2xl` title. Projects home (above a project) uses
+the same `PageHeader`.
 Chat is the documented exception: it is a full-bleed conversation surface with
 its own toolbar, not a content page. Evidence: `/dev/project-chrome`.
 
@@ -243,9 +244,11 @@ its own toolbar, not a content page. Evidence: `/dev/project-chrome`.
 </section>
 ```
 
-**Back navigation** — pages outside the project shell (Archiv, Organisation, Platform, Inbox, Profil) drop the rail, so their back control is the whole way out. It is `BackLink` (`components/shell/back-link.tsx`), never a hand-rolled `<Link>`: an arrow in a raised disc plus a label that **names where the reader actually came from**, read from the tab's return trail (`lib/navigation/return-trail`, recorded by `NavigationTrail` in the root layout). Out of a project the name is the PROJECT'S — "Zurück zu Stadthaus Wien" — written into the trail by `NavigationTrailLabel` in the project shell while the reader was there, because a path holds an id and an id is not a name, and leaving that project is what the reader is undoing. Everywhere else the label comes from the destination's own `nav.sections.*` entry, so the wording cannot drift from the rail's. Navigation goes through `history.back()`, which restores the page as it was left — scroll position and open panels included — where a push to the same URL would not. Each page still passes a server-resolved `fallbackHref`/`fallbackLabel` for the case with no trail (new tab, direct link). A back control that guesses a destination is worse than none: it teaches the reader that back does not work.
+**Back navigation** — pages outside the project shell that still render as a full page rather than a sheet (Organisation, Platform, Profil) drop the rail for the org-scope header, so their back control is the whole way out. It is `BackLink` (`components/shell/back-link.tsx`), never a hand-rolled `<Link>`: an arrow in a raised disc plus a label that **names where the reader actually came from**, read from the tab's return trail (`lib/navigation/return-trail`, recorded by `NavigationTrail` in the root layout). Out of a project the name is the PROJECT'S — "Zurück zu Stadthaus Wien" — written into the trail by `NavigationTrailLabel` in the project shell while the reader was there, because a path holds an id and an id is not a name, and leaving that project is what the reader is undoing. Everywhere else the label comes from the destination's own `nav.sections.*` entry, so the wording cannot drift from the rail's. Navigation goes through `history.back()`, which restores the page as it was left — scroll position and open panels included — where a push to the same URL would not. Each page still passes a server-resolved `fallbackHref`/`fallbackLabel` for the case with no trail (new tab, direct link). A back control that guesses a destination is worse than none: it teaches the reader that back does not work.
 
-Tabbed shells (Organisation, Platform, and the same pattern on Inbox) are **one place**, not a stack of submenus. Switching Models → Knowledge `replace`s the URL and collapses those siblings on the trail, so Back leaves the shell and returns to the project — it does not walk the previous settings tab. Project sections stay a real stack: Files → Chat is a step.
+The Archiv and the Postfach are NOT this case since the org-nav redesign: they rise as `PageSheet`s (`components/ui/page-sheet.tsx`) over whatever the reader was looking at — a project's rail included — so "back" is the sheet's own close control (`router.back()` for the intercepted route, a push to `/app/projects` for a hard load), never `BackLink`. A sheet's whole visual claim is that the page underneath is still there; a `BackLink` would say the opposite.
+
+Tabbed shells (Organisation, Platform) are **one place**, not a stack of submenus. Switching Models → Knowledge `replace`s the URL and collapses those siblings on the trail, so Back leaves the shell and returns to the project — it does not walk the previous settings tab. Project sections stay a real stack: Files → Chat is a step.
 
 **Stat** — `rounded-lg border bg-card p-5`, number in `text-2xl font-semibold tabular-nums`, label in `text-sm text-muted-foreground` below.
 
@@ -255,7 +258,7 @@ Tabbed shells (Organisation, Platform, and the same pattern on Inbox) are **one 
 
 **Form field** — `Field` + `FieldLabel` + `FieldDescription` + `FieldError`. TanStack-backed forms wrap the same anatomy through `FieldShell`. Raw `<label>` next to an `Input` is a leftover.
 
-**List container** — `ItemList` (`rounded-lg border divide-y`) with `Item` / `ItemMedia` / `ItemContent` / `ItemTitle` / `ItemDescription` / `ItemActions`. That is the list molecule for History, Inbox, Settings rosters, and admin pickers. Do not hand-roll a second `rounded-lg border` + `divide-y` row. The raised product card (Files tiles, project cards) is `RaisedCard`, not `Item`.
+**List container** — `ItemList` (`rounded-lg border divide-y`) with `Item` / `ItemMedia` / `ItemContent` / `ItemTitle` / `ItemDescription` / `ItemActions`. That is the list molecule for the chat history sheet (`SessionsPanel`), Inbox, Settings rosters, and admin pickers. Do not hand-roll a second `rounded-lg border` + `divide-y` row. The raised product card (Files tiles, project cards) is `RaisedCard`, not `Item`.
 
 **Empty state** — `EmptyState` (`components/ui/empty-state.tsx`), never bare
 text and never hand-rolled. The icon sits in a **raised disc** — border, card
