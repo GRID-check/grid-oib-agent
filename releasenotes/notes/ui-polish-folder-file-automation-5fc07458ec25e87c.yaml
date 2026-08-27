@@ -1,0 +1,10 @@
+---
+improvements:
+  - >
+    Folder tiles in the file browser now show how many items they hold and
+    when they last changed, matching the file tiles beside them. The project
+    navigation rail keeps Archiv and your inbox pinned at the bottom, so the
+    project work above them stays uncluttered.
+fixes:
+  - >
+    Opening a project's Automation tab no longer crashes.

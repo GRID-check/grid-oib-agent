@@ -1,7 +1,7 @@
 'use client'
 
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
-import { Folder, FolderPlus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { ChevronRight, Folder, FolderOpen, FolderPlus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 
 import {
   Breadcrumb,
@@ -21,10 +21,13 @@ import {
 import { Input } from '@/components/ui/input'
 import { InputGroup, InputGroupAddon } from '@/components/ui/input-group'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { RaisedCard, RaisedCardBody, RaisedCardFooter, RaisedCardMedia } from '@/components/ui/raised-card'
 import { Spinner } from '@/components/ui/spinner'
+import { AnimatePresence, motion, motionQuick } from '@/components/motion'
 import { useTranslations } from '@/i18n'
+import { useLocale } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { TimeAgo } from '@/components/ui/time-ago'
+import { GridTileBody, GridTileFooter, GridTileMedia, GridTileShell } from './grid-tile'
 import type { FolderItem } from './project-file-workspace'
 
 /**
@@ -78,40 +81,62 @@ export function FolderBreadcrumbRow({
   const path = useMemo(() => folderPath(folders, currentFolderId), [folders, currentFolderId])
 
   return (
-    <div className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
+    <div className="flex shrink-0 items-center justify-between gap-2 border-b bg-card/50 px-4 py-2.5 backdrop-blur-sm">
       <Breadcrumb aria-label={t('folders.breadcrumb')} className="min-w-0">
         <BreadcrumbList className="flex-nowrap overflow-x-auto">
           <BreadcrumbItem>
             {currentFolderId === null ? (
-              <BreadcrumbPage>{t('folders.allFiles')}</BreadcrumbPage>
+              <BreadcrumbPage className="font-medium">{t('folders.allFiles')}</BreadcrumbPage>
             ) : (
               <BreadcrumbLink asChild>
-                <button type="button" onClick={() => onNavigate(null)}>
+                <button
+                  type="button"
+                  onClick={() => onNavigate(null)}
+                  className="hover:text-foreground transition-colors"
+                >
                   {t('folders.allFiles')}
                 </button>
               </BreadcrumbLink>
             )}
           </BreadcrumbItem>
-          {path.map((folder, index) => (
-            <Fragment key={folder.id}>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                {index === path.length - 1 ? (
-                  <BreadcrumbPage className="max-w-48 truncate">{folder.name}</BreadcrumbPage>
-                ) : (
-                  <BreadcrumbLink asChild>
-                    <button
-                      type="button"
-                      className="max-w-48 truncate"
-                      onClick={() => onNavigate(folder.id)}
-                    >
-                      {folder.name}
-                    </button>
-                  </BreadcrumbLink>
-                )}
-              </BreadcrumbItem>
-            </Fragment>
-          ))}
+          <AnimatePresence initial={false}>
+            {path.map((folder, index) => (
+              <Fragment key={folder.id}>
+                <BreadcrumbSeparator>
+                  <motion.span
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    transition={motionQuick}
+                  >
+                    <ChevronRight className="size-3.5" aria-hidden />
+                  </motion.span>
+                </BreadcrumbSeparator>
+                <BreadcrumbItem>
+                  <motion.span
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -8 }}
+                    transition={motionQuick}
+                  >
+                    {index === path.length - 1 ? (
+                      <BreadcrumbPage className="max-w-48 truncate font-medium">{folder.name}</BreadcrumbPage>
+                    ) : (
+                      <BreadcrumbLink asChild>
+                        <button
+                          type="button"
+                          className="max-w-48 truncate hover:text-foreground transition-colors"
+                          onClick={() => onNavigate(folder.id)}
+                        >
+                          {folder.name}
+                        </button>
+                      </BreadcrumbLink>
+                    )}
+                  </motion.span>
+                </BreadcrumbItem>
+              </Fragment>
+            ))}
+          </AnimatePresence>
         </BreadcrumbList>
       </Breadcrumb>
       <div className="flex shrink-0 items-center gap-2">
@@ -189,6 +214,8 @@ interface FolderTileProps {
   folder: FolderItem
   /** Documents + subfolders directly inside, for the count line. */
   itemCount: number
+  /** Most recent child's timestamp — the "last change" for this folder, like file cards show file time. */
+  lastModified?: string | null
   onOpen: (id: string) => void
   onRenameFolder: FolderNavProps['onRenameFolder']
   onDeleteFolder: FolderNavProps['onDeleteFolder']
@@ -295,61 +322,79 @@ function FolderActionsMenu({
 }
 
 /**
- * A folder as a grid tile — same raised-card anatomy as {@link FileCard}, so a
- * level's folders and files read as one shelf.
+ * A folder as a grid tile — visually DISTINCT from {@link FileCard}.
+ *
+ * File cards show a document preview (thumbnail / sketch) above a white body.
+ * Folder cards are the opposite: a warm, tinted folder shape that reads as a
+ * container you open, not a page you read. The tab + body silhouette, the amber
+ * wash, and the stacked-paper hint inside all say "this holds things" before
+ * the label does. Hover lifts the folder and nudges the icon from closed →
+ * open, reinforcing the affordance without needing a tooltip.
  */
 export function FolderCard({
   folder,
   itemCount,
+  lastModified,
   onOpen,
   onRenameFolder,
   onDeleteFolder,
 }: FolderTileProps): JSX.Element {
   const t = useTranslations('files')
+  const { locale } = useLocale()
   const [editing, setEditing] = useState(false)
+  const [isHovered, setIsHovered] = useState(false)
 
   return (
-    <RaisedCard className="group" data-testid={`folder-card-${folder.id}`}>
-      <RaisedCardBody className="flex-1 p-0">
-        <button
-          type="button"
-          onClick={() => onOpen(folder.id)}
-          aria-label={t('folders.openFolder', { name: folder.name })}
-          className="focus-visible:ring-ring block w-full rounded-t-[inherit] text-left focus-visible:outline-none focus-visible:ring-2"
-        >
-          <RaisedCardMedia className="bg-surface-sunken flex h-[124px] min-h-[124px] items-center justify-center">
-            <Folder
-              className="text-muted-foreground/70 size-12"
-              strokeWidth={1.25}
-              aria-hidden
-            />
-          </RaisedCardMedia>
-        </button>
-        <div className="min-h-[4.5rem] px-3.5 pb-3 pt-[11px]">
-          {editing ? (
-            <FolderNameEditor
-              folder={folder}
-              onRenameFolder={onRenameFolder}
-              onDone={() => setEditing(false)}
-            />
-          ) : (
-            <>
-              <p className="text-foreground truncate text-sm font-medium">{folder.name}</p>
-              <p className="text-muted-foreground mt-0.5 text-xs">
-                {t('folders.items', { count: String(itemCount) })}
+    <GridTileShell variant="file" interactive className="group" data-testid={`folder-card-${folder.id}`}>
+      <div
+        className="absolute right-1.5 top-1.5 z-[1] md:opacity-0 md:group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200 motion-reduce:transition-none"
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <FolderActionsMenu folder={folder} onStartRename={() => setEditing(true)} onDeleteFolder={onDeleteFolder} />
+      </div>
+      <button
+        type="button"
+        onClick={() => onOpen(folder.id)}
+        aria-label={t('folders.openFolder', { name: folder.name })}
+        className="flex h-full w-full flex-col text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        <GridTileBody className="flex-1 p-0">
+          <GridTileMedia className="flex h-[124px] items-center justify-center bg-muted/30">
+            <motion.div animate={{ scale: isHovered ? 1.06 : 1 }} transition={motionQuick}>
+              {isHovered ? (
+                <FolderOpen className="size-10 text-muted-foreground/70" strokeWidth={1.4} aria-hidden />
+              ) : (
+                <Folder className="size-10 text-muted-foreground/60" strokeWidth={1.4} aria-hidden />
+              )}
+            </motion.div>
+          </GridTileMedia>
+          <div className="px-3.5 pb-3 pt-[11px]">
+            {editing ? (
+              <FolderNameEditor folder={folder} onRenameFolder={onRenameFolder} onDone={() => setEditing(false)} />
+            ) : (
+              <p className="truncate text-sm font-medium leading-tight text-foreground" title={folder.name}>
+                {folder.name}
               </p>
+            )}
+          </div>
+        </GridTileBody>
+        <GridTileFooter className="gap-1.5 px-3.5 pb-2.5 pt-[9px] text-xs text-muted-foreground/80">
+          <span className="shrink-0 tabular-nums">{t('folders.items', { count: String(itemCount) })}</span>
+          {lastModified && (
+            <>
+              <span aria-hidden className="text-muted-foreground/40">
+                ·
+              </span>
+              <TimeAgo date={lastModified} locale={locale} className="shrink-0 tabular-nums" />
             </>
           )}
-        </div>
-      </RaisedCardBody>
-      <RaisedCardFooter className="min-h-[30px] justify-end gap-1.5 px-2.5 pb-2 pt-1">
-        <FolderActionsMenu
-          folder={folder}
-          onStartRename={() => setEditing(true)}
-          onDeleteFolder={onDeleteFolder}
-        />
-      </RaisedCardFooter>
-    </RaisedCard>
+          <span className="flex-1" />
+        </GridTileFooter>
+      </button>
+    </GridTileShell>
   )
 }
 
@@ -361,31 +406,40 @@ export function FolderCard({
 export function FolderRow({
   folder,
   itemCount,
+  lastModified,
   onOpen,
   onRenameFolder,
   onDeleteFolder,
 }: FolderTileProps): JSX.Element {
   const t = useTranslations('files')
+  const { locale } = useLocale()
   const [editing, setEditing] = useState(false)
 
   if (editing) {
     return (
-      <div className="flex items-center gap-2 px-2 py-1">
+      <motion.div
+        initial={{ opacity: 0, y: -4 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex items-center gap-2 px-2 py-1"
+      >
         <FolderNameEditor
           folder={folder}
           onRenameFolder={onRenameFolder}
           onDone={() => setEditing(false)}
           className="max-w-96 flex-1"
         />
-      </div>
+      </motion.div>
     )
   }
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, x: -6 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={motionQuick}
       className={cn(
-        'group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm',
-        'text-muted-foreground hover:bg-accent hover:text-foreground transition-colors duration-snap ease-out motion-reduce:transition-none',
+        'group flex w-full items-center gap-2 rounded-lg border border-amber-200/40 bg-amber-50/40 px-3 py-2 text-sm dark:bg-amber-950/10 dark:border-amber-800/20',
+        'hover:bg-amber-50 hover:border-amber-200/60 dark:hover:bg-amber-950/20 transition-[background-color,border-color,box-shadow] duration-200 ease-out hover:shadow-sm',
       )}
       data-testid={`folder-row-${folder.id}`}
     >
@@ -393,19 +447,30 @@ export function FolderRow({
         type="button"
         onClick={() => onOpen(folder.id)}
         aria-label={t('folders.openFolder', { name: folder.name })}
-        className="focus-visible:ring-ring flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 pointer-coarse:min-h-11"
+        className="focus-visible:ring-ring flex min-w-0 flex-1 items-center gap-2.5 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 pointer-coarse:min-h-11"
       >
-        <Folder className="size-4 shrink-0" aria-hidden />
-        <span className="text-foreground truncate font-medium">{folder.name}</span>
-        <span className="text-muted-foreground shrink-0 text-xs">
-          {t('folders.items', { count: String(itemCount) })}
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-amber-100 dark:bg-amber-900/30">
+          <Folder className="size-3.5 text-amber-600 dark:text-amber-400" aria-hidden />
         </span>
+        <span className="text-foreground truncate font-medium">{folder.name}</span>
+        <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+          {itemCount}
+        </span>
+        {lastModified && (
+          <>
+            <span aria-hidden className="text-muted-foreground/40 text-xs">
+              ·
+            </span>
+            <TimeAgo date={lastModified} locale={locale} className="shrink-0 text-xs tabular-nums text-muted-foreground" />
+          </>
+        )}
       </button>
       <FolderActionsMenu
         folder={folder}
         onStartRename={() => setEditing(true)}
         onDeleteFolder={onDeleteFolder}
       />
-    </div>
+      <ChevronRight className="size-3.5 shrink-0 text-amber-400/60 group-hover:text-amber-500 transition-colors" aria-hidden />
+    </motion.div>
   )
 }

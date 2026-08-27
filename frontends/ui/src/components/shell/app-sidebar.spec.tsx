@@ -160,10 +160,15 @@ describe('AppSidebar - Archiv nav item (ADR-0024)', () => {
 
   test('orders Ask Piloti first and Inbox last in the section nav', () => {
     const { container } = render(<AppSidebar {...baseProps} canAccessArchiv />)
-    // Scope to the rail's section nav so the wordmark / Settings footer stay out.
-    const nav = container.querySelector('[data-sidebar="content"] nav')
-    expect(nav).not.toBeNull()
-    const labels = Array.from(nav!.querySelectorAll('a span[data-slot="rail-nav-label"]')).map((el) => el.textContent)
+    // Scope to the rail's own <nav> elements so the wordmark / Settings footer
+    // stay out. Archiv and Inbox are the bottom-pinned org group — a second,
+    // sibling <nav> outside `[data-sidebar="content"]` — so this reads every
+    // `nav` under the sidebar root rather than just the scrollable one.
+    const navs = container.querySelectorAll('[data-sidebar="sidebar"] nav')
+    expect(navs.length).toBeGreaterThan(0)
+    const labels = Array.from(navs)
+      .flatMap((nav) => Array.from(nav.querySelectorAll('a span[data-slot="rail-nav-label"]')))
+      .map((el) => el.textContent)
     // Ask Piloti · Files · Automation* · Archiv* · Inbox*, per
     // `project-sections.ts`. Automation is absent here because `showSkills`
     // is off.

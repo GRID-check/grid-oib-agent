@@ -70,6 +70,8 @@ export interface FolderItem {
   parentId: string | null
   name: string
   path: string
+  createdAt?: string
+  updatedAt?: string
 }
 
 export interface FileItem {

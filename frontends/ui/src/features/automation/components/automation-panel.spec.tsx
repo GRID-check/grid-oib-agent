@@ -1,7 +1,8 @@
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
-import { AutomationPanel, parseAutomationTab } from './automation-panel'
+import { AutomationPanel } from './automation-panel'
+import { parseAutomationTab } from '../lib/automation-tab'
 
 // The tabs' JOIN is what this file pins: which panel is mounted, when. The
 // panels themselves have their own specs.

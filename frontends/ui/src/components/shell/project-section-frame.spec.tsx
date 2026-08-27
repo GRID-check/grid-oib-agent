@@ -13,7 +13,7 @@ beforeEach(() => {
 })
 
 describe('ProjectSectionFrame', () => {
-  test('renders the section heading and a breadcrumb with the project name', () => {
+  test('renders the section heading, no breadcrumb', () => {
     render(
       <ProjectSectionFrame projectId="p1" projectName="Stadthaus Wien">
         <p>files body</p>
@@ -21,11 +21,7 @@ describe('ProjectSectionFrame', () => {
     )
 
     expect(screen.getByRole('heading', { level: 1, name: 'Files' })).toBeInTheDocument()
-    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Stadthaus Wien')
-    expect(screen.getByRole('link', { name: 'Stadthaus Wien' })).toHaveAttribute(
-      'href',
-      '/app/projects/p1/settings',
-    )
+    expect(screen.queryByRole('navigation', { name: 'breadcrumb' })).not.toBeInTheDocument()
     expect(screen.getByText('files body')).toBeInTheDocument()
   })
 

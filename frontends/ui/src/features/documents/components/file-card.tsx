@@ -4,7 +4,8 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import Image from 'next/image'
 import { isOptimizerEligible } from '@/lib/images/optimizable'
 import type { FileItem } from './project-file-workspace'
-import { formatAbsoluteTime, formatBytes, formatRelativeTime } from '@/lib/format'
+import { formatBytes } from '@/lib/format'
+import { TimeAgo } from '@/components/ui/time-ago'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
@@ -14,7 +15,7 @@ import { DocumentKindThumbnail } from './document-kind-thumbnail'
 import { AuthorshipLine } from './authorship-line'
 import { DocumentStatusBadge, isCitableStatus, isSettlingStatus } from './document-status'
 import { SemanticMatch } from './semantic-match'
-import { RaisedCard, RaisedCardBody, RaisedCardFooter, RaisedCardMedia } from '@/components/ui/raised-card'
+import { GridTileBody, GridTileFooter, GridTileMedia, GridTileShell } from './grid-tile'
 import { Skeleton } from '@/components/ui/skeleton'
 
 /** Provenance tint per corpus, from the shared `--source-*` token family. */
@@ -229,13 +230,19 @@ export function FileCard({
   const isAwaitingSummary = !match && !isFailed && !file.summary && isSettlingStatus(file.status)
 
   return (
-    <RaisedCard
+    <GridTileShell
+      variant="file"
       interactive
-      className={cn('group/card', isSelected && 'ring-2 ring-ring', isBusy && 'cursor-progress opacity-70')}
+      className={cn(
+        'group/card',
+        isSelected && 'ring-2 ring-ring shadow-md',
+        isBusy && 'cursor-progress opacity-70',
+        !isSelected && 'hover:border-border/80'
+      )}
     >
       {actions && (
         <div
-          className="absolute left-1.5 top-1.5 z-[1]"
+          className="absolute left-1.5 top-1.5 z-[1] opacity-0 group-hover/card:opacity-100 group-focus-within/card:opacity-100 transition-opacity duration-200 motion-reduce:transition-none"
           onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => event.stopPropagation()}
         >
@@ -259,8 +266,8 @@ export function FileCard({
             leftover height showed as a band of dead surface underneath. Growing
             the white block instead puts every footer on the bottom edge, so the
             row reads as one strip whatever each card carries above it. */}
-        <RaisedCardBody className={cn('flex-1 p-0', hideFooter && 'rounded-none')}>
-          <RaisedCardMedia className="h-[124px]">
+        <GridTileBody className={cn('flex-1 p-0', hideFooter && 'rounded-none')}>
+          <GridTileMedia className="h-[124px]">
             <ThumbnailWithFallback file={file} />
             {showStatus && (
               <DocumentStatusBadge
@@ -271,7 +278,7 @@ export function FileCard({
                 className="absolute right-2 top-2 border-transparent bg-background/80 px-1.5 py-0 text-xs font-medium leading-4 shadow-2xs backdrop-blur-sm"
               />
             )}
-          </RaisedCardMedia>
+          </GridTileMedia>
 
           <div className="px-3.5 pb-3 pt-[11px]">
             <div className="flex items-center gap-2">
@@ -327,26 +334,19 @@ export function FileCard({
               )
             )}
           </div>
-        </RaisedCardBody>
+        </GridTileBody>
 
         {!hideFooter && (
-          <RaisedCardFooter className="gap-1.5 px-3.5 pb-2.5 pt-[9px] text-xs text-muted-foreground/80">
+          <GridTileFooter className="gap-1.5 px-3.5 pb-2.5 pt-[9px] text-xs text-muted-foreground/80">
             {footerLead ?? <span className="flex-1" />}
             <span className="shrink-0 tabular-nums">{formatBytes(file.fileSize, locale)}</span>
             <span aria-hidden className="text-muted-foreground/40">
               ·
             </span>
-            <time
-              dateTime={file.createdAt}
-              title={formatAbsoluteTime(file.createdAt, locale)}
-              suppressHydrationWarning
-              className="shrink-0 tabular-nums"
-            >
-              {formatRelativeTime(file.createdAt, locale)}
-            </time>
-          </RaisedCardFooter>
+            <TimeAgo date={file.createdAt} locale={locale} className="shrink-0 tabular-nums" />
+          </GridTileFooter>
         )}
       </button>
-    </RaisedCard>
+    </GridTileShell>
   )
 }

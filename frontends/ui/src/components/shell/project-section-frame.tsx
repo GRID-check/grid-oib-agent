@@ -17,17 +17,8 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from '@/components/ui/breadcrumb'
 import { PageHeader } from '@/components/ui/page-header'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -119,26 +110,7 @@ export function ProjectSectionFrame({
     <ActionsContext.Provider value={setActions}>
       <div className="flex h-full min-h-0 flex-col">
         <div className="shrink-0 border-b border-border bg-background px-4 py-4 md:px-8">
-          <PageHeader
-            title={sectionLabel}
-            subtitle={sectionSubtitle}
-            action={actions}
-            breadcrumb={
-              <Breadcrumb>
-                <BreadcrumbList>
-                  <BreadcrumbItem>
-                    <BreadcrumbLink asChild>
-                      <Link href={`/app/projects/${projectId}/settings`}>{projectName}</Link>
-                    </BreadcrumbLink>
-                  </BreadcrumbItem>
-                  <BreadcrumbSeparator />
-                  <BreadcrumbItem>
-                    <BreadcrumbPage>{sectionLabel}</BreadcrumbPage>
-                  </BreadcrumbItem>
-                </BreadcrumbList>
-              </Breadcrumb>
-            }
-          />
+          <PageHeader title={sectionLabel} subtitle={sectionSubtitle} action={actions} />
         </div>
         <div className={cn('min-h-0 flex-1', fill ? 'overflow-hidden' : 'overflow-y-auto')}>{children}</div>
       </div>
