@@ -149,3 +149,7 @@ When the request references "me", "myself", or "my work", it means this person.
 
 Use confirmed project context when interpreting the user's request. Treat unknowns as missing information, not assumptions. Do not invent missing project facts. Do not re-list or restate the project parameters the user already sees in the UI unless they are directly relevant to the answer.
 {% endif %}
+
+{% if platform_lessons is defined and platform_lessons %}
+{{ platform_lessons }}
+{% endif %}

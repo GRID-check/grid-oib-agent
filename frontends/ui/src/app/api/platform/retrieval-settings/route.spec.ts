@@ -9,6 +9,7 @@
  * build-time config default.
  */
 
+import { RETRIEVAL_SETTINGS } from '@/lib/retrieval-settings/catalog'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { UnprocessableError } from '@/lib/api/errors'
 
@@ -82,7 +83,7 @@ describe('/api/platform/retrieval-settings', () => {
       settings: unknown[]
     }
     expect(body.definitions.map((d) => d.key)).toContain('knowledge.top_k')
-    expect(body.definitions).toHaveLength(10)
+    expect(body.definitions).toHaveLength(RETRIEVAL_SETTINGS.length)
     expect(body.settings).toEqual([])
   })
 

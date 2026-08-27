@@ -42,6 +42,12 @@ const EXPECTED: Record<string, string> = {
   'knowledge/documents/route.ts POST': 'settingsManage',
   'knowledge/reingest/route.ts POST': 'settingsManage',
   'knowledge/sync/route.ts POST': 'settingsManage',
+  // The lesson register (platform failure learning). Reads take view; the
+  // sweep and every curation mutation take manage.
+  'lessons/[lessonId]/route.ts GET': 'settingsView',
+  'lessons/[lessonId]/route.ts PATCH': 'settingsManage',
+  'lessons/route.ts GET': 'settingsView',
+  'lessons/route.ts POST': 'settingsManage',
   'maintenance/reconcile-vectors/route.ts POST': 'settingsManage',
   'model-defaults/models/route.ts GET': 'settingsView',
   'model-defaults/route.ts GET': 'settingsView',

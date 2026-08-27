@@ -65,6 +65,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@radix-ui/themes": "^3.3.0",
     "@react-pdf/renderer": "^4.6.0",
+    "@redactpii/node": "^1.0.17",
     "@tailwindcss/postcss": "^4.1.18",
     "@tanstack/react-form": "^1.33.2",
     "@tanstack/react-query": "^5.101.2",

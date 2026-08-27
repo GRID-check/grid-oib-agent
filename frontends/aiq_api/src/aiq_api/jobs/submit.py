@@ -64,6 +64,7 @@ def _build_run_agent_payload(
     auth_token,
     collection_scope,
     project_context,
+    platform_lessons,
     model_overrides,
     usage_context,
     user_info,
@@ -109,6 +110,7 @@ def _build_run_agent_payload(
         "auth_token": auth_token,
         "collection_scope": collection_scope,
         "project_context": project_context,
+        "platform_lessons": platform_lessons,
         "model_overrides": model_overrides,
         "usage_context": usage_context,
         "user_info": user_info,
@@ -335,6 +337,10 @@ async def submit_agent_job(
     auth_token: str | None = None,
     collection_scope: list[str] | None = None,
     project_context: str | None = None,
+    # Rendered PLATFORM_LESSONS block. Passed explicitly rather than resolved in
+    # the worker: request contextvars do not survive into a background job, and
+    # the holdout decision belongs to the turn that dispatched the job.
+    platform_lessons: str | None = None,
     model_overrides: dict[str, str] | None = None,
     usage_context: dict | None = None,
     user_info: dict | None = None,
@@ -574,6 +580,7 @@ async def submit_agent_job(
                 auth_token=auth_token,
                 collection_scope=collection_scope,
                 project_context=project_context,
+                platform_lessons=platform_lessons,
                 model_overrides=model_overrides,
                 usage_context=usage_context,
                 user_info=user_info,
@@ -608,6 +615,7 @@ async def submit_agent_job(
                     auth_token,
                     collection_scope,
                     project_context,
+                    platform_lessons,
                     model_overrides,
                     usage_context,
                     user_info,

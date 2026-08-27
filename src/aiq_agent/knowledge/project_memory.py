@@ -41,7 +41,11 @@ _REQUEST_TIMEOUT_SECONDS = 5
 # classification, so a slow BFF must never stall the turn for the full 5s the
 # write calls allow. Keep it tight; on timeout fetch_memory_digest raises and
 # the caller falls back to the frozen connection-time digest (fail-open).
-_DIGEST_TIMEOUT_SECONDS = 1.5
+# 2.5s, up from 1.5: the digest build now embeds the turn's question for
+# relevance-ranked recall (the BFF gives that embed call ~1s of this budget).
+# Still bounded and still fail-open to the frozen header digest — a slow BFF
+# costs staleness, never the turn.
+_DIGEST_TIMEOUT_SECONDS = 2.5
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -95,6 +99,7 @@ def fetch_memory_digest(
     *,
     project_id: str | None,
     organization_id: str | None,
+    query: str | None = None,
 ) -> str | None:
     """Fetch the CURRENT core-memory digest via the internal BFF endpoint.
 
@@ -120,10 +125,16 @@ def fetch_memory_digest(
         params["projectId"] = project_id
     if organization_id:
         params["organizationId"] = organization_id
-    query = urllib.parse.urlencode(params)
+    if query and query.strip():
+        # This turn's question. With it the BFF ranks recall by relevance
+        # instead of serving the twenty most recently touched notes; without it
+        # the digest is exactly what it was before. Bounded here as well as
+        # there — a caller must not be able to post a transcript as a param.
+        params["query"] = query.strip()[:2000]
+    query_string = urllib.parse.urlencode(params)
 
     request = urllib.request.Request(
-        f"{_internal_base_url()}/api/internal/memory/digest?{query}",
+        f"{_internal_base_url()}/api/internal/memory/digest?{query_string}",
         headers={"X-Grid-Internal-Token": token},
         method="GET",
     )
@@ -145,6 +156,7 @@ def insert_memory_item(
     conversation_id: str | None = None,
     provenance_type: str = "agent",
     supersedes_content: str | None = None,
+    salience: float | None = None,
 ) -> str | None:
     """Record one memory item via the internal BFF endpoint.
 
@@ -193,6 +205,11 @@ def insert_memory_item(
         payload["sourceConversationId"] = conversation_id
     if supersedes_content and supersedes_content.strip():
         payload["supersedesContent"] = supersedes_content.strip()[:2000]
+    if salience is not None:
+        # Write-time importance (0..1), elicited by the reflection stage. Sent
+        # only when the caller rated it — the column's 0.5 default is the
+        # neutral midpoint and must stay the fallback, not an explicit write.
+        payload["salience"] = max(0.0, min(1.0, float(salience)))
 
     request = urllib.request.Request(
         f"{_internal_base_url()}/api/internal/memory",

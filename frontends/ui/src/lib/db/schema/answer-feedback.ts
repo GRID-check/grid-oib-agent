@@ -1,4 +1,4 @@
-import { index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { boolean, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { projects } from './projects'
 
 /**
@@ -42,6 +42,14 @@ export const answerFeedback = pgTable(
     reason: text('reason').$type<AnswerFeedbackReason>(),
     /** Optional free-text from a down-vote — the chips are not the whole story. */
     comment: text('comment'),
+    /**
+     * Which side of the platform-lessons experiment this turn fell on
+     * (migration 0069), stamped from the same pure holdout function both tiers
+     * use to decide injection. NULL when the holdout is off (the default) or
+     * for rows predating it — those votes belong to no experiment arm and are
+     * excluded from the comparison rather than silently counted as treated.
+     */
+    lessonsHoldout: boolean('lessons_holdout'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

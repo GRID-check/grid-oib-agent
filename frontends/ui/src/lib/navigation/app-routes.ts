@@ -33,6 +33,7 @@ export const APP_ROUTE_URLS: readonly string[] = [
   '/app/platform',
   '/app/platform/cards',
   '/app/platform/knowledge',
+  '/app/platform/lessons',
   '/app/platform/maintenance',
   '/app/platform/models',
   '/app/platform/norms',

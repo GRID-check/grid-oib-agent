@@ -73,6 +73,33 @@ def fixture_event_store_cache_guard():
     EventStore.dispose_all_engines()
 
 
+def _job_arg(job_args, name: str):
+    """One positional worker argument, resolved BY NAME.
+
+    ``job_args`` is the positional tuple Dask hands ``run_agent_job``, and these
+    tests used to index it with magic negative offsets plus a comment listing
+    what followed. Every insertion into the worker signature then broke an
+    unrelated assertion and the comment drifted — which is exactly what happened
+    when ``platform_lessons`` was added. The order is still the contract; this
+    just reads it off ``run_agent_job``'s own signature instead of hard-coding a
+    number, so an insertion moves the index automatically and a REMOVAL (a real
+    contract break) still fails loudly with a KeyError.
+
+    ``*parent_trace_context`` expands to two positional values, so the tail is
+    counted from the end — which is stable as long as nothing is appended after
+    the named argument, and unlike a literal offset it is derived rather than
+    remembered.
+    """
+    import inspect
+
+    from aiq_api.jobs.runner import run_agent_job
+
+    params = list(inspect.signature(run_agent_job).parameters)
+    if name not in params:
+        raise KeyError(f"run_agent_job has no parameter {name!r} — the worker contract changed")
+    return job_args[len(job_args) - (len(params) - params.index(name))]
+
+
 class TestIntermediateStepEvent:
     """Tests for the IntermediateStepEvent model."""
 
@@ -424,11 +451,7 @@ class TestSubmitDeepResearchJob:
         assert result == "test-job-id"
         mock_job_store.submit_job.assert_called_once()
         job_args = mock_job_store.submit_job.call_args.kwargs["job_args"]
-        # data_sources is eleventh-to-last (auth_token, collection_scope,
-        # project_context, model_overrides, usage_context, user_info,
-        # clarifier_result, memory_reflection_enabled, memory_reflection_llm,
-        # force_skills follow)
-        assert job_args[-11] == ["web_search"]
+        assert _job_arg(job_args, "data_sources") == ["web_search"]
 
     @pytest.mark.asyncio
     async def test_submit_agent_job_passes_user_info_and_clarifier_result(self):
@@ -460,8 +483,8 @@ class TestSubmitDeepResearchJob:
         job_args = mock_job_store.submit_job.call_args.kwargs["job_args"]
         # Tail order: ..., user_info, clarifier_result,
         # memory_reflection_enabled, memory_reflection_llm, force_skills.
-        assert job_args[-5] == {"name": "Ada", "email": "ada@example.com"}
-        assert job_args[-4] == "User confirmed scope: OIB 4 only."
+        assert _job_arg(job_args, "user_info") == {"name": "Ada", "email": "ada@example.com"}
+        assert _job_arg(job_args, "clarifier_result") == "User confirmed scope: OIB 4 only."
 
     @pytest.mark.asyncio
     async def test_submit_with_custom_job_id(self):

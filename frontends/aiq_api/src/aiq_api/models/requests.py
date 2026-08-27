@@ -445,3 +445,110 @@ class OibDocumentDeleteResponse(BaseModel):
     success: bool
     file_name: str
     mode: str = Field("deleted", description="'deleted' for an admin upload, 'excluded' for a repo-shipped file.")
+
+
+#: Ceiling on the live lesson register a distill request may carry. Mirrors the
+#: BFF's MAX_DISTILL_REGISTER_SIZE (lib/platform-lessons/types.ts).
+MAX_DISTILL_LESSONS = 60
+
+
+class LessonRegisterEntry(BaseModel):
+    """One live platform lesson the matcher compares a new report against."""
+
+    id: str = Field(..., description="Lesson uuid (returned verbatim as match_lesson_id on a match)")
+    content: str = Field(..., description="The lesson text (anonymized German corrective)")
+
+
+class LessonDistillRequest(BaseModel):
+    """Request body for distilling ONE negative feedback report into a lesson.
+
+    Everything free-text here was already PII-scrubbed and truncated by the BFF
+    (lib/text/redact-pii.ts); the route re-bounds it anyway — a route that
+    trusts its caller's bounds is one refactor away from posting a transcript.
+    Organization, user and conversation identifiers never arrive at all.
+    """
+
+    question: str | None = Field(None, description="The user's question, scrubbed + truncated")
+    answer: str | None = Field(None, description="The rated answer's text, scrubbed + truncated")
+    reason: str | None = Field(None, description="Down-vote reason key (inaccurate|too_slow|wrong_source|other)")
+    comment: str | None = Field(None, description="The reporter's free-text comment, scrubbed + truncated")
+    existing_lessons: list[LessonRegisterEntry] = Field(
+        default_factory=list,
+        description="The live lesson register the matcher deduplicates against",
+        max_length=MAX_DISTILL_LESSONS,
+    )
+
+
+class LessonDistillResponse(BaseModel):
+    """The distiller's verdict on one report.
+
+    Exactly one of ``match_lesson_id`` / ``lesson`` is set on success; both are
+    None when the report is not generalizable. ``audit_passed`` is a SECOND
+    model's screening of the distilled text for identifying or manipulative
+    content — the BFF holds a failed-audit lesson back as a candidate instead
+    of activating it.
+    """
+
+    match_lesson_id: str | None = Field(
+        None, description="Id of the existing lesson this report restates, when one matches"
+    )
+    lesson: str | None = Field(
+        None, description="New lesson text (anonymized German corrective), when no existing lesson matches"
+    )
+    canonical_summary: str | None = Field(
+        None, description="One anonymized sentence restating what went wrong in THIS report"
+    )
+    category: str = Field("other", description="inaccurate|too_slow|wrong_source|other")
+    generalizable: bool = Field(
+        False, description="False when the complaint is instance-specific and teaches the fleet nothing"
+    )
+    audit_passed: bool = Field(False, description="Whether the auditor model cleared the distilled text")
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Failure code when distillation could not complete "
+            "(llm_not_configured, llm_request_failed, llm_response_malformed); None on success"
+        ),
+    )
+
+
+#: Ceiling on the notes one embedding request may carry. Mirrors `_MAX_TEXTS`
+#: in `routes/note_embeddings.py`.
+MAX_NOTE_EMBEDDING_TEXTS = 64
+
+
+class NoteEmbeddingRequest(BaseModel):
+    """Request body for embedding short notes (memory items, platform lessons).
+
+    Text only — never an identifier, never tenant context. The caller (the BFF,
+    which owns the notes) sends the strings it wants comparable and stores the
+    vectors next to its own rows.
+    """
+
+    texts: list[str] = Field(
+        default_factory=list,
+        description="Short texts to embed, in order; the response's vectors match this order",
+        max_length=MAX_NOTE_EMBEDDING_TEXTS,
+    )
+
+
+class NoteEmbeddingResponse(BaseModel):
+    """Vectors plus the fingerprint of the model that produced them.
+
+    ``fingerprint`` is not decoration: a vector is comparable only to vectors
+    from the same model, so the caller stores this alongside each vector and
+    treats a mismatch as "not embedded yet" rather than comparing across
+    models. Empty ``vectors`` with an ``error`` means the caller must fall back
+    to its lexical path.
+    """
+
+    vectors: list[list[float]] = Field(default_factory=list, description="One vector per input text, in order")
+    fingerprint: str = Field("", description="Embedding-model fingerprint to store beside each vector")
+    dimensions: int = Field(0, ge=0, description="Vector dimensionality, 0 when nothing was embedded")
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Failure code when embedding could not be done "
+            "(embedder_not_configured, embedder_unavailable, embedding_failed); None on success"
+        ),
+    )

@@ -54,6 +54,12 @@ class DeepResearchAgentState(BaseModel):
     clarifier_result: str | None = None
     available_documents: list[AvailableDocument] | None = None
     project_context: str | None = None
+    # The rendered PLATFORM_LESSONS block — anonymized fleet-wide process
+    # cautions distilled from user down-votes. Injected like project_context
+    # (the chat orchestrator sets it for the in-process path; the async job
+    # carries it in its payload), because a deep-research report is exactly
+    # the kind of long answer a reported failure pattern should not recur in.
+    platform_lessons: str | None = None
     # Transparency summary of citations dropped by ``verify_citations`` during
     # report post-processing (``{"count": int, "reasons": [str, ...]}``).
     # Populated by ``run()`` ONLY when ≥1 citation was removed; None otherwise.

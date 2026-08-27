@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { projectMemory, projects } from '@/lib/db/schema'
 import type {
@@ -6,6 +6,24 @@ import type {
   ProjectMemoryConfidence,
   ProjectMemoryItem,
 } from '@/lib/db/schema'
+import {
+  NEAR_DUP_JACCARD_THRESHOLD,
+  NEAR_DUP_MIN_TOKENS,
+  contentTokens,
+  jaccardSimilarity,
+  normalizeContent,
+  polaritySignature,
+} from '@/lib/knowledge/consolidation'
+import { formatBoundedDigest } from '@/lib/knowledge/digest-format'
+import {
+  cosineSimilaritySql,
+  embedNote,
+  embedNotes,
+  enrichForEmbedding,
+  toVectorLiteral,
+  type EmbeddedNote,
+} from '@/lib/knowledge/embeddings'
+import { daysSince, fuseHybridRelevance, rankByRecallScore } from '@/lib/knowledge/recall-scoring'
 
 /**
  * Memory service — system-of-record CRUD plus the bounded "core digest"
@@ -26,18 +44,6 @@ const DIGEST_MAX_CHARS = 1800
 const DIGEST_MAX_ITEMS = 20
 
 const CONFIDENCE_RANK: Record<ProjectMemoryConfidence, number> = { low: 0, medium: 1, high: 2 }
-
-/**
- * Normalize content for duplicate detection: lowercase, non-alphanumerics
- * collapsed to single spaces, trimmed. Must stay in lock-step with the SQL
- * expression in `findActiveDuplicate` so JS and Postgres agree on equality.
- */
-function normalizeContent(content: string): string {
-  return content
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-}
 
 /**
  * A normalized-content equality condition (Postgres side of `normalizeContent`).
@@ -89,88 +95,14 @@ async function findActiveDuplicate(
   return existing ?? null
 }
 
-/**
- * Token overlap above which two same-kind findings are the same fact restated
- * (paraphrase-level dedup, design §3.2). Deliberately high: a false positive
- * merges two distinct findings and loses one; a false negative only costs a
- * redundant row the user can prune.
- */
-const NEAR_DUP_JACCARD_THRESHOLD = 0.8
+// Normalization, tokenization, Jaccard, the polarity split and the shared
+// thresholds live in `@/lib/knowledge/consolidation` — one engine for every
+// store that consolidates free-text findings (project memory here, platform
+// lessons in `lib/platform-lessons`). `normalizeContent` there is the ASCII
+// fold that must stay in lock-step with the 0010 index expressions.
+
 /** Bound on the candidate scan (most recently updated active items in scope). */
 const NEAR_DUP_CANDIDATE_LIMIT = 200
-/** Very short findings have jumpy token sets; keep them exact-dup only. */
-const NEAR_DUP_MIN_TOKENS = 3
-
-/**
- * Negation particles whose presence flips what a finding asserts.
- *
- * A correction is token-wise almost identical to the claim it corrects:
- * "OIB-RL 2.1 is not applicable" vs "OIB-RL 2.1 is applicable" score 0.91
- * Jaccard, well over NEAR_DUP_JACCARD_THRESHOLD. Merging those keeps the OLD
- * row and only refreshes its confidence and timestamps — so the correction is
- * discarded and the stale claim survives looking freshly confirmed. Polarity is
- * therefore checked BEFORE any merge: opposed polarity is a contradiction, and
- * a contradiction supersedes instead of merging.
- */
-const NEGATION_TOKENS = new Set([
-  // English
-  'not',
-  'no',
-  'never',
-  'without',
-  'cannot',
-  'none',
-  'neither',
-  'nor',
-  // German
-  'nicht',
-  'kein',
-  'keine',
-  'keinen',
-  'keinem',
-  'keiner',
-  'keines',
-  'nie',
-  'niemals',
-  'ohne',
-  'weder',
-])
-
-/**
- * Boolean literals, which flip meaning the same way a negation does — findings
- * routinely carry flag values verbatim ("betriebsanlage=false").
- */
-const BOOLEAN_TOKENS = new Set(['true', 'false', 'yes', 'ja', 'nein', 'wahr', 'falsch'])
-
-function contentTokenList(content: string): string[] {
-  return normalizeContent(content).split(' ').filter(Boolean)
-}
-
-function contentTokens(content: string): Set<string> {
-  return new Set(contentTokenList(content))
-}
-
-/**
- * A comparable summary of what a content asserts: negation PARITY (double
- * negation reads positive again) plus the boolean literals it carries. Two
- * contents whose signatures differ assert opposite things.
- */
-function polaritySignature(content: string): string {
-  let negations = 0
-  const booleans: string[] = []
-  for (const token of contentTokenList(content)) {
-    if (NEGATION_TOKENS.has(token)) negations++
-    else if (BOOLEAN_TOKENS.has(token)) booleans.push(token)
-  }
-  return `${negations % 2}|${[...new Set(booleans)].sort().join(',')}`
-}
-
-function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 || b.size === 0) return 0
-  let shared = 0
-  for (const token of a) if (b.has(token)) shared++
-  return shared / (a.size + b.size - shared)
-}
 
 /** A near-identical existing item, and whether it asserts the OPPOSITE. */
 interface NearMatch {
@@ -221,6 +153,81 @@ async function findActiveNearMatch(
   return {
     item: best,
     opposedPolarity: polaritySignature(values.content) !== polaritySignature(best.content),
+  }
+}
+
+/**
+ * Cosine above which two same-kind findings are treated as the same fact.
+ *
+ * Calibrated deliberately toward SEPARATION, the way issue-grouping systems
+ * calibrate a merge threshold: a wrong merge silently destroys a finding and
+ * is hard to notice, while a missed merge costs one redundant row a curator
+ * can prune. 0.90 on a normalized embedding is "restatement", not "related".
+ */
+const SEMANTIC_DUP_THRESHOLD = 0.9
+
+/**
+ * Paraphrase dedup that actually sees paraphrase.
+ *
+ * The Jaccard pass below cannot: "der Bauherr wünscht ein Flachdach" and
+ * "Flachdach ist gewünscht" share no tokens and score 0.0, so the store grew a
+ * second row for the same fact every time somebody rephrased it. This is the
+ * embed-based consolidation gate the design named as essential and never got
+ * (memory-system-audit-2026-07 F2).
+ *
+ * Same-kind and scope-exact like its lexical sibling, and it carries the same
+ * polarity check: at this similarity the incoming finding is either the same
+ * fact restated (merge) or the same fact CORRECTED (supersede), and merging a
+ * correction is how memory becomes uncorrectable. Cosine is computed in SQL so
+ * candidate vectors never cross the wire.
+ *
+ * Returns null when the embedder is unavailable, when nothing is embedded yet,
+ * or when nothing clears the threshold — every one of which just means "fall
+ * through to the lexical pass".
+ */
+async function findSemanticNearMatch(
+  values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId' | 'content' | 'kind'>,
+  embedded: EmbeddedNote | null
+): Promise<NearMatch | null> {
+  if (!embedded) return null
+  const db = getDb()
+  // Raw SQL so the vector literal travels once (WHERE + ORDER BY + projection
+  // would otherwise carry three copies at embedding dimensionality). The scope
+  // condition is inlined per branch; RLS remains the backstop underneath.
+  const owner =
+    values.scope === 'organization'
+      ? sql`m.scope = 'organization' and m.organization_id = ${values.organizationId} and m.project_id is null`
+      : sql`m.scope = 'project' and m.project_id = ${values.projectId as string}`
+  const result = await db.execute(sql`
+    with scored as (
+      select m.*, grid_cosine_similarity(m.embedding, ${toVectorLiteral(embedded.vector)}::real[]) as similarity
+      from project_memory m
+      where ${owner}
+        and m.status = 'active'
+        and m.kind = ${values.kind}
+        and m.embedding_model = ${embedded.fingerprint}
+    )
+    select * from scored
+    where similarity >= ${SEMANTIC_DUP_THRESHOLD}
+    order by similarity desc
+    limit 1
+  `)
+  const rows = (result as { rows?: Record<string, unknown>[] })?.rows ?? []
+  if (rows.length === 0) return null
+  const raw = rows[0]
+  // The consolidation path reads id/content/pinned/verification/provenance —
+  // coerce those; the rest rides through for the supersede link.
+  const item = {
+    id: String(raw.id),
+    content: String(raw.content),
+    pinned: Boolean(raw.pinned),
+    verification: raw.verification,
+    provenanceType: raw.provenance_type,
+    supersedesId: (raw.supersedes_id as string | null) ?? null,
+  } as ProjectMemoryItem
+  return {
+    item,
+    opposedPolarity: polaritySignature(values.content) !== polaritySignature(item.content),
   }
 }
 
@@ -400,7 +407,16 @@ export async function createProjectMemoryItem(
   const exact = await findActiveDuplicate(values)
   if (exact) return refreshDuplicate(exact, values)
 
-  const near = await findActiveNearMatch(values)
+  // One embedding per write, reused for BOTH the semantic dedup probe and the
+  // stored vector — so consolidation and future recall cost one call between
+  // them, not two. Null (no embedder) degrades to the lexical path only.
+  const embedded = await embedNote(enrichForEmbedding(values.content, [values.kind]))
+
+  // Semantic first, lexical second: the semantic pass sees everything the
+  // lexical one does plus paraphrase, so reaching the Jaccard scan means the
+  // embedder had nothing to say.
+  const near =
+    (await findSemanticNearMatch(values, embedded)) ?? (await findActiveNearMatch(values))
   if (near && !near.opposedPolarity) return refreshDuplicate(near.item, values)
 
   const candidate =
@@ -422,9 +438,17 @@ export async function createProjectMemoryItem(
     }
   }
 
-  const insertValues: NewProjectMemoryItem = supersedeTarget
-    ? { ...values, supersedesId: supersedeTarget.id }
+  const withVector: NewProjectMemoryItem = embedded
+    ? {
+        ...values,
+        embedding: embedded.vector,
+        embeddingModel: embedded.fingerprint,
+        embeddedAt: new Date(),
+      }
     : values
+  const insertValues: NewProjectMemoryItem = supersedeTarget
+    ? { ...withVector, supersedesId: supersedeTarget.id }
+    : withVector
 
   try {
     if (!supersedeTarget) {
@@ -568,38 +592,90 @@ export type DigestItem = Pick<
  * `- [...]` tag line or break out of its own entry. Lines are appended in
  * order until DIGEST_MAX_CHARS would be exceeded.
  */
-export function formatDigestLines(items: DigestItem[]): string | null {
-  if (items.length === 0) return null
+export function formatDigestLines(items: DigestItem[], omitted = 0): string | null {
+  // The escaping/bounding mechanics live in the shared formatter; this wrapper
+  // decides the header, the per-item tag set, and the truncation notice.
+  const digest = formatBoundedDigest(
+    'PROJECT_MEMORY v1',
+    items.map((item) => ({
+      tags: [
+        ...(item.scope === 'organization' ? ['org-wide'] : []),
+        item.kind,
+        item.confidence,
+        item.verification,
+      ],
+      content: item.content,
+    })),
+    DIGEST_MAX_CHARS
+  )
+  if (!digest) return null
+  // A cap says so in the text the MODEL reads, not only in the operator's log
+  // — otherwise the agent presents a truncated shelf as the whole shelf and
+  // answers "what do you remember" confidently and wrongly (gotchas.md).
+  return omitted > 0
+    ? `${digest}\n(+${omitted} weitere Notizen zu diesem Projekt, hier nicht gezeigt — frag nach, wenn eine davon zählen könnte.)`
+    : digest
+}
 
-  const lines: string[] = ['PROJECT_MEMORY v1']
-  let used = lines[0].length
-  for (const item of items) {
-    const content = item.content.replace(/\s+/g, ' ').trim()
-    if (!content) continue
-    const escaped = content.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-    const scopeTag = item.scope === 'organization' ? 'org-wide | ' : ''
-    const line = `- [${scopeTag}${item.kind} | ${item.confidence} | ${item.verification}] "${escaped}"`
-    if (used + line.length + 1 > DIGEST_MAX_CHARS) break
-    lines.push(line)
-    used += line.length + 1
-  }
+/**
+ * Candidates considered before ranking. Bounded like every list here; past
+ * this the tail is by definition the least recently touched.
+ */
+const RECALL_CANDIDATE_LIMIT = 200
 
-  return lines.length > 1 ? lines.join('\n') : null
+/**
+ * How many of the digest's slots pinned items may take.
+ *
+ * Pinning used to be unbounded, which made it a silent foot-gun: pin
+ * twenty-one items and every unpinned memory was evicted from the digest
+ * forever, with nothing on screen or in the prompt saying so
+ * (memory-system-audit-2026-07). Pins still win, but they can no longer starve
+ * recall entirely, and the overflow is disclosed in the digest text.
+ */
+const DIGEST_MAX_PINNED = 12
+
+/** What the digest builder needs per candidate row. */
+interface RecallCandidate extends DigestItem {
+  id: string
+  pinned: boolean
+  salience: number
+  lastReferencedAt: Date | null
+  recallCount: number
+  relevance: number | null
+}
+
+export interface MemoryDigestOptions {
+  /**
+   * The turn's question. When present (and the embedder is reachable) recall
+   * is relevance-ranked against it; when absent the digest falls back to
+   * pinned-then-recent, which is what every caller got before.
+   */
+  query?: string | null
 }
 
 /**
  * Build the bounded "core memory" digest injected as the
- * `x-grid-project-memory` header on the WS upgrade. Merges org-wide and
- * project items (pinned first, then most recently updated), each line tagged
- * with scope/kind/confidence/verification so the model can weigh it; the
- * content itself is quoted/escaped by formatDigestLines so it cannot forge
- * tag lines.
+ * `x-grid-project-memory` header and re-fetched live per turn.
+ *
+ * Two tiers, which is the shape every shipping agent-memory system converged
+ * on (see docs/architecture/semantic-notes.md): a small ALWAYS-carried core —
+ * the user's pins — plus a RECALLED remainder chosen for this question.
+ * Selection is `lib/knowledge/recall-scoring.ts` (relevance + importance +
+ * recency, reinforced by past use).
+ *
+ * This replaces `ORDER BY pinned, updated_at LIMIT 20`, which the memory audit
+ * called "an effectively random-by-recency subset" past twenty items (F3), and
+ * under which `salience` and `last_referenced_at` were both written and never
+ * read. It also stops silently truncating: when candidates do not fit, the
+ * digest says so in the text the model reads, per the repo's own rule that a
+ * cap must be visible to the model and not only to the operator.
  *
  * Returns null when there is no active memory (header is then omitted).
  */
 export async function buildProjectMemoryDigest(
   projectId: string | undefined,
-  organizationId: string | undefined
+  organizationId: string | undefined,
+  options: MemoryDigestOptions = {}
 ): Promise<string | null> {
   if (!projectId && !organizationId) return null
   const db = getDb()
@@ -628,26 +704,179 @@ export async function buildProjectMemoryDigest(
     )
   }
 
-  const items = await db
+  const scope = and(
+    scopeConditions.length > 1 ? or(...scopeConditions) : scopeConditions[0],
+    eq(projectMemory.status, 'active')
+  )
+
+  // The query vector, when there is a question and an embedder. Fail-open:
+  // null simply means the dense channel contributes nothing. The timeout is
+  // deliberately ~1s — this sits on the turn's critical path, ahead of the
+  // agent's own answer, and the Python side stops waiting for the whole
+  // digest at 2.5s; a slower embed is worth less than nothing here.
+  const queryText = options.query?.trim()
+  const embedded = queryText ? await embedNote(queryText, { timeoutMs: 1000 }) : null
+
+  // Cosine is computed in SQL so the vectors never cross the wire — a
+  // 3072-dimension vector per row would dominate this query's cost.
+  const relevanceColumn = embedded
+    ? cosineSimilaritySql(projectMemory.embedding, embedded.vector)
+    : sql<number | null>`null::double precision`
+
+  const rows = await db
     .select({
+      id: projectMemory.id,
       scope: projectMemory.scope,
       kind: projectMemory.kind,
       content: projectMemory.content,
       confidence: projectMemory.confidence,
       verification: projectMemory.verification,
       pinned: projectMemory.pinned,
+      salience: projectMemory.salience,
+      lastReferencedAt: projectMemory.lastReferencedAt,
+      recallCount: projectMemory.recallCount,
+      relevance: relevanceColumn,
+      // Only compare vectors from the model that produced them: a same-size
+      // vector from another embedder is noise wearing the right shape.
+      embeddingModel: projectMemory.embeddingModel,
     })
     .from(projectMemory)
-    .where(
-      and(
-        scopeConditions.length > 1 ? or(...scopeConditions) : scopeConditions[0],
-        eq(projectMemory.status, 'active')
-      )
-    )
-    .orderBy(desc(projectMemory.pinned), desc(projectMemory.updatedAt))
-    .limit(DIGEST_MAX_ITEMS)
+    .where(scope)
+    .orderBy(desc(projectMemory.updatedAt))
+    .limit(RECALL_CANDIDATE_LIMIT)
 
-  return formatDigestLines(items)
+  if (rows.length === 0) return null
+
+  const candidates: RecallCandidate[] = rows.map((row) => ({
+    id: row.id,
+    scope: row.scope,
+    kind: row.kind,
+    content: row.content,
+    confidence: row.confidence,
+    verification: row.verification,
+    pinned: row.pinned,
+    // Raw sql<T> results are not runtime-validated — coerce at the boundary.
+    salience: Number(row.salience),
+    lastReferencedAt: row.lastReferencedAt ? new Date(row.lastReferencedAt) : null,
+    recallCount: Number(row.recallCount),
+    relevance:
+      embedded && row.embeddingModel === embedded.fingerprint && row.relevance !== null
+        ? Number(row.relevance)
+        : null,
+  }))
+
+  const pinned = candidates.filter((candidate) => candidate.pinned)
+  const unpinned = candidates.filter((candidate) => !candidate.pinned)
+
+  const keptPinned = pinned.slice(0, DIGEST_MAX_PINNED)
+  const recallSlots = Math.max(0, DIGEST_MAX_ITEMS - keptPinned.length)
+
+  // Relevance is HYBRID: the dense (cosine) channel fused by reciprocal rank
+  // with a lexical token-overlap channel. Dense alone misses exactly the
+  // queries this product lives on — "OIB-RL 6", "§ 4 Abs. 2" — and lexical
+  // alone misses paraphrase; fused, each covers the other's blind side. The
+  // lexical channel also means recall keeps working with no embedder at all.
+  const queryTokens = queryText ? contentTokens(queryText) : null
+  const lexical = unpinned.map((candidate) =>
+    queryTokens ? jaccardSimilarity(queryTokens, contentTokens(candidate.content)) : 0
+  )
+  const relevance = fuseHybridRelevance(
+    unpinned.map((candidate) => candidate.relevance),
+    lexical
+  )
+
+  const ranked = rankByRecallScore(
+    unpinned.map((candidate, index) => ({
+      relevance: relevance[index],
+      importance: candidate.salience,
+      daysSinceUse: daysSince(candidate.lastReferencedAt),
+      timesUsed: candidate.recallCount,
+    }))
+  )
+  const keptRecalled = ranked.slice(0, recallSlots).map((entry) => unpinned[entry.index])
+
+  // Self-healing backfill: rows written while the embedder was down (or before
+  // it existed) stay on the lexical path until something embeds them. This is
+  // that something — a bounded, fire-and-forget batch per digest build, so an
+  // ACTIVE project heals itself and a dormant one costs nothing.
+  if (embedded) {
+    const unembedded = candidates
+      .filter((candidate) => candidate.relevance === null)
+      .filter((candidate) => !embeddedFingerprintMatches(rows, candidate.id, embedded.fingerprint))
+      .slice(0, MEMORY_BACKFILL_BATCH)
+    if (unembedded.length > 0) void backfillMemoryEmbeddings(unembedded)
+  }
+
+  const kept = [...keptPinned, ...keptRecalled]
+  const omitted = candidates.length - kept.length
+
+  // Recall is the reinforcement event: what was surfaced decays more slowly
+  // next time. Fire-and-forget — a bookkeeping write must never delay a turn,
+  // and losing one is a slightly colder score, not a wrong answer.
+  void markMemoryRecalled(kept.map((item) => item.id))
+
+  return formatDigestLines(kept, omitted)
+}
+
+/** Rows already carrying a vector from the CURRENT model need no backfill. */
+function embeddedFingerprintMatches(
+  rows: { id: string; embeddingModel: string | null }[],
+  id: string,
+  fingerprint: string
+): boolean {
+  return rows.some((row) => row.id === id && row.embeddingModel === fingerprint)
+}
+
+/** Backfill batch per digest build — small on purpose; the next build continues. */
+const MEMORY_BACKFILL_BATCH = 8
+
+/**
+ * Embed and store vectors for notes that missed theirs. Fire-and-forget and
+ * tenant-scoped: called inside the digest's `withTenant` scope, and the async
+ * continuation inherits it, so RLS still applies to the update.
+ */
+async function backfillMemoryEmbeddings(
+  items: Pick<RecallCandidate, 'id' | 'kind' | 'content'>[]
+): Promise<void> {
+  try {
+    const embedded = await embedNotes(
+      items.map((item) => enrichForEmbedding(item.content, [item.kind]))
+    )
+    if (!embedded) return
+    const db = getDb()
+    for (let index = 0; index < items.length; index++) {
+      await db
+        .update(projectMemory)
+        .set({
+          embedding: embedded[index].vector,
+          embeddingModel: embedded[index].fingerprint,
+          embeddedAt: new Date(),
+        })
+        .where(eq(projectMemory.id, items[index].id))
+    }
+  } catch (error) {
+    console.warn('[memory] Embedding backfill failed (non-fatal):', error)
+  }
+}
+
+/**
+ * Record that these items were recalled: refresh `last_referenced_at` and
+ * increment `recall_count` (MemoryBank's `t` reset and `S` increment).
+ * Never throws.
+ */
+async function markMemoryRecalled(ids: string[]): Promise<void> {
+  if (ids.length === 0) return
+  try {
+    await getDb()
+      .update(projectMemory)
+      .set({
+        lastReferencedAt: new Date(),
+        recallCount: sql`${projectMemory.recallCount} + 1`,
+      })
+      .where(inArray(projectMemory.id, ids))
+  } catch (error) {
+    console.warn('[memory] Could not record recall reinforcement (non-fatal):', error)
+  }
 }
 
 /**
@@ -664,4 +893,86 @@ export async function organizationExists(organizationId: string): Promise<boolea
     .where(eq(projects.organizationId, organizationId))
     .limit(1)
   return rows.length > 0
+}
+
+/**
+ * How near a down-vote comment must sit to a note before the note is
+ * implicated in the complaint. Deliberately higher than digest relevance needs
+ * to be: relevance ranks candidates against each other, this one levies a
+ * penalty, and penalizing a bystander note is worse than missing a culprit.
+ */
+const IMPLICATION_THRESHOLD = 0.78
+/** At most this many notes are implicated per report — the closest matches. */
+const IMPLICATION_LIMIT = 2
+/**
+ * Salience decays multiplicatively and floors above zero: one report dents a
+ * note, repeated reports bury it, and nothing erases it — the recall floor
+ * keeps even a buried note reachable when it is the only relevant one.
+ */
+const IMPLICATION_SALIENCE_DECAY = 0.6
+const IMPLICATION_SALIENCE_FLOOR = 0.05
+
+/**
+ * The memory half of feedback attribution — the analog of the lesson
+ * pipeline's effectiveness signal, inside one tenant's own scope.
+ *
+ * A down-vote with a comment is a human saying "this answer was wrong" in
+ * their own words. When that complaint sits semantically next to an active
+ * memory note, the note plausibly shaped the answer, so it takes the hit:
+ * salience decays (recoverable — reflection can supersede it with a corrected
+ * finding, and recall reinforcement still works) and confidence drops to
+ * 'low', which is the digest's honest marker for "hold this loosely". Notes
+ * are never deleted here, and PINNED notes are exempt: a pin is explicit
+ * human intent, and one human's down-vote does not outrank another's pin.
+ *
+ * Runs fire-and-forget off the vote path, inside the caller's tenant scope —
+ * the raw comment never leaves the org boundary (unlike the lesson pipeline,
+ * which scrubs before distilling precisely because it crosses it).
+ * Returns the number of implicated notes; never throws.
+ */
+export async function implicateMemoryFromFeedback(input: {
+  organizationId: string
+  projectId: string | null
+  comment: string
+}): Promise<number> {
+  const text = input.comment.trim()
+  if (!text) return 0
+  try {
+    const embedded = await embedNote(text.slice(0, 500))
+    if (!embedded) return 0
+    const db = getDb()
+    const owner = input.projectId
+      ? sql`m.organization_id = ${input.organizationId} and ((m.scope = 'project' and m.project_id = ${input.projectId}) or (m.scope = 'organization' and m.project_id is null))`
+      : sql`m.organization_id = ${input.organizationId} and m.scope = 'organization' and m.project_id is null`
+    // Vector literal travels once (scored CTE), same discipline as the
+    // near-match query above; RLS remains the backstop under the org filter.
+    const result = await db.execute(sql`
+      with scored as (
+        select m.id, grid_cosine_similarity(m.embedding, ${toVectorLiteral(embedded.vector)}::real[]) as similarity
+        from project_memory m
+        where ${owner}
+          and m.status = 'active'
+          and m.pinned = false
+          and m.embedding_model = ${embedded.fingerprint}
+      ),
+      implicated as (
+        select id from scored
+        where similarity >= ${IMPLICATION_THRESHOLD}
+        order by similarity desc
+        limit ${IMPLICATION_LIMIT}
+      )
+      update project_memory p
+      set salience = greatest(${IMPLICATION_SALIENCE_FLOOR}, p.salience * ${IMPLICATION_SALIENCE_DECAY}),
+          confidence = 'low',
+          updated_at = now()
+      from implicated i
+      where p.id = i.id
+      returning p.id
+    `)
+    const rows = (result as { rows?: Record<string, unknown>[] })?.rows ?? []
+    return rows.length
+  } catch (error) {
+    console.warn('[memory] Feedback implication failed (non-fatal):', error)
+    return 0
+  }
 }

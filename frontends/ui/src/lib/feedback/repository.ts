@@ -40,6 +40,27 @@ export interface UpsertAnswerFeedbackValues {
   verdict: AnswerFeedbackVerdict
   reason: AnswerFeedbackReason | null
   comment: string | null
+  /** Lessons-experiment arm, or null when the holdout is off. */
+  lessonsHoldout?: boolean | null
+}
+
+/**
+ * The caller's existing vote on one answer, if any. Read before the upsert by
+ * the memory-implication trigger, which must fire on NEW complaint text only —
+ * an unchanged re-vote (same comment saved twice) must not penalize the same
+ * notes twice.
+ */
+export async function getAnswerFeedbackForUser(
+  userId: string,
+  messageId: string
+): Promise<AnswerFeedback | null> {
+  const db = getDb()
+  const [row] = await db
+    .select()
+    .from(answerFeedback)
+    .where(and(eq(answerFeedback.userId, userId), eq(answerFeedback.messageId, messageId)))
+    .limit(1)
+  return row ?? null
 }
 
 /** Insert or update the caller's vote on one answer (re-vote semantics). */
@@ -57,6 +78,7 @@ export async function upsertAnswerFeedback(values: UpsertAnswerFeedbackValues): 
         conversationId: values.conversationId,
         projectId: values.projectId,
         organizationId: values.organizationId,
+        lessonsHoldout: values.lessonsHoldout ?? null,
         updatedAt: new Date(),
       },
     })

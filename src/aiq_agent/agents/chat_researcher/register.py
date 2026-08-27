@@ -28,6 +28,7 @@ from aiq_agent.common.citation_verification import get_or_create_session_registr
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.nat_converters import ensure_registered as _ensure_nat_converters_registered
+from aiq_agent.common.platform_lessons import render_lessons_block
 from aiq_agent.conversation_context import register_context_appender
 from aiq_agent.observability.otel_header_redaction_exporter import (
     ensure_registered as _ensure_otel_redaction_registered,
@@ -710,6 +711,7 @@ def _build_deep_research_job_submitter(
             data_sources=state.data_sources,
             collection_scope=state.collection_scope,
             project_context=state.project_context,
+            platform_lessons=render_lessons_block(state.platform_lessons),
             model_overrides=get_model_overrides_from_context() or None,
             # Structured fields (not prose-folded into input_text) so the
             # worker sets them on DeepResearchAgentState and the deep
@@ -934,12 +936,25 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         # per-collection document reads overlap. Each degrades independently:
         # a failure in one never affects the other.
         async def _load_project_context():
-            """Live per-turn project context (profile + memory digest).
+            """Live per-turn project context (profile + memory digest) plus the
+            platform-lessons digest.
 
-            Returns the 5-tuple consumed below. Fail-open: on any error the
+            Returns the 3-tuple consumed below. Fail-open: on any error the
             defaults are returned so the turn proceeds without a live digest.
             """
             _project_context = None
+            _platform_lessons = None
+            # Anonymized fleet-wide failure patterns distilled from user
+            # down-votes (docs/architecture/platform-failure-learning.md).
+            # Platform-scoped, so fetched regardless of project/org context;
+            # the module TTL-caches, so the per-turn cost is ~zero between
+            # refreshes and the to_thread only exists for the cold fetch.
+            try:
+                from aiq_agent.common.platform_lessons import get_platform_lessons_digest
+
+                _platform_lessons = await asyncio.to_thread(get_platform_lessons_digest, nat_context_conversation_id)
+            except Exception:
+                logger.warning("Platform-lessons digest fetch failed; continuing without", exc_info=True)
             # The request-scoped half of the post-answer stages' TurnFacts,
             # captured while the request context is still live — the stage tasks
             # run after this returns, when the context is gone. The turn-scoped
@@ -967,7 +982,10 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                         from aiq_agent.knowledge.project_memory import fetch_memory_digest
 
                         _live_digest = await asyncio.to_thread(
-                            fetch_memory_digest, project_id=_project_id, organization_id=_org_id
+                            fetch_memory_digest,
+                            project_id=_project_id,
+                            organization_id=_org_id,
+                            query=query_text,
                         )
                         # A successful fetch is authoritative even when empty (memory
                         # may have been cleared); only a failure keeps the header value.
@@ -1011,7 +1029,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 )
             except ImportError:
                 pass
-            return (_project_context, _stage_facts)
+            return (_project_context, _platform_lessons, _stage_facts)
 
         # Check if API keys are missing and return graceful error response
         if api_key_error_response:
@@ -1176,7 +1194,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         # GET (cold-cache, ~0.5s socket timeout) is offloaded via asyncio.to_thread
         # so it overlaps the gather instead of blocking the loop serially after it.
         (
-            (_project_context, _stage_facts),
+            (_project_context, _platform_lessons, _stage_facts),
             available_documents,
             session_registry,
         ) = await asyncio.gather(
@@ -1207,6 +1225,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 focus_shelf=_focus_shelf,
                 skip_clarifier=skip_clarifier,
                 project_context=_project_context,
+                platform_lessons=_platform_lessons,
             )
             # Unified LLM cost capture + budget enforcement for the whole turn
             # (every agent/LLM call inside inherits the tracker via LangChain's

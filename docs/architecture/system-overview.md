@@ -172,14 +172,30 @@ different questions and reach the agent differently:
 - **Retrieval (RAG) — "the library, searched on demand."** The OIB corpus,
   uploaded documents, and chat attachments live as embeddings in ChromaDB,
   queried per turn and scoped by a base64url `X-Grid-Collection-Scope` header:
-  `[oib_knowledge, proj_<id>, s_<conversation>]`. Legal claims must ground here
-  and are cited.
+  `[oib_knowledge, archiv_<org>, proj_<id>, s_<conversation>]`. Legal claims
+  must ground here and are cited.
 - **Memory & context — "the briefing, carried every turn."** The intake profile
   and agent-curated project/org memory are compact text, **injected into every
   prompt** via the `x-grid-project-context` and `x-grid-project-memory` headers.
-  Never embedded; never a citation source.
+  Memory rows carry embeddings for recall ranking
+  ([semantic-notes.md](./semantic-notes.md)), but the digest is injected, not
+  retrieved-and-cited; memory is never a citation source.
 
-→ `docs/architecture/backend-deep-dive.md`, `docs/architecture/project-memory-design.md`.
+Both systems follow the same **scope hierarchy** — each level nests inside the
+one above it, a question searches every level it sits in, and tenancy makes a
+level invisible outside its owner. This containment is the structural fact of
+the knowledge architecture; the source-kind chips (`baurecht | buero | projekt
+| web`) are a labelling dimension *within* it, not a second hierarchy:
+
+| Level | Documents (ChromaDB) | Learned state (`grid_app`) | Visible to |
+|---|---|---|---|
+| Platform | `oib_knowledge` (OIB corpus) | platform lessons | everyone |
+| Organization | `archiv_<org>` (Archiv, ADR-0024, feature-gated) | — | that org |
+| Project | `proj_<id>` (uploaded documents) | project memory | project members |
+| Conversation | `s_<conversation>` (chat attachments) | — | that conversation |
+
+→ `docs/architecture/backend-deep-dive.md`, `docs/architecture/project-memory-design.md`,
+`docs/technical-reference/collection-scoping.md`.
 
 ### 5.3 Cards — the rich-UI layer
 Cards are the agent's **structured presentation vocabulary** (ADR 0012), not a
@@ -231,7 +247,17 @@ OpenRouter, a self-hosted vLLM/Ollama, Azure OpenAI, NVIDIA NIM. The reference
 config is `config_oib_openrouter.yml`; `CONFIG_FILE` selects the active one.
 → `docs/architecture/llm-providers.md`.
 
-### 5.10 Observability
+### 5.10 Platform lessons (failure learning)
+The correction ratchet, applied to the product: a down-vote on an answer is a
+human intervention, so it is distilled — automatically, per report — into an
+anonymized, deduplicated **lesson** the agent reads on every turn, framed
+everywhere as a symptomatic bandage whose root cause stays marked open until
+closed. Platform-scoped tables (`platform_lessons` + provenance-by-reference +
+an append-only event trail), an LLM distill/match/audit pipeline on the
+backend, and a Platform → Lessons dashboard.
+→ `docs/architecture/platform-failure-learning.md`.
+
+### 5.11 Observability
 The agent emits intermediate steps (thinking, tool calls, `remember` writes) to
 the UI trace view, plus token/cost accounting (`tokenomics`) and structured
 logging. Memory capture is silent but observable in these traces.
@@ -269,11 +295,11 @@ marks it purged. Restore is possible only while the row is un-claimed.
 
 | Store | Owner | Holds |
 |---|---|---|
-| **`grid_app`** (Postgres) | BFF (single writer) | projects, conversations, messages, documents, folders, **project_memory**, **deletion_queue**, **legal_holds**, user_preferences |
+| **`grid_app`** (Postgres) | BFF (single writer) | projects, conversations, messages, documents, folders, **project_memory**, **platform_lessons** (+ reports/events), **deletion_queue**, **legal_holds**, user_preferences |
 | **`aiq_jobs`** (Postgres) | backend | job info/access/events (deep research), document summaries |
 | **`aiq_checkpoints`** (Postgres) | backend | LangGraph conversation checkpoints (thread state) |
 | **SeaweedFS** (`grid-documents`) | BFF writes, backend/purger read | OIB PDFs + uploaded documents, keyed by org/project |
-| **ChromaDB** | backend | vector collections: `oib_knowledge` (global), `proj_<id>` (per project), `s_<conversation>` (session). Memory is **not** vectorized — it lives in `grid_app`. |
+| **ChromaDB** | backend | vector collections: `oib_knowledge` (global), `archiv_<org>` (org Archiv), `proj_<id>` (per project), `s_<conversation>` (session). Memory and lessons are not in Chroma — they live in `grid_app`, with row-resident embeddings for recall ([semantic-notes.md](./semantic-notes.md)). |
 
 Schema evolves via Drizzle migrations (`frontends/ui/drizzle/`, applied on
 frontend start). → `docs/database/`.
@@ -335,9 +361,11 @@ ingestion is a one-time `scripts/ingest_oib.py` after first boot. → `docs/depl
   from the final report in the job runner and deliver them via the job SSE
   stream and job output; the synchronous inline deep-research path (no Dask)
   still returns no cards.
-- **Memory** — Phase 1 (capture + digest + curation). Consolidation/dedup and
-  RAG-recall of memory are designed but not built; org-wide memory writes are not
-  yet permission-gated to admins.
+- **Memory** — capture, curation, semantic consolidation and query-relevant
+  recall are built (see `architecture/semantic-notes.md`); what remains open
+  there is a re-embedding backfill, hybrid lexical+dense recall, and
+  validation-before-use. Org-wide memory writes are still not permission-gated
+  to admins.
 - **Runtime verification** — several fixes are statically verified but await one
   live end-to-end pass (chat project-knowledge, PDF preview/download, the
   research-tab 403, escalation-marker compliance, an end-to-end deletion).

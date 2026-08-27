@@ -151,6 +151,7 @@ class DeepResearchGraphContext:
             user_info=self.state.user_info,
             available_documents=self.available_documents,
             project_context=self.project_context,
+            platform_lessons=self.state.platform_lessons,
             ris_catalog=self.ris_catalog,
             norm_doctrine=doctrine_for(self.project_context),
             jurisdiction_grounding=JURISDICTION_GROUNDING,

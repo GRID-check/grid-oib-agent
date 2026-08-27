@@ -54,6 +54,7 @@ from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
 from aiq_agent.common.norm_registry import doctrine_for
 from aiq_agent.common.norm_registry import parcel_note
 from aiq_agent.common.norm_registry import render_block_for_prompt
+from aiq_agent.common.platform_lessons import render_lessons_block
 from aiq_agent.common.turn_status import emit_research_truncated
 
 from ...common import LLMProvider
@@ -792,6 +793,7 @@ class ShallowResearcherAgent:
                     current_datetime=current_datetime,
                     available_documents=_documents_dump,
                     project_context=state.project_context,
+                    platform_lessons=render_lessons_block(state.platform_lessons),
                     focus_file_name=state.focus_file_name,
                     focus_shelf_label=_shelf_label(state.focus_shelf),
                     ris_catalog=render_block_for_prompt(state.project_context) if state.requires_sources else None,

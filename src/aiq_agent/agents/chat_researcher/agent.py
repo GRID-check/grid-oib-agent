@@ -39,6 +39,7 @@ from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 from aiq_agent.common import get_latest_user_query
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.job_admission import JobAdmissionError
+from aiq_agent.common.platform_lessons import render_lessons_block
 from aiq_agent.common.profiler import profiled_node
 
 try:
@@ -467,6 +468,7 @@ class ChatResearcherAgent:
                     user_info=state.user_info,
                     available_documents=state.available_documents,
                     project_context=state.project_context,
+                    platform_lessons=state.platform_lessons,
                     focus_file_name=state.focus_file_name,
                     focus_shelf=state.focus_shelf,
                     requires_sources=requires_sources,
@@ -703,6 +705,7 @@ class ChatResearcherAgent:
                 available_documents=state.available_documents,
                 user_info=state.user_info,
                 project_context=state.project_context,
+                platform_lessons=render_lessons_block(state.platform_lessons),
             )
             try:
                 result = await self.deep_research_fn(deep_state)
@@ -921,6 +924,10 @@ class ChatResearcherAgent:
                 "clarifier_result": None,
                 "skip_clarifier": state.skip_clarifier,
                 "project_context": state.project_context,
+                # Refreshed per turn like project_context: the register layer
+                # fetched this turn's digest, and a checkpointed value from an
+                # earlier turn would outlive a curation change.
+                "platform_lessons": state.platform_lessons,
             }
             messages = state.messages
 

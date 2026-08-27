@@ -477,6 +477,27 @@
       "when": 1788220800005,
       "tag": "0067_document_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1788307200005,
+      "tag": "0068_platform_lessons",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1788393600005,
+      "tag": "0069_semantic_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1788480000005,
+      "tag": "0070_lesson_effectiveness",
+      "breakpoints": true
     }
   ]
 }

@@ -432,6 +432,7 @@ export const platform: typeof en.platform = {
     models: 'Modelle',
     retrieval: 'Abruf',
     quality: 'Antwortqualität',
+    lessons: 'Lektionen',
     cards: 'Karten',
     knowledge: 'Basiswissen',
     norms: 'Normenkatalog',
@@ -544,6 +545,11 @@ export const platform: typeof en.platform = {
       title: 'Antwortqualität',
       subtitle: 'Wie gut Antworten belegt sind, was Nutzerinnen und Nutzer von ihnen hielten, und der Ausführungsverlauf hinter jedem Turn, der es nicht war.',
     },
+    lessons: {
+      title: 'Lektionen',
+      subtitle:
+        'Was die Plattform aus negativem Feedback gelernt hat — anonymisiert, dedupliziert und in jede Antwort injiziert, damit ein gemeldeter Fehler sich nicht wiederholt. Jede Lektion ist ein symptomatisches Pflaster, keine Ursachenbehebung.',
+    },
     knowledge: {
       title: 'Basiswissen',
       subtitle: 'Der gemeinsame OIB-Korpus, auf den jedes Projekt seine Antworten stützt.',
@@ -563,6 +569,68 @@ export const platform: typeof en.platform = {
     },
   },
   /** Platform → Karten: das Darstellungsvokabular des Agenten, gerendert. */
+  /** Plattform → Lektionen: das Fehlerlern-Register (als Pflaster gerahmt). */
+  lessons: {
+    title: 'Lektionsregister',
+    description:
+      'Automatisch aus negativ bewerteten Antworten destilliert: Jede Meldung wird anonymisiert, gegen das Register abgeglichen und — wenn sie verallgemeinerbar ist und die Prüfung besteht — als Prozess-Hinweis aktiviert, den der Assistent bei jeder Antwort liest.',
+    doctrineTitle: 'Das sind Pflaster, keine Behebungen',
+    doctrineBody:
+      'Eine Lektion verhindert die Wiederholung eines gemeldeten Fehlers, indem sie den Assistenten um das Symptom herumführt. Die Ursache — ein Prompt, eine Abruf-Lücke, eine fehlende Quelle — bleibt offen, bis jemand sie schließt und als behoben markiert. Ein Register, das nur wächst, ist ein Rückstand unbehobener Ursachen, kein Erfolg.',
+    sweep: 'Rückstand verarbeiten',
+    sweeping: 'Verarbeite…',
+    sweepDone: '{processed} Meldungen verarbeitet: {created} neue Lektionen, {linked} bestehenden zugeordnet.',
+    sweepError: 'Die Verarbeitung ist fehlgeschlagen. Meldungen bleiben in der Warteschlange.',
+    loadError: 'Das Lektionsregister konnte nicht geladen werden.',
+    emptyTitle: 'Noch keine Lektionen',
+    emptyBody:
+      'Wenn Nutzerinnen und Nutzer Antworten als nicht hilfreich markieren, werden die Meldungen hier zu Lektionen destilliert — automatisch, und jede bis zum Feedback dahinter nachvollziehbar.',
+    updated: 'Lektion aktualisiert.',
+    updateError: 'Die Lektion konnte nicht aktualisiert werden.',
+    groups: {
+      candidate: 'Zur Prüfung zurückgehalten',
+      active: 'Aktiv — in jede Antwort injiziert',
+      retired: 'Stillgelegt',
+    },
+    held: {
+      audit_flagged: 'Prüfung angeschlagen',
+      not_generalizable: 'Nicht verallgemeinerbar',
+    },
+    evicted: 'Verdrängt (Kapazität)',
+    rootCause: {
+      open: 'Ursache offen',
+      addressed: 'Ursache behoben',
+    },
+    reportMeta: '{count}× gemeldet',
+    orgMeta: '{count} Organisation(en)',
+    lastReported: 'zuletzt {date}',
+    activate: 'Aktivieren',
+    retire: 'Stilllegen',
+    retireConfirmTitle: 'Diese Lektion stilllegen?',
+    retireConfirmBody:
+      'Der Assistent liest sie ab dem nächsten Turn nicht mehr, für jede Organisation. Lektion und vollständiger Verlauf bleiben erhalten.',
+    markAddressed: 'Ursache als behoben markieren',
+    reopenRootCause: 'Ursache wieder öffnen',
+    provenance: 'Verlauf',
+    provenanceTitle: 'Lektionsverlauf',
+    provenanceSubtitle:
+      'Jeder Übergang und jede Meldung hinter dieser Lektion. Meldungen sind konstruktiv anonymisiert: eine Zusammenfassung, ein pseudonymer Organisations-Hash und die Feedback-Referenz — die Rohmeldung bleibt in ihrer Organisation.',
+    provenanceReports: 'Meldungen',
+    provenanceNoReports: 'Keine Herkunftszeilen — diese Lektion ist älter als die Meldungserfassung.',
+    provenanceNoSummary: 'Für diese Meldung wurde keine Zusammenfassung erfasst.',
+    provenanceOrg: 'Org {hash}…',
+    provenanceFeedback: 'Feedback {id}…',
+    provenanceEvents: 'Ereignisse',
+    eventActions: {
+      created: 'Aus einer Meldung destilliert',
+      report_linked: 'Weitere Meldung zugeordnet',
+      activated: 'Aktiviert',
+      retired: 'Stillgelegt',
+      reactivated: 'Reaktiviert',
+      edited: 'Formulierung bearbeitet',
+      root_cause_updated: 'Ursachen-Status geändert',
+    },
+  },
   cards: {
     title: 'Kartenkatalog',
     description:

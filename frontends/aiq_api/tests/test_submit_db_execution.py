@@ -38,6 +38,7 @@ def _sample_payload():
         data_sources=["web"],
         auth_token="tok",
         collection_scope=["c1"],
+        platform_lessons='PLATFORM_LESSONS v1\n- [inaccurate | 2x] "Maße nie schätzen."',
         project_context="ctx",
         model_overrides={"group": "model"},
         usage_context={"identity": {"organization_id": "org"}},

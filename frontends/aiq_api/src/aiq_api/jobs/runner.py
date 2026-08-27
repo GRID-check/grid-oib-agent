@@ -480,6 +480,9 @@ async def run_agent_job(
     auth_token: str | None = None,
     collection_scope: list[str] | None = None,
     project_context: str | None = None,
+    # Rendered PLATFORM_LESSONS block, carried in the job payload because
+    # request contextvars do not survive into a background worker.
+    platform_lessons: str | None = None,
     model_overrides: dict[str, str] | None = None,
     usage_context: dict | None = None,
     user_info: dict | None = None,
@@ -924,6 +927,7 @@ async def run_agent_job(
                             user_info=user_info,
                             clarifier_result=clarifier_result,
                             project_context=project_context,
+                            platform_lessons=platform_lessons,
                             force_skills=force_skills,
                             organization_id=_job_org_id,
                         )
@@ -1244,6 +1248,7 @@ async def _run_agent(
     user_info: dict | None = None,
     clarifier_result: str | None = None,
     project_context: str | None = None,
+    platform_lessons: str | None = None,
     force_skills: list[str] | None = None,
     organization_id: str | None = None,
 ) -> Any:
@@ -1287,6 +1292,7 @@ async def _run_agent(
                 ("user_info", user_info),
                 ("clarifier_result", clarifier_result),
                 ("project_context", project_context),
+                ("platform_lessons", platform_lessons),
                 ("force_skills", force_skills),
                 # No request headers exist in a Dask worker, so an agent that
                 # resolves per-tenant data (deep research resolves the org's
@@ -1324,6 +1330,8 @@ async def _run_agent(
                 state["clarifier_result"] = clarifier_result
             if project_context is not None:
                 state["project_context"] = project_context
+            if platform_lessons is not None:
+                state["platform_lessons"] = platform_lessons
             if force_skills is not None:
                 state["force_skills"] = force_skills
 

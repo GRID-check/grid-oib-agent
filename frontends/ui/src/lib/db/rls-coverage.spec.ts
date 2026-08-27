@@ -52,6 +52,11 @@ const BOUNDARY_MIGRATIONS = [
    // Adds document_roles — which document plays which part in a project's
    // intake. Project-scoped data, so inside the boundary.
    '0067_document_roles.sql',
+  // Adds the three platform-lesson tables — anonymized lessons distilled from
+  // answer feedback, their provenance-by-reference, and their append-only
+  // event trail. No tenant data (provenance is a feedback uuid + an org hash),
+  // so PLATFORM tables: every tenant reads, only the platform role writes.
+  '0068_platform_lessons.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>
@@ -188,6 +193,9 @@ describe('row-level security coverage', () => {
     // role; securing one with an organization predicate would silently make it
     // unreadable for every tenant instead.
     expect(platform).toEqual([
+      'platform_lesson_events',
+      'platform_lesson_reports',
+      'platform_lessons',
       'platform_model_defaults',
       'platform_reasoning_efforts',
       'platform_retrieval_settings',

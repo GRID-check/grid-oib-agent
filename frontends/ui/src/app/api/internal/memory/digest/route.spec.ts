@@ -80,7 +80,9 @@ describe('GET /api/internal/memory/digest', () => {
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body.digest).toContain('PROJECT_MEMORY v1')
-    expect(buildProjectMemoryDigest).toHaveBeenCalledWith(PROJECT_ID, ORG_ID)
+    expect(buildProjectMemoryDigest).toHaveBeenCalledWith(PROJECT_ID, ORG_ID, {
+      query: undefined,
+    })
   })
 
   it('returns digest:null (200) when there is no active memory', async () => {
@@ -92,7 +94,9 @@ describe('GET /api/internal/memory/digest', () => {
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body.digest).toBeNull()
-    expect(buildProjectMemoryDigest).toHaveBeenCalledWith(undefined, ORG_ID)
+    expect(buildProjectMemoryDigest).toHaveBeenCalledWith(undefined, ORG_ID, {
+      query: undefined,
+    })
   })
 
   it('returns 500 when the digest builder throws', async () => {
@@ -122,7 +126,9 @@ describe('GET /api/internal/memory/digest', () => {
       expect(resolveProjectOrganization).toHaveBeenCalledWith(PROJECT_ID)
       // The organization the PROJECT names — never undefined, which is what
       // made the read unscoped.
-      expect(buildProjectMemoryDigest).toHaveBeenCalledWith(PROJECT_ID, ORG_ID)
+      expect(buildProjectMemoryDigest).toHaveBeenCalledWith(PROJECT_ID, ORG_ID, {
+      query: undefined,
+    })
     })
 
     it('reads nothing at all when the project does not exist', async () => {
