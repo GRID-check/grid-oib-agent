@@ -88,6 +88,9 @@ def parts():
         result.messages = list(state_input.messages)
         result.clarifier_log = "planned"
         result.plan_rejected = True
+        # Explicit, like plan_rejected: a bare MagicMock auto-vivifies the
+        # attribute truthy, which would take every turn down the cancel branch.
+        result.plan_cancelled = False
         result.get_approved_plan_context = MagicMock(return_value=None)
         return result
 
@@ -182,6 +185,87 @@ class TestRejectionDegradesToAnAnswer:
         assert result.get("escalation_reason") is None, "a decline is not an escalation"
 
 
+class TestCancellationEndsTheTurnWithAReceipt:
+    """An explicit cancellation (the „Abbrechen" button, "cancel"/"abbrechen")
+    is the one refusal that may end the turn without an answer — the user chose
+    it over the shallow option offered right next to it. It must still say so:
+    a silently ended turn reads as a crash, and the old dead-end text told the
+    user to retype a question the product was holding.
+    """
+
+    @pytest.fixture
+    def cancelling_parts(self, parts):
+        calls, classifier, shallow, deep, _rejecting = parts
+
+        async def cancelling_clarifier(state_input):
+            calls["clarifier"] += 1
+            result = MagicMock()
+            result.messages = list(state_input.messages)
+            result.clarifier_log = "planned"
+            result.plan_rejected = False
+            result.plan_cancelled = True
+            result.get_approved_plan_context = MagicMock(return_value=None)
+            return result
+
+        return calls, classifier, shallow, deep, cancelling_clarifier
+
+    @pytest.mark.asyncio
+    async def test_cancel_runs_no_research_and_leaves_a_receipt(self, cancelling_parts):
+        calls, classifier, shallow, deep, clarifier = cancelling_parts
+        agent = _build(classifier, shallow, deep, clarifier)
+
+        result = await agent.run(
+            ChatResearcherState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
+            thread_id="cancel-1",
+        )
+
+        assert calls["clarifier"] == 1
+        assert calls["deep"] == 0, "a cancelled plan must not run deep research"
+        assert calls["shallow"] == 0, "a cancellation is not a decline: no shallow answer was asked for"
+
+        answers = [m.content for m in result["messages"] if isinstance(m, AIMessage)]
+        assert any("verworfen" in c for c in answers), "the cancellation needs a visible receipt"
+        assert not any("start a new research query" in c.lower() for c in answers)
+
+    @pytest.mark.asyncio
+    async def test_cancel_is_reported_as_shallow_not_deep(self, cancelling_parts):
+        """The panel must not quote back the deep route the user just refused."""
+        calls, classifier, shallow, deep, clarifier = cancelling_parts
+        agent = _build(classifier, shallow, deep, clarifier)
+
+        result = await agent.run(
+            ChatResearcherState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
+            thread_id="cancel-2",
+        )
+
+        depth_decision = result["depth_decision"]
+        assert depth_decision.decision == "shallow"
+        assert depth_decision.raw_reasoning is None
+        assert result.get("escalation_reason") is None, "a cancellation is not an escalation"
+
+    @pytest.mark.asyncio
+    async def test_cancel_declines_deep_for_the_conversation(self, cancelling_parts):
+        """Re-asking after a cancellation yields the answer, not plan number two
+        — which is exactly what the receipt promises."""
+        calls, classifier, shallow, deep, clarifier = cancelling_parts
+        agent = _build(classifier, shallow, deep, clarifier)
+
+        result = await agent.run(
+            ChatResearcherState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
+            thread_id="cancel-3",
+        )
+        assert result["deep_research_declined"] is True
+
+        await agent.run(
+            ChatResearcherState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
+            thread_id="cancel-3",
+        )
+
+        assert calls["clarifier"] == 1, "no second plan after a cancellation"
+        assert calls["deep"] == 0
+        assert calls["shallow"] == 1, "the re-asked question is answered on the shallow path"
+
+
 class TestRejectionIsRemembered:
     @pytest.mark.asyncio
     async def test_the_rejection_is_recorded_on_the_conversation(self, parts):
@@ -228,6 +312,7 @@ class TestRejectionIsRemembered:
             result.messages = list(state_input.messages)
             result.clarifier_log = "planned"
             result.plan_rejected = False
+            result.plan_cancelled = False
             result.get_approved_plan_context = MagicMock(return_value=None)
             return result
 

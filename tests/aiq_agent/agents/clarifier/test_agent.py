@@ -531,40 +531,74 @@ class TestClarifierAgentApprovalParsing:
     )
     def test_parse_approval_approved(self, agent, response):
         """Test all approval keywords are recognized."""
-        approved, rejected, feedback = agent._parse_approval(response)
-        assert approved is True
-        assert rejected is False
+        decision, feedback = agent._parse_approval(response)
+        assert decision == "approved"
         assert feedback is None
 
-    @pytest.mark.parametrize("response", ["reject", "rejected", "no", "cancel", "stop", "abort", "n"])
-    def test_parse_approval_rejected(self, agent, response):
-        """Test all rejection keywords are recognized."""
-        approved, rejected, feedback = agent._parse_approval(response)
-        assert approved is False
-        assert rejected is True
+    @pytest.mark.parametrize("response", ["reject", "rejected", "no", "n"])
+    def test_parse_approval_rejection_words_decline_to_shallow(self, agent, response):
+        """A rejection word refuses the plan, not the answer — it routes shallow."""
+        decision, feedback = agent._parse_approval(response)
+        assert decision == "shallow"
+        assert feedback is None
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            "shallow",
+            "Shallow",
+            "shallow research",
+            "quick answer",
+            "kurz",
+            "kurz beantworten",
+            "kurze antwort",
+            "Kurze Recherche",
+        ],
+    )
+    def test_parse_approval_shallow_requested_by_name(self, agent, response):
+        """The option the plan preview offers by name (the UI's shallow button)."""
+        decision, feedback = agent._parse_approval(response)
+        assert decision == "shallow"
+        assert feedback is None
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            "cancel",
+            "stop",
+            "abort",
+            "abbrechen",
+            "Abbrechen",
+            "abbruch",
+            "verwerfen",
+            "cancel please",
+            "abbrechen, danke",
+        ],
+    )
+    def test_parse_approval_cancellation_words_cancel_the_turn(self, agent, response):
+        """A stop word ends the turn: no plan, and no answer either."""
+        decision, feedback = agent._parse_approval(response)
+        assert decision == "cancelled"
         assert feedback is None
 
     @pytest.mark.parametrize("response", ["ja", "Ja", "passt", "einverstanden", "in ordnung", "Genehmigt"])
     def test_parse_approval_german_approved(self, agent, response):
         """German approval keywords are recognized (German-first product)."""
-        approved, rejected, feedback = agent._parse_approval(response)
-        assert approved is True
-        assert rejected is False
+        decision, feedback = agent._parse_approval(response)
+        assert decision == "approved"
         assert feedback is None
 
-    @pytest.mark.parametrize("response", ["nein", "Nein", "abbrechen", "ablehnen", "verwerfen"])
+    @pytest.mark.parametrize("response", ["nein", "Nein", "ablehnen"])
     def test_parse_approval_german_rejected(self, agent, response):
         """German rejection keywords are recognized (German-first product)."""
-        approved, rejected, feedback = agent._parse_approval(response)
-        assert approved is False
-        assert rejected is True
+        decision, feedback = agent._parse_approval(response)
+        assert decision == "shallow"
         assert feedback is None
 
     def test_parse_approval_german_feedback_still_treated_as_feedback(self, agent):
         """Longer German responses remain plan-revision feedback, not approvals."""
-        approved, rejected, feedback = agent._parse_approval("Bitte einen Abschnitt zum Brandschutz ergänzen")
-        assert approved is False
-        assert rejected is False
+        decision, feedback = agent._parse_approval("Bitte einen Abschnitt zum Brandschutz ergänzen")
+        assert decision == "feedback"
         assert feedback == "Bitte einen Abschnitt zum Brandschutz ergänzen"
 
     @pytest.mark.parametrize(
@@ -591,10 +625,12 @@ class TestClarifierAgentApprovalParsing:
         feedback branch — and the feedback branch REGENERATES THE PLAN. That is
         why the live transcript's user, having said "no i dont want a deep
         research pla", was shown a second plan instead of being let go.
+
+        A refusal routes shallow, not to a cancellation: the question is still
+        standing, and answering it is the whole point of the fall-through.
         """
-        approved, rejected, feedback = agent._parse_approval(response)
-        assert approved is False
-        assert rejected is True, f"{response!r} refuses the plan; treating it as feedback re-plans at the user"
+        decision, feedback = agent._parse_approval(response)
+        assert decision == "shallow", f"{response!r} refuses the plan; treating it as feedback re-plans at the user"
         assert feedback is None
 
     @pytest.mark.parametrize(
@@ -618,41 +654,41 @@ class TestClarifierAgentApprovalParsing:
         still be a revision, and it may refuse something ("don't include costs")
         without refusing the plan.
         """
-        approved, rejected, feedback = agent._parse_approval(response)
-        assert approved is False
-        assert rejected is False, f"{response!r} is a plan revision; cancelling on it would discard the user's edit"
+        decision, feedback = agent._parse_approval(response)
+        assert decision == "feedback", f"{response!r} is a revision; cancelling on it would discard the user's edit"
         assert feedback == response
 
     def test_parse_approval_feedback(self, agent):
         """Test feedback response is captured."""
-        approved, rejected, feedback = agent._parse_approval("Please add a section about security")
-        assert approved is False
-        assert rejected is False
+        decision, feedback = agent._parse_approval("Please add a section about security")
+        assert decision == "feedback"
         assert feedback == "Please add a section about security"
 
     def test_parse_approval_case_insensitive(self, agent):
         """Test approval parsing is case insensitive."""
-        approved, rejected, feedback = agent._parse_approval("APPROVE")
-        assert approved is True
+        decision, _ = agent._parse_approval("APPROVE")
+        assert decision == "approved"
 
-        approved, rejected, feedback = agent._parse_approval("REJECT")
-        assert rejected is True
+        decision, _ = agent._parse_approval("REJECT")
+        assert decision == "shallow"
+
+        decision, _ = agent._parse_approval("CANCEL")
+        assert decision == "cancelled"
 
     def test_parse_approval_with_whitespace(self, agent):
         """Test approval parsing handles whitespace."""
-        approved, rejected, feedback = agent._parse_approval("  approve  ")
-        assert approved is True
+        decision, _ = agent._parse_approval("  approve  ")
+        assert decision == "approved"
 
     def test_parse_approval_json_wrapped(self, agent):
         """Test approval parsing extracts query from JSON."""
-        approved, rejected, feedback = agent._parse_approval('{"query": "approve", "context": "test"}')
-        assert approved is True
+        decision, _ = agent._parse_approval('{"query": "approve", "context": "test"}')
+        assert decision == "approved"
 
     def test_parse_approval_json_wrapped_feedback(self, agent):
         """Test feedback extraction from JSON-wrapped response."""
-        approved, rejected, feedback = agent._parse_approval('{"query": "add more sections"}')
-        assert approved is False
-        assert rejected is False
+        decision, feedback = agent._parse_approval('{"query": "add more sections"}')
+        assert decision == "feedback"
         assert feedback == "add more sections"
 
 
@@ -685,7 +721,8 @@ class TestClarifierAgentPlanFormatting:
         assert "2. Background" in result
         assert "3. Analysis" in result
         assert "approve" in result.lower()
-        assert "reject" in result.lower()
+        assert "shallow" in result.lower()
+        assert "cancel" in result.lower()
 
     def test_format_plan_for_user_empty_sections(self, agent):
         """Test plan formatting with empty sections list."""
@@ -849,6 +886,60 @@ class TestClarifierAgentPlanApproval:
         assert result is not None
         assert result.plan_approved is False
         assert result.plan_rejected is True
+        assert result.plan_cancelled is False
+
+    @pytest.mark.asyncio
+    async def test_run_with_plan_approval_shallow_request(self, mock_llm_provider, mock_llm, mock_planner_llm):
+        """The explicit middle way: „Kurz beantworten" declines the plan the
+        same way a rejection does, so the caller falls through to shallow."""
+        complete_response = ClarificationResponse(needs_clarification=False, clarification_question=None)
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=complete_response.model_dump_json()))
+
+        plan_response = '{"title": "Test Plan", "sections": ["Section 1", "Section 2"]}'
+        mock_planner_llm.ainvoke = AsyncMock(return_value=AIMessage(content=plan_response))
+
+        mock_user_callback = AsyncMock(return_value="shallow")
+
+        agent = ClarifierAgent(
+            llm_provider=mock_llm_provider,
+            user_prompt_callback=mock_user_callback,
+            enable_plan_approval=True,
+            planner_llm=mock_planner_llm,
+        )
+
+        state = ClarifierAgentState(messages=[HumanMessage(content="Research AI")])
+        result = await agent.run(state)
+
+        assert result is not None
+        assert result.plan_approved is False
+        assert result.plan_rejected is True
+        assert result.plan_cancelled is False
+
+    @pytest.mark.asyncio
+    async def test_run_with_plan_approval_cancelled(self, mock_llm_provider, mock_llm, mock_planner_llm):
+        """An explicit cancellation is neither an approval nor a decline-to-shallow."""
+        complete_response = ClarificationResponse(needs_clarification=False, clarification_question=None)
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=complete_response.model_dump_json()))
+
+        plan_response = '{"title": "Test Plan", "sections": ["Section 1", "Section 2"]}'
+        mock_planner_llm.ainvoke = AsyncMock(return_value=AIMessage(content=plan_response))
+
+        mock_user_callback = AsyncMock(return_value="cancel")
+
+        agent = ClarifierAgent(
+            llm_provider=mock_llm_provider,
+            user_prompt_callback=mock_user_callback,
+            enable_plan_approval=True,
+            planner_llm=mock_planner_llm,
+        )
+
+        state = ClarifierAgentState(messages=[HumanMessage(content="Research AI")])
+        result = await agent.run(state)
+
+        assert result is not None
+        assert result.plan_approved is False
+        assert result.plan_rejected is False
+        assert result.plan_cancelled is True
 
     @pytest.mark.asyncio
     async def test_run_with_plan_approval_feedback_then_approve(self, mock_llm_provider, mock_llm, mock_planner_llm):

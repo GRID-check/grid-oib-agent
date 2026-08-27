@@ -32,6 +32,7 @@ from collections.abc import Callable
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
+from typing import Literal
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
@@ -75,6 +76,9 @@ DEFAULT_PLAN_GENERATION_PROMPT = (
 )
 """Fallback prompt for plan generation."""
 
+PlanDecision = Literal["approved", "shallow", "cancelled", "feedback"]
+"""What the user's reply to the plan preview asks for. See ``_parse_approval``."""
+
 APPROVAL_KEYWORDS = {
     "approve",
     "approved",
@@ -99,17 +103,56 @@ REJECTION_KEYWORDS = {
     "reject",
     "rejected",
     "no",
-    "cancel",
-    "stop",
-    "abort",
     "n",
     # German equivalents (German-first product).
     "nein",
-    "abbrechen",
     "ablehnen",
+}
+"""Keywords that decline the PLAN while leaving the question standing.
+
+A decline falls through to the shallow agent — the user said no to the plan,
+not to being answered (see the caller in ``chat_researcher``). Words that stop
+the whole turn live in ``CANCELLATION_KEYWORDS`` instead.
+"""
+
+SHALLOW_KEYWORDS = {
+    "shallow",
+    "shallow research",
+    "quick answer",
+    "just answer",
+    # German equivalents (German-first product).
+    "kurz",
+    "kurz beantworten",
+    "kurze antwort",
+    "kurzantwort",
+    "kurze recherche",
+    "kurzrecherche",
+    "schnellantwort",
+}
+"""Keywords that explicitly ask for a quick answer instead of the plan.
+
+This is the option the plan preview offers by name (the UI's
+„Kurz beantworten" button sends ``shallow``). Same downstream route as a
+decline — the shallow agent answers now — but asked for rather than fallen
+back to.
+"""
+
+CANCELLATION_KEYWORDS = {
+    "cancel",
+    "stop",
+    "abort",
+    # German equivalents (German-first product).
+    "abbrechen",
+    "abbruch",
     "verwerfen",
 }
-"""Keywords that indicate the user rejects the plan."""
+"""Keywords that stop the turn outright: no plan, and no answer either.
+
+Distinct from ``REJECTION_KEYWORDS`` because the words mean different things:
+"nein" refuses the plan in front of the user, "abbrechen" stops the process.
+Only a cancellation may end the turn without an answer, and it gets an explicit
+receipt from the caller rather than silence.
+"""
 
 # A refusal the exact-match sets above cannot see. ``REJECTION_KEYWORDS`` is
 # tested with ``normalized in REJECTION_KEYWORDS`` — set membership on the WHOLE
@@ -130,7 +173,16 @@ REJECTION_KEYWORDS = {
 # instead of ending the turn, mis-reading a revision as a refusal costs the user
 # an ANSWER to the question they asked, not a discarded turn.
 _BARE_REFUSAL_RE = re.compile(
-    r"^(?:no|nope|nah|nein|na|reject|cancel|stop|abort)"
+    r"^(?:no|nope|nah|nein|na|reject)"
+    r"(?:[\s,.!-]+(?:thanks|thank\s+you|danke|bitte|please|thx))?[\s,.!]*$",
+    re.IGNORECASE,
+)
+# A cancellation word with the same optional politeness tail ("cancel please",
+# "abbrechen, danke"). Kept apart from the refusal shape because the two now
+# route differently: a refusal still gets the question answered shallow, a
+# cancellation ends the turn.
+_BARE_CANCEL_RE = re.compile(
+    r"^(?:cancel|stop|abort|abbrechen|abbruch)"
     r"(?:[\s,.!-]+(?:thanks|thank\s+you|danke|bitte|please|thx))?[\s,.!]*$",
     re.IGNORECASE,
 )
@@ -376,18 +428,21 @@ class ClarifierAgent:
 
         return None, []
 
-    def _parse_approval(self, response: str) -> tuple[bool, bool, str | None]:
+    def _parse_approval(self, response: str) -> tuple[PlanDecision, str | None]:
         """
-        Parse user's approval response.
+        Parse user's approval response into a decision.
 
         Args:
             response: User's response text (may be JSON wrapped).
 
         Returns:
-            Tuple of (approved, rejected, feedback).
-            - If approved: (True, False, None)
-            - If rejected: (False, True, None)
-            - If feedback: (False, False, feedback_text)
+            Tuple of (decision, feedback).
+            - ``("approved", None)``: run deep research on this plan.
+            - ``("shallow", None)``: answer now without the plan (asked for by
+              name, or an unmistakable refusal of the plan — both fall through
+              to the shallow agent).
+            - ``("cancelled", None)``: stop the turn; no answer wanted.
+            - ``("feedback", text)``: revise the plan with this feedback.
         """
         # Extract query from JSON if wrapped (e.g., {"query": "approve", ...})
         text = response.strip()
@@ -403,17 +458,23 @@ class ClarifierAgent:
         normalized = text.strip().lower()
 
         if normalized in APPROVAL_KEYWORDS:
-            return True, False, None
+            return "approved", None
+
+        if normalized in SHALLOW_KEYWORDS:
+            return "shallow", None
+
+        if normalized in CANCELLATION_KEYWORDS or _BARE_CANCEL_RE.match(text.strip()):
+            return "cancelled", None
 
         if normalized in REJECTION_KEYWORDS:
-            return False, True, None
+            return "shallow", None
 
         # An unmistakable refusal written as a sentence rather than a keyword.
         if _reads_as_refusal(text):
-            return False, True, None
+            return "shallow", None
 
         # Treat as feedback for plan revision
-        return False, False, text.strip()
+        return "feedback", text.strip()
 
     def _format_plan_for_user(self, title: str, sections: list[str]) -> str:
         """
@@ -427,12 +488,17 @@ class ClarifierAgent:
             Formatted string for user display.
         """
         sections_text = "\n".join(f"  {i + 1}. {s}" for i, s in enumerate(sections))
+        # The footer sentence is a byte-stable envelope: the UI detects it,
+        # strips it, and renders localized action buttons in its place
+        # (frontends/ui .../AgentPrompt.tsx). Changing a byte here requires
+        # changing the regexes there in the same commit.
         return (
             f"**Research Plan Preview**\n\n"
             f"**Title:** {title}\n\n"
             f"**Sections:**\n{sections_text}\n\n"
             f"---\n"
-            f"Reply **approve** to proceed, **reject** to cancel, or provide feedback to revise the plan."
+            f"Reply **approve** to proceed, **shallow** for a quick answer instead, "
+            f"**cancel** to dismiss, or provide feedback to revise the plan."
         )
 
     def _parse_response(self, text: str) -> ClarificationResponse | None:
@@ -827,25 +893,38 @@ class ClarifierAgent:
                 plan_display = self._format_plan_for_user(title, sections)
                 user_response = await self._ask_user(plan_display)
 
-                approved, rejected, feedback = self._parse_approval(user_response)
+                decision, feedback = self._parse_approval(user_response)
 
-                if approved:
+                if decision == "approved":
                     logger.info("Clarifier: Plan approved by user")
                     return {
                         "plan_title": title,
                         "plan_sections": sections,
                         "plan_approved": True,
                         "plan_rejected": False,
+                        "plan_cancelled": False,
                         "plan_feedback_history": feedback_history,
                     }
 
-                if rejected:
-                    logger.info("Clarifier: Plan rejected by user")
+                if decision == "cancelled":
+                    logger.info("Clarifier: Plan cancelled by user — no answer wanted this turn")
+                    return {
+                        "plan_title": title,
+                        "plan_sections": sections,
+                        "plan_approved": False,
+                        "plan_rejected": False,
+                        "plan_cancelled": True,
+                        "plan_feedback_history": feedback_history,
+                    }
+
+                if decision == "shallow":
+                    logger.info("Clarifier: Plan declined in favour of a quick answer")
                     return {
                         "plan_title": title,
                         "plan_sections": sections,
                         "plan_approved": False,
                         "plan_rejected": True,
+                        "plan_cancelled": False,
                         "plan_feedback_history": feedback_history,
                     }
 
@@ -860,6 +939,7 @@ class ClarifierAgent:
                 "plan_sections": sections,
                 "plan_approved": True,
                 "plan_rejected": False,
+                "plan_cancelled": False,
                 "plan_feedback_history": feedback_history,
             }
 
@@ -911,6 +991,7 @@ class ClarifierAgent:
             plan_sections=final_state.plan_sections,
             plan_approved=final_state.plan_approved,
             plan_rejected=final_state.plan_rejected,
+            plan_cancelled=final_state.plan_cancelled,
         )
 
     @property

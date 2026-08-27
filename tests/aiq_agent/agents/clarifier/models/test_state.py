@@ -115,6 +115,7 @@ class TestClarifierResult:
         assert result.plan_sections == []
         assert result.plan_approved is False
         assert result.plan_rejected is False
+        assert result.plan_cancelled is False
 
     def test_custom_values(self):
         """Test custom values for ClarifierResult."""

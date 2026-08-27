@@ -45,7 +45,8 @@ class ChatResearcherState(BaseModel):
             ``enable_clarifier``.  Set automatically for API-key and anonymous
             callers so headless workflows do not stall waiting for user input.
         deep_research_declined: Sticky per-conversation flag set when the user
-            rejects a research plan; suppresses the deep route thereafter.
+            rejects or cancels a research plan; suppresses the deep route
+            thereafter.
     """
 
     messages: Annotated[list[AnyMessage], add_messages]

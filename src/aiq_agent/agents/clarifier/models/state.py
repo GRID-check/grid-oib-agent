@@ -22,6 +22,7 @@ class ClarifierResult(BaseModel):
     plan_sections: list[str] = Field(default_factory=list)
     plan_approved: bool = Field(default=False)
     plan_rejected: bool = Field(default=False)
+    plan_cancelled: bool = Field(default=False)
 
     def get_approved_plan_context(self) -> str | None:
         """Get formatted plan context if approved."""
@@ -48,7 +49,10 @@ class ClarifierAgentState(BaseModel):
         plan_title: Title of the generated research plan (if plan approval enabled).
         plan_sections: List of section titles for the research plan.
         plan_approved: Whether the user approved the plan.
-        plan_rejected: Whether the user rejected the plan.
+        plan_rejected: Whether the user declined the plan while still wanting
+            an answer — the caller falls through to shallow research.
+        plan_cancelled: Whether the user cancelled outright — no research of
+            any depth is wanted for this turn.
         plan_feedback_history: History of user feedback on plan iterations.
     """
 
@@ -66,6 +70,7 @@ class ClarifierAgentState(BaseModel):
     plan_sections: list[str] = Field(default_factory=list)
     plan_approved: bool = Field(default=False)
     plan_rejected: bool = Field(default=False)
+    plan_cancelled: bool = Field(default=False)
     plan_feedback_history: list[str] = Field(default_factory=list)
 
     @computed_field
