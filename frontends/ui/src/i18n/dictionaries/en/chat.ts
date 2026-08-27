@@ -606,13 +606,32 @@ export const chat = {
     reject: 'Reject',
     approvePlan: 'Approve plan',
     rejectPlan: 'Reject plan',
+    // The current three-way plan decision (start / answer briefly / cancel).
+    startResearch: 'Start research',
+    answerShallow: 'Answer briefly instead',
+    answerShallowAria: 'Answer the question briefly, without deep research',
+    cancelResearch: 'Cancel',
+    cancelResearchAria: 'Cancel the research',
     selectOption: 'Select option: {option}',
     yourResponse: 'Your response:',
     // Localized replacement for the backend's English approval envelope
     // sentence ("Reply approve to proceed, reject to cancel").
     approvalInstruction: 'Choose "Approve" to start the research or "Reject" to cancel.',
+    approvalInstructionThreeWay:
+      'Start the research, have your question answered briefly instead, or cancel.',
     // Duration/cost expectation shown at the decision point, BEFORE approval.
     durationHint: 'Deep research can take several minutes to run and consumes usage quota.',
+    // The plan bubble's scaffolding, localized in place of the backend's
+    // byte-stable English headers.
+    planPreviewHeading: 'Research plan',
+    planTitleLabel: 'Title:',
+    planSectionsLabel: 'Sections:',
+    // What the answered bubble echoes for a clicked decision — the wire
+    // keywords (approve/shallow/cancel/reject) never reach the reader.
+    responseApproved: 'Research started',
+    responseShallow: 'Quick answer requested',
+    responseCancelled: 'Research cancelled',
+    responseRejected: 'Plan rejected',
   },
   agentResponse: {
     viewProgress: 'View Progress',

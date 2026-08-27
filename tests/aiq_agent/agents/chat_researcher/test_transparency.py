@@ -168,6 +168,7 @@ def _agent(*, enable_escalation=True, deep_submitter=None):
         result.messages = list(getattr(state, "messages", []))
         result.clarifier_log = "log"
         result.plan_rejected = False
+        result.plan_cancelled = False
         result.get_approved_plan_context = lambda: ""
         return result
 
@@ -329,6 +330,7 @@ class TestEscalationReasonEndToEnd:
             result.messages = list(getattr(state, "messages", []))
             result.clarifier_log = "log"
             result.plan_rejected = False
+            result.plan_cancelled = False
             result.get_approved_plan_context = lambda: ""
             return result
 

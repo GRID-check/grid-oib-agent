@@ -294,10 +294,12 @@ When the agent needs input — clarification, approval, or a choice — it sends
 | `text` | Text input |
 | `multiple_choice` | Option selector |
 | `binary_choice` | Yes/No buttons |
-| `approval` | Approve/Reject buttons |
+| `approval` | Plan decision buttons: **Recherche starten**, **Kurz beantworten** (answer now on the shallow path instead of running the plan), **Abbrechen** (no research at all — the turn ends with a receipt). Legacy prompts persisted before the middle option keep their Approve/Reject pair |
 | `notification` | Acknowledge button |
 
 The user responds through the chat UI; the response is sent back via the WebSocket's `sendInteractionResponse()` method. Pending interactions survive page refreshes through localStorage persistence and `pendingInteraction` state restoration.
+
+The answered prompt flips to "received" immediately (optimistic, before any server round-trip), and once the reply is on the wire a "Piloti antwortet …" cue appears at the bottom of the thread until the next thing streams in — a clarifying follow-up, the plan's answer, or the final response — so an answered prompt never sits there looking finished while the agent is still working on it.
 
 ## Data source toggles
 

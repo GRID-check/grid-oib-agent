@@ -16,12 +16,14 @@ IMPORTANT RULES:
     APPROVAL ENVELOPE — byte-stable, do NOT emit it here. The backend
     (clarifier/agent.py `_format_plan_for_user`) wraps your JSON title/sections
     in a fixed English envelope — the "**Research Plan Preview**" header and the
-    "Reply **approve** to proceed, **reject** to cancel, ..." footer. That
-    footer is regex-matched by the frontend (AgentPrompt.tsx APPROVAL_PROMPT_RE)
-    and the approve/reject keywords are matched literally against the user's
-    reply (APPROVAL_KEYWORDS/REJECTION_KEYWORDS). You must output ONLY the JSON
-    object; never emit or translate the "Research Plan Preview" header or the
-    approve/reject instruction yourself, or the approval contract breaks.
+    "Reply **approve** to proceed, **shallow** for a quick answer instead,
+    **cancel** to dismiss, ..." footer. That footer is regex-matched by the
+    frontend (AgentPrompt.tsx APPROVAL_PROMPT_RE) and the
+    approve/shallow/cancel keywords are matched literally against the user's
+    reply (APPROVAL_KEYWORDS/SHALLOW_KEYWORDS/CANCELLATION_KEYWORDS/
+    REJECTION_KEYWORDS). You must output ONLY the JSON object; never emit or
+    translate the "Research Plan Preview" header or the approval instruction
+    yourself, or the approval contract breaks.
   -#}
 
 ### Building-Regulation Planning

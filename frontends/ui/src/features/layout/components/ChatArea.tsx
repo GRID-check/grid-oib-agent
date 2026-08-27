@@ -652,14 +652,31 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     // Will be implemented with file upload feature
   }, [])
 
-  // Latency-gap typing indicator: while streaming, if the newest message is the
-  // just-sent user message with no thinking steps and no answer yet, show a
-  // small typing bubble so the send feels acknowledged before the first token.
+  // Latency-gap typing indicator, shown at the bottom of the thread while
+  // streaming and nothing has come back yet — two distinct gaps, both silent
+  // without this:
+  //
+  //   1. The just-sent user message, before its first thinking step or token.
+  //   2. A HITL prompt (clarification, a Folgewege choice, a plan decision)
+  //      the user just answered. `respondToPrompt` flips it to "received"
+  //      optimistically and `isStreaming` goes true the moment the reply is
+  //      sent, but that only says the answer LANDED — it says nothing about
+  //      Piloti having resumed. The Herleitung spinner for the turn, if any,
+  //      sits back at the TOP of the exchange (attached to the ORIGINAL user
+  //      message, not to whichever prompt is currently last), so on a
+  //      multi-round exchange it can be scrolled well out of view by the time
+  //      the reader answers the second or third question. Without a bottom
+  //      cue, an answered prompt just sits there looking finished — nothing
+  //      on screen says the turn is still going — until the next thing
+  //      eventually appears.
   const showTypingPlaceholder = useMemo(() => {
-    if (!isStreaming || !currentUserMessageId) return false
+    if (!isStreaming) return false
     const last = displayableMessages[displayableMessages.length - 1]
-    if (!last || last.id !== currentUserMessageId) return false
-    return getThinkingStepsForMessage(currentUserMessageId).length === 0
+    if (!last) return false
+    if (last.id === currentUserMessageId) {
+      return getThinkingStepsForMessage(currentUserMessageId).length === 0
+    }
+    return last.messageType === 'prompt' && !!last.isPromptResponded
   }, [isStreaming, currentUserMessageId, displayableMessages, getThinkingStepsForMessage])
 
   return (

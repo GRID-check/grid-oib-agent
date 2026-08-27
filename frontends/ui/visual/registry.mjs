@@ -824,6 +824,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="mention-pill-preview"]',
   },
   {
+    id: 'plan-approval',
+    mobile: true,
+    path: '/dev/plan-approval',
+    description:
+      'The research-plan decision bubble with its three ways out — Recherche starten, Kurz beantworten (the middle way: an immediate shallow answer instead of the multi-minute run), and Abbrechen — plus the answered states whose echo says the decision in words („Kurze Antwort angefordert"), never the wire keyword, and a restored legacy prompt that keeps its two-button pair.',
+    waitFor: '[data-testid="plan-approval-preview"]',
+  },
+  {
     id: 'awaiting-banner',
     mobile: true,
     path: '/dev/awaiting-banner',

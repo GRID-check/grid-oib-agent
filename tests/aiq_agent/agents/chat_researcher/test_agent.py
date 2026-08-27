@@ -515,6 +515,7 @@ class TestRoutingBoundary:
             # Explicit non-rejection so clarifier_node proceeds to deep_research
             # (a bare MagicMock's .plan_rejected is truthy and would short to END).
             result.plan_rejected = False
+            result.plan_cancelled = False
             result.get_approved_plan_context = MagicMock(return_value=None)
             return result
 

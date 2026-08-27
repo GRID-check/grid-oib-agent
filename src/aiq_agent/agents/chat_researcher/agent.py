@@ -54,6 +54,22 @@ from .utils import trim_message_history
 
 logger = logging.getLogger(__name__)
 
+PLAN_CANCELLED_MESSAGE = (
+    "In Ordnung, ich habe die geplante Recherche verworfen. "
+    "Wenn Sie doch eine Antwort möchten, stellen Sie Ihre Frage einfach erneut – "
+    "ich beantworte sie dann direkt, ohne einen neuen Rechercheplan vorzuschlagen."
+)
+"""The receipt for an explicit plan cancellation.
+
+German because the product is German-first and this string reaches the user
+verbatim (there is no UI envelope to localize it, unlike the plan preview).
+It must say two things: that nothing is being researched — the turn really is
+over, by the user's own choice, not by a failure — and how to get an answer
+after all. The second half is literally true: the cancellation sets
+``deep_research_declined`` on the conversation, so re-asking the question
+routes straight to the shallow agent instead of producing plan number two.
+"""
+
 
 def derive_routing_decision(
     user_intent: Any,
@@ -407,6 +423,34 @@ class ChatResearcherAgent:
                 # the model's "deep" and its reasoning are what the user just
                 # refused — left standing they would put "deep" in the
                 # transparency panel of an answer shallow wrote.
+                # An explicit cancellation ("cancel"/"abbrechen", or the
+                # Abbrechen button) is the one refusal that may end the turn
+                # without an answer: the user chose it over the shallow option
+                # sitting right next to it. It still gets a receipt — a silent
+                # end reads as a crash — and it declines deep for the rest of
+                # the conversation, same as a rejection, so re-asking the
+                # question yields the answer, not plan number two.
+                if getattr(result, "plan_cancelled", False):
+                    logger.info("ChatResearcher: Plan cancelled by user, ending the turn with a receipt")
+                    try:
+                        from aiq_agent.common.turn_status import emit_routing
+
+                        emit_routing(intent="research", depth="shallow", reason=None)
+                    except Exception:  # noqa: BLE001 — transparency must never take a turn down
+                        logger.debug("Fallback routing status not emitted", exc_info=True)
+                    return Command(
+                        goto=END,
+                        update={
+                            "messages": [AIMessage(content=PLAN_CANCELLED_MESSAGE)],
+                            "original_query": original_query,
+                            "deep_research_declined": True,
+                            "depth_decision": DepthDecision(decision="shallow", raw_reasoning=None),
+                            # A cancellation is not an escalation; never narrate one.
+                            "escalation_reason": None,
+                            "shallow_result": None,
+                        },
+                    )
+
                 if result.plan_rejected:
                     logger.info("ChatResearcher: Plan rejected by user, answering on the shallow path instead")
                     try:

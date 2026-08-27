@@ -591,12 +591,31 @@ export const chat: typeof en.chat = {
     reject: 'Ablehnen',
     approvePlan: 'Plan genehmigen',
     rejectPlan: 'Plan ablehnen',
+    // The current three-way plan decision (start / answer briefly / cancel).
+    startResearch: 'Recherche starten',
+    answerShallow: 'Kurz beantworten',
+    answerShallowAria: 'Frage kurz beantworten, ohne Deep Research',
+    cancelResearch: 'Abbrechen',
+    cancelResearchAria: 'Recherche abbrechen',
     selectOption: 'Option auswählen: {option}',
     yourResponse: 'Ihre Antwort:',
     approvalInstruction:
       'Wählen Sie „Genehmigen“, um die Recherche zu starten, oder „Ablehnen“, um abzubrechen.',
+    approvalInstructionThreeWay:
+      'Starten Sie die Recherche, lassen Sie Ihre Frage stattdessen kurz beantworten, oder brechen Sie ab.',
     durationHint:
       'Die Deep-Research-Ausführung kann mehrere Minuten dauern und verbraucht Kontingent.',
+    // The plan bubble's scaffolding, localized in place of the backend's
+    // byte-stable English headers.
+    planPreviewHeading: 'Rechercheplan',
+    planTitleLabel: 'Titel:',
+    planSectionsLabel: 'Abschnitte:',
+    // What the answered bubble echoes for a clicked decision — the wire
+    // keywords (approve/shallow/cancel/reject) never reach the reader.
+    responseApproved: 'Recherche gestartet',
+    responseShallow: 'Kurze Antwort angefordert',
+    responseCancelled: 'Recherche abgebrochen',
+    responseRejected: 'Plan abgelehnt',
   },
   agentResponse: {
     viewProgress: 'Fortschritt anzeigen',

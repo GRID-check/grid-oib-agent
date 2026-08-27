@@ -22,18 +22,48 @@ import type { PromptType } from '../types'
 
 export type { PromptType }
 
-const APPROVAL_PROMPT_RE =
+/**
+ * The two byte-stable approval envelopes the backend has written, oldest
+ * first. The legacy sentence offered approve/reject; the current one
+ * (clarifier `_format_plan_for_user`) adds the explicit middle way — a quick
+ * shallow answer instead of the plan. Both must keep matching: prompts are
+ * persisted and restored, so a thread from before the third option still
+ * carries the old sentence.
+ */
+const APPROVAL_PROMPT_LEGACY_RE =
   /Reply\s+\*{0,2}approve\*{0,2}\s+to proceed,\s+\*{0,2}reject\*{0,2}\s+to cancel/i
+const APPROVAL_PROMPT_THREE_WAY_RE =
+  /Reply\s+\*{0,2}approve\*{0,2}\s+to proceed,\s+\*{0,2}shallow\*{0,2}\s+for a quick answer instead/i
 
 /**
- * The backend's approval envelope sentence, including optional surrounding
- * punctuation. The envelope is byte-stable by design, so we keep matching the
- * English sentence — but instead of showing it to (mostly German-speaking)
- * users, we strip it from the rendered markdown and show a localized
- * instruction next to the Approve/Reject buttons.
+ * Strips the WHOLE envelope line, whichever variant wrote it. The previous
+ * strip regex ended at "to cancel", which left the dangling tail ", or
+ * provide feedback to revise the plan." in the rendered bubble — the envelope
+ * is one line, so consume it to the line end and show localized copy instead.
  */
-const APPROVAL_PROMPT_STRIP_RE =
-  /[ \t]*Reply\s+\*{0,2}approve\*{0,2}\s+to proceed,\s+\*{0,2}reject\*{0,2}\s+to cancel\.?/i
+const APPROVAL_PROMPT_STRIP_RE = /[ \t]*Reply\s+\*{0,2}approve\*{0,2}\s+to proceed,[^\n]*/i
+
+/**
+ * The English scaffolding around the (user-language) plan title and sections.
+ * Byte-stable like the envelope, and localized here for the same reason: a
+ * German-speaking user deciding about a German plan should not be doing it
+ * under an English "Research Plan Preview" header.
+ */
+const PLAN_HEADER_RE = /\*\*Research Plan Preview\*\*/
+const PLAN_TITLE_LABEL_RE = /\*\*Title:\*\*/
+const PLAN_SECTIONS_LABEL_RE = /\*\*Sections:\*\*/
+
+/**
+ * Keyword the user's click sent, mapped to the dictionary key of a
+ * human-readable receipt. Without this the answered bubble echoed the raw
+ * wire keyword ("Ihre Antwort: reject") back into a German conversation.
+ */
+const APPROVAL_RESPONSE_KEYS: Record<string, string> = {
+  approve: 'agentPrompt.responseApproved',
+  shallow: 'agentPrompt.responseShallow',
+  cancel: 'agentPrompt.responseCancelled',
+  reject: 'agentPrompt.responseRejected',
+}
 
 export interface AgentPromptProps {
   /** Unique identifier for this prompt */
@@ -89,16 +119,38 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
   const t = useTranslations('chat')
   const { locale } = useLocale()
   const respondToInteractionFn = useChatStore((state) => state.respondToInteractionFn)
-  const isApprovalPrompt = APPROVAL_PROMPT_RE.test(content)
+  const isThreeWayPrompt = APPROVAL_PROMPT_THREE_WAY_RE.test(content)
+  const isApprovalPrompt = isThreeWayPrompt || APPROVAL_PROMPT_LEGACY_RE.test(content)
   const showApprovalButtons =
     isApprovalPrompt && !isResponded && !!respondToInteractionFn && isAddressee
-  // Replace the English envelope sentence with localized copy rendered below.
+  // Replace the English envelope sentence and the English plan scaffolding
+  // with localized copy; the plan title/sections themselves are already in the
+  // user's language (the planner writes them that way).
   const displayContent = isApprovalPrompt
-    ? content.replace(APPROVAL_PROMPT_STRIP_RE, '').trim()
+    ? content
+        .replace(APPROVAL_PROMPT_STRIP_RE, '')
+        .replace(PLAN_HEADER_RE, `**${t('agentPrompt.planPreviewHeading')}**`)
+        .replace(PLAN_TITLE_LABEL_RE, `**${t('agentPrompt.planTitleLabel')}**`)
+        .replace(PLAN_SECTIONS_LABEL_RE, `**${t('agentPrompt.planSectionsLabel')}**`)
+        .trim()
     : content
+
+  // The answered bubble's echo. Approval prompts answer with wire keywords;
+  // show what the click meant, not the keyword. Every other prompt echoes the
+  // user's own words unchanged.
+  const responseKey = isApprovalPrompt && response ? APPROVAL_RESPONSE_KEYS[response.trim().toLowerCase()] : undefined
+  const responseLabel = responseKey ? t(responseKey) : response
 
   const handleApprove = useCallback(() => {
     respondToInteractionFn?.('approve')
+  }, [respondToInteractionFn])
+
+  const handleShallow = useCallback(() => {
+    respondToInteractionFn?.('shallow')
+  }, [respondToInteractionFn])
+
+  const handleCancel = useCallback(() => {
+    respondToInteractionFn?.('cancel')
   }, [respondToInteractionFn])
 
   const handleReject = useCallback(() => {
@@ -157,7 +209,9 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
           {isApprovalPrompt && !isResponded && isAddressee && (
             <div className="flex flex-col gap-1">
               <span className="text-sm text-foreground">
-                {t('agentPrompt.approvalInstruction')}
+                {isThreeWayPrompt
+                  ? t('agentPrompt.approvalInstructionThreeWay')
+                  : t('agentPrompt.approvalInstruction')}
               </span>
               <span className="text-xs text-muted-foreground">
                 {t('agentPrompt.durationHint')}
@@ -165,31 +219,64 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
             </div>
           )}
 
-          {/* Approve/Reject buttons for plan approval prompts */}
-          {showApprovalButtons && (
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleReject}
-                aria-label={t('agentPrompt.rejectPlan')}
-              >
-                {t('agentPrompt.reject')}
-              </Button>
-              <Button
-                variant="default"
-                size="sm"
-                onClick={handleApprove}
-                aria-label={t('agentPrompt.approvePlan')}
-              >
-                {t('agentPrompt.approve')}
-              </Button>
-            </div>
-          )}
+          {/* The plan decision. The current envelope offers all three answers
+              the backend understands — cancel outright, a quick shallow answer
+              instead (the middle way this bubble existed to hide), and the
+              deep run. A restored legacy prompt keeps its two buttons: sending
+              "shallow" to the backend that wrote that envelope would be read
+              as plan feedback, not as a choice. */}
+          {showApprovalButtons &&
+            (isThreeWayPrompt ? (
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleCancel}
+                  aria-label={t('agentPrompt.cancelResearchAria')}
+                >
+                  {t('agentPrompt.cancelResearch')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleShallow}
+                  aria-label={t('agentPrompt.answerShallowAria')}
+                >
+                  {t('agentPrompt.answerShallow')}
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleApprove}
+                  aria-label={t('agentPrompt.approvePlan')}
+                >
+                  {t('agentPrompt.startResearch')}
+                </Button>
+              </div>
+            ) : (
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleReject}
+                  aria-label={t('agentPrompt.rejectPlan')}
+                >
+                  {t('agentPrompt.reject')}
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleApprove}
+                  aria-label={t('agentPrompt.approvePlan')}
+                >
+                  {t('agentPrompt.approve')}
+                </Button>
+              </div>
+            ))}
 
           {/* Response display for NON-choice prompts (text/approval). Choice
               prompts show their answer via the selected branch card above. */}
-          {isResponded && options.length === 0 && <ResponseDisplay response={response} />}
+          {isResponded && options.length === 0 && <ResponseDisplay response={responseLabel} />}
         </div>
 
         {/* Timestamp outside bubble, right-aligned */}
