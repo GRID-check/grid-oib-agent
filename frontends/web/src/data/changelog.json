@@ -39,8 +39,29 @@
       "summary": null,
       "sections": [
         {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Jede Antwort lässt sich als Word-Dokument herunterladen — mit Frage, Quellenverzeichnis, Prüfkarten und Vertrauenshinweis. Die neue Schaltfläche sitzt neben den Kopieren-Schaltflächen unter der Antwort.",
+              "de": "Jede Antwort lässt sich als Word-Dokument herunterladen — mit Frage, Quellenverzeichnis, Prüfkarten und Vertrauenshinweis. Die neue Schaltfläche sitzt neben den Kopieren-Schaltflächen unter der Antwort."
+            }
+          ]
+        },
+        {
           "key": "improvements",
           "notes": [
+            {
+              "en": "Kopierte Antworten kommen jetzt formatiert an: Wer eine Antwort in Word, Outlook oder Notion einfügt, erhält echte Tabellen, Überschriften und Hervorhebungen statt roher Markdown-Zeichen. Als Textquelle bleibt das Markdown erhalten.",
+              "de": "Kopierte Antworten kommen jetzt formatiert an: Wer eine Antwort in Word, Outlook oder Notion einfügt, erhält echte Tabellen, Überschriften und Hervorhebungen statt roher Markdown-Zeichen. Als Textquelle bleibt das Markdown erhalten."
+            },
+            {
+              "en": "Der Chat nutzt die Breite des Fensters besser: Die Gesprächsspalte ist deutlich breiter geworden, und Antworten füllen sie ganz aus, statt als schmale Karte am linken Rand zu stehen. Die Kopfleiste darüber ist kleiner und zurückhaltender gestaltet und wiederholt den Projektnamen nicht mehr — den zeigen die Projektauswahl im Eingabefeld und die Navigation bereits.",
+              "de": "Der Chat nutzt die Breite des Fensters besser: Die Gesprächsspalte ist deutlich breiter geworden, und Antworten füllen sie ganz aus, statt als schmale Karte am linken Rand zu stehen. Die Kopfleiste darüber ist kleiner und zurückhaltender gestaltet und wiederholt den Projektnamen nicht mehr — den zeigen die Projektauswahl im Eingabefeld und die Navigation bereits."
+            },
+            {
+              "en": "Tabellen in Antworten behalten ihre Spaltenausrichtung (Zahlenspalten stehen rechtsbündig), Checklisten zeigen echte Häkchen statt Aufzählungspunkte, und tief gegliederte Antworten behalten alle Überschriftenebenen.",
+              "de": "Tabellen in Antworten behalten ihre Spaltenausrichtung (Zahlenspalten stehen rechtsbündig), Checklisten zeigen echte Häkchen statt Aufzählungspunkte, und tief gegliederte Antworten behalten alle Überschriftenebenen."
+            },
             {
               "en": "Re-uploading a document under the same name now replaces its earlier version in the knowledge index instead of competing with it, so an answer can no longer cite a superseded upload with full confidence. A document under a new name is still treated as a new document — deciding that one file supersedes a differently-named one stays a human call.",
               "de": "Re-uploading a document under the same name now replaces its earlier version in the knowledge index instead of competing with it, so an answer can no longer cite a superseded upload with full confidence. A document under a new name is still treated as a new document — deciding that one file supersedes a differently-named one stays a human call."
@@ -68,6 +89,32 @@
             {
               "en": "Adding a comment to an answer you already marked as unhelpful now gives Piloti a second chance to learn from it — the extra detail is exactly what a bare thumbs-down was missing.",
               "de": "Adding a comment to an answer you already marked as unhelpful now gives Piloti a second chance to learn from it — the extra detail is exactly what a bare thumbs-down was missing."
+            }
+          ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Die Schaltflächen an Codeblöcken („Kopieren\", „Alle anzeigen\") erscheinen jetzt auf Deutsch.",
+              "de": "Die Schaltflächen an Codeblöcken („Kopieren\", „Alle anzeigen\") erscheinen jetzt auf Deutsch."
+            },
+            {
+              "en": "Zeitstempel an Fehlermeldungen im Chat folgen jetzt der eingestellten Sprache statt der Browser-Region.",
+              "de": "Zeitstempel an Fehlermeldungen im Chat folgen jetzt der eingestellten Sprache statt der Browser-Region."
+            },
+            {
+              "en": "Wer mit einer chinesischen, japanischen oder koreanischen Eingabemethode schreibt, kann Zeichen mit der Eingabetaste bestätigen, ohne dass die Nachricht vorzeitig abgeschickt wird.",
+              "de": "Wer mit einer chinesischen, japanischen oder koreanischen Eingabemethode schreibt, kann Zeichen mit der Eingabetaste bestätigen, ohne dass die Nachricht vorzeitig abgeschickt wird."
+            }
+          ]
+        },
+        {
+          "key": "other",
+          "notes": [
+            {
+              "en": "Die Datenquellen-Auswahl im Eingabefeld ist vorerst ausgeblendet. Piloti zieht automatisch alle verfügbaren Quellen heran; die Herleitung zeigt weiterhin, welche tatsächlich verwendet wurden.",
+              "de": "Die Datenquellen-Auswahl im Eingabefeld ist vorerst ausgeblendet. Piloti zieht automatisch alle verfügbaren Quellen heran; die Herleitung zeigt weiterhin, welche tatsächlich verwendet wurden."
             }
           ]
         }
