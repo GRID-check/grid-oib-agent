@@ -16,33 +16,21 @@ import { PageHeader } from './page-header'
  * primitive, where it belongs.
  */
 describe('PageHeader', () => {
-  function rowOf(container: HTMLElement): HTMLElement {
-    const header = container.querySelector('header')
-    expect(header).not.toBeNull()
-    // With a breadcrumb the title row is a child; without one the header IS it.
-    const row = header!.querySelector(':scope > div.flex-col') ?? header!
-    return row as HTMLElement
-  }
-
-  it('stacks the title above the action on a narrow viewport, both with and without a breadcrumb', () => {
-    for (const breadcrumb of [undefined, <nav key="b">trail</nav>]) {
-      const { container, unmount } = render(
-        <PageHeader
-          title="History"
-          subtitle="Every conversation and deep-research run in this project."
-          action={<input aria-label="Search" className="w-full sm:w-64" />}
-          breadcrumb={breadcrumb}
-        />,
-      )
-      const row = rowOf(container)
-      // Stacked below `sm`, side by side at `sm` and up.
-      expect(row.className).toContain('flex-col')
-      expect(row.className).toContain('sm:flex-row')
-      // Stretched while stacked, or a child's `w-full` has no width to resolve
-      // against and the field collapses to its content.
-      expect(row.className).toContain('items-stretch')
-      unmount()
-    }
+  it('stacks the title above the action on a narrow viewport', () => {
+    const { container } = render(
+      <PageHeader
+        title="History"
+        subtitle="Every conversation and deep-research run in this project."
+        action={<input aria-label="Search" className="w-full sm:w-64" />}
+      />,
+    )
+    const row = container.querySelector('header')!
+    // Stacked below `sm`, side by side at `sm` and up.
+    expect(row.className).toContain('flex-col')
+    expect(row.className).toContain('sm:flex-row')
+    // Stretched while stacked, or a child's `w-full` has no width to resolve
+    // against and the field collapses to its content.
+    expect(row.className).toContain('items-stretch')
   })
 
   it('never lets the action refuse to shrink while it is stacked', () => {

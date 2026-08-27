@@ -10,8 +10,10 @@ import { useProjectDocuments } from '../hooks/use-project-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
+import { useFileSearch } from '../hooks/use-file-search'
 import { inferDocumentKind } from '../document-kind'
 import { FileBrowserPane } from './file-browser-pane'
+import { FileSearchField } from './file-search-bar'
 import { FileFilterStrip, type AssignmentFilter } from './file-filter-strip'
 import { DocumentActionsMenu } from './document-actions'
 import { useFilePreviewStore } from '../stores/file-preview-store'
@@ -307,6 +309,11 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         if (!quiet) setIsLoadingFiles(false)
       })
   }, [projectId, agentAuthoredOnly])
+
+  // The query lives here rather than in the browser pane: the field sits in the
+  // page header (beside the view toggles and Upload) while the results it
+  // filters are rendered below, so the state has to be owned above both.
+  const search = useFileSearch({ projectId })
 
   const { uploadFiles, isUploading, trackedFiles, error, clearError, retryFile, cancelFile, cancelUpload, dismissFiles } =
     useProjectDocuments({
@@ -661,7 +668,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       )}
 
       <ProjectSectionActions>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
           <ToggleGroup
             type="single"
             value={view}
@@ -685,6 +692,22 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             onAssignmentFilterChange={setAssignmentFilter}
             agentAuthoredOnly={agentAuthoredOnly}
             onAgentAuthoredOnlyChange={setAgentAuthoredOnly}
+          />
+          {/* The corpus search, in the header with the other controls that act
+              on the listing — one search on the page, not a band under the one
+              it duplicates. */}
+          <FileSearchField
+            className="w-full sm:w-64 lg:w-72"
+            value={search.query}
+            onChange={search.setQuery}
+            onSubmit={search.run}
+            onClear={search.clear}
+            placeholder={t('browser.searchPlaceholder')}
+            searchLabel={t('browser.searchLabel')}
+            resetLabel={t('browser.resetSearch')}
+            // No run button: the field reads as the plain filter it mostly is,
+            // the way History's does. Enter still commits the query to the
+            // semantic search.
           />
           <ProjectUppyUpload
             projectId={projectId}
@@ -746,7 +769,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               selectedFileId={selectedFileId}
               onSelectFile={handleSelectFile}
               isLoading={isLoadingFiles || isLoadingFolders}
-              projectId={projectId}
+              search={search}
               view={view}
               showAssignment={canCollaborate}
               renderActions={(file) => (

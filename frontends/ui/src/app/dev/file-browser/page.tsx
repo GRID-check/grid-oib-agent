@@ -50,7 +50,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { FileBrowserPane, type FolderNavigation } from '@/features/documents/components/file-browser-pane'
-import { FileSearchBar } from '@/features/documents/components/file-search-bar'
+import { FileSearchBar, FileSearchField } from '@/features/documents/components/file-search-bar'
+import { useFileSearch } from '@/features/documents/hooks/use-file-search'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { LayoutGrid, List } from 'lucide-react'
 import type { FileItem, FolderItem } from '@/features/documents/components/project-file-workspace'
@@ -259,6 +260,7 @@ function useSelfDrivenSearch(testId: string, query: string): void {
 /** A ranked semantic answer, rendered in the view the reader actually chose. */
 function SearchInListViewFixture(): JSX.Element {
   const [selected, setSelected] = useState<string | null>(null)
+  const search = useFileSearch({ projectId: 'proj-demo' })
   useSelfDrivenSearch('file-browser-search-list', 'Fluchtwegbreite')
 
   return (
@@ -271,15 +273,31 @@ function SearchInListViewFixture(): JSX.Element {
         </p>
       </div>
 
-      <div className="h-[420px] overflow-hidden rounded-xl border" data-testid="file-browser-search-list">
-        <FileBrowserPane
-          files={FILES}
-          selectedFileId={selected}
-          onSelectFile={setSelected}
-          isLoading={false}
-          projectId="proj-demo"
-          view="list"
-        />
+      {/* Mirrors ProjectFileWorkspace's composition: the field lives in the
+          header, one component above the pane it filters. */}
+      <div className="flex h-[460px] flex-col overflow-hidden rounded-xl border" data-testid="file-browser-search-list">
+        <div className="flex items-center justify-end border-b px-4 py-3">
+          <FileSearchField
+            className="w-72"
+            value={search.query}
+            onChange={search.setQuery}
+            onSubmit={search.run}
+            onClear={search.clear}
+            placeholder="Dateien durchsuchen"
+            searchLabel="Suche"
+            resetLabel="Suche zurücksetzen"
+          />
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          <FileBrowserPane
+            files={FILES}
+            selectedFileId={selected}
+            onSelectFile={setSelected}
+            isLoading={false}
+            search={search}
+            view="list"
+          />
+        </div>
       </div>
     </main>
   )
@@ -297,6 +315,7 @@ function SearchInListViewFixture(): JSX.Element {
  */
 function FolderCrudFixture({ mode }: { mode: 'menu' | 'rename' }): JSX.Element {
   const folderNav = useFixtureFolderNav()
+  const search = useFileSearch({ projectId: 'proj-demo' })
 
   // `reactStrictMode` runs an effect twice on mount, and Enter on the trigger
   // TOGGLES the menu — so an unguarded effect opened it and immediately shut it
@@ -343,7 +362,7 @@ function FolderCrudFixture({ mode }: { mode: 'menu' | 'rename' }): JSX.Element {
           selectedFileId={null}
           onSelectFile={() => {}}
           isLoading={false}
-          projectId="proj-demo"
+          search={search}
           folderNav={folderNav}
         />
       </div>
@@ -360,6 +379,7 @@ function FolderCrudFixture({ mode }: { mode: 'menu' | 'rename' }): JSX.Element {
  */
 function SearchFailedFixture(): JSX.Element {
   const [selected, setSelected] = useState<string | null>(null)
+  const search = useFileSearch({ projectId: 'proj-demo' })
   useSelfDrivenSearch('file-browser-search-failed', 'Fluchtweg')
 
   return (
@@ -371,14 +391,30 @@ function SearchFailedFixture(): JSX.Element {
         </p>
       </div>
 
-      <div className="h-[420px] overflow-hidden rounded-xl border" data-testid="file-browser-search-failed">
-        <FileBrowserPane
-          files={FILES}
-          selectedFileId={selected}
-          onSelectFile={setSelected}
-          isLoading={false}
-          projectId="proj-demo"
-        />
+      {/* Mirrors ProjectFileWorkspace's composition: the field lives in the
+          header, one component above the pane it filters. */}
+      <div className="flex h-[460px] flex-col overflow-hidden rounded-xl border" data-testid="file-browser-search-failed">
+        <div className="flex items-center justify-end border-b px-4 py-3">
+          <FileSearchField
+            className="w-72"
+            value={search.query}
+            onChange={search.setQuery}
+            onSubmit={search.run}
+            onClear={search.clear}
+            placeholder="Dateien durchsuchen"
+            searchLabel="Suche"
+            resetLabel="Suche zurücksetzen"
+          />
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          <FileBrowserPane
+            files={FILES}
+            selectedFileId={selected}
+            onSelectFile={setSelected}
+            isLoading={false}
+            search={search}
+          />
+        </div>
       </div>
     </main>
   )
@@ -391,6 +427,7 @@ function SearchFailedFixture(): JSX.Element {
  */
 function JustUploadedFixture(): JSX.Element {
   const [selected, setSelected] = useState<string | null>(null)
+  const search = useFileSearch({ projectId: 'proj-demo' })
 
   return (
     <main className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
@@ -407,7 +444,7 @@ function JustUploadedFixture(): JSX.Element {
           selectedFileId={selected}
           onSelectFile={setSelected}
           isLoading={false}
-          projectId="proj-demo"
+          search={search}
         />
       </div>
     </main>
@@ -418,6 +455,8 @@ function FileBrowserFixtures(): JSX.Element {
   const [selected, setSelected] = useState<string | null>('p3')
   const [view, setView] = useState<'cards' | 'list'>('cards')
   const folderNav = useFixtureFolderNav()
+  const search = useFileSearch({ projectId: 'proj-demo' })
+  const flatSearch = useFileSearch({ projectId: 'proj-demo' })
   // A non-empty query so the search bar's clear (X) target renders in the shot.
   const [barSearch, setBarSearch] = useState('Brandschutz')
 
@@ -433,9 +472,11 @@ function FileBrowserFixtures(): JSX.Element {
         </p>
       </div>
 
-      {/* The drill-down browser — mirrors ProjectFileWorkspace's composition. */}
+      {/* The drill-down browser — mirrors ProjectFileWorkspace's composition:
+          view toggle and search field in the header band, the field's own
+          results rendered by the pane below it. */}
       <div className="flex h-[720px] flex-col overflow-hidden rounded-xl border">
-        <div className="flex items-center justify-end gap-4 border-b px-4 py-3">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-b px-4 py-3">
           <ToggleGroup
             type="single"
             value={view}
@@ -453,6 +494,16 @@ function FileBrowserFixtures(): JSX.Element {
               <List />
             </ToggleGroupItem>
           </ToggleGroup>
+          <FileSearchField
+            className="w-64"
+            value={search.query}
+            onChange={search.setQuery}
+            onSubmit={search.run}
+            onClear={search.clear}
+            placeholder="Dateien durchsuchen"
+            searchLabel="Suche"
+            resetLabel="Suche zurücksetzen"
+          />
         </div>
         <div className="flex-1 overflow-y-auto">
           <FileBrowserPane
@@ -461,7 +512,7 @@ function FileBrowserFixtures(): JSX.Element {
             selectedFileId={selected}
             onSelectFile={setSelected}
             isLoading={false}
-            projectId="proj-demo"
+            search={search}
             view={view}
             folderNav={folderNav}
           />
@@ -499,7 +550,7 @@ function FileBrowserFixtures(): JSX.Element {
           selectedFileId={selected}
           onSelectFile={setSelected}
           isLoading={false}
-          projectId="proj-demo"
+          search={flatSearch}
         />
       </div>
     </main>

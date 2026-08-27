@@ -30,6 +30,7 @@ import { useState } from 'react'
 import { notFound } from 'next/navigation'
 import { I18nProvider } from '@/i18n'
 import { FileBrowserPane } from '@/features/documents/components/file-browser-pane'
+import { useFileSearch } from '@/features/documents/hooks/use-file-search'
 import { FileFilterStrip } from '@/features/documents/components/file-filter-strip'
 import { FilePreviewPane } from '@/features/documents/components/file-preview-pane'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
@@ -140,6 +141,7 @@ export default function AgentAuthoredDevPage(): JSX.Element {
 
 function AgentAuthoredFixtures(): JSX.Element {
   const [selected, setSelected] = useState<string | null>(null)
+  const search = useFileSearch({ projectId: 'proj-demo' })
 
   return (
     <main className="mx-auto flex max-w-5xl flex-col gap-10 p-6" data-testid="agent-authored-preview">
@@ -181,7 +183,7 @@ function AgentAuthoredFixtures(): JSX.Element {
             selectedFileId={selected}
             onSelectFile={setSelected}
             isLoading={false}
-            projectId="proj-demo"
+            search={search}
             showAssignment
           />
         </div>
