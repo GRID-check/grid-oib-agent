@@ -48,9 +48,7 @@ def registries(monkeypatch):
 
     from aiq_agent import knowledge
 
-    monkeypatch.setattr(
-        knowledge, "unregister_summary", lambda coll, name: unregistered.append((coll, name))
-    )
+    monkeypatch.setattr(knowledge, "unregister_summary", lambda coll, name: unregistered.append((coll, name)))
     store = MagicMock()
     store.delete_by_file.side_effect = lambda coll, name: mirror_deleted.append((coll, name))
     from aiq_agent.knowledge import chunk_text_store
@@ -87,9 +85,7 @@ def test_tmp_prefixed_and_percent_encoded_stored_names_match(ingestor, registrie
             "c3": "bleibt.pdf",
         }
     )
-    ingestor._replace_previous_versions(
-        collection, "proj_1", ["statik-standard.pdf", "statik standard.pdf"]
-    )
+    ingestor._replace_previous_versions(collection, "proj_1", ["statik-standard.pdf", "statik standard.pdf"])
 
     assert sorted(collection.delete.call_args.kwargs["ids"]) == ["c1", "c2"]
     # The lexical mirror is cleaned under the stored name AND its normalized

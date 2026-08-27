@@ -2842,9 +2842,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         except Exception:
             logger.warning("Failed to upload thumbnail", exc_info=True)
 
-    def _replace_previous_versions(
-        self, chroma_collection, collection_name: str, incoming_names: list[str]
-    ) -> None:
+    def _replace_previous_versions(self, chroma_collection, collection_name: str, incoming_names: list[str]) -> None:
         """Delete the chunks of any EARLIER upload of these file names, so a
         re-upload REPLACES its predecessor instead of coexisting with it.
 
@@ -2884,9 +2882,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 return
             existing = chroma_collection.get(include=["metadatas"])
             ids_by_stored: dict[str, list[str]] = {}
-            for chunk_id, meta in zip(
-                existing.get("ids", []), existing.get("metadatas", []) or [], strict=False
-            ):
+            for chunk_id, meta in zip(existing.get("ids", []), existing.get("metadatas", []) or [], strict=False):
                 stored = (meta or {}).get("file_name", "") or ""
                 if normalize(stored) in targets:
                     ids_by_stored.setdefault(stored, []).append(chunk_id)
@@ -3000,8 +2996,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # _replace_previous_versions for why versions must not coexist.
             provided_names = config.get("original_filenames", [])
             incoming_names = [
-                provided_names[i] if i < len(provided_names) else Path(fp).name
-                for i, fp in enumerate(file_paths)
+                provided_names[i] if i < len(provided_names) else Path(fp).name for i, fp in enumerate(file_paths)
             ]
             self._replace_previous_versions(chroma_collection, collection_name, incoming_names)
 
