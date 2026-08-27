@@ -168,14 +168,11 @@ export const files: typeof en.files = {
       searchPlaceholder: 'Dateien durchsuchen – Enter für semantische Suche …',
       run: 'Suchen',
       reset: 'Alle Dateien anzeigen',
-      banner: 'Semantische Suche: {count} Treffer für „{query}“',
-      searching: 'Ihre Dateien werden nach „{query}“ durchsucht …',
       noResults: 'Keine semantischen Treffer für „{query}“',
       failed: 'Die Suche konnte nicht ausgeführt werden',
       failedDescription:
         'Auf dem Weg zum Index ist etwas schiefgegangen. Ihre Dateien sind unverändert — versuchen Sie dieselbe Suche erneut oder kehren Sie zu allen Dateien zurück.',
       retry: 'Erneut versuchen',
-      failedBanner: 'Semantische Suche nach „{query}“ konnte nicht ausgeführt werden',
       noResultsDescription:
         'Nichts in diesem Projekt entsprach dem Sinn Ihrer Anfrage. Versuchen Sie eine andere Formulierung oder löschen Sie die Suche, um alle Dateien zu durchsuchen.',
       page: 'Seite {page}',

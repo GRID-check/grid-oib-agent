@@ -252,7 +252,7 @@ Tabbed shells (Organisation, Platform) are **one place**, not a stack of submenu
 
 **Stat** — `rounded-lg border bg-card p-5`, number in `text-2xl font-semibold tabular-nums`, label in `text-sm text-muted-foreground` below.
 
-**Search** — `SearchField` (`components/ui/search-field.tsx`) is the one magnifier + input + clear control. Files and Archiv compose it inside `FileSearchBar` (sticky band + semantic run). Admin lists compose it inside `DataToolbar`. Do not hand-roll another `relative` + `Search` icon + `Input`.
+**Search** — `SearchField` (`components/ui/search-field.tsx`) is the one magnifier + input + clear control. Archiv composes it inside `FileSearchBar` (sticky band, run button, result banner). Files composes the bare `FileSearchField` in the page header instead — no sticky band, no run button (Enter alone commits the semantic search), no banner (the results are the report); `useFileSearch` owns the two-mode query state one level above both the field and `FileBrowserPane`. Admin lists compose `SearchField` inside `DataToolbar`. Do not hand-roll another `relative` + `Search` icon + `Input`.
 
 **Exclusive / multi filters** — `ToggleGroup` (`components/ui/toggle-group.tsx`). Segmented icon clusters (Files view switcher) use `segmented`. Inverted pills (folder / category chips) use `variant="inverted"`. Exclusive form choices with a description (job output) use `RadioGroup`, not a toggle row.
 

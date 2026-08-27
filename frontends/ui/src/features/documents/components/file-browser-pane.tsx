@@ -1,21 +1,19 @@
 'use client'
 
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useMemo, useRef, type ReactNode } from 'react'
 import type { FileItem, FolderItem } from './project-file-workspace'
 import { Search, SearchX, FolderOpen, Sparkles, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useLocale, useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
-import { useSemanticSearch } from '../hooks/use-semantic-search'
+import type { FileSearch } from '../hooks/use-file-search'
 import { AnimatePresence, motion, motionEntrance, motionQuick } from '@/components/motion'
 import { FileCard } from './file-card'
 import { FileGrid, FileCardSkeleton } from './file-grid'
 import { FileListSkeleton, FileListView } from './file-list-view'
-import { FileSearchBar } from './file-search-bar'
 import { FolderBreadcrumbRow, FolderCard, FolderRow } from './folder-navigation'
 import { AssignmentFaces } from './assignment-faces'
 
@@ -53,13 +51,12 @@ interface FileBrowserPaneProps {
    */
   searchFiles?: FileItem[]
   /**
-   * Project whose corpus the explicit-run semantic search queries. When
-   * provided, pressing Enter (or the search button) runs a deterministic vector
-   * search via `/api/documents/search`; the instant substring filter over the
-   * current listing keeps working as the user types. Omit to disable semantic
-   * mode (the substring filter still works).
+   * The query and semantic mode, owned by the caller — see {@link FileSearch}.
+   * The pane filters and renders results; it does not draw the field, because
+   * on the Files page the field lives in the page header, one component above
+   * this one.
    */
-  projectId?: string
+  search: FileSearch
   /**
    * How the listing renders. `cards` is the browsing surface; `list` is the
    * explorer's sortable detail view for a corpus too large to skim as tiles.
@@ -81,44 +78,20 @@ export function FileBrowserPane({
   uploadCard,
   folderNav,
   searchFiles,
-  projectId,
+  search,
   view = 'cards',
   showAssignment = false,
   renderActions,
 }: FileBrowserPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
-  const [search, setSearch] = useState('')
-
-  // A WIDTH question, so it is asked on the width axis (`useIsMobile` is the
-  // `md` breakpoint): how many characters of placeholder the field can show is
-  // about the viewport, not about what is driving the pointer.
-  const isNarrow = useIsMobile()
-
-  const semanticBody = useMemo(() => ({ projectId }), [projectId])
-  const semantic = useSemanticSearch({ endpoint: '/api/documents/search', extraBody: semanticBody })
-  const canSearch = projectId !== undefined
-
-  // Commit the current query to the semantic search (Enter / search button).
-  const runSemantic = () => {
-    if (canSearch) semantic.run(search)
-  }
-  // Any edit to the query drops back to the live substring filter so the two
-  // modes never show a stale mix; the reset control does the same explicitly.
-  const handleSearchChange = (value: string) => {
-    setSearch(value)
-    if (semantic.active) semantic.reset()
-  }
-  const clearSearch = () => {
-    setSearch('')
-    semantic.reset()
-  }
+  const { query, semantic } = search
 
   // Client-side filter: name, plus AI tags and summary when the backend
   // generated them. A typed query escapes the current folder (the query is the
   // context), so it runs over the corpus, not the level.
   const filteredFiles = useMemo(() => {
-    const q = search.trim().toLowerCase()
+    const q = query.trim().toLowerCase()
     if (!q) return files
     // Both names, deliberately: somebody who renamed a document looks for what
     // they called it, and somebody who uploaded it looks for the file they sent.
@@ -129,7 +102,7 @@ export function FileBrowserPane({
         (f.summary ?? '').toLowerCase().includes(q) ||
         (f.tags ?? []).some((tag) => tag.toLowerCase().includes(q))
     )
-  }, [files, searchFiles, search])
+  }, [files, searchFiles, query])
 
   const currentFolderId = folderNav?.currentFolderId ?? null
 
@@ -223,53 +196,18 @@ export function FileBrowserPane({
     )
   }
 
-  const searching = search.trim() !== ''
+  const searching = query.trim() !== ''
   const levelEmpty = files.length === 0 && childFolders.length === 0
 
   return (
     <div className="flex h-full flex-col">
-      {/* Search bar — instant substring filter as you type; Enter (or the search
-          button) runs the semantic search over the project corpus. */}
-      <FileSearchBar
-        value={search}
-        onChange={handleSearchChange}
-        onSubmit={runSemantic}
-        onClear={clearSearch}
-        // The long placeholder TEACHES ("press Enter for semantic search"), and a
-        // lesson that gets cut off at "Search files — pres" teaches nothing while
-        // still costing the field its whole width. Below the breakpoint it is the
-        // plain one, because on a phone the lesson has already been given twice
-        // over: the field carries `enterKeyHint="search"`, so the keyboard's own
-        // action key reads "Search", and the run button sits right beside it.
-        placeholder={
-          canSearch && !isNarrow
-            ? t('browser.semantic.searchPlaceholder')
-            : t('browser.searchPlaceholder')
-        }
-        searchLabel={t('browser.searchLabel')}
-        resetLabel={t('browser.resetSearch')}
-        canSearch={canSearch}
-        runLabel={t('browser.semantic.run')}
-        isSearching={semantic.isSearching}
-        semanticActive={semantic.active}
-        bannerText={
-          semantic.isSearching
-            ? t('browser.semantic.searching', { query: semantic.query ?? '' })
-            : // The count is a claim about the corpus, and a search that never
-              // ran has not counted anything. Reporting "0 results" above a
-              // panel that says the search failed is the same lie twice, in the
-              // one line the reader takes at face value.
-              semantic.error
-              ? t('browser.semantic.failedBanner', { query: semantic.query ?? '' })
-              : t('browser.semantic.banner', {
-                  count: String(semantic.hits.length),
-                  query: semantic.query ?? '',
-                })
-        }
-        resetSemanticLabel={t('browser.semantic.reset')}
-        onResetSemantic={clearSearch}
-        bannerTestId="semantic-banner"
-      />
+      {/* No banner over the results. It restated in a tinted strip what the
+          listing below it already shows — how many hits, for which query —
+          and it moved the whole listing down a row the moment a search ran.
+          Everything it carried has a better home: the skeletons say a search
+          is running, the empty and failed panels say what came back, and the
+          field's own ✕ is the way out. The field itself is the caller's — on
+          Files it sits in the page header, one component above this one. */}
 
       {/* The path, Finder-style: where the reader stands, every ancestor a
           click back out, and "New folder" for the level they are in. Hidden
@@ -322,10 +260,10 @@ export function FileBrowserPane({
                   {/* Retries the SAME query — offering only "show all files"
                       asks the reader to give up and retype a search they have
                       already made. */}
-                  <Button size="sm" onClick={() => semantic.run(search)}>
+                  <Button size="sm" onClick={search.run}>
                     {t('browser.semantic.retry')}
                   </Button>
-                  <Button variant="outline" size="sm" onClick={clearSearch}>
+                  <Button variant="outline" size="sm" onClick={search.clear}>
                     {t('browser.semantic.reset')}
                   </Button>
                 </div>
@@ -340,7 +278,7 @@ export function FileBrowserPane({
               title={t('browser.semantic.noResults', { query: semantic.query ?? '' })}
               description={t('browser.semantic.noResultsDescription')}
               action={
-                <Button variant="outline" size="sm" onClick={clearSearch}>
+                <Button variant="outline" size="sm" onClick={search.clear}>
                   {t('browser.semantic.reset')}
                 </Button>
               }
@@ -389,10 +327,10 @@ export function FileBrowserPane({
             <EmptyState
               variant="bare"
               icon={Search}
-              title={t('browser.noMatch', { query: search })}
+              title={t('browser.noMatch', { query })}
               description={t('browser.noMatchDescription')}
               action={
-                <Button variant="outline" size="sm" onClick={clearSearch}>
+                <Button variant="outline" size="sm" onClick={search.clear}>
                   {t('browser.clearSearch')}
                 </Button>
               }
