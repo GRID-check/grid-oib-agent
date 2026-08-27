@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { JobsPanel } from '@/features/jobs/components/jobs-panel'
 import { SkillsPanel } from '@/features/skills/components/skills-panel'
 import { useTranslations } from '@/i18n'
+import { parseAutomationTab, type AutomationTab } from '../lib/automation-tab'
 
 /**
  * Automation — Jobs and Skills as tabs inside ONE project section.
@@ -27,12 +28,6 @@ import { useTranslations } from '@/i18n'
  * the default: it is the project-scoped half, and this page lives in a
  * project.
  */
-
-export type AutomationTab = 'jobs' | 'skills'
-
-export function parseAutomationTab(value: string | undefined): AutomationTab {
-  return value === 'skills' ? 'skills' : 'jobs'
-}
 
 interface AutomationPanelProps {
   projectId: string

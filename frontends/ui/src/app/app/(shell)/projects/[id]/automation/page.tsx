@@ -6,7 +6,8 @@ import { canManageSkills } from '@/lib/authz/organizations'
 import { isSkillsEnabled } from '@/lib/authz/feature-flags'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { getTranslations } from '@/i18n/server'
-import { AutomationPanel, parseAutomationTab } from '@/features/automation/components/automation-panel'
+import { AutomationPanel } from '@/features/automation/components/automation-panel'
+import { parseAutomationTab } from '@/features/automation/lib/automation-tab'
 
 interface AutomationPageProps {
   params: Promise<{ id: string }>

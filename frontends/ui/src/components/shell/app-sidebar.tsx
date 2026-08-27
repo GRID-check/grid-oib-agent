@@ -232,6 +232,13 @@ function AppSidebarFrame({
     })),
   }))
 
+  // Split: project work (scrollable) vs org-level + settings (bottom-pinned).
+  // The org doorways (Archiv, Inbox) are reachable from inside a project but
+  // belong to the organization — they should sit at the bottom of the rail so
+  // the project-work list stays focused and the org scope is visually distinct.
+  const orgGroup = groups.find((g) => g.key === 'org')
+  const workGroups = groups.filter((g) => g.key !== 'org')
+
   const settingsHref = itemHref(PROJECT_SETTINGS_SECTION, base)
   const activeItem =
     groups.flatMap((group) => group.items).find((item) => item.active) ??
@@ -339,7 +346,7 @@ function AppSidebarFrame({
 
         <SidebarContent
           className={cn(
-            'mt-5 gap-4',
+            'mt-5 gap-4 flex-1',
             // overflow-y-auto here used to replace the primitive's
             // group-data-[collapsible=icon]:overflow-hidden, so labels kept
             // painting past the 64px rail.
@@ -347,18 +354,11 @@ function AppSidebarFrame({
           )}
         >
           <nav aria-label={t('projectSections')}>
-            {groups.map((group, index) => (
+            {workGroups.map((group, index) => (
               <SidebarGroup
                 key={group.key}
                 className={cn(
                   'p-0',
-                  // Expanded, the group label's own `h-8` is what separates
-                  // one group from the next. The icon rail unmounts that
-                  // label, so without this the seam between groups collapses
-                  // to 0 while items inside a group sit 2px apart — seven
-                  // icons reading as one undifferentiated column. 12px against
-                  // a 2px item gap is a 6:1 ratio, which is the chunking the
-                  // label used to provide.
                   iconRail && index > 0 && 'mt-3'
                 )}
               >
@@ -386,18 +386,38 @@ function AppSidebarFrame({
           </nav>
         </SidebarContent>
 
-        <SidebarFooter
-          className={cn(
-            'shrink-0 gap-0 p-0 pb-[14px]',
-            iconRail ? 'overflow-hidden px-3.5' : 'px-3'
+        {/* Bottom-pinned region: org doorways + settings, separated from the
+            scrollable project-work list so the org scope is visually distinct
+            and always at the bottom of the rail. */}
+        <div className={cn('shrink-0 flex flex-col gap-0', iconRail ? 'px-3.5' : 'px-3')}>
+          {orgGroup && (
+            <>
+              <div className="border-border/50 border-t pt-3" />
+              <nav aria-label={orgGroup.label}>
+                <SidebarGroup className="p-0">
+                  {!iconRail && <SidebarGroupLabel>{orgGroup.label}</SidebarGroupLabel>}
+                  <SidebarGroupContent>
+                    <SidebarMenu className="gap-0.5" aria-label={orgGroup.label}>
+                      {orgGroup.items.map((item) => (
+                        <RailNavItem
+                          key={item.key}
+                          icon={item.icon}
+                          href={item.href}
+                          active={item.active}
+                          label={item.label}
+                          badgeCount={item.badgeCount}
+                          tooltip={iconRail}
+                          pillId={activePillId}
+                        />
+                      ))}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </SidebarGroup>
+              </nav>
+            </>
           )}
-        >
-          {/* No `justify-center` here: `SidebarMenu` is `w-full`, so a flex
-              centring rule on this wrapper was a no-op and the Settings tile
-              stayed flush left while the presence dot and avatar centred. The
-              rail's `px-3.5` now sizes this box to the tile, so it aligns by
-              construction rather than by a rule that could be defeated again. */}
-          <div className="mb-2.5">
+
+          <div className={cn(orgGroup ? 'mt-2.5' : 'mt-1', 'border-border/50 border-t pt-2.5')}>
             <SidebarMenu className="gap-0.5">
               <RailNavItem
                 icon={PROJECT_SETTINGS_SECTION.icon}
@@ -406,18 +426,18 @@ function AppSidebarFrame({
                 label={sectionLabel(PROJECT_SETTINGS_SECTION, t, tCollaboration)}
                 badgeCount={0}
                 tooltip={iconRail}
-                // Its OWN id, so the pill never glides between the nav list
-                // and the pinned footer. Settings is bottom-anchored in a
-                // `shrink-0` footer while the list above it is a scroll
-                // region — a chip travelling between them would be clipped
-                // at the seam by `SidebarContent`'s own overflow, and the
-                // distance it covered would be a function of how many
-                // sections the project happens to have rather than of
-                // anything the reader did.
                 pillId={`${activePillId}-settings`}
               />
             </SidebarMenu>
           </div>
+        </div>
+
+        <SidebarFooter
+          className={cn(
+            'shrink-0 gap-0 p-0 pb-[14px] pt-2',
+            iconRail ? 'overflow-hidden px-3.5' : 'px-3'
+          )}
+        >
 
           <div className={cn('pb-2.5', iconRail ? 'flex justify-center' : 'px-1.5')}>
             <ConnectionPresenceIndicator compact={iconRail} />

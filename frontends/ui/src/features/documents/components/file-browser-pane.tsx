@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
 import type { FileItem, FolderItem } from './project-file-workspace'
 import { Search, SearchX, FolderOpen, Sparkles, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,7 @@ import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useLocale, useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import { useSemanticSearch } from '../hooks/use-semantic-search'
+import { AnimatePresence, motion, motionEntrance, motionQuick } from '@/components/motion'
 import { FileCard } from './file-card'
 import { FileGrid, FileCardSkeleton } from './file-grid'
 import { FileListSkeleton, FileListView } from './file-list-view'
@@ -132,6 +133,27 @@ export function FileBrowserPane({
 
   const currentFolderId = folderNav?.currentFolderId ?? null
 
+  // Direction for the folder-level transition: deeper (entering) slides left,
+  // shallower (leaving) slides right. Tracked so the AnimatePresence can pick
+  // the right variant without guessing from the DOM.
+  const prevFolderRef = useRef<string | null>(currentFolderId)
+  const prevDepthRef = useRef(0)
+  const folderDepth = useMemo(() => {
+    if (!folderNav || currentFolderId === null) return 0
+    let depth = 0
+    let cur: string | null = currentFolderId
+    const byId = new Map(folderNav.folders.map((f) => [f.id, f]))
+    while (cur) {
+      depth += 1
+      cur = byId.get(cur)?.parentId ?? null
+      if (depth > folderNav.folders.length) break
+    }
+    return depth
+  }, [folderNav, currentFolderId])
+  const navDirection = folderDepth > prevDepthRef.current ? 1 : folderDepth < prevDepthRef.current ? -1 : 0
+  prevFolderRef.current = currentFolderId
+  prevDepthRef.current = folderDepth
+
   /** The folders directly inside the current level — the drill-down tiles. */
   const childFolders = useMemo(
     () => (folderNav?.folders ?? []).filter((f) => f.parentId === currentFolderId),
@@ -143,6 +165,24 @@ export function FileBrowserPane({
     const docs = (searchFiles ?? files).filter((f) => (f.folderId ?? null) === folderId).length
     const subs = (folderNav?.folders ?? []).filter((f) => f.parentId === folderId).length
     return docs + subs
+  }
+
+  /** Most recent child timestamp — the folder's "last change", like file cards show. */
+  const folderLastModified = (folderId: string): string | null => {
+    const childDocs = (searchFiles ?? files).filter((f) => (f.folderId ?? null) === folderId)
+    if (childDocs.length === 0) return null
+    let latest: string | null = null
+    for (const doc of childDocs) {
+      if (!doc.createdAt) continue
+      if (latest === null || doc.createdAt > latest) latest = doc.createdAt
+    }
+    // Include nested folders' children recursively — deepest newest wins
+    const childFolderIds = (folderNav?.folders ?? []).filter((f) => f.parentId === folderId).map((f) => f.id)
+    for (const childId of childFolderIds) {
+      const nested = folderLastModified(childId)
+      if (nested && (latest === null || nested > latest)) latest = nested
+    }
+    return latest
   }
 
   if (isLoading) {
@@ -387,75 +427,122 @@ export function FileBrowserPane({
       ) : levelEmpty ? (
         /* An empty folder keeps its breadcrumb (above) — the way back out and
            the "New folder" control stay where the reader expects them. */
-        <div className="flex flex-1 items-center justify-center p-8">
+        <motion.div
+          key={`empty-${currentFolderId ?? 'root'}`}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={motionEntrance}
+          className="flex flex-1 items-center justify-center p-8"
+        >
           <EmptyState
             icon={FolderOpen}
             title={t('browser.folderEmptyTitle')}
             description={t('browser.folderEmptyDescription')}
             action={uploadControl}
           />
-        </div>
+        </motion.div>
       ) : view === 'list' ? (
-        <div className={CONTENT_MAX}>
-          {folderNav && childFolders.length > 0 && (
-            <div className="border-b px-2 py-2" role="group" aria-label={t('folders.heading')}>
-              {childFolders.map((folder) => (
-                <FolderRow
-                  key={folder.id}
-                  folder={folder}
-                  itemCount={folderItemCount(folder.id)}
-                  onOpen={folderNav.onNavigate}
-                  onRenameFolder={folderNav.onRenameFolder}
-                  onDeleteFolder={folderNav.onDeleteFolder}
-                />
-              ))}
-            </div>
-          )}
-          {files.length > 0 && (
-            <FileListView
-              files={files}
-              selectedFileId={selectedFileId}
-              onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
-              renderActions={renderActions}
-            />
-          )}
-        </div>
-      ) : (
-        <div className={`${CONTENT_MAX} p-4`}>
-          {/* Section label — "Recently uploaded" at the corpus root, matching
-              the click-dummy. Hidden inside a folder (the breadcrumb already
-              names it) and while searching (the query is the context). */}
-          {currentFolderId === null && files.length > 0 && (
-            <SectionLabel as="p" className="mb-3 font-semibold tracking-[0.05em]">
-              {t('browser.recentlyUploaded')}
-            </SectionLabel>
-          )}
-          <FileGrid>
-            {folderNav &&
-              childFolders.map((folder) => (
-                <FolderCard
-                  key={folder.id}
-                  folder={folder}
-                  itemCount={folderItemCount(folder.id)}
-                  onOpen={folderNav.onNavigate}
-                  onRenameFolder={folderNav.onRenameFolder}
-                  onDeleteFolder={folderNav.onDeleteFolder}
-                />
-              ))}
-            {files.map((file) => (
-              <FileCard
-                key={file.id}
-                file={file}
-                isSelected={selectedFileId === file.id}
-                onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
-                locale={locale}
-                footerLead={showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined}
-                actions={renderActions?.(file)}
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={`list-${currentFolderId ?? 'root'}`}
+            initial={{ opacity: 0, x: navDirection * 16 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: navDirection * -16 }}
+            transition={motionQuick}
+            className={CONTENT_MAX}
+          >
+            {folderNav && childFolders.length > 0 && (
+              <div className="border-b px-2 py-2" role="group" aria-label={t('folders.heading')}>
+                {childFolders.map((folder) => (
+                  <FolderRow
+                    key={folder.id}
+                    folder={folder}
+                    itemCount={folderItemCount(folder.id)}
+                    lastModified={folderLastModified(folder.id)}
+                    onOpen={folderNav.onNavigate}
+                    onRenameFolder={folderNav.onRenameFolder}
+                    onDeleteFolder={folderNav.onDeleteFolder}
+                  />
+                ))}
+              </div>
+            )}
+            {files.length > 0 && (
+              <FileListView
+                files={files}
+                selectedFileId={selectedFileId}
+                onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
+                renderActions={renderActions}
               />
-            ))}
-            {uploadCard}
-          </FileGrid>
-        </div>
+            )}
+          </motion.div>
+        </AnimatePresence>
+      ) : (
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={`grid-${currentFolderId ?? 'root'}`}
+            initial={{ opacity: 0, x: navDirection * 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: navDirection * -20 }}
+            transition={motionQuick}
+            className={`${CONTENT_MAX} p-4`}
+          >
+            {/* Section label — "Recently uploaded" at the corpus root, matching
+                the click-dummy. Hidden inside a folder (the breadcrumb already
+                names it) and while searching (the query is the context). */}
+            {currentFolderId === null && files.length > 0 && (
+              <SectionLabel as="p" className="mb-3 font-semibold tracking-[0.05em]">
+                {t('browser.recentlyUploaded')}
+              </SectionLabel>
+            )}
+            <FileGrid>
+              {folderNav &&
+                childFolders.map((folder, idx) => (
+                  <motion.div
+                    key={folder.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ ...motionEntrance, delay: idx * 0.03 }}
+                  >
+                    <FolderCard
+                      folder={folder}
+                      itemCount={folderItemCount(folder.id)}
+                      lastModified={folderLastModified(folder.id)}
+                      onOpen={folderNav.onNavigate}
+                      onRenameFolder={folderNav.onRenameFolder}
+                      onDeleteFolder={folderNav.onDeleteFolder}
+                    />
+                  </motion.div>
+                ))}
+              {files.map((file, idx) => (
+                <motion.div
+                  key={file.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ ...motionEntrance, delay: (childFolders.length + idx) * 0.02 }}
+                >
+                  <FileCard
+                    file={file}
+                    isSelected={selectedFileId === file.id}
+                    onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
+                    locale={locale}
+                    footerLead={showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined}
+                    actions={renderActions?.(file)}
+                  />
+                </motion.div>
+              ))}
+              {uploadCard && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ ...motionEntrance, delay: (childFolders.length + files.length) * 0.02 }}
+                >
+                  {uploadCard}
+                </motion.div>
+              )}
+            </FileGrid>
+          </motion.div>
+        </AnimatePresence>
       )}
     </div>
   )
