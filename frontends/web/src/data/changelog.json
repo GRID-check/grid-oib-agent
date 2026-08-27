@@ -32,6 +32,48 @@
   },
   "releases": [
     {
+      "id": "2026-08-27",
+      "kind": "date",
+      "version": null,
+      "date": "2026-08-27",
+      "summary": null,
+      "sections": [
+        {
+          "key": "improvements",
+          "notes": [
+            {
+              "en": "Re-uploading a document under the same name now replaces its earlier version in the knowledge index instead of competing with it, so an answer can no longer cite a superseded upload with full confidence. A document under a new name is still treated as a new document — deciding that one file supersedes a differently-named one stays a human call.",
+              "de": "Re-uploading a document under the same name now replaces its earlier version in the knowledge index instead of competing with it, so an answer can no longer cite a superseded upload with full confidence. A document under a new name is still treated as a new document — deciding that one file supersedes a differently-named one stays a human call."
+            },
+            {
+              "en": "Project memory now takes your feedback into account. When a thumbs-down comment describes a problem that sits close to a stored note, that note loses weight and is marked less reliable — inside your own project only, and never deleted. A note you have pinned is exempt.",
+              "de": "Project memory now takes your feedback into account. When a thumbs-down comment describes a problem that sits close to a stored note, that note loses weight and is marked less reliable — inside your own project only, and never deleted. A note you have pinned is exempt."
+            },
+            {
+              "en": "Lessons learned from feedback now watch themselves. A lesson that keeps collecting new reports while active is flagged as not working, and a lesson whose root cause has been fixed retires on its own after two weeks without a recurrence. Both steps appear in the lesson's audit trail and are reversible from Platform → Lessons.",
+              "de": "Lessons learned from feedback now watch themselves. A lesson that keeps collecting new reports while active is flagged as not working, and a lesson whose root cause has been fixed retires on its own after two weeks without a recurrence. Both steps appear in the lesson's audit trail and are reversible from Platform → Lessons."
+            },
+            {
+              "en": "Piloti's project memory now recalls what is relevant to your question instead of simply the twenty most recent notes, and it recognises a note you have already saved even when it is worded differently — so the same fact stops being stored twice. Notes it keeps using stay fresh; notes nothing ever needs quietly fade into the background rather than crowding them out.",
+              "de": "Piloti's project memory now recalls what is relevant to your question instead of simply the twenty most recent notes, and it recognises a note you have already saved even when it is worded differently — so the same fact stops being stored twice. Notes it keeps using stay fresh; notes nothing ever needs quietly fade into the background rather than crowding them out."
+            },
+            {
+              "en": "When a project has more notes than fit in one answer, Piloti now says so instead of silently showing a partial list, and pinned notes can no longer push everything else out of view.",
+              "de": "When a project has more notes than fit in one answer, Piloti now says so instead of silently showing a partial list, and pinned notes can no longer push everything else out of view."
+            },
+            {
+              "en": "Answers from deep research now benefit from the same platform-wide lessons as ordinary answers, so a mistake reported once is less likely to reappear in a long report.",
+              "de": "Answers from deep research now benefit from the same platform-wide lessons as ordinary answers, so a mistake reported once is less likely to reappear in a long report."
+            },
+            {
+              "en": "Adding a comment to an answer you already marked as unhelpful now gives Piloti a second chance to learn from it — the extra detail is exactly what a bare thumbs-down was missing.",
+              "de": "Adding a comment to an answer you already marked as unhelpful now gives Piloti a second chance to learn from it — the extra detail is exactly what a bare thumbs-down was missing."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-08-26",
       "kind": "date",
       "version": null,
@@ -52,6 +94,10 @@
             {
               "en": "„Erstelle ein Dokument über …\" startet jetzt die Tiefenrecherche, deren fertiger Bericht im Projekt unter „Berichte\" abgelegt wird — auch bei einem Thema, das sonst als kurze Frage beantwortet würde. Wer nur eine gründliche Antwort will, bekommt weiterhin die Antwort im Chat.",
               "de": "„Erstelle ein Dokument über …\" startet jetzt die Tiefenrecherche, deren fertiger Bericht im Projekt unter „Berichte\" abgelegt wird — auch bei einem Thema, das sonst als kurze Frage beantwortet würde. Wer nur eine gründliche Antwort will, bekommt weiterhin die Antwort im Chat."
+            },
+            {
+              "en": "Piloti now learns from negative feedback. When you mark an answer as not helpful, the report is anonymized and turned into a lesson the assistant reads on every future answer — so a mistake reported once is far less likely to happen to you or anyone else again. Your feedback text never leaves your organization; only the anonymized lesson does.",
+              "de": "Piloti now learns from negative feedback. When you mark an answer as not helpful, the report is anonymized and turned into a lesson the assistant reads on every future answer — so a mistake reported once is far less likely to happen to you or anyone else again. Your feedback text never leaves your organization; only the anonymized lesson does."
             }
           ]
         },
@@ -69,6 +115,10 @@
             {
               "en": "Your phone's keyboard finally knows what each field is for: the key that sends a message says \"send\", the one that runs a search says \"search\", and a search box stops capitalising and autocorrecting what you type — so looking for a file by its exact name finds it.",
               "de": "Your phone's keyboard finally knows what each field is for: the key that sends a message says \"send\", the one that runs a search says \"search\", and a search box stops capitalising and autocorrecting what you type — so looking for a file by its exact name finds it."
+            },
+            {
+              "en": "Giving a thumbs-down with a short note is now the fastest way to improve answers for everyone: each report is matched against known failure patterns, and repeated reports strengthen the caution the assistant already follows.",
+              "de": "Giving a thumbs-down with a short note is now the fastest way to improve answers for everyone: each report is matched against known failure patterns, and repeated reports strengthen the caution the assistant already follows."
             }
           ]
         },
