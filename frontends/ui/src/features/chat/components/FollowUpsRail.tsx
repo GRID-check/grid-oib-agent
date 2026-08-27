@@ -7,7 +7,7 @@
  * actual message and not in the message"
  * (`docs/architecture/post-answer-stages.md` §6). So this is not a card: it is
  * a sibling of the answer in the message column, outside the white answer
- * surface, sharing its left edge and its 680px width.
+ * surface, sharing its edges and its full column width.
  *
  * ── Why it may simply appear ─────────────────────────────────────────────────
  *

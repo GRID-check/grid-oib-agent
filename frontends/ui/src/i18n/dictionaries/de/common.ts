@@ -28,6 +28,13 @@ export const common: typeof en.common = {
     empty: 'Noch nichts vorhanden',
     copyFailed: 'Kopieren nicht möglich',
   },
+  codeBlock: {
+    copy: 'Kopieren',
+    copied: 'Kopiert',
+    copyCode: 'Code kopieren',
+    showLess: 'Weniger anzeigen',
+    showAll: 'Alle anzeigen ({count} Zeilen)',
+  },
   theme: {
     label: 'Design',
     system: 'System',

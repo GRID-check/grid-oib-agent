@@ -92,7 +92,17 @@ export const CopyCitationsMenu: FC<{ citations: CitationRef[] }> = ({ citations 
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async (format: CitationFormat): Promise<void> => {
-    const text = await renderCitations(citations, format, new Date())
+    // Inside the same failure path as the clipboard write: `renderCitations`
+    // lazily imports citation-js, and a chunk that fails to load (offline, a
+    // deploy in between) used to reject UNHANDLED — the menu just closed and
+    // nothing said why nothing was on the clipboard.
+    let text: string
+    try {
+      text = await renderCitations(citations, format, new Date())
+    } catch {
+      toast.error(t('answerSources.copyFailed'))
+      return
+    }
     await copyText(
       text,
       () => {

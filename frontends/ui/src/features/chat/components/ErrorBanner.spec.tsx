@@ -196,7 +196,8 @@ describe('ErrorBanner', () => {
       expect(button).toHaveAttribute('aria-expanded', 'true')
     })
 
-    test('details button has aria-controls', () => {
+    test('details button controls the details region it discloses', async () => {
+      const user = userEvent.setup()
       render(
         <ErrorBanner
           code="connection.failed"
@@ -204,8 +205,15 @@ describe('ErrorBanner', () => {
         />
       )
 
-      const button = screen.getByText('Show details').closest('button')
-      expect(button).toHaveAttribute('aria-controls', 'error-details')
+      const button = screen.getByText('Show details').closest('button')!
+      // The id is generated per banner (useId): two error cards in one thread
+      // used to share the literal `error-details`, so both disclosure buttons
+      // pointed at the first card's <pre>. The contract is the LINKAGE.
+      const controlsId = button.getAttribute('aria-controls')
+      expect(controlsId).toBeTruthy()
+
+      await user.click(button)
+      expect(document.getElementById(controlsId!)).toHaveTextContent('Details here')
     })
   })
 })

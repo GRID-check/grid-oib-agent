@@ -205,6 +205,8 @@ export const chat: typeof en.chat = {
     // aussieht, egal über welche Schaltfläche sie kopiert wurde.
     sourcesHeading: 'Quellen',
     untitledSource: 'Quelle ohne Titel',
+    downloadDocx: 'Als Word-Dokument herunterladen',
+    downloadFailed: 'Das Word-Dokument konnte nicht erstellt werden.',
   },
   // Der Zitat-Peek: was diese Fundstelle IST, bevor man sie öffnet.
   citationPeek: {

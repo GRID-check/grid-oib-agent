@@ -387,6 +387,58 @@ Below`} />)
       expect(screen.getByText('Cell 1')).toBeInTheDocument()
       expect(screen.getByText('Cell 4')).toBeInTheDocument()
     })
+
+    /*
+      The delimiter row's alignment (`|---:|`) is the author's statement about
+      the column — the agent right-aligns number columns on purpose. The custom
+      th/td used to drop it, so every table came out left-aligned.
+    */
+    test('keeps the column alignment the delimiter row declared', () => {
+      const tableMarkdown = '| Bauteil | REI |\n| :--- | ---: |\n| Wand | 90 |'
+      render(<MarkdownRenderer content={tableMarkdown} />)
+
+      expect(screen.getByText('REI').className).toContain('text-right')
+      expect(screen.getByText('90').className).toContain('text-right')
+      expect(screen.getByText('Bauteil').className).toContain('text-left')
+    })
+  })
+
+  describe('task lists (GFM)', () => {
+    test('renders checkboxes without list bullets', () => {
+      const { container } = render(
+        <MarkdownRenderer content={'- [x] Nachweis erbracht\n- [ ] Nachweis offen'} />
+      )
+
+      const checkboxes = container.querySelectorAll('input[type="checkbox"]')
+      expect(checkboxes).toHaveLength(2)
+      expect((checkboxes[0] as HTMLInputElement).checked).toBe(true)
+      expect((checkboxes[1] as HTMLInputElement).checked).toBe(false)
+      // The list must not ALSO draw disc bullets beside the checkboxes.
+      expect(container.querySelector('ul')?.className).toContain('list-none')
+    })
+  })
+
+  describe('deep headings', () => {
+    test('h5 and h6 keep heading weight instead of rendering as body text', () => {
+      render(<MarkdownRenderer content={'##### Ebene 5\n\n###### Ebene 6'} />)
+
+      expect(screen.getByRole('heading', { level: 5 })).toHaveTextContent('Ebene 5')
+      expect(screen.getByRole('heading', { level: 6 })).toHaveTextContent('Ebene 6')
+      expect(screen.getByRole('heading', { level: 5 }).className).toContain('font-semibold')
+    })
+  })
+
+  describe('images', () => {
+    test('bounds and lazy-loads a markdown image', () => {
+      const { container } = render(
+        <MarkdownRenderer content={'![Grundriss](https://example.org/plan.png)'} />
+      )
+
+      const image = container.querySelector('img')
+      expect(image).toHaveAttribute('loading', 'lazy')
+      expect(image).toHaveAttribute('alt', 'Grundriss')
+      expect(image?.className).toContain('max-w-full')
+    })
   })
 
   describe('math (KaTeX)', () => {

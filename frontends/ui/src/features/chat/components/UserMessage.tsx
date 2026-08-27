@@ -155,7 +155,10 @@ export const UserMessage: FC<UserMessageProps> = ({
     mentions && mentions.length > 0 ? (
       <MentionText content={content} mentions={mentions} currentUserId={currentUserId} />
     ) : (
-      <MarkdownRenderer content={content} />
+      // `compact`, because the bubble itself is set in `text-sm`: without it
+      // the markdown paragraphs came out `text-base`, so the same bubble was
+      // 14px or 16px depending on whether the message carried mentions.
+      <MarkdownRenderer content={content} compact />
     )
 
   // ── Solo thread: today's rendering, untouched ───────────────────────────────

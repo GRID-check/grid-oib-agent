@@ -849,7 +849,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   return (
     <DiagramFilingProvider target={diagramFilingTarget}>
     <AnswerCitations documents={documents} anchorPrefix={anchorPrefix}>
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-[680px] max-w-full flex-col duration-base ease-entrance motion-reduce:animate-none">
+    {/* Full column width, not a fixed 680px: the answer is the thread's main
+        content and reads as a centered column (the width itself is set by the
+        list's max-w container), rather than a card hugging the left edge with
+        dead space beside it. */}
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full flex-col duration-base ease-entrance motion-reduce:animate-none">
       {/* Role tab — uppercase 10.5/600. Substantive answer: near-black action
           fill + check. Meta reply: quiet secondary fill + conversation icon. */}
       {isMeta ? (
@@ -1015,7 +1019,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                     written out. Before the thumbs: "take this with you" is what
                     the reader wants first; rating it is the afterthought. */}
                 {hasAnswerActions && (
-                  <AnswerActions content={content} body={body} documents={documents} />
+                  <AnswerActions
+                    content={content}
+                    body={body}
+                    documents={documents}
+                    conversationId={conversationId}
+                    messageId={messageId}
+                  />
                 )}
                 {hasFeedback && messageId && (
                   <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />

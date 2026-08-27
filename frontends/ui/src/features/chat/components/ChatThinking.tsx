@@ -195,12 +195,21 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
     <div className="animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-2xl bg-muted shadow-xs duration-base ease-entrance motion-reduce:animate-none">
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger asChild>
+          {/* No aria-label on the trigger: it would OVERRIDE the visible
+              content, hiding exactly what a non-sighted reader needs — the
+              status word („Denke nach" / „Unterbrochen" / „Wartet") and the
+              live activity phrase. The accessible name is the content itself. */}
           <button
             type="button"
             className="group relative flex min-h-12 w-full cursor-pointer items-center justify-between rounded-2xl px-4 pb-4 pt-3 text-left outline-none transition-colors duration-snap ease-out motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-ring/60"
-            aria-label={summaryLabel}
           >
-            <span className="flex min-w-0 items-center gap-2">
+            {/* aria-live sits HERE, on a stable element: it used to sit on the
+                keyed motion.span inside AnimatePresence, which is unmounted and
+                remounted per step — a live region created WITH its content, which
+                most AT never announces. On a stable region, each new phrase is an
+                addition and is read out. The elapsed timer lives in the sibling
+                span, so it does not chatter once a second. */}
+            <span className="flex min-w-0 items-center gap-2" aria-live="polite">
               {isThinking ? (
                 <>
                   <Spinner size="sm" label={t('thinking.inProgress')} />
@@ -215,7 +224,6 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -4 }}
                       transition={{ duration: 0.18, ease: 'easeOut' }}
-                      aria-live="polite"
                     >
                       {activityLabel}
                     </motion.span>

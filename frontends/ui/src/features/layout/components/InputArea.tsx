@@ -147,8 +147,13 @@ function mentionRefusalMessage(
   }
 }
 
-/** Maximum height of the auto-sizing textarea in pixels */
-const TEXTAREA_MAX_HEIGHT_PX = 200
+/**
+ * Maximum height of the auto-sizing textarea in pixels. Must equal the
+ * `max-h-52` (13rem) cap on the textarea itself: the JS autosize and the CSS
+ * clamp are the same limit stated twice, and when they drift the smaller one
+ * silently wins.
+ */
+const TEXTAREA_MAX_HEIGHT_PX = 208
 
 /**
  * Inline removable file chip shown above the composer textarea. Live status:
@@ -1099,6 +1104,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      // Mid-IME-composition, every key below belongs to the input method: the
+      // Enter that confirms a CJK candidate must never SEND, and the arrows
+      // that move through candidates must not drive the pickers. Same guard the
+      // shell shortcuts use (`keyboard-shortcuts.tsx`).
+      if (e.nativeEvent.isComposing) return
+
       // The `/` picker gets first refusal on the navigation keys. It and the
       // mention picker are mutually exclusive by caret position (a slash query
       // only exists while the caret is inside the message's opening token), so
@@ -1236,7 +1247,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const scopeLabel = projectName || tChat('composer.scopeFallback')
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-4">
+    <div className="mx-auto flex w-full max-w-4xl flex-col p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-4">
       {/* The mention picker is anchored to the composer CARD and opens above it,
           spanning its full width — the Slack/Linear placement. Caret-pixel tracking
           inside a textarea is fragile and buys nothing here. */}
@@ -1417,7 +1428,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               // its own. `outline-hidden!` beats the app's global :focus-visible
               // outline (globals.css, unlayered) with an important utility — otherwise
               // focus is drawn twice: a nested box inside the card's ring.
-              className="outline-none! pointer-coarse:min-h-11 pointer-coarse:text-base max-h-52 min-h-[40px] resize-none border-0 bg-transparent px-1.5 py-1 text-sm leading-[1.5] shadow-none focus-visible:ring-0"
+              className="outline-none! pointer-coarse:min-h-11 pointer-coarse:text-base max-h-52 min-h-10 resize-none border-0 bg-transparent px-1.5 py-1 text-sm leading-[1.5] shadow-none focus-visible:ring-0"
               value={message}
               onChange={(e) => handleValueChange(e.target.value, e.target.selectionStart)}
               onKeyDown={handleKeyDown}

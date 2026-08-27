@@ -71,7 +71,7 @@ export const NoSourcesBanner: FC<NoSourcesBannerProps> = ({ isAuthenticated = fa
   if (!isAuthenticated || !shouldShow || isDismissedByUser) return null
 
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 mx-auto w-full max-w-3xl px-4 duration-base ease-entrance motion-reduce:animate-none">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 mx-auto w-full max-w-4xl px-4 duration-base ease-entrance motion-reduce:animate-none">
       <Alert variant="warning" className="relative">
         <AlertTriangle />
         <AlertDescription className="pr-6">{t('noSources.warning')}</AlertDescription>
