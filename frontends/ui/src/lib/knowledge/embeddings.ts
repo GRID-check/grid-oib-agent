@@ -33,7 +33,18 @@ import { getBackendUrl } from '@/lib/backend-proxy'
 
 /** Bounded like the backend route; a batch is a prompt-sized thing. */
 export const MAX_EMBED_BATCH = 64
+/**
+ * Default timeout, sized for WRITE paths (a note insert, a backfill batch)
+ * where waiting beats losing the vector. Anything on a turn's critical path
+ * must pass its own budget — the memory digest gives the query embed ~1s,
+ * because a digest that arrives after the agent stopped waiting helps nobody.
+ */
 const EMBED_TIMEOUT_MS = 20_000
+
+export interface EmbedOptions {
+  /** Per-call ceiling; the caller on a hot path knows its own budget. */
+  timeoutMs?: number
+}
 
 export interface EmbeddedNote {
   vector: number[]
@@ -56,7 +67,10 @@ interface BackendEmbedResponse {
  * whole call: a vector silently attached to the wrong note is worse than no
  * vector at all.
  */
-export async function embedNotes(texts: string[]): Promise<EmbeddedNote[] | null> {
+export async function embedNotes(
+  texts: string[],
+  options: EmbedOptions = {}
+): Promise<EmbeddedNote[] | null> {
   const batch = texts.slice(0, MAX_EMBED_BATCH)
   if (batch.length === 0) return []
 
@@ -69,7 +83,7 @@ export async function embedNotes(texts: string[]): Promise<EmbeddedNote[] | null
         'x-grid-internal-token': process.env.GRID_INTERNAL_API_TOKEN ?? '',
       },
       body: JSON.stringify({ texts: batch }),
-      signal: AbortSignal.timeout(EMBED_TIMEOUT_MS),
+      signal: AbortSignal.timeout(options.timeoutMs ?? EMBED_TIMEOUT_MS),
     })
   } catch (error) {
     console.warn('[embeddings] Backend unreachable; staying on the lexical path:', error)
@@ -101,8 +115,11 @@ export async function embedNotes(texts: string[]): Promise<EmbeddedNote[] | null
 }
 
 /** Embed exactly one text, or null. */
-export async function embedNote(text: string): Promise<EmbeddedNote | null> {
-  const embedded = await embedNotes([text])
+export async function embedNote(
+  text: string,
+  options: EmbedOptions = {}
+): Promise<EmbeddedNote | null> {
+  const embedded = await embedNotes([text], options)
   return embedded?.[0] ?? null
 }
 

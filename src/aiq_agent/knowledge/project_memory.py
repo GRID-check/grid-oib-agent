@@ -41,7 +41,11 @@ _REQUEST_TIMEOUT_SECONDS = 5
 # classification, so a slow BFF must never stall the turn for the full 5s the
 # write calls allow. Keep it tight; on timeout fetch_memory_digest raises and
 # the caller falls back to the frozen connection-time digest (fail-open).
-_DIGEST_TIMEOUT_SECONDS = 1.5
+# 2.5s, up from 1.5: the digest build now embeds the turn's question for
+# relevance-ranked recall (the BFF gives that embed call ~1s of this budget).
+# Still bounded and still fail-open to the frozen header digest — a slow BFF
+# costs staleness, never the turn.
+_DIGEST_TIMEOUT_SECONDS = 2.5
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -152,6 +156,7 @@ def insert_memory_item(
     conversation_id: str | None = None,
     provenance_type: str = "agent",
     supersedes_content: str | None = None,
+    salience: float | None = None,
 ) -> str | None:
     """Record one memory item via the internal BFF endpoint.
 
@@ -200,6 +205,11 @@ def insert_memory_item(
         payload["sourceConversationId"] = conversation_id
     if supersedes_content and supersedes_content.strip():
         payload["supersedesContent"] = supersedes_content.strip()[:2000]
+    if salience is not None:
+        # Write-time importance (0..1), elicited by the reflection stage. Sent
+        # only when the caller rated it — the column's 0.5 default is the
+        # neutral midpoint and must stay the fallback, not an explicit write.
+        payload["salience"] = max(0.0, min(1.0, float(salience)))
 
     request = urllib.request.Request(
         f"{_internal_base_url()}/api/internal/memory",

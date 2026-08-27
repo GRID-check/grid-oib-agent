@@ -58,6 +58,16 @@ class _ReflectionFinding(BaseModel):
     )
     content: str = Field(description="One concise, self-contained sentence about this project.")
     confidence: Literal["low", "medium", "high"] = Field(description="Confidence in the finding.")
+    importance: int = Field(
+        ge=1,
+        le=10,
+        description=(
+            "How much future answers depend on this finding, 1-10. 1-3: incidental detail "
+            "(a preference about wording). 4-6: useful context. 7-8: shapes answers "
+            "(a chosen construction method, a binding constraint). 9-10: getting this wrong "
+            "invalidates answers (the Bundesland, the building class, a legal deadline)."
+        ),
+    )
     supersedes: str = Field(
         description=(
             "When this finding CORRECTS an entry in the existing memory shown to you, the "
@@ -278,7 +288,24 @@ def _sanitize_findings(
             logger.info("Memory reflection: ignoring a supersedes quote that is not a shown digest entry")
             supersedes = ""
 
-        item = {"kind": kind, "content": content, "confidence": confidence, "scope": "project"}
+        # Importance, elicited at write time the way Generative Agents rates
+        # poignancy: one integer from the SAME structured call, so it costs
+        # nothing extra. Stored as salience in [0,1]; the recall scorer weighs
+        # it at 2 of 5.5 total, so a malformed value defaulting to the midpoint
+        # merely leaves this finding neutral rather than wrong.
+        try:
+            importance = int(entry.get("importance", 5))
+        except (TypeError, ValueError):
+            importance = 5
+        importance = min(10, max(1, importance))
+
+        item = {
+            "kind": kind,
+            "content": content,
+            "confidence": confidence,
+            "scope": "project",
+            "salience": str(round(importance / 10.0, 2)),
+        }
         if supersedes:
             # Bounded by the write endpoint's limit, not the tighter content cap:
             # truncating a verified verbatim quote would turn it back into the
@@ -358,6 +385,7 @@ async def run_memory_reflection(
                 # Tag reflection writes so the UI can distinguish them from a
                 # deliberate in-turn `remember` ('agent') call.
                 provenance_type="distillation",
+                salience=float(item.get("salience", "0.5")),
                 # Retires the entry this finding corrects (frontend resolves the
                 # quote; unresolvable or human-curated targets are left alone).
                 supersedes_content=item.get("supersedes"),

@@ -84,7 +84,11 @@ def test_digest_uses_tight_timeout(monkeypatch):
     with _patched_opener(monkeypatch, body={"digest": "d"}) as captured:
         pm.fetch_memory_digest(project_id="p1", organization_id=None)
     assert captured["timeout"] == pm._DIGEST_TIMEOUT_SECONDS
-    assert pm._DIGEST_TIMEOUT_SECONDS <= 1.5
+    # 2.5s, was 1.5: the digest build now embeds the turn's question for
+    # relevance-ranked recall (the BFF caps that embed at ~1s of this budget).
+    # Still a critical-path ceiling — raising it further needs the same
+    # TTFT argument this comment carries, not just a bigger number.
+    assert pm._DIGEST_TIMEOUT_SECONDS <= 2.5
     # And it must be tighter than the timeout the (off-critical-path) writes use.
     assert pm._DIGEST_TIMEOUT_SECONDS < pm._REQUEST_TIMEOUT_SECONDS
 

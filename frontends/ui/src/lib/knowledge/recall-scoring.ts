@@ -142,6 +142,56 @@ export function rankByRecallScore(notes: ScorableNote[]): { index: number; score
     .sort((a, b) => b.score - a.score)
 }
 
+/**
+ * RRF constant from Cormack, Clarke & Büttcher (SIGIR 2009). 60 is the
+ * canonical value — the same one the document retriever's fusion uses
+ * (`sources/knowledge_layer/src/llamaindex/hybrid.py`).
+ */
+export const RRF_K = 60
+
+/**
+ * Fuse a dense (cosine) and a lexical (token-overlap) channel into ONE
+ * relevance score per candidate, by reciprocal rank.
+ *
+ * Why hybrid at all: dense embeddings collapse lexically distinct neighbours,
+ * so they systematically miss exact identifiers — "OIB-RL 6", "§ 4 Abs. 2",
+ * an ALLCAPS code — which for a building-regulation product is the dominant
+ * query class. The lexical channel anchors on exactly those tokens. The two
+ * channels fail in opposite directions, which is the whole argument for
+ * fusing them, and RRF is rank-only so cosine and Jaccard never need to be
+ * commensurable.
+ *
+ * Degrades one channel at a time: with no embedder every dense entry is null
+ * and the fused score IS the lexical ranking (recall keeps working, just
+ * word-bound); with no token overlap anywhere it is the dense ranking alone;
+ * with neither it returns all-null and the recall score falls back to
+ * importance + recency, exactly as before hybrid existed.
+ *
+ * A channel entry of null/0 contributes nothing — an absent vector must not
+ * be scored as "ranked last", it is not ranked at all.
+ */
+export function fuseHybridRelevance(
+  dense: (number | null)[],
+  lexical: number[]
+): (number | null)[] {
+  const contributions = new Array<number>(dense.length).fill(0)
+  let anyContribution = false
+
+  for (const channel of [dense, lexical.map((value) => (value > 0 ? value : null))]) {
+    const ranked = channel
+      .map((score, index) => ({ score, index }))
+      .filter((entry): entry is { score: number; index: number } => entry.score !== null)
+      .sort((a, b) => b.score - a.score)
+    ranked.forEach((entry, rank) => {
+      contributions[entry.index] += 1 / (RRF_K + rank + 1)
+      anyContribution = true
+    })
+  }
+
+  if (!anyContribution) return dense.map(() => null)
+  return contributions.map((value) => (value > 0 ? value : null))
+}
+
 /** Days between `then` and now, or null when `then` is absent. */
 export function daysSince(then: Date | null | undefined): number | null {
   if (!then) return null

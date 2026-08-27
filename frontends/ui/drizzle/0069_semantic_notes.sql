@@ -65,6 +65,12 @@ ALTER TABLE "answer_feedback"
 CREATE INDEX IF NOT EXISTS "idx_answer_feedback_holdout_created"
   ON "answer_feedback"("created_at") WHERE "lessons_holdout" IS NOT NULL;
 --> statement-breakpoint
+-- Plain created_at index. The platform quality aggregates and the lesson
+-- vote-counter refresh all range on created_at across both verdicts; until
+-- now every one of them was a sequential scan that grew with the table.
+CREATE INDEX IF NOT EXISTS "idx_answer_feedback_created"
+  ON "answer_feedback"("created_at");
+--> statement-breakpoint
 -- Cosine similarity over two `real[]` vectors — the one definition both note
 -- stores compare with.
 --

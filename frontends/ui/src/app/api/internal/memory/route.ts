@@ -48,6 +48,13 @@ const internalMemorySchema = z
     // entries (pinned / user-confirmed / user-authored) are never retired this
     // way (design §3.2).
     supersedesContent: z.string().trim().min(1).max(2000).optional(),
+    /**
+     * Write-time importance in [0,1], elicited by the reflection stage
+     * (Generative-Agents-style poignancy, mapped from 1-10). Optional: the
+     * column's 0.5 default is the neutral midpoint for callers that do not
+     * rate. Read by the recall scorer (`lib/knowledge/recall-scoring.ts`).
+     */
+    salience: z.number().min(0).max(1).optional(),
   })
   .refine((v) => (v.scope === 'project' ? !!v.projectId : !!v.organizationId), {
     message: 'project scope requires projectId; organization scope requires organizationId',
@@ -66,6 +73,7 @@ export const POST = internalApiRoute(
       provenanceType,
       sourceConversationId,
       supersedesContent,
+      salience,
     } = await parseJsonBody(request, internalMemorySchema)
 
     // An organization-scoped write always names its tenant. A project-scoped
@@ -116,6 +124,7 @@ export const POST = internalApiRoute(
                   confidence,
                   sourceConversationId: sourceConversationId ?? null,
                   provenanceType,
+                  ...(salience !== undefined ? { salience } : {}),
                 },
                 writeOptions
               )
@@ -129,6 +138,7 @@ export const POST = internalApiRoute(
                   confidence,
                   sourceConversationId: sourceConversationId ?? null,
                   provenanceType,
+                  ...(salience !== undefined ? { salience } : {}),
                 },
                 writeOptions
               )

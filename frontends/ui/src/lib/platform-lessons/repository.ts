@@ -28,7 +28,7 @@ import {
   type PlatformLessonReport,
 } from '@/lib/db/schema'
 import { normalizeContentGerman } from '@/lib/knowledge/consolidation'
-import { cosineSimilaritySql, toVectorLiteral } from '@/lib/knowledge/embeddings'
+import { toVectorLiteral } from '@/lib/knowledge/embeddings'
 
 /** Hard ceilings on every dashboard list. */
 export const LESSON_LIST_LIMIT = 200
@@ -191,23 +191,33 @@ export async function listSemanticLessonCandidates(
   limit: number
 ): Promise<PlatformLesson[]> {
   const db = getDb()
-  const rows = await db
-    .select({
-      lesson: platformLessons,
-      similarity: cosineSimilaritySql(platformLessons.embedding, vector),
-    })
-    .from(platformLessons)
-    .where(
-      and(
-        ne(platformLessons.status, 'retired'),
-        // Never compare across embedding models — same length, different space.
-        eq(platformLessons.embeddingModel, fingerprint),
-        sql`grid_cosine_similarity(${platformLessons.embedding}, ${toVectorLiteral(vector)}::real[]) >= ${LESSON_SEMANTIC_MATCH_THRESHOLD}`
-      )
+  // Raw SQL so the vector literal is sent ONCE: through the query builder it
+  // appears in WHERE, ORDER BY and the projection, and at embedding
+  // dimensionality three copies is tens of kilobytes of SQL per call.
+  const result = await db.execute(sql`
+    with scored as (
+      select l.*, grid_cosine_similarity(l.embedding, ${toVectorLiteral(vector)}::real[]) as similarity
+      from platform_lessons l
+      where l.status <> 'retired'
+        and l.embedding_model = ${fingerprint}
     )
-    .orderBy(desc(cosineSimilaritySql(platformLessons.embedding, vector)))
-    .limit(limit)
-  return rows.map((row) => row.lesson)
+    select * from scored
+    where similarity >= ${LESSON_SEMANTIC_MATCH_THRESHOLD}
+    order by similarity desc
+    limit ${limit}
+  `)
+  const rows = (result as { rows?: Record<string, unknown>[] })?.rows ?? []
+  // Raw rows are snake_case; map the columns the matcher actually reads.
+  return rows.map(
+    (row) =>
+      ({
+        id: String(row.id),
+        content: String(row.content),
+        category: row.category,
+        status: row.status,
+        reportCount: Number(row.report_count),
+      }) as PlatformLesson
+  )
 }
 
 /** Store a lesson's vector after the fact (backfill / re-embed on model change). */

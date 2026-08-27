@@ -1,4 +1,5 @@
 -- Rollback for 0069_semantic_notes.
+DROP INDEX IF EXISTS "idx_answer_feedback_created";
 DROP INDEX IF EXISTS "idx_answer_feedback_holdout_created";
 ALTER TABLE "answer_feedback" DROP COLUMN IF EXISTS "lessons_holdout";
 ALTER TABLE "platform_lessons"

@@ -31,11 +31,17 @@ note written ──► embed once (backend /v1/note-embeddings, same model as do
                    │
                    └──► stored ON THE ROW (embedding real[] + fingerprint)
 
-turn arrives ──► embed the question ──► score candidates:
-                   relevance·3 + importance·2 + recency·0.5, min-max normalised
-                   × reinforcement e^(−t/S), clamped [0.3, 1.5]
+turn arrives ──► embed the question (≤1s budget; the turn never waits longer)
+                 ──► relevance = RRF fusion of the dense (cosine) channel and a
+                     lexical token-overlap channel, k=60 — the same fusion the
+                     document retriever uses. No embedder → lexical-only;
+                     no overlap → dense-only; neither → importance + recency.
+                 ──► score = relevance·3 + importance·2 + recency·0.5
+                     (min-max normalised, floored) × reinforcement e^(−t/S)
                  ──► pins first (bounded), then top-scoring, truncation DISCLOSED
                  ──► recall marks what it surfaced (t resets, S += 1)
+                 ──► unembedded candidates: a bounded fire-and-forget backfill
+                     batch, so an active project heals itself
 ```
 
 ### Why the vector is a column, not a vector store
@@ -155,28 +161,52 @@ prevent; and the active set is capped at 20 by construction, which is not a
 corpus. Embeddings entered lesson handling at the **matching** stage, which is
 where the actual defect was.
 
+## Closed since the first cut
+
+- **Re-embedding is self-healing.** Lessons: every sweep re-embeds a bounded
+  batch of rows whose vector is missing or from a retired model (the current
+  fingerprint is learned by a memoized probe). Memory: each digest build
+  backfills up to 8 unembedded candidates of that project, fire-and-forget —
+  an active project converges, a dormant one costs nothing.
+- **Note recall is hybrid.** Relevance is an RRF fusion (k=60, the document
+  retriever's constant) of cosine and token-overlap, so "§ 4 Abs. 2" ranks on
+  the literal token even when the embedding puts it in the wrong
+  neighbourhood — and recall keeps working with no embedder at all, just
+  word-bound. The lesson matcher unions its semantic candidates with the most
+  reported lessons for the same reason from the other side.
+- **Importance is elicited at write time.** The reflection stage's structured
+  output now rates each finding 1–10 (Generative Agents' poignancy move, in
+  the same LLM call, so it costs nothing) and stores it as `salience`; the
+  recall scorer has been reading it since the first cut. The in-turn
+  `remember` tool still writes the neutral 0.5 — its findings are the ones
+  the model chose to record mid-answer, which is already a signal.
+- **The turn never waits on measurement.** The query embed gets ~1s of the
+  digest's 2.5s budget and fails open; the Python side falls back to the
+  connection-time digest beyond that.
+
 ## Honest gaps
 
-- **No re-embedding job.** A note written while the embedder was down, or
-  before a model change, stays on the lexical path until it is rewritten.
-  `listLessonsMissingEmbedding` exists for the backfill; nothing calls it yet.
 - **No validation-before-use.** Copilot's strongest idea — a memory cites
-  file:line, is re-checked against the current branch, and only validated facts
-  are used — has no analogue here. The nearest version for this product would
-  re-check a `source_grounded` memory against the passage it came from. Not
-  built.
-- **Hybrid retrieval is not wired for notes.** The document pipeline already
-  fuses BM25 + dense with RRF (k=60) and reranks; note recall is dense-only.
-  For a domain this full of exact identifiers ("OIB-RL 6", "§ 4 Abs. 2") the
-  research is emphatic that hybrid beats pure-dense — and Postgres can supply
-  the lexical arm with `tsvector`. This is the highest-value next step.
-- **Importance is a stored constant.** `salience` defaults to 0.5 and only a
-  human changes it; nothing elicits it at write time the way Generative Agents
-  rates poignancy 1–10. The term is in the formula and mostly flat in practice.
+  file:line, is re-checked against the current branch, and only validated
+  facts are used — has no analogue here. Building it honestly means storing a
+  source pointer with each `source_grounded` finding (a passage reference the
+  `remember`/reflection path does not capture today) plus a post-answer stage
+  that re-retrieves and compares. That is a feature the size of the reflection
+  stage, not a patch, so it is deferred deliberately rather than half-built;
+  the tractable slice — contradiction detection at write, which the research
+  names the must-have — exists in both consolidation gates via the polarity
+  check. What IS pinned already: only `user_confirmed` notes carry a confirmed
+  fact's weight in the prompt, and a note is never citable.
 - **Effectiveness attribution is correlational by default.** See the holdout
   section in [`platform-failure-learning.md`](platform-failure-learning.md):
-  the counters are a temporal correlation, the holdout is the credible measure,
-  and at low traffic it is under-powered.
+  the counters are a temporal correlation, the holdout is the credible
+  measure, and at low traffic it is under-powered. One cache-skew edge: the
+  two tiers read the holdout percentage through caches with different TTLs, so
+  for up to ~5 minutes after an operator changes it a vote can be mislabelled;
+  at the timescale of the measurement this is noise, and it is zero while the
+  setting is untouched.
+- **The 10k-per-scope ceiling stands.** Cosine is a sequential scan per scope;
+  the crossover to pgvector + HNSW is documented above, not hit.
 
 ## Where things are
 

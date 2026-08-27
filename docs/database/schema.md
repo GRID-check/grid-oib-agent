@@ -617,9 +617,11 @@ Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
   (`organization_id`,`conversation_id`) serves the per-conversation hydration
   list; `answer_feedback_org_project_idx` (`organization_id`,`project_id`);
   `idx_answer_feedback_down_created` (partial, `verdict='down'`) serves the
-  lesson pipeline's unprocessed-report anti-join; and
+  lesson pipeline's unprocessed-report anti-join;
   `idx_answer_feedback_holdout_created` (partial, arm assigned) serves the
-  effectiveness read.
+  effectiveness read; and `idx_answer_feedback_created` (plain) serves the
+  windowed platform-quality aggregates and the lesson vote-counter refresh,
+  which were sequential scans before 0069.
   Schema: `frontends/ui/src/lib/db/schema/answer-feedback.ts`.
 
 ---

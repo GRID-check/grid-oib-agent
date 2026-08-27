@@ -39,7 +39,7 @@ import type { PlatformLesson, PlatformLessonEvent, PlatformLessonReport } from '
 import { formatBoundedDigest } from '@/lib/knowledge/digest-format'
 import { redactPii } from '@/lib/text/redact-pii'
 import { distillReport } from './distill-client'
-import { embedNote, enrichForEmbedding } from '@/lib/knowledge/embeddings'
+import { embedNote, embedNotes, enrichForEmbedding } from '@/lib/knowledge/embeddings'
 import {
   countLessonsByStatus,
   createLessonFromReport,
@@ -52,12 +52,14 @@ import {
   listLessonEvents,
   listLessonReports,
   listLessons,
+  listLessonsMissingEmbedding,
   listLiveLessons,
   listSemanticLessonCandidates,
   listUnprocessedDownvotes,
   recomputeLessonVoteCounters,
   recordSkippedReport,
   reopenSkippedReport,
+  setLessonEmbedding,
   updateLessonWithEvent,
 } from './repository'
 import {
@@ -138,6 +140,7 @@ let sweepInFlight: Promise<SweepResult> | null = null
 export function resetLessonSweepStateForTests(): void {
   distillAttempts.clear()
   sweepInFlight = null
+  fingerprintProbe = null
 }
 
 const DIGEST_CACHE_KEY = 'platformlessons:digest:v1'
@@ -156,6 +159,40 @@ function prepare(text: string | null, maxChars: number): string | null {
   const flat = redactPii(text).replace(/\s+/g, ' ').trim()
   if (!flat) return null
   return flat.length > maxChars ? `${flat.slice(0, maxChars - 1)}…` : flat
+}
+
+/** Lessons re-embedded per sweep. Small: the next sweep continues. */
+const LESSON_BACKFILL_BATCH = 8
+
+/**
+ * Embed lessons whose vector is missing or from a retired embedding model.
+ *
+ * The fingerprint of the CURRENT model is only knowable by embedding
+ * something, so the first result's fingerprint drives the missing-rows query —
+ * one probe, then the batch.
+ */
+let fingerprintProbe: { fingerprint: string; at: number } | null = null
+const FINGERPRINT_PROBE_TTL_MS = 10 * 60 * 1000
+
+async function backfillLessonEmbeddings(): Promise<void> {
+  // The current model's fingerprint, memoized: it changes only on a config
+  // change, and paying an embedding call per sweep to re-learn a constant
+  // would be the pipeline's only fixed cost with zero work to do.
+  if (!fingerprintProbe || Date.now() - fingerprintProbe.at > FINGERPRINT_PROBE_TTL_MS) {
+    const probe = await embedNote('fingerprint probe')
+    if (!probe) return
+    fingerprintProbe = { fingerprint: probe.fingerprint, at: Date.now() }
+  }
+  const probe = fingerprintProbe
+  const missing = await listLessonsMissingEmbedding(probe.fingerprint, LESSON_BACKFILL_BATCH)
+  if (missing.length === 0) return
+  const embedded = await embedNotes(
+    missing.map((lesson) => enrichForEmbedding(lesson.content, [lesson.category]))
+  )
+  if (!embedded) return
+  for (let index = 0; index < missing.length; index++) {
+    await setLessonEmbedding(missing[index].id, embedded[index].vector, embedded[index].fingerprint)
+  }
 }
 
 export interface SweepResult {
@@ -185,6 +222,14 @@ async function sweep(limit: number): Promise<SweepResult> {
   // depending on somebody opening the dashboard.
   await recomputeLessonVoteCounters().catch((error: unknown) => {
     console.warn('[PlatformLessons] Vote counter refresh failed (non-fatal):', error)
+  })
+
+  // Embedding backfill, same rhythm: lessons written while the embedder was
+  // down — or before an embedding-model change — fall back to the popularity
+  // window until something re-embeds them. Each sweep heals a bounded batch,
+  // so the register converges without a dedicated job.
+  await backfillLessonEmbeddings().catch((error: unknown) => {
+    console.warn('[PlatformLessons] Embedding backfill failed (non-fatal):', error)
   })
 
   // Over-fetch, then drop reports this process has already failed on
@@ -238,8 +283,18 @@ async function sweep(limit: number): Promise<SweepResult> {
           MAX_DISTILL_REGISTER_SIZE
         )
       : []
-    const register =
-      semantic.length > 0 ? semantic : await listLiveLessons(MAX_DISTILL_REGISTER_SIZE)
+    // UNION, not either/or: the semantic set answers "what is this report
+    // about", the popular set covers the failure classes reported so often
+    // that missing one would be embarrassing even when the embedding is off
+    // in space. Deduped by id, semantic first, bounded as one register.
+    const popular = await listLiveLessons(
+      semantic.length > 0 ? 10 : MAX_DISTILL_REGISTER_SIZE
+    )
+    const seen = new Set(semantic.map((lesson) => lesson.id))
+    const register = [
+      ...semantic,
+      ...popular.filter((lesson) => !seen.has(lesson.id)),
+    ].slice(0, MAX_DISTILL_REGISTER_SIZE)
     const outcome = await distillReport({
       question,
       answer,

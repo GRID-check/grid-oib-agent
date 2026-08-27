@@ -30,6 +30,8 @@ vi.mock('@/lib/knowledge/embeddings', () => ({
 }))
 vi.mock('./repository', () => ({
   countLessonsByStatus: vi.fn(async () => ({})),
+  listLessonsMissingEmbedding: vi.fn(async () => []),
+  setLessonEmbedding: vi.fn(async () => undefined),
   listSemanticLessonCandidates: vi.fn(async () => []),
   recomputeLessonVoteCounters: vi.fn(async () => undefined),
   reopenSkippedReport: vi.fn(async () => false),

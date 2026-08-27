@@ -18,11 +18,12 @@ import { formatBoundedDigest } from '@/lib/knowledge/digest-format'
 import {
   cosineSimilaritySql,
   embedNote,
+  embedNotes,
   enrichForEmbedding,
   toVectorLiteral,
   type EmbeddedNote,
 } from '@/lib/knowledge/embeddings'
-import { daysSince, rankByRecallScore } from '@/lib/knowledge/recall-scoring'
+import { daysSince, fuseHybridRelevance, rankByRecallScore } from '@/lib/knowledge/recall-scoring'
 
 /**
  * Memory service — system-of-record CRUD plus the bounded "core digest"
@@ -190,30 +191,43 @@ async function findSemanticNearMatch(
 ): Promise<NearMatch | null> {
   if (!embedded) return null
   const db = getDb()
-  const [best] = await db
-    .select({
-      item: projectMemory,
-      similarity: cosineSimilaritySql(projectMemory.embedding, embedded.vector),
-    })
-    .from(projectMemory)
-    .where(
-      and(
-        memoryOwnerCondition(values),
-        eq(projectMemory.status, 'active'),
-        eq(projectMemory.kind, values.kind),
-        // Never compare across embedding models — same length, different space.
-        eq(projectMemory.embeddingModel, embedded.fingerprint),
-        sql`grid_cosine_similarity(${projectMemory.embedding}, ${toVectorLiteral(embedded.vector)}::real[]) >= ${SEMANTIC_DUP_THRESHOLD}`
-      )
+  // Raw SQL so the vector literal travels once (WHERE + ORDER BY + projection
+  // would otherwise carry three copies at embedding dimensionality). The scope
+  // condition is inlined per branch; RLS remains the backstop underneath.
+  const owner =
+    values.scope === 'organization'
+      ? sql`m.scope = 'organization' and m.organization_id = ${values.organizationId} and m.project_id is null`
+      : sql`m.scope = 'project' and m.project_id = ${values.projectId as string}`
+  const result = await db.execute(sql`
+    with scored as (
+      select m.*, grid_cosine_similarity(m.embedding, ${toVectorLiteral(embedded.vector)}::real[]) as similarity
+      from project_memory m
+      where ${owner}
+        and m.status = 'active'
+        and m.kind = ${values.kind}
+        and m.embedding_model = ${embedded.fingerprint}
     )
-    .orderBy(desc(cosineSimilaritySql(projectMemory.embedding, embedded.vector)))
-    .limit(1)
-
-  if (!best) return null
+    select * from scored
+    where similarity >= ${SEMANTIC_DUP_THRESHOLD}
+    order by similarity desc
+    limit 1
+  `)
+  const rows = (result as { rows?: Record<string, unknown>[] })?.rows ?? []
+  if (rows.length === 0) return null
+  const raw = rows[0]
+  // The consolidation path reads id/content/pinned/verification/provenance —
+  // coerce those; the rest rides through for the supersede link.
+  const item = {
+    id: String(raw.id),
+    content: String(raw.content),
+    pinned: Boolean(raw.pinned),
+    verification: raw.verification,
+    provenanceType: raw.provenance_type,
+    supersedesId: (raw.supersedes_id as string | null) ?? null,
+  } as ProjectMemoryItem
   return {
-    item: best.item,
-    opposedPolarity:
-      polaritySignature(values.content) !== polaritySignature(best.item.content),
+    item,
+    opposedPolarity: polaritySignature(values.content) !== polaritySignature(item.content),
   }
 }
 
@@ -696,10 +710,12 @@ export async function buildProjectMemoryDigest(
   )
 
   // The query vector, when there is a question and an embedder. Fail-open:
-  // null simply means relevance contributes nothing and the ranking falls back
-  // to importance + recency.
+  // null simply means the dense channel contributes nothing. The timeout is
+  // deliberately ~1s — this sits on the turn's critical path, ahead of the
+  // agent's own answer, and the Python side stops waiting for the whole
+  // digest at 2.5s; a slower embed is worth less than nothing here.
   const queryText = options.query?.trim()
-  const embedded = queryText ? await embedNote(enrichForEmbedding(queryText, [])) : null
+  const embedded = queryText ? await embedNote(queryText, { timeoutMs: 1000 }) : null
 
   // Cosine is computed in SQL so the vectors never cross the wire — a
   // 3072-dimension vector per row would dominate this query's cost.
@@ -754,15 +770,42 @@ export async function buildProjectMemoryDigest(
 
   const keptPinned = pinned.slice(0, DIGEST_MAX_PINNED)
   const recallSlots = Math.max(0, DIGEST_MAX_ITEMS - keptPinned.length)
+
+  // Relevance is HYBRID: the dense (cosine) channel fused by reciprocal rank
+  // with a lexical token-overlap channel. Dense alone misses exactly the
+  // queries this product lives on — "OIB-RL 6", "§ 4 Abs. 2" — and lexical
+  // alone misses paraphrase; fused, each covers the other's blind side. The
+  // lexical channel also means recall keeps working with no embedder at all.
+  const queryTokens = queryText ? contentTokens(queryText) : null
+  const lexical = unpinned.map((candidate) =>
+    queryTokens ? jaccardSimilarity(queryTokens, contentTokens(candidate.content)) : 0
+  )
+  const relevance = fuseHybridRelevance(
+    unpinned.map((candidate) => candidate.relevance),
+    lexical
+  )
+
   const ranked = rankByRecallScore(
-    unpinned.map((candidate) => ({
-      relevance: candidate.relevance,
+    unpinned.map((candidate, index) => ({
+      relevance: relevance[index],
       importance: candidate.salience,
       daysSinceUse: daysSince(candidate.lastReferencedAt),
       timesUsed: candidate.recallCount,
     }))
   )
   const keptRecalled = ranked.slice(0, recallSlots).map((entry) => unpinned[entry.index])
+
+  // Self-healing backfill: rows written while the embedder was down (or before
+  // it existed) stay on the lexical path until something embeds them. This is
+  // that something — a bounded, fire-and-forget batch per digest build, so an
+  // ACTIVE project heals itself and a dormant one costs nothing.
+  if (embedded) {
+    const unembedded = candidates
+      .filter((candidate) => candidate.relevance === null)
+      .filter((candidate) => !embeddedFingerprintMatches(rows, candidate.id, embedded.fingerprint))
+      .slice(0, MEMORY_BACKFILL_BATCH)
+    if (unembedded.length > 0) void backfillMemoryEmbeddings(unembedded)
+  }
 
   const kept = [...keptPinned, ...keptRecalled]
   const omitted = candidates.length - kept.length
@@ -773,6 +816,47 @@ export async function buildProjectMemoryDigest(
   void markMemoryRecalled(kept.map((item) => item.id))
 
   return formatDigestLines(kept, omitted)
+}
+
+/** Rows already carrying a vector from the CURRENT model need no backfill. */
+function embeddedFingerprintMatches(
+  rows: { id: string; embeddingModel: string | null }[],
+  id: string,
+  fingerprint: string
+): boolean {
+  return rows.some((row) => row.id === id && row.embeddingModel === fingerprint)
+}
+
+/** Backfill batch per digest build — small on purpose; the next build continues. */
+const MEMORY_BACKFILL_BATCH = 8
+
+/**
+ * Embed and store vectors for notes that missed theirs. Fire-and-forget and
+ * tenant-scoped: called inside the digest's `withTenant` scope, and the async
+ * continuation inherits it, so RLS still applies to the update.
+ */
+async function backfillMemoryEmbeddings(
+  items: Pick<RecallCandidate, 'id' | 'kind' | 'content'>[]
+): Promise<void> {
+  try {
+    const embedded = await embedNotes(
+      items.map((item) => enrichForEmbedding(item.content, [item.kind]))
+    )
+    if (!embedded) return
+    const db = getDb()
+    for (let index = 0; index < items.length; index++) {
+      await db
+        .update(projectMemory)
+        .set({
+          embedding: embedded[index].vector,
+          embeddingModel: embedded[index].fingerprint,
+          embeddedAt: new Date(),
+        })
+        .where(eq(projectMemory.id, items[index].id))
+    }
+  } catch (error) {
+    console.warn('[memory] Embedding backfill failed (non-fatal):', error)
+  }
 }
 
 /**
