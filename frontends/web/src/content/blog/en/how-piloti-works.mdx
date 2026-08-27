@@ -1,24 +1,72 @@
 ---
 title: How Piloti works
-description: From a scanned PDF to an answer you can check against the clause it cites. A tour of the knowledge base behind Piloti, and the loop that lets it learn from your corrections.
+description: From a scanned PDF to an answer you can check against the clause it cites. A tour through the six layers of the knowledge base behind Piloti.
 pubDate: 2026-08-27
 draft: false
 translationSlug: wie-piloti-funktioniert
 ---
 
+import IsoStackFigure from '../../../components/blog/figures/IsoStackFigure.astro'
+import SourcesFigure from '../../../components/blog/figures/SourcesFigure.astro'
+import HybridFigure from '../../../components/blog/figures/HybridFigure.astro'
+
 A typical Piloti question looks harmless. "Which escape route widths apply to this kindergarten?" Behind it sit an OIB guideline, one of nine state building codes, the project brief, and possibly a decree that changed last spring. The answer is only worth something if it names the clause it came from, quotes it correctly, and reflects the version that is actually in force.
 
-Getting that right is not a prompt. It is a pipeline. This post walks through that pipeline the way we built it, including the parts that did not work on the first try.
+Getting that right is not a prompt. It is a pipeline with six layers, and this post walks through all of them, including the parts that did not work on the first try.
+
+<IsoStackFigure
+  kicker="FIG. 01"
+  title="THE ANSWER PIPELINE"
+  alt="Exploded stack of six layers: sources, ingestion, index, retrieval, verification, answer"
+  caption="Every Piloti answer falls through this stack. Each layer only trusts what the layer above already cleaned up."
+  layers={[
+    { label: 'SOURCES', sublabel: 'LAW - OFFICE - PROJECT - WEB', glyph: 'tiles' },
+    { label: 'INGESTION', sublabel: 'TEXT, TABLES, PLANS', glyph: 'funnel' },
+    { label: 'INDEX', sublabel: 'VECTORS + FULL TEXT, ONE STORE', glyph: 'disc', accent: true },
+    { label: 'RETRIEVAL', sublabel: 'TWO CHANNELS IN PARALLEL', glyph: 'lines' },
+    { label: 'VERIFICATION', sublabel: 'QUOTES CHECKED AGAINST SOURCE', glyph: 'check' },
+    { label: 'ANSWER', sublabel: 'CITED DOWN TO THE PAGE', glyph: 'doc' },
+  ]}
+/>
+
+Reading the stack top to bottom: **sources** are the documents as your office keeps them. **Ingestion** turns those documents into machine-searchable pieces. The **index** stores every piece twice, once as a semantic fingerprint and once as plain searchable text. **Retrieval** asks both representations at the same time for every question. **Verification** checks the evidence before it is allowed to appear. And the **answer** is what you see: a response that carries its sources with it.
+
+Two systems ride alongside this stack rather than inside it: a project memory that keeps later conversations from starting at zero, and a learning loop fed by your thumbs-down clicks. Both get their own section below; the loop even gets [its own post](/en/blog/a-system-that-learns-from-your-frustration/).
 
 ## Four kinds of knowledge, one index
 
 Early on we made a decision that shaped everything after it: we do not ask offices to reorganize their documents for us. Knowledge is created wherever it is convenient. Building law lives in official PDFs, office standards live in folders that grew over fifteen years, project knowledge lives in briefs and email attachments. Forcing all of that into one new structure is the kind of migration that gets planned twice and finished never.
 
-So Piloti ingests four kinds of sources as they are: building law, office knowledge, project documents, and the web. All of them land in the same searchable index with the same interface, and every source in an answer carries a chip that tells you which of the four worlds it came from. One rule sits above all the automation: when a person classifies a document, that classification wins. A filename can suggest what a document is. It cannot outvote the architect who knows.
+So Piloti ingests four kinds of sources as they are: building law, office knowledge, project documents, and the web. All of them land in the same searchable index with the same interface, and every source in an answer carries a chip that tells you which of the four worlds it came from.
+
+<SourcesFigure
+  kicker="FIG. 02"
+  title="ONE INDEX, FOUR WORLDS"
+  alt="Four source types feeding one index, which feeds every answer with a labelled origin"
+  caption="Every source lands in the same index with the same shape. The answer shows which world a source came from, and a person's classification always beats a filename guess."
+  labels={{
+    sources: [
+      { label: 'BUILDING LAW', sub: 'OIB GUIDELINES, STATE CODES' },
+      { label: 'OFFICE KNOWLEDGE', sub: 'STANDARDS, DETAILS' },
+      { label: 'PROJECT DOCUMENTS', sub: 'BRIEFS, PERMITS, PLANS' },
+      { label: 'WEB', sub: 'CURRENT DECREES' },
+    ],
+    sourcesFooter: 'FOUR WORLDS, TAKEN AS THEY ARE',
+    index: 'ONE INDEX',
+    indexRows: ['TEXT CHUNK', 'SEMANTIC FINGERPRINT', 'ORIGIN + PAGE', 'CLASS, SET BY A PERSON'],
+    consumersTag: 'CHAT - DEEP RESEARCH',
+    consumer: 'EVERY ANSWER',
+    consumerSub: 'CHIP SHOWS THE WORLD',
+  }}
+/>
+
+One rule sits above all the automation: when a person classifies a document, that classification wins. A filename can suggest what a document is. It cannot outvote the architect who knows.
 
 ## From PDF to something a machine can search
 
-Most building law arrives as PDF, and PDF fights back. We extract page by page. Text is pulled with watermarks stripped, tables are extracted separately so a load table stays a table, and plan pages are rendered and described by a vision model, which turns "the site plan on page 12" into text a search can actually find. The result is split into chunks of roughly a thousand tokens with overlap, embedded, and stored in a vector database.
+Most building law arrives as PDF, and PDF fights back. This is the ingestion layer, and it extracts page by page. Text is pulled with watermarks stripped, tables are extracted separately so a load table stays a table, and plan pages are rendered and described by a vision model, which turns "the site plan on page 12" into text a search can actually find. The result is split into chunks of roughly a thousand tokens with overlap, so each piece is small enough to match precisely and large enough to keep its context.
+
+Each chunk is then stored twice in the index layer. Once as an embedding, a numeric fingerprint of its meaning that lets the system find a clause even when the question uses entirely different words. And once as plain text in a full-text index, so an exact term can be found exactly. Keeping both is deliberate, and the next section is about why.
 
 The official guidelines get one extra layer of care. Piloti syncs OIB documents against a registry of content hashes, so a revised guideline replaces its predecessor instead of quietly coexisting with it. Two versions of the same fire protection rule in one index is how you end up citing the wrong one with full confidence.
 
@@ -26,13 +74,32 @@ The official guidelines get one extra layer of care. Piloti syncs OIB documents 
 
 Our first retrieval was pure embedding search. It was impressive for a week. Embeddings catch paraphrase, which matters in a field where the person asking and the clause answering rarely share vocabulary. Someone asks about wheelchair access, the clause says "stufenlos erreichbar", and vector similarity connects the two anyway.
 
-Then the failure cases arrived. When a planner types "OIB-Richtlinie 4, Punkt 2.1.1", semantic similarity has no business deciding what comes back. That question has exactly one right document, and an exact match on the reference is the strongest evidence there is. So every query now runs through two channels at once, a semantic one for paraphrase and a lexical one for norm references, section numbers, and defined terms, and the candidates are merged.
+Then the failure cases arrived. When a planner types "OIB-Richtlinie 4, Punkt 2.1.1", semantic similarity has no business deciding what comes back. That question has exactly one right document, and an exact match on the reference is the strongest evidence there is. So the retrieval layer runs every question through two channels at once, a semantic one for paraphrase and a lexical one for norm references, section numbers, and defined terms, and the candidates are merged.
+
+<HybridFigure
+  kicker="FIG. 03"
+  title="TWO CHANNELS, ONE CANDIDATE LIST"
+  alt="A question branching into a semantic and a lexical channel, merged into one candidate list with a per-document cap"
+  caption="Each channel covers the other's blind spot: embeddings find paraphrase, exact matching finds section numbers. The cap keeps a 200 page guideline from crowding out a two page decree."
+  labels={{
+    query: 'QUESTION',
+    querySub: '"ESCAPE ROUTE WIDTH, KINDERGARTEN?"',
+    semantic: 'SEMANTIC CHANNEL',
+    semanticSub: 'FINDS PARAPHRASE',
+    lexical: 'LEXICAL CHANNEL',
+    lexicalSub: 'FINDS "OIB-4 PUNKT 2.1.1"',
+    merge: 'CANDIDATES MERGED',
+    mergeSub: 'BOTH CHANNELS COUNT',
+    cap: 'CAP PER DOCUMENT',
+    capSub: 'NO PDF CROWDS OUT THE REST',
+  }}
+/>
 
 One more lesson from production: long documents are bullies. A 200 page guideline can fill the entire candidate list on its own and crowd out the two page decree that actually decides the case. We cap how many chunks a single document may contribute to one answer.
 
 ## An answer you can check
 
-Retrieval finds candidates. It does not make them true. Every Piloti answer cites its sources down to the document and page, and quoted passages are checked against the source text before you see them. If a quote cannot be verified, it does not ship.
+Retrieval finds candidates. It does not make them true. The verification layer is where evidence earns the right to appear: every Piloti answer cites its sources down to the document and page, and quoted passages are checked against the source text before you see them. If a quote cannot be verified, it does not ship.
 
 This is the part we are least willing to compromise on. In building law, "trust me" is not a feature. An answer you cannot trace is an opinion, and our users can get opinions for free.
 
@@ -44,20 +111,14 @@ After a conversation, a reflection step writes down what mattered: decisions, co
 
 We did not invent this scoring. The shape comes from Stanford's Generative Agents work, the decay curve from the MemoryBank paper. Borrowing a published, tested design beat a weekend of our own intuition, and we suspect that is true more often than engineers like to admit.
 
-## The loop that learns from your frustration
+## And when the answer is still wrong
 
-Under every Piloti answer sits a thumbs-down button. For a long time, products have treated that click as sentiment data. We treat it as a defect report, and we built a pipeline behind it.
+Every layer above exists to make a bad answer rare. It will not make bad answers impossible, and pretending otherwise would be the least trustworthy sentence on this page. What we can promise is what happens next: under every answer sits a thumbs-down button, and behind it a pipeline that turns your report into an anonymized, generalized lesson that every future answer knows about, for every office on the platform.
 
-When you report a bad answer, the report is first scrubbed by machine: names, addresses, project numbers, anything that could identify you or your project is removed before any further processing reads it. A model then distills the general mistake behind the specific complaint. Not "the answer about this school project was wrong" but "when a question touches two federal states, their building codes must not be merged." A second, independent model audits that candidate lesson. It never sees your original report, and it rejects anything that still smells like a single case.
-
-Accepted lessons are compared semantically against every lesson that already exists. Fifty offices tripping over the same behavior become one lesson with a counter at fifty, not fifty lessons. And the active lessons ride along with every answer Piloti writes, for every organization on the platform. Your report stays private. The improvement does not.
-
-We are deliberately sober about what this is. A lesson tells the system "be careful here". It does not fix the underlying cause, which may be a retrieval gap, a missing document, or a model weakness. In our platform view, every lesson is labeled as symptomatic treatment, with a separate field tracking whether the root cause has been found and fixed. We also measure the effect instead of assuming it: a small slice of conversations runs without lessons as a control group, and counters track whether answers with a lesson attached collect fewer thumbs-downs than answers without.
+That loop deserves more than a paragraph, so we gave it [its own post](/en/blog/a-system-that-learns-from-your-frustration/). The short version: your report stays private, the improvement does not, and a failure that one user already paid for should never be paid for twice.
 
 ## What holds it together
 
-The knowledge base works because it meets documents where they already live, because every answer can be checked against its source, and because a human correction is treated as a bug to be fixed once, not as feedback to be averaged. None of these three is finished. The retrieval channels can get smarter, the memory can get sharper, and the lesson loop has only begun to accumulate.
-
-But the direction is set, and it is the same sentence we keep repeating internally: a failure that a user already paid for should never be paid for twice.
+The knowledge base works because it meets documents where they already live, because every answer can be checked against its source, and because a human correction is treated as a bug to be fixed once, not as feedback to be averaged. None of it is finished. The retrieval channels can get smarter, the memory can get sharper, and the lesson loop has only begun to accumulate.
 
 Want to see it on your own project? [Request a demo](/en/#kontakt).

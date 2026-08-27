@@ -1,0 +1,183 @@
+---
+/**
+ * An exploded vertical stack: each layer of a system drawn as an isometric
+ * slab, labelled from alternating sides, with dashed guides tying the stack
+ * together. The geometry is computed here, so a new stack figure is a list of
+ * layers, not an afternoon of path editing.
+ */
+import FigureFrame from './FigureFrame.astro'
+
+interface Layer {
+  /** Uppercase mono label, e.g. "SOURCES". */
+  label: string
+  /** Smaller second line, e.g. "BAURECHT - BUERO - PROJEKT - WEB". */
+  sublabel?: string
+  /** Which side the label sits on. Defaults to alternating left/right. */
+  side?: 'left' | 'right'
+  /** Emphasised slab: tinted top face. */
+  accent?: boolean
+  /** Small motif drawn on the top face. */
+  glyph?: 'tiles' | 'funnel' | 'disc' | 'lines' | 'doc' | 'check'
+}
+
+interface Props {
+  layers: Layer[]
+  kicker?: string
+  title?: string
+  caption?: string
+  alt: string
+}
+
+const { layers, kicker, title, caption, alt } = Astro.props
+
+const W = 960
+const CX = W / 2
+const HALF_W = 218
+const HALF_H = 58
+const THICK = 13
+const GAP = 128
+const TOP = 92
+const H = TOP + (layers.length - 1) * GAP + HALF_H + THICK + 60
+
+const slabs = layers.map((layer, i) => {
+  const y = TOP + i * GAP
+  const side = layer.side ?? (i % 2 === 0 ? 'left' : 'right')
+  return {
+    ...layer,
+    y,
+    side,
+    top: `${CX},${y - HALF_H} ${CX + HALF_W},${y} ${CX},${y + HALF_H} ${CX - HALF_W},${y}`,
+    left: `${CX - HALF_W},${y} ${CX},${y + HALF_H} ${CX},${y + HALF_H + THICK} ${CX - HALF_W},${y + THICK}`,
+    right: `${CX + HALF_W},${y} ${CX},${y + HALF_H} ${CX},${y + HALF_H + THICK} ${CX + HALF_W},${y + THICK}`,
+    labelX: side === 'left' ? CX - HALF_W - 46 : CX + HALF_W + 46,
+    anchor: side === 'left' ? 'end' : 'start',
+    arrowX1: side === 'left' ? CX - HALF_W - 38 : CX + HALF_W + 38,
+    arrowX2: side === 'left' ? CX - HALF_W - 10 : CX + HALF_W + 10,
+  }
+})
+
+const firstY = TOP
+const lastY = TOP + (layers.length - 1) * GAP
+---
+
+<FigureFrame kicker={kicker} title={title} caption={caption} alt={alt}>
+  <svg viewBox={`0 0 ${W} ${H}`} xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker
+        id="iso-arrow"
+        viewBox="0 0 8 8"
+        refX="7"
+        refY="4"
+        markerWidth="7"
+        markerHeight="7"
+        orient="auto-start-reverse"
+      >
+        <path d="M0 0 L8 4 L0 8 z" fill="var(--color-accent-700)"></path>
+      </marker>
+    </defs>
+
+    {/* Dashed guides through the slab corners, drawn behind everything. */}
+    <line
+      class="fp-stroke--muted fp-dash"
+      x1={CX - HALF_W}
+      y1={firstY}
+      x2={CX - HALF_W}
+      y2={lastY + THICK}></line>
+    <line
+      class="fp-stroke--muted fp-dash"
+      x1={CX + HALF_W}
+      y1={firstY}
+      x2={CX + HALF_W}
+      y2={lastY + THICK}></line>
+    <line
+      class="fp-stroke--muted fp-dash"
+      x1={CX}
+      y1={firstY - HALF_H}
+      x2={CX}
+      y2={lastY + HALF_H + THICK}></line>
+
+    {
+      slabs.map((s) => (
+        <g>
+          <polygon class="fp-stroke fp-fill--soft" points={s.left} />
+          <polygon class="fp-stroke fp-fill--soft" points={s.right} />
+          <polygon class={`fp-stroke ${s.accent ? 'fp-fill--tint' : 'fp-fill'}`} points={s.top} />
+
+          {s.glyph === 'tiles' && (
+            <g>
+              {[
+                [-70, -12],
+                [10, -30],
+                [58, 4],
+                [-18, 16],
+              ].map(([dx, dy]) => (
+                <polygon
+                  class="fp-stroke fp-fill"
+                  points={`${CX + dx},${s.y + dy - 11} ${CX + dx + 26},${s.y + dy} ${CX + dx},${s.y + dy + 11} ${CX + dx - 26},${s.y + dy}`}
+                />
+              ))}
+            </g>
+          )}
+          {s.glyph === 'funnel' && (
+            <path
+              class="fp-stroke"
+              d={`M${CX - 34},${s.y - 22} h68 l-26 26 v20 h-16 v-20 z`}
+            />
+          )}
+          {s.glyph === 'disc' && (
+            <g>
+              <ellipse class="fp-stroke" cx={CX} cy={s.y} rx="120" ry="30" />
+              <ellipse class="fp-stroke--muted" cx={CX} cy={s.y} rx="78" ry="19" />
+              <ellipse class="fp-stroke fp-fill" cx={CX} cy={s.y} rx="16" ry="5" />
+            </g>
+          )}
+          {s.glyph === 'lines' && (
+            <g>
+              {[-24, -12, 0, 12, 24].map((dy) => (
+                <line
+                  class="fp-stroke"
+                  x1={CX - 110 + Math.abs(dy) * 1.6}
+                  y1={s.y + dy}
+                  x2={CX + 110 - Math.abs(dy) * 1.6}
+                  y2={s.y + dy}
+                />
+              ))}
+            </g>
+          )}
+          {s.glyph === 'doc' && (
+            <g>
+              <path
+                class="fp-stroke fp-fill"
+                d={`M${CX - 22},${s.y - 26} h32 l12 12 v40 h-44 z`}
+              />
+              <path class="fp-stroke" d={`M${CX + 10},${s.y - 26} v12 h12`} />
+              {[0, 10, 20].map((dy) => (
+                <line class="fp-stroke--muted" x1={CX - 14} y1={s.y - 8 + dy} x2={CX + 12} y2={s.y - 8 + dy} />
+              ))}
+            </g>
+          )}
+          {s.glyph === 'check' && (
+            <path class="fp-stroke" stroke-width="2" d={`M${CX - 24},${s.y} l16 16 l34 -34`} />
+          )}
+
+          <line
+            class="fp-stroke"
+            marker-end="url(#iso-arrow)"
+            x1={s.arrowX1}
+            y1={s.y}
+            x2={s.arrowX2}
+            y2={s.y}
+          />
+          <text class="fp-label" x={s.labelX} y={s.y - 2} text-anchor={s.anchor}>
+            {s.label}
+          </text>
+          {s.sublabel && (
+            <text class="fp-label--muted" x={s.labelX} y={s.y + 14} text-anchor={s.anchor}>
+              {s.sublabel}
+            </text>
+          )}
+        </g>
+      ))
+    }
+  </svg>
+</FigureFrame>

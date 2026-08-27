@@ -1,0 +1,67 @@
+---
+title: A system that learns from your frustration
+description: A thumbs-down becomes an anonymized lesson that every future answer knows about. How the loop works, and why we honestly call it a bandage.
+pubDate: 2026-08-27
+draft: false
+translationSlug: ein-system-das-aus-ihrem-frust-lernt
+---
+
+import LessonLoopFigure from '../../../components/blog/figures/LessonLoopFigure.astro'
+
+Under every Piloti answer sits a button we hope you never need. Thumbs down. Bad answer. In most products, that click files a report and that is the end of it. Maybe it felt good for a moment. Nothing changed.
+
+That bothered us. Our internal working rules contain a sentence we keep quoting at each other: when a human has to step in, the machine has failed. If that is true, the correction should be worth more than a bar in a dashboard nobody opens on Fridays.
+
+So we built the loop. A failure that has been reported once should not happen a second time.
+
+<LessonLoopFigure
+  kicker="FIG. 01"
+  title="THE LEARNING LOOP"
+  alt="Six stations in a cycle: report, anonymization, distillation, audit, deduplication, active lesson flowing back into every answer"
+  caption="A report travels the loop without any further work from you. The control group deliberately sits outside it: a small share of conversations gets no lessons, so their effect stays measurable."
+  labels={{
+    steps: [
+      { label: 'REPORT', sub: 'CATEGORY + ONE SENTENCE' },
+      { label: 'ANONYMIZATION', sub: 'NAMES, PROJECTS REMOVED' },
+      { label: 'DISTILLATION', sub: 'THE MISTAKE BEHIND THE CASE' },
+      { label: 'AUDIT', sub: 'SECOND MODEL, INDEPENDENT' },
+      { label: 'DEDUPLICATION', sub: '50 REPORTS, ONE LESSON' },
+      { label: 'LESSON ACTIVE', sub: 'PLATFORM-WIDE' },
+    ],
+    loop: 'EVERY ANSWER CARRIES IT',
+    holdout: 'CONTROL GROUP',
+    holdoutSub: 'CONVERSATIONS WITHOUT LESSONS',
+  }}
+/>
+
+## What happens after you click
+
+You pick a category, write a sentence about it if you like, and send. From there, everything runs without you.
+
+First the report is scrubbed by machine. Names, addresses, project numbers, email addresses, anything that could identify you or your project is removed before anything else happens to it.
+
+Then a model reads the scrubbed report and looks for the general mistake behind the specific complaint. Not "the answer about project X was wrong" but something like: "When a question touches two federal states, their building codes must not be merged." Short, general, boring on purpose. A good lesson contains nothing of the conversation it came from.
+
+A second, independent model audits that draft. It never gets to see your original report, only the candidate, and it rejects anything that still smells like a single case.
+
+Finally the lesson is compared against every lesson that already exists. Fifty offices tripping over the same behavior become one lesson with a counter at fifty. Not fifty lessons.
+
+## Every answer knows it
+
+The active lessons ride along with every answer Piloti writes, for every organization on the platform. Your annoyance in Vienna improves an answer in Vorarlberg. Nobody sees your report. Everybody benefits from it.
+
+We think that is only consistent. The same mistake, made twice, is no longer an accident. It is a decision.
+
+## Why we call it a bandage
+
+Now the honest part. A lesson tells the system "be careful here". It does not fix the underlying cause, which may sit in a knowledge gap, a missing document, or a weakness of the model. In our platform view, every lesson therefore visibly carries the label of a symptomatic treatment, with its own field recording whether the cause has been found and fixed. The bandage spares the next user the mistake. It does not close the file.
+
+And we measure whether lessons work instead of believing it. A small share of conversations deliberately runs without them, as a control group. Counters record whether answers with a lesson attached collect fewer thumbs-downs than answers without. A lesson that improves nothing shows up that way.
+
+## What never leaves your project
+
+Your report is scrubbed before any model distills it. The auditing model only sees the anonymous draft. The stored lesson contains no names, no projects, no quotes. And every lesson has a complete history: when it was created, how often it was confirmed, when it was retired. All of it is inspectable, none of it happens in the dark.
+
+How the answers this loop works on are produced in the first place is covered in [How Piloti works](/en/blog/how-piloti-works/).
+
+So the next time an answer annoys you: click the button, write the sentence. It costs ten seconds and is the most direct way to make the product better. Frustration is valuable raw material. Now there is a machine that refines it.

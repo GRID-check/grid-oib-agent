@@ -1,24 +1,72 @@
 ---
 title: Wie Piloti funktioniert
-description: Vom gescannten PDF zur Antwort, die Sie an der zitierten Bestimmung überprüfen können. Ein Rundgang durch die Wissensbasis hinter Piloti und die Schleife, mit der sie aus Ihren Korrekturen lernt.
+description: Vom gescannten PDF zur Antwort, die Sie an der zitierten Bestimmung überprüfen können. Ein Rundgang durch die sechs Schichten der Wissensbasis hinter Piloti.
 pubDate: 2026-08-27
 draft: false
 translationSlug: how-piloti-works
 ---
 
+import IsoStackFigure from '../../../components/blog/figures/IsoStackFigure.astro'
+import SourcesFigure from '../../../components/blog/figures/SourcesFigure.astro'
+import HybridFigure from '../../../components/blog/figures/HybridFigure.astro'
+
 Eine typische Piloti-Frage sieht harmlos aus. "Welche Fluchtwegbreiten gelten für diesen Kindergarten?" Dahinter stehen eine OIB-Richtlinie, eine von neun Landesbauordnungen, das Raumprogramm des Projekts und womöglich ein Erlass, der sich im Frühjahr geändert hat. Die Antwort ist nur dann etwas wert, wenn sie die Bestimmung nennt, aus der sie stammt, korrekt zitiert und den Stand wiedergibt, der tatsächlich in Kraft ist.
 
-Das erreicht kein Prompt. Das erreicht eine Pipeline. Dieser Beitrag geht diese Pipeline so durch, wie wir sie gebaut haben, samt der Teile, die beim ersten Versuch nicht funktioniert haben.
+Das erreicht kein Prompt. Das erreicht eine Pipeline mit sechs Schichten, und dieser Beitrag geht alle sechs durch, samt der Teile, die beim ersten Versuch nicht funktioniert haben.
+
+<IsoStackFigure
+  kicker="ABB. 01"
+  title="DIE ANTWORT-PIPELINE"
+  alt="Explosionszeichnung mit sechs Schichten: Quellen, Aufbereitung, Index, Suche, Prüfung, Antwort"
+  caption="Jede Piloti-Antwort fällt durch diesen Stapel. Jede Schicht verlässt sich nur auf das, was die Schicht darüber schon bereinigt hat."
+  layers={[
+    { label: 'QUELLEN', sublabel: 'BAURECHT - BÜRO - PROJEKT - WEB', glyph: 'tiles' },
+    { label: 'AUFBEREITUNG', sublabel: 'TEXT, TABELLEN, PLÄNE', glyph: 'funnel' },
+    { label: 'INDEX', sublabel: 'VEKTOREN + VOLLTEXT, EIN SPEICHER', glyph: 'disc', accent: true },
+    { label: 'SUCHE', sublabel: 'ZWEI KANÄLE, PARALLEL', glyph: 'lines' },
+    { label: 'PRÜFUNG', sublabel: 'ZITATE GEGEN DEN QUELLTEXT', glyph: 'check' },
+    { label: 'ANTWORT', sublabel: 'BELEGT BIS AUF DIE SEITE', glyph: 'doc' },
+  ]}
+/>
+
+Den Stapel von oben nach unten gelesen: **Quellen** sind die Dokumente, wie Ihr Büro sie führt. Die **Aufbereitung** macht daraus maschinell durchsuchbare Teile. Der **Index** speichert jedes Teil doppelt, einmal als semantischen Fingerabdruck und einmal als durchsuchbaren Klartext. Die **Suche** fragt bei jeder Frage beide Darstellungen gleichzeitig. Die **Prüfung** kontrolliert die Belege, bevor sie erscheinen dürfen. Und die **Antwort** ist das, was Sie sehen: eine Auskunft, die ihre Quellen mitbringt.
+
+Zwei Systeme laufen neben diesem Stapel statt in ihm: ein Projektgedächtnis, das spätere Gespräche nicht bei null anfangen lässt, und eine Lernschleife, die von Ihren Daumen-runter-Klicks gespeist wird. Beide bekommen unten ihren eigenen Abschnitt; die Schleife sogar [einen eigenen Beitrag](/blog/ein-system-das-aus-ihrem-frust-lernt/).
 
 ## Vier Arten von Wissen, ein Index
 
 Früh haben wir eine Entscheidung getroffen, die alles danach geprägt hat: Wir verlangen von keinem Büro, seine Dokumente für uns umzusortieren. Wissen entsteht dort, wo es gerade praktisch ist. Baurecht liegt in amtlichen PDFs, Bürostandards in Ordnern, die über fünfzehn Jahre gewachsen sind, Projektwissen in Raumprogrammen und E-Mail-Anhängen. All das in eine neue Struktur zu zwingen ist die Art von Migration, die zweimal geplant und nie abgeschlossen wird.
 
-Piloti nimmt deshalb vier Arten von Quellen so auf, wie sie sind: Baurecht, Bürowissen, Projektdokumente und das Web. Alle landen im selben durchsuchbaren Index mit derselben Schnittstelle, und jede Quelle in einer Antwort trägt eine Markierung, die zeigt, aus welcher der vier Welten sie kommt. Über der ganzen Automatik steht eine Regel: Wenn ein Mensch ein Dokument einordnet, gilt diese Einordnung. Ein Dateiname kann nahelegen, was ein Dokument ist. Er kann nicht die Architektin überstimmen, die es weiß.
+Piloti nimmt deshalb vier Arten von Quellen so auf, wie sie sind: Baurecht, Bürowissen, Projektdokumente und das Web. Alle landen im selben durchsuchbaren Index mit derselben Schnittstelle, und jede Quelle in einer Antwort trägt eine Markierung, die zeigt, aus welcher der vier Welten sie kommt.
+
+<SourcesFigure
+  kicker="ABB. 02"
+  title="EIN INDEX, VIER WELTEN"
+  alt="Vier Quellarten speisen einen Index, der jede Antwort mit gekennzeichneter Herkunft versorgt"
+  caption="Jede Quelle landet im selben Index mit derselben Form. Die Antwort zeigt, aus welcher Welt eine Quelle kommt, und die Einordnung eines Menschen schlägt jede Dateinamen-Vermutung."
+  labels={{
+    sources: [
+      { label: 'BAURECHT', sub: 'OIB-RICHTLINIEN, LANDESRECHT' },
+      { label: 'BÜROWISSEN', sub: 'STANDARDS, DETAILS' },
+      { label: 'PROJEKTDOKUMENTE', sub: 'RAUMPROGRAMME, BESCHEIDE' },
+      { label: 'WEB', sub: 'AKTUELLE ERLÄSSE' },
+    ],
+    sourcesFooter: 'VIER WELTEN, WIE SIE SIND',
+    index: 'EIN INDEX',
+    indexRows: ['TEXTABSCHNITT', 'SEMANTISCHER FINGERABDRUCK', 'HERKUNFT + SEITE', 'KLASSE, VON HAND GESETZT'],
+    consumersTag: 'CHAT - DEEP RESEARCH',
+    consumer: 'JEDE ANTWORT',
+    consumerSub: 'MARKIERUNG ZEIGT DIE WELT',
+  }}
+/>
+
+Über der ganzen Automatik steht eine Regel: Wenn ein Mensch ein Dokument einordnet, gilt diese Einordnung. Ein Dateiname kann nahelegen, was ein Dokument ist. Er kann nicht die Architektin überstimmen, die es weiß.
 
 ## Vom PDF zu etwas, das eine Maschine durchsuchen kann
 
-Baurecht kommt meist als PDF, und PDFs wehren sich. Wir extrahieren Seite für Seite. Text wird von Wasserzeichen befreit, Tabellen werden separat erfasst, damit eine Lastentabelle eine Tabelle bleibt, und Planseiten werden gerendert und von einem Bildmodell beschrieben. So wird aus "dem Lageplan auf Seite 12" Text, den eine Suche wirklich findet. Das Ergebnis wird in Abschnitte von rund tausend Token mit Überlappung zerlegt, eingebettet und in einer Vektordatenbank gespeichert.
+Baurecht kommt meist als PDF, und PDFs wehren sich. Das ist die Aufbereitungsschicht, und sie extrahiert Seite für Seite. Text wird von Wasserzeichen befreit, Tabellen werden separat erfasst, damit eine Lastentabelle eine Tabelle bleibt, und Planseiten werden gerendert und von einem Bildmodell beschrieben. So wird aus "dem Lageplan auf Seite 12" Text, den eine Suche wirklich findet. Das Ergebnis wird in Abschnitte von rund tausend Token mit Überlappung zerlegt, klein genug für präzise Treffer, groß genug, um den Zusammenhang zu behalten.
+
+Jeder Abschnitt wird dann doppelt im Index abgelegt. Einmal als Embedding, ein numerischer Fingerabdruck seiner Bedeutung, mit dem das System eine Bestimmung auch dann findet, wenn die Frage ganz andere Wörter benutzt. Und einmal als Klartext in einem Volltextindex, damit ein exakter Begriff exakt gefunden wird. Dass wir beides behalten, ist Absicht, und der nächste Abschnitt erklärt warum.
 
 Die amtlichen Richtlinien bekommen eine zusätzliche Schicht Sorgfalt. Piloti gleicht OIB-Dokumente gegen ein Register von Inhalts-Prüfsummen ab, damit eine überarbeitete Richtlinie ihre Vorgängerin ersetzt, statt still neben ihr weiterzuleben. Zwei Fassungen derselben Brandschutzregel in einem Index sind der sicherste Weg, mit voller Überzeugung die falsche zu zitieren.
 
@@ -26,13 +74,32 @@ Die amtlichen Richtlinien bekommen eine zusätzliche Schicht Sorgfalt. Piloti gl
 
 Unsere erste Suche war reine Embedding-Suche. Eine Woche lang war sie beeindruckend. Embeddings erkennen Umschreibungen, und das zählt in einem Feld, in dem Fragende und Bestimmung selten dieselben Wörter benutzen. Jemand fragt nach Rollstuhlgerechtigkeit, die Bestimmung sagt "stufenlos erreichbar", und die Vektorähnlichkeit verbindet beides trotzdem.
 
-Dann kamen die Fehlerfälle. Wenn eine Planerin "OIB-Richtlinie 4, Punkt 2.1.1" eintippt, hat semantische Ähnlichkeit nicht zu entscheiden, was zurückkommt. Diese Frage hat genau ein richtiges Dokument, und der exakte Treffer auf die Fundstelle ist der stärkste Beleg, den es gibt. Jede Anfrage läuft deshalb durch zwei Kanäle zugleich, einen semantischen für Umschreibungen und einen wörtlichen für Normverweise, Punktnummern und definierte Begriffe, und die Kandidaten werden zusammengeführt.
+Dann kamen die Fehlerfälle. Wenn eine Planerin "OIB-Richtlinie 4, Punkt 2.1.1" eintippt, hat semantische Ähnlichkeit nicht zu entscheiden, was zurückkommt. Diese Frage hat genau ein richtiges Dokument, und der exakte Treffer auf die Fundstelle ist der stärkste Beleg, den es gibt. Die Suchschicht schickt deshalb jede Anfrage durch zwei Kanäle zugleich, einen semantischen für Umschreibungen und einen wörtlichen für Normverweise, Punktnummern und definierte Begriffe, und führt die Kandidaten zusammen.
+
+<HybridFigure
+  kicker="ABB. 03"
+  title="ZWEI KANÄLE, EINE KANDIDATENLISTE"
+  alt="Eine Frage verzweigt in einen semantischen und einen wörtlichen Kanal, zusammengeführt in eine Kandidatenliste mit Deckel pro Dokument"
+  caption="Jeder Kanal deckt den blinden Fleck des anderen: Embeddings finden Umschreibungen, exakte Suche findet Punktnummern. Der Deckel verhindert, dass eine Richtlinie mit 200 Seiten den zweiseitigen Erlass verdrängt."
+  labels={{
+    query: 'FRAGE',
+    querySub: '"FLUCHTWEGBREITE, KINDERGARTEN?"',
+    semantic: 'SEMANTISCHER KANAL',
+    semanticSub: 'FINDET UMSCHREIBUNGEN',
+    lexical: 'WÖRTLICHER KANAL',
+    lexicalSub: 'FINDET "OIB-4 PUNKT 2.1.1"',
+    merge: 'KANDIDATEN VEREINT',
+    mergeSub: 'BEIDE KANÄLE ZÄHLEN',
+    cap: 'DECKEL PRO DOKUMENT',
+    capSub: 'KEIN PDF VERDRÄNGT DEN REST',
+  }}
+/>
 
 Noch eine Lektion aus dem Betrieb: Lange Dokumente sind Rüpel. Eine Richtlinie mit 200 Seiten kann die gesamte Kandidatenliste allein füllen und den zweiseitigen Erlass verdrängen, der den Fall eigentlich entscheidet. Wir begrenzen, wie viele Abschnitte ein einzelnes Dokument zu einer Antwort beitragen darf.
 
 ## Eine Antwort, die Sie überprüfen können
 
-Die Suche findet Kandidaten. Wahr macht sie sie nicht. Jede Piloti-Antwort belegt ihre Quellen bis auf Dokument und Seite, und zitierte Passagen werden gegen den Quelltext geprüft, bevor Sie sie sehen. Ein Zitat, das sich nicht verifizieren lässt, wird nicht ausgeliefert.
+Die Suche findet Kandidaten. Wahr macht sie sie nicht. Die Prüfschicht ist der Ort, an dem sich Belege ihr Erscheinen verdienen: Jede Piloti-Antwort belegt ihre Quellen bis auf Dokument und Seite, und zitierte Passagen werden gegen den Quelltext geprüft, bevor Sie sie sehen. Ein Zitat, das sich nicht verifizieren lässt, wird nicht ausgeliefert.
 
 An diesem Punkt sind wir am wenigsten kompromissbereit. Im Baurecht ist "vertrauen Sie mir" kein Feature. Eine Antwort ohne nachvollziehbare Quelle ist eine Meinung, und Meinungen bekommen unsere Nutzer gratis.
 
@@ -44,20 +111,14 @@ Nach einem Gespräch hält ein Reflexionsschritt fest, was zählte: Entscheidung
 
 Dieses Bewertungsschema haben wir nicht erfunden. Die Form stammt aus der Generative-Agents-Arbeit in Stanford, die Vergessenskurve aus dem MemoryBank-Paper. Ein veröffentlichtes, geprüftes Design zu übernehmen hat unsere eigene Wochenend-Intuition geschlagen, und wir vermuten, das gilt öfter, als Ingenieure zugeben.
 
-## Die Schleife, die aus Ihrem Frust lernt
+## Und wenn die Antwort trotzdem falsch ist
 
-Unter jeder Piloti-Antwort sitzt ein Daumen nach unten. Lange haben Produkte diesen Klick als Stimmungsdaten behandelt. Wir behandeln ihn als Fehlerbericht, und wir haben eine Pipeline dahinter gebaut.
+Jede Schicht oben existiert, damit eine schlechte Antwort selten wird. Unmöglich macht sie sie nicht, und etwas anderes zu behaupten wäre der unglaubwürdigste Satz auf dieser Seite. Was wir versprechen können, ist das, was danach passiert: Unter jeder Antwort sitzt ein Daumen nach unten, und dahinter eine Pipeline, die Ihre Meldung in eine anonymisierte, verallgemeinerte Lektion verwandelt, die jede künftige Antwort kennt, für jedes Büro auf der Plattform.
 
-Wenn Sie eine schlechte Antwort melden, wird die Meldung zuerst maschinell bereinigt: Namen, Adressen, Projektnummern, alles, was Sie oder Ihr Projekt erkennbar machen könnte, wird entfernt, bevor irgendein weiterer Schritt sie liest. Ein Modell destilliert dann den allgemeinen Fehler hinter der konkreten Beschwerde. Nicht "die Antwort zu diesem Schulprojekt war falsch", sondern "wenn eine Frage zwei Bundesländer berührt, dürfen deren Bauordnungen nicht vermischt werden." Ein zweites, unabhängiges Modell prüft diesen Lektionsentwurf. Es sieht Ihre ursprüngliche Meldung nie und lehnt alles ab, was noch nach einem Einzelfall riecht.
-
-Angenommene Lektionen werden semantisch mit allen verglichen, die es schon gibt. Fünfzig Büros, die über dasselbe Verhalten stolpern, ergeben eine Lektion mit einem Zähler auf fünfzig, nicht fünfzig Lektionen. Und die aktiven Lektionen begleiten jede Antwort, die Piloti schreibt, für alle Organisationen auf der Plattform. Ihre Meldung bleibt privat. Die Verbesserung nicht.
-
-Wir sind bewusst nüchtern dabei, was das ist. Eine Lektion sagt dem System "sei hier vorsichtig". Die eigentliche Ursache behebt sie nicht, die kann in einer Suchlücke, einem fehlenden Dokument oder einer Modellschwäche liegen. In unserer Plattformansicht trägt jede Lektion sichtbar das Etikett einer symptomatischen Behandlung, mit einem eigenen Feld, das festhält, ob die Ursache gefunden und behoben wurde. Und wir messen die Wirkung, statt sie anzunehmen: Ein kleiner Teil der Gespräche läuft als Kontrollgruppe ohne Lektionen, und Zähler halten fest, ob Antworten mit Lektion seltener einen Daumen nach unten kassieren als Antworten ohne.
+Diese Schleife verdient mehr als einen Absatz, deshalb hat sie [einen eigenen Beitrag](/blog/ein-system-das-aus-ihrem-frust-lernt/). Die Kurzfassung: Ihre Meldung bleibt privat, die Verbesserung nicht, und ein Fehler, den ein Nutzer schon bezahlt hat, darf kein zweites Mal bezahlt werden.
 
 ## Was das Ganze zusammenhält
 
-Die Wissensbasis funktioniert, weil sie Dokumente dort abholt, wo sie ohnehin liegen, weil jede Antwort an ihrer Quelle überprüfbar ist, und weil eine menschliche Korrektur als Fehler behandelt wird, der einmal behoben gehört, nicht als Feedback, das man mittelt. Keiner dieser drei Teile ist fertig. Die Suchkanäle können klüger werden, das Gedächtnis schärfer, und die Lektionsschleife fängt gerade erst an, sich zu füllen.
-
-Aber die Richtung steht, und es ist derselbe Satz, den wir intern ständig wiederholen: Ein Fehler, den ein Nutzer schon bezahlt hat, darf kein zweites Mal bezahlt werden.
+Die Wissensbasis funktioniert, weil sie Dokumente dort abholt, wo sie ohnehin liegen, weil jede Antwort an ihrer Quelle überprüfbar ist, und weil eine menschliche Korrektur als Fehler behandelt wird, der einmal behoben gehört, nicht als Feedback, das man mittelt. Fertig ist davon nichts. Die Suchkanäle können klüger werden, das Gedächtnis schärfer, und die Lektionsschleife fängt gerade erst an, sich zu füllen.
 
 Sie wollen das am eigenen Projekt sehen? [Demo anfragen](/#kontakt).
