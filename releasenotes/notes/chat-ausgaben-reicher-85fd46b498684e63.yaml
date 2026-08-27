@@ -31,3 +31,8 @@ fixes:
     Wer mit einer chinesischen, japanischen oder koreanischen Eingabemethode
     schreibt, kann Zeichen mit der Eingabetaste bestätigen, ohne dass die
     Nachricht vorzeitig abgeschickt wird.
+other:
+  - >
+    Die Datenquellen-Auswahl im Eingabefeld ist vorerst ausgeblendet. Piloti
+    zieht automatisch alle verfügbaren Quellen heran; die Herleitung zeigt
+    weiterhin, welche tatsächlich verwendet wurden.

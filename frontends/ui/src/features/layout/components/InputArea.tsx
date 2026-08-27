@@ -55,7 +55,8 @@ import { latestDeepResearchJobStatus } from '@/features/chat/lib/session-activit
 import { useLayoutStore } from '../store'
 import { computePresetSourceIds } from '../lib/source-presets'
 import { researchSessionState } from '../lib/research-session-state'
-import { SourceBasisPicker, SourceBasisTrigger } from './source-basis'
+// Withheld with the Datenbasis picker below — restore together.
+// import { SourceBasisPicker, SourceBasisTrigger } from './source-basis'
 import { FileSourcesTab } from './FileSourcesTab'
 import { UploadDestinationNote } from './UploadDestination'
 import { useAppConfig } from '@/shared/context'
@@ -346,7 +347,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // Datenbasis popover. Controlled so the trigger knows whether a change the
   // reader just made is visible to them in the open picker, or needs its own
   // one-shot receipt on the closed trigger.
-  const [sourcesOpen, setSourcesOpen] = useState(false)
+  // Withheld with the Datenbasis picker below — restore together.
+  // const [sourcesOpen, setSourcesOpen] = useState(false)
   /** Last session upload this composer auto-bound, so clearing the bar does not re-bind. */
   const boundSessionUploadRef = useRef<string | null>(null)
   // Manage-files dialog/sheet open state — driven by BOTH the desktop button and
@@ -1600,12 +1602,23 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 </PopoverContent>
               </Popover>
 
-              {/* Datenbasis — the one control for WHERE Piloti may look. The
-              trigger names the mix (a preset, a set of strata, "Alle Quellen");
-              it never renders a bare count, because the count it used to render
-              was wrong in both directions — see components/source-basis. Open
-              state is lifted so the trigger can tell "the reader is watching
-              the picker" from "a preset click landed off-screen". */}
+              {/* Datenbasis — the one control for WHERE Piloti may look.
+              WITHHELD for now (product decision, 2026-08): the picker is
+              commented out rather than deleted so it can return. While it is
+              hidden, every turn goes out with the fetch default — every
+              available source enabled (`fetchDataSources`) — so nothing
+              narrows silently; only a conversation that saved a narrower
+              selection while the control existed still restores it.
+              To restore: uncomment this block and the `SourceBasisPicker,
+              SourceBasisTrigger` import above.
+
+              The trigger names the mix (a preset, a set of strata, "Alle
+              Quellen"); it never renders a bare count, because the count it
+              used to render was wrong in both directions — see
+              components/source-basis. Open state is lifted so the trigger can
+              tell "the reader is watching the picker" from "a preset click
+              landed off-screen".
+
               <Popover open={sourcesOpen} onOpenChange={setSourcesOpen}>
                 <PopoverTrigger asChild>
                   <SourceBasisTrigger disabled={cannotContribute} pickerOpen={sourcesOpen} />
@@ -1617,7 +1630,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 >
                   <SourceBasisPicker />
                 </PopoverContent>
-              </Popover>
+              </Popover> */}
 
               {/* Deep-Research intent pill — preference, NOT a hard trigger:
               the agent auto-escalates on its own (spec §2.2(6)) */}
