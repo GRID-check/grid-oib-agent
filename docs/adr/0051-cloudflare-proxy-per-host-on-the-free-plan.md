@@ -125,7 +125,10 @@ cap. One test asserts an ABSENCE: no refusal may mention the WebSocket idle
 timeout, so the retired reason cannot drift back in. `deploy/start_web.py`
 pins the PING cadence that retired it. `edge.spec.ts` pins the settings that are
 dangerous when wrong — `ssl: strict` rather than `flexible`, HSTS without
-`preload`, the never-cache rule ahead of the cache rule.
+`preload`, and the never-cache rule LAST, because cache rules are not
+first-match-wins: every matching rule runs and the last conflicting one wins,
+so a catch-all placed after the exclusions would override them and cache the
+admin UI.
 
 `index-proxy.spec.ts` constructs the whole program with the proxy on and asserts
 the cross-module agreement no unit test can: that the DNS-01 solver's `dnsNames`

@@ -122,10 +122,8 @@ function zoneSettings(): Array<{ id: string; value: unknown; why: string }> {
 /**
  * Paths that must never be served from cache, whatever the origin says.
  *
- * Belt and braces: the origin already marks these uncacheable, and Cloudflare's
- * defaults would not cache an authenticated response anyway. It is here because
- * the cost of being wrong is asymmetric — a cached admin page is a session
- * handed to the next visitor, and the rule that prevents it costs one of ten
+ * The cost of being wrong is asymmetric — a cached admin page is a session
+ * handed to the next visitor — and the rule that prevents it costs one of ten
  * free cache rules.
  */
 const NEVER_CACHE_PATHS = [
@@ -133,10 +131,31 @@ const NEVER_CACHE_PATHS = [
   "/keystatic",
   "/api/keystatic",
   "/api",
+  // The sign-in hand-off. It 302s to a host read from the environment at
+  // request time and sets `no-store` itself for exactly that reason
+  // (`frontends/web/src/pages/sign-in.ts`); listed here so no edge TTL can
+  // override the origin's own answer and freeze one stack's app URL into the
+  // other's landing page.
+  "/sign-in",
 ];
 
 /** Astro's hashed build output and its on-demand image endpoint. */
 const CACHEABLE_PREFIXES = ["/_astro/", "/_image"];
+
+/**
+ * Edge lifetime for page HTML.
+ *
+ * Short on purpose: nothing purges this cache on deploy, so this interval IS
+ * the delay between merging a content change and a visitor seeing it. Five
+ * minutes still absorbs a traffic spike and a repeat visitor, which is the
+ * value being bought — the landing site is prerendered and cheap, so the win
+ * is surviving a launch, not shaving milliseconds.
+ *
+ * Raising it means adding a purge to the deploy (a Cloudflare token with
+ * `Zone:Cache Purge:Edit` and a step in `.github/workflows/deploy.yml`). Until
+ * that exists, this number is the honest one.
+ */
+const HTML_EDGE_TTL_SECONDS = 300;
 
 export function installEdge(cfg: GridConfig, dns: ManagedDns | undefined): ManagedEdge | undefined {
   if (dns === undefined || !cfg.dns.zoneBaseline || !cfg.dns.proxyEnabled) {
@@ -161,8 +180,16 @@ export function installEdge(cfg: GridConfig, dns: ManagedDns | undefined): Manag
   const hostList = hosts.map((h) => `"${h}"`).join(" ");
   const onProxiedHost = `http.host in {${hostList}}`;
 
-  // Cache rules are evaluated in order and the FIRST match wins, so the bypass
-  // has to come first. Reversing these two silently caches the admin UI.
+  // ORDER IS LOAD-BEARING, AND NOT IN THE DIRECTION IT LOOKS.
+  //
+  // Cache rules are NOT first-match-wins. Every matching rule in the phase runs,
+  // in order, and for conflicting settings the LAST match wins. So the broad
+  // rule goes FIRST and the exclusions go LAST — the opposite of how a firewall
+  // reads, and the reason this comment exists.
+  //
+  // Put the catch-all last instead and it silently overrides the never-cache
+  // rule above it: Cloudflare accepts the ruleset, reports success, and starts
+  // caching the Keystatic admin UI.
   const cacheRules = new cloudflare.Ruleset(
     "edge-cache-rules",
     {
@@ -170,20 +197,35 @@ export function installEdge(cfg: GridConfig, dns: ManagedDns | undefined): Manag
       name: "grid-cache",
       kind: "zone",
       phase: "http_request_cache_settings",
-      description: "Static assets cached at the edge; admin and API never",
+      description: "Page HTML and static assets cached at the edge; admin, API and sign-in never",
       rules: [
         {
           action: "set_cache_settings",
-          description: "Never cache the admin UI or any API response",
-          expression:
-            `${onProxiedHost} and (` +
-            NEVER_CACHE_PATHS.map((p) => `starts_with(http.request.uri.path, "${p}")`).join(" or ") +
-            ")",
-          actionParameters: { cache: false },
+          description: "Cache page HTML at the edge, but never in the browser",
+          expression: onProxiedHost,
+          actionParameters: {
+            cache: true,
+            // `override_origin`, and this is the one place that is right. The
+            // landing site is prerendered (`frontends/web` has no `output:`,
+            // so every route without `prerender = false` is a static file), and
+            // @astrojs/node serves those files with `public, max-age=0`. That
+            // header is CORRECT for a browser and useless for a shared cache:
+            // taken literally it means the edge stores nothing and every page
+            // view reaches the origin. Overriding the shared TTL is the only
+            // way to cache HTML here short of patching the adapter's static
+            // file serving, which would have to be re-done on every upgrade.
+            edgeTtl: { mode: "override_origin", default: HTML_EDGE_TTL_SECONDS },
+            // The browser keeps `max-age=0` and revalidates every navigation.
+            // That is what makes the edge copy the only stale one, and the only
+            // one that can be purged — a browser cache cannot be.
+            browserTtl: { mode: "respect_origin" },
+            serveStale: { disableStaleWhileUpdating: false },
+            respectStrongEtags: true,
+          },
         },
         {
           action: "set_cache_settings",
-          description: "Cache Astro's hashed build output and processed images",
+          description: "Astro's hashed build output and processed images keep the origin's year",
           expression:
             `${onProxiedHost} and (` +
             CACHEABLE_PREFIXES.map((p) => `starts_with(http.request.uri.path, "${p}")`).join(
@@ -192,18 +234,26 @@ export function installEdge(cfg: GridConfig, dns: ManagedDns | undefined): Manag
             ")",
           actionParameters: {
             cache: true,
-            // `respect_origin`, never a fixed TTL. These paths are hashed or
-            // query-addressed and the origin already marks them immutable; a
-            // TTL set here would be a second, quieter answer to a question the
-            // build output already answers, and the two would disagree the
-            // first time the build changes.
+            // These are content-addressed and the origin says
+            // `max-age=31536000, immutable` (verified on the live host), so the
+            // origin's answer is better than any number written here. This rule
+            // exists only to take those paths back off the five-minute TTL the
+            // catch-all above just gave them.
             edgeTtl: { mode: "respect_origin" },
             browserTtl: { mode: "respect_origin" },
-            // A stale asset beats an error while the origin is redeploying —
-            // and these URLs only change when their content does.
             serveStale: { disableStaleWhileUpdating: false },
             respectStrongEtags: true,
           },
+        },
+        {
+          action: "set_cache_settings",
+          // LAST, so it wins over both rules above.
+          description: "Never cache the admin UI, the API, or the sign-in hand-off",
+          expression:
+            `${onProxiedHost} and (` +
+            NEVER_CACHE_PATHS.map((p) => `starts_with(http.request.uri.path, "${p}")`).join(" or ") +
+            ")",
+          actionParameters: { cache: false },
         },
       ],
     },

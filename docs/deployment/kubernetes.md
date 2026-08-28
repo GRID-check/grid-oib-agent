@@ -475,20 +475,46 @@ still entirely direct.
 
 ### Cache rules
 
-Two of the free plan's ten, both scoped to the proxied hosts by
+Three of the free plan's ten, all scoped to the proxied hosts by
 `http.host in {...}` so they cannot start applying to a host that turns orange
 later:
 
-1. **Never cache** `/keystatic`, `/api/keystatic`, `/api`. Belt and braces — the
-   origin already marks these uncacheable — but the cost of being wrong is a
-   cached admin page handed to the next visitor.
-2. **Cache** `/_astro/` and `/_image` (Astro's hashed build output and its
-   on-demand image endpoint) with `edgeTtl: respect_origin`. The lifetime is
-   deferred to the origin rather than named a second time here: these URLs are
-   hashed or query-addressed and the build output already answers the question.
+1. **Cache page HTML**, edge TTL 300s, browser TTL left at the origin's.
+2. **Hand `/_astro/` and `/_image` back to the origin's TTL** — content-addressed,
+   and the origin says `max-age=31536000, immutable` (verified live).
+3. **Never cache** `/keystatic`, `/api/keystatic`, `/api`, `/sign-in`.
 
-Cache rules stop at the **first match**, so the order above is load-bearing.
-Reversed, the admin UI is cached.
+### The ordering rule, which is the opposite of how it reads
+
+Cache rules are **not** first-match-wins. Every matching rule in the phase runs,
+in order, and for conflicting settings the **last** match wins. So the broad
+rule goes first and the exclusions go last.
+
+Rule 1 is a catch-all across the whole host. Move it after rule 3 — the order a
+firewall would use — and it silently overrides the exclusions: Cloudflare
+accepts the ruleset, reports success, and starts caching the Keystatic admin UI.
+`edge.spec.ts` asserts the exclusions are last.
+
+### Why HTML needs `override_origin` and assets do not
+
+The landing site is prerendered: `frontends/web` sets no `output:`, so every
+route without `prerender = false` is a static file, and `@astrojs/node` serves
+those with `public, max-age=0`. That header is right for a browser and useless
+for a shared cache — taken literally, the edge stores nothing and every page
+view reaches the origin. Overriding the *shared* TTL is the only way to cache
+HTML here short of patching the adapter's static file serving, which would have
+to be redone on every upgrade.
+
+The browser TTL stays at the origin's `max-age=0`, so browsers revalidate every
+navigation. That is deliberate: it makes the edge copy the only stale one, and
+the only one that can be purged. A browser cache cannot be.
+
+**300 seconds is the delay between merging a content change and a visitor seeing
+it**, because nothing purges this cache on deploy. Raising it means adding a
+purge step to `.github/workflows/deploy.yml` with a token carrying
+`Zone:Cache Purge:Edit`. Until that exists, five minutes is the honest number —
+and the value being bought is surviving a traffic spike, not shaving
+milliseconds off a prerendered page.
 
 ### What the free plan does not give, and what is done about it
 

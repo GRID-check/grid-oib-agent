@@ -51,7 +51,8 @@ type CacheRule = {
   expression: string;
   actionParameters: {
     cache: boolean;
-    edgeTtl?: { mode: string };
+    edgeTtl?: { mode: string; default?: number };
+    browserTtl?: { mode: string };
     respectStrongEtags?: boolean;
   };
 };
@@ -135,19 +136,33 @@ describe("installEdge", () => {
     expect(settings.websockets).toBe("on");
   });
 
-  it("evaluates the never-cache rule before the cache rule", async () => {
-    // Cache rules stop at the first match. Reversed, the admin UI is cached and
-    // the next visitor is handed somebody's session.
+  it("puts the never-cache rule LAST, because the last match wins", async () => {
+    // Cache rules are not first-match-wins: every matching rule in the phase
+    // runs and, for conflicting settings, the last one wins. The first rule
+    // here is a catch-all across the whole host, so if the exclusions did not
+    // come after it they would be overridden — and Cloudflare would accept the
+    // ruleset, report success, and cache the Keystatic admin UI.
     const { rules } = await install(edgeConfig());
-    expect(rules).toHaveLength(2);
-    expect(rules[0].actionParameters.cache).toBe(false);
-    expect(rules[0].expression).toContain("/keystatic");
-    expect(rules[1].actionParameters.cache).toBe(true);
+    expect(rules).toHaveLength(3);
+    expect(rules[0].expression).not.toContain("/keystatic");
+    expect(rules[0].actionParameters.cache).toBe(true);
+    const last = rules[rules.length - 1];
+    expect(last.actionParameters.cache).toBe(false);
+    expect(last.expression).toContain("/keystatic");
+  });
+
+  it("never caches the sign-in hand-off, whose target is read from the environment", async () => {
+    // It 302s to PUBLIC_APP_URL at request time. An edge copy would freeze one
+    // stack's app URL into the other's landing page — the failure its own
+    // `no-store` header exists to prevent.
+    const { rules } = await install(edgeConfig());
+    expect(rules[rules.length - 1].expression).toContain("/sign-in");
   });
 
   it("scopes every cache rule to the proxied hosts only", async () => {
-    // A rule that matched by path alone would apply to app.<domain> the day
-    // that host is ever proxied, silently caching authenticated responses.
+    // The catch-all is a catch-all across ONE host. Matched by path alone it
+    // would apply to app.<domain> the day that host is ever proxied, silently
+    // caching authenticated responses.
     const { rules } = await install(edgeConfig());
     for (const rule of rules) {
       expect(rule.expression).toContain(`http.host in {"dev.${ZONE}"}`);
@@ -155,8 +170,22 @@ describe("installEdge", () => {
     }
   });
 
-  it("defers the cache lifetime to the origin instead of naming a second one", async () => {
+  it("overrides the shared TTL for HTML while leaving the browser's alone", async () => {
+    // The origin serves prerendered HTML with `public, max-age=0`. Right for a
+    // browser, useless for a shared cache — taken literally the edge stores
+    // nothing. Overriding the edge TTL and NOT the browser's is what makes the
+    // edge copy the only stale one, and the only one that can be purged.
     const { rules } = await install(edgeConfig());
+    expect(rules[0].actionParameters.edgeTtl?.mode).toBe("override_origin");
+    expect(rules[0].actionParameters.edgeTtl?.default).toBe(300);
+    expect(rules[0].actionParameters.browserTtl?.mode).toBe("respect_origin");
+  });
+
+  it("takes hashed assets back off the HTML TTL and defers to the origin", async () => {
+    // The catch-all gave every path five minutes. These are content-addressed
+    // and the origin says a year, so this rule exists to hand them back.
+    const { rules } = await install(edgeConfig());
+    expect(rules[1].expression).toContain("/_astro/");
     expect(rules[1].actionParameters.edgeTtl?.mode).toBe("respect_origin");
     expect(rules[1].actionParameters.respectStrongEtags).toBe(true);
   });
