@@ -71,6 +71,12 @@ const EASE_OUT: Bezier = [0, 0, 0.2, 1]
 const EASE_ENTRANCE: Bezier = [0.16, 1, 0.3, 1]
 
 /**
+ * For things LEAVING — departure accelerates away. Mirrors `--ease-exit`.
+ * An exit that decelerates reads as the app not believing the dismissal.
+ */
+const EASE_EXIT: Bezier = [0.4, 0, 1, 1]
+
+/**
  * A spring, described structurally so its parameters stay readable (and
  * assertable — see index.spec.tsx, which recomputes ζ from these three numbers
  * rather than trusting the comments).
@@ -227,6 +233,24 @@ export const motionBase: Transition = { duration: 0.24, ease: EASE_OUT }
 
 /** 240ms on the entrance curve — for things ARRIVING (see EASE_ENTRANCE). */
 export const motionEntrance: Transition = { duration: 0.24, ease: EASE_ENTRANCE }
+
+/**
+ * The sheet pair — `--motion-deliberate` on `--ease-entrance`, and the exit one
+ * step shorter on `--ease-exit`. These are the JS half of the numbers
+ * `PageSheet` used to write as `duration-deliberate ease-entrance` /
+ * `OVERLAY_EXIT` classes; the sheet now animates through motion.dev so its
+ * entrance, its exit and the drag-to-dismiss gesture share one transform
+ * pipeline (a CSS keyframe and a drag both writing `transform` fight, and the
+ * loser jumps).
+ *
+ * Why a tween and not a spring: past ~300px of travel there is no spring left
+ * to pick — see the design language's Motion vocabulary. The sheet's travel is
+ * its own height.
+ */
+export const motionSheetEnter: Transition = { duration: 0.32, ease: EASE_ENTRANCE }
+
+/** The sheet's exit — shorter, accelerating away (`--ease-exit`). */
+export const motionSheetExit: Transition = { duration: 0.24, ease: EASE_EXIT }
 
 /**
  * @deprecated Use `springPress`. Kept so existing call sites keep compiling.

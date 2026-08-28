@@ -236,7 +236,7 @@ export const PlatformOverview: FC = () => {
 
   return (
     <TooltipProvider delayDuration={100}>
-      <div className="animate-in fade-in-0 flex flex-col gap-6 duration-200 ease-out motion-reduce:animate-none">
+      <div className="animate-in fade-in-0 flex flex-col gap-6 duration-base ease-out motion-reduce:animate-none">
         {/* Headline stats — min-h reserves the optional hint line so a capped
             directory does not grow the row after the first paint. */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

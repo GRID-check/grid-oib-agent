@@ -180,7 +180,7 @@ export const StorageUsageCard: FC<StorageUsageCardProps> = ({
   }
 
   return (
-    <div className="animate-in fade-in-0 flex min-h-[11.5rem] flex-col gap-6 duration-200 ease-out motion-reduce:animate-none" data-testid="storage-usage">
+    <div className="animate-in fade-in-0 flex min-h-[11.5rem] flex-col gap-6 duration-base ease-out motion-reduce:animate-none" data-testid="storage-usage">
       <StorageMeter usedBytes={data.usage.total.bytes} quotaBytes={data.quotaBytes} />
 
       <div className="flex flex-col gap-2">

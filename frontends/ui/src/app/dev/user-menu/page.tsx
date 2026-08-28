@@ -45,7 +45,6 @@ export default function UserMenuDevPage(): JSX.Element {
           canManageOrganization
           canViewOrganization
           canManagePlatform
-          canAccessArchiv
         />
       </div>
     </main>

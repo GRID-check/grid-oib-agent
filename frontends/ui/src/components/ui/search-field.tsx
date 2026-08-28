@@ -100,7 +100,7 @@ export function SearchField({
           aria-hidden={!hasValue}
           className={cn(
             'absolute right-0.5 top-1/2 size-8 -translate-y-1/2 text-muted-foreground',
-            'transition-opacity duration-200 ease-out motion-reduce:transition-none',
+            'transition-opacity duration-quick ease-out motion-reduce:transition-none',
             hasValue ? 'opacity-100' : 'pointer-events-none opacity-0',
             clearClassName,
           )}

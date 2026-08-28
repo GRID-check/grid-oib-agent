@@ -64,7 +64,7 @@ export const CodeBlock: FC<CodeBlockProps> = ({
           type="button"
           onClick={handleCopy}
           aria-label={copied ? t('codeBlock.copied') : t('codeBlock.copyCode')}
-          className="text-subtle hover:text-primary inline-flex min-h-7 items-center gap-1 rounded-full px-2 text-xs transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+          className="text-subtle hover:text-primary inline-flex min-h-7 items-center gap-1 rounded-full px-2 text-xs transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
         >
           {/* Icon swap with a brief scale pop on copy feedback */}
           <AnimatePresence mode="popLayout" initial={false}>
@@ -104,7 +104,7 @@ export const CodeBlock: FC<CodeBlockProps> = ({
         <button
           type="button"
           onClick={() => setExpanded((prev) => !prev)}
-          className="border-base text-subtle hover:text-primary flex min-h-8 w-full items-center justify-center gap-1 border-t px-3 py-1.5 text-xs transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60"
+          className="border-base text-subtle hover:text-primary flex min-h-8 w-full items-center justify-center gap-1 border-t px-3 py-1.5 text-xs transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60"
           aria-expanded={expanded}
         >
           {expanded ? (

@@ -347,7 +347,7 @@ export function FolderCard({
   return (
     <GridTileShell variant="file" interactive className="group" data-testid={`folder-card-${folder.id}`}>
       <div
-        className="absolute right-1.5 top-1.5 z-[1] md:opacity-0 md:group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200 motion-reduce:transition-none"
+        className="absolute right-1.5 top-1.5 z-[1] md:opacity-0 md:group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-quick ease-out motion-reduce:transition-none"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
@@ -439,7 +439,7 @@ export function FolderRow({
       transition={motionQuick}
       className={cn(
         'group flex w-full items-center gap-2 rounded-lg border border-amber-200/40 bg-amber-50/40 px-3 py-2 text-sm dark:bg-amber-950/10 dark:border-amber-800/20',
-        'hover:bg-amber-50 hover:border-amber-200/60 dark:hover:bg-amber-950/20 transition-[background-color,border-color,box-shadow] duration-200 ease-out hover:shadow-sm',
+        'hover:bg-amber-50 hover:border-amber-200/60 dark:hover:bg-amber-950/20 transition-[background-color,border-color,box-shadow] duration-quick ease-out hover:shadow-sm',
       )}
       data-testid={`folder-row-${folder.id}`}
     >

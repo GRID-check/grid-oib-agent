@@ -698,7 +698,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
   return (
     <TooltipProvider delayDuration={100}>
       {/* `grid-spend-viz` scopes the validated chart tokens (end of globals.css). */}
-      <div className="grid-spend-viz animate-in fade-in-0 flex min-h-[16rem] flex-col gap-5 duration-200 ease-out motion-reduce:animate-none">
+      <div className="grid-spend-viz animate-in fade-in-0 flex min-h-[16rem] flex-col gap-5 duration-base ease-out motion-reduce:animate-none">
         {usage.status.blocked && (
           <Badge variant="destructive" className="self-start">
             <AlertTriangle className="mr-1 size-3" aria-hidden />

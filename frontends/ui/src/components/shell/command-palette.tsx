@@ -43,7 +43,7 @@ export function projectIdFromPathname(pathname: string): string | null {
   return match ? match[1] : null
 }
 
-const PALETTE_ITEM_CLASS = 'transition-colors duration-200 ease-out motion-reduce:transition-none'
+const PALETTE_ITEM_CLASS = 'transition-colors duration-snap ease-out motion-reduce:transition-none'
 
 /** Leader jump keycaps — `g` then the destination's `shortcutKey` / jump target. */
 function JumpShortcut({ jumpKey }: { jumpKey: string }) {

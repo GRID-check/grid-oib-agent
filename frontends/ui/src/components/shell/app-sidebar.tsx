@@ -285,7 +285,7 @@ function AppSidebarFrame({
             onClick={() => setStoreOpen(true)}
             aria-label={openLabel}
             aria-expanded={storeOpen}
-            className="text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-ring/60 relative flex size-11 shrink-0 items-center justify-center rounded-lg transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-ring/60 relative flex size-11 shrink-0 items-center justify-center rounded-lg transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2"
           >
             <Menu className="size-5" aria-hidden />
             <InboxBadge
@@ -454,7 +454,6 @@ function AppSidebarFrame({
               canManageOrganization={canManageOrganization}
               canViewOrganization={canViewOrganization}
               canManagePlatform={canManagePlatform}
-              canAccessArchiv={canAccessArchiv}
             />
           </div>
         </SidebarFooter>
@@ -532,7 +531,7 @@ function SidebarBrand({ iconRail }: { iconRail: boolean }) {
           onClick={toggleSidebar}
           aria-label={collapsed ? t('expandSidebar') : t('collapseSidebar')}
           className={cn(
-            'text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-ring/60 flex items-center justify-center rounded-lg transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2',
+            'text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-ring/60 flex items-center justify-center rounded-lg transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2',
             // Icon rail: exactly a nav tile (36px square), so it lands on the same
             // column and the same grid as the items below instead of reading as a
             // loose glyph floating in the header's dead space. It was `h-9 w-10` —

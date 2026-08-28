@@ -12,10 +12,6 @@ export const research: typeof en.research = {
     untitledRun: 'Deep-Research-Durchlauf',
   },
 
-  dockedPanel: {
-    closePanel: 'Bereich schließen',
-  },
-
   chatArea: {
     ariaMessages: 'Chat-Nachrichten',
     loading: 'Unterhaltung wird geladen',
@@ -338,14 +334,17 @@ export const research: typeof en.research = {
 
   sessionsPanel: {
     title: 'Chatverlauf',
+    /** Schließen-Steuerung des Sheets (Grabber-Pille + Desktop-X). */
+    close: 'Chatverlauf schließen',
     /** Steht neben dem Titel, damit der Bereich seinen eigenen Umfang nennt. */
     countLabel: '{count, plural, one {# Chat} other {# Chats}}',
     countLabelOne: '1 Chat',
-    // Der Speicher wird erst eingeblendet, wenn er relevant wird — und sagt dann,
-    // was zu tun ist, statt nur eine Zahl zu melden.
-    storageQuota: 'Browser-Speicher zu {percent}% belegt — alte Chats löschen schafft Platz.',
-    storageNote:
-      'Chats werden in diesem Browser gespeichert. Rechercheberichte können auf dem Server ablaufen.',
+    // Chats werden serverseitig gespeichert (Postgres via /api/conversations) —
+    // diese Zeile darf nie behaupten, sie lägen im Browser, und nie raten,
+    // Chats zu löschen, um lokalen Platz zu schaffen: Löschen entfernt auch die
+    // Server-Kopie.
+    syncedNote:
+      'Chats werden in Ihrem Workspace gespeichert und sind auf allen Geräten verfügbar. Rechercheberichte können auf dem Server ablaufen.',
     deleteAllDisabled: 'Alle Chats dieses Projekts löschen (deaktiviert)',
     deleteAll: 'Alle Chats dieses Projekts löschen',
     cannotDeleteBusy: 'Löschen nicht möglich, während Vorgänge laufen',
@@ -384,10 +383,20 @@ export const research: typeof en.research = {
     sessionLabel: 'Chat: {title}',
     /** Dieselbe Zeile, ergänzt um den Zustand, den ihr Symbol zeigt. */
     sessionLabelWithStatus: 'Chat: {title} — {status}',
-    // FB-10: Deep-Research-Bereich im Sitzungsbereich.
-    deepResearchHeading: 'Deep Research ({count})',
+    // FB-10: Deep-Research-Bereich im Sitzungsbereich. Die Anzahl trägt ein
+    // CountPill neben der Überschrift, nicht der Text selbst.
+    deepResearchHeading: 'Deep Research',
     deepResearchChip: 'Deep Research',
     deepResearchRunLabel: 'Deep-Research-Durchlauf öffnen: {label} — {status}',
+    /** Bereichsfilter über die eine Liste — Chats, Durchläufe oder beides. */
+    filterAria: 'Verlauf filtern',
+    filterAll: 'Alle',
+    filterChats: 'Chats',
+    filterResearch: 'Deep Research',
+    /** Ein fehlgeschlagener Abruf sagt es — ein leerer Bereich würde ihn verschweigen. */
+    researchLoadFailed: 'Deep-Research-Durchläufe konnten nicht geladen werden.',
+    noRuns: 'Noch keine Deep-Research-Durchläufe',
+    noRunsDescription: 'Deep-Research-Durchläufe aus diesem Projekt erscheinen hier.',
     /** Der Zustand eines Durchlaufs in Worten — das Symbol allein ließ „fehlgeschlagen“ und „fertig“ gleich aussehen. */
     runStatus: {
       running: 'Läuft',

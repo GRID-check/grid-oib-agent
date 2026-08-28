@@ -858,7 +858,7 @@ export function ProjectIntakeWizard({
             <Progress value={progress} className="h-1 flex-1" />
             <span
               className={cn(
-                'shrink-0 text-xs transition-opacity duration-200 ease-out motion-reduce:transition-none',
+                'shrink-0 text-xs transition-opacity duration-quick ease-out motion-reduce:transition-none',
                 draftSaved ? 'text-success opacity-100' : 'text-muted-foreground opacity-0'
               )}
               aria-live="polite"
@@ -1404,7 +1404,7 @@ function BauwerkStage({
               <button
                 type="button"
                 onClick={onAddBauwerk}
-                className="border-border text-muted-foreground hover:border-primary/60 hover:bg-primary/5 hover:text-primary inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed py-2.5 font-mono text-xs transition-colors duration-200 ease-out motion-reduce:transition-none"
+                className="border-border text-muted-foreground hover:border-primary/60 hover:bg-primary/5 hover:text-primary inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed py-2.5 font-mono text-xs transition-colors duration-quick ease-out motion-reduce:transition-none"
               >
                 <Plus className="size-4" aria-hidden />
                 {t('intake.bauwerk.add')}
@@ -1560,7 +1560,7 @@ function ReviewSection({
           <button
             type="button"
             onClick={onEdit}
-            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs transition-colors duration-200 ease-out motion-reduce:transition-none"
+            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs transition-colors duration-quick ease-out motion-reduce:transition-none"
           >
             <PencilLine className="size-3" aria-hidden />
             {editLabel}
@@ -2045,7 +2045,7 @@ function QuestionHeader({ question, domId }: { question: ProjectIntakeQuestion; 
             // The cost is the honest one — the label row is 44px tall on touch.
             // `pointer-coarse:items-center` below keeps the glyph and the label
             // aligned once the row is taller than its baseline.
-            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/40 pointer-coarse:size-11 inline-flex size-4 shrink-0 items-center justify-center self-center rounded-full outline-none transition-colors duration-200 ease-out focus-visible:ring-2 motion-reduce:transition-none"
+            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/40 pointer-coarse:size-11 inline-flex size-4 shrink-0 items-center justify-center self-center rounded-full outline-none transition-colors duration-quick ease-out focus-visible:ring-2 motion-reduce:transition-none"
           >
             <HelpCircle className="size-3.5" aria-hidden />
           </button>
@@ -2154,7 +2154,7 @@ function Segmented({
             aria-pressed={active}
             onClick={() => onChange(opt.value)}
             className={cn(
-              'border-border inline-flex items-center justify-center transition-colors duration-200 ease-out motion-reduce:transition-none',
+              'border-border inline-flex items-center justify-center transition-colors duration-quick ease-out motion-reduce:transition-none',
               i > 0 && 'border-l',
               // Comfortable tap targets on touch screens; denser on desktop pointers.
               size === 'sm'
@@ -2197,7 +2197,7 @@ function ChipMultiSelect({
               onChange(active ? value.filter((v) => v !== opt.value) : [...value, opt.value])
             }
             className={cn(
-              'inline-flex min-h-11 items-center justify-center rounded-full border px-4 py-1.5 text-sm transition-colors duration-200 ease-out motion-reduce:transition-none md:min-h-9 md:px-3.5',
+              'inline-flex min-h-11 items-center justify-center rounded-full border px-4 py-1.5 text-sm transition-colors duration-quick ease-out motion-reduce:transition-none md:min-h-9 md:px-3.5',
               active
                 ? 'border-primary bg-primary text-primary-foreground'
                 : 'border-border bg-card text-foreground hover:border-primary/50 hover:bg-primary/5'
@@ -2225,7 +2225,7 @@ function UploadField({
       <span className="text-sm font-medium">{question.label}</span>
       <Link
         href={`/app/projects/${projectId}/files`}
-        className="border-border bg-muted/20 text-muted-foreground hover:border-primary/50 hover:bg-primary/5 hover:text-foreground inline-flex max-w-md items-center gap-3 rounded-lg border border-dashed px-4 py-3 text-sm transition-colors duration-200 ease-out motion-reduce:transition-none"
+        className="border-border bg-muted/20 text-muted-foreground hover:border-primary/50 hover:bg-primary/5 hover:text-foreground inline-flex max-w-md items-center gap-3 rounded-lg border border-dashed px-4 py-3 text-sm transition-colors duration-quick ease-out motion-reduce:transition-none"
       >
         <FolderOpen className="text-primary size-4 shrink-0" aria-hidden />
         <span>{t('intake.upload.hint')}</span>

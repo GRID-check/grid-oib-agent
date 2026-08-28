@@ -131,7 +131,7 @@ export const ReportOutline: FC<ReportOutlineProps> = ({ entries, scrollRootRef }
         <span className="min-w-0 flex-1 truncate">{summary}</span>
         <ChevronDown
           className={cn(
-            'size-4 shrink-0 transition-transform duration-150 motion-reduce:transition-none',
+            'size-4 shrink-0 transition-transform duration-quick ease-out motion-reduce:transition-none',
             isOpen && 'rotate-180'
           )}
           aria-hidden="true"

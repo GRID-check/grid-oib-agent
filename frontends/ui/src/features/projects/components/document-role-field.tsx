@@ -275,7 +275,7 @@ export function DocumentRoleField({
           run(uploadAndBind(files))
         }}
         className={cn(
-          'rounded-lg border border-dashed px-3 py-2 text-center text-xs transition-colors duration-200 ease-out motion-reduce:transition-none',
+          'rounded-lg border border-dashed px-3 py-2 text-center text-xs transition-colors duration-quick ease-out motion-reduce:transition-none',
           dragging ? 'border-primary bg-primary/5 text-foreground' : 'text-muted-foreground'
         )}
       >

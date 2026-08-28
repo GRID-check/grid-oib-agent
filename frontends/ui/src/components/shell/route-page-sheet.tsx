@@ -24,6 +24,12 @@ import { PageSheet } from '@/components/ui/page-sheet'
  *    sheet's state).
  *  - hard load (`standalone` true): there is no history entry to go back to
  *    that belongs to this app, so closing pushes the org home instead.
+ *
+ * Either way the navigation waits for `onExitComplete`: navigating on the
+ * close click unmounts the route underneath the sheet mid-slide, which cuts
+ * the exit off at whatever frame the router happened to reach. The page
+ * beneath is already visible at the dimmed edges, so nothing is waiting on
+ * the navigation except the URL.
  */
 
 interface RoutePageSheetProps {
@@ -54,20 +60,20 @@ export function RoutePageSheet({
   const router = useRouter()
   const [open, setOpen] = React.useState(true)
 
-  const handleOpenChange = React.useCallback(
-    (next: boolean) => {
-      if (next) return
-      setOpen(false)
-      if (standalone) router.push(fallbackHref)
-      else router.back()
-    },
-    [standalone, fallbackHref, router],
-  )
+  const handleOpenChange = React.useCallback((next: boolean) => {
+    if (!next) setOpen(false)
+  }, [])
+
+  const handleExitComplete = React.useCallback(() => {
+    if (standalone) router.push(fallbackHref)
+    else router.back()
+  }, [standalone, fallbackHref, router])
 
   return (
     <PageSheet
       open={open}
       onOpenChange={handleOpenChange}
+      onExitComplete={handleExitComplete}
       title={title}
       subtitle={subtitle}
       closeLabel={closeLabel}

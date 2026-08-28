@@ -242,7 +242,7 @@ export function FileCard({
     >
       {actions && (
         <div
-          className="absolute left-1.5 top-1.5 z-[1] opacity-0 group-hover/card:opacity-100 group-focus-within/card:opacity-100 transition-opacity duration-200 motion-reduce:transition-none"
+          className="absolute left-1.5 top-1.5 z-[1] opacity-0 group-hover/card:opacity-100 group-focus-within/card:opacity-100 transition-opacity duration-quick ease-out motion-reduce:transition-none"
           onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => event.stopPropagation()}
         >

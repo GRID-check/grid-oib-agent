@@ -46,7 +46,7 @@ const TabsTrigger = React.forwardRef<
     ref={ref}
     data-slot="tabs-trigger"
     className={cn(
-      "data-[state=active]:bg-card data-[state=active]:text-foreground outline-none inline-flex h-full flex-1 items-center justify-center gap-1.5 rounded-md px-3.5 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow,background-color] duration-200 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:shadow-xs pointer-coarse:min-h-11 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+      "data-[state=active]:bg-card data-[state=active]:text-foreground outline-none inline-flex h-full flex-1 items-center justify-center gap-1.5 rounded-md px-3.5 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow,background-color] duration-quick ease-out motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 data-[state=active]:shadow-xs pointer-coarse:min-h-11 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
       FOCUS_RING,
       className
     )}

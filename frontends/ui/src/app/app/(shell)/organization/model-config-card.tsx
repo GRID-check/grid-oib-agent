@@ -489,10 +489,10 @@ export const ModelConfigCard: FC = () => {
           if (open && versions === null) void loadVersions()
         }}
       >
-        <CollapsibleTrigger className="group flex items-center gap-1.5 text-sm text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground">
+        <CollapsibleTrigger className="group flex items-center gap-1.5 text-sm text-muted-foreground transition-colors duration-quick ease-out hover:text-foreground">
           <History className="size-4" aria-hidden />
           {t('models.history')}
-          <ChevronDown className="size-3.5 transition-transform duration-200 ease-out motion-reduce:transition-none group-data-[state=open]:rotate-180" aria-hidden />
+          <ChevronDown className="size-3.5 transition-transform duration-quick ease-out motion-reduce:transition-none group-data-[state=open]:rotate-180" aria-hidden />
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="mt-3 flex flex-col gap-2">

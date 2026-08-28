@@ -28,7 +28,7 @@ export function GridTileShell({ variant = 'file', interactive = true, className,
         className={cn(
           'relative flex h-full min-w-0 flex-col overflow-hidden rounded-xl border shadow-xs',
           'border-amber-200/60 bg-gradient-to-br from-amber-50/80 via-amber-50/40 to-orange-50/30',
-          'transition-[box-shadow,border-color,transform] duration-200 ease-out motion-reduce:transition-none',
+          'transition-[box-shadow,border-color,transform] duration-quick ease-out motion-reduce:transition-none',
           interactive && 'hover:border-amber-300/60 hover:shadow-md',
           className,
         )}
@@ -40,7 +40,7 @@ export function GridTileShell({ variant = 'file', interactive = true, className,
       <div
         className={cn(
           'border-border bg-muted/50 shadow-xs relative flex h-full min-w-0 flex-col overflow-hidden rounded-xl border',
-          'transition-shadow duration-200 ease-out motion-reduce:transition-none',
+          'transition-shadow duration-quick ease-out motion-reduce:transition-none',
           interactive && 'hover:shadow-md',
           className,
         )}
