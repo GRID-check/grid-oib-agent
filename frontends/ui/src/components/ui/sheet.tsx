@@ -72,9 +72,10 @@ export type SheetSide = keyof typeof SIDE_CLASSES
  *
  * So: `--motion-deliberate` on `--ease-entrance`. The decision lands at the
  * START of the move, which is what an arriving surface wants, and the same pair
- * `DockedPanel` uses — the app's two large sliding panels now agree on what
- * "a panel arriving" feels like. The exit is one step shorter on `--ease-exit`
- * via `OVERLAY_EXIT`, because nobody wants to watch a thing they dismissed.
+ * the page sheet uses (`motionSheetEnter` in the motion kit) — the app's large
+ * sliding panels agree on what "a panel arriving" feels like. The exit is one
+ * step shorter on `--ease-exit` via `OVERLAY_EXIT`, because nobody wants to
+ * watch a thing they dismissed.
  */
 interface SheetContentProps extends React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content> {
   side?: SheetSide

@@ -102,14 +102,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/page-sheet',
     description:
-      'The page sheet — the third overlay intent beside the modal and the side sheet: a whole PLACE (Archiv, Postfach) risen near-fullscreen over the current page, bottom-anchored with the app dimmed at the top and side margins, rounded top corners, one header band with title, subtitle and close.',
-    waitFor: '[data-slot="page-sheet-title"]',
-  },
-  {
-    id: 'page-sheet-reading',
-    path: '/dev/page-sheet?variant=reading',
-    description:
-      'The page sheet at reading width — the narrower column the history sheet uses: same geometry and scrim, capped at a text measure instead of the full 1400px, so a single column of rows does not stretch into whitespace.',
+      'The page sheet — the third overlay intent beside the modal and the side sheet: a whole PLACE (Archiv, Postfach) risen near-fullscreen over the current page, bottom-anchored on every viewport with the app visible above the top edge, rounded top corners, a grabber band (the pull-down-to-dismiss handle) above one header band with title, subtitle and a desktop-only close X.',
     waitFor: '[data-slot="page-sheet-title"]',
   },
   {
@@ -125,7 +118,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/sessions',
     description:
-      'The history sheet risen over the real app shell — an Apple-style page sheet with the chrome dimmed behind it, pinned New chat + search, day-grouped list with sticky day headings, and a footer that owns the destructive delete-all. Fixture spans today/yesterday/older and overflows the list so grouping and scroll behaviour are visible.',
+      'The history sheet risen over the real app shell as a sibling of the Inbox — the default wide page sheet with a centred max-w-3xl reading column, pinned New chat + search, day groups as sticky headings over bg-card divided-row lists, a bottom scroll fade, and a footer that states chats live in the workspace and owns the destructive delete-all. Fixture spans today/yesterday/older and overflows the list so grouping and scroll behaviour are visible.',
     waitFor: '[data-testid="sessions-preview"]',
   },
   {
@@ -133,36 +126,36 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/sessions?variant=search',
     description:
-      'Chat history with a live query — trailing clear button, the "n of N chats" count, and the filtered list.',
+      'Chat history with a live query — trailing clear button, the "n of N chats" count under the pinned search field, and the filtered card list in the centred column.',
     waitFor: '[data-testid="sessions-preview"]',
   },
   {
     id: 'sessions-no-match',
     path: '/dev/sessions?variant=no-match',
     description:
-      'Chat history with a query that matches nothing — the search-specific empty state quotes the query and offers the way back out, instead of leaving a blank panel.',
+      'Chat history with a query that matches nothing — the search-specific empty state quotes the query and offers the way back out, instead of leaving a blank sheet.',
     waitFor: '[data-testid="sessions-preview"]',
   },
   {
     id: 'sessions-empty',
     path: '/dev/sessions?variant=empty',
     description:
-      'Chat history for a project with no chats — no search field and no delete-all (both could only ever act on nothing), and exactly one new-chat CTA.',
+      'Chat history for a project with no chats — no search field and no delete-all (both could only ever act on nothing), exactly one new-chat CTA, and the footer still stating where chats are saved.',
     waitFor: '[data-testid="sessions-preview"]',
   },
   {
     id: 'sessions-busy',
     path: '/dev/sessions?variant=busy',
     description:
-      'Chat history while a turn is in flight — every row dimmed and unclickable, with the panel saying why rather than leaving the user to discover it row by row.',
+      'Chat history while a turn is in flight — every card row dimmed and unclickable, with the pinned block saying why rather than leaving the user to discover it row by row.',
     waitFor: '[data-testid="sessions-preview"]',
   },
   {
     id: 'sessions-research',
     path: '/dev/sessions?variant=research',
     description:
-      'The history sheet with the FB-10 Deep Research section — open by default now that this sheet is the one record of a project\u2019s past: server-truth runs (running / completed / failed) above the day groups, and the per-row Deep Research chips.',
-    waitFor: '[data-testid="deep-research-toggle"]',
+      'The history sheet with the FB-10 Deep Research surfaces: the All / Chats / Deep Research scope filter (with run-count pill) pinned under the search, the always-open Deep Research section — FlaskConical heading with count pill over an inbox-style card of run rows (media disc, title, relative time, status Badge) — and the per-chat Deep Research badges.',
+    waitFor: '[data-testid="deep-research-section"]',
   },
   {
     id: 'chat-turn',

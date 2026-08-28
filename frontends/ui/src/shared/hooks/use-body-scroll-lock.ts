@@ -10,8 +10,8 @@ import { useEffect } from 'react'
  * counter restores the original overflow only once the last locker releases, and
  * locks release in order because each consumer decrements exactly once.
  *
- * Extracted from DockedPanel so every full-screen mobile overlay shares one
- * correct implementation.
+ * Extracted (from the since-removed DockedPanel) so every full-screen mobile
+ * overlay shares one correct implementation.
  */
 let scrollLockCount = 0
 let savedBodyOverflow = ''

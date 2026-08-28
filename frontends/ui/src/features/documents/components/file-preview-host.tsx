@@ -257,9 +257,9 @@ export function FilePreviewHost({
                 // Scoped to focus INSIDE the pane, by being a React handler on
                 // it: the peek is not modal, so a global listener would close
                 // the reader's document out from under a composer they were
-                // typing Escape into for another reason. `DockedPanel` answers
-                // Escape the same way; this one used to be the only panel in
-                // the app that did not.
+                // typing Escape into for another reason. The app's other
+                // panels answer Escape the same way; this one used to be the
+                // only panel that did not.
                 event.stopPropagation()
                 dismissPeek(hide)
               }
@@ -644,8 +644,7 @@ function PeekToolbar({
     {/* 48px row, held 10px off the top — the same band the chat's own pills
         occupy (`ChatToolbar`: `pt-2.5` + `min-h-12`), so the file's name and the
         session's title sit on one line across the seam instead of missing each
-        other by fourteen pixels. `DockedPanel` matches the same band for the
-        same reason. */}
+        other by fourteen pixels. */}
     <div className="mt-2.5 flex h-12 shrink-0 items-center gap-0.5 px-3">
       <p
         // `text-sm`, like the session title in the pills across the seam. At

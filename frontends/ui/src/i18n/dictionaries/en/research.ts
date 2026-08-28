@@ -12,10 +12,6 @@ export const research = {
     untitledRun: 'Deep research run',
   },
 
-  dockedPanel: {
-    closePanel: 'Close panel',
-  },
-
   chatArea: {
     ariaMessages: 'Chat messages',
     loading: 'Loading conversation',
@@ -334,14 +330,17 @@ export const research = {
 
   sessionsPanel: {
     title: 'Chat history',
+    /** The sheet's close control (grabber pill + desktop X). */
+    close: 'Close chat history',
     /** Shown beside the title so the panel states its own size. */
     countLabel: '{count, plural, one {# chat} other {# chats}}',
     countLabelOne: '1 chat',
-    // Storage is surfaced only once it is close enough to matter, and then it
-    // says what to do about it rather than reporting a number.
-    storageQuota: 'Browser storage is {percent}% full — delete old chats to free space.',
-    storageNote:
-      'Chats are saved in this browser. Research reports may expire on the server.',
+    // Chats persist server-side (Postgres via /api/conversations) for every
+    // chat, unconditionally — this line must never claim they live in the
+    // browser, and must never advise deleting chats to free local space:
+    // deleting a chat deletes the server copy too.
+    syncedNote:
+      'Chats are saved to your workspace and available on any device. Research reports may expire on the server.',
     deleteAllDisabled: 'Delete all chats in this project (disabled)',
     deleteAll: 'Delete all chats in this project',
     cannotDeleteBusy: 'Cannot delete while operations are in progress',
@@ -379,10 +378,20 @@ export const research = {
     sessionLabel: 'Chat: {title}',
     /** Same row, plus the state its leading icon depicts. */
     sessionLabelWithStatus: 'Chat: {title} — {status}',
-    // FB-10: Deep Research section folded into the sessions panel.
-    deepResearchHeading: 'Deep Research ({count})',
+    // FB-10: Deep Research section folded into the sessions panel. The count
+    // rides in a CountPill beside the heading, not in the string.
+    deepResearchHeading: 'Deep Research',
     deepResearchChip: 'Deep Research',
     deepResearchRunLabel: 'Open deep research run: {label} — {status}',
+    /** Scope filter over the one list — chats, runs, or both. */
+    filterAria: 'Filter history',
+    filterAll: 'All',
+    filterChats: 'Chats',
+    filterResearch: 'Deep Research',
+    /** A failed runs fetch says so — an empty section would misreport it. */
+    researchLoadFailed: 'Deep-research runs could not be loaded.',
+    noRuns: 'No deep research runs yet',
+    noRunsDescription: 'Deep research runs from this project will be listed here.',
     /** A run's state, in words — the icon alone made "failed" and "ready" look alike. */
     runStatus: {
       running: 'Running',

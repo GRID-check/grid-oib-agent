@@ -63,18 +63,12 @@ export const PAGE_SHEET_PANEL_CLASS =
   'bg-background fixed inset-x-0 bottom-0 top-[max(0.75rem,env(safe-area-inset-top))] z-50 flex flex-col overflow-hidden rounded-t-2xl border border-b-0 shadow-2xl outline-none md:inset-x-5 md:top-5 md:mx-auto'
 
 /**
- * How wide the panel may grow from `md` up.
- *
- * `wide` is a whole PLACE (the Archiv's card grid); `reading` is a single
- * column of rows (the chat history) — at 1400px those rows would be lines of
- * whitespace with a title at one end and a timestamp at the other.
+ * How wide the panel may grow from `md` up. One width: a page sheet is a whole
+ * PLACE, and every place caps and centres its own reading column inside it
+ * (the Inbox and the history sheet both run a `max-w-3xl` column). A per-sheet
+ * `reading` width existed and lost its last consumer to that pattern.
  */
-const PANEL_WIDTHS = {
-  wide: 'md:max-w-[1400px]',
-  reading: 'md:max-w-2xl',
-} as const
-
-export type PageSheetWidth = keyof typeof PANEL_WIDTHS
+const PANEL_WIDTH = 'md:max-w-[1400px]'
 
 /**
  * Committing a pull: past this many pixels of travel — or any flick faster
@@ -104,8 +98,6 @@ interface PageSheetProps {
    * stays: it is the sheet's chrome, not the content's.
    */
   headerless?: boolean
-  /** Panel width from `md` up — see {@link PANEL_WIDTHS}. */
-  width?: PageSheetWidth
   /**
    * Where focus lands when the sheet opens, instead of Radix's default (the
    * first focusable). The history sheet hands it to its search field — finding
@@ -131,7 +123,6 @@ export function PageSheet({
   closeLabel,
   headerActions,
   headerless = false,
-  width = 'wide',
   initialFocusRef,
   onExitComplete,
   bodyClassName,
@@ -192,7 +183,7 @@ export function PageSheet({
               }}
             >
               <motion.div
-                className={cn(PAGE_SHEET_PANEL_CLASS, PANEL_WIDTHS[width])}
+                className={cn(PAGE_SHEET_PANEL_CLASS, PANEL_WIDTH)}
                 initial={{ y: '100%' }}
                 animate={{ y: 0, transition: motionSheetEnter }}
                 exit={{ y: '100%', transition: motionSheetExit }}

@@ -28,9 +28,10 @@
  *                  delete-all, one CTA rather than two.
  *   - `busy`     — a turn in flight. Every row is dimmed and unclickable, so the
  *                  panel says why instead of leaving the user to test rows.
- *   - `research` — the Deep Research section (open by default) plus the
- *                  per-row chips (FB-10). Runs come from a module-scope fetch
- *                  shim.
+ *   - `research` — the Deep Research surfaces (FB-10): the All / Chats / Deep
+ *                  Research scope filter, the always-open runs section with its
+ *                  count pill and status badges, and the per-chat Deep Research
+ *                  badges. Runs come from a module-scope fetch shim.
  *
  * The fetch shim is installed at MODULE SCOPE (browser + development only,
  * idempotent) so it is in place before any effect can fire — the panel fetches

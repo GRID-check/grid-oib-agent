@@ -385,7 +385,7 @@ spring left to pick: anything with a perceptible overshoot percentage is out of
 budget by construction, and anything damped enough to stay in it is an ease-out
 with extra steps. A sheet's travel is its own width — 288px on the mobile nav,
 448px for a `sm:max-w-md` panel — so it takes `--motion-deliberate` on
-`--ease-entrance`, the same pair `DockedPanel` uses. A panel half the screen
+`--ease-entrance`, the same pair the side sheet and the page sheet use. A panel half the screen
 wide flying 6px past its edge and coming back is precisely the failure the
 pixel budget exists to catch.
 
