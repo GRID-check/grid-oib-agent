@@ -369,10 +369,7 @@ class DomainRegistry:
         one for the image — so a plan sheet carrying a chart is still typed as
         a drawing, and a photo sheet carrying a small diagram is not.
         """
-        roles = {
-            self.get(segment.get("domain")).role_of(segment.get("segment_type", ""))
-            for segment in segments or []
-        }
+        roles = {self.get(segment.get("domain")).role_of(segment.get("segment_type", "")) for segment in segments or []}
         for role in _ROLE_PRECEDENCE:
             if role in roles:
                 return _ROLE_CONTENT_TYPES[role]

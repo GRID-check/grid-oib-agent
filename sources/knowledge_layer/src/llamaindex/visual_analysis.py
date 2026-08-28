@@ -344,9 +344,7 @@ def build_prompt(registry: DomainRegistry) -> str:
             for category in domain.active_entity_categories
         )
         states = (
-            f"\n  states: {', '.join(domain.states)}"
-            if domain.states
-            else "\n  states: none — leave the list empty"
+            f"\n  states: {', '.join(domain.states)}" if domain.states else "\n  states: none — leave the list empty"
         )
         guidance = "".join(f"\n  - {line}" for line in domain.guidance)
         domain_blocks.append(
@@ -576,8 +574,7 @@ def _normalise_segment(raw: Any, registry: DomainRegistry) -> dict[str, Any] | N
     }
     # A segment that carries nothing at all is model noise, not a depiction.
     has_content = any(
-        segment[key]
-        for key in ("title", "scale", "summary", "entities", "compositions", "quantities", "annotations")
+        segment[key] for key in ("title", "scale", "summary", "entities", "compositions", "quantities", "annotations")
     )
     if segment["segment_type"] == "other" and not has_content:
         return None

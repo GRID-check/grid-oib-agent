@@ -536,9 +536,7 @@ class TestOneAnalysisForEverySource:
         analysis = va.parse_visual_analysis(
             _reply([{"domain": "general", "segment_type": "photo", "summary": "Ein Baustellenfoto."}]), registry
         )
-        monkeypatch.setattr(
-            adapter, "_analyze_drawing_page_with_vlm", lambda *a, **k: ("c", {"analysis": analysis})
-        )
+        monkeypatch.setattr(adapter, "_analyze_drawing_page_with_vlm", lambda *a, **k: ("c", {"analysis": analysis}))
 
         def forbidden(*a, **k):
             raise AssertionError("a parsed analysis must never spend a second VLM call")
