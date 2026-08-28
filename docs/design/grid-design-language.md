@@ -8,8 +8,8 @@ The visual language is **warm paper monochrome + provenance signal colors** (ado
 
 ## Principles
 
-1. **Restraint is the aesthetic.** Warm paper surfaces (`#f6f6f4`-family, warm charcoal in dark mode), a near-black ink ramp, and **no brand accent color**: the primary action is ink (`#1f2023`, white text; paper-white on ink in dark mode). If everything is highlighted, nothing is. Blue is *not* the action color — it belongs to the Baurecht provenance signal.
-2. **Provenance is the only color.** The one place chroma exists is the source signal system (`--source-law` blue, `--source-project` green, `--source-office` gold, `--source-auto` gray, `--signal-error` red). It runs through composer, citations, history filters, and insights — it is the product's trust affordance. **Color never travels alone: every signal is always icon + label + color together** (a11y and legibility). Green doubles as status "Aktiv"; red is for errors only.
+1. **Restraint is the aesthetic.** Warm paper surfaces (`#f6f6f4`-family, warm charcoal in dark mode), a near-black ink ramp, and **no brand accent color on actions**: the primary action is ink (`#1f2023`, white text; paper-white on ink in dark mode). If everything is highlighted, nothing is. Blue is *not* the action color — it belongs to the Baurecht provenance signal.
+2. **Provenance is (almost) the only color.** The one place chroma exists BY MEANING is the source signal system (`--source-law` blue, `--source-project` green, `--source-office` gold, `--source-auto` gray, `--signal-error` red). It runs through composer, citations, history filters, and insights — it is the product's trust affordance. **Color never travels alone: every signal is always icon + label + color together** (a11y and legibility). Green doubles as status "Aktiv"; red is for errors only. The one exception is `--accent-pop` (product decision 2026-08-27, §"Accents vs. signals" below): the app's one general accent, sourced from the marketing site's chat mock (a moss/lime green distinct in hue from `--source-project`'s forest green). It marks a moment as live/ready rather than stating provenance — so, unlike a source signal, it carries no icon/label requirement — and it stays rare: today it lives on the composer, and any new use should be judged by the same restraint, not spread by default.
 3. **Authority through precision.** This tool cites Austrian building law. Citations, legal-basis, and document provenance must look verifiable and exact — monospace for identifiers, clear source attribution, never decorative.
 4. **Hierarchy over density.** Dense is fine (architects handle complex data), but every screen has ONE clear focal point and a legible reading order. Whitespace does the separating, not boxes-within-boxes.
 5. **Motion with a reason.** Movement here is an argument, not an ornament: it says where something came from, that a press landed, or that a change took. Entrance fades with a slight rise for arriving content; smooth height for accordions and thinking steps; skeleton→content. **Springs are allowed where the motion's trajectory carries information the endpoint does not** — a panel arriving from an edge, a toggle thumb clicking into its detent, a dropped file landing, a row gliding to its new group. They are physics, not personality: the overshoot budget is **1–2 pixels of visible travel**, so the spring is chosen by distance, never by taste. Everything else — colour, opacity, hover, system-initiated entrance — is a tween, 120–240ms. Never a spring on colour, on legal content, on errors, or on anything repeating more than about five times per screen. Respect `prefers-reduced-motion` absolutely: motion must be droppable with no loss of information.
@@ -82,6 +82,28 @@ badge carrying that whole distinction alone. Resolve it with `accentForLane`
 (`features/chat/lib/source-kinds.ts`), never by hand, so the Herleitung cards and
 the "Belegt durch" chips cannot drift. The type is `SourceTint = SourceSignal |
 'oib'`; an accent always keeps its stratum's icon.
+
+**Accent pop — the one non-provenance exception (product decision,
+2026-08-27).** `--accent-pop(-tint/-text/-foreground)` is a moss/lime green
+(hue ~126), sourced from the marketing site's own chat mock (`frontends/web`
+`--color-accent-400/500`) — deliberately a different hue from
+`--source-project`'s forest green (hue ~152) so the two are never read as the
+same signal. It is the app's one general accent: not a provenance signal, and
+not fixed to any single surface by rule, but reached for rarely, and only for
+a moment that wants to feel live/ready rather than state a fact. Today that
+is the composer — the focus ring when typing, the send button once a message
+is armed — echoing the same green the marketing site's own chat mock already
+uses for its caret and step numbers. Unlike a provenance signal it is NOT
+paired with an icon or a text label, because there is no fact it is
+reporting. Reach for it sparingly: a genuinely similar "live/ready" moment
+elsewhere is fine, but a surface that wants color for a FACT wants a real
+provenance signal, not this one borrowed for its warmth — and if it starts
+showing up on more than a small handful of surfaces, that is the signal to
+revisit this rule, not to keep adding call sites under it quietly.
+
+| Token family | Light base | Meaning | Icon/label required? |
+|---|---|---|---|
+| `--accent-pop(-tint/-text/-foreground)` | moss/lime, hue 126 | The app's one general accent — used sparingly | No — not a provenance signal |
 
 ## Type ramp (Tailwind classes — use verbatim)
 
@@ -446,5 +468,5 @@ More than one ambient loop on screen. `ease-linear`. `transition-all`.
 - No emojis anywhere in UI. Icons are lucide-react only.
 - No hardcoded colors — tokens only, so dark mode is free.
 - No nested cards (card-inside-card). Flatten with borders/dividers/spacing.
-- No purple/generic-AI aesthetic. **Provenance signals are the only chroma** — no accent-colored buttons, no blue active states (actions and focus are ink), and a source color is never used outside its meaning or without its icon + label.
+- No purple/generic-AI aesthetic. **Provenance signals are almost the only chroma** — no blue active states (actions and focus are ink app-wide), and a source color is never used outside its meaning or without its icon + label. The one carved-out exception is `--accent-pop` (see §"Accent pop" above), used sparingly for a live/ready moment — it does not license reaching for color as a default whenever a control wants to stand out.
 - No touch size on a `md:` breakpoint, no reveal that only hover can open, no `touch-action` that takes the page scroll from a surface that does not own the gesture. See [Touch](#touch).

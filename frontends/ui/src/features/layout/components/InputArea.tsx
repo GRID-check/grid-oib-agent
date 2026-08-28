@@ -1249,7 +1249,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const scopeLabel = projectName || tChat('composer.scopeFallback')
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:pt-4 sm:pb-4">
+    // Narrower than the message column (max-w-5xl in ChatArea/ChatToolbar) on
+    // purpose: an identical width read as the transcript's own last row
+    // rather than a distinct object floating over it. The width difference
+    // plus its own glass surface (below) is what makes it legible as "the
+    // composer", not "the next message".
+    <div className="mx-auto flex w-full max-w-4xl flex-col px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:pt-4 sm:pb-4">
       {/* The mention picker is anchored to the composer CARD and opens above it,
           spanning its full width — the Slack/Linear placement. Caret-pixel tracking
           inside a textarea is fragile and buys nothing here. */}
@@ -1267,18 +1272,26 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           <div
             ref={composerRef}
             className={cn(
-              // Composer card: white card grounded by a soft CARD-tier shadow (not
-              // the modal shadow-lg, which detached it as a floating object over the
-              // chat plane). No hard border — the field reads as a calm surface, and
-              // focus is signalled by a subtle focus-within ring instead of an
-              // outline. Textarea on top, hairline-separated control row below.
+              // Composer card: a glass surface, not an opaque card — `bg-card/90`
+              // + `backdrop-blur-md` so it reads as floating OVER the transcript
+              // (the same language the toolbar pills and the bottom fade scrim
+              // use) rather than as one more opaque block stacked under the last
+              // message. The `supports-` step is the no-blur fallback. No hard
+              // border — the field reads as a calm surface, and focus is
+              // signalled by a ring instead of an outline. Textarea on top,
+              // hairline-separated control row below.
+              // The ring is `accent-pop`, not the neutral `ring-ring` every
+              // other focus state in the app uses: this is the app's one
+              // carved-out accent (design doc §"Accent pop"), and typing is
+              // one of the rare moments it should show — a quiet green glow
+              // that says "live" rather than a fact about provenance.
               // NOT `active:scale-95`: the press response belongs on the controls a
               // reader actually presses (the chips and buttons in the row below), and
               // this div is the card that HOLDS them. With it here, putting the caret
               // in the textarea shrank the whole composer — text, chips and all — on
               // every mousedown, which reads as the surface flinching away from the
               // click rather than as a control acknowledging a press.
-              'bg-card focus-within:ring-ring/40 duration-quick relative flex flex-col rounded-xl px-4 py-2.5 shadow-sm transition-[box-shadow,border-color] ease-out focus-within:ring-2',
+              'bg-card/90 backdrop-blur-md supports-[backdrop-filter]:bg-card/85 focus-within:ring-accent-pop/45 duration-quick relative flex flex-col rounded-xl px-4 py-2.5 shadow-md transition-[box-shadow,border-color] ease-out focus-within:ring-2',
               isDisabledByAuth && 'opacity-60',
               isDragging && isUnsupportedDrag
                 ? 'border-error border-2 border-dashed'
@@ -1819,7 +1832,18 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   >
                     <Button
                       size="icon"
-                      className="size-9 rounded-lg shadow-md"
+                      className={cn(
+                        'size-9 rounded-lg shadow-md',
+                        // The one moment the accent fills a whole control: a
+                        // message ready to send. Ink otherwise (the Button's
+                        // own `default` variant) — the accent marks READINESS,
+                        // it does not become the button's permanent identity,
+                        // which is what would have made it a second action
+                        // color rather than a one-time cue.
+                        message.trim() &&
+                          !disabled &&
+                          'bg-accent-pop text-accent-pop-foreground shadow-xs hover:bg-accent-pop/90'
+                      )}
                       onClick={handleSubmit}
                       disabled={!message.trim() || disabled}
                       aria-label={

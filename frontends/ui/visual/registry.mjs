@@ -276,6 +276,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: 'h1',
   },
   {
+    id: 'chat-welcome-populated',
+    mobile: true,
+    path: '/dev/chat-welcome?variant=populated',
+    description:
+      'The same real ChatArea + composer column, this time with a finished thread: an answer with sources, a skills disclosure and a follow-ups rail sitting right above the composer — the crowded case the bottom fade scrim, the composer’s narrower blurred glass surface and the accent-pop focus ring exist for. The composer sits at the floor (no lift) like any populated thread. Desktop + mobile.',
+    waitFor: 'text=Erster Fluchtweg',
+  },
+  {
     id: 'confirm-dialog',
     mobile: true,
     path: '/dev/confirm-dialog',
