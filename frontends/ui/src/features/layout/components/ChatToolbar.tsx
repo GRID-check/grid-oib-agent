@@ -38,6 +38,7 @@ import { ShareDialog } from '@/features/collaboration/components/ShareDialog'
 import { useInboxBadge } from '@/features/collaboration/hooks/use-inbox'
 import { useSharing } from '@/features/collaboration/hooks/use-sharing'
 import { SectionLabel } from '@/components/ui/section-label'
+import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { useLayoutStore } from '../store'
 
@@ -331,7 +332,24 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           pointer device, no shadow, a fainter fill — the pill is legibility
           over the scrolling transcript, not furniture of its own. Touch keeps
           the 44px targets. */}
-      <div className="pointer-events-auto flex min-h-12 min-w-0 max-w-[64%] items-center gap-0.5 rounded-lg border border-base bg-card/60 p-0.5 backdrop-blur supports-[backdrop-filter]:bg-card/50 sm:min-h-8 sm:max-w-none">
+      {/* …and the pill itself is dropped on a chat that has not started. The
+          fill, the hairline and the blur are there to keep these controls
+          legible over a MOVING transcript; an empty canvas has none, so on the
+          start screen they are chrome with no job — and a lone pill on the left
+          with nothing opposite it does not read as "quiet", it reads as a
+          toolbar with its right half missing. Nothing is added on the right to
+          balance it, because nothing there is true yet: no thread to share or
+          rename, no report to reopen, and New chat on an empty chat is a door
+          back into the room you are standing in. The controls stay exactly
+          where they are and lose their frame; the row goes quiet on both
+          sides. */}
+      <div
+        className={cn(
+          'pointer-events-auto flex min-h-12 min-w-0 max-w-[64%] items-center gap-0.5 rounded-lg p-0.5 sm:min-h-8 sm:max-w-none',
+          isChatStarted &&
+            'border border-base bg-card/60 backdrop-blur supports-[backdrop-filter]:bg-card/50'
+        )}
+      >
         {/* Global navigation opener — mobile only. The chat route hides the
             standalone top bar, so this hamburger is the way back out to
             projects / files / settings (opens the same AppSidebar drawer). */}

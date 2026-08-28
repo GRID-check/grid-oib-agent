@@ -55,12 +55,19 @@ import { useSpectatedTurn } from '@/features/collaboration/hooks/use-spectated-t
 import { SpectatedTurn } from '@/features/collaboration/components/SpectatedTurn'
 import { TypingPresence } from '@/features/collaboration/components/TypingPresence'
 import { useAwaitingState } from '@/features/collaboration/hooks/use-sharing'
-import { AnimatePresence, motion, fadeRise, motionQuick } from '@/components/motion'
+import {
+  AnimatePresence,
+  motion,
+  fadeRise,
+  motionQuick,
+  motionSheetExit,
+} from '@/components/motion'
 import { useAuth } from '@/adapters/auth'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
 import { useShowReasoningSkills } from '@/lib/user-preferences/use-show-reasoning-skills'
+import { WELCOME_OFFSET_FALLBACK } from '../hooks/use-composer-metrics'
 
 interface ChatAreaProps {
   /** Whether the user is authenticated */
@@ -715,11 +722,39 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
             // holds for a first-time RECIPIENT of a shared thread: the conversation
             // is materialised empty and the server history lands a moment later, so
             // without the second clause a shared-thread invitee got a flash of the
-            // "private workspace" welcome before their colleague's messages snapped in.
+            // greeting before their colleague's messages snapped in.
             <MessageListSkeleton />
-          ) : isEmpty ? (
-            <WelcomeState isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
           ) : (
+            <>
+            {/* The greeting LEAVES rather than disappearing. Sending the first
+                message swaps this whole plane in one commit — greeting out,
+                transcript in, composer down to the floor — and the reader is
+                looking straight at the greeting when it happens, because it is
+                what sits above the input they just typed into.
+
+                `mode="popLayout"` is what makes the two overlap: the outgoing
+                greeting is lifted out of the flow, so the transcript takes the
+                plane immediately instead of waiting behind a fade. It drifts
+                DOWN as it goes, with the composer, rather than up and away from
+                it — the whole empty-canvas group descends and dissolves while
+                the conversation arrives above it.
+
+                The offset it is bottom-aligned against is frozen for exactly
+                this reason (see `useComposerMetrics`): every number under it
+                changes in the same tick. */}
+            <AnimatePresence initial={false} mode="popLayout">
+              {isEmpty && (
+                <motion.div
+                  key="welcome"
+                  className="flex flex-1 flex-col"
+                  exit={{ opacity: 0, y: 16 }}
+                  transition={motionSheetExit}
+                >
+                  <WelcomeState isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
+                </motion.div>
+              )}
+            </AnimatePresence>
+            {!isEmpty && (
             // Bottom padding tracks the floating composer's REAL height (published
             // as --composer-h by MainLayout's ResizeObserver) plus a breathing gap,
             // so the last message/Herleitung never renders behind the composer no
@@ -1001,6 +1036,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               the turn ends. */}
               <div ref={anchorSpacerRef} aria-hidden="true" style={{ minHeight: 0 }} />
             </div>
+            )}
+            </>
           )}
         </div>
 
@@ -1437,10 +1474,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
     return (
       <div
         className="flex flex-1 items-end justify-center px-4 pt-20 sm:pt-16"
-        style={{
-          paddingBottom:
-            'calc(var(--composer-h, 11rem) + var(--composer-lift, 0px) + var(--composer-gap, 2rem))',
-        }}
+        style={{ paddingBottom: `var(--welcome-offset, ${WELCOME_OFFSET_FALLBACK})` }}
       >
         <div className="flex w-full max-w-md flex-col items-center gap-4 text-center">
           <div className="bg-muted text-brand flex size-12 items-center justify-center rounded-xl border">
@@ -1463,27 +1497,16 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
   return (
     <div
       // Bottom-aligned against the composer's ACTUAL top edge — its height plus
-      // however far it has been lifted off the floor (--composer-lift) on the
-      // empty canvas. That leaves the greeting exactly one --composer-gap above
-      // the input by construction, whatever the lift turns out to be and
-      // whatever this column's own top padding is. Both of those defeated an
-      // earlier version that centred here and worked the clearance out
-      // arithmetically: it omitted the `pt-20`, and the composer landed on the
-      // greeting on a phone.
+      // however far it has been lifted off the floor, plus a gap, all published
+      // as one measured number (`--welcome-offset`). That leaves the greeting
+      // exactly one gap above the input by construction, whatever the lift
+      // turns out to be and whatever this column's own top padding is. Both of
+      // those defeated an earlier version that centred here and worked the
+      // clearance out arithmetically: it omitted the `pt-20`, and the composer
+      // landed on the greeting on a phone.
       className="flex flex-1 flex-col items-center justify-end px-6 pt-20 sm:pt-16"
-      style={{
-        paddingBottom:
-          'calc(var(--composer-h, 11rem) + var(--composer-lift, 0px) + var(--composer-gap, 2rem))',
-      }}
+      style={{ paddingBottom: `var(--welcome-offset, ${WELCOME_OFFSET_FALLBACK})` }}
     >
-      {/* "Privater Workspace" lock chip — h28, radius8, hairline, raised */}
-      <div className="bg-card shadow-xs mb-4 inline-flex h-7 items-center gap-[7px] rounded-md border px-[11px]">
-        <Lock className="text-subtle size-3 shrink-0" aria-hidden="true" />
-        <span className="text-muted-foreground text-xs font-medium">
-          {tChat('workspace.private')}
-        </span>
-      </div>
-
       {/* Hero greeting — the one larger moment in the app, and the only place
           the ramp's 23px step is used (design language, "Type ramp"). */}
       <h1 className="text-foreground text-center text-[23px] font-semibold tracking-tight">

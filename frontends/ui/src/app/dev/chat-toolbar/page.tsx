@@ -24,6 +24,10 @@
  *     action to disclose.
  *
  * The rows are the states whose *combination* is the hard part:
+ *   0. **fresh, empty chat** — the state every thread starts in, and the one
+ *      nothing captured until it was noticed by eye. The right pill is absent
+ *      here by design (nothing in it is true yet), so the LEFT one drops its
+ *      frame too: a single pill facing an empty half reads as a broken toolbar.
  *   1. **solo private** — the overwhelmingly common thread. Must carry no
  *      collaboration furniture at all: no faces, no access chip.
  *   2. **shared, long names** — the reported crowding case: a long project name,
@@ -114,10 +118,19 @@ const sharingState = (
  */
 const ROWS = [
   {
+    id: 'conv-empty',
+    caption: 'Frischer, leerer Chat — nur die Tür zum Verlauf, ohne Pillen-Rahmen',
+    projectName: 'Wohnbau Favoriten',
+    sessionTitle: '',
+    started: false,
+    state: sharingState('conv-empty', 'private', [ME_ENTRY]),
+  },
+  {
     id: 'conv-solo',
     caption: 'Privater Einzel-Chat — keine Kollaborations-Möblierung',
     projectName: 'Wohnbau Favoriten',
     sessionTitle: 'Fluchtweglängen OG2',
+    started: true,
     state: sharingState('conv-solo', 'private', [ME_ENTRY]),
   },
   {
@@ -125,6 +138,7 @@ const ROWS = [
     caption: 'Geteilt, lange Namen — der gemeldete Gedrängefall',
     projectName: 'Testprojekt Garagenordnung Wien',
     sessionTitle: 'Wiener Garagengesetz — Stellplatzverpflichtung',
+    started: true,
     state: sharingState('conv-shared', 'private', [
       ME_ENTRY,
       entry('u-anna', 'Anna Berger', 'collaborator', 'grant'),
@@ -136,6 +150,7 @@ const ROWS = [
     caption: 'Projektweit — die Regel ersetzt die Gesichter',
     projectName: 'Wohnbau Nord',
     sessionTitle: 'Brandschutz Stiegenhaus',
+    started: true,
     state: sharingState('conv-project', 'project', [
       ME_ENTRY,
       entry('u-anna', 'Anna Berger', 'collaborator', 'visibility-project'),
@@ -223,7 +238,7 @@ export default function ChatToolbarPreviewPage(): JSX.Element {
                     conversationId={row.id}
                     currentUserId={ME}
                     isCollaborationEnabled
-                    isChatStarted
+                    isChatStarted={row.started}
                   />
                 </div>
               </section>
