@@ -23,7 +23,7 @@ dependencies = [
     "deepagents>=0.6.12",
     "langgraph-checkpoint-postgres>=3.0.0",
     "langgraph-checkpoint-sqlite>=2.0.0",
-    "langchain-modal==0.0.5",
+    "langchain-modal==0.0.6",
     "psycopg[binary]>=3.3.4",
     "asyncpg>=0.29.0",
     "redis>=5.0.0,<7",
