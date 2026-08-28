@@ -25,7 +25,7 @@ import { BYTES_PER_MB, maxIfcBytesFrom } from './request-body-limit'
 // unconditionally and re-added only when the flag allows. Unlike images it has
 // no capability half — extraction runs in this process, so there is no
 // dependency that could be missing (see FEATURE_FLAGS.ifcModels).
-const DEFAULT_ACCEPTED_TYPES = '.pdf,.docx,.txt,.md'
+const DEFAULT_ACCEPTED_TYPES = '.pdf,.docx,.txt,.md,.csv,.xlsx,.pptx'
 const DEFAULT_MAX_SIZE_MB = 100
 const DEFAULT_MAX_FILE_COUNT = 10
 const DEFAULT_EXPIRATION_CHECK_INTERVAL_HOURS = 0
@@ -35,6 +35,7 @@ const EXTENSION_TO_MIME: Record<string, string[]> = {
   '.md': ['text/markdown', 'text/x-markdown'],
   '.docx': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
   '.pptx': ['application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+  '.xlsx': ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
   '.html': ['text/html'],
   '.txt': ['text/plain'],
   '.csv': ['text/csv'],
@@ -42,6 +43,7 @@ const EXTENSION_TO_MIME: Record<string, string[]> = {
   '.png': ['image/png'],
   '.jpg': ['image/jpeg'],
   '.jpeg': ['image/jpeg'],
+  '.webp': ['image/webp'],
   // No IANA type is registered for IFC, so browsers send
   // `application/octet-stream` (or nothing at all) for a `.ifc` file. The MIME
   // list is therefore advisory — the extension is what decides, here and in the
@@ -64,7 +66,7 @@ const EXTENSION_TO_MIME: Record<string, string[]> = {
  * unconditionally and re-added only when both hold, so the file picker +
  * drag-drop offer them exactly when ingestion would succeed.
  */
-export const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg'] as const
+export const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp'] as const
 
 /**
  * IFC extensions gated by the `ifc-models` flag alone. Same "never controlled

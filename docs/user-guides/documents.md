@@ -62,18 +62,21 @@ A partially rejected batch still uploads: the valid files go, and the panel says
 
 ### Supported File Types
 
-The accepted file types are configured via `FILE_UPLOAD_ACCEPTED_TYPES` (default: `.pdf,.docx,.txt,.md`).
+The accepted file types are configured via `FILE_UPLOAD_ACCEPTED_TYPES` (default: `.pdf,.docx,.txt,.md,.csv,.xlsx,.pptx`).
 
 | Extension | MIME Type |
 |-----------|-----------|
 | `.pdf` | `application/pdf` |
 | `.docx` | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` |
+| `.xlsx` | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` |
 | `.pptx` | `application/vnd.openxmlformats-officedocument.presentationml.presentation` |
 | `.txt` | `text/plain` |
 | `.md` | `text/markdown` |
 | `.html` | `text/html` |
 | `.csv` | `text/csv` |
 | `.json` | `application/json` |
+
+Spreadsheets index one chunk per worksheet (labelled by sheet name) and presentations one per slide (including tables and speaker notes) — so a citation points at the sheet or slide, not just the file. Image uploads (`.png`, `.jpg`, `.jpeg`, `.webp`) are governed by the image-upload flag plus VLM availability, not by this list (see below).
 
 ### File Size Limits
 
@@ -135,7 +138,7 @@ User uploads file
 1. **Upload** — `FileUploadZone` captures the file, the `useFileUpload` hook validates it against configured limits, then POSTs it as `multipart/form-data` to `/api/documents/upload` with `projectId` and `file`.
 2. **BFF upload route** — The Next.js API route generates a UUID `documentId`, stores the file in SeaweedFS at `org/{orgId}/project/{projId}/doc/{docId}/{filename}`, inserts a `documents` row in Drizzle (status: `uploaded`), generates a presigned GET URL, and calls the Python backend's `POST /v1/ingest` with that URL.
 3. **Python ingest route** — Downloads the file from the presigned URL via `httpx`, saves it to a tempfile, and submits it to the active ingestor via `submit_job()`.
-4. **Background ingestion** — `LlamaIndex` extracts text via `SimpleDirectoryReader`, optionally extracts tables (`pdfplumber`), images (`pypdfium2`) with VLM captioning, chunks the content, generates embeddings via NVIDIA models, and stores the vectors in ChromaDB.
+4. **Background ingestion** — the LlamaIndex backend extracts text (pdfplumber for PDFs; dedicated office extractors for docx/xlsx/pptx, one chunk per sheet/slide), optionally extracts tables (`pdfplumber`) and images (`pypdfium2`) with VLM captioning, chunks the content, generates embeddings via NVIDIA models, and stores the vectors in ChromaDB.
 5. **Status polling** — The frontend `UploadOrchestrator` polls `/api/documents/{id}/status` which reads the Drizzle `documents.status` column.
 6. **Searchable** — Once `status = 'completed'`, the document's chunks are queryable via the knowledge search function.
 
