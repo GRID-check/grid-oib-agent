@@ -794,10 +794,9 @@ client with an explicit timeout (`AIQ_VLM_TIMEOUT_SECONDS`, default 180s) and a
 single retry — previously SDK defaults (≈600s × 2 retries) let one hung
 provider park an ingest worker for ~20 minutes. A response clipped at
 `max_tokens` (`finish_reason == "length"`) is retried **once** with a doubled
-budget (the structured drawing format loses its trailing `ZUSAMMENFASSUNG` —
-exactly the field the document summary is built from — when clipped); a still-
-truncated response is stored with a warning rather than silently treated as
-complete. That truncation retry runs with SDK retries disabled and swallows its
+budget (a clipped drawing reply is truncated mid-JSON, forfeiting the whole
+structured analysis to the fallback parser); a still-truncated response is
+stored with a warning rather than silently treated as complete. That truncation retry runs with SDK retries disabled and swallows its
 own failures, returning the truncated first caption: it is a quality improvement
 on a response that already succeeded, so it must neither double the per-caption
 latency ceiling (~9 minutes worst case, vs ~6 for a request that simply hangs)
@@ -811,24 +810,38 @@ content-free chunk that polluted retrieval.
   caption prompt (classifies chart vs. image, describes content, instructs the
   model to **exclude** licence/watermark/tool-stamp text). Returned captions are
   also run through `_scrub_watermark_phrases` as a belt-and-braces substring
-  filter. The same analyzer serves **standalone uploaded JPG/PNG plans**
-  (`_build_image_caption_document`), which routes through the same content-hash
-  cache (it previously bypassed both the batch pool and the cache) and — since
-  the caption is the file's only content — **fails the file** on a failure
-  placeholder instead of indexing a content-free chunk (retryable via re-ingest).
+  filter. **Standalone uploaded PNG/JPG/WebP images** go through
+  `_build_image_documents`, which tries the v2 drawing analysis FIRST — a plan
+  exported as an image gets the same per-segment structured chunks as the same
+  sheet inside a PDF — and falls back to the generic caption
+  (`_build_image_caption_document`) for photos/charts or an unparseable
+  analysis. Both routes share the content-hash cache, and — since the analysis
+  is the file's only content — the file **fails** on a failure placeholder
+  instead of indexing a content-free chunk (retryable via re-ingest).
 - **Rendered visual/vector pages** → `_analyze_drawing_page_with_vlm` with the
-  drawing-aware German prompt that returns a structured description (drawing
-  type, Maßstab/scale, rooms/elements, spatial relationships, and a one-sentence
-  summary), parsed by `_parse_drawing_fields`.
+  drawing-analysis German prompt (schema v2, `drawing_analysis` module): the
+  VLM first collects exhaustively, then emits ONE JSON object — one **segment
+  per drawing on the sheet** (a sheet with Grundriss + Schnitt + Detail yields
+  three), each with its **own scale**, split categories (rooms, circulation,
+  structure, envelope, services, building physics), assemblies as ordered
+  layers, existing-vs-new per element, quantities as
+  object+property+value+unit, relation triples, and provenance + confidence.
+  Parsed by `drawing_analysis.parse_drawing_analysis`; a reply that is not
+  valid v2 JSON falls back to the v1 `KEY: value` parser
+  (`_parse_drawing_fields`), so a weaker model degrades instead of failing.
+  The requirement doc for this pipeline's shape:
+  [`visual-ingestion.md`](visual-ingestion.md).
 
-The drawing prompt returns a rich structured block — drawing type, Maßstab,
-Nutzung, Räume/Elemente, Materialien/Bauweise, räumliche Beziehungen, and a
-multi-sentence `DETAILBESCHREIBUNG` — stored as the chunk body. Because it is a
-normal chunk it is **embedded and retrievable/citable by `knowledge_search`**,
-so the agent can answer detailed questions about a drawing (materials, storeys,
-circulation) that used to have no indexed content at all. The same descriptions
+Each segment becomes its **own chunk**: the rendered structured German text
+(`drawing_analysis.render_segment_text`) is the chunk body, so it is
+**embedded and retrievable/citable by `knowledge_search`** — a query about
+"Wärmepumpe" or "Stützenraster" hits the segment that shows it, at that
+segment's scale. The full structured analysis rides on the chunk as
+`drawing_data` (JSON string, embed-excluded), so re-chunking or the detail
+view never needs the VLM again. The same descriptions
 are browsable by the user, second to the one-line summary: `get_document_visual_details`
-reads the visual chunks back from Chroma and the file-preview pane's collapsible
+reads the visual chunks back from Chroma — each item now carrying `segment`
+and the parsed `structured` payload — and the file-preview pane's collapsible
 **"Detailed information"** section lazy-loads them (`GET /api/documents/{id}/visual-details`
 → `GET /v1/collections/{c}/documents/{f}/visual-details`). Drawing chunks carry
 `content_type: "drawing"` in metadata (mapped to `ContentType.DRAWING` at

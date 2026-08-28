@@ -31,15 +31,18 @@ export const DEFAULT_MAX_FILE_COUNT = 10
  * fallback used when no AppConfig is available; the real accepted-types list is
  * composed server-side in getFileUploadConfigFromEnv.
  */
-export const DEFAULT_ACCEPTED_FILE_TYPES = '.pdf,.docx,.txt,.md'
+export const DEFAULT_ACCEPTED_FILE_TYPES = '.pdf,.docx,.txt,.md,.csv,.xlsx,.pptx'
 
 /** Default accepted MIME types for upload (used for drag-drop validation) */
 export const DEFAULT_ACCEPTED_MIME_TYPES = [
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'text/plain',
   'text/markdown',
   'text/x-markdown',
+  'text/csv',
 ]
 
 // Legacy exports for backward compatibility (use AppConfig where possible)

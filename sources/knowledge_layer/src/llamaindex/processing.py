@@ -365,9 +365,13 @@ def enrich_vlm_batch(
         return (record, content_type, caption)
 
     def _enrich_one_drawing(page: dict) -> dict:
+        from knowledge_layer.llamaindex import drawing_analysis as _drawing_analysis
+
         caption, fields = _cached_vlm_call(
             page["image_bytes"],
-            "drawing",
+            # Versioned with the extraction schema: a v1-cached caption served
+            # under v2 would silently skip the structured path for 30 days.
+            _drawing_analysis.CACHE_PROMPT_TYPE,
             _adapter._analyze_drawing_page_with_vlm,
             page["image_bytes"],
             vlm_model=vlm_model,

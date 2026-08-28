@@ -34,7 +34,12 @@ llamaindex = [
     "pypdfium2>=5.12.1",
     "Pillow>=9.0.0",
     "openai>=2.45.0",
+    # Office extractors (office_extractors.py): docx2txt/openpyxl/python-pptx
+    # carry the docx/xlsx/pptx paths — SimpleDirectoryReader's own readers are
+    # an optional distribution this deployment does not install.
     "docx2txt>=0.8",
+    "openpyxl>=3.1",
+    "python-pptx>=0.6.21",
 ]
 foundational_rag = [
     "requests>=2.28.0",

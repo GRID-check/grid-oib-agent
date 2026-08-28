@@ -147,3 +147,9 @@ apm_modules/
 
 # The trivy layer-analysis cache, if you reproduce the `image-scan` job locally.
 .trivy-cache/
+
+# Artifacts of `task be:test:ci` / `be:test:api:ci` run locally — CI uploads
+# them from its workspace; they are never committed.
+coverage.xml
+report-core.xml
+report-api.xml

@@ -1,0 +1,23 @@
+---
+features:
+  - >
+    Sie können jetzt auch Excel-Tabellen (.xlsx), PowerPoint-Präsentationen
+    (.pptx), CSV-Dateien und WebP-Bilder hochladen. Tabellen werden pro
+    Arbeitsblatt, Präsentationen pro Folie erfasst — Antworten verweisen also
+    auf das richtige Blatt oder die richtige Folie statt nur auf die Datei.
+improvements:
+  - >
+    Pläne werden genauer ausgewertet: Blätter mit mehreren Teilzeichnungen
+    (Grundriss, Schnitt, Detail) werden je Teilzeichnung mit eigenem Maßstab
+    erfasst — samt Räumen, Erschließung, Tragwerk, Gebäudetechnik, Materialien
+    und Bauteilaufbauten. Kennzahlen behalten ihre Bedeutung, und unsichere
+    Bildinterpretationen sind als solche markiert.
+  - >
+    Auch als Bild hochgeladene Pläne (PNG, JPG, WebP) bekommen jetzt dieselbe
+    strukturierte Auswertung wie Pläne in einer PDF, und die Detailansicht
+    einer Datei zeigt die erkannten Inhalte je Teilzeichnung.
+fixes:
+  - >
+    Word-Dokumente (.docx) wurden beim Hochladen zwar angenommen, aber nicht
+    ausgewertet und als fehlgeschlagen markiert. Sie werden jetzt korrekt
+    eingelesen und sind in Antworten zitierbar.

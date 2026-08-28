@@ -558,6 +558,13 @@ EMBED_EXCLUDED_METADATA_KEYS = (
     "image_height",
     "drawing_type",
     "drawing_scale",
+    # The v2 structured payload: multi-KB JSON for the detail view / later
+    # re-mapping, plus per-sheet segment bookkeeping. Embedding any of it
+    # would double the segment text's weight (drawing_data restates the chunk
+    # body as JSON) and burn the chunk's token budget on braces.
+    "drawing_data",
+    "segment_index",
+    "segment_count",
 )
 
 
@@ -1087,24 +1094,57 @@ def _looks_like_pdf(file_path: str) -> bool:
 
 
 def _looks_like_image(file_path: str) -> str | None:
-    """Detect standalone PNG/JPEG images by file magic (mirrors _looks_like_pdf).
+    """Detect standalone PNG/JPEG/WebP images by file magic (mirrors _looks_like_pdf).
 
-    Returns the normalized format ("png"/"jpeg") or None. Standalone images must
-    be routed to VLM captioning; without this they slip through to
+    Returns the normalized format ("png"/"jpeg"/"webp") or None. Standalone
+    images must be routed to VLM captioning; without this they slip through to
     SimpleDirectoryReader, which UTF-8-garbles the binary and is then rejected by
     the binary-content guard. The signatures are specific enough (8-byte PNG,
-    3-byte JPEG SOI) that text/PDF inputs never false-positive.
+    3-byte JPEG SOI, RIFF????WEBP) that text/PDF inputs never false-positive.
     """
     try:
         with open(file_path, "rb") as handle:
-            header = handle.read(8)
+            header = handle.read(12)
     except OSError:
         return None
     if header.startswith(b"\x89PNG\r\n\x1a\n"):
         return "png"
     if header.startswith(b"\xff\xd8\xff"):
         return "jpeg"
+    # RIFF container with a WEBP payload; bytes 4-8 are the file size.
+    if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
+        return "webp"
     return None
+
+
+def _read_image_as_jpeg(file_path: str, file_name: str) -> tuple[bytes, int, int] | None:
+    """Decode a standalone image and re-encode it as a VLM-ready JPEG.
+
+    Returns ``(jpeg_bytes, original_width, original_height)`` or ``None`` when
+    the bytes cannot be decoded (corrupt/unsupported). Re-encodes to JPEG (RGB)
+    for a uniform VLM payload, exactly like the PDF-embedded-image path
+    (``_extract_images_from_pdf``), downscaling the longest edge to
+    ``VLM_MAX_IMAGE_DIM`` (aspect preserved, never upscaled); the ORIGINAL
+    dimensions are what the caller records in metadata.
+    """
+    import io
+
+    from PIL import Image
+
+    try:
+        with open(file_path, "rb") as handle:
+            raw = handle.read()
+        with Image.open(io.BytesIO(raw)) as pil_image:
+            pil_image.load()
+            width, height = pil_image.size
+            rgb_image = pil_image.convert("RGB")
+            rgb_image.thumbnail((VLM_MAX_IMAGE_DIM, VLM_MAX_IMAGE_DIM))
+            buf = io.BytesIO()
+            rgb_image.save(buf, format="JPEG", quality=95)
+            return (buf.getvalue(), width, height)
+    except Exception as e:
+        logger.error("Could not decode standalone image %s: %s", file_name, e)
+        return None
 
 
 def _build_image_caption_document(
@@ -1124,30 +1164,12 @@ def _build_image_caption_document(
     cannot be decoded as an image (corrupt/unsupported) so the caller can fail
     the file cleanly instead of crashing the job.
     """
-    import io
-
     from llama_index.core import Document
-    from PIL import Image
 
-    try:
-        with open(file_path, "rb") as handle:
-            raw = handle.read()
-        with Image.open(io.BytesIO(raw)) as pil_image:
-            pil_image.load()
-            width, height = pil_image.size
-            # Re-encode to JPEG (RGB) for a uniform VLM payload, exactly like the
-            # PDF-embedded-image path (_extract_images_from_pdf). Downscale the
-            # longest edge to VLM_MAX_IMAGE_DIM first (aspect preserved, never
-            # upscaled) to bound the payload; thumbnail() is a no-op when already
-            # within bounds. Metadata still records the ORIGINAL size below.
-            rgb_image = pil_image.convert("RGB")
-            rgb_image.thumbnail((VLM_MAX_IMAGE_DIM, VLM_MAX_IMAGE_DIM))
-            buf = io.BytesIO()
-            rgb_image.save(buf, format="JPEG", quality=95)
-            image_bytes = buf.getvalue()
-    except Exception as e:
-        logger.error("Could not decode standalone image %s: %s", file_name, e)
+    decoded = _read_image_as_jpeg(file_path, file_name)
+    if decoded is None:
         return None
+    image_bytes, width, height = decoded
 
     # Same content-hash cache as the PDF-embedded-image batch path: re-uploading
     # an identical image skips the VLM call entirely (and the cache is scoped to
@@ -1185,6 +1207,98 @@ def _build_image_caption_document(
             "image_height": height,
         },
     )
+
+
+#: Segment types that mark a standalone image as a technical drawing/plan
+#: export rather than a photo or chart. "sonstiges" alone is NOT enough — a
+#: photo pushed through the drawing prompt lands there, and it belongs on the
+#: generic caption path with content_type "image".
+_DRAWING_SEGMENT_TYPES = frozenset(
+    {"grundriss", "schnitt", "ansicht", "detail", "lageplan", "axonometrie", "diagramm", "perspektive"}
+)
+
+
+def _build_image_documents(
+    file_path: str,
+    file_name: str,
+    file_size: int,
+    image_format: str,
+    vlm_model: str = DEFAULT_VLM_MODEL,
+    vlm_base_url: str = DEFAULT_VLM_BASE_URL,
+    extract_charts: bool = True,
+    vlm_api_key: str | None = None,
+) -> list[Any] | None:
+    """Standalone image → Documents, drawing analysis first.
+
+    Architecture offices upload plan EXPORTS as PNG/JPG/WebP at least as often
+    as PDFs, and those used to get only the generic one-paragraph caption while
+    the same sheet inside a PDF got the full structured analysis. So: run the
+    v2 drawing analysis first; when it recognises at least one real drawing
+    segment (``_DRAWING_SEGMENT_TYPES``), index per-segment drawing chunks
+    exactly like the rendered-PDF-page path. Anything else — photos, charts,
+    a failed or unparseable analysis — falls back to
+    :func:`_build_image_caption_document` unchanged. Returns ``None`` only
+    when the image cannot be decoded or captioning failed entirely (caller
+    fails the file, retryable via re-ingest).
+    """
+    from knowledge_layer.llamaindex import drawing_analysis
+    from knowledge_layer.llamaindex import processing as _processing
+    from llama_index.core import Document
+
+    decoded = _read_image_as_jpeg(file_path, file_name)
+    if decoded is None:
+        return None
+    image_bytes, width, height = decoded
+
+    try:
+        _, fields = _processing._cached_vlm_call(
+            image_bytes,
+            drawing_analysis.CACHE_PROMPT_TYPE,
+            _analyze_drawing_page_with_vlm,
+            image_bytes,
+            vlm_model=vlm_model,
+            vlm_base_url=vlm_base_url,
+            vlm_api_key=vlm_api_key,
+            model=vlm_model,
+        )
+    except Exception as e:  # noqa: BLE001 - the generic path below still stands
+        logger.warning("Drawing-first analysis failed for %s (%s); using generic caption", file_name, e)
+        fields = {}
+
+    analysis = (fields or {}).get("analysis") if isinstance(fields, dict) else None
+    if analysis and any(s["segment_type"] in _DRAWING_SEGMENT_TYPES for s in analysis["segments"]):
+        return [
+            Document(
+                text=f"[DRAWING from page 1]\n\n{payload['text']}",
+                metadata={
+                    "file_name": file_name,
+                    "file_size": file_size,
+                    "page_label": "1",
+                    "content_type": "drawing",
+                    "drawing_type": payload["drawing_type"],
+                    "drawing_scale": payload["drawing_scale"],
+                    "segment_index": payload["segment_index"],
+                    "segment_count": payload["segment_count"],
+                    "drawing_data": payload["drawing_data"],
+                    "image_format": image_format,
+                    "image_width": width,
+                    "image_height": height,
+                },
+            )
+            for payload in drawing_analysis.segment_payloads(analysis)
+        ]
+
+    caption_doc = _build_image_caption_document(
+        file_path,
+        file_name,
+        file_size,
+        image_format,
+        vlm_model=vlm_model,
+        vlm_base_url=vlm_base_url,
+        extract_charts=extract_charts,
+        vlm_api_key=vlm_api_key,
+    )
+    return None if caption_doc is None else [caption_doc]
 
 
 def _looks_like_raw_pdf_or_binary(text: str) -> bool:
@@ -1441,41 +1555,15 @@ def _caption_image_with_vlm(
 # Visual-page rendering (vector/scanned architectural drawings)
 # =============================================================================
 
-# Drawing-aware VLM prompt (German — the OIB Baurecht corpus is German). Asks
-# for a compact, structured description so the drawing *type* and *scale* are
-# captured explicitly rather than buried in prose, and instructs the model to
-# report but exclude any watermark from the content so it never pollutes the
-# summary. Kept as plain text (not response_format=json_schema) because not
-# every OpenAI-compatible VLM honours structured outputs; the response is
-# parsed leniently.
-_DRAWING_VLM_PROMPT = """Du analysierst das Bild EINER PDF-Seite aus einem \
-österreichischen Bauprojekt (Baurecht, OIB-Richtlinien). Es handelt sich \
-meist um eine technische Zeichnung (Grundriss, Schnitt, Ansicht, Detail, \
-Lageplan oder Perspektive) — häufig als Vektorzeichnung ohne extrahierbaren \
-Text.
-
-Beschreibe, WAS die Zeichnung tatsächlich zeigt. Erhalte dabei visuelle \
-Beziehungen und den Maßstab. Antworte AUSSCHLIESSLICH in diesem Format:
-
-ZEICHNUNGSTYP: <grundriss|schnitt|ansicht|detail|lageplan|perspektive|sonstiges>
-MASSSTAB: <z.B. 1:100, M 1:50, oder "Maßstabsfiguren/-balken vorhanden" oder "unbekannt">
-TITEL/PROJEKT: <Projekt-/Planname aus dem Schriftfeld, sonst "unbekannt">
-GESCHOSSE/EBENEN: <Anzahl und Bezeichnung der dargestellten Geschosse/Ebenen, sonst "-">
-NUTZUNG: <erkennbare Gebäude-/Raumnutzung, z.B. Schule, Wohnbau, Büro, sonst "unbekannt">
-RÄUME/ELEMENTE: <wichtigste beschriftete Räume oder Bauteile, kommagetrennt>
-MATERIALIEN/BAUWEISE: <erkennbare Materialien/Konstruktion, z.B. Stahlbeton, Holzbau, Glas, sonst "-">
-ABMESSUNGEN/KOTEN: <sichtbare Maße/Kotierungen, sonst "keine sichtbar">
-RÄUMLICHE BEZIEHUNGEN: <ein bis zwei Sätze zu Anordnung, Ebenen, Erschließung, Orientierung>
-DETAILBESCHREIBUNG: <3-5 Sätze in EINEM Absatz zu Bauteilen, Konstruktion, Erschließung, Freiräumen und Gesamteindruck>
-WASSERZEICHEN: <erkannter Wasserzeichen-/Lizenztext, z.B. "VECTORWORKS EDUCATIONAL VERSION", sonst "keines">
-ZUSAMMENFASSUNG: <EIN Satz, der den Inhalt der Zeichnung inkl. Maßstab beschreibt — OHNE Wasserzeichen zu erwähnen>
-
-Ignoriere Wasserzeichen-/Lizenztext bei der inhaltlichen Analyse; nenne ihn \
-nur im Feld WASSERZEICHEN."""
+# The drawing prompt + schema live in ``drawing_analysis`` (schema v2: JSON,
+# multiple segments per page, per-segment scale, split categories, provenance
+# + confidence). This module keeps the v1 ``KEY: value`` parser below as the
+# FALLBACK for replies that are not parseable v2 JSON — a weaker VLM (or an
+# old cached caption) degrades to yesterday's behaviour, never to a lost page.
 
 
 def _parse_drawing_fields(caption: str) -> dict[str, str]:
-    """Parse the ``KEY: value`` lines of a drawing-VLM response into a dict.
+    """Parse the v1 ``KEY: value`` lines of a drawing-VLM response into a dict.
 
     Lenient: unknown/extra lines are ignored and any field the model omitted is
     simply absent. Keys are normalised to lowercase ascii slugs.
@@ -1511,17 +1599,22 @@ def _analyze_drawing_page_with_vlm(
     vlm_model: str = DEFAULT_VLM_MODEL,
     vlm_base_url: str = DEFAULT_VLM_BASE_URL,
     vlm_api_key: str | None = None,
-) -> tuple[str, dict[str, str]]:
-    """VLM-describe a full rendered PDF page as a technical drawing.
+) -> tuple[str, dict[str, Any]]:
+    """VLM-analyse a full rendered PDF page as a technical drawing (schema v2).
 
-    Returns ``(caption, fields)`` where ``caption`` is the raw structured text
-    stored in the chunk and ``fields`` is the parsed ``_parse_drawing_fields``
-    dict (drawing_type, scale, summary, …) used to build the document summary.
-    ``vlm_api_key`` is a pre-resolved key (e.g. an org's BYOK key); ``None`` uses
-    the org-agnostic deployment key. Fail-open: on any error returns a
-    placeholder caption and empty fields so the page is still indexed (never
-    crashes the job).
+    Returns ``(caption, fields)``. ``caption`` is the rendered structured text
+    (``drawing_analysis.render_analysis_text``) stored/embedded in the chunk;
+    ``fields`` is the v1-shaped flat dict every downstream consumer reads
+    (drawing_type, scale, summary, …) plus — when the reply parsed as v2 JSON —
+    the full canonical analysis under ``fields["analysis"]``. A reply that is
+    not valid v2 JSON falls back verbatim to the v1 ``KEY: value`` path, so a
+    weaker model degrades rather than fails. ``vlm_api_key`` is a pre-resolved
+    key (e.g. an org's BYOK key); ``None`` uses the org-agnostic deployment
+    key. Fail-open: on any error returns a placeholder caption and empty
+    fields so the page is still indexed (never crashes the job).
     """
+    from knowledge_layer.llamaindex import drawing_analysis
+
     try:
         from openai import OpenAI
     except ImportError:
@@ -1540,24 +1633,34 @@ def _analyze_drawing_page_with_vlm(
             timeout=VLM_REQUEST_TIMEOUT_SECONDS,
             max_retries=1,
         )
-        caption = _vlm_chat_create(
+        reply = _vlm_chat_create(
             client,
             model=vlm_model,
             messages=[
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": _DRAWING_VLM_PROMPT},
+                        {"type": "text", "text": drawing_analysis.DRAWING_ANALYSIS_PROMPT},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
                     ],
                 }
             ],
-            max_tokens=1100,
+            # The v2 JSON reply is bulkier than the v1 twelve-line format; a
+            # budget sized for v1 would truncate mid-object and forfeit the
+            # whole structure to the fallback parser on every multi-segment
+            # sheet. (_vlm_chat_create still doubles this once on truncation.)
+            max_tokens=3000,
         ).strip()
-        if not caption:
+        if not reply:
             return ("[Drawing - empty VLM response]", {})
-        logger.debug("Drawing VLM analysis: %s...", caption[:100])
-        return (caption, _parse_drawing_fields(caption))
+        logger.debug("Drawing VLM analysis: %s...", reply[:100])
+        analysis = drawing_analysis.parse_drawing_analysis(reply)
+        if analysis is None:
+            # v1 fallback: the reply is stored as-is and parsed line-wise.
+            return (reply, _parse_drawing_fields(reply))
+        fields: dict[str, Any] = drawing_analysis.legacy_fields(analysis)
+        fields["analysis"] = analysis
+        return (drawing_analysis.render_analysis_text(analysis), fields)
     except Exception as e:
         logger.error("Drawing VLM analysis failed: %s", e)
         return (f"[Drawing - analysis failed: {str(e)[:50]}]", {})
@@ -2725,9 +2828,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         :meth:`get_document_text_sample`. Returns ``[]`` on any lookup failure or
         when the document has no visual chunks.
 
-        Each item: ``{page, content_type, drawing_type, scale, text}`` where
-        ``text`` is the caption body (the ``[DRAWING from page N]`` prefix
-        stripped), sorted by page then content type.
+        Each item: ``{page, content_type, drawing_type, scale, text, segment,
+        structured}`` where ``text`` is the caption body (the ``[DRAWING from
+        page N]`` prefix stripped), ``segment`` is the drawing's index on its
+        sheet (0 for v1 chunks and non-drawings), and ``structured`` is the
+        parsed v2 ``drawing_data`` payload (``None`` for v1 chunks and
+        non-drawings). Sorted by page, then content type, then segment.
         """
         try:
             client = self._get_chroma_client()
@@ -2752,6 +2858,19 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 page = int(meta.get("page_label") or 0)
             except (TypeError, ValueError):
                 page = 0
+            try:
+                segment = int(meta.get("segment_index") or 0)
+            except (TypeError, ValueError):
+                segment = 0
+            # The v2 structured payload rides along parsed, so the FE never
+            # has to know it is stored as a JSON string in Chroma metadata.
+            structured = None
+            raw_data = meta.get("drawing_data")
+            if raw_data:
+                try:
+                    structured = json.loads(raw_data)
+                except (TypeError, ValueError):
+                    structured = None
             items.append(
                 {
                     "page": page,
@@ -2759,10 +2878,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     "drawing_type": meta.get("drawing_type") or "",
                     "scale": meta.get("drawing_scale") or "",
                     "text": body.strip(),
+                    "segment": segment,
+                    "structured": structured,
                 }
             )
 
-        items.sort(key=lambda it: (it["page"], it["content_type"]))
+        items.sort(key=lambda it: (it["page"], it["content_type"], it["segment"]))
         return items
 
     @staticmethod
@@ -3042,6 +3163,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             image_format = "png"
                         elif ext in (".jpg", ".jpeg"):
                             image_format = "jpeg"
+                        elif ext == ".webp":
+                            image_format = "webp"
                     is_image = image_format is not None and not is_pdf
 
                     mode_str = "text"
@@ -3082,7 +3205,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             logger.warning("Image ingestion skipped (VLM not configured): %s", file_name)
                             continue
 
-                        caption_doc = _build_image_caption_document(
+                        image_docs = _build_image_documents(
                             file_path,
                             file_name,
                             file_size,
@@ -3092,7 +3215,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             vlm_api_key=vlm_api_key,
                             extract_charts=extract_charts,
                         )
-                        if caption_doc is None:
+                        if image_docs is None:
                             self._update_file_status(
                                 job,
                                 i,
@@ -3101,23 +3224,38 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             )
                             logger.warning("Image could not be decoded or captioned: %s", file_name)
                             continue
-                        text_documents = [caption_doc]
-                        # Keep the job-level visual counters accurate (the caption
-                        # is the file's only chunk, and it is an image/chart —
-                        # not a text chunk).
-                        if caption_doc.metadata.get("content_type") == "chart":
+                        text_documents = image_docs
+                        # Keep the job-level visual counters accurate: the file
+                        # is ONE visual (an image/chart, or a drawing analysed
+                        # into per-segment chunks) — not a text chunk.
+                        if image_docs[0].metadata.get("content_type") == "chart":
                             total_charts += 1
                         else:
                             total_images += 1
                     else:
-                        from llama_index.core import SimpleDirectoryReader
+                        # Known office formats first: SimpleDirectoryReader's
+                        # per-format readers are an optional distribution this
+                        # deployment does not install, and its fallback reads
+                        # raw bytes as text — a .docx (a zip) became PK\x03…
+                        # garbage that the binary guard rejected, failing every
+                        # Word upload. The office extractors handle
+                        # docx/xlsx/pptx with the libraries already here;
+                        # plain-text formats (.txt/.md/.csv) stay on the
+                        # generic reader, which handles them correctly.
+                        from knowledge_layer.llamaindex import office_extractors
 
-                        text_documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
+                        office_documents = office_extractors.extract_office_documents(file_path, file_name, file_size)
+                        if office_documents is not None:
+                            text_documents = office_documents
+                        else:
+                            from llama_index.core import SimpleDirectoryReader
 
-                        # Override file_name metadata (SimpleDirectoryReader uses temp path)
-                        for doc in text_documents:
-                            doc.metadata["file_name"] = file_name
-                            doc.metadata["file_size"] = file_size
+                            text_documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
+
+                            # Override file_name metadata (SimpleDirectoryReader uses temp path)
+                            for doc in text_documents:
+                                doc.metadata["file_name"] = file_name
+                                doc.metadata["file_size"] = file_size
 
                     all_documents.extend(text_documents)
                     logger.info(f"  Text extraction: {len(text_documents)} documents")
@@ -3239,23 +3377,50 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         if file_charts or file_images:
                             logger.info(f"  Visual extraction: {file_charts} charts, {file_images} images")
 
-                        # Build drawing documents
+                        # Build drawing documents. A v2 analysis yields ONE
+                        # chunk per segment (a sheet carrying Grundriss +
+                        # Schnitt + Detail indexes as three targeted chunks,
+                        # each with its own type and scale); a v1/fallback
+                        # page stays one chunk, byte-identical to before.
+                        from knowledge_layer.llamaindex import drawing_analysis as _drawing_analysis
+
                         for page in drawing_pages:
                             fields = page.get("fields") or {}
-                            drawing_doc = Document(
-                                text=f"[DRAWING from page {page['page_number']}]\n\n{page.get('caption', '')}",
-                                metadata={
-                                    "file_name": file_name,
-                                    "file_size": file_size,
-                                    "page_label": str(page["page_number"]),
-                                    "content_type": "drawing",
-                                    "drawing_type": fields.get("drawing_type", ""),
-                                    "drawing_scale": fields.get("scale", ""),
-                                    "image_width": page.get("width", 0),
-                                    "image_height": page.get("height", 0),
-                                },
+                            page_meta = {
+                                "file_name": file_name,
+                                "file_size": file_size,
+                                "page_label": str(page["page_number"]),
+                                "content_type": "drawing",
+                                "image_width": page.get("width", 0),
+                                "image_height": page.get("height", 0),
+                            }
+                            analysis = fields.get("analysis")
+                            if analysis:
+                                for payload in _drawing_analysis.segment_payloads(analysis):
+                                    all_documents.append(
+                                        Document(
+                                            text=f"[DRAWING from page {page['page_number']}]\n\n{payload['text']}",
+                                            metadata={
+                                                **page_meta,
+                                                "drawing_type": payload["drawing_type"],
+                                                "drawing_scale": payload["drawing_scale"],
+                                                "segment_index": payload["segment_index"],
+                                                "segment_count": payload["segment_count"],
+                                                "drawing_data": payload["drawing_data"],
+                                            },
+                                        )
+                                    )
+                                continue
+                            all_documents.append(
+                                Document(
+                                    text=f"[DRAWING from page {page['page_number']}]\n\n{page.get('caption', '')}",
+                                    metadata={
+                                        **page_meta,
+                                        "drawing_type": fields.get("drawing_type", ""),
+                                        "drawing_scale": fields.get("scale", ""),
+                                    },
+                                )
                             )
-                            all_documents.append(drawing_doc)
                         total_images += len(drawing_pages)
                         if drawing_pages:
                             logger.info(f"  Drawing extraction: {len(drawing_pages)} rendered page(s)")

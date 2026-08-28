@@ -38,9 +38,12 @@
 import { describe, expect, it } from 'vitest'
 import { gridCardSchema } from './schemas'
 // The canonical card JSON Schema, generated from `models.py` and the input the
-// Zod mirror is generated FROM. Reached by path because it lives above the app
-// root; `scripts/generate-card-schemas.mjs` reads the same file the same way.
-import cardJsonSchema from '../../../../../shared/cards/schemas.json'
+// Zod mirror is generated FROM. Loaded at runtime (it lives above the app
+// root, outside the Docker build context) — see the helper for why a static
+// import breaks the production image build.
+import { loadCardJsonSchema } from '@/test-utils/card-json-schema'
+
+const cardJsonSchema = loadCardJsonSchema()
 
 interface JsonSchemaDocument {
   discriminator: { propertyName: string; mapping: Record<string, string> }
