@@ -16,7 +16,8 @@ SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic L
 | Data | CloudNativePG operator + `Cluster` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) with optional PITR backups to SeaweedFS (`ScheduledBackup`), Dragonfly, SeaweedFS (one StatefulSet under `seaweedfsTopology=single`; master + volume + filer StatefulSets, and a `seaweedfs_filer` CNPG database + role, under `split`) + bucket-init Job |
 | App | `aiq-agent` StatefulSet (+ PVC, +PDB/spread in db mode), `frontend` Deployment + HPA + PDB, `agent-worker` Deployment + HPA + PDB (db mode), `purger`, `skill-scheduler`, a one-shot `drizzle-kit migrate` Job, a one-shot WorkOS audit-schema reconcile Job (when `requireAuth`) |
 | Edge | Gateway API (Envoy Gateway, HA: 2 replicas + PDB) + HTTPRoutes with cert-manager TLS for `app.<baseDomain>` and `s3.<baseDomain>` |
-| DNS | Cloudflare A records for exactly the Gateway's HTTPS listener hosts, plus optionally the zone-level `www` / `_dmarc` / apex-redirect records — only when `dnsEnabled` (off by default; records are otherwise maintained by hand) |
+| DNS | Cloudflare A records for exactly the Gateway's HTTPS listener hosts, plus optionally the zone-level `www` / `_dmarc` / apex-redirect / CAA records and DNSSEC — only when `dnsEnabled` (off by default; records are otherwise maintained by hand) |
+| Cloudflare edge | Zone settings (Full strict, HSTS, TLS 1.2 floor, HTTP/3, Brotli) + cache rules for the proxied hosts — only when `dnsProxyEnabled` **and** this stack owns `dnsZoneBaseline` (ADR-0051). Which hosts are proxied is decided in code, not config |
 
 ## Prerequisites
 
@@ -137,11 +138,14 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `dnsEnabled` | `false` | Manage the stack's A records in Cloudflare instead of by hand. The record set is derived from the same config the Gateway listeners are, so the two cannot drift. Requires a pinned `loadBalancerIp`. Off = records are maintained manually, exactly as before |
 | `dnsZoneId` | — | Cloudflare zone id (zone → Overview → API). Required when enabled |
 | `dnsZoneName` | — | The zone **apex** — not necessarily `baseDomain`, since a stack may live on a subdomain of its zone. Every managed host is checked to fall inside it: the Cloudflare API treats a name outside the zone as relative and appends the zone, creating a record that resolves nowhere and reporting success |
-| 🔒 `cloudflareApiToken` | — | Scoped to that one zone: `Zone:DNS:Edit`, plus `Zone:Dynamic URL Redirects:Edit` when `dnsApexRedirectTo` is set |
-| `dnsTtl` | `600` | TTL for unproxied records |
-| `dnsZoneBaseline` | `false` | Whether this stack owns the zone-level records (`www`, `_dmarc`, the apex). **At most one stack** — two stacks writing the same record is not an API error, the later `up` silently wins |
+| 🔒 `cloudflareApiToken` | — | Scoped to that one zone. `Zone:DNS:Edit` always; `Zone:Dynamic URL Redirects:Edit` when `dnsApexRedirectTo` is set; `Zone:Zone Settings:Edit` + `Zone:Cache Rules:Edit` when `dnsProxyEnabled` is set |
+| `dnsTtl` | `600` | TTL for direct records. Ignored on a proxied one — Cloudflare answers for those itself and rejects an explicit TTL |
+| `dnsZoneBaseline` | `false` | Whether this stack owns the zone-level records (`www`, `_dmarc`, the apex, CAA, DNSSEC) **and** the zone's edge settings. **At most one stack** — two stacks writing the same record is not an API error, the later `up` silently wins |
 | `dnsDmarc` | — | Value of the `_dmarc` TXT record, when the baseline is owned here |
 | `dnsApexRedirectTo` | — | Absolute URL the apex and `www` redirect to (302) while no stack serves the apex. Unset it once one does — `loadConfig` refuses both at once |
+| `dnsProxyEnabled` | `false` | Put the hosts that can take it behind Cloudflare's proxy, and apply the zone-level edge configuration. **Which hosts is not a config key** — `proxyPlan` decides per host and carries the reason for each refusal (ADR-0051). Today: the landing site only; `app.` keeps its WebSockets and `s3.` its 100 MB+ uploads. `pulumi stack output dnsProxyPlan` prints the verdicts |
+| `dnsCaaEnabled` | `false` | Publish CAA at the apex, naming the only CAs allowed to issue for the zone (Let's Encrypt + Cloudflare's edge issuers), and refusing wildcards. Check crt.sh first: a CA left off the list stops being able to renew. Needs `dnsZoneBaseline` |
+| `dnsDnssecEnabled` | `false` | Sign the zone. Cloudflare does half — the DS record from `pulumi stack output dnssecDs` has to be pasted **at the registrar**, and until it is, the zone is signed and nothing validates it. Needs `dnsZoneBaseline` |
 | **Edge rate limiting (ADR-0040 L1)** | | |
 | `rateLimitEnabled` | `true` | Deploy the global rate limit service + its counter store and attach the per-route rules. Off = the app-layer limiters are the only ones |
 | `rateLimitShadowMode` | `true` | Evaluate every rule and emit its telemetry, but never refuse. **Ships on**: pick real numbers from the would-have-blocked counts, then flip it off |

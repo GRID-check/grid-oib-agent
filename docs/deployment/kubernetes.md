@@ -335,34 +335,160 @@ from code at all while they serve it.
 | `dnsEnabled` | Master switch. Everything else is unread while false |
 | `dnsZoneId` | Cloudflare zone → Overview → API section |
 | `dnsZoneName` | The zone **apex** (`piloti.at`), which need not equal `baseDomain` — a stack may live on a subdomain of its zone |
-| 🔒 `cloudflareApiToken` | Scoped to that one zone: `Zone:DNS:Edit`, plus `Zone:Dynamic URL Redirects:Edit` when `dnsApexRedirectTo` is set |
-| `dnsTtl` | Default 600s |
-| `dnsZoneBaseline` | Whether this stack owns the zone-level records (`www`, `_dmarc`, the apex). **At most one stack** |
+| 🔒 `cloudflareApiToken` | Scoped to that one zone. `Zone:DNS:Edit` always; `Zone:Dynamic URL Redirects:Edit` when `dnsApexRedirectTo` is set; `Zone:Zone Settings:Edit` and `Zone:Cache Rules:Edit` when `dnsProxyEnabled` is set. A missing scope is a `403` at `pulumi up` — loud, unlike most of this section |
+| `dnsTtl` | Default 600s. Ignored for a proxied record: Cloudflare answers for those itself and rejects an explicit TTL |
+| `dnsZoneBaseline` | Whether this stack owns the zone-level records (`www`, `_dmarc`, the apex, CAA, DNSSEC, and everything in §3c). **At most one stack** |
 | `dnsDmarc` | Value of the `_dmarc` TXT record, when the baseline is owned here |
 | `dnsApexRedirectTo` | Absolute URL the apex and `www` redirect to, for the window before any stack serves the apex |
+| `dnsProxyEnabled` | Put the hosts that can take it behind Cloudflare's proxy, and apply §3c. Default false. *Which* hosts is not configurable — see below |
+| `dnsCaaEnabled` | Publish CAA at the apex, naming the only CAs allowed to issue for the zone. Needs `dnsZoneBaseline` |
+| `dnsDnssecEnabled` | Sign the zone. Needs `dnsZoneBaseline`, and a DS record pasted at the registrar — see below |
 
 `loadBalancerIp` must be pinned. An unpinned address is assigned by the provider
 and can change under a Gateway re-creation; records written from it would be
 wrong from that moment, with nothing in this program in a position to notice.
 
-### Records are not proxied
+### Which records are proxied, and why the answer is not a config key
 
-Every host record is created "grey cloud" (`proxied: false`), deliberately.
-Three separate things break behind Cloudflare's proxy and all three break
-quietly:
+`dnsProxyEnabled` says whether the proxy is applied at all. It does not say to
+which hosts — `proxyPlan` in `src/platform/dns.ts` decides that per host, and
+carries the reason for each refusal. ADR-0051 has the argument; the short
+version is that the verdict is a property of what a host *serves*, so an
+operator toggling it per host would be re-deciding something the program already
+knows.
 
-- cert-manager solves ACME HTTP-01 through the Gateway. Proxying terminates TLS
-  at Cloudflare with its own certificate, so the Gateway's certificate stops
-  renewing and nothing says so until it expires.
-- `s3Domain` carries browser uploads via presigned URLs. The free plan caps a
-  request body at 100 MB; past that the upload dies at the edge, in no log this
-  repo collects.
-- The app tier is WebSocket-heavy (ADR-0028 pins a conversation to its owning
-  replica). Proxied WebSockets work, but acquire an idle timeout the Gateway's
-  own configuration no longer governs.
+`pulumi stack output dnsProxyPlan` prints the current verdicts and reasons.
 
-Enabling the proxy is a real option; it just has to be taken together with a
-DNS-01 issuer and a paid upload limit.
+| Host | | Why |
+|---|---|---|
+| `webDomain` | proxied | Static landing site (`frontends/web`). Nothing here is long-lived, large, or per-IP limited |
+| `appDomain` | direct | Chat WebSockets. Cloudflare closes a proxied socket after **100s** of silence on every plan below Enterprise, and the browser WebSocket API cannot send a ping frame to prevent it. Every idle chat would reconnect on a ~100s cycle — and the reconnect is an upgrade, the most expensive request the app serves (ADR-0040) |
+| `s3Domain` | direct | Presigned browser uploads. The free plan rejects a request body over **100 MB** at the edge, and 100 MB is also `frontends/ui`'s own advertised maximum file size — so the largest upload the product offers is the first to fail, with a 413 the origin never sees |
+| `otelDomain`, `langfuseDomain` | direct | Operator dashboards: no cacheable traffic to win, a live-updating socket to lose |
+
+Two consequences worth knowing before reading anything else in this section:
+
+- **The origin address is still public.** `app.` and `s3.` resolve to the
+  LoadBalancer directly, so proxying the landing site hides nothing. Treat the
+  edge as a cache and a WAF, never as a perimeter.
+- **`xffNumTrustedHops` must stay 0** while any host is direct. The
+  `ClientTrafficPolicy` that carries it targets the *Gateway*, so it applies to
+  every listener; raise it and the direct hosts start trusting an
+  `X-Forwarded-For` header sent by whoever connected, letting a client pick
+  which per-IP bucket (ADR-0040) it lands in. `loadConfig` refuses the
+  combination.
+
+### CAA and DNSSEC
+
+Both are zone-level, both need `dnsZoneBaseline`, and both are off by default
+because each has a prerequisite outside this program.
+
+**`dnsCaaEnabled`** publishes the set of CAs allowed to issue for the zone:
+`letsencrypt.org` (the origin's own certificates), plus `pki.goog`, `ssl.com`
+and `sectigo.com`, which Cloudflare issues edge certificates from for a proxied
+host.
+
+`sectigo.com` is **not** in Cloudflare's published list of Universal SSL
+issuers. It is in ours because the Certificate Transparency log for `piloti.at`
+says so: on 2026-08-10, the day the apex placeholder first went proxied,
+Cloudflare issued *two* edge certificates for `piloti.at` + `*.piloti.at` — one
+from Google Trust Services and one from Sectigo. Cloudflare's own documentation
+warns its list "is not exhaustive"; that is what the sentence costs.
+
+Ask the logs before turning this on, because a CA left off the list stops being
+able to renew — months later, at renewal, not at `pulumi up`:
+
+```bash
+curl -s 'https://api.certspotter.com/v1/issuances?domain=piloti.at\
+  &include_subdomains=true&expand=issuer' | jq -r '.[].issuer.name' | sort | uniq -c
+```
+
+(crt.sh answers the same question and is frequently down.) As of 2026-08-28 that
+returns Let's Encrypt, Google Trust Services, Sectigo — all covered — plus
+**GoDaddy**, from the WebsiteBuilder placeholder certificate issued 2026-07-14
+and expiring 2026-10-12. It cannot renew anyway, since GoDaddy no longer answers
+for the zone, but wait for it to expire rather than reasoning about it.
+
+`issuewild` is set to `;`: nothing here asks for a wildcard, and a wildcard is
+the certificate whose compromise costs most.
+
+**`dnsDnssecEnabled`** signs the zone. Cloudflare can only do half of it — the
+DS record it generates has to be published **at the registrar**, and until it is,
+the zone is signed and no resolver validates it. There is no error in that
+state. `pulumi stack output dnssecDs` prints what to paste; confirm afterwards
+with `dig +dnssec <zone>` and one of the online DNSSEC analysers.
+
+### Certificates for a proxied host
+
+Turning a host orange changes how its certificate is obtained.
+`src/platform/cert-manager.ts` adds a **DNS-01** solver, selected by `dnsNames`
+for exactly the proxied hosts, using the same Cloudflare token that writes the
+records (it needs no extra scope — `Zone:DNS:Edit` covers the `_acme-challenge`
+TXT). Everything still direct keeps the HTTP-01 catch-all it always had.
+
+The reason is not that HTTP-01 cannot work behind the proxy. It is that it then
+depends on four things this program does not own — that Cloudflare forwards
+`/.well-known/acme-challenge/` rather than answering it, that `alwaysUseHttps`
+redirects the challenge to a scheme Let's Encrypt still follows, that the edge is
+reachable on `:80`, and that none of those change under us. None of them fails
+loudly: certificates keep working for up to 90 days after renewal starts
+failing, and the first symptom is an expired certificate on a live host.
+
+---
+
+## 3c. The edge, once something is proxied (`grid-oib:dnsProxyEnabled`)
+
+`src/platform/edge.ts`. Zone-level, so it runs only for the stack that owns
+`dnsZoneBaseline` — a zone setting governs every name in the zone, including
+other stacks' hosts, and two stacks writing them is not a conflict Cloudflare
+reports.
+
+**None of it affects a direct host.** Cloudflare applies TLS policy, cache rules
+and security headers at its edge, and a grey-clouded name never reaches that
+edge. That is what makes it safe to enable on a zone whose other stacks are
+still entirely direct.
+
+### Zone settings
+
+| Setting | Value | Why this value |
+|---|---|---|
+| `ssl` | `strict` | "Full (strict)" — Cloudflare validates the origin's certificate. `flexible` is the setting that makes an insecure site *look* secure: HTTPS to the visitor, plaintext to the origin, every external check passing. Affordable here only because every listener already holds a real certificate |
+| `alwaysUseHttps` | on | Plain-HTTP requests are redirected at the edge |
+| `automaticHttpsRewrites` | on | Rewrites `http://` subresources in HTML — what actually silences mixed-content warnings |
+| `minTlsVersion` | `1.2` | Removes the broken versions. Not 1.3, which would refuse a measurable share of real clients |
+| `tls13` | on | One fewer round trip on a first connection |
+| `websockets` | on | No proxied host serves one today. Off, it fails with no error message: Cloudflare answers the upgrade with a plain HTTP response and the client only reports a closed socket |
+| `brotli`, `http3` | on | Smaller responses, QUIC for clients that ask |
+| `alwaysOnline` | on | Serves a cached copy of the landing site while the origin is down |
+| `securityHeader` | HSTS, `max-age=15552000`, `includeSubdomains`, **`preload: false`** | Six months: long enough to be worth having, short enough that a mistake ages out. `includeSubdomains` is safe because every host in the zone is HTTPS-only — the `:80` listener exists for the ACME challenge, which is not a browser. **Preload is the one-way door in this file**: browsers ship the list compiled in, removal takes months, and it would bind every future subdomain of the zone |
+
+### Cache rules
+
+Two of the free plan's ten, both scoped to the proxied hosts by
+`http.host in {...}` so they cannot start applying to a host that turns orange
+later:
+
+1. **Never cache** `/keystatic`, `/api/keystatic`, `/api`. Belt and braces — the
+   origin already marks these uncacheable — but the cost of being wrong is a
+   cached admin page handed to the next visitor.
+2. **Cache** `/_astro/` and `/_image` (Astro's hashed build output and its
+   on-demand image endpoint) with `edgeTtl: respect_origin`. The lifetime is
+   deferred to the origin rather than named a second time here: these URLs are
+   hashed or query-addressed and the build output already answers the question.
+
+Cache rules stop at the **first match**, so the order above is load-bearing.
+Reversed, the admin UI is cached.
+
+### What the free plan does not give, and what is done about it
+
+| | Free plan | Here |
+|---|---|---|
+| Managed WAF rules | The **Cloudflare Free Managed Ruleset** is deployed automatically on free zones | Not re-declared. Writing our own `http_request_firewall_managed` entrypoint would *replace* Cloudflare's default deployment with a copy we then own and have to maintain |
+| Rate limiting | 1 rule, path + IP only, 10s window | Not used. The only proxied host is a static site, and ADR-0040 already limits the app tier at the Gateway, where the windows are ours to choose |
+| Request body | 100 MB cap (200 MB on Business) | `proxyPlan` keeps `s3Domain` direct |
+| WebSocket idle timeout | 100s, configurable on Enterprise only | `proxyPlan` keeps `appDomain` direct |
+| Custom WAF rules | 5 | None written; nothing needs one yet |
+| Transform rules | 10 | None written; the app sets its own response headers |
 
 ### The apex, and the one-owner rule
 

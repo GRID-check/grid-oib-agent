@@ -43,6 +43,7 @@ import { installObservabilityDashboard } from "./src/platform/observability";
 import { installOtelCollector } from "./src/platform/otel-collector";
 import { installErr2Issue } from "./src/platform/err2issue";
 import { installDns, managedRecordNames } from "./src/platform/dns";
+import { installEdge } from "./src/platform/edge";
 import { installLangfuse } from "./src/platform/langfuse";
 import { LANGFUSE } from "./src/constants";
 
@@ -317,6 +318,11 @@ if (cfg.observability.enabled) {
 // this exists to prevent.
 const dns = installDns(cfg);
 
+// Zone-level edge configuration (TLS policy, HSTS, cache rules). Separate from
+// the records because its blast radius is the whole zone rather than one host,
+// so it runs only for the stack that owns the zone baseline.
+const edge = installEdge(cfg, dns);
+
 // ── Stack outputs ────────────────────────────────────────────────────────────
 export const appUrl = pulumi.interpolate`https://${cfg.ingress.appDomain}`;
 export const s3Url = pulumi.interpolate`https://${cfg.ingress.s3Domain}`;
@@ -350,6 +356,31 @@ export const errorIssueRepo = cfg.err2issue.enabled
 export const dnsRecords = dns
   ? pulumi.all(managedRecordNames(dns)).apply((names) => names.join(", "))
   : pulumi.output("(none: dnsEnabled=false — records are maintained by hand)");
+/**
+ * The orange/grey verdict per host, with the reason for every grey one.
+ *
+ * An output rather than a comment because the reasons are what an operator
+ * asking "why is app.<domain> not behind Cloudflare?" actually needs, and they
+ * change with the config in front of them.
+ */
+export const dnsProxyPlan = dns
+  ? pulumi.output(
+      dns.plan
+        .map((d) => (d.proxied ? `${d.host}: proxied` : `${d.host}: direct — ${d.reason}`))
+        .join("\n"),
+    )
+  : pulumi.output("(none: dnsEnabled=false)");
+/** Zone-level edge configuration, when this stack owns the zone baseline. */
+export const edgeSettings = edge
+  ? pulumi.output(`${edge.settings.length} zone settings${edge.cacheRules ? " + cache rules" : ""}`)
+  : pulumi.output("(none: needs dnsProxyEnabled and dnsZoneBaseline)");
+/**
+ * The DS record to publish AT THE REGISTRAR. Until it is there the zone is
+ * signed and nothing validates the signature.
+ */
+export const dnssecDs = dns?.dnssec
+  ? pulumi.interpolate`${dns.dnssec.ds}`
+  : pulumi.output("(none: dnsDnssecEnabled=false)");
 export const agentWorkerDeployment = agentWorker
   ? agentWorker.deployment.metadata.name
   : pulumi.output("(none: dask mode)");

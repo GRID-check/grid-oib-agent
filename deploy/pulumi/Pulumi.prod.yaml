@@ -383,3 +383,25 @@ config:
   grid-oib:langfuseProjectId: grid-oib
   grid-oib:otelOidcIssuer: https://prestigious-energy-03.authkit.app
   grid-oib:otelOidcClientId: client_01M0SKKRX0XAQ99AFZ31WNJ6XT # pragma: allowlist secret (public OAuth client id)
+  # ── Cloudflare proxy (ADR-0051) ──
+  #
+  # Proxies the hosts `proxyPlan` (src/platform/dns.ts) clears — for this stack
+  # that is the apex, piloti.at, which is its webDomain. app.piloti.at and
+  # s3.piloti.at stay direct: the free plan closes a proxied WebSocket after
+  # 100s of silence and rejects a request body over 100 MB, and this product
+  # serves both.
+  #
+  # No new token scope is needed HERE. dnsZoneBaseline is false on this stack,
+  # so it writes no zone settings and no cache rules — the dev stack owns those
+  # (a zone setting governs every name in the zone, including this stack's, so
+  # exactly one stack may write them). Its token is the one that needs
+  # Zone:Zone Settings:Edit and Zone:Cache Rules:Edit added.
+  #
+  # KNOWN CONFLICT AT THE APEX, PRE-DATING THIS KEY: the dev stack still sets
+  # dnsApexRedirectTo, so both stacks write an A record for piloti.at — dev's
+  # unroutable redirect placeholder and this stack's real one. Cloudflare does
+  # not report that as an error; whichever `pulumi up` ran last wins. The fix
+  # is in Pulumi.dev.yaml's own comment: drop dnsApexRedirectTo AND
+  # dnsZoneBaseline there and set dnsZoneBaseline true here, which also moves
+  # the zone settings to this stack.
+  grid-oib:dnsProxyEnabled: "true"

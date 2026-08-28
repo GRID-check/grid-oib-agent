@@ -40,15 +40,114 @@ export const TTL_AUTOMATIC = 1;
  */
 export const UNROUTABLE_PLACEHOLDER = "192.0.2.1";
 
+/**
+ * Which of this stack's hosts may sit behind Cloudflare's proxy (orange cloud),
+ * and — for the ones that may not — why.
+ *
+ * The decision is a property of what a host SERVES, not of an operator's
+ * preference, so it lives here rather than in stack config. The two hard
+ * refusals below were paid for once already, in the comment this replaces: the
+ * proxy was left off for EVERY host because two of them break behind it, and
+ * the rest lost the free WAF, the free edge cache and a hidden origin for
+ * company. Neither constraint was ever zone-wide.
+ *
+ * Each refusal names a failure that Cloudflare does not report. That is the
+ * whole reason this is code: `proxied: true` on the wrong record produces a
+ * site that works in every smoke test and fails on the request that matters.
+ */
+export type ProxyDecision =
+  | { host: string; proxied: true }
+  | { host: string; proxied: false; reason: string };
+
+/**
+ * Cloudflare's free and pro plans reject a request body over this size at the
+ * edge, with a 413 the origin never sees and no entry in any log this repo
+ * collects. `frontends/ui`'s own `maxFileSize` default is exactly 100 MB, so a
+ * file AT the product's advertised limit is the one that fails.
+ */
+export const FREE_PLAN_MAX_BODY_MB = 100;
+
+/**
+ * Cloudflare closes a proxied WebSocket after this many seconds with no frame
+ * in either direction, on every plan below Enterprise.
+ */
+export const FREE_PLAN_WS_IDLE_SECONDS = 100;
+
+/**
+ * The orange/grey verdict for every host this stack publishes.
+ *
+ * `enabled: false` (the default) returns every host grey with the same reason,
+ * so the caller has one shape to render and the stack output always explains
+ * itself.
+ */
+export function proxyPlan(args: {
+  enabled: boolean;
+  hosts: string[];
+  appDomain: string;
+  s3Domain: string;
+  webDomain: string;
+}): ProxyDecision[] {
+  return args.hosts.map((host): ProxyDecision => {
+    if (!args.enabled) {
+      return { host, proxied: false, reason: "grid-oib:dnsProxyEnabled is false" };
+    }
+    if (host === args.s3Domain) {
+      return {
+        host,
+        proxied: false,
+        reason:
+          `object storage: browser uploads are presigned straight at this host, and the free plan ` +
+          `caps a request body at ${FREE_PLAN_MAX_BODY_MB} MB — which is also the product's own ` +
+          `advertised maximum file size, so the largest permitted upload is the one that breaks`,
+      };
+    }
+    if (host === args.appDomain) {
+      return {
+        host,
+        proxied: false,
+        reason:
+          `long-lived chat WebSockets: the free plan closes a proxied socket after ` +
+          `${FREE_PLAN_WS_IDLE_SECONDS}s of silence, and the browser WebSocket API cannot send a ` +
+          `ping frame to prevent it. Every idle chat would reconnect on a ~100s cycle, and the ` +
+          `reconnect is an upgrade — the single most expensive request the app serves (ADR-0040)`,
+      };
+    }
+    if (host === args.webDomain) {
+      return { host, proxied: true };
+    }
+    // Fall-through: the operator dashboards (`otelDomain`, `langfuseDomain`) and
+    // anything added to the Gateway later. Grey is the posture that cannot break
+    // a host nobody has thought about, so an unclassified listener gets it —
+    // and gets an answer that says it is unclassified rather than pretending to
+    // a reason it was never given.
+    return {
+      host,
+      proxied: false,
+      reason:
+        "no case in proxyPlan claims this host. The dashboards have no cacheable traffic to win " +
+        "and a live-updating socket to lose; anything newer has simply not been classified yet",
+    };
+  });
+}
+
+/** The subset that is actually orange, for the callers that only need the set. */
+export function proxiedHosts(plan: ProxyDecision[]): string[] {
+  return plan.filter((d) => d.proxied).map((d) => d.host);
+}
+
 export interface ManagedDns {
   /** Explicitly constructed so the token comes from stack config, never ambient `CLOUDFLARE_*` env. */
   provider: cloudflare.Provider;
+  /** The orange/grey verdict per host, exported so a stack output can explain it. */
+  plan: ProxyDecision[];
   /** One A record per Gateway listener host. */
   hostRecords: cloudflare.DnsRecord[];
   /** `www` CNAME and (when configured) the `_dmarc` TXT — zone-level, not stack-level. */
   baselineRecords: cloudflare.DnsRecord[];
   /** Apex placeholder + dynamic-redirect ruleset, when `apexRedirectTo` is set. */
   apexRedirect?: { placeholder: cloudflare.DnsRecord; ruleset: cloudflare.Ruleset };
+  /** Zone DNSSEC, when `dnssecEnabled` — still needs the DS record at the registrar. */
+  dnssec?: cloudflare.ZoneDnssec;
 }
 
 /**
@@ -102,34 +201,37 @@ export function installDns(cfg: GridConfig): ManagedDns | undefined {
   const provider = new cloudflare.Provider("cloudflare", { apiToken: dns.apiToken });
   const opts = { provider };
 
-  // Deliberately NOT proxied (Cloudflare "grey cloud"). Three separate things
-  // in this stack break behind the orange cloud, and all three break quietly:
+  const plan = proxyPlan({
+    enabled: dns.proxyEnabled,
+    hosts: dns.hosts,
+    appDomain: cfg.ingress.appDomain,
+    s3Domain: cfg.ingress.s3Domain,
+    webDomain: cfg.ingress.webDomain,
+  });
+
+  // Orange vs. grey, per host, decided by `proxyPlan` above rather than here —
+  // the reason a host is grey belongs next to the classification, not at the one
+  // call site that happens to read it. What the plan buys the hosts it CAN
+  // proxy: the free WAF managed ruleset, L3/L4 and L7 DDoS absorption, the edge
+  // cache (`platform/edge.ts`), and an origin address that never appears in a
+  // DNS answer.
   //
-  //   - cert-manager solves ACME HTTP-01 through the Gateway
-  //     (`platform/cert-manager.ts`). Proxying terminates TLS at Cloudflare and
-  //     serves its own certificate, so the Gateway's own certificate never
-  //     renews and nobody notices until it expires.
-  //   - `s3Domain` carries browser uploads via presigned URLs. Cloudflare's
-  //     free plan caps a request body at 100 MB; past that the upload fails at
-  //     the edge, with no entry in any log this repo collects.
-  //   - The app tier is WebSocket-heavy (ADR-0028 pins a conversation to its
-  //     owning replica). Proxied WebSockets work, but add an idle timeout the
-  //     Gateway's own configuration no longer controls.
-  //
-  // Turning this on is a real option — it just has to be a deliberate one, made
-  // together with a DNS-01 issuer and a paid upload limit, not a default.
-  const hostRecords = dns.hosts.map(
-    (host) =>
+  // A proxied record cannot carry an explicit TTL — Cloudflare answers for it
+  // itself and rejects the field — so the TTL follows the verdict.
+  const hostRecords = plan.map(
+    (decision) =>
       new cloudflare.DnsRecord(
-        `dns-${host}`,
+        `dns-${decision.host}`,
         {
           zoneId: dns.zoneId,
-          name: host,
+          name: decision.host,
           type: "A",
           content: dns.targetIp,
-          ttl: dns.ttl,
-          proxied: false,
-          comment: "Managed by Pulumi (deploy/pulumi/src/platform/dns.ts)",
+          ttl: decision.proxied ? TTL_AUTOMATIC : dns.ttl,
+          proxied: decision.proxied,
+          comment: decision.proxied
+            ? "Managed by Pulumi — proxied (deploy/pulumi/src/platform/dns.ts)"
+            : `Managed by Pulumi — not proxied: ${decision.reason}`.slice(0, 100),
         },
         opts,
       ),
@@ -141,6 +243,7 @@ export function installDns(cfg: GridConfig): ManagedDns | undefined {
   // one's record and reports success.
   const baselineRecords: cloudflare.DnsRecord[] = [];
   let apexRedirect: ManagedDns["apexRedirect"];
+  let dnssec: cloudflare.ZoneDnssec | undefined;
 
   if (dns.zoneBaseline) {
     // Follows the apex. While the apex is a proxied redirect placeholder this
@@ -148,7 +251,8 @@ export function installDns(cfg: GridConfig): ManagedDns | undefined {
     // client Cloudflare's edge address without the proxy state that makes the
     // redirect rule run, so www would answer from the edge instead of
     // redirecting. Proxied records also cannot carry an explicit TTL.
-    const wwwProxied = dns.apexRedirectTo !== undefined;
+    const apexProxied = plan.some((d) => d.host === dns.zoneName && d.proxied);
+    const wwwProxied = dns.apexRedirectTo !== undefined || apexProxied;
     baselineRecords.push(
       new cloudflare.DnsRecord(
         "dns-www",
@@ -235,9 +339,112 @@ export function installDns(cfg: GridConfig): ManagedDns | undefined {
 
       apexRedirect = { placeholder, ruleset };
     }
+
+    // ── CAA ────────────────────────────────────────────────────────────────
+    //
+    // Names the CAs allowed to issue for this zone. Without any CAA record every
+    // public CA on earth may issue for these names, and the first anyone hears
+    // of a mis-issued certificate is a CT-log alert nobody is subscribed to.
+    //
+    // The allowed set is DERIVED from the proxy plan, not listed by hand,
+    // because proxying changes it: an orange host is served by a Cloudflare
+    // EDGE certificate, and Cloudflare issues those from Let's Encrypt, Google
+    // Trust Services or SSL.com at its own discretion. Pin only
+    // `letsencrypt.org` while a host is proxied and Universal SSL eventually
+    // fails to renew — months later, on a name that has worked all along.
+    //
+    // `issuewild ";"` refuses wildcards outright: nothing here asks for one, and
+    // a wildcard is the certificate whose compromise costs the most.
+    if (dns.caaEnabled) {
+      const issuers = [
+        // The origin's own certificates (`platform/cert-manager.ts`), proxied or not.
+        "letsencrypt.org",
+        // Cloudflare's edge certificate issuers, needed only while a host is
+        // orange — and harmless when none is, which is why they are not
+        // conditional: a CAA set that changes as hosts flip proxy state is a
+        // second thing to get right at exactly the wrong moment.
+        //
+        // The first two are the ones Cloudflare's own documentation lists for
+        // Universal SSL. `sectigo.com` is NOT in that list, and is here because
+        // the Certificate Transparency log for this zone says otherwise: on
+        // 2026-08-10, the day the apex placeholder first went proxied,
+        // Cloudflare issued TWO edge certificates for `piloti.at` +
+        // `*.piloti.at` — one from Google Trust Services and one from Sectigo.
+        // The documentation warns that its list "is not exhaustive"; this is
+        // what that sentence costs if you take the list literally. Check the
+        // logs again before removing it:
+        //
+        //   curl -s 'https://api.certspotter.com/v1/issuances?domain=<zone>\
+        //     &include_subdomains=true&expand=issuer' | jq -r '.[].issuer.name'
+        "pki.goog; cansignhttpexchanges=yes",
+        "ssl.com",
+        "sectigo.com",
+      ];
+      issuers.forEach((value, i) => {
+        baselineRecords.push(
+          new cloudflare.DnsRecord(
+            `dns-caa-issue-${i}`,
+            {
+              zoneId: dns.zoneId,
+              name: dns.zoneName,
+              type: "CAA",
+              data: { flags: 0, tag: "issue", value },
+              ttl: dns.ttl,
+              comment: "Managed by Pulumi (deploy/pulumi/src/platform/dns.ts)",
+            },
+            opts,
+          ),
+        );
+      });
+      baselineRecords.push(
+        new cloudflare.DnsRecord(
+          "dns-caa-issuewild",
+          {
+            zoneId: dns.zoneId,
+            name: dns.zoneName,
+            type: "CAA",
+            data: { flags: 0, tag: "issuewild", value: ";" },
+            ttl: dns.ttl,
+            comment: "Managed by Pulumi — no wildcard certificates for this zone",
+          },
+          opts,
+        ),
+      );
+      // Where a CA reports a refused issuance request. Reuses the ACME account
+      // address rather than inventing a second one: it is already the mailbox
+      // that hears about this zone's certificates.
+      baselineRecords.push(
+        new cloudflare.DnsRecord(
+          "dns-caa-iodef",
+          {
+            zoneId: dns.zoneId,
+            name: dns.zoneName,
+            type: "CAA",
+            data: { flags: 0, tag: "iodef", value: `mailto:${cfg.ingress.letsEncryptEmail}` },
+            ttl: dns.ttl,
+            comment: "Managed by Pulumi (deploy/pulumi/src/platform/dns.ts)",
+          },
+          opts,
+        ),
+      );
+    }
+
+    // ── DNSSEC ─────────────────────────────────────────────────────────────
+    //
+    // Signs the zone so a resolver can tell a real answer from an injected one.
+    //
+    // HALF of this is outside the program: Cloudflare signs, but the chain is
+    // only trusted once the DS record it generates is published AT THE
+    // REGISTRAR, which is not Cloudflare here (see the note on delegation at the
+    // top of this file). Until that paste happens the zone is signed and nobody
+    // validates it — no error, no warning, no benefit. `pulumi stack output
+    // dnssecDs` prints what to paste.
+    if (dns.dnssecEnabled) {
+      dnssec = new cloudflare.ZoneDnssec("dns-dnssec", { zoneId: dns.zoneId, status: "active" }, opts);
+    }
   }
 
-  return { provider, hostRecords, baselineRecords, apexRedirect };
+  return { provider, plan, hostRecords, baselineRecords, apexRedirect, dnssec };
 }
 
 /** Convenience for stack outputs: the FQDNs this stack put in DNS. */

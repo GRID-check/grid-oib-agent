@@ -259,3 +259,47 @@ config:
   # err2issueMaxNewFingerprintsPerDay once steady-state volume is known.
   grid-oib:err2issueEnabled: "true"
   grid-oib:err2issueGithubRepo: GRID-check/grid-oib-agent
+  # ── Cloudflare proxy (ADR-0051) ──
+  #
+  # Puts the hosts that can take it behind the orange cloud, and applies the
+  # zone-level edge configuration (`src/platform/edge.ts`). WHICH hosts is not
+  # a key here: `proxyPlan` in src/platform/dns.ts decides per host and carries
+  # the reason. Today that is dev.piloti.at only — app. keeps its chat
+  # WebSockets (Cloudflare closes a proxied socket after 100s of silence below
+  # Enterprise) and s3. its uploads (the free plan rejects a body over 100 MB,
+  # which is also the product's own advertised maximum file size).
+  #
+  # THIS STACK OWNS THE ZONE (dnsZoneBaseline above), so it is the one that
+  # writes the zone settings and cache rules. That needs TWO SCOPES THE
+  # COMMITTED TOKEN DOES NOT HAVE. Add them before the next deploy or
+  # `pulumi up` fails with a 403 from the Cloudflare API:
+  #
+  #   Cloudflare → My Profile → API Tokens → the existing Grid token → Edit
+  #     + Zone : Zone Settings : Edit
+  #     + Zone : Cache Rules   : Edit
+  #   (Zone:DNS:Edit and Zone:Dynamic URL Redirects:Edit stay as they are.)
+  #
+  # If the token is rotated rather than edited:
+  #   esc env set matthiasbigl/grid-oib/dev pulumiConfig.grid-oib:cloudflareApiToken "<new>" --secret
+  #
+  # Verify after the deploy: `pulumi stack output dnsProxyPlan` for the
+  # verdicts, then `curl -sI https://dev.piloti.at | grep -i 'server\|cf-ray'`.
+  grid-oib:dnsProxyEnabled: "true"
+  # CAA and DNSSEC are the two remaining free-plan wins, both left off because
+  # each has a prerequisite outside this program:
+  #
+  #   dnsCaaEnabled — restricts issuance to Let's Encrypt plus Cloudflare's
+  #     edge CAs. The CT log for this zone (checked 2026-08-28) shows two
+  #     issuers that the set would BLOCK: GoDaddy, from the WebsiteBuilder
+  #     placeholder certificate issued 2026-07-14 and expiring 2026-10-12, and
+  #     nothing else since the nameservers moved. Turn this on once that
+  #     certificate has expired and nothing is renewing it — it cannot renew
+  #     anyway, since GoDaddy no longer answers for the zone.
+  #
+  #   dnsDnssecEnabled — Cloudflare signs, but the DS record it generates has
+  #     to be pasted AT THE REGISTRAR (still GoDaddy). Until it is, the zone is
+  #     signed and no resolver validates it, with no error anywhere. Enable it,
+  #     read `pulumi stack output dnssecDs`, paste it, then confirm with
+  #     `dig +dnssec piloti.at`.
+  grid-oib:dnsCaaEnabled: "false"
+  grid-oib:dnsDnssecEnabled: "false"

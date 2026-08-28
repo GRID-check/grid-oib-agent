@@ -1,0 +1,13 @@
+---
+features:
+  - >
+    The public Piloti website is now served from Cloudflare's network rather
+    than straight from our own servers. Pages and images are delivered from
+    whichever of Cloudflare's locations is nearest to the reader, connections
+    are held to current TLS standards, and the site keeps answering with its
+    last known copy if our servers are briefly unreachable.
+upgrade:
+  - >
+    Signing in, chatting and uploading documents are unchanged: those run
+    directly against the application as before, so nothing new sits between
+    you and a long research run or a large model file.

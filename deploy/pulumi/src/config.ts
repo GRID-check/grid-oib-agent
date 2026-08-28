@@ -1,5 +1,5 @@
 import * as pulumi from "@pulumi/pulumi";
-import { hostsOutsideZone, managedHosts } from "./platform/dns";
+import { hostsOutsideZone, managedHosts, proxyPlan } from "./platform/dns";
 
 /**
  * Typed configuration for the Grid OIB Kubernetes deployment.
@@ -204,6 +204,50 @@ export interface GridConfig {
      * `loadConfig` refuses to have both at once.
      */
     apexRedirectTo?: string;
+    /**
+     * Put the hosts that can take it behind Cloudflare's proxy (orange cloud),
+     * and apply the zone-level edge configuration that only matters once
+     * something is proxied (`platform/edge.ts`).
+     *
+     * WHICH hosts is not an operator choice — `proxyPlan` in `platform/dns.ts`
+     * decides per host and carries the reason for each refusal. This flag only
+     * says whether that plan is applied at all, because turning it on moves
+     * live traffic through a third party: it is a deploy to watch, not a
+     * default.
+     *
+     * Everything it buys is on Cloudflare's free plan. Everything it refuses is
+     * refused BECAUSE the free plan cannot do it, never because the code cannot
+     * — the reasons are in `proxyPlan`, and each names what a paid plan would
+     * change.
+     */
+    proxyEnabled: boolean;
+    /**
+     * Publish CAA records naming the only CAs allowed to issue for this zone.
+     *
+     * Separate from `proxyEnabled` because it has its own prerequisite: any CA
+     * currently issuing for a name in this zone that is not in the set
+     * `platform/dns.ts` publishes stops being able to renew — months later, at
+     * renewal, not here. Ask the Certificate Transparency logs first, because
+     * the answer includes anything a colleague set up by hand:
+     *
+     *   curl -s 'https://api.certspotter.com/v1/issuances?domain=<zone>\
+     *     &include_subdomains=true&expand=issuer' | jq -r '.[].issuer.name'
+     *
+     * (crt.sh answers the same question and is frequently down.) Doing exactly
+     * this for `piloti.at` is what put `sectigo.com` in the published set — see
+     * the comment on the record itself.
+     */
+    caaEnabled: boolean;
+    /**
+     * Sign the zone with DNSSEC.
+     *
+     * Off by default because Cloudflare can only do its half: the DS record it
+     * generates has to be published at the REGISTRAR, and until it is, the zone
+     * is signed and no resolver validates it. Turn it on, read `pulumi stack
+     * output dnssecDs`, paste it at the registrar, then confirm with
+     * `dig +dnssec`.
+     */
+    dnssecEnabled: boolean;
   };
 
   /**
@@ -1890,6 +1934,13 @@ export function loadConfig(): GridConfig {
   const cloudflareApiToken = cfg.getSecret("cloudflareApiToken");
   const dnsApexRedirectTo = cfg.get("dnsApexRedirectTo");
   const dnsZoneBaseline = bool(cfg, "dnsZoneBaseline", false);
+  const dnsProxyEnabled = bool(cfg, "dnsProxyEnabled", false);
+  // Hoisted out of the `ingress` literal below because the proxy guard needs it
+  // here, and a second `num(cfg, ...)` read would be a second thing to keep in
+  // step with the value the ClientTrafficPolicy is actually built from.
+  const xffNumTrustedHops = num(cfg, "xffNumTrustedHops", 0);
+  const dnsCaaEnabled = bool(cfg, "dnsCaaEnabled", false);
+  const dnsDnssecEnabled = bool(cfg, "dnsDnssecEnabled", false);
   const dnsHosts = managedHosts({
     webDomain,
     appDomain,
@@ -1954,12 +2005,93 @@ export function loadConfig(): GridConfig {
           "declares this stack to be it.",
       );
     }
+
+    // ── Proxying (orange cloud) ───────────────────────────────────────────
+    //
+    // The guard that matters is about client IP, and it is the reason this is
+    // not just a boolean anyone can flip.
+    //
+    // `xffNumTrustedHops` is set on a ClientTrafficPolicy that targets the
+    // GATEWAY, so it applies to every listener on it — there is no per-host
+    // form. Proxying only SOME hosts therefore creates two populations behind
+    // one setting:
+    //
+    //   0 hops, mixed zone (the supported combination): the proxied hosts see
+    //   Cloudflare edge addresses as the client. Fine, because `proxyPlan`
+    //   refuses to proxy any host that carries a per-IP limit.
+    //
+    //   1 hop, mixed zone (refused below): the UNPROXIED hosts now trust an
+    //   `X-Forwarded-For` header sent by whoever connected — and app.<domain>
+    //   is unproxied and reachable at the LoadBalancer address directly. Every
+    //   per-IP limit in ADR-0040 becomes a header a client picks for itself,
+    //   and nothing anywhere reports it: the limits keep counting, just into a
+    //   bucket the attacker names.
+    //
+    // So: raise the hop count only once EVERY host is proxied, and lock the
+    // origin to Cloudflare's ranges at the same time. Until then, 0.
+    if (dnsProxyEnabled) {
+      const plan = proxyPlan({
+        enabled: true,
+        hosts: dnsHosts,
+        appDomain,
+        s3Domain,
+        webDomain,
+      });
+      const grey = plan.filter((d) => !d.proxied).map((d) => d.host);
+      if (xffNumTrustedHops > 0 && grey.length > 0) {
+        throw new Error(
+          `grid-oib:xffNumTrustedHops is ${xffNumTrustedHops} while ${grey.join(", ")} ` +
+            `${grey.length === 1 ? "is" : "are"} NOT proxied. The ClientTrafficPolicy that carries ` +
+            "this setting targets the Gateway, so it applies to those hosts too — and they are " +
+            "reachable at the LoadBalancer address directly, which means any client could forge " +
+            "its own address with an X-Forwarded-For header and pick which per-IP bucket " +
+            "(ADR-0040) it lands in. Set it back to 0; raise it only when every host is proxied " +
+            "and the origin refuses connections from outside Cloudflare's ranges.",
+        );
+      }
+      if (plan.every((d) => !d.proxied)) {
+        pulumi.log.warn(
+          "grid-oib:dnsProxyEnabled is set but no host qualifies for the proxy. Reasons, per " +
+            `host: ${plan.map((d) => (d.proxied ? "" : `${d.host} — ${d.reason}`)).join("; ")}`,
+        );
+      }
+    }
+    if (dnsCaaEnabled && !dnsZoneBaseline) {
+      throw new Error(
+        "grid-oib:dnsCaaEnabled requires grid-oib:dnsZoneBaseline. CAA is published at the zone " +
+          "apex and governs every name in the zone, including the hosts of OTHER stacks — so it " +
+          "has the same at-most-one-owner rule as www and _dmarc.",
+      );
+    }
+    if (dnsDnssecEnabled && !dnsZoneBaseline) {
+      throw new Error(
+        "grid-oib:dnsDnssecEnabled requires grid-oib:dnsZoneBaseline. Signing is a property of " +
+          "the whole zone, not of one stack's records.",
+      );
+    }
     if (dnsApexRedirectTo !== undefined && !/^https?:\/\//.test(dnsApexRedirectTo)) {
       throw new Error(
         `grid-oib:dnsApexRedirectTo must be an absolute URL (got "${dnsApexRedirectTo}"). ` +
           "Cloudflare sends it to the browser as a Location header verbatim.",
       );
     }
+  }
+
+  // Every flag above is a Cloudflare API call, and `installDns` is the only
+  // thing in this program that holds a Cloudflare provider. Set without
+  // `dnsEnabled` they are read by nothing and report nothing — the exact silent
+  // no-op the rest of this block exists to prevent.
+  const orphanedDnsFlags = [
+    dnsProxyEnabled ? "dnsProxyEnabled" : undefined,
+    dnsCaaEnabled ? "dnsCaaEnabled" : undefined,
+    dnsDnssecEnabled ? "dnsDnssecEnabled" : undefined,
+  ].filter((k): k is string => k !== undefined);
+  if (!dnsEnabled && orphanedDnsFlags.length > 0) {
+    throw new Error(
+      `${orphanedDnsFlags.map((k) => `grid-oib:${k}`).join(", ")} ` +
+        `${orphanedDnsFlags.length === 1 ? "is" : "are"} set while grid-oib:dnsEnabled is false. ` +
+        "Nothing reads them in that state, so they would look configured and do nothing.",
+    );
   }
 
   // ── err2issue (ADR-0031): same availability = flag AND capability rule ─────
@@ -2026,7 +2158,7 @@ export function loadConfig(): GridConfig {
       // 0 = trust Envoy's own downstream address. See the interface comment:
       // this is the one setting every per-IP limit rests on, and it must be
       // confirmed against a live cluster rather than assumed.
-      xffNumTrustedHops: num(cfg, "xffNumTrustedHops", 0),
+      xffNumTrustedHops,
       maxConnectionsPerProxy: num(cfg, "maxConnectionsPerProxy", 10000),
     },
 
@@ -2046,6 +2178,9 @@ export function loadConfig(): GridConfig {
       zoneBaseline: dnsZoneBaseline,
       dmarc: cfg.get("dnsDmarc"),
       apexRedirectTo: dnsApexRedirectTo,
+      proxyEnabled: dnsProxyEnabled,
+      caaEnabled: dnsCaaEnabled,
+      dnssecEnabled: dnsDnssecEnabled,
     },
 
     postgres: {
