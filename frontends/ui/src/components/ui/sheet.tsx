@@ -91,7 +91,7 @@ const SheetContent = React.forwardRef<React.ElementRef<typeof SheetPrimitive.Con
         style={style}
         className={cn(
           'fixed z-50 flex flex-col gap-4 overflow-y-auto bg-background p-6 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out '
-            + 'ease-entrance data-[state=open]:duration-deliberate '
+            + 'data-[state=open]:ease-entrance data-[state=open]:duration-deliberate '
             + `${OVERLAY_EXIT} ${OVERLAY_REDUCED}`,
           SIDE_CLASSES[side],
           className,

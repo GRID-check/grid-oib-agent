@@ -14,12 +14,17 @@
  * underneath, is the whole visual claim this surface makes.
  */
 
+import { useState } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
+import { Button } from '@/components/ui/button'
 import { PageSheet } from '@/components/ui/page-sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 
 export default function PageSheetDevPage(): JSX.Element {
   const variant = useSearchParams()?.get('variant') ?? 'default'
+  // Real open state so the preview exercises the whole lifecycle — the
+  // entrance, the pull-down dismissal, the exit — not just the resting frame.
+  const [open, setOpen] = useState(true)
   if (process.env.NODE_ENV !== 'development') {
     notFound()
   }
@@ -30,14 +35,17 @@ export default function PageSheetDevPage(): JSX.Element {
       {/* The page the sheet covers. */}
       <div className="space-y-4 p-8">
         <h1 className="text-lg font-semibold">/dev/page-sheet — the page underneath</h1>
+        <Button variant="outline" onClick={() => setOpen(true)} data-testid="reopen-sheet">
+          Reopen sheet
+        </Button>
         {Array.from({ length: 8 }).map((_, index) => (
           <Skeleton key={index} className="h-16 w-full rounded-xl" />
         ))}
       </div>
 
       <PageSheet
-        open
-        onOpenChange={() => {}}
+        open={open}
+        onOpenChange={setOpen}
         title={reading ? 'Chat history' : 'Archiv'}
         subtitle={
           reading

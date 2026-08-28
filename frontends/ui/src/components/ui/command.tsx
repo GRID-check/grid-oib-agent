@@ -111,7 +111,7 @@ const CommandInput = React.forwardRef<
   <div
     data-slot="command-input-wrapper"
     cmdk-input-wrapper=""
-    className="flex h-11 items-center gap-2 border-b border-border px-3 transition-colors duration-200 ease-out has-[:focus-visible]:bg-muted/40"
+    className="flex h-11 items-center gap-2 border-b border-border px-3 transition-colors duration-snap ease-out has-[:focus-visible]:bg-muted/40 motion-reduce:transition-none"
   >
     <SearchIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
     <CommandPrimitive.Input

@@ -96,7 +96,6 @@ export function OrgHeader({
           canManageOrganization={canManageOrganization}
           canViewOrganization={canViewOrganization}
           canManagePlatform={canManagePlatform}
-          canAccessArchiv={canAccessArchiv}
         />
       </div>
     </header>
@@ -124,7 +123,7 @@ function OrgHeaderIconLink({
           aria-label={label}
           aria-current={active ? 'page' : undefined}
           className={cn(
-            'focus-visible:ring-ring/60 relative flex size-9 items-center justify-center rounded-lg transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none',
+            'focus-visible:ring-ring/60 relative flex size-9 items-center justify-center rounded-lg transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none',
             active
               ? 'bg-accent text-foreground'
               : 'text-muted-foreground hover:bg-accent hover:text-foreground',

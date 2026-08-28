@@ -169,7 +169,7 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
             // belongs to an already-rendered message the reader jumped to, and
             // a delay there would stall the citation pulse that must fire now.
             !isFocused &&
-              'animate-in fade-in-0 slide-in-from-bottom-1 duration-200 ease-out [animation-fill-mode:backwards] motion-reduce:animate-none',
+              'animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance [animation-fill-mode:backwards] motion-reduce:animate-none',
             isFocused && 'animate-citation-pulse motion-reduce:animate-none'
           )}
           style={{

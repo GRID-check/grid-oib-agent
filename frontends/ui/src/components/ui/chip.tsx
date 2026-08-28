@@ -24,7 +24,7 @@ import { FOCUS_RING } from '@/components/ui/focus-ring'
  */
 const chipVariants = cva(
   'inline-flex items-center gap-1 rounded-md border font-medium w-fit whitespace-nowrap shrink-0 ' +
-    'align-middle outline-none transition-[transform,opacity] duration-200 ease-out ' +
+    'align-middle outline-none transition-[transform,opacity] duration-quick ease-out ' +
     'motion-reduce:transition-none [&>svg]:pointer-events-none [&>svg]:shrink-0 ' +
     FOCUS_RING,
   {

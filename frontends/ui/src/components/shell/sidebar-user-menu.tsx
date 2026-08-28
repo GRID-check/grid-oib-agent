@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Archive, Building2, Check, Globe, LayoutDashboard, LogOut, Monitor, Moon, Sun, UserRound } from 'lucide-react'
+import { Building2, Check, Globe, LayoutDashboard, LogOut, Monitor, Moon, Sun, UserRound } from 'lucide-react'
 
 import { useAuth } from '@/adapters/auth/use-auth'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -48,8 +48,6 @@ export interface SidebarUserMenuProps {
   canViewOrganization?: boolean
   /** Show the platform dashboard entry (platform owner only, ADR-0016). */
   canManagePlatform?: boolean
-  /** Show the org-wide Archiv entry (any org member, when enabled — ADR-0024). */
-  canAccessArchiv?: boolean
   /**
    * Tailwind size class for the trigger avatar. Defaults to the sidebar
    * footer's 30px; the org top bar passes a 36px avatar to match the dummy.
@@ -80,7 +78,6 @@ export function SidebarUserMenu({
   canManageOrganization = false,
   canViewOrganization = false,
   canManagePlatform = false,
-  canAccessArchiv = false,
   avatarSizeClass = 'size-[30px]',
   organizationName = null,
 }: SidebarUserMenuProps) {
@@ -109,7 +106,7 @@ export function SidebarUserMenu({
       <DropdownMenuTrigger
         className={cn(
           'flex items-center gap-2.5 text-left text-sm',
-          'transition-[color,background-color,transform] duration-200 ease-out hover:bg-accent',
+          'transition-[color,background-color,transform] duration-quick ease-out hover:bg-accent',
           'active:scale-[0.98] motion-reduce:transition-none',
           'focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none',
           compact ? 'w-auto rounded-full p-0' : 'w-full rounded-lg py-1 pl-0 pr-2',
@@ -174,14 +171,6 @@ export function SidebarUserMenu({
             {t('userMenu.profile')}
           </Link>
         </DropdownMenuItem>
-        {canAccessArchiv && (
-          <DropdownMenuItem asChild className="gap-2">
-            <Link href="/app/archiv">
-              <Archive className="size-4 text-muted-foreground" aria-hidden />
-              {t('userMenu.archiv')}
-            </Link>
-          </DropdownMenuItem>
-        )}
         {(canViewOrganization || canManageOrganization) && (
           <DropdownMenuItem asChild className="gap-2">
             <Link href="/app/organization">

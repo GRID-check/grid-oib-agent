@@ -145,7 +145,7 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
           <button
             type="button"
             onClick={() => setViewerOpen(true)}
-            className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-primary transition-opacity duration-200 ease-out hover:opacity-80 touch-target focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+            className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-primary transition-opacity duration-quick ease-out hover:opacity-80 touch-target focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
           >
             <FileText className="size-3.5" aria-hidden="true" />
             {tViewer('viewer.view')}
@@ -156,7 +156,7 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
             href={sourceUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-primary transition-opacity duration-200 ease-out hover:opacity-80 touch-target"
+            className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-primary transition-opacity duration-quick ease-out hover:opacity-80 touch-target"
           >
             <ExternalLink className="size-3.5" aria-hidden="true" />
             {isOib ? t('cards.viewOib') : t('cards.verifyRis')}

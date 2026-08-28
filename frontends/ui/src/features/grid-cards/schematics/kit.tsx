@@ -639,7 +639,7 @@ export const NormRefFooter: FC<NormRefFooterProps> = ({ reference }) => {
           <button
             type="button"
             onClick={() => setViewerOpen(true)}
-            className="inline-flex items-center gap-1 font-medium text-primary transition-opacity duration-200 ease-out hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+            className="inline-flex items-center gap-1 font-medium text-primary transition-opacity duration-quick ease-out hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
           >
             <FileText className="size-3.5" aria-hidden="true" />
             {tKnowledge('viewer.view')}
