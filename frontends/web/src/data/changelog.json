@@ -32,6 +32,46 @@
   },
   "releases": [
     {
+      "id": "2026-08-28",
+      "kind": "date",
+      "version": null,
+      "date": "2026-08-28",
+      "summary": null,
+      "sections": [
+        {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Sie können jetzt auch Excel-Tabellen (.xlsx), PowerPoint-Präsentationen (.pptx), CSV-Dateien und WebP-Bilder hochladen. Tabellen werden pro Arbeitsblatt, Präsentationen pro Folie erfasst — Antworten verweisen also auf das richtige Blatt oder die richtige Folie statt nur auf die Datei.",
+              "de": "Sie können jetzt auch Excel-Tabellen (.xlsx), PowerPoint-Präsentationen (.pptx), CSV-Dateien und WebP-Bilder hochladen. Tabellen werden pro Arbeitsblatt, Präsentationen pro Folie erfasst — Antworten verweisen also auf das richtige Blatt oder die richtige Folie statt nur auf die Datei."
+            }
+          ]
+        },
+        {
+          "key": "improvements",
+          "notes": [
+            {
+              "en": "Pläne werden genauer ausgewertet: Blätter mit mehreren Teilzeichnungen (Grundriss, Schnitt, Detail) werden je Teilzeichnung mit eigenem Maßstab erfasst — samt Räumen, Erschließung, Tragwerk, Gebäudetechnik, Materialien und Bauteilaufbauten. Kennzahlen behalten ihre Bedeutung, und unsichere Bildinterpretationen sind als solche markiert.",
+              "de": "Pläne werden genauer ausgewertet: Blätter mit mehreren Teilzeichnungen (Grundriss, Schnitt, Detail) werden je Teilzeichnung mit eigenem Maßstab erfasst — samt Räumen, Erschließung, Tragwerk, Gebäudetechnik, Materialien und Bauteilaufbauten. Kennzahlen behalten ihre Bedeutung, und unsichere Bildinterpretationen sind als solche markiert."
+            },
+            {
+              "en": "Auch als Bild hochgeladene Pläne (PNG, JPG, WebP) bekommen jetzt dieselbe strukturierte Auswertung wie Pläne in einer PDF, und die Detailansicht einer Datei zeigt die erkannten Inhalte je Teilzeichnung.",
+              "de": "Auch als Bild hochgeladene Pläne (PNG, JPG, WebP) bekommen jetzt dieselbe strukturierte Auswertung wie Pläne in einer PDF, und die Detailansicht einer Datei zeigt die erkannten Inhalte je Teilzeichnung."
+            }
+          ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Word-Dokumente (.docx) wurden beim Hochladen zwar angenommen, aber nicht ausgewertet und als fehlgeschlagen markiert. Sie werden jetzt korrekt eingelesen und sind in Antworten zitierbar.",
+              "de": "Word-Dokumente (.docx) wurden beim Hochladen zwar angenommen, aber nicht ausgewertet und als fehlgeschlagen markiert. Sie werden jetzt korrekt eingelesen und sind in Antworten zitierbar."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-08-27",
       "kind": "date",
       "version": null,
