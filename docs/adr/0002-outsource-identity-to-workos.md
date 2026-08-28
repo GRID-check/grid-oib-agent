@@ -86,6 +86,12 @@ WorkOS remains authoritative for identity, roles, and permissions (see
   with WorkOS sales. WorkOS is SOC 2 Type 2, GDPR/CCPA compliant, and will sign a
   DPA/BAA. Regulatory content (e.g. OIB corpus) stays in EU-hostable stores we
   control regardless.
+  - **Answered 2026-08-28:** no EU residency — United States only, regional hosting
+    is roadmap. The DPA exists and is auto-executed, carrying full EU SCCs
+    (Modules Two *and* Three) rather than a DPF certification, so the transfer is
+    lawful on SCCs plus a transfer impact assessment. Evidence and the two
+    questions still open:
+    [`../compliance/external-dependencies.md`](../compliance/external-dependencies.md#workos--2026-08-28).
 
 ## References
 

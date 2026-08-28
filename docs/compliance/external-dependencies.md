@@ -107,3 +107,40 @@ Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
    lists — remove.
 7. Uploaded document content leaves the deployment **by design** (embeddings/VLM/RAG
    to external providers); no local-embedding option exists in the repo.
+
+## Verification log
+
+Point-in-time confirmations against vendor documentation, so an open question is
+answered once rather than re-researched. Add a dated row rather than editing one.
+
+### WorkOS — 2026-08-28
+
+Closes the ADR-0002 follow-up ("EU data residency for PII could not be verified
+from public docs") and roadmap item 5 of the audit ("confirm WorkOS DPA +
+residency"), one answer each way:
+
+| Question | Answer | Source |
+|---|---|---|
+| Art. 28 DPA? | **Yes**, and it needs no negotiation — binding on the Agreement's effective date, no counter-signature step | [workos.com/legal/dpa](https://workos.com/legal/dpa) |
+| Transfer mechanism | **Full EU SCCs as Exhibit C**, Commission Implementing Decision (EU) 2021/914 — **Module Two *and* Module Three**, plus the UK Addendum | same |
+| EU-U.S. Data Privacy Framework | **Not claimed** in the DPA. The transfer rides SCCs alone | same |
+| **EU data residency** | **No. United States only.** Regional hosting is roadmap, not product | vendor docs + support statements, 2026-08-28 |
+
+Two consequences worth carrying into the contract file:
+
+**Module Three is the one that matters here.** For customer-org content this
+operator is itself a processor (audit §1, "Roles"), so the WorkOS transfer is
+processor-to-processor, and Module Three is what makes that lawful. A DPA
+offering only Module Two would not have covered our actual role.
+
+**Relying on SCCs rather than the DPF is the more durable position**, not a
+weaker one: the DPF adequacy decision is under continuing legal challenge, while
+the SCCs are the mechanism that survives it. It does mean a transfer impact
+assessment is required rather than optional — the DPF shortcut is unavailable.
+
+**Still open, and not answerable from public docs:** audit-log retention period
+(the audit flagged it, and WorkOS holds the entire audit trail with no local
+mirror), and whether an EU region can be committed contractually ahead of GA.
+Both are questions for the account rep, and the second is worth asking loudly —
+a signed EU-residency requirement from a paying customer is what moves a
+roadmap item.
