@@ -1209,13 +1209,135 @@ def _build_image_caption_document(
     )
 
 
-#: Segment types that mark a standalone image as a technical drawing/plan
-#: export rather than a photo or chart. "sonstiges" alone is NOT enough — a
-#: photo pushed through the drawing prompt lands there, and it belongs on the
-#: generic caption path with content_type "image".
-_DRAWING_SEGMENT_TYPES = frozenset(
-    {"grundriss", "schnitt", "ansicht", "detail", "lageplan", "axonometrie", "diagramm", "perspektive"}
-)
+def analyze_visual(
+    image_bytes: bytes,
+    vlm_model: str = DEFAULT_VLM_MODEL,
+    vlm_base_url: str = DEFAULT_VLM_BASE_URL,
+    vlm_api_key: str | None = None,
+    extract_charts: bool = True,
+) -> tuple[str, str, dict[str, Any]]:
+    """Analyse ONE visual — the single entry point for every image source.
+
+    A rendered PDF page, a raster embedded in a PDF and an uploaded image file
+    all arrive here. They used to be analysed by two different prompts: pages
+    got the structured schema while embedded rasters got a generic English
+    caption, so a scanned plan placed inside a PDF was indexed as one paragraph
+    while the identical sheet as a vector page was indexed per drawing. There
+    is now one prompt, and photos and diagrams are types WITHIN it.
+
+    Returns ``(content_type, caption, fields)`` where ``content_type`` is
+    ``drawing`` / ``chart`` / ``image``, ``caption`` is the text to index and
+    ``fields`` carries the flat legacy fields plus, when the reply parsed, the
+    full analysis under ``fields["analysis"]``.
+
+    Degradation is layered, cheapest first: a parsed v3 analysis types itself;
+    a v1 ``KEY: value`` reply is a drawing by construction; a reply that parses
+    as NEITHER — prose from a model that cannot hold the JSON, or an outright
+    provider failure — spends one more call on the legacy caption prompt, which
+    both keeps charts classified and gives the big prompt a smaller thing to
+    fail back to. Only when that also fails is a failure placeholder returned,
+    for the caller to skip rather than index.
+    """
+    from knowledge_layer.llamaindex import processing as _processing
+    from knowledge_layer.llamaindex import visual_analysis
+    from knowledge_layer.llamaindex import visual_domains
+
+    caption, fields = _processing._cached_vlm_call(
+        image_bytes,
+        visual_analysis.cache_prompt_type(visual_domains.resolve_registry()),
+        _analyze_drawing_page_with_vlm,
+        image_bytes,
+        vlm_model=vlm_model,
+        vlm_base_url=vlm_base_url,
+        vlm_api_key=vlm_api_key,
+        model=vlm_model,
+    )
+    fields = fields if isinstance(fields, dict) else {}
+
+    if not _processing.is_failed_caption(caption):
+        analysis = fields.get("analysis")
+        if analysis:
+            return (visual_analysis.content_type_for(analysis), caption, fields)
+        if fields:
+            # v1 fallback shape: the legacy line format only ever described drawings.
+            return ("drawing", caption, fields)
+
+    # Rare by design — the prompt types photos and diagrams itself — so the
+    # extra call costs little, and on a hard failure it is the difference
+    # between a captioned chunk and no chunk at all.
+    logger.info("Structured visual analysis unusable; falling back to the caption prompt")
+    content_type, legacy_caption = _processing._cached_vlm_call(
+        image_bytes,
+        f"image:charts={extract_charts}",
+        _analyze_image_with_vlm,
+        image_bytes,
+        vlm_model=vlm_model,
+        vlm_base_url=vlm_base_url,
+        vlm_api_key=vlm_api_key,
+        extract_charts=extract_charts,
+        model=vlm_model,
+    )
+    return (content_type, legacy_caption, {})
+
+
+#: Chunk-body prefix per content type. Kept as a map so every source spells the
+#: marker the same way — ``get_document_visual_details`` strips it back off.
+_VISUAL_PREFIXES = {"drawing": "DRAWING", "chart": "CHART", "image": "IMAGE"}
+
+
+def visual_documents(
+    content_type: str,
+    caption: str,
+    fields: dict[str, Any],
+    *,
+    file_name: str,
+    file_size: int,
+    page_number: int,
+    extra_metadata: dict[str, Any] | None = None,
+) -> list[Any]:
+    """Turn one analysed visual into its indexable chunks — the single builder.
+
+    A structured analysis yields ONE chunk PER SEGMENT (a sheet carrying
+    Grundriss + Schnitt + Detail becomes three targeted chunks, each with its
+    own scale and its own slice of ``drawing_data``); anything else yields the
+    single caption chunk. ``extra_metadata`` is what differs between sources —
+    the embedded-image indices and formats, a render's pixel size — and nothing
+    else about the shape does.
+    """
+    from knowledge_layer.llamaindex import visual_analysis
+    from llama_index.core import Document
+
+    prefix = _VISUAL_PREFIXES.get(content_type, "IMAGE")
+    base = {
+        "file_name": file_name,
+        "file_size": file_size,
+        "page_label": str(page_number),
+        "content_type": content_type,
+        **(extra_metadata or {}),
+    }
+
+    analysis = fields.get("analysis") if fields else None
+    if analysis:
+        return [
+            Document(
+                text=f"[{prefix} from page {page_number}]\n\n{payload['text']}",
+                metadata={
+                    **base,
+                    "drawing_type": payload["drawing_type"],
+                    "drawing_scale": payload["drawing_scale"],
+                    "segment_index": payload["segment_index"],
+                    "segment_count": payload["segment_count"],
+                    "drawing_data": payload["drawing_data"],
+                },
+            )
+            for payload in visual_analysis.segment_payloads(analysis)
+        ]
+
+    metadata = dict(base)
+    if fields:
+        metadata["drawing_type"] = fields.get("drawing_type", "")
+        metadata["drawing_scale"] = fields.get("scale", "")
+    return [Document(text=f"[{prefix} from page {page_number}]\n\n{caption}", metadata=metadata)]
 
 
 def _build_image_documents(
@@ -1228,77 +1350,46 @@ def _build_image_documents(
     extract_charts: bool = True,
     vlm_api_key: str | None = None,
 ) -> list[Any] | None:
-    """Standalone image → Documents, drawing analysis first.
+    """Standalone uploaded image → Documents, through the shared analyser.
 
-    Architecture offices upload plan EXPORTS as PNG/JPG/WebP at least as often
-    as PDFs, and those used to get only the generic one-paragraph caption while
-    the same sheet inside a PDF got the full structured analysis. So: run the
-    v2 drawing analysis first; when it recognises at least one real drawing
-    segment (``_DRAWING_SEGMENT_TYPES``), index per-segment drawing chunks
-    exactly like the rendered-PDF-page path. Anything else — photos, charts,
-    a failed or unparseable analysis — falls back to
-    :func:`_build_image_caption_document` unchanged. Returns ``None`` only
-    when the image cannot be decoded or captioning failed entirely (caller
-    fails the file, retryable via re-ingest).
+    Thin by design: decode, then the same :func:`analyze_visual` +
+    :func:`visual_documents` every other source uses. Returns ``None`` when the
+    image cannot be decoded or its analysis failed outright — the caption is
+    the file's only content, so the caller fails the file (retryable via
+    re-ingest) rather than indexing a content-free chunk.
     """
-    from knowledge_layer.llamaindex import drawing_analysis
     from knowledge_layer.llamaindex import processing as _processing
-    from llama_index.core import Document
 
     decoded = _read_image_as_jpeg(file_path, file_name)
     if decoded is None:
         return None
     image_bytes, width, height = decoded
 
-    try:
-        _, fields = _processing._cached_vlm_call(
-            image_bytes,
-            drawing_analysis.CACHE_PROMPT_TYPE,
-            _analyze_drawing_page_with_vlm,
-            image_bytes,
-            vlm_model=vlm_model,
-            vlm_base_url=vlm_base_url,
-            vlm_api_key=vlm_api_key,
-            model=vlm_model,
-        )
-    except Exception as e:  # noqa: BLE001 - the generic path below still stands
-        logger.warning("Drawing-first analysis failed for %s (%s); using generic caption", file_name, e)
-        fields = {}
-
-    analysis = (fields or {}).get("analysis") if isinstance(fields, dict) else None
-    if analysis and any(s["segment_type"] in _DRAWING_SEGMENT_TYPES for s in analysis["segments"]):
-        return [
-            Document(
-                text=f"[DRAWING from page 1]\n\n{payload['text']}",
-                metadata={
-                    "file_name": file_name,
-                    "file_size": file_size,
-                    "page_label": "1",
-                    "content_type": "drawing",
-                    "drawing_type": payload["drawing_type"],
-                    "drawing_scale": payload["drawing_scale"],
-                    "segment_index": payload["segment_index"],
-                    "segment_count": payload["segment_count"],
-                    "drawing_data": payload["drawing_data"],
-                    "image_format": image_format,
-                    "image_width": width,
-                    "image_height": height,
-                },
-            )
-            for payload in drawing_analysis.segment_payloads(analysis)
-        ]
-
-    caption_doc = _build_image_caption_document(
-        file_path,
-        file_name,
-        file_size,
-        image_format,
+    content_type, caption, fields = analyze_visual(
+        image_bytes,
         vlm_model=vlm_model,
         vlm_base_url=vlm_base_url,
-        extract_charts=extract_charts,
         vlm_api_key=vlm_api_key,
+        extract_charts=extract_charts,
     )
-    return None if caption_doc is None else [caption_doc]
+    if _processing.is_failed_caption(caption):
+        logger.error("VLM analysis failed for standalone image %s: %s", file_name, caption[:120])
+        return None
+
+    return visual_documents(
+        content_type,
+        caption,
+        fields,
+        file_name=file_name,
+        file_size=file_size,
+        page_number=1,
+        extra_metadata={
+            "image_index": 0,
+            "image_format": image_format,
+            "image_width": width,
+            "image_height": height,
+        },
+    )
 
 
 def _looks_like_raw_pdf_or_binary(text: str) -> bool:
@@ -1555,11 +1646,11 @@ def _caption_image_with_vlm(
 # Visual-page rendering (vector/scanned architectural drawings)
 # =============================================================================
 
-# The drawing prompt + schema live in ``drawing_analysis`` (schema v2: JSON,
-# multiple segments per page, per-segment scale, split categories, provenance
-# + confidence). This module keeps the v1 ``KEY: value`` parser below as the
-# FALLBACK for replies that are not parseable v2 JSON — a weaker VLM (or an
-# old cached caption) degrades to yesterday's behaviour, never to a lost page.
+# The prompt + schema live in ``visual_analysis`` (domain-neutral kernel) and
+# ``visual_domains`` (the vocabulary each domain contributes). This module keeps the legacy
+# ``KEY: value`` parser below as the FALLBACK for replies that are not
+# parseable schema JSON — a weaker VLM (or an old cached caption) degrades to
+# earlier behaviour, never to a lost page.
 
 
 def _parse_drawing_fields(caption: str) -> dict[str, str]:
@@ -1603,17 +1694,22 @@ def _analyze_drawing_page_with_vlm(
     """VLM-analyse a full rendered PDF page as a technical drawing (schema v2).
 
     Returns ``(caption, fields)``. ``caption`` is the rendered structured text
-    (``drawing_analysis.render_analysis_text``) stored/embedded in the chunk;
-    ``fields`` is the v1-shaped flat dict every downstream consumer reads
-    (drawing_type, scale, summary, …) plus — when the reply parsed as v2 JSON —
-    the full canonical analysis under ``fields["analysis"]``. A reply that is
-    not valid v2 JSON falls back verbatim to the v1 ``KEY: value`` path, so a
-    weaker model degrades rather than fails. ``vlm_api_key`` is a pre-resolved
+    (``visual_analysis.render_analysis_text``) stored/embedded in the chunk;
+    ``fields`` is the flat dict every pre-schema consumer reads (drawing_type,
+    scale, summary, …) plus — when the reply parsed — the full canonical
+    analysis under ``fields["analysis"]``. A reply that is not valid schema
+    JSON falls back verbatim to the legacy ``KEY: value`` path, so a weaker
+    model degrades rather than fails. The domain vocabulary comes from the
+    resolved :mod:`visual_domains` registry, so this function is the same for
+    architecture and for any other domain. ``vlm_api_key`` is a pre-resolved
     key (e.g. an org's BYOK key); ``None`` uses the org-agnostic deployment
     key. Fail-open: on any error returns a placeholder caption and empty
     fields so the page is still indexed (never crashes the job).
     """
-    from knowledge_layer.llamaindex import drawing_analysis
+    from knowledge_layer.llamaindex import visual_analysis
+    from knowledge_layer.llamaindex import visual_domains
+
+    registry = visual_domains.resolve_registry()
 
     try:
         from openai import OpenAI
@@ -1640,13 +1736,13 @@ def _analyze_drawing_page_with_vlm(
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": drawing_analysis.DRAWING_ANALYSIS_PROMPT},
+                        {"type": "text", "text": visual_analysis.build_prompt(registry)},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
                     ],
                 }
             ],
-            # The v2 JSON reply is bulkier than the v1 twelve-line format; a
-            # budget sized for v1 would truncate mid-object and forfeit the
+            # The JSON reply is bulkier than the legacy twelve-line format; a
+            # budget sized for that would truncate mid-object and forfeit the
             # whole structure to the fallback parser on every multi-segment
             # sheet. (_vlm_chat_create still doubles this once on truncation.)
             max_tokens=3000,
@@ -1654,13 +1750,13 @@ def _analyze_drawing_page_with_vlm(
         if not reply:
             return ("[Drawing - empty VLM response]", {})
         logger.debug("Drawing VLM analysis: %s...", reply[:100])
-        analysis = drawing_analysis.parse_drawing_analysis(reply)
+        analysis = visual_analysis.parse_visual_analysis(reply, registry)
         if analysis is None:
-            # v1 fallback: the reply is stored as-is and parsed line-wise.
+            # Legacy fallback: the reply is stored as-is and parsed line-wise.
             return (reply, _parse_drawing_fields(reply))
-        fields: dict[str, Any] = drawing_analysis.legacy_fields(analysis)
+        fields: dict[str, Any] = visual_analysis.legacy_fields(analysis)
         fields["analysis"] = analysis
-        return (drawing_analysis.render_analysis_text(analysis), fields)
+        return (visual_analysis.render_analysis_text(analysis), fields)
     except Exception as e:
         logger.error("Drawing VLM analysis failed: %s", e)
         return (f"[Drawing - analysis failed: {str(e)[:50]}]", {})
@@ -3339,7 +3435,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             extract_charts=extract_charts,
                         )
 
-                        # Build image/chart documents
+                        # Build image/chart/drawing documents. An embedded raster
+                        # now goes through the SAME analysis as a rendered page,
+                        # so a scanned plan placed inside a PDF is indexed per
+                        # drawing rather than as one paragraph — the `drawing`
+                        # content type is reachable from this branch too.
                         file_charts = 0
                         file_images = 0
                         for record, content_type, caption in image_results:
@@ -3347,26 +3447,29 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
                             is_chart = content_type == "chart"
 
+                            # `extract_images` is the switch for every non-chart
+                            # visual, drawings included.
                             if extract_charts and not extract_images and not is_chart:
                                 continue
                             if extract_images and not extract_charts and is_chart:
                                 continue
 
-                            prefix = "CHART" if is_chart else "IMAGE"
-                            image_doc = Document(
-                                text=f"[{prefix} from page {record['page_number']}]\n\n{caption}",
-                                metadata={
-                                    "file_name": file_name,
-                                    "file_size": file_size,
-                                    "page_label": str(record["page_number"]),
-                                    "content_type": content_type,
-                                    "image_index": record["image_index"],
-                                    "image_format": record["format"],
-                                    "image_width": record["width"],
-                                    "image_height": record["height"],
-                                },
+                            all_documents.extend(
+                                visual_documents(
+                                    content_type,
+                                    caption,
+                                    record.get("fields") or {},
+                                    file_name=file_name,
+                                    file_size=file_size,
+                                    page_number=record["page_number"],
+                                    extra_metadata={
+                                        "image_index": record["image_index"],
+                                        "image_format": record["format"],
+                                        "image_width": record["width"],
+                                        "image_height": record["height"],
+                                    },
+                                )
                             )
-                            all_documents.append(image_doc)
                             if is_chart:
                                 file_charts += 1
                             else:
@@ -3377,47 +3480,23 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         if file_charts or file_images:
                             logger.info(f"  Visual extraction: {file_charts} charts, {file_images} images")
 
-                        # Build drawing documents. A v2 analysis yields ONE
-                        # chunk per segment (a sheet carrying Grundriss +
-                        # Schnitt + Detail indexes as three targeted chunks,
-                        # each with its own type and scale); a v1/fallback
-                        # page stays one chunk, byte-identical to before.
-                        from knowledge_layer.llamaindex import drawing_analysis as _drawing_analysis
-
+                        # Build rendered-page documents through the same builder
+                        # the embedded rasters above use. A rendered page is
+                        # nearly always a drawing, but the analysis types it —
+                        # a rendered photo page is not forced to claim it is a
+                        # plan just because of where its bytes came from.
                         for page in drawing_pages:
-                            fields = page.get("fields") or {}
-                            page_meta = {
-                                "file_name": file_name,
-                                "file_size": file_size,
-                                "page_label": str(page["page_number"]),
-                                "content_type": "drawing",
-                                "image_width": page.get("width", 0),
-                                "image_height": page.get("height", 0),
-                            }
-                            analysis = fields.get("analysis")
-                            if analysis:
-                                for payload in _drawing_analysis.segment_payloads(analysis):
-                                    all_documents.append(
-                                        Document(
-                                            text=f"[DRAWING from page {page['page_number']}]\n\n{payload['text']}",
-                                            metadata={
-                                                **page_meta,
-                                                "drawing_type": payload["drawing_type"],
-                                                "drawing_scale": payload["drawing_scale"],
-                                                "segment_index": payload["segment_index"],
-                                                "segment_count": payload["segment_count"],
-                                                "drawing_data": payload["drawing_data"],
-                                            },
-                                        )
-                                    )
-                                continue
-                            all_documents.append(
-                                Document(
-                                    text=f"[DRAWING from page {page['page_number']}]\n\n{page.get('caption', '')}",
-                                    metadata={
-                                        **page_meta,
-                                        "drawing_type": fields.get("drawing_type", ""),
-                                        "drawing_scale": fields.get("scale", ""),
+                            all_documents.extend(
+                                visual_documents(
+                                    page.get("content_type") or "drawing",
+                                    page.get("caption", ""),
+                                    page.get("fields") or {},
+                                    file_name=file_name,
+                                    file_size=file_size,
+                                    page_number=page["page_number"],
+                                    extra_metadata={
+                                        "image_width": page.get("width", 0),
+                                        "image_height": page.get("height", 0),
                                     },
                                 )
                             )

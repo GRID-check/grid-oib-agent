@@ -346,41 +346,29 @@ def enrich_vlm_batch(
 
     from knowledge_layer.llamaindex import adapter as _adapter
 
-    def _enrich_one_image(record: dict) -> tuple:
-        content_type, caption = _cached_vlm_call(
-            record["image_bytes"],
-            # The chart-aware and purely-descriptive prompts produce different
-            # content_type/caption for identical bytes, so ``extract_charts``
-            # is part of the cache identity — otherwise a re-ingest under a
-            # different setting would serve the stale other-mode result.
-            f"image:charts={extract_charts}",
-            _adapter._analyze_image_with_vlm,
-            record["image_bytes"],
+    # Embedded rasters and rendered pages run the SAME analysis. They differ in
+    # where the bytes came from and therefore in which metadata the adapter
+    # attaches — never in how the image is understood. ``analyze_visual`` owns
+    # the caching (keyed on the schema version) and the degradation ladder.
+    def _analyze(image_bytes: bytes) -> tuple[str, str, dict]:
+        return _adapter.analyze_visual(
+            image_bytes,
             vlm_model=vlm_model,
             vlm_base_url=vlm_base_url,
             vlm_api_key=vlm_api_key,
             extract_charts=extract_charts,
-            model=vlm_model,
         )
+
+    def _enrich_one_image(record: dict) -> tuple:
+        content_type, caption, fields = _analyze(record["image_bytes"])
+        record["fields"] = fields
         return (record, content_type, caption)
 
     def _enrich_one_drawing(page: dict) -> dict:
-        from knowledge_layer.llamaindex import drawing_analysis as _drawing_analysis
-
-        caption, fields = _cached_vlm_call(
-            page["image_bytes"],
-            # Versioned with the extraction schema: a v1-cached caption served
-            # under v2 would silently skip the structured path for 30 days.
-            _drawing_analysis.CACHE_PROMPT_TYPE,
-            _adapter._analyze_drawing_page_with_vlm,
-            page["image_bytes"],
-            vlm_model=vlm_model,
-            vlm_base_url=vlm_base_url,
-            vlm_api_key=vlm_api_key,
-            model=vlm_model,
-        )
+        content_type, caption, fields = _analyze(page["image_bytes"])
         page["caption"] = caption
         page["fields"] = fields
+        page["content_type"] = content_type
         return page
 
     total_tasks = len(image_records) + len(drawing_pages)

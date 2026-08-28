@@ -94,8 +94,7 @@ export const files = {
     goneCleared: 'No longer asking about that file.',
     goneUndo: 'Undo',
     tryAgain: 'Try again',
-    noInlinePreview:
-      'No inline preview for this file type. Download it to view the full document.',
+    noInlinePreview: 'No inline preview for this file type. Download it to view the full document.',
     status: 'Status',
     // Heading for the rail's fact list (what the FILE is), distinct from
     // "Detailed information" below it (what the VLM saw on each page).
@@ -135,6 +134,56 @@ export const files = {
       empty: 'No visual descriptions available.',
       page: 'Page {page}',
       scale: 'Scale {scale}',
+      structured: {
+        toggle: 'Structured data',
+        composition: 'Build-up {component}',
+        states: 'Existing / new',
+        relations: 'Relations',
+        annotations: 'Annotations',
+        project: 'Project',
+        credits: 'Details',
+        slogans: 'Headlines',
+        strategies: 'Strategies',
+        processSteps: 'Process',
+        provenance: 'Source',
+        confidenceValue: 'confidence {level}',
+        // Vocabulary terms. A domain added on the backend brings keys that are
+        // not here yet; the UI humanizes those from the key, so this list is a
+        // courtesy for the domains we ship, never a gate on new ones.
+        categories: {
+          space: 'Spaces and uses',
+          circulation: 'Circulation',
+          structure: 'Structure',
+          envelope: 'Envelope',
+          services: 'Building services',
+          building_physics: 'Building physics',
+          finish: 'Finishes',
+          landscape: 'Outdoor space',
+          material: 'Materials',
+          object: 'Objects',
+          part: 'Parts',
+          person: 'People and roles',
+          place: 'Places',
+          other: 'Other',
+        },
+        state: {
+          existing: 'existing',
+          new: 'new',
+          demolished: 'demolished',
+          reused: 'reused',
+          transformed: 'transformed',
+        },
+        source: {
+          text: 'labelled text',
+          visual: 'read from the drawing',
+          inferred: 'inferred',
+        },
+        confidence: {
+          high: 'high',
+          medium: 'medium',
+          low: 'low',
+        },
+      },
     },
     unknownType: 'Unknown',
     download: 'Download',
@@ -220,7 +269,8 @@ export const files = {
     renameFolderError: 'The folder could not be renamed. Please try again.',
     deleteFolderError: 'The folder could not be deleted. Please try again.',
     deleteFolderConfirm: 'Delete the folder “{name}”?',
-    deleteFolderConfirmWithContents: 'Delete the folder “{name}”?\n\nIts {documents} document(s) and {folders} subfolder(s) are not deleted — they move to “{parent}”.',
+    deleteFolderConfirmWithContents:
+      'Delete the folder “{name}”?\n\nIts {documents} document(s) and {folders} subfolder(s) are not deleted — they move to “{parent}”.',
     deleteFolderDone: '“{name}” deleted.',
     deleteFolderMoved: 'Folder deleted. {count} document(s) moved to “{parent}”.',
     corpusSubtitle: 'Project knowledge — these documents ground Piloti’s answers',
@@ -303,16 +353,19 @@ export const files = {
       duplicateExisting: '“{name}” has already been added',
       invalidType: '“{name}” is not a supported file type. Accepted: {accepted}',
       fileTooLarge: '“{name}” is {size} — the limit is {limit}',
-      totalSizeExceeded: 'That would come to {total}; only {available} of the {limit} limit is free',
+      totalSizeExceeded:
+        'That would come to {total}; only {available} of the {limit} limit is free',
       totalSizeExceededFirst: '{total} is over the {limit} limit',
       maxFilesExceeded: 'That would be {total} files; only {available} more fit ({limit} maximum)',
       maxFilesExceededFirst: '{total} files is over the limit of {limit}',
       several: '{count} files have issues',
     },
-    someUploadsFailed: '{failed} of {total} documents could not be uploaded. First reason: {reason}',
+    someUploadsFailed:
+      '{failed} of {total} documents could not be uploaded. First reason: {reason}',
     uploadingSkipped: 'Uploading {uploading} {fileLabel}, skipped {skipped} ({summary})',
     cannotRetryServerFile: 'Cannot retry server-loaded files. Please upload the file again.',
-    imageVlmUnavailable: 'Images cannot be uploaded here: this deployment has no image recognition set up.',
+    imageVlmUnavailable:
+      'Images cannot be uploaded here: this deployment has no image recognition set up.',
     fileSingular: 'file',
     filePlural: 'files',
   },
@@ -365,8 +418,10 @@ export const files = {
     showFile: 'Show file',
     expandFile: 'Open larger',
     resizeFile: 'Resize file pane',
-    welcomeAbout: 'This thread is about {name}. Ask it something — answers will cite the file and the law.',
-    subjectHint: 'Piloti searches this document. Other project files and the office archive stay out.',
+    welcomeAbout:
+      'This thread is about {name}. Ask it something — answers will cite the file and the law.',
+    subjectHint:
+      'Piloti searches this document. Other project files and the office archive stay out.',
     subjectClear: 'Stop focusing on this file',
     loadingPeople: 'Loading people…',
     noPeople: 'No one in this project yet',
