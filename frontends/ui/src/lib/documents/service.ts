@@ -9,12 +9,7 @@
  */
 
 import 'server-only'
-import {
-  DeleteObjectCommand,
-  GetObjectCommand,
-  HeadObjectCommand,
-  PutObjectCommand,
-} from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import {
   s3Client,
@@ -32,13 +27,7 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { buildGridRequestContextWireHeaders } from '@/lib/request-context'
 import { findProjectInOrg } from '@/lib/projects/repository'
-import {
-  ApiError,
-  BadRequestError,
-  ConflictError,
-  NotFoundError,
-  UpstreamError,
-} from '@/lib/api/errors'
+import { ApiError, BadRequestError, ConflictError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 import { ALLOWED_TAGS } from './tag-vocabulary'
 import { normalizeDrawingStructured, type DrawingStructured } from './drawing-structured'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
@@ -46,12 +35,7 @@ import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/sign
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard } from '@/lib/storage/admission'
-import {
-  FEATURE_FLAGS,
-  isCollaborationEnabled,
-  isFeatureEnabled,
-  isIfcModelsEnabled,
-} from '@/lib/authz/feature-flags'
+import { FEATURE_FLAGS, isCollaborationEnabled, isFeatureEnabled, isIfcModelsEnabled } from '@/lib/authz/feature-flags'
 import { listResourceAssignments } from '@/lib/assignments/service'
 import { deleteAssignmentsForResource } from '@/lib/assignments/repository'
 import { purgeResourceCollaboration } from '@/lib/collaboration/cleanup'
@@ -130,19 +114,13 @@ export const INGEST_DISPATCH_FAILED_MESSAGE = 'Ingestion could not be started'
  * cap the length, and never emit an empty name.
  */
 function sanitizeFilename(raw: string): string {
-  const cleaned = raw
-    .replace(/[\r\n"]/g, '')
-    .trim()
-    .slice(0, 255)
+  const cleaned = raw.replace(/[\r\n"]/g, '').trim().slice(0, 255)
   return cleaned || 'download'
 }
 
 /** RFC 5987 percent-encoding for the `filename*` parameter. */
 function encodeRfc5987(value: string): string {
-  return encodeURIComponent(value).replace(
-    /['()*]/g,
-    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`
-  )
+  return encodeURIComponent(value).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
 }
 
 /**
@@ -182,7 +160,7 @@ function contentDisposition(type: 'attachment' | 'inline', rawFilename: string):
 async function getAccessibleDocument(
   session: AuthorizedSession,
   documentId: string,
-  intent: 'read' | 'write' = 'read'
+  intent: 'read' | 'write' = 'read',
 ): Promise<Document> {
   const doc = await findDocumentInOrg(documentId, session.organizationId)
   if (!doc) throw new NotFoundError()
@@ -204,7 +182,7 @@ async function getAccessibleDocument(
         session,
         'conversation',
         doc.conversationId,
-        intent === 'write' ? 'collaborator' : 'viewer'
+        intent === 'write' ? 'collaborator' : 'viewer',
       )
       return doc
     }
@@ -217,7 +195,7 @@ async function getAccessibleDocument(
       await requireProjectAccess(
         session,
         doc.projectId,
-        intent === 'write' ? ['project:documents:write', 'project:edit'] : 'project:view'
+        intent === 'write' ? ['project:documents:write', 'project:edit'] : 'project:view',
       )
       return doc
     }
@@ -268,18 +246,14 @@ export async function dispatchIngest(
    * the backend has no `project_folders` table to join against, the path is what
    * a person reads, and a prefix match over it is the folder's whole subtree.
    */
-  folderPath: string | null = null
+  folderPath: string | null = null,
 ): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' }> {
   const bucket = resolveDocumentBucket(storageBucket)
   // The backend fetches the file itself, from inside the Docker network —
   // sign with the internal-endpoint client, not the browser-facing one.
-  const presignedUrl = await getSignedUrl(
-    s3Client,
-    new GetObjectCommand({ Bucket: bucket, Key: storageKey }),
-    {
-      expiresIn: presignTtlSeconds(),
-    }
-  )
+  const presignedUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: bucket, Key: storageKey }), {
+    expiresIn: presignTtlSeconds(),
+  })
 
   // Presigned upload slot for the 200px JPEG thumbnail the ingest pipeline
   // generates. Null for a key with no directory segment: there is nowhere to
@@ -294,7 +268,7 @@ export async function dispatchIngest(
           Key: thumbnailUploadKey,
           ContentType: 'image/jpeg',
         }),
-        { expiresIn: 3600 }
+        { expiresIn: 3600 },
       )
     : null
 
@@ -358,7 +332,7 @@ export async function listDocuments(
    * and filtering after the fact would read the whole project's corpus — plus
    * reconcile and assignment-hydrate every row of it — to return a handful.
    */
-  options: { authoredBy?: DocumentAuthor } = {}
+  options: { authoredBy?: DocumentAuthor } = {},
 ): Promise<Array<Omit<DocumentListRow, 'metadata'> & DocumentMetadata>> {
   await requireProjectAccess(session, projectId, 'project:view')
 
@@ -368,7 +342,7 @@ export async function listDocuments(
     // `undefined` takes the repository's own default rather than restating it
     // here, where a second copy of the cap could drift from the real one.
     undefined,
-    options.authoredBy
+    options.authoredBy,
   )
 
   // Pending rows are lazily reconciled with the backend's ingestion state;
@@ -384,7 +358,7 @@ export async function listDocuments(
   const grouped = await listResourceAssignments(
     session,
     'document',
-    listed.map((row) => row.id)
+    listed.map((row) => row.id),
   )
   return listed.map((row) => ({ ...row, assignees: grouped[row.id] ?? [] }))
 }
@@ -452,22 +426,19 @@ export function deriveSearchTopK(topKFiles: number): number {
 export async function fetchSemanticHits(
   collectionName: string,
   query: string,
-  topKFiles: number
+  topKFiles: number,
 ): Promise<BackendSearchHit[]> {
   const scopeHeaders = buildGridRequestContextWireHeaders(
     { collectionScope: [collectionName] },
-    process.env.GRID_INTERNAL_API_TOKEN
+    process.env.GRID_INTERNAL_API_TOKEN,
   )
   try {
-    const res = await fetch(
-      `${getBackendUrl()}/v1/collections/${encodeURIComponent(collectionName)}/search`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...scopeHeaders },
-        body: JSON.stringify({ query, top_k: deriveSearchTopK(topKFiles), top_k_files: topKFiles }),
-        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-      }
-    )
+    const res = await fetch(`${getBackendUrl()}/v1/collections/${encodeURIComponent(collectionName)}/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...scopeHeaders },
+      body: JSON.stringify({ query, top_k: deriveSearchTopK(topKFiles), top_k_files: topKFiles }),
+      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+    })
     if (!res.ok) return []
     const body = await res.json().catch(() => ({}))
     return Array.isArray(body?.hits) ? (body.hits as BackendSearchHit[]) : []
@@ -551,7 +522,7 @@ export async function searchProjectDocuments(
   session: AuthorizedSession,
   projectId: string,
   query: string,
-  topK = 20
+  topK = 20,
 ): Promise<{ hits: Array<SearchedDocument<Awaited<ReturnType<typeof listDocuments>>[number]>> }> {
   // Authorization (project:view) + the canonical file rows come from the same
   // path the normal list uses, so a semantic result is always a real, visible
@@ -602,10 +573,7 @@ function fileExtension(name: string): string {
  * and the client's accepted-types list are ONE truth. Fail-closed: an
  * unconfirmable capability excludes images (never a silent-failure upload).
  */
-export async function assertUploadTypeAllowed(
-  session: AuthorizedSession,
-  filename: string
-): Promise<void> {
+export async function assertUploadTypeAllowed(session: AuthorizedSession, filename: string): Promise<void> {
   const imageUploadEnabled = isFeatureEnabled(session, FEATURE_FLAGS.imageUpload)
   const ifcUploadEnabled = isIfcModelsEnabled(session)
   const vlmAvailable = await isVlmConfigured()
@@ -659,7 +627,7 @@ export function assertFileSizeAllowed(sizeBytes: number, filename?: string): voi
 export async function uploadDocument(
   session: AuthorizedSession,
   input: UploadDocumentInput,
-  request: Request
+  request: Request,
 ): Promise<UploadDocumentResult> {
   const { projectId, folderId, file } = input
 
@@ -682,13 +650,7 @@ export async function uploadDocument(
 
   const documentId = crypto.randomUUID()
   const collectionName = project.collectionName
-  const storageKey = buildStorageKey(
-    session.organizationId,
-    projectId,
-    documentId,
-    file.name,
-    folderPath
-  )
+  const storageKey = buildStorageKey(session.organizationId, projectId, documentId, file.name, folderPath)
 
   // Create the organization's bucket if this is its first upload (ADR-0043).
   // A no-op — not even a round trip — when per-org buckets are off. Done before
@@ -703,7 +665,7 @@ export async function uploadDocument(
       Key: storageKey,
       Body: bytes,
       ContentType: file.type || 'application/octet-stream',
-    })
+    }),
   )
 
   // The quota's HARD ceiling: the usage is re-read inside the same transaction
@@ -822,9 +784,7 @@ export class AgentAuthoredDocumentNotIndexableError extends Error {
   }
 }
 
-export async function dispatchDocument(
-  input: DispatchDocumentInput
-): Promise<DispatchDocumentResult> {
+export async function dispatchDocument(input: DispatchDocumentInput): Promise<DispatchDocumentResult> {
   /**
    * A document a machine wrote never reaches the retrieval index — checked
    * HERE, at the one place every ingestion path funnels through, and checked by
@@ -867,7 +827,7 @@ export async function dispatchDocument(
     input.storageKey,
     input.organizationId,
     input.storageBucket,
-    input.folderPath ?? null
+    input.folderPath ?? null,
   )
 }
 
@@ -892,7 +852,7 @@ export async function dispatchDocument(
  * failure than a lost upload.
  */
 export async function beginModelExtraction(
-  input: BeginModelExtractionInput
+  input: BeginModelExtractionInput,
 ): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' | 'processing' }> {
   await markDocumentProcessing(input.documentId, input.organizationId)
 
@@ -910,7 +870,7 @@ export async function beginModelExtraction(
         digestStorageKey,
         input.organizationId,
         input.storageBucket,
-        input.folderPath ?? null
+        input.folderPath ?? null,
       ),
   })
     .then(async (outcome) => {
@@ -918,7 +878,7 @@ export async function beginModelExtraction(
         await markDocumentIngestFailed(
           input.documentId,
           input.organizationId,
-          outcome.error ?? 'IFC extraction failed'
+          outcome.error ?? 'IFC extraction failed',
         )
       }
     })
@@ -929,7 +889,7 @@ export async function beginModelExtraction(
       await markDocumentIngestFailed(
         input.documentId,
         input.organizationId,
-        'IFC extraction failed'
+        'IFC extraction failed',
       ).catch(() => undefined)
     })
 
@@ -947,7 +907,7 @@ export async function beginModelExtraction(
  */
 async function resolveDocumentFolderPath(
   doc: Pick<Document, 'folderId' | 'projectId'>,
-  organizationId: string
+  organizationId: string,
 ): Promise<string | null> {
   if (!doc.folderId || !doc.projectId) return null
   return await findFolderPathInProject(doc.folderId, doc.projectId, organizationId)
@@ -967,7 +927,7 @@ export interface ReingestDocumentResult {
  */
 export async function reingestDocument(
   session: AuthorizedSession,
-  documentId: string
+  documentId: string,
 ): Promise<ReingestDocumentResult> {
   const doc = await getAccessibleDocument(session, documentId, 'write')
 
@@ -1036,7 +996,7 @@ const REINDEX_CONCURRENCY = 4
  */
 export async function reindexProject(
   session: AuthorizedSession,
-  projectId: string
+  projectId: string,
 ): Promise<ReindexProjectResult> {
   await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
 
@@ -1125,7 +1085,7 @@ export async function reindexProject(
 export async function updateDocumentTags(
   session: AuthorizedSession,
   documentId: string,
-  tags: string[]
+  tags: string[],
 ): Promise<{ id: string; tags: string[] }> {
   const doc = await getAccessibleDocument(session, documentId, 'write')
 
@@ -1201,7 +1161,7 @@ export async function renameDocument(
   session: AuthorizedSession,
   documentId: string,
   requestedName: string | null,
-  request: Request
+  request: Request,
 ): Promise<{ id: string; filename: string; displayName: string | null }> {
   const doc = await getAccessibleDocument(session, documentId, 'write')
 
@@ -1252,10 +1212,7 @@ export async function renameDocument(
   await recordAuditEvent({
     organizationId: session.organizationId,
     actor: { userId: session.userId, email: session.email },
-    action:
-      doc.scope === 'archiv' || doc.projectId === null
-        ? 'archiv.document.renamed'
-        : 'document.renamed',
+    action: doc.scope === 'archiv' || doc.projectId === null ? 'archiv.document.renamed' : 'document.renamed',
     targetType: 'document',
     targetId: documentId,
     metadata: {
@@ -1287,7 +1244,7 @@ export async function renameDocument(
 export async function deleteDocument(
   session: AuthorizedSession,
   documentId: string,
-  request: Request
+  request: Request,
 ): Promise<void> {
   const doc = await findDocumentInOrg(documentId, session.organizationId)
   if (!doc || doc.scope !== 'project' || doc.projectId === null) throw new NotFoundError()
@@ -1296,9 +1253,7 @@ export async function deleteDocument(
 
   await Promise.all([
     purgeResourceCollaboration('document', documentId).catch(() => undefined),
-    deleteAssignmentsForResource(session.organizationId, 'document', documentId).catch(
-      () => undefined
-    ),
+    deleteAssignmentsForResource(session.organizationId, 'document', documentId).catch(() => undefined),
   ])
 
   // Best-effort: remove the ingested chunks so a deleted document stops showing
@@ -1363,11 +1318,7 @@ export async function deleteDocument(
     action: 'document.deleted',
     targetType: 'document',
     // Filename is user-controlled — cap it before it reaches the trail.
-    metadata: {
-      projectId: doc.projectId,
-      filename: doc.filename.slice(0, 200),
-      collectionName: doc.collectionName,
-    },
+    metadata: { projectId: doc.projectId, filename: doc.filename.slice(0, 200), collectionName: doc.collectionName },
     request,
   })
 }
@@ -1379,13 +1330,13 @@ export interface DocumentVisualDetail {
   scale: string
   text: string
   /**
-   * Which drawing on the sheet this is. A plan sheet carrying a Grundriss AND
-   * a Schnitt is indexed as one chunk per drawing, so page number alone no
-   * longer identifies a row.
+   * Which depiction on the sheet this is. A sheet carrying a plan AND a section
+   * is indexed as one chunk per depiction, so the page number alone no longer
+   * identifies a row.
    */
   segment: number
   /**
-   * The structured analysis behind the description — rooms, assemblies,
+   * The structured analysis behind the description — entities, compositions,
    * quantities, provenance. `null` for chunks indexed before the structured
    * schema, and for backends that do not produce one.
    */
@@ -1401,7 +1352,7 @@ export interface DocumentVisualDetail {
  */
 export async function getDocumentVisualDetails(
   session: AuthorizedSession,
-  documentId: string
+  documentId: string,
 ): Promise<{ id: string; details: DocumentVisualDetail[] }> {
   const doc = await getAccessibleDocument(session, documentId, 'read')
 
@@ -1442,13 +1393,8 @@ export async function getDocumentVisualDetails(
 /** Presign a browser-facing download URL for a document. */
 export async function getDocumentDownload(
   session: AuthorizedSession,
-  documentId: string
-): Promise<{
-  downloadUrl: string
-  filename: string
-  contentType: string | null
-  fileSize: number | null
-}> {
+  documentId: string,
+): Promise<{ downloadUrl: string; filename: string; contentType: string | null; fileSize: number | null }> {
   const doc = await getAccessibleDocument(session, documentId)
   if (!doc.storageKey) throw new NotFoundError('File not available')
 
@@ -1459,7 +1405,7 @@ export async function getDocumentDownload(
       Key: doc.storageKey,
       ResponseContentDisposition: contentDisposition('attachment', doc.filename),
     }),
-    { expiresIn: presignTtlSeconds() }
+    { expiresIn: presignTtlSeconds() },
   )
 
   return {
@@ -1476,16 +1422,14 @@ export async function getDocumentDownload(
  */
 export async function getDocumentPreview(
   session: AuthorizedSession,
-  documentId: string
+  documentId: string,
 ): Promise<{ url: string; contentType: string; filename: string; imageUrl: string | null }> {
   const doc = await getAccessibleDocument(session, documentId)
   if (!doc.storageKey) throw new NotFoundError('File not available')
 
   const contentType = doc.contentType || 'application/octet-stream'
   if (!PREVIEW_CONTENT_TYPES.includes(contentType)) {
-    throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Preview not available for this file type', {
-      contentType,
-    })
+    throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Preview not available for this file type', { contentType })
   }
 
   const url = await getSignedUrl(
@@ -1496,7 +1440,7 @@ export async function getDocumentPreview(
       ResponseContentDisposition: contentDisposition('inline', doc.filename),
       ResponseContentType: contentType,
     }),
-    { expiresIn: 3600 }
+    { expiresIn: 3600 },
   )
 
   // A same-origin, signature-authorized path for the raster image formats the
@@ -1541,7 +1485,7 @@ export async function getDocumentPreview(
  */
 export async function streamDocumentFile(
   session: AuthorizedSession,
-  documentId: string
+  documentId: string,
 ): Promise<Response> {
   const doc = await getAccessibleDocument(session, documentId)
   if (!doc.storageKey) throw new NotFoundError('File not available')
@@ -1559,7 +1503,7 @@ export async function streamDocumentFile(
       new GetObjectCommand({
         Bucket: resolveDocumentBucket(doc.storageBucket),
         Key: doc.storageKey,
-      })
+      }),
     )
     body = object.Body
   } catch {
@@ -1598,7 +1542,7 @@ export async function streamDocumentFile(
  */
 export async function getDocumentThumbnail(
   session: AuthorizedSession,
-  documentId: string
+  documentId: string,
 ): Promise<{ url: string | null }> {
   const doc = await getAccessibleDocument(session, documentId)
   if (!doc.storageKey) return { url: null }
@@ -1615,7 +1559,7 @@ export async function getDocumentThumbnail(
       new HeadObjectCommand({
         Bucket: resolveDocumentBucket(doc.storageBucket),
         Key: thumbnailKey,
-      })
+      }),
     )
   } catch {
     return { url: null }
@@ -1632,7 +1576,7 @@ export async function getDocumentThumbnail(
         Key: thumbnailKey,
         ResponseContentType: 'image/jpeg',
       }),
-      { expiresIn: 3600 }
+      { expiresIn: 3600 },
     )
     return { url }
   } catch {
@@ -1655,7 +1599,7 @@ export async function getDocumentThumbnail(
  */
 export async function streamDocumentImage(
   documentId: string,
-  params: URLSearchParams
+  params: URLSearchParams,
 ): Promise<Response> {
   const verified = verifyDocumentImageUrl(documentId, params)
   if (!verified.ok) {
@@ -1683,7 +1627,7 @@ export async function streamDocumentImage(
   let body
   try {
     const object = await s3Client.send(
-      new GetObjectCommand({ Bucket: resolveDocumentBucket(doc.storageBucket), Key: key })
+      new GetObjectCommand({ Bucket: resolveDocumentBucket(doc.storageBucket), Key: key }),
     )
     body = object.Body
   } catch {
@@ -1767,11 +1711,7 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
 export async function findDocumentStorageKey(
   collectionName: string,
   filename: string,
-  organizationId?: string
-): Promise<{
-  storageKey: string
-  storageBucket: string | null
-  contentType: string | null
-} | null> {
+  organizationId?: string,
+): Promise<{ storageKey: string; storageBucket: string | null; contentType: string | null } | null> {
   return findStorageKeyByCollectionAndFilename(collectionName, filename, organizationId)
 }
