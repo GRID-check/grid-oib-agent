@@ -17,31 +17,40 @@ together with a DNS-01 issuer and a paid upload limit". That reads as one
 decision with a price tag on it, so nobody revisited it, and the zone kept
 paying for none of the free plan's edge in exchange.
 
-Taking the blockers apart, they are not one decision and only one of them costs
-money:
+Taking the blockers apart, they are not one decision, only one of them costs
+money, and — established after the first version of this record — **two of the
+three were attributed to the wrong host**:
 
 * **ACME.** cert-manager solves HTTP-01 through the Gateway. Behind the proxy
-  that depends on four things this program does not own. Cost of fixing it:
-  a DNS-01 solver and one Kubernetes Secret, using the token that already writes
+  that depends on four things this program does not own. Cost of fixing it: a
+  DNS-01 solver and one Kubernetes Secret, using the token that already writes
   the zone. **Free.**
-* **Uploads.** `s3Domain` carries presigned browser uploads. Cloudflare rejects
-  a body over 100 MB at the edge on Free and Pro alike, with a 413 the origin
-  never sees. `frontends/ui`'s own advertised maximum file size is *also*
-  100 MB, so the largest upload the product offers is the first to fail. Cost of
-  fixing it: Business, and even that only reaches 200 MB. **Not worth it, and
-  not needed — the constraint is on one host.**
-* **WebSockets.** Cloudflare closes a proxied socket after 100s with no frame in
-  either direction, on every plan below Enterprise. The browser `WebSocket` API
-  cannot send a ping frame, and the one place that could inject one — the
-  `http-proxy` splice in `frontends/ui/server.js` — pipes raw TCP chunks that
-  may carry partial frames, so writing a ping into that stream can desynchronise
-  it. Every idle chat would instead reconnect on a ~100s cycle, and the
-  reconnect is a WS upgrade: session resolution, an FGA check and a budget read,
-  the most expensive request the app serves (ADR-0040 § L2a). **Not worth it,
-  and not needed — the constraint is on one host.**
+* **Uploads — and this binds `appDomain`, not the storage host.** Browser
+  uploads are not presigned to storage. `use-file-upload.ts` POSTs multipart
+  `FormData` to the same-origin `/api/documents/upload`, and the origin writes
+  to storage server-side; every `PutObjectCommand` in the BFF runs on the
+  server. So every uploaded byte crosses the app host, where Cloudflare rejects
+  a body over 100 MB with a 413 the origin never sees. The product's own
+  default is 100 MB decimal, before multipart framing, against a limit
+  documented as "100 MB" without saying which one — a margin of a few percent,
+  and `FILE_UPLOAD_MAX_FILE_SIZE` can raise the product side further at
+  runtime.
+* **WebSockets — this one does not bind at all.** The chat socket is served by
+  uvicorn with the `websockets` implementation and its default
+  `ws_ping_interval`, a protocol-level PING every 20s. Those frames pass
+  through the raw `http-proxy` splice in `frontends/ui/server.js` untouched and
+  the browser answers each with a PONG, so a chat that looks idle still puts
+  traffic on the wire about five times inside every 100s window. It is now
+  pinned explicitly in `deploy/start_web.py` rather than inherited.
 
-Two of the three are properties of *one host each*. Nothing about them argues
-for keeping the landing site off the edge.
+`s3Domain` serves presigned preview and download GETs (`app/httproutes.ts`
+routes it at `seaweedfs:8333`). The request-body cap does not apply to it, so
+it is proxyable — it stays direct only because a presigned URL is a bearer
+credential in the query string and the edge cache-key decision that implies has
+not been made.
+
+That leaves exactly one host with a constraint that actually binds, and it is
+the upload path rather than the chat.
 
 ## Decision Drivers
 
@@ -109,9 +118,12 @@ the guards. A refusal nobody can read is re-litigated every six months.
 
 ### Confirmation
 
-`deploy/pulumi/src/platform/dns.spec.ts` asserts each verdict *and* that its
-reason still names the constraint it rests on (`100 MB`, `100s`), so a refusal
-cannot quietly outlive its cause. `edge.spec.ts` pins the settings that are
+`deploy/pulumi/src/platform/dns.spec.ts` asserts each verdict *and* the
+constraint its reason rests on — that the app host's names `100 MB` and
+`/api/documents/upload`, and that the storage host's does *not* name the body
+cap. One test asserts an ABSENCE: no refusal may mention the WebSocket idle
+timeout, so the retired reason cannot drift back in. `deploy/start_web.py`
+pins the PING cadence that retired it. `edge.spec.ts` pins the settings that are
 dangerous when wrong — `ssl: strict` rather than `flexible`, HSTS without
 `preload`, the never-cache rule ahead of the cache rule.
 
@@ -139,22 +151,26 @@ three flags while `dnsEnabled` is false.
 ### Proxy everything and pay for Enterprise
 
 * Good, because it is the only option that hides the origin completely.
-* Bad, because Enterprise is priced for a company several stages from this one,
-  to buy a configurable idle timeout on a socket that a client-side heartbeat
-  would also solve.
-* Neutral, because the free-plan version of the same fix — a heartbeat under
-  100s — stays available and is the thing to build if proxying `app.` ever
-  becomes the goal.
+* Bad, because it buys the wrong thing. Enterprise lifts the WebSocket idle
+  timeout, which uvicorn's PING already handles, and raises the request body
+  cap to 500 MB — a ceiling, not a fix, for a path that should not be sending
+  file bytes through the BFF at all.
+* Bad, because the cheap versions of the same outcome are a one-line cap on
+  `FILE_UPLOAD_MAX_FILE_SIZE` or presigned direct-to-storage uploads, and the
+  second is worth building on its own merits.
 
 ## More Information
 
-**Revisit this when** `frontends/ui` grows a WebSocket heartbeat. That single
-change removes the only reason `appDomain` is direct, and proxying it is what
-makes hiding the origin possible — at which point `xffNumTrustedHops` becomes
-raisable and the whole zone can be locked to Cloudflare's ranges. The
-server-side alternative (injecting ping frames at the `http-proxy` splice) needs
-frame-aware buffering on the origin→client direction, which the existing
-client→origin `createFrameObserver` shows the shape of.
+**Revisit this when upload bytes stop crossing the BFF** — either presigned
+direct-to-storage uploads, or `FILE_UPLOAD_MAX_FILE_SIZE` capped below ~90 MB.
+That is the only thing keeping `appDomain` direct. Proxying it, plus a
+cache-key decision for the presigned URLs on `s3Domain`, is what makes hiding
+the origin possible; at that point `xffNumTrustedHops` becomes raisable and the
+origin can be locked to Cloudflare's ranges. Splitting the WebSocket onto its
+own hostname does **not** help: the socket was never the constraint, the split
+would not move a single upload byte, and it would require widening the AuthKit
+session cookie to `.<zone>` so it reached the new host — a security regression
+bought for nothing.
 
 Free-plan limits this rests on, all confirmed 2026-08-28: 100 MB request body,
 100s WebSocket idle timeout, 10 cache rules, 10 transform rules, 5 custom WAF

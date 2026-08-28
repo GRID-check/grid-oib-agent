@@ -26,8 +26,8 @@ import { type ManagedDns, proxiedHosts } from "./dns";
  * |---|---|---|
  * | Managed WAF rules | The Cloudflare Free Managed Ruleset is deployed automatically on free zones | not re-declared: writing our own `http_request_firewall_managed` entrypoint would REPLACE Cloudflare's default deployment with a copy we then own |
  * | Rate limiting | 1 rule, path + IP only, 10s window | not used: the only proxied host is a static landing site, and ADR-0040 already limits the app tier at the Gateway, where the windows are ours to choose |
- * | Request body over 100 MB | Rejected at the edge | `proxyPlan` keeps the upload host grey |
- * | WebSocket idle over 100s | Connection closed | `proxyPlan` keeps the app host grey |
+ * | Request body over 100 MB | Rejected at the edge | `proxyPlan` keeps the app host grey — uploads cross it |
+ * | WebSocket idle over 100s | Connection closed | nothing needed: uvicorn PINGs every 20s (`deploy/start_web.py`) |
  */
 export interface ManagedEdge {
   /** One resource per zone setting — Cloudflare's API is per-setting, not a document. */

@@ -386,10 +386,13 @@ config:
   # ── Cloudflare proxy (ADR-0051) ──
   #
   # Proxies the hosts `proxyPlan` (src/platform/dns.ts) clears — for this stack
-  # that is the apex, piloti.at, which is its webDomain. app.piloti.at and
-  # s3.piloti.at stay direct: the free plan closes a proxied WebSocket after
-  # 100s of silence and rejects a request body over 100 MB, and this product
-  # serves both.
+  # that is the apex, piloti.at, which is its webDomain.
+  #
+  # app.piloti.at stays direct because document uploads cross it as multipart
+  # POSTs to /api/documents/upload, against the free plan's 100 MB body cap.
+  # s3.piloti.at serves presigned download GETs, which the cap does not touch —
+  # it is direct pending a cache-key decision, not a hard constraint. The chat
+  # WebSockets are NOT a reason for either: uvicorn PINGs every 20s.
   #
   # No new token scope is needed HERE. dnsZoneBaseline is false on this stack,
   # so it writes no zone settings and no cache rules — the dev stack owns those

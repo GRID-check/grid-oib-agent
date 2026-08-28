@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import * as pulumi from "@pulumi/pulumi";
 import {
+  BACKEND_WS_PING_SECONDS,
   FREE_PLAN_MAX_BODY_MB,
   FREE_PLAN_WS_IDLE_SECONDS,
   hostsOutsideZone,
@@ -339,20 +340,40 @@ describe("proxyPlan", () => {
     expect(proxiedHosts(plan)).toEqual(["d.test"]);
   });
 
-  it("refuses the upload host, naming the body cap that would break it", () => {
-    const plan = proxyPlan({ enabled: true, hosts: all, ...hosts });
-    const s3 = plan.find((d) => d.host === "s3.d.test");
-    expect(s3?.proxied).toBe(false);
-    // The number is the point: it is also `frontends/ui`'s advertised maximum
-    // file size, so the largest upload the product offers is the first to fail.
-    expect(s3 && !s3.proxied && s3.reason).toContain(`${FREE_PLAN_MAX_BODY_MB} MB`);
-  });
-
-  it("refuses the app host, naming the WebSocket idle timeout", () => {
+  it("refuses the APP host for the body cap, because uploads cross it", () => {
+    // The correction this test exists to hold. Uploads are not presigned to
+    // storage: `use-file-upload.ts` POSTs multipart FormData to the same-origin
+    // /api/documents/upload, so every uploaded byte crosses app.<domain> and
+    // the edge's request-body cap lands HERE.
     const plan = proxyPlan({ enabled: true, hosts: all, ...hosts });
     const app = plan.find((d) => d.host === "app.d.test");
     expect(app?.proxied).toBe(false);
-    expect(app && !app.proxied && app.reason).toContain(`${FREE_PLAN_WS_IDLE_SECONDS}s`);
+    expect(app && !app.proxied && app.reason).toContain(`${FREE_PLAN_MAX_BODY_MB} MB`);
+    expect(app && !app.proxied && app.reason).toContain("/api/documents/upload");
+  });
+
+  it("does NOT blame the WebSocket idle timeout for anything", () => {
+    // The reason this policy carried when it was first written, and it was
+    // wrong: uvicorn sends a protocol-level PING every 20s (pinned in
+    // deploy/start_web.py), which passes through the http-proxy splice and is
+    // answered by the browser. A chat socket is never idle for 100s. Asserting
+    // the ABSENCE keeps the retired reason from drifting back in.
+    expect(BACKEND_WS_PING_SECONDS * 4).toBeLessThan(FREE_PLAN_WS_IDLE_SECONDS);
+    const plan = proxyPlan({ enabled: true, hosts: all, ...hosts });
+    for (const decision of plan) {
+      if (!decision.proxied) expect(decision.reason).not.toMatch(/WebSocket|idle/i);
+    }
+  });
+
+  it("refuses the storage host on cache-key grounds, not on the body cap", () => {
+    // It serves presigned preview/download GETs and the browser never PUTs
+    // here, so the request-body cap does not apply. Saying it does would retire
+    // a proxyable host for a constraint it does not have.
+    const plan = proxyPlan({ enabled: true, hosts: all, ...hosts });
+    const s3 = plan.find((d) => d.host === "s3.d.test");
+    expect(s3?.proxied).toBe(false);
+    expect(s3 && !s3.proxied && s3.reason).toContain("bearer credential");
+    expect(s3 && !s3.proxied && s3.reason).not.toContain(`${FREE_PLAN_MAX_BODY_MB} MB`);
   });
 
   it("gives every host a verdict, so a new listener cannot arrive unclassified", () => {

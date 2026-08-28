@@ -254,6 +254,24 @@ def main():
         port=port,
         factory=True,
         loop="asyncio",
+        # Protocol-level WebSocket PING every 20s. This IS uvicorn's default, and
+        # it is stated here because something now depends on it that reading
+        # uvicorn's changelog would not reveal.
+        #
+        # These frames are the only traffic on a chat socket while the agent is
+        # thinking. They pass through the raw http-proxy splice in
+        # frontends/ui/server.js untouched, the browser answers each with a PONG,
+        # and that is what would keep the socket alive under a proxy that closes
+        # idle connections — Cloudflare's is 100s below Enterprise
+        # (ADR-0051). Set this to None and a proxied app host would drop every
+        # quiet chat, reconnecting on a ~100s cycle, and each reconnect is a WS
+        # upgrade: the most expensive request this system serves (ADR-0040 L2a).
+        #
+        # Only load-bearing once app.<domain> is proxied, which it is not yet.
+        # Pinned before then, because the day it happens nobody will be reading
+        # this file.
+        ws_ping_interval=20.0,
+        ws_ping_timeout=20.0,
     )
 
 

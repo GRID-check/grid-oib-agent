@@ -362,9 +362,20 @@ knows.
 | Host | | Why |
 |---|---|---|
 | `webDomain` | proxied | Static landing site (`frontends/web`). Nothing here is long-lived, large, or per-IP limited |
-| `appDomain` | direct | Chat WebSockets. Cloudflare closes a proxied socket after **100s** of silence on every plan below Enterprise, and the browser WebSocket API cannot send a ping frame to prevent it. Every idle chat would reconnect on a ~100s cycle — and the reconnect is an upgrade, the most expensive request the app serves (ADR-0040) |
-| `s3Domain` | direct | Presigned browser uploads. The free plan rejects a request body over **100 MB** at the edge, and 100 MB is also `frontends/ui`'s own advertised maximum file size — so the largest upload the product offers is the first to fail, with a 413 the origin never sees |
+| `appDomain` | direct | **Document uploads cross this host.** `use-file-upload.ts` POSTs multipart `FormData` to the same-origin `/api/documents/upload` and the origin writes to storage server-side, so every uploaded byte passes through here. The free plan rejects a body over **100 MB** at the edge with a 413 the origin never sees, against a product default of 100 MB decimal before multipart framing — and `FILE_UPLOAD_MAX_FILE_SIZE` can raise the product side further at runtime |
+| `s3Domain` | direct | Presigned preview/download GETs (`app/httproutes.ts` routes it at `seaweedfs:8333`; the browser never PUTs here). The body cap does **not** apply, so this host is proxyable — it is direct only because a presigned URL is a bearer credential in the query string, and the edge cache-key decision that implies has not been made |
 | `otelDomain`, `langfuseDomain` | direct | Operator dashboards: no cacheable traffic to win, a live-updating socket to lose |
+
+**Not the WebSockets.** That is the answer everyone reaches for, and it is
+wrong here. Cloudflare closes a proxied socket after 100s with no frame in
+either direction below Enterprise — but the chat socket is served by uvicorn
+with the `websockets` implementation and a 20s `ws_ping_interval`, pinned in
+`deploy/start_web.py`. Those PING frames pass through the raw `http-proxy`
+splice in `frontends/ui/server.js` untouched and the browser answers each with
+a PONG, so a chat that looks idle still puts traffic on the wire about five
+times per window. Splitting the socket onto its own hostname to "protect" it
+would move no upload bytes and would require widening the AuthKit session
+cookie to the zone apex so it reached the new host.
 
 Two consequences worth knowing before reading anything else in this section:
 
@@ -485,8 +496,8 @@ Reversed, the admin UI is cached.
 |---|---|---|
 | Managed WAF rules | The **Cloudflare Free Managed Ruleset** is deployed automatically on free zones | Not re-declared. Writing our own `http_request_firewall_managed` entrypoint would *replace* Cloudflare's default deployment with a copy we then own and have to maintain |
 | Rate limiting | 1 rule, path + IP only, 10s window | Not used. The only proxied host is a static site, and ADR-0040 already limits the app tier at the Gateway, where the windows are ours to choose |
-| Request body | 100 MB cap (200 MB on Business) | `proxyPlan` keeps `s3Domain` direct |
-| WebSocket idle timeout | 100s, configurable on Enterprise only | `proxyPlan` keeps `appDomain` direct |
+| Request body | 100 MB cap (200 MB on Business) | `proxyPlan` keeps `appDomain` direct, because uploads cross it. Presigned direct-to-storage uploads, or a lower `FILE_UPLOAD_MAX_FILE_SIZE`, would remove the constraint rather than raise the ceiling |
+| WebSocket idle timeout | 100s, configurable on Enterprise only | Nothing. uvicorn's 20s PING already keeps the socket busy — see above |
 | Custom WAF rules | 5 | None written; nothing needs one yet |
 | Transform rules | 10 | None written; the app sets its own response headers |
 

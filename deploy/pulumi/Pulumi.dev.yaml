@@ -264,10 +264,14 @@ config:
   # Puts the hosts that can take it behind the orange cloud, and applies the
   # zone-level edge configuration (`src/platform/edge.ts`). WHICH hosts is not
   # a key here: `proxyPlan` in src/platform/dns.ts decides per host and carries
-  # the reason. Today that is dev.piloti.at only — app. keeps its chat
-  # WebSockets (Cloudflare closes a proxied socket after 100s of silence below
-  # Enterprise) and s3. its uploads (the free plan rejects a body over 100 MB,
-  # which is also the product's own advertised maximum file size).
+  # the reason. Today that is dev.piloti.at only.
+  #
+  # app. stays direct because DOCUMENT UPLOADS CROSS IT — use-file-upload.ts
+  # POSTs multipart FormData to /api/documents/upload and the origin writes to
+  # storage server-side, so every uploaded byte passes through, against the free
+  # plan's 100 MB body cap. Not because of the chat WebSockets: uvicorn PINGs
+  # every 20s (deploy/start_web.py), so a proxied socket would never go idle.
+  # s3. stays direct only pending a cache-key decision for the presigned URLs.
   #
   # THIS STACK OWNS THE ZONE (dnsZoneBaseline above), so it is the one that
   # writes the zone settings and cache rules. That needs TWO SCOPES THE

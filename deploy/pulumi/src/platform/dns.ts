@@ -62,16 +62,48 @@ export type ProxyDecision =
 /**
  * Cloudflare's free and pro plans reject a request body over this size at the
  * edge, with a 413 the origin never sees and no entry in any log this repo
- * collects. `frontends/ui`'s own `maxFileSize` default is exactly 100 MB, so a
- * file AT the product's advertised limit is the one that fails.
+ * collects.
+ *
+ * This binds `appDomain`, NOT the object-storage host. Browser uploads do not
+ * go to S3 directly: `use-file-upload.ts` POSTs multipart `FormData` to the
+ * same-origin `/api/documents/upload`, and the origin writes to storage
+ * server-side (`lib/documents/service.ts`). Every uploaded byte therefore
+ * crosses the app host.
  */
 export const FREE_PLAN_MAX_BODY_MB = 100;
 
 /**
+ * `frontends/ui`'s own default maximum file size, in bytes (`shared/config/
+ * file-upload.ts`, asserted in `app/layout.spec.ts`).
+ *
+ * The margin against the cap above is the whole problem: 100 MB decimal against
+ * a Cloudflare limit documented as "100 MB" without saying which one, before
+ * multipart framing and the other form fields are counted. Too thin to put
+ * uploads behind, and the failure is a 413 nothing on our side records.
+ * `FILE_UPLOAD_MAX_FILE_SIZE` can raise it further at runtime.
+ */
+export const UI_DEFAULT_MAX_FILE_BYTES = 100_000_000;
+
+/**
  * Cloudflare closes a proxied WebSocket after this many seconds with no frame
  * in either direction, on every plan below Enterprise.
+ *
+ * **It does not bind this stack, and the obvious reading of it is wrong.** The
+ * chat socket is served by uvicorn with the `websockets` implementation and
+ * default `ws_ping_interval` — a protocol-level PING every 20s, pinned
+ * explicitly in `deploy/start_web.py` so it stays that way. Those frames pass
+ * straight through the raw `http-proxy` splice in `frontends/ui/server.js` and
+ * the browser answers each one with a PONG, so a "quiet" chat still puts
+ * traffic on the wire roughly five times inside every window this constant
+ * describes.
+ *
+ * Kept, with the arithmetic, because it is the first thing anyone reaches for
+ * when asked why the app tier is not proxied, and it is the wrong answer.
  */
 export const FREE_PLAN_WS_IDLE_SECONDS = 100;
+
+/** uvicorn's default WebSocket PING cadence, pinned in `deploy/start_web.py`. */
+export const BACKEND_WS_PING_SECONDS = 20;
 
 /**
  * The orange/grey verdict for every host this stack publishes.
@@ -91,25 +123,34 @@ export function proxyPlan(args: {
     if (!args.enabled) {
       return { host, proxied: false, reason: "grid-oib:dnsProxyEnabled is false" };
     }
-    if (host === args.s3Domain) {
+    if (host === args.appDomain) {
+      // NOT the WebSockets, which is the answer everyone reaches for first and
+      // which `FREE_PLAN_WS_IDLE_SECONDS` explains is wrong. It is the uploads:
+      // they cross THIS host, and the two limits are within a few percent of
+      // each other.
       return {
         host,
         proxied: false,
         reason:
-          `object storage: browser uploads are presigned straight at this host, and the free plan ` +
-          `caps a request body at ${FREE_PLAN_MAX_BODY_MB} MB — which is also the product's own ` +
-          `advertised maximum file size, so the largest permitted upload is the one that breaks`,
+          `document uploads cross this host: use-file-upload.ts POSTs multipart FormData to ` +
+          `/api/documents/upload and the origin writes to storage server-side. The free plan ` +
+          `rejects a body over ${FREE_PLAN_MAX_BODY_MB} MB at the edge, against a product default ` +
+          `of ${UI_DEFAULT_MAX_FILE_BYTES / 1_000_000} MB before multipart framing — a 413 the ` +
+          `origin never sees. Presigned direct-to-storage uploads remove this`,
       };
     }
-    if (host === args.appDomain) {
+    if (host === args.s3Domain) {
+      // Downloads only — `app/httproutes.ts` routes this host at seaweedfs:8333
+      // for "browser presigned preview/download URLs", and the browser never
+      // PUTs here (every `PutObjectCommand` in the BFF is server-side). So the
+      // body cap above does not apply, and this host IS proxyable.
       return {
         host,
         proxied: false,
         reason:
-          `long-lived chat WebSockets: the free plan closes a proxied socket after ` +
-          `${FREE_PLAN_WS_IDLE_SECONDS}s of silence, and the browser WebSocket API cannot send a ` +
-          `ping frame to prevent it. Every idle chat would reconnect on a ~100s cycle, and the ` +
-          `reconnect is an upgrade — the single most expensive request the app serves (ADR-0040)`,
+          "presigned preview/download URLs. Proxyable — the body cap applies to requests, and " +
+          "the browser only GETs here — but a presigned URL is a bearer credential in the query " +
+          "string, so edge caching it needs a cache-key decision this change has not made",
       };
     }
     if (host === args.webDomain) {
