@@ -1276,10 +1276,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               // + `backdrop-blur-md` so it reads as floating OVER the transcript
               // (the same language the toolbar pills and the bottom fade scrim
               // use) rather than as one more opaque block stacked under the last
-              // message. The `supports-` step is the no-blur fallback. No hard
-              // border — the field reads as a calm surface, and focus is
-              // signalled by a ring instead of an outline. Textarea on top,
-              // hairline-separated control row below.
+              // message. The `supports-` step is the no-blur fallback. A single
+              // hairline `border-input` — the same alpha-ink grey every text
+              // field in the kit carries, one step up from the generic
+              // `border` — draws the edge of the card so it reads as a field to
+              // type into rather than as a floating patch of glass. Focus is
+              // still signalled by the ring on top of it, never by thickening
+              // the outline. Textarea on top, hairline-separated control row
+              // below.
               // The ring is `accent-pop`, not the neutral `ring-ring` every
               // other focus state in the app uses: this is the app's one
               // carved-out accent (design doc §"Accent pop"), and typing is
@@ -1291,7 +1295,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               // in the textarea shrank the whole composer — text, chips and all — on
               // every mousedown, which reads as the surface flinching away from the
               // click rather than as a control acknowledging a press.
-              'bg-card/90 backdrop-blur-md supports-[backdrop-filter]:bg-card/85 focus-within:ring-accent-pop/45 duration-quick relative flex flex-col rounded-xl px-4 py-2.5 shadow-md transition-[box-shadow,border-color] ease-out focus-within:ring-2',
+              'bg-card/90 backdrop-blur-md supports-[backdrop-filter]:bg-card/85 focus-within:ring-accent-pop/45 duration-quick relative flex flex-col rounded-xl border border-input px-4 py-2.5 shadow-md transition-[box-shadow,border-color] ease-out focus-within:ring-2',
               isDisabledByAuth && 'opacity-60',
               isDragging && isUnsupportedDrag
                 ? 'border-error border-2 border-dashed'
