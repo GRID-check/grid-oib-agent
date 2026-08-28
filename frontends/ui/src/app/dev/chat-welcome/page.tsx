@@ -127,16 +127,28 @@ export default function ChatWelcomePreviewPage() {
   const [ready, setReady] = useState(false)
   useEffect(() => {
     if (variant === undefined) return
+    // userId MUST be the id `useAuth`'s no-backend fallback resolves to
+    // (`'default-user'`, `adapters/auth/use-auth.ts`), not an arbitrary
+    // fixture id. `useWebSocketChat` (mounted inside the real `InputArea`
+    // below) calls `setCurrentUser(authUserId)` on mount, and that action's
+    // cross-user guard (`sessions-store.ts` `setCurrentUser`) clears
+    // `currentConversation` whenever its `userId` differs from the id being
+    // signed in — exactly what a stray 'dev' id here silently tripped: the
+    // conversation seeded fine, then was nulled a tick later, invisible on
+    // the empty fixture (null before, null after) and only exposed once a
+    // populated one made "then it went back to null" visible.
+    const seededConversation = {
+      id: 'dev-welcome-conv',
+      userId: 'default-user',
+      projectId: 'dev',
+      title: 'Dev',
+      messages: isPopulated ? populatedMessages : [],
+      createdAt: new Date('2024-01-15'),
+      updatedAt: new Date('2024-01-15'),
+    }
     useChatStore.setState({
-      currentConversation: {
-        id: 'dev-welcome-conv',
-        userId: 'dev',
-        projectId: 'dev',
-        title: 'Dev',
-        messages: isPopulated ? populatedMessages : [],
-        createdAt: new Date('2024-01-15'),
-        updatedAt: new Date('2024-01-15'),
-      },
+      conversations: [seededConversation],
+      currentConversation: seededConversation,
       hasHydrated: true,
     })
     setReady(true)
