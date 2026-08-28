@@ -22,10 +22,21 @@ import { humanizeTerm, type DrawingStructured } from '@/lib/documents/drawing-st
  * keys; a key this build has a translation for is translated, and one it has
  * never seen is humanized from the key — so a domain added on the backend
  * shows up here without a frontend release.
+ *
+ * `defaultOpen` exists for the `/dev` preview: in the real pane this sits two
+ * collapsed levels deep, so a screenshot of it closed is a screenshot of one
+ * grey word, and the visual-evidence gate would be satisfied by a picture
+ * showing none of what the change does.
  */
-export function DrawingStructuredDetails({ structured }: { structured: DrawingStructured }) {
+export function DrawingStructuredDetails({
+  structured,
+  defaultOpen = false,
+}: {
+  structured: DrawingStructured
+  defaultOpen?: boolean
+}) {
   const t = useTranslations('files')
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
   const { segment, document } = structured
 
   /**

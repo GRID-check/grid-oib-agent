@@ -135,7 +135,7 @@ export const files: typeof en.files = {
       structured: {
         toggle: 'Strukturierte Daten',
         composition: 'Bauteilaufbau {component}',
-        states: 'Bestand / Neu',
+        states: 'Zustand',
         relations: 'Beziehungen',
         annotations: 'Beschriftungen',
         project: 'Projekt',

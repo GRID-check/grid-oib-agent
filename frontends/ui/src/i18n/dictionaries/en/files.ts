@@ -137,7 +137,10 @@ export const files = {
       structured: {
         toggle: 'Structured data',
         composition: 'Build-up {component}',
-        states: 'Existing / new',
+        // Not "Existing / new": the row carries whatever states the segment's
+        // domain defines, and an electrical schematic's `planned` under an
+        // architecture label is the component leaking a domain it must not know.
+        states: 'Condition',
         relations: 'Relations',
         annotations: 'Annotations',
         project: 'Project',
