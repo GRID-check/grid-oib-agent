@@ -65,6 +65,14 @@
             {
               "en": "Auch als Bild hochgeladene Pläne (PNG, JPG, WebP) bekommen jetzt dieselbe strukturierte Auswertung wie Pläne in einer PDF, und die Detailansicht einer Datei zeigt die erkannten Inhalte je Teilzeichnung.",
               "de": "Auch als Bild hochgeladene Pläne (PNG, JPG, WebP) bekommen jetzt dieselbe strukturierte Auswertung wie Pläne in einer PDF, und die Detailansicht einer Datei zeigt die erkannten Inhalte je Teilzeichnung."
+            },
+            {
+              "en": "The Inbox, the Archiv and the chat history now open as sheets you can pull down to close — drag the handle at the top, on your phone or with the mouse. Closing plays out smoothly instead of cutting away.",
+              "de": "The Inbox, the Archiv and the chat history now open as sheets you can pull down to close — drag the handle at the top, on your phone or with the mouse. Closing plays out smoothly instead of cutting away."
+            },
+            {
+              "en": "The chat history has been redesigned: it now looks and works like the Inbox and the Archiv, shows your deep-research runs alongside your chats, and lets you filter between the two.",
+              "de": "The chat history has been redesigned: it now looks and works like the Inbox and the Archiv, shows your deep-research runs alongside your chats, and lets you filter between the two."
             }
           ]
         },
@@ -74,6 +82,19 @@
             {
               "en": "Word-Dokumente (.docx) wurden beim Hochladen zwar angenommen, aber nicht ausgewertet und als fehlgeschlagen markiert. Sie werden jetzt korrekt eingelesen und sind in Antworten zitierbar.",
               "de": "Word-Dokumente (.docx) wurden beim Hochladen zwar angenommen, aber nicht ausgewertet und als fehlgeschlagen markiert. Sie werden jetzt korrekt eingelesen und sind in Antworten zitierbar."
+            },
+            {
+              "en": "The chat history no longer claims your chats live only in this browser. They are saved to your workspace and available on any device you sign in from.",
+              "de": "The chat history no longer claims your chats live only in this browser. They are saved to your workspace and available on any device you sign in from."
+            }
+          ]
+        },
+        {
+          "key": "other",
+          "notes": [
+            {
+              "en": "The Archiv entry has moved out of the profile menu. It stays one click away in the sidebar and the organization header.",
+              "de": "The Archiv entry has moved out of the profile menu. It stays one click away in the sidebar and the organization header."
             }
           ]
         }
