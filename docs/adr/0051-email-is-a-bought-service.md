@@ -112,9 +112,10 @@ Concretely:
    same Pulumi DNS module that already owns the zone
    (`deploy/pulumi/src/platform/dns.ts`) — MX records plus the routing rules,
    forwarding `hallo@`, `office@`, `datenschutz@` to a verified destination.
-2. **Outbound.** One transactional provider, called over HTTPS from the BFF. No
-   SMTP egress from the cluster at all, which keeps working whatever the
-   provider's port-25 policy turns out to be.
+2. **Outbound.** **Resend**, called over HTTPS from the BFF. No SMTP egress from
+   the cluster at all, which keeps working whatever the provider's port-25
+   policy turns out to be. The transfer analysis that picks it is below, and it
+   carries one condition on what may be put in a message body.
 3. **DNS as code.** SPF, the provider's DKIM selector, and a DMARC record that
    is ours rather than GoDaddy's, all added to `dns.ts` with cases in
    `dns.spec.ts`, so the mail policy is reviewed like the rest of the edge.
@@ -144,13 +145,62 @@ inbound mail — the point at which forwarding stops being enough.
   an MX change.
 * Bad, because outbound mail becomes a paid dependency with a rate limit and a
   terms-of-service, and a provider outage is our outage.
-* Bad, because message content transits a third party. For contact-form and
-  transactional mail that is the same trust boundary as WorkOS already holds;
-  it would need revisiting before anything confidential is mailed.
+* Bad, because message content transits a third party, and is stored in the US
+  for 30 days. For contact-form and transactional mail that is the same trust
+  boundary WorkOS already holds; it needs revisiting before anything
+  confidential is mailed, which is what the condition above is for.
+* Bad, because the enterprise controls that would tighten this — dedicated IP,
+  custom retention, SSO — sit behind volumes we are nowhere near, so for the
+  foreseeable future we run on shared IPs and a fixed 30-day retention.
 * Bad, because Email Routing forwards rather than hosts: replies come *from* the
   destination mailbox, so a real `@piloti.at` reply-from address means option C,
   not a workaround.
 * Neutral, because the effort not spent is the point. The comparison is below.
+
+### Outbound provider: Resend, and what it costs under the GDPR
+
+Named here rather than left open, because "which ESP" is the question that gets
+re-litigated and the answer turns on a distinction that is easy to get backwards.
+
+Verified 2026-08-28:
+
+| | |
+|---|---|
+| Processor | **Plus Five Five, Inc.**, San Francisco — a US controller-processor, trading as Resend |
+| Art. 28 DPA | Pre-signed, in force on signup, downloadable from the dashboard. No negotiation, no counter-signature |
+| Transfer basis | EU SCCs (Module Two) incorporated by reference, **plus** EU-U.S. Data Privacy Framework certification incl. the UK Extension |
+| Certifications | SOC 2 Type II. No ISO 27001, no HIPAA/BAA |
+| **Data residency** | **United States** — message content, delivery logs, webhook payloads and account records. The `eu-west-1` (Ireland) region setting controls where mail is *sent from*, not where it is stored |
+| Sub-processors | All 22 are US-based, including AWS, Vercel, PlanetScale, Supabase, Snowflake, Datadog — and **Anthropic and RunPod** |
+| Retention | 30 days of email and log data on every plan; customisable on Enterprise only; deletion within 90 days of termination |
+| Enterprise path | Dedicated IP ($30/mo, Scale and above, requires >3,000/day), SSO/SAML, SLA, custom retention, from ~3M messages/month |
+
+So Resend is **GDPR-workable, not GDPR-in-the-EU**, and the difference is the
+whole finding. An EU sending region does not make this an EU processor; the
+lawful basis for the transfer is the SCCs, with the DPF as a second belt that
+should not be relied on alone while its adequacy decision is still being
+litigated.
+
+That is acceptable here for one reason worth stating plainly: **it adds no new
+category of transfer.** WorkOS already holds our identity data and sends our
+auth mail from the US (ADR-0009), and the LLM providers already receive prompt
+content. Resend joins a list, it does not start one. Adding a US processor to a
+stack with no US processors would have been a different decision.
+
+The condition, and it is the operative part of this record: **what goes in a
+message body stays low-sensitivity** — authentication links, invitations, system
+notifications, contact-form replies. Not OIB compliance findings about a named
+client's building, not document content, not retrieved passages. Those are the
+things this product exists to produce, they are the most sensitive data we hold,
+and mailing them would move a US processor from the edge of the system into the
+middle of it. If a feature ever needs to mail one, it comes back here first.
+
+Operator obligations that follow, none of them optional:
+
+* Resend goes in the Art. 30 record of processing and in the
+  Datenschutzerklärung as a US sub-processor, with a transfer impact assessment.
+* The 14-day sub-processor notice is worth actually reading — that list already
+  moved once.
 
 ### What option A would actually cost
 
@@ -180,10 +230,19 @@ it:
 * A Gateway with no non-HTTP listener is the invariant that keeps port 25 off
   this cluster. It is currently true by construction and untested; a spec case
   asserting the listener protocols would ratchet it.
+* The low-sensitivity condition is a rule nobody will remember, so it needs a
+  type rather than a reviewer: the send call site should take a closed
+  notification payload — a template id and a small set of scalars — with no
+  field a document body, a retrieved passage or an agent answer can be assigned
+  to. That is the layer that holds while people are tired.
 
 ## More Information
 
 * Inbound limits: [Cloudflare Email Routing limits](https://developers.cloudflare.com/email-routing/limits/).
+* Resend's posture, in its own words: [GDPR](https://resend.com/security/gdpr),
+  [DPA](https://resend.com/legal/dpa),
+  [sub-processors](https://resend.com/legal/subprocessors),
+  [regions](https://resend.com/docs/dashboard/domains/regions).
 * Why the edge cannot carry SMTP: [Cloudflare network ports](https://developers.cloudflare.com/fundamentals/reference/network-ports/).
 * Cluster operating profile, node drains, backups, egress:
   [`../deployment/kubernetes.md`](../deployment/kubernetes.md) §2b.
