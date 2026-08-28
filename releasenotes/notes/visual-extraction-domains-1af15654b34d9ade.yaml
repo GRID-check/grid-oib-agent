@@ -1,0 +1,18 @@
+---
+improvements:
+  - >
+    Bilder in PDFs werden jetzt genauso gründlich ausgewertet wie ganze
+    Planseiten. Ein eingescannter Plan, der in einem PDF eingebettet ist,
+    wurde bisher nur mit einem Absatz beschrieben — er wird jetzt je
+    Teilzeichnung erfasst, mit eigenem Maßstab.
+  - >
+    Ein Blatt kann mehrere Arten von Inhalten mischen: Grundriss, Schnitt,
+    Diagramm und Foto werden einzeln erkannt und jeweils passend ausgewertet.
+    Auch Fotos und Diagramme bekommen dadurch verwertbare Angaben — bei
+    Diagrammen werden die abgelesenen Werte mit ihrer Bedeutung gespeichert
+    statt nur beschrieben.
+  - >
+    In der Detailansicht einer Datei können Sie die erkannten Angaben jetzt
+    aufklappen: Räume, Erschließung, Tragwerk, Technik, Bauteilaufbauten,
+    Kennwerte und Beziehungen — jeweils mit Hinweis darauf, ob eine Angabe
+    beschriftet war oder aus der Zeichnung abgeleitet wurde.

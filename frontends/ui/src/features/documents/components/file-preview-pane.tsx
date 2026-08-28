@@ -42,6 +42,8 @@ import {
   isNeverIndexed,
   isFailedStatus,
 } from './document-status'
+import { DrawingStructuredDetails } from './drawing-structured-details'
+import { hasStructuredDetail, type DrawingStructured } from '@/lib/documents/drawing-structured'
 import { AssignmentFaces } from './assignment-faces'
 import { AuthorshipLine } from './authorship-line'
 import { AssignPopover } from './assign-popover'
@@ -91,7 +93,15 @@ interface FilePreviewPaneProps {
   onAssigneesChanged?: (assignees: FileItem['assignees']) => void
 }
 
-const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml']
+const PREVIEW_TYPES = [
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/gif',
+  'image/webp',
+  'image/svg+xml',
+]
 
 /**
  * The building itself, in the well where a PDF shows its pages.
@@ -102,7 +112,8 @@ const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'
  * that is usually opened on a PDF.
  */
 const IfcFilePreview = dynamic(
-  () => import('@/features/bim/components/ifc-file-preview').then((module) => module.IfcFilePreview),
+  () =>
+    import('@/features/bim/components/ifc-file-preview').then((module) => module.IfcFilePreview),
   { ssr: false }
 )
 
@@ -127,6 +138,10 @@ interface VisualDetail {
   drawingType: string
   scale: string
   text: string
+  /** Which drawing on the sheet — a sheet is indexed one chunk per drawing. */
+  segment?: number
+  /** The structured analysis behind the description; absent on older chunks. */
+  structured?: DrawingStructured | null
 }
 
 const VISUAL_CONTENT_TYPES = ['drawing', 'image', 'chart']
@@ -171,7 +186,9 @@ export function FilePreviewPane({
   const router = useRouter()
   const storeMode = useFilePreviewStore((state) => state.mode)
   const storeFileId = useFilePreviewStore((state) => state.file?.id)
-  const inChat = presentation === 'peek' || presentation === 'expanded' ||
+  const inChat =
+    presentation === 'peek' ||
+    presentation === 'expanded' ||
     ((storeMode === 'peek' || storeMode === 'expanded') && storeFileId === file.id)
   const peeking = presentation === 'peek'
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -208,7 +225,11 @@ export function FilePreviewPane({
    * project still use it, and the ones that do not now work.
    */
   const isModel =
-    inferDocumentKind({ filename: file.filename, contentType: file.contentType, tags: file.tags }) === 'model'
+    inferDocumentKind({
+      filename: file.filename,
+      contentType: file.contentType,
+      tags: file.tags,
+    }) === 'model'
   const canPreview = PREVIEW_TYPES.includes(file.contentType ?? '')
   const isImage = (file.contentType ?? '').startsWith('image/')
   // The large viewer dialog enlarges PDFs (native iframe viewer) and images
@@ -224,7 +245,9 @@ export function FilePreviewPane({
   const hasVisualContent = (file.contentTypes ?? []).some((c) => VISUAL_CONTENT_TYPES.includes(c))
   // The ingestion-detected document type (first document-type tag), shown as
   // the indexed panel's Type row. Only real metadata — nothing is inferred here.
-  const detectedType = (file.tags ?? []).find((tag) => (DOCUMENT_TYPE_TAGS as readonly string[]).includes(tag))
+  const detectedType = (file.tags ?? []).find((tag) =>
+    (DOCUMENT_TYPE_TAGS as readonly string[]).includes(tag)
+  )
 
   const loadPreview = useCallback(() => {
     setPreviewFailed(false)
@@ -325,7 +348,7 @@ export function FilePreviewPane({
   const ext = fileExtensionLabel(file.filename)
 
   return (
-    <div className="@container flex h-full min-h-0 flex-col bg-card">
+    <div className="@container bg-card flex h-full min-h-0 flex-col">
       {/* Peek chrome lives on the host — this header is the modal/expanded one.
 
           The row WRAPS, because on a phone it cannot hold both a filename and
@@ -346,147 +369,149 @@ export function FilePreviewPane({
           „Ask Piloti" beside the name and the other four beneath it — an action
           row split across two lines for no reason a reader could see. */}
       {!peeking && (
-      <div className="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-2 border-b px-3.5 pb-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] @md:flex-nowrap @md:gap-x-3 @md:px-5 sm:pt-3.5">
-        <span
-          className="flex size-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold uppercase leading-none"
-          style={extChipTint(ext)}
-          aria-hidden
-        >
-          {ext || <Icon className="size-4" />}
-        </span>
-        <div className="min-w-[11rem] flex-1 basis-[calc(100%-3.25rem)] @md:min-w-0 @md:basis-0">
-          {/* The name the document was GIVEN, if it was given one. `title`
+        <div className="@md:flex-nowrap @md:gap-x-3 @md:px-5 flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-2 border-b px-3.5 pb-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] sm:pt-3.5">
+          <span
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold uppercase leading-none"
+            style={extChipTint(ext)}
+            aria-hidden
+          >
+            {ext || <Icon className="size-4" />}
+          </span>
+          <div className="@md:min-w-0 @md:basis-0 min-w-[11rem] flex-1 basis-[calc(100%-3.25rem)]">
+            {/* The name the document was GIVEN, if it was given one. `title`
               carries it in full for the truncated case — and the file's own
               name underneath it, which is the answer to "which file is this
               actually" for anyone who renamed it. */}
-          <h3
-            className="truncate text-sm font-semibold leading-tight tracking-[-0.01em] text-foreground"
-            title={actions.isRenamed ? `${actions.name}\n${file.filename}` : actions.name}
-          >
-            {actions.name}
-          </h3>
-          {/* The byline, under the name and ABOVE the type · status line, which
+            <h3
+              className="text-foreground truncate text-sm font-semibold leading-tight tracking-[-0.01em]"
+              title={actions.isRenamed ? `${actions.name}\n${file.filename}` : actions.name}
+            >
+              {actions.name}
+            </h3>
+            {/* The byline, under the name and ABOVE the type · status line, which
               keeps it clear of the assignment row further down: provenance and
               responsibility are two answers that must never be read as one. */}
-          <AuthorshipLine authoredBy={file.authoredBy} className="mt-0.5" />
-          {/* Type AND status on one line. The status badge used to live only in
+            <AuthorshipLine authoredBy={file.authoredBy} className="mt-0.5" />
+            {/* Type AND status on one line. The status badge used to live only in
               the metadata column, below the fold on a narrow panel — so the one
               question a reader has on opening a file ("is this actually indexed,
               or am I looking at a document the agent cannot see?") was answered
               further away than the answer to "what format is it". A document in
               `failed` is the case that matters, and it must not require a
               scroll. */}
-          <div className="mt-1 flex min-w-0 items-center gap-1.5">
-            <p className="truncate text-xs text-muted-foreground">
-              {ext || file.contentType || t('preview.unknownType')}
-            </p>
-            <span className="text-muted-foreground/40" aria-hidden>
-              ·
-            </span>
-            <DocumentStatusBadge status={file.status} className="shrink-0" />
-          </div>
-          {canCollaborate && (
-            <div className="mt-1.5 flex min-w-0 items-center gap-1">
-              <AssignmentFaces assignees={file.assignees} />
-              <AssignPopover
-                documentId={file.id}
-                assignees={file.assignees ?? []}
-                onChanged={(next) => onAssigneesChanged?.(next)}
-              />
+            <div className="mt-1 flex min-w-0 items-center gap-1.5">
+              <p className="text-muted-foreground truncate text-xs">
+                {ext || file.contentType || t('preview.unknownType')}
+              </p>
+              <span className="text-muted-foreground/40" aria-hidden>
+                ·
+              </span>
+              <DocumentStatusBadge status={file.status} className="shrink-0" />
             </div>
+            {canCollaborate && (
+              <div className="mt-1.5 flex min-w-0 items-center gap-1">
+                <AssignmentFaces assignees={file.assignees} />
+                <AssignPopover
+                  documentId={file.id}
+                  assignees={file.assignees ?? []}
+                  onChanged={(next) => onAssigneesChanged?.(next)}
+                />
+              </div>
+            )}
+          </div>
+          {projectId && isCitable(file) && !inChat && (
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 shrink-0"
+              onClick={() =>
+                askAboutFile({
+                  projectId,
+                  file,
+                  navigate: (href) => router.push(href),
+                })
+              }
+            >
+              {t('assignment.ask')}
+            </Button>
           )}
-        </div>
-        {projectId && isCitable(file) && !inChat && (
-          <Button
-            type="button"
-            size="sm"
-            className="h-8 shrink-0"
-            onClick={() =>
-              askAboutFile({
-                projectId,
-                file,
-                navigate: (href) => router.push(href),
-              })
-            }
-          >
-            {t('assignment.ask')}
-          </Button>
-        )}
-        {projectId && canCollaborate && isCitable(file) && (
-          <AskColleagueButton
-            projectId={projectId}
-            file={file}
-            documentId={file.id}
-          />
-        )}
-        {/* Disabled rather than hidden, the way this surface already treats a
+          {projectId && canCollaborate && isCitable(file) && (
+            <AskColleagueButton projectId={projectId} file={file} documentId={file.id} />
+          )}
+          {/* Disabled rather than hidden, the way this surface already treats a
             document that is still being read — but the HINT has to tell the
             truth. „Sobald die Datei zitierbar ist" promises a wait; a report
             Piloti wrote was deliberately never indexed, so there is nothing to
             wait for, and the hint says why instead. No `Piloti dazu fragen`
             affordance appears in any other form here: that is the design, not
             a gap. */}
-        {projectId && !isCitable(file) && !isFailedStatus(file.status) && (
-          // The reason sits on a WRAPPER, not on the button. A disabled
-          // `<button>` dispatches no pointer events in Chrome or Safari, so a
-          // `title` on it is a tooltip that can never open — the one sentence
-          // explaining why Ask is off was unreachable for every reader. The
-          // span is not disabled and does receive hover, so the explanation
-          // exists again; `aria-describedby` gives it to the reader who is not
-          // hovering anything.
-          <span title={askDisabledReason} className="shrink-0">
-            <Button size="sm" className="h-8 shrink-0" disabled aria-describedby={askReasonId}>
-              {t('assignment.ask')}
-            </Button>
-            <span id={askReasonId} className="sr-only">
-              {askDisabledReason}
+          {projectId && !isCitable(file) && !isFailedStatus(file.status) && (
+            // The reason sits on a WRAPPER, not on the button. A disabled
+            // `<button>` dispatches no pointer events in Chrome or Safari, so a
+            // `title` on it is a tooltip that can never open — the one sentence
+            // explaining why Ask is off was unreachable for every reader. The
+            // span is not disabled and does receive hover, so the explanation
+            // exists again; `aria-describedby` gives it to the reader who is not
+            // hovering anything.
+            <span title={askDisabledReason} className="shrink-0">
+              <Button size="sm" className="h-8 shrink-0" disabled aria-describedby={askReasonId}>
+                {t('assignment.ask')}
+              </Button>
+              <span id={askReasonId} className="sr-only">
+                {askDisabledReason}
+              </span>
             </span>
-          </span>
-        )}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 shrink-0 gap-1.5 px-2 pointer-coarse:min-w-11 @md:px-3"
-          onClick={() => void actions.download()}
-          disabled={actions.isDownloading}
-          aria-label={t('preview.download')}
-          title={t('preview.download')}
-        >
-          <Download className="size-3.5" aria-hidden />
-          <span className="hidden @md:inline">{t('preview.download')}</span>
-        </Button>
-        {/* Rename and delete. In the header, with the controls that act on this
-            document — not in the metadata rail, which describes it. */}
-        <DocumentActionsMenu
-          document={file}
-          scope={scope}
-          actions={['rename', 'delete']}
-          canManage={canManage}
-          onRenamed={onRenamed}
-          onDeleted={(fileId) => {
-            onDeleted?.(fileId)
-            onClose?.()
-          }}
-        />
-        {canExpandPreview && previewUrl && (
+          )}
           <Button
-            variant="ghost"
-            size="icon"
-            className="size-8 shrink-0"
-            onClick={() => setIsLargePreviewOpen(true)}
-            aria-label={t('preview.expandPreview')}
-            title={t('preview.expandPreview')}
+            type="button"
+            variant="outline"
+            size="sm"
+            className="pointer-coarse:min-w-11 @md:px-3 h-8 shrink-0 gap-1.5 px-2"
+            onClick={() => void actions.download()}
+            disabled={actions.isDownloading}
+            aria-label={t('preview.download')}
+            title={t('preview.download')}
           >
-            <Maximize2 className="size-4" />
+            <Download className="size-3.5" aria-hidden />
+            <span className="@md:inline hidden">{t('preview.download')}</span>
           </Button>
-        )}
-        {onClose && (
-          <Button variant="ghost" size="icon" className="size-8 shrink-0" onClick={onClose} aria-label={t('preview.closePreview')}>
-            <X className="size-4" />
-          </Button>
-        )}
-      </div>
+          {/* Rename and delete. In the header, with the controls that act on this
+            document — not in the metadata rail, which describes it. */}
+          <DocumentActionsMenu
+            document={file}
+            scope={scope}
+            actions={['rename', 'delete']}
+            canManage={canManage}
+            onRenamed={onRenamed}
+            onDeleted={(fileId) => {
+              onDeleted?.(fileId)
+              onClose?.()
+            }}
+          />
+          {canExpandPreview && previewUrl && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0"
+              onClick={() => setIsLargePreviewOpen(true)}
+              aria-label={t('preview.expandPreview')}
+              title={t('preview.expandPreview')}
+            >
+              <Maximize2 className="size-4" />
+            </Button>
+          )}
+          {onClose && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0"
+              onClick={onClose}
+              aria-label={t('preview.closePreview')}
+            >
+              <X className="size-4" />
+            </Button>
+          )}
+        </div>
       )}
 
       {actions.downloadFailed && (
@@ -500,7 +525,7 @@ export function FilePreviewPane({
               button-until-you-give-up loop — so when the preview has already
               said the document is gone, this says it too, and offers the way
               out rather than the retry. */}
-          <p className="text-xs text-destructive">
+          <p className="text-destructive text-xs">
             {previewGone ? t('preview.gone') : t('preview.downloadFailed')}
           </p>
           {previewGone ? (
@@ -570,7 +595,7 @@ export function FilePreviewPane({
       <div
         className={cn(
           'flex min-h-0 flex-1 flex-col overscroll-contain',
-          peeking ? 'overflow-hidden' : 'overflow-y-auto @2xl:flex-row @2xl:overflow-hidden',
+          peeking ? 'overflow-hidden' : '@2xl:flex-row @2xl:overflow-hidden overflow-y-auto'
         )}
       >
         {/* Left: live preview, or a decorative page mock while loading / when
@@ -586,21 +611,21 @@ export function FilePreviewPane({
             column exists rather than a download link. */}
         <div
           className={cn(
-            'flex min-w-0 justify-center overflow-hidden bg-gradient-to-b from-muted/25 to-muted/60',
+            'from-muted/25 to-muted/60 flex min-w-0 justify-center overflow-hidden bg-gradient-to-b',
             peeking
-              // THE GROUND IS THE DOCUMENT'S, and the document sits centred on
-              // it. A drawing fitted to the width of a 320px pane is a quarter
-              // of its height and the well cannot make it bigger — width is the
-              // binding constraint, so the leftover vertical space exists
-              // whatever this element does. Top-aligned, the document read as
-              // having fallen to the top of a box. Handing the slack to the
-              // summary below was worse: that block's content is four lines
-              // whatever the pane's height, so the emptiness simply moved under
-              // it and changed colour. Centred on its own ground, with the
-              // summary as a footer band beneath, is the composition that reads
-              // as deliberate at every height.
-              ? 'h-full min-h-0 flex-1 items-center p-3'
-              : 'h-[50dvh] min-h-[50dvh] shrink-0 p-5 @2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:p-7',
+              ? // THE GROUND IS THE DOCUMENT'S, and the document sits centred on
+                // it. A drawing fitted to the width of a 320px pane is a quarter
+                // of its height and the well cannot make it bigger — width is the
+                // binding constraint, so the leftover vertical space exists
+                // whatever this element does. Top-aligned, the document read as
+                // having fallen to the top of a box. Handing the slack to the
+                // summary below was worse: that block's content is four lines
+                // whatever the pane's height, so the emptiness simply moved under
+                // it and changed colour. Centred on its own ground, with the
+                // summary as a footer band beneath, is the composition that reads
+                // as deliberate at every height.
+                'h-full min-h-0 flex-1 items-center p-3'
+              : '@2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:p-7 h-[50dvh] min-h-[50dvh] shrink-0 p-5'
           )}
         >
           {isModel ? (
@@ -617,12 +642,12 @@ export function FilePreviewPane({
               <iframe
                 src={previewUrl}
                 className={cn(
-                  'h-full w-full rounded-lg border bg-background',
+                  'bg-background h-full w-full rounded-lg border',
                   // `shadow-sm` is the CARD step of the elevation ramp; `xs`
                   // dresses chips and buttons, and under a document it did not
                   // read as a page on a ground at all. `lg` is the modal step,
                   // which is what the enlarged view is.
-                  peeking ? 'shadow-sm' : 'shadow-lg',
+                  peeking ? 'shadow-sm' : 'shadow-lg'
                 )}
                 title={actions.name}
               />
@@ -659,8 +684,8 @@ export function FilePreviewPane({
                   setPreviewFailed(true)
                 }}
                 className={cn(
-                  'h-fit w-auto max-h-full max-w-full rounded-lg border bg-background object-contain @2xl:max-h-none',
-                  peeking ? 'shadow-sm' : 'shadow-lg',
+                  'bg-background @2xl:max-h-none h-fit max-h-full w-auto max-w-full rounded-lg border object-contain',
+                  peeking ? 'shadow-sm' : 'shadow-lg'
                 )}
               />
             )
@@ -695,7 +720,13 @@ export function FilePreviewPane({
                     {t('preview.goneAction')}
                   </Button>
                 ) : previewFailed && canPreview ? (
-                  <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={loadPreview}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={loadPreview}
+                  >
                     <RotateCcw className="size-3.5" aria-hidden />
                     {t('preview.tryAgain')}
                   </Button>
@@ -767,199 +798,223 @@ export function FilePreviewPane({
             The utility is scroll-driven, so the fade RETRACTS at the bottom of
             travel: its presence is the signal, not decoration. */}
         {!peeking && (
-        <div className="scroll-fade-bottom bg-surface-sunken flex w-full flex-col border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))] @2xl:w-[280px] @2xl:shrink-0 @2xl:min-h-0 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:border-l @2xl:border-t-0 @2xl:pb-4">
-          {/* The building's own numbers lead the rail: they are what the file
+          <div className="scroll-fade-bottom bg-surface-sunken @2xl:w-[280px] @2xl:shrink-0 @2xl:min-h-0 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:border-l @2xl:border-t-0 @2xl:pb-4 flex w-full flex-col border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            {/* The building's own numbers lead the rail: they are what the file
               IS. Ungated by the metadata flag, which covers what INGESTION
               derived — these come out of the IFC itself. Renders nothing until
               a model has actually been read. */}
-          {isModel && (
-            <IfcFileFacts
-              documentId={file.id}
-              projectId={projectId}
-              className="mb-4 border-b pb-4"
-            />
-          )}
-          {/* What Piloti made of the document, in its own words.
+            {isModel && (
+              <IfcFileFacts
+                documentId={file.id}
+                projectId={projectId}
+                className="mb-4 border-b pb-4"
+              />
+            )}
+            {/* What Piloti made of the document, in its own words.
               Promoted out of the fact list and onto a raised card: it is the
               single most valuable thing on this rail — the answer to "does the
               agent actually understand this file" — and it used to sit as one
               more 12.5px paragraph between an eyebrow and six key/value rows,
               read at the same weight as the MIME type. */}
-          {showIndexedSection && (
-            <section className="space-y-2.5" aria-label={t('preview.indexed.title')}>
-              <SectionLabel as="p" icon={Sparkles} className="font-semibold tracking-[0.05em]">
-                {t('preview.indexed.title')}
-              </SectionLabel>
-              {/* Keyed by file so a newly-selected document always starts
+            {showIndexedSection && (
+              <section className="space-y-2.5" aria-label={t('preview.indexed.title')}>
+                <SectionLabel as="p" icon={Sparkles} className="font-semibold tracking-[0.05em]">
+                  {t('preview.indexed.title')}
+                </SectionLabel>
+                {/* Keyed by file so a newly-selected document always starts
                   collapsed and re-measures against its own text. */}
-              {file.summary && <IndexedSummary key={file.id} summary={file.summary} />}
-            </section>
-          )}
+                {file.summary && <IndexedSummary key={file.id} summary={file.summary} />}
+              </section>
+            )}
 
-          {/* One list of facts, not two.
+            {/* One list of facts, not two.
               Type and size used to sit in a separate block BELOW the tags,
               divorced from the page count and the document type they belong
               with, because one group was behind a feature flag and the other
               was not. The flag now gates ROWS, which is what it was always
               about; the group is whole either way. */}
-          <section className={cn('space-y-2', showIndexedSection && 'mt-4')}>
-            <SectionLabel as="p" icon={FileCode2} className="font-semibold tracking-[0.05em]">
-              {t('preview.properties')}
-            </SectionLabel>
-            <div className="space-y-2">
-              {showMetadataPanel && detectedType && (
-                <MetaRow label={t('preview.indexed.documentType')} icon={FileType2}>
-                  <span className="text-xs font-medium text-foreground">{detectedType}</span>
-                </MetaRow>
-              )}
-              {showMetadataPanel && projectName && (
-                <MetaRow label={t('preview.indexed.project')} icon={FolderOpen}>
-                  <span className="truncate text-xs font-medium text-foreground">{projectName}</span>
-                </MetaRow>
-              )}
-              {showMetadataPanel && typeof file.pageCount === 'number' && file.pageCount > 0 && (
-                <MetaRow label={t('preview.pages')} icon={FileText}>
-                  <span className="text-xs font-medium tabular-nums text-foreground">{file.pageCount}</span>
-                </MetaRow>
-              )}
-              {showMetadataPanel && typeof file.chunkCount === 'number' && file.chunkCount > 0 && (
-                <MetaRow label={t('preview.chunks')} icon={Layers}>
-                  <span className="text-xs font-medium tabular-nums text-foreground">{file.chunkCount}</span>
-                </MetaRow>
-              )}
-              {showMetadataPanel && hasRichContent && (
-                <MetaRow label={t('preview.contents')} icon={Shapes}>
-                  <span className="text-xs text-foreground">
-                    {file.contentTypes!.map((c) => t(`preview.contentTypeNames.${c}`)).join(', ')}
-                  </span>
-                </MetaRow>
-              )}
-              {/* No status row: the header badge already answers it, and the
+            <section className={cn('space-y-2', showIndexedSection && 'mt-4')}>
+              <SectionLabel as="p" icon={FileCode2} className="font-semibold tracking-[0.05em]">
+                {t('preview.properties')}
+              </SectionLabel>
+              <div className="space-y-2">
+                {showMetadataPanel && detectedType && (
+                  <MetaRow label={t('preview.indexed.documentType')} icon={FileType2}>
+                    <span className="text-foreground text-xs font-medium">{detectedType}</span>
+                  </MetaRow>
+                )}
+                {showMetadataPanel && projectName && (
+                  <MetaRow label={t('preview.indexed.project')} icon={FolderOpen}>
+                    <span className="text-foreground truncate text-xs font-medium">
+                      {projectName}
+                    </span>
+                  </MetaRow>
+                )}
+                {showMetadataPanel && typeof file.pageCount === 'number' && file.pageCount > 0 && (
+                  <MetaRow label={t('preview.pages')} icon={FileText}>
+                    <span className="text-foreground text-xs font-medium tabular-nums">
+                      {file.pageCount}
+                    </span>
+                  </MetaRow>
+                )}
+                {showMetadataPanel &&
+                  typeof file.chunkCount === 'number' &&
+                  file.chunkCount > 0 && (
+                    <MetaRow label={t('preview.chunks')} icon={Layers}>
+                      <span className="text-foreground text-xs font-medium tabular-nums">
+                        {file.chunkCount}
+                      </span>
+                    </MetaRow>
+                  )}
+                {showMetadataPanel && hasRichContent && (
+                  <MetaRow label={t('preview.contents')} icon={Shapes}>
+                    <span className="text-foreground text-xs">
+                      {file.contentTypes!.map((c) => t(`preview.contentTypeNames.${c}`)).join(', ')}
+                    </span>
+                  </MetaRow>
+                )}
+                {/* No status row: the header badge already answers it, and the
                   same fact stated twice on one surface reads as two facts. */}
-              <MetaRow label={t('preview.type')} icon={FileCode2}>
-                <span className="truncate font-mono text-xs text-foreground">
-                  {file.contentType ?? t('preview.unknownType')}
-                </span>
-              </MetaRow>
-              <MetaRow label={t('preview.size')} icon={HardDrive}>
-                <span className="text-xs font-medium tabular-nums text-foreground">
-                  {formatBytes(file.fileSize, locale)}
-                </span>
-              </MetaRow>
-              {showMetadataPanel && (
-                <MetaRow label={t('preview.indexed.updated')} icon={Clock}>
-                  <span className="text-xs font-medium tabular-nums text-foreground">
-                    {formatAbsoluteTime(file.createdAt, locale)}
+                <MetaRow label={t('preview.type')} icon={FileCode2}>
+                  <span className="text-foreground truncate font-mono text-xs">
+                    {file.contentType ?? t('preview.unknownType')}
                   </span>
                 </MetaRow>
-              )}
-            </div>
-          </section>
-
-          {showMetadataPanel && (
-            <>
-              <div className="mt-4">
-                <DocumentTagsSection
-                  fileId={file.id}
-                  initialTags={file.tags ?? []}
-                  onTagsUpdated={onTagsUpdated}
-                  readOnly={!canManage}
-                />
+                <MetaRow label={t('preview.size')} icon={HardDrive}>
+                  <span className="text-foreground text-xs font-medium tabular-nums">
+                    {formatBytes(file.fileSize, locale)}
+                  </span>
+                </MetaRow>
+                {showMetadataPanel && (
+                  <MetaRow label={t('preview.indexed.updated')} icon={Clock}>
+                    <span className="text-foreground text-xs font-medium tabular-nums">
+                      {formatAbsoluteTime(file.createdAt, locale)}
+                    </span>
+                  </MetaRow>
+                )}
               </div>
-              {hasVisualContent && (
-                <div className="mt-4 border-t pt-3.5">
-                  <button
-                    type="button"
-                    onClick={toggleDetails}
-                    aria-expanded={detailsOpen}
-                    className="flex w-full items-center justify-between gap-2 text-left text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground transition-colors duration-snap ease-out hover:text-foreground touch-target motion-reduce:transition-none"
-                  >
-                    {t('preview.visualDetails.title')}
-                    <ChevronDown
-                      className={cn(
-                        'size-3.5 shrink-0 transition-transform duration-quick ease-out motion-reduce:transition-none',
-                        detailsOpen && 'rotate-180',
-                      )}
-                      aria-hidden
-                    />
-                  </button>
-                  {detailsOpen && (
-                    <div className="mt-2.5 space-y-3">
-                      {detailsLoading && (
-                        <p className="text-xs text-muted-foreground">{t('preview.visualDetails.loading')}</p>
-                      )}
-                      {!detailsLoading && details && details.length === 0 && (
-                        <p className="text-xs text-muted-foreground">{t('preview.visualDetails.empty')}</p>
-                      )}
-                      {!detailsLoading &&
-                        details?.map((d, i) => (
-                          <div key={`${d.page}-${d.contentType}-${i}`} className="space-y-1">
-                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-medium text-foreground">
-                              <span>{t('preview.visualDetails.page', { page: d.page })}</span>
-                              {d.drawingType && <span className="text-muted-foreground">· {d.drawingType}</span>}
-                              {d.scale && d.scale.toLowerCase() !== 'unbekannt' && (
-                                <span className="text-muted-foreground">
-                                  · {t('preview.visualDetails.scale', { scale: d.scale })}
-                                </span>
+            </section>
+
+            {showMetadataPanel && (
+              <>
+                <div className="mt-4">
+                  <DocumentTagsSection
+                    fileId={file.id}
+                    initialTags={file.tags ?? []}
+                    onTagsUpdated={onTagsUpdated}
+                    readOnly={!canManage}
+                  />
+                </div>
+                {hasVisualContent && (
+                  <div className="mt-4 border-t pt-3.5">
+                    <button
+                      type="button"
+                      onClick={toggleDetails}
+                      aria-expanded={detailsOpen}
+                      className="text-muted-foreground duration-snap hover:text-foreground touch-target flex w-full items-center justify-between gap-2 text-left text-[10.5px] font-medium uppercase tracking-wider transition-colors ease-out motion-reduce:transition-none"
+                    >
+                      {t('preview.visualDetails.title')}
+                      <ChevronDown
+                        className={cn(
+                          'duration-quick size-3.5 shrink-0 transition-transform ease-out motion-reduce:transition-none',
+                          detailsOpen && 'rotate-180'
+                        )}
+                        aria-hidden
+                      />
+                    </button>
+                    {detailsOpen && (
+                      <div className="mt-2.5 space-y-3">
+                        {detailsLoading && (
+                          <p className="text-muted-foreground text-xs">
+                            {t('preview.visualDetails.loading')}
+                          </p>
+                        )}
+                        {!detailsLoading && details && details.length === 0 && (
+                          <p className="text-muted-foreground text-xs">
+                            {t('preview.visualDetails.empty')}
+                          </p>
+                        )}
+                        {!detailsLoading &&
+                          details?.map((d, i) => (
+                            <div
+                              key={`${d.page}-${d.contentType}-${d.segment ?? 0}-${i}`}
+                              className="space-y-1"
+                            >
+                              <div className="text-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-medium">
+                                <span>{t('preview.visualDetails.page', { page: d.page })}</span>
+                                {d.drawingType && (
+                                  <span className="text-muted-foreground">· {d.drawingType}</span>
+                                )}
+                                {d.scale && d.scale.toLowerCase() !== 'unbekannt' && (
+                                  <span className="text-muted-foreground">
+                                    · {t('preview.visualDetails.scale', { scale: d.scale })}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-muted-foreground whitespace-pre-line text-xs leading-relaxed">
+                                {d.text}
+                              </p>
+                              {hasStructuredDetail(d.structured ?? null) && d.structured && (
+                                <DrawingStructuredDetails structured={d.structured} />
                               )}
                             </div>
-                            <p className="whitespace-pre-line text-xs leading-relaxed text-muted-foreground">
-                              {d.text}
-                            </p>
-                          </div>
-                        ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
 
-          {/* Failure reason + re-ingestion affordance (re-ingest is a mutation,
+            {/* Failure reason + re-ingestion affordance (re-ingest is a mutation,
               so the button is hidden for read-only viewers). */}
-          {isFailed && (
-            <div className="mt-4 space-y-2.5 border-t pt-4">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
-                <div className="min-w-0 space-y-1">
-                  <p className="text-sm font-medium text-destructive">{t('preview.ingestionFailed')}</p>
-                  <p className="break-words text-xs text-muted-foreground">
-                    {file.errorMessage || t('preview.ingestionFailedGeneric')}
-                  </p>
+            {isFailed && (
+              <div className="mt-4 space-y-2.5 border-t pt-4">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="text-destructive mt-0.5 size-4 shrink-0" aria-hidden />
+                  <div className="min-w-0 space-y-1">
+                    <p className="text-destructive text-sm font-medium">
+                      {t('preview.ingestionFailed')}
+                    </p>
+                    <p className="text-muted-foreground break-words text-xs">
+                      {file.errorMessage || t('preview.ingestionFailedGeneric')}
+                    </p>
+                  </div>
                 </div>
+                {canManage && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full gap-2"
+                    onClick={handleReingest}
+                    disabled={actions.isReingesting}
+                  >
+                    <RotateCcw className="size-4" aria-hidden />
+                    {actions.isReingesting
+                      ? t('preview.retryingIngestion')
+                      : t('preview.retryIngestion')}
+                  </Button>
+                )}
               </div>
-              {canManage && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full gap-2"
-                  onClick={handleReingest}
-                  disabled={actions.isReingesting}
-                >
-                  <RotateCcw className="size-4" aria-hidden />
-                  {actions.isReingesting ? t('preview.retryingIngestion') : t('preview.retryIngestion')}
-                </Button>
-              )}
-            </div>
-          )}
+            )}
 
-          {/* No Delete block here any more. A full-width red button under the
+            {/* No Delete block here any more. A full-width red button under the
               tags made the most dangerous operation the loudest thing on a
               column whose job is to DESCRIBE the document, and its confirm step
               expanded in place, pushing the rest of the rail down. Both moved
               into the header's actions menu, beside the other controls that act
               on this file. */}
 
-          <div className="flex-1" />
-          {/* Same claim as the section eyebrow, in a sentence — „beim Hochladen
+            <div className="flex-1" />
+            {/* Same claim as the section eyebrow, in a sentence — „beim Hochladen
               automatisch erkannt" is about an upload and an ingestion that a
               report Piloti wrote never had. */}
-          {showIndexedSection && (
-            <p className="mt-4 border-t pt-3 text-xs leading-relaxed text-muted-foreground/80">
-              {t('preview.indexed.caption')}
-            </p>
-          )}
-        </div>
+            {showIndexedSection && (
+              <p className="text-muted-foreground/80 mt-4 border-t pt-3 text-xs leading-relaxed">
+                {t('preview.indexed.caption')}
+              </p>
+            )}
+          </div>
         )}
       </div>
 
@@ -1013,10 +1068,10 @@ function IndexedSummary({ summary }: { summary: string }) {
   }, [expanded, summary])
 
   return (
-    <div className="rounded-lg border bg-card p-3 shadow-2xs">
+    <div className="bg-card shadow-2xs rounded-lg border p-3">
       <p
         ref={textRef}
-        className={cn('text-sm leading-[1.55] text-foreground', !expanded && 'line-clamp-5')}
+        className={cn('text-foreground text-sm leading-[1.55]', !expanded && 'line-clamp-5')}
         style={!expanded ? { WebkitLineClamp: SUMMARY_CLAMP_LINES } : undefined}
       >
         {summary}
@@ -1026,13 +1081,13 @@ function IndexedSummary({ summary }: { summary: string }) {
           type="button"
           onClick={() => setExpanded((open) => !open)}
           aria-expanded={expanded}
-          className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors duration-snap ease-out hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 touch-target motion-reduce:transition-none"
+          className="text-muted-foreground duration-snap hover:text-foreground focus-visible:ring-ring/50 touch-target mt-1.5 inline-flex items-center gap-1 text-xs font-medium transition-colors ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none"
         >
           {expanded ? t('preview.summaryLess') : t('preview.summaryMore')}
           <ChevronDown
             className={cn(
-              'size-3 shrink-0 transition-transform duration-quick ease-out motion-reduce:transition-none',
-              expanded && 'rotate-180',
+              'duration-quick size-3 shrink-0 transition-transform ease-out motion-reduce:transition-none',
+              expanded && 'rotate-180'
             )}
             aria-hidden
           />
@@ -1109,7 +1164,10 @@ function DocumentTagsSection({
 
   const removeTag = useCallback(
     (tag: string) => {
-      void persist(tags.filter((existing) => existing !== tag), tags)
+      void persist(
+        tags.filter((existing) => existing !== tag),
+        tags
+      )
     },
     [persist, tags]
   )
@@ -1145,12 +1203,12 @@ function DocumentTagsSection({
 
   return (
     <div className="space-y-1.5">
-      <p className="text-xs text-muted-foreground">{t('preview.tags')}</p>
+      <p className="text-muted-foreground text-xs">{t('preview.tags')}</p>
       <div className="flex flex-wrap items-center gap-1.5">
         {tags.map((tag) => (
           <span
             key={tag}
-            className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
+            className="bg-muted text-muted-foreground inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium"
           >
             {tag}
             {!readOnly && (
@@ -1159,7 +1217,7 @@ function DocumentTagsSection({
                 onClick={() => removeTag(tag)}
                 disabled={isSaving}
                 aria-label={t('preview.removeTag', { tag })}
-                className="-mr-0.5 rounded-sm p-0.5 transition-colors duration-snap ease-out hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 touch-target motion-reduce:transition-none"
+                className="duration-snap hover:bg-accent hover:text-foreground focus-visible:ring-ring touch-target -mr-0.5 rounded-sm p-0.5 transition-colors ease-out focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50 motion-reduce:transition-none"
               >
                 <X className="size-3" aria-hidden />
               </button>
@@ -1167,13 +1225,13 @@ function DocumentTagsSection({
           </span>
         ))}
         {tags.length === 0 && readOnly && (
-          <span className="text-xs text-muted-foreground/70">{t('preview.noTags')}</span>
+          <span className="text-muted-foreground/70 text-xs">{t('preview.noTags')}</span>
         )}
         {!readOnly && !atCap && (
           <span className="relative inline-flex items-center">
             {/* Follows the field's own left padding, which grows with it. */}
             <Plus
-              className="pointer-events-none absolute left-1.5 size-3 text-muted-foreground pointer-coarse:left-3"
+              className="text-muted-foreground pointer-coarse:left-3 pointer-events-none absolute left-1.5 size-3"
               aria-hidden
             />
             <input
@@ -1217,7 +1275,7 @@ function DocumentTagsSection({
               // `h-6` is 24px, a little over half the touch floor, on a control
               // that has to be hit precisely because a mis-tap lands on a tag
               // chip that removes itself.
-              className="h-6 w-28 rounded-md border border-dashed border-input bg-transparent pl-6 pr-1.5 text-xs text-foreground placeholder:text-muted-foreground/70 focus-visible:border-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 pointer-coarse:h-11 pointer-coarse:w-36 pointer-coarse:pl-8 pointer-coarse:text-base"
+              className="border-input text-foreground placeholder:text-muted-foreground/70 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:w-36 pointer-coarse:pl-8 pointer-coarse:text-base h-6 w-28 rounded-md border border-dashed bg-transparent pl-6 pr-1.5 text-xs focus-visible:border-solid focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50"
             />
           </span>
         )}
@@ -1225,7 +1283,11 @@ function DocumentTagsSection({
       {/* Controlled-vocabulary suggestions while the input is active: the PATCH
           endpoint rejects free-form values, so offer the real choices. */}
       {!readOnly && isEditing && suggestions.length > 0 && (
-        <div className="flex flex-wrap gap-1" role="group" aria-label={t('preview.suggestionsLabel')}>
+        <div
+          className="flex flex-wrap gap-1"
+          role="group"
+          aria-label={t('preview.suggestionsLabel')}
+        >
           {suggestions.map((tag) => (
             <button
               key={tag}
@@ -1239,7 +1301,7 @@ function DocumentTagsSection({
               // interaction, and at `py-0.5` each was a 20px chip in a wrapped row
               // of them. Grown rather than overhung — they are neighbours in a
               // flex-wrap row, so catchments would land on each other.
-              className="inline-flex items-center rounded-md border border-border bg-transparent px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors duration-snap ease-out hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 motion-reduce:transition-none pointer-coarse:min-h-11 pointer-coarse:px-3.5"
+              className="border-border text-muted-foreground duration-snap hover:bg-muted hover:text-foreground focus-visible:ring-ring pointer-coarse:min-h-11 pointer-coarse:px-3.5 inline-flex items-center rounded-md border bg-transparent px-2 py-0.5 text-xs font-medium transition-colors ease-out focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50 motion-reduce:transition-none"
             >
               {tag}
             </button>
@@ -1247,7 +1309,7 @@ function DocumentTagsSection({
         </div>
       )}
       {showNoMatchHint && (
-        <p className="text-xs text-muted-foreground/70">{t('preview.noTagMatch')}</p>
+        <p className="text-muted-foreground/70 text-xs">{t('preview.noTagMatch')}</p>
       )}
     </div>
   )
@@ -1277,8 +1339,8 @@ function MetaRow({
       {/* The LABEL never truncates — it is the key, and "Cont…" tells the
           reader nothing. Long values wrap in the right column instead, which is
           what a five-item content-type list actually needs. */}
-      <span className="flex shrink-0 items-center gap-1.5 pt-px text-xs text-muted-foreground">
-        <Icon className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden />
+      <span className="text-muted-foreground flex shrink-0 items-center gap-1.5 pt-px text-xs">
+        <Icon className="text-muted-foreground/70 size-3.5 shrink-0" aria-hidden />
         {label}
       </span>
       <span className="min-w-0 text-right">{children}</span>
@@ -1302,9 +1364,17 @@ function MetaRow({
  *    pretending to be content, and on a compliance surface it is worse than
  *    blank: a reader glancing at the column sees "a document" and moves on.
  */
-function PageMock({ caption, action, skeleton }: { caption?: string; action?: ReactNode; skeleton?: boolean }) {
+function PageMock({
+  caption,
+  action,
+  skeleton,
+}: {
+  caption?: string
+  action?: ReactNode
+  skeleton?: boolean
+}) {
   return (
-    <div className="h-fit min-h-[320px] w-full max-w-[520px] rounded-lg border bg-background p-7 shadow-lg">
+    <div className="bg-background h-fit min-h-[320px] w-full max-w-[520px] rounded-lg border p-7 shadow-lg">
       <div className="flex items-baseline justify-between border-b pb-2.5">
         <div className="space-y-1.5">
           {/* The alphas are the point here, not drift: a skeleton paints solid
@@ -1312,13 +1382,17 @@ function PageMock({ caption, action, skeleton }: { caption?: string; action?: Re
               an illustration of a page, and nothing is coming). Same bars, two
               claims, and the opacity is what separates them. */}
           <div className={cn('h-[9px] w-28 rounded-sm', skeleton ? 'bg-muted' : 'bg-muted/50')} />
-          <div className={cn('h-[6px] w-16 rounded-sm', skeleton ? 'bg-muted/70' : 'bg-muted/40')} />
+          <div
+            className={cn('h-[6px] w-16 rounded-sm', skeleton ? 'bg-muted/70' : 'bg-muted/40')}
+          />
         </div>
         <div className={cn('h-[6px] w-12 rounded-sm', skeleton ? 'bg-muted/70' : 'bg-muted/40')} />
       </div>
       <div className="mt-3.5 flex h-[260px] flex-col items-center justify-center gap-3 rounded border border-dashed px-6 text-center">
         {!skeleton && caption && (
-          <p className="max-w-[80%] text-xs leading-relaxed text-muted-foreground text-balance">{caption}</p>
+          <p className="text-muted-foreground max-w-[80%] text-balance text-xs leading-relaxed">
+            {caption}
+          </p>
         )}
         {action}
       </div>
@@ -1326,9 +1400,9 @@ function PageMock({ caption, action, skeleton }: { caption?: string; action?: Re
           cannot be previewed would be text this document does not have. */}
       {skeleton && (
         <div className="mt-3.5 space-y-1.5">
-          <div className="h-[7px] w-3/5 rounded bg-muted" />
-          <div className="h-[7px] w-1/2 rounded bg-muted" />
-          <div className="h-[7px] w-[55%] rounded bg-muted" />
+          <div className="bg-muted h-[7px] w-3/5 rounded" />
+          <div className="bg-muted h-[7px] w-1/2 rounded" />
+          <div className="bg-muted h-[7px] w-[55%] rounded" />
         </div>
       )}
     </div>

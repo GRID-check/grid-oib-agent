@@ -29,6 +29,7 @@ import { buildGridRequestContextWireHeaders } from '@/lib/request-context'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { ApiError, BadRequestError, ConflictError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 import { ALLOWED_TAGS } from './tag-vocabulary'
+import { normalizeDrawingStructured, type DrawingStructured } from './drawing-structured'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/signed-image-url'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
@@ -1328,6 +1329,18 @@ export interface DocumentVisualDetail {
   drawingType: string
   scale: string
   text: string
+  /**
+   * Which depiction on the sheet this is. A sheet carrying a plan AND a section
+   * is indexed as one chunk per depiction, so the page number alone no longer
+   * identifies a row.
+   */
+  segment: number
+  /**
+   * The structured analysis behind the description — entities, compositions,
+   * quantities, provenance. `null` for chunks indexed before the structured
+   * schema, and for backends that do not produce one.
+   */
+  structured: DrawingStructured | null
 }
 
 /**
@@ -1371,6 +1384,8 @@ export async function getDocumentVisualDetails(
     drawingType: typeof d.drawing_type === 'string' ? d.drawing_type : '',
     scale: typeof d.scale === 'string' ? d.scale : '',
     text: typeof d.text === 'string' ? d.text : '',
+    segment: typeof d.segment === 'number' ? d.segment : 0,
+    structured: normalizeDrawingStructured(d.structured),
   }))
   return { id: doc.id, details }
 }

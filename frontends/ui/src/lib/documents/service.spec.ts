@@ -124,9 +124,7 @@ const session: AuthorizedSession = {
   featureFlags: null,
 }
 
-const makeInput = (
-  overrides: { name?: string; type?: string } = {},
-) => ({
+const makeInput = (overrides: { name?: string; type?: string } = {}) => ({
   projectId: 'proj-1',
   folderId: null,
   file: {
@@ -179,7 +177,7 @@ describe('dispatchDocument reads the row, and needs one', () => {
         storageKey: 'k',
         storageBucket: 'b',
         collectionName: 'proj_abc',
-      }),
+      })
     ).rejects.toBeInstanceOf(AgentAuthoredDocumentNotIndexableError)
     expect(mockFetch).not.toHaveBeenCalled()
   })
@@ -195,7 +193,11 @@ describe('uploadDocument server-side type gate', () => {
     const gatedSession = { ...session, featureFlags: [] }
 
     await expect(
-      uploadDocument(gatedSession, makeInput({ name: 'photo.png', type: 'image/png' }), new Request('http://x')),
+      uploadDocument(
+        gatedSession,
+        makeInput({ name: 'photo.png', type: 'image/png' }),
+        new Request('http://x')
+      )
     ).rejects.toBeInstanceOf(BadRequestError)
 
     // Rejected before any storage/ingest side effects.
@@ -212,7 +214,11 @@ describe('uploadDocument server-side type gate', () => {
     const gatedSession = { ...session, featureFlags: ['image-upload'] }
 
     await expect(
-      uploadDocument(gatedSession, makeInput({ name: 'photo.png', type: 'image/png' }), new Request('http://x')),
+      uploadDocument(
+        gatedSession,
+        makeInput({ name: 'photo.png', type: 'image/png' }),
+        new Request('http://x')
+      )
     ).rejects.toBeInstanceOf(BadRequestError)
     expect(admitOrDiscard).not.toHaveBeenCalled()
     expect(mockFetch).not.toHaveBeenCalled()
@@ -223,12 +229,16 @@ describe('uploadDocument server-side type gate', () => {
     vi.mocked(isVlmConfigured).mockResolvedValue(true)
     vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
     const gatedSession = { ...session, featureFlags: ['image-upload'] }
-    mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 'job-img' }) })
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ job_id: 'job-img' }),
+    })
 
     const result = await uploadDocument(
       gatedSession,
       makeInput({ name: 'photo.png', type: 'image/png' }),
-      new Request('http://x'),
+      new Request('http://x')
     )
 
     expect(result.status).toBe('pending')
@@ -239,7 +249,11 @@ describe('uploadDocument server-side type gate', () => {
     // Enforcement off (default) → image-upload fails open, but .exe is still
     // not in the accepted-types list, so the server rejects it.
     await expect(
-      uploadDocument(session, makeInput({ name: 'malware.exe', type: 'application/octet-stream' }), new Request('http://x')),
+      uploadDocument(
+        session,
+        makeInput({ name: 'malware.exe', type: 'application/octet-stream' }),
+        new Request('http://x')
+      )
     ).rejects.toBeInstanceOf(BadRequestError)
     expect(admitOrDiscard).not.toHaveBeenCalled()
   })
@@ -273,7 +287,7 @@ describe('uploadDocument bucket selection', () => {
     expect(admitOrDiscard).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(String),
-      expect.objectContaining({ storageBucket: 'test-bucket' }),
+      expect.objectContaining({ storageBucket: 'test-bucket' })
     )
     // No bucket-lifecycle call at all — not even a HeadBucket.
     expect(bucketAdminS3Client.send).not.toHaveBeenCalled()
@@ -293,7 +307,7 @@ describe('uploadDocument bucket selection', () => {
     expect(admitOrDiscard).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(String),
-      expect.objectContaining({ storageBucket: expected }),
+      expect.objectContaining({ storageBucket: expected })
     )
   })
 
@@ -332,7 +346,7 @@ describe('uploadDocument ingest dispatch', () => {
     expect(admitOrDiscard).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(String),
-      expect.objectContaining({ status: 'uploaded' }),
+      expect.objectContaining({ status: 'uploaded' })
     )
   })
 
@@ -346,7 +360,7 @@ describe('uploadDocument ingest dispatch', () => {
     expect(markDocumentIngestFailed).toHaveBeenCalledWith(
       result.documentId,
       'org-1',
-      INGEST_DISPATCH_FAILED_MESSAGE,
+      INGEST_DISPATCH_FAILED_MESSAGE
     )
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
   })
@@ -365,7 +379,7 @@ describe('uploadDocument ingest dispatch', () => {
     expect(markDocumentIngestFailed).toHaveBeenCalledWith(
       result.documentId,
       'org-1',
-      INGEST_DISPATCH_FAILED_MESSAGE,
+      INGEST_DISPATCH_FAILED_MESSAGE
     )
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
   })
@@ -399,7 +413,11 @@ describe('uploadDocument ingest dispatch — backend fetch is time-bounded', () 
 
     expect(result.status).toBe('failed')
     expect(result.jobId).toBeNull()
-    expect(markDocumentIngestFailed).toHaveBeenCalledWith(result.documentId, 'org-1', INGEST_DISPATCH_FAILED_MESSAGE)
+    expect(markDocumentIngestFailed).toHaveBeenCalledWith(
+      result.documentId,
+      'org-1',
+      INGEST_DISPATCH_FAILED_MESSAGE
+    )
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
   })
 })
@@ -418,7 +436,12 @@ describe('listDocuments', () => {
 
     await listDocuments(session, 'proj-1', { authoredBy: 'agent' })
 
-    expect(listProjectDocuments).toHaveBeenCalledWith('proj-1', session.organizationId, undefined, 'agent')
+    expect(listProjectDocuments).toHaveBeenCalledWith(
+      'proj-1',
+      session.organizationId,
+      undefined,
+      'agent'
+    )
   })
 
   it('asks for every author when the caller states no filter', async () => {
@@ -427,7 +450,12 @@ describe('listDocuments', () => {
 
     await listDocuments(session, 'proj-1')
 
-    expect(listProjectDocuments).toHaveBeenCalledWith('proj-1', session.organizationId, undefined, undefined)
+    expect(listProjectDocuments).toHaveBeenCalledWith(
+      'proj-1',
+      session.organizationId,
+      undefined,
+      undefined
+    )
   })
 
   it('carries the curated metadata subset through and strips the internal metadata column', async () => {
@@ -474,13 +502,34 @@ describe('listDocuments', () => {
 })
 
 describe('joinHitsToFiles', () => {
-  const older = { filename: 'plan.pdf', createdAt: new Date('2026-01-01T00:00:00Z'), id: 'old', authoredBy: 'user' }
-  const newer = { filename: 'plan.pdf', createdAt: new Date('2026-02-01T00:00:00Z'), id: 'new', authoredBy: 'user' }
-  const other = { filename: 'permit.pdf', createdAt: new Date('2026-01-05T00:00:00Z'), id: 'permit', authoredBy: 'user' }
+  const older = {
+    filename: 'plan.pdf',
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    id: 'old',
+    authoredBy: 'user',
+  }
+  const newer = {
+    filename: 'plan.pdf',
+    createdAt: new Date('2026-02-01T00:00:00Z'),
+    id: 'new',
+    authoredBy: 'user',
+  }
+  const other = {
+    filename: 'permit.pdf',
+    createdAt: new Date('2026-01-05T00:00:00Z'),
+    id: 'permit',
+    authoredBy: 'user',
+  }
 
   it('joins by filename and augments each row with snippet/page/score', () => {
     const hits = [
-      { file_name: 'permit.pdf', score: 0.42, snippet: 'permit text', page_number: 3, collection: 'c' },
+      {
+        file_name: 'permit.pdf',
+        score: 0.42,
+        snippet: 'permit text',
+        page_number: 3,
+        collection: 'c',
+      },
     ]
     const [row] = joinHitsToFiles(hits, [older, other])
     expect(row).toMatchObject({ id: 'permit', snippet: 'permit text', page: 3, score: 0.42 })
@@ -496,19 +545,25 @@ describe('joinHitsToFiles', () => {
   })
 
   it('drops hits whose filename is not among the file rows', () => {
-    const hits = [{ file_name: 'ghost.pdf', score: 0.8, snippet: 'x', page_number: null, collection: 'c' }]
+    const hits = [
+      { file_name: 'ghost.pdf', score: 0.8, snippet: 'x', page_number: null, collection: 'c' },
+    ]
     expect(joinHitsToFiles(hits, [older, other])).toEqual([])
   })
 
   it('resolves a filename collision to the most-recent row', () => {
-    const hits = [{ file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: null, collection: 'c' }]
+    const hits = [
+      { file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: null, collection: 'c' },
+    ]
     // Feed the older row first so first-seen would pick it; recency must win.
     const [row] = joinHitsToFiles(hits, [older, newer])
     expect(row.id).toBe('new')
   })
 
   it('coerces a missing page_number to null', () => {
-    const hits = [{ file_name: 'plan.pdf', score: 0.3, snippet: 'x', page_number: null, collection: 'c' }]
+    const hits = [
+      { file_name: 'plan.pdf', score: 0.3, snippet: 'x', page_number: null, collection: 'c' },
+    ]
     const [row] = joinHitsToFiles(hits, [older])
     expect(row.page).toBeNull()
   })
@@ -524,7 +579,9 @@ describe('joinHitsToFiles', () => {
       id: 'generated',
       authoredBy: 'agent',
     }
-    const hits = [{ file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: 2, collection: 'c' }]
+    const hits = [
+      { file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: 2, collection: 'c' },
+    ]
     expect(joinHitsToFiles(hits, [generated])).toEqual([])
   })
 
@@ -538,7 +595,9 @@ describe('joinHitsToFiles', () => {
       id: 'generated',
       authoredBy: 'agent',
     }
-    const hits = [{ file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: null, collection: 'c' }]
+    const hits = [
+      { file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: null, collection: 'c' },
+    ]
     const [row] = joinHitsToFiles(hits, [userRow, generated])
     expect(row.id).toBe('old')
   })
@@ -555,7 +614,9 @@ describe('joinHitsToFiles', () => {
       id: 'imported',
       authoredBy: 'import',
     }
-    const hits = [{ file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: null, collection: 'c' }]
+    const hits = [
+      { file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: null, collection: 'c' },
+    ]
     expect(joinHitsToFiles(hits, [unknownAuthor])).toEqual([])
   })
 
@@ -629,7 +690,7 @@ describe('searchProjectDocuments', () => {
     vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
     vi.mocked(listProjectDocuments).mockResolvedValue([])
     vi.mocked(reconcileDocumentStatuses).mockResolvedValue(
-      fileRows.map((r) => ({ ...r, metadata: { ingestJobId: 'j' } })),
+      fileRows.map((r) => ({ ...r, metadata: { ingestJobId: 'j' } }))
     )
     vi.mocked(findProjectInOrg).mockResolvedValue(makeProject())
   })
@@ -641,8 +702,20 @@ describe('searchProjectDocuments', () => {
       json: () =>
         Promise.resolve({
           hits: [
-            { file_name: 'permit.pdf', score: 0.91, snippet: 'permit snippet', page_number: 2, collection: 'proj_abc' },
-            { file_name: 'plan.pdf', score: 0.44, snippet: 'plan snippet', page_number: null, collection: 'proj_abc' },
+            {
+              file_name: 'permit.pdf',
+              score: 0.91,
+              snippet: 'permit snippet',
+              page_number: 2,
+              collection: 'proj_abc',
+            },
+            {
+              file_name: 'plan.pdf',
+              score: 0.44,
+              snippet: 'plan snippet',
+              page_number: null,
+              collection: 'proj_abc',
+            },
           ],
         }),
     })
@@ -699,7 +772,13 @@ describe('searchProjectDocuments', () => {
       json: () =>
         Promise.resolve({
           hits: [
-            { file_name: 'plan.pdf', score: 0.9, snippet: 'plan snippet', page_number: 7, collection: 'proj_abc' },
+            {
+              file_name: 'plan.pdf',
+              score: 0.9,
+              snippet: 'plan snippet',
+              page_number: 7,
+              collection: 'proj_abc',
+            },
           ],
         }),
     })
@@ -723,7 +802,9 @@ describe('searchProjectDocuments', () => {
 
   it('404s when the project is not in the org (no backend call)', async () => {
     vi.mocked(findProjectInOrg).mockResolvedValue(null)
-    await expect(searchProjectDocuments(session, 'proj-1', 'q')).rejects.toBeInstanceOf(NotFoundError)
+    await expect(searchProjectDocuments(session, 'proj-1', 'q')).rejects.toBeInstanceOf(
+      NotFoundError
+    )
     expect(mockFetch).not.toHaveBeenCalled()
   })
 })
@@ -763,7 +844,7 @@ describe('reingestDocument', () => {
         status: 'failed',
         storageKey: 'org/org-1/project/proj-1/doc/doc-99/plan.pdf',
         storageBucket: 'grid-org-org-1-deadbeef1234',
-      }),
+      })
     )
     mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({}) })
     vi.mocked(getSignedUrl).mockClear()
@@ -794,7 +875,11 @@ describe('reingestDocument', () => {
 
     expect(result.status).toBe('failed')
     expect(result.jobId).toBeNull()
-    expect(markDocumentIngestFailed).toHaveBeenCalledWith('doc-99', 'org-1', INGEST_DISPATCH_FAILED_MESSAGE)
+    expect(markDocumentIngestFailed).toHaveBeenCalledWith(
+      'doc-99',
+      'org-1',
+      INGEST_DISPATCH_FAILED_MESSAGE
+    )
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
   })
 })
@@ -819,7 +904,11 @@ describe('the folder a document is filed in reaches the ingest dispatch', () => 
   }
 
   beforeEach(() => {
-    mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 'job-1' }) })
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ job_id: 'job-1' }),
+    })
   })
 
   it('sends the folder path an upload was filed into', async () => {
@@ -846,7 +935,7 @@ describe('the folder a document is filed in reaches the ingest dispatch', () => 
         storageKey: 'org/org-1/project/proj-1/doc/doc-99/plan.pdf',
         projectId: 'proj-1',
         folderId: 'folder-1',
-      }),
+      })
     )
     vi.mocked(findFolderPathInProject).mockResolvedValue('Brandschutz')
 
@@ -863,7 +952,7 @@ describe('the folder a document is filed in reaches the ingest dispatch', () => 
         storageKey: 'org/org-1/project/proj-1/doc/doc-99/plan.pdf',
         projectId: 'proj-1',
         folderId: null,
-      }),
+      })
     )
 
     await reingestDocument(session, 'doc-99')
@@ -881,14 +970,22 @@ describe('deleteDocument', () => {
   it('404s when the document is not in the org', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(null)
 
-    await expect(deleteDocument(session, 'missing', new Request('http://x'))).rejects.toBeInstanceOf(NotFoundError)
+    await expect(
+      deleteDocument(session, 'missing', new Request('http://x'))
+    ).rejects.toBeInstanceOf(NotFoundError)
     expect(deleteProjectDocument).not.toHaveBeenCalled()
   })
 
   it('404s for an org-wide Archiv document (NULL projectId) — not deletable via the project route', async () => {
-    vi.mocked(findDocumentInOrg).mockResolvedValue({ ...projectDoc, projectId: null, scope: 'archiv' })
+    vi.mocked(findDocumentInOrg).mockResolvedValue({
+      ...projectDoc,
+      projectId: null,
+      scope: 'archiv',
+    })
 
-    await expect(deleteDocument(session, 'doc-1', new Request('http://x'))).rejects.toBeInstanceOf(NotFoundError)
+    await expect(deleteDocument(session, 'doc-1', new Request('http://x'))).rejects.toBeInstanceOf(
+      NotFoundError
+    )
     expect(requireProjectAccess).not.toHaveBeenCalled()
     expect(deleteProjectDocument).not.toHaveBeenCalled()
   })
@@ -897,7 +994,9 @@ describe('deleteDocument', () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
     vi.mocked(requireProjectAccess).mockRejectedValueOnce(new ForbiddenError())
 
-    await expect(deleteDocument(session, 'doc-1', new Request('http://x'))).rejects.toBeInstanceOf(ForbiddenError)
+    await expect(deleteDocument(session, 'doc-1', new Request('http://x'))).rejects.toBeInstanceOf(
+      ForbiddenError
+    )
     expect(deleteProjectDocument).not.toHaveBeenCalled()
     expect(recordAuditEvent).not.toHaveBeenCalled()
   })
@@ -909,15 +1008,19 @@ describe('deleteDocument', () => {
 
     await deleteDocument(session, 'doc-1', new Request('http://x'))
 
-    expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', ['project:documents:write', 'project:edit'])
+    expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', [
+      'project:documents:write',
+      'project:edit',
+    ])
     // Best-effort backend chunk purge, keyed by the document's collection + filename.
     const purgeCall = mockFetch.mock.calls.find(
-      ([url, init]) => String(url).endsWith('/documents') && (init as RequestInit)?.method === 'DELETE',
+      ([url, init]) =>
+        String(url).endsWith('/documents') && (init as RequestInit)?.method === 'DELETE'
     )
     expect(purgeCall?.[0]).toBe('http://backend:8000/v1/collections/proj_abc/documents')
     expect(deleteProjectDocument).toHaveBeenCalledWith('doc-1', 'org-1', 'proj-1')
     expect(recordAuditEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'document.deleted', organizationId: 'org-1' }),
+      expect.objectContaining({ action: 'document.deleted', organizationId: 'org-1' })
     )
   })
 
@@ -930,7 +1033,7 @@ describe('deleteDocument', () => {
 
     expect(deleteProjectDocument).toHaveBeenCalledWith('doc-1', 'org-1', 'proj-1')
     expect(recordAuditEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'document.deleted' }),
+      expect.objectContaining({ action: 'document.deleted' })
     )
   })
 })
@@ -956,7 +1059,7 @@ describe('renameDocument', () => {
     // document's UNCHANGED (collection, filename) pair.
     const [url, init] = mockFetch.mock.calls.at(-1) ?? []
     expect(String(url)).toBe(
-      'http://backend:8000/v1/collections/proj_abc/documents/plan.pdf/display-title',
+      'http://backend:8000/v1/collections/proj_abc/documents/plan.pdf/display-title'
     )
     expect((init as RequestInit)?.method).toBe('PATCH')
     expect(JSON.parse(String((init as RequestInit)?.body))).toEqual({
@@ -976,7 +1079,10 @@ describe('renameDocument', () => {
   })
 
   it('treats a rename back to the file name as a clear, not a stored duplicate', async () => {
-    vi.mocked(findDocumentInOrg).mockResolvedValue({ ...projectDoc, displayName: 'Einreichplan.pdf' })
+    vi.mocked(findDocumentInOrg).mockResolvedValue({
+      ...projectDoc,
+      displayName: 'Einreichplan.pdf',
+    })
 
     const result = await renameDocument(session, 'doc-1', 'plan.pdf', request())
 
@@ -985,7 +1091,10 @@ describe('renameDocument', () => {
   })
 
   it('clears the rename on null', async () => {
-    vi.mocked(findDocumentInOrg).mockResolvedValue({ ...projectDoc, displayName: 'Einreichplan.pdf' })
+    vi.mocked(findDocumentInOrg).mockResolvedValue({
+      ...projectDoc,
+      displayName: 'Einreichplan.pdf',
+    })
 
     await renameDocument(session, 'doc-1', null, request())
 
@@ -998,9 +1107,9 @@ describe('renameDocument', () => {
   it('refuses an unusable name (400) before writing anything', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
 
-    await expect(renameDocument(session, 'doc-1', 'plans/EG.pdf', request())).rejects.toBeInstanceOf(
-      BadRequestError,
-    )
+    await expect(
+      renameDocument(session, 'doc-1', 'plans/EG.pdf', request())
+    ).rejects.toBeInstanceOf(BadRequestError)
     expect(setDocumentDisplayName).not.toHaveBeenCalled()
     expect(recordAuditEvent).not.toHaveBeenCalled()
   })
@@ -1009,7 +1118,7 @@ describe('renameDocument', () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(null)
 
     await expect(renameDocument(session, 'missing', 'x.pdf', request())).rejects.toBeInstanceOf(
-      NotFoundError,
+      NotFoundError
     )
     expect(setDocumentDisplayName).not.toHaveBeenCalled()
   })
@@ -1019,7 +1128,7 @@ describe('renameDocument', () => {
     vi.mocked(requireProjectAccess).mockRejectedValueOnce(new ForbiddenError())
 
     await expect(renameDocument(session, 'doc-1', 'x.pdf', request())).rejects.toBeInstanceOf(
-      ForbiddenError,
+      ForbiddenError
     )
     expect(setDocumentDisplayName).not.toHaveBeenCalled()
   })
@@ -1033,7 +1142,7 @@ describe('renameDocument', () => {
     expect(result.displayName).toBe('Einreichplan.pdf')
     expect(setDocumentDisplayName).toHaveBeenCalledWith('doc-1', 'org-1', 'Einreichplan.pdf')
     expect(recordAuditEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'document.renamed' }),
+      expect.objectContaining({ action: 'document.renamed' })
     )
   })
 
@@ -1052,7 +1161,7 @@ describe('renameDocument', () => {
           previousName: 'Alt.pdf',
           displayName: 'Neu.pdf',
         }),
-      }),
+      })
     )
   })
 
@@ -1069,10 +1178,10 @@ describe('renameDocument', () => {
     })
 
     await expect(
-      renameDocument({ ...session, role: 'admin' }, 'doc-1', 'Musterordner.pdf', request()),
+      renameDocument({ ...session, role: 'admin' }, 'doc-1', 'Musterordner.pdf', request())
     ).resolves.toMatchObject({ displayName: 'Musterordner.pdf' })
     expect(recordAuditEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'archiv.document.renamed' }),
+      expect.objectContaining({ action: 'archiv.document.renamed' })
     )
   })
 })
@@ -1089,7 +1198,7 @@ describe('getDocumentStatus', () => {
     vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
     vi.mocked(reconcileDocumentStatuses).mockImplementation(
-      async (rows) => rows.map((row) => ({ ...row })) as never,
+      async (rows) => rows.map((row) => ({ ...row })) as never
     )
   })
 
@@ -1183,7 +1292,7 @@ describe('the authorship gate on the (collection, filename) join', () => {
       // function's durable job and neither depends on the backend.
       expect(deleteProjectDocument).toHaveBeenCalledWith('doc-agent', 'org-1', 'proj-1')
       expect(recordAuditEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'document.deleted' }),
+        expect.objectContaining({ action: 'document.deleted' })
       )
     })
 
@@ -1217,16 +1326,28 @@ describe('the authorship gate on the (collection, filename) join', () => {
       mockFetch.mockResolvedValue({
         ok: true,
         status: 200,
-        json: async () => ({ details: [{ page: 3, content_type: 'drawing', text: 'Schnitt A-A' }] }),
+        json: async () => ({
+          details: [{ page: 3, content_type: 'drawing', text: 'Schnitt A-A' }],
+        }),
       })
 
       const result = await getDocumentVisualDetails(session, 'doc-1')
 
+      // A chunk indexed before the structured schema carries no `structured`
+      // payload, and the mapper defaults rather than dropping the row.
       expect(result.details).toEqual([
-        { page: 3, contentType: 'drawing', drawingType: '', scale: '', text: 'Schnitt A-A' },
+        {
+          page: 3,
+          contentType: 'drawing',
+          drawingType: '',
+          scale: '',
+          text: 'Schnitt A-A',
+          segment: 0,
+          structured: null,
+        },
       ])
       expect(String(documentCalls()[0]?.[0])).toBe(
-        `http://backend:8000/v1/collections/proj_abc/documents/${collidingName}/visual-details`,
+        `http://backend:8000/v1/collections/proj_abc/documents/${collidingName}/visual-details`
       )
     })
   })
@@ -1240,21 +1361,25 @@ describe('the authorship gate on the (collection, filename) join', () => {
       // one answer the same way rather than PATCHing the human document's
       // controlled OIB tags.
       await expect(updateDocumentTags(session, 'doc-agent', ['Gutachten'])).rejects.toBeInstanceOf(
-        NotFoundError,
+        NotFoundError
       )
       expect(documentCalls()).toHaveLength(0)
     })
 
     it('still retags the human document with the same filename', async () => {
       vi.mocked(findDocumentInOrg).mockResolvedValue(humanDoc)
-      mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ tags: ['Gutachten'] }) })
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ tags: ['Gutachten'] }),
+      })
 
       await expect(updateDocumentTags(session, 'doc-1', ['Gutachten'])).resolves.toEqual({
         id: 'doc-1',
         tags: ['Gutachten'],
       })
       expect(String(documentCalls()[0]?.[0])).toBe(
-        `http://backend:8000/v1/collections/proj_abc/documents/${collidingName}/tags`,
+        `http://backend:8000/v1/collections/proj_abc/documents/${collidingName}/tags`
       )
     })
   })
@@ -1266,7 +1391,11 @@ describe('the authorship gate on the (collection, filename) join', () => {
       await renameDocument(session, 'doc-agent', 'Piloti-Bericht.pdf', new Request('http://x'))
 
       // The durable rename is the row, and it happens.
-      expect(setDocumentDisplayName).toHaveBeenCalledWith('doc-agent', 'org-1', 'Piloti-Bericht.pdf')
+      expect(setDocumentDisplayName).toHaveBeenCalledWith(
+        'doc-agent',
+        'org-1',
+        'Piloti-Bericht.pdf'
+      )
       // The best-effort mirror does not: it would have renamed the human
       // Gutachten's citation chips to „Piloti-Bericht.pdf“.
       expect(documentCalls()).toHaveLength(0)
@@ -1278,7 +1407,7 @@ describe('the authorship gate on the (collection, filename) join', () => {
       await renameDocument(session, 'doc-1', 'Einreichplan.pdf', new Request('http://x'))
 
       expect(String(documentCalls()[0]?.[0])).toBe(
-        `http://backend:8000/v1/collections/proj_abc/documents/${collidingName}/display-title`,
+        `http://backend:8000/v1/collections/proj_abc/documents/${collidingName}/display-title`
       )
     })
   })

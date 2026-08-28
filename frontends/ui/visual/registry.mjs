@@ -73,7 +73,7 @@ export const SCREENSHOT_TARGETS = [
     id: 'app-rail-collapsed',
     path: '/dev/app-rail?variant=collapsed',
     description:
-      'The 64px icon rail — the rail\'s OTHER layout, not a narrower one: labels go sr-only, group labels unmount, tiles become square hit areas. Captures what previously had no visual evidence at all, so the icon column\'s horizontal alignment against the brand mark, the group separation, and the footer\'s bottom edge (Settings, presence dot, avatar) are all reviewable.',
+      "The 64px icon rail — the rail's OTHER layout, not a narrower one: labels go sr-only, group labels unmount, tiles become square hit areas. Captures what previously had no visual evidence at all, so the icon column's horizontal alignment against the brand mark, the group separation, and the footer's bottom edge (Settings, presence dot, avatar) are all reviewable.",
     waitFor: '[data-testid="app-rail-preview"]',
   },
   {
@@ -209,7 +209,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/chat-turn?variant=memory-chip',
     description:
-      'The „Piloti hat sich gemerkt" chip as a fact about ONE TURN (docs/architecture/post-answer-stages.md §1.7, §5.1). The same answer twice, as two turns of one thread: above, the reflection stage ran and recorded nothing — its most common correct outcome — and there is no chip; below, it recorded two things and the chip says two. That difference is the change: the chip used to be fed by a three-shot poll of the whole conversation\'s memory fired by every rendered answer, so BOTH panels would have carried it and both would have shown the thread\'s running total. The second thing to judge is the meta row. The chip lands seconds after the answer and reserves nothing, which is only safe because it arrives into a row that is already on screen — confidence, copy, thumbs and timestamp are in it from the start. Cover the chip: the two footers must line up to the pixel, and on the phone shot the row must not gain a line. What a screenshot cannot show is the popover, which is where the in-turn write and the post-answer one are labelled apart; that distinction is held by MemoryNotedChip.spec.tsx.',
+      "The „Piloti hat sich gemerkt\" chip as a fact about ONE TURN (docs/architecture/post-answer-stages.md §1.7, §5.1). The same answer twice, as two turns of one thread: above, the reflection stage ran and recorded nothing — its most common correct outcome — and there is no chip; below, it recorded two things and the chip says two. That difference is the change: the chip used to be fed by a three-shot poll of the whole conversation's memory fired by every rendered answer, so BOTH panels would have carried it and both would have shown the thread's running total. The second thing to judge is the meta row. The chip lands seconds after the answer and reserves nothing, which is only safe because it arrives into a row that is already on screen — confidence, copy, thumbs and timestamp are in it from the start. Cover the chip: the two footers must line up to the pixel, and on the phone shot the row must not gain a line. What a screenshot cannot show is the popover, which is where the in-turn write and the post-answer one are labelled apart; that distinction is held by MemoryNotedChip.spec.tsx.",
     waitFor: '[data-testid="answer-layer-preview"]',
   },
   {
@@ -324,6 +324,14 @@ export const SCREENSHOT_TARGETS = [
     description:
       'Deleting a document, through the shared destructive ConfirmDialog. This replaces a full-width red button in the preview\u2019s metadata rail whose confirm step expanded IN PLACE, pushing the rest of the column down: the question now names the file, the answer says what is lost, focus is trapped, and the dialog cannot be dismissed mid-request.',
     waitFor: '[role="dialog"]',
+  },
+  {
+    id: 'drawing-structured',
+    mobile: true,
+    path: '/dev/drawing-structured',
+    description:
+      "The advanced structured-analysis disclosure under a visual chunk's description — one labelled line per vocabulary category, layers in order, figures that keep their meaning, and the provenance line. The second panel proves a domain this build ships no vocabulary for still renders, from its keys.",
+    waitFor: 'main',
   },
   {
     id: 'file-preview',
@@ -514,7 +522,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/card-reveals',
     description:
-      "The cards whose value is behind a click, driven into that state before the shot. The Rechenweg with its sources open (provenance tag, ± band and where each figure is written down, plus the line saying the card computed the result rather than copying it); the same card on a derivation whose exact result would ROUND onto the other side of its limit, which is the shot that proves the printed number and the printed verdict cannot disagree; and the Verfahrensablauf with a step opened AGAINST the one the project is at — dashed chrome, the correcting sentence inside the panel, while the current row keeps its node and its \u201Ehier stehen Sie\u201C chip. Then the three later cards in the state that carries their point: a conditional Einreichunterlage opened onto the case that makes it necessary, under a tally the card counted from its own rows (including the three documents nobody has asked about); a Frist opened onto what happens when it lapses, over a footer saying the rail is not to scale and no date is computed; and a change-impact card with NO known starting point, which says so in the header and again where the before/after pair would sit. None of it is visible in the gallery, which photographs every one of them folded.",
+      'The cards whose value is behind a click, driven into that state before the shot. The Rechenweg with its sources open (provenance tag, ± band and where each figure is written down, plus the line saying the card computed the result rather than copying it); the same card on a derivation whose exact result would ROUND onto the other side of its limit, which is the shot that proves the printed number and the printed verdict cannot disagree; and the Verfahrensablauf with a step opened AGAINST the one the project is at — dashed chrome, the correcting sentence inside the panel, while the current row keeps its node and its \u201Ehier stehen Sie\u201C chip. Then the three later cards in the state that carries their point: a conditional Einreichunterlage opened onto the case that makes it necessary, under a tally the card counted from its own rows (including the three documents nobody has asked about); a Frist opened onto what happens when it lapses, over a footer saying the rail is not to scale and no date is computed; and a change-impact card with NO known starting point, which says so in the header and again where the before/after pair would sit. None of it is visible in the gallery, which photographs every one of them folded.',
     waitFor: '[data-testid="card-reveals-preview"]',
   },
   {
@@ -535,7 +543,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/condition-tree',
     description:
-      "The Bedingungsbaum in its three states, in the real 680px thread column: the case that applies open at rest; another case opened AGAINST it (Konjunktiv lead, dashed chrome, „Nur zum Vergleich …\" inside the panel) while the active row keeps its tinted node, its outcome and its „trifft zu\" chip; and a tree with no case marked, which opens closed rather than picking one for the reader. The middle block is driven into the switched state before the shot, because that state — not the resting one — is what stops the wrong case being screenshotted into an Einreichung.",
+      'The Bedingungsbaum in its three states, in the real 680px thread column: the case that applies open at rest; another case opened AGAINST it (Konjunktiv lead, dashed chrome, „Nur zum Vergleich …" inside the panel) while the active row keeps its tinted node, its outcome and its „trifft zu" chip; and a tree with no case marked, which opens closed rather than picking one for the reader. The middle block is driven into the switched state before the shot, because that state — not the resting one — is what stops the wrong case being screenshotted into an Einreichung.',
     waitFor: '[data-testid="condition-tree-preview"]',
   },
   {
@@ -543,7 +551,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/report-outline',
     description:
-      'The deep-research report\'s outline, on a report long enough for it to exist: the real ReportTab against a ~1.400-word report in a box the size of the research panel. Collapsed and scrolled into the middle (the sticky row names the section in view), and open (ten entries, H3 indented, the current one marked). Both claims are properties of the report around it, so neither is reviewable from the component alone.',
+      "The deep-research report's outline, on a report long enough for it to exist: the real ReportTab against a ~1.400-word report in a box the size of the research panel. Collapsed and scrolled into the middle (the sticky row names the section in view), and open (ten entries, H3 indented, the current one marked). Both claims are properties of the report around it, so neither is reviewable from the component alone.",
     waitFor: '[data-testid="report-outline"]',
   },
   {
@@ -564,7 +572,7 @@ export const SCREENSHOT_TARGETS = [
     id: 'skills-panel',
     path: '/dev/skills-panel',
     description:
-      'Agent Skills tab (ADR-0045) — FEATURED first (what Piloti curates for every organization, each with an activation switch), then the org\'s own skills, and NOTHING schedule-shaped: everything about when something runs moved to the Jobs tab. The pipeline\'s builtin skills are deliberately absent, because they are absent from the endpoint: they are machinery, nobody installs or edits one, and the clone button that used to sit on them is gone. The fixture covers a taken-up offer and an untaken one, plus an org skill in play and one switched off — the switch is the only state this page has an opinion about, so both positions have to be on screen.',
+      "Agent Skills tab (ADR-0045) — FEATURED first (what Piloti curates for every organization, each with an activation switch), then the org's own skills, and NOTHING schedule-shaped: everything about when something runs moved to the Jobs tab. The pipeline's builtin skills are deliberately absent, because they are absent from the endpoint: they are machinery, nobody installs or edits one, and the clone button that used to sit on them is gone. The fixture covers a taken-up offer and an untaken one, plus an org skill in play and one switched off — the switch is the only state this page has an opinion about, so both positions have to be on screen.",
     waitFor: '[data-testid="skills-panel-preview"]',
   },
   {

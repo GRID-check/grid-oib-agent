@@ -37,12 +37,18 @@
  * off the CALL SITES: the files that call `recordAuditEvent` (or the throwing
  * variant), and the action literals in them.
  *
- * That scan deliberately OVER-collects — it takes every quoted string on an
- * `action:` line, so a ternary picking between two actions contributes both —
- * which is exactly the right bias for the direction it is used in. It can prove
- * an action IS emitted somewhere; it can never be used to argue one is not, and
- * it is not used that way. The other direction stays where it belongs: with the
- * compiler.
+ * That scan deliberately OVER-collects — it takes every quoted string in an
+ * `action:` expression, so a ternary picking between two actions contributes
+ * both — which is exactly the right bias for the direction it is used in. It
+ * can prove an action IS emitted somewhere; it can never be used to argue one
+ * is not, and it is not used that way. The other direction stays where it
+ * belongs: with the compiler.
+ *
+ * The expression is read to the end of the STATEMENT rather than the end of the
+ * line, because the line-scoped version was breakable by formatting alone:
+ * running Prettier over a call site wrapped a long ternary, `action:` and its
+ * two literals landed on different lines, and both actions were reported as
+ * orphans by a gate that is supposed to be about the registry.
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -85,8 +91,14 @@ const EMITTED_ACTIONS: ReadonlySet<string> = new Set(
     .map((path) => readFileSync(path, 'utf8'))
     .filter((text) => text.includes('recordAuditEvent'))
     .flatMap((text) =>
-      [...text.matchAll(/\baction:\s*(.+)/g)].flatMap(([, expression]) =>
-        [...expression.matchAll(/'([a-z_.]+)'/g)].map(([, action]) => action),
+      // The expression is read to the end of the STATEMENT, not the end of the
+      // line: Prettier wraps a long ternary onto its own lines, which put
+      // `action:` and its literals on different lines and made two genuinely
+      // emitted actions look like orphans. A guard that a legal reformat can
+      // break is a guard that fails for the wrong reason, so the scan stops at
+      // the next property key or closing brace instead.
+      [...text.matchAll(/\baction:\s*([\s\S]*?)(?=\n\s*[a-zA-Z_$][\w$]*\s*:|\n\s*\})/g)].flatMap(
+        ([, expression]) => [...expression.matchAll(/'([a-z_.]+)'/g)].map(([, action]) => action),
       ),
     ),
 )

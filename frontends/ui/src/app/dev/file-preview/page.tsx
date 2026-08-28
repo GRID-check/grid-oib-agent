@@ -116,6 +116,86 @@ const GENERATED_FIXTURE: FileItem = {
 }
 
 // Install the fetch shim at module scope (before any component effect fires) so
+/**
+ * A structured analysis exactly as the BFF hands it over (already normalized
+ * to the display shape, snake_case only inside `segment`/`sheet` because that
+ * is the ingestion schema's own vocabulary).
+ */
+const DEV_STRUCTURED = {
+  schema_version: 4,
+  registry: 'architecture+general@850c9b2d770a',
+  segment: {
+    domain: 'architecture',
+    segment_type: 'floor_plan',
+    title: 'Regelgeschoss',
+    scale: '1:100',
+    summary: 'Regelgeschoss mit vier Wohneinheiten um einen zentralen Erschließungskern.',
+    entities: [
+      { name: 'Wohnen/Essen', category: 'space', role: 'Aufenthalt', measure: '38,4 m²' },
+      { name: 'Laubengang', category: 'circulation', role: 'Erschließung', measure: null },
+      { name: 'Sicherheitstreppenhaus', category: 'circulation', role: null, measure: null },
+      { name: 'Stützenraster 5,40 m', category: 'structure', role: null, measure: null },
+      { name: 'Wärmepumpe Sole/Wasser', category: 'services', role: null, measure: null },
+      {
+        name: 'Schallschutz Wohnungstrennwand',
+        category: 'building_physics',
+        role: 'R′w 55 dB',
+        measure: null,
+      },
+      { name: 'Brettsperrholz', category: 'material', role: null, measure: null },
+    ],
+    compositions: [
+      {
+        component: 'Außenwand',
+        layers: [
+          { material: 'Lärchenschalung', thickness: '24 mm', function: 'Witterungsschutz' },
+          { material: 'Mineralwolle', thickness: '200 mm', function: 'Dämmung' },
+          { material: 'Brettsperrholz', thickness: '100 mm', function: 'tragend' },
+        ],
+      },
+    ],
+    states: [
+      { element: 'Bestandsmauer Hof', state: 'existing' },
+      { element: 'Laubengang', state: 'new' },
+    ],
+    quantities: [
+      {
+        object: 'Bausubstanz erhalten',
+        property: 'Anteil',
+        value: '71',
+        unit: '%',
+        source: 'text',
+        confidence: 'high',
+      },
+      {
+        object: 'Wohneinheiten',
+        property: 'Anzahl',
+        value: '4',
+        unit: null,
+        source: 'visual',
+        confidence: 'high',
+      },
+    ],
+    relations: [
+      { subject: 'Laubengang', relation: 'erschließt', object: 'alle vier Wohneinheiten' },
+    ],
+    annotations: ['5,40', '38,4 m²'],
+    source: 'visual',
+    confidence: 'medium',
+  },
+  document: {
+    title: 'Wohnbau Nord',
+    subtitle: 'Transformation eines Bestandsbaus',
+    slogans: ['ABRISS STOPPEN'],
+    author: 'Arch. DI Huber',
+    institution: 'TU Wien',
+    supervision: null,
+    location: 'Linz',
+    strategies: ['Bestandserhalt', 'Vorfertigung'],
+    process_steps: ['Abriss stoppen', 'Bestand transformieren', 'gemeinschaftlich wohnen'],
+  },
+}
+
 // the pane's preview / visual-details fetches always resolve. Idempotent +
 // dev/browser-guarded.
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
@@ -124,7 +204,8 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     w.__filePreviewShim = true
     const real = window.fetch.bind(window)
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const url =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       if (/\/api\/documents\/.+\/preview$/.test(url)) {
         return Response.json({ url: PAGE_SVG })
       }
@@ -134,16 +215,32 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
             {
               page: 3,
               contentType: 'drawing',
-              drawingType: 'Lageplan',
+              drawingType: 'site_plan',
               scale: '1:500',
+              segment: 0,
               text: 'Lageplan mit Feuerwehraufstellflächen, Löschwasserentnahmestellen und Zufahrten.',
+              structured: null,
+            },
+            // Two segments off ONE sheet — the case the per-drawing indexing
+            // exists for — the second carrying the full structured analysis so
+            // the advanced disclosure has something to show.
+            {
+              page: 7,
+              contentType: 'drawing',
+              drawingType: 'floor_plan',
+              scale: '1:100',
+              segment: 0,
+              text: 'Regelgeschoss mit eingetragenen Fluchtwegen und Brandabschnittsgrenzen (REI 90).',
+              structured: DEV_STRUCTURED,
             },
             {
               page: 7,
               contentType: 'drawing',
-              drawingType: 'Grundriss',
-              scale: '1:100',
-              text: 'Regelgeschoss mit eingetragenen Fluchtwegen und Brandabschnittsgrenzen (REI 90).',
+              drawingType: 'section',
+              scale: '1:50',
+              segment: 1,
+              text: 'Querschnitt durch das Atrium mit Galerieebenen und Oberlicht.',
+              structured: null,
             },
           ],
         })

@@ -158,16 +158,28 @@ describe('FilePreviewPane', () => {
             ok: true,
             json: async () => ({
               details: [
-                { page: 1, contentType: 'drawing', drawingType: 'schnitt', scale: '1:100', text: 'Ein Längsschnitt.' },
+                {
+                  page: 1,
+                  contentType: 'drawing',
+                  drawingType: 'schnitt',
+                  scale: '1:100',
+                  text: 'Ein Längsschnitt.',
+                },
               ],
             }),
           } as Response
         }
-        return { ok: true, json: async () => ({ url: 'https://example.test/plan.pdf' }) } as Response
+        return {
+          ok: true,
+          json: async () => ({ url: 'https://example.test/plan.pdf' }),
+        } as Response
       })
 
       render(
-        <FilePreviewPane file={{ ...mockFile, contentTypes: ['text', 'drawing'] }} projectId="proj-1" />
+        <FilePreviewPane
+          file={{ ...mockFile, contentTypes: ['text', 'drawing'] }}
+          projectId="proj-1"
+        />
       )
 
       // Collapsed by default: the description is not in the DOM yet.
@@ -188,10 +200,204 @@ describe('FilePreviewPane', () => {
       expect(screen.queryByRole('button', { name: /detailed information/i })).toBeNull()
     })
 
+    /** The structured half of the analysis — rooms, assemblies, quantities,
+     * provenance — behind a second, advanced disclosure. */
+    const mockVisualDetails = (details: unknown[]) => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.includes('/visual-details')) {
+          return { ok: true, json: async () => ({ details }) } as Response
+        }
+        return {
+          ok: true,
+          json: async () => ({ url: 'https://example.test/plan.pdf' }),
+        } as Response
+      })
+    }
+
+    const structuredDetail = {
+      page: 2,
+      contentType: 'drawing',
+      drawingType: 'floor_plan',
+      scale: '1:100',
+      segment: 0,
+      text: 'Grundriss des Erdgeschosses.',
+      structured: {
+        schemaVersion: 4,
+        registry: 'architecture+general@abc123',
+        segment: {
+          domain: 'architecture',
+          segmentType: 'floor_plan',
+          title: 'EG',
+          scale: '1:100',
+          summary: 'Grundriss des Erdgeschosses.',
+          entityGroups: [
+            {
+              category: 'space',
+              entities: [
+                { name: 'Atelier', category: 'space', role: 'Arbeiten', measure: '24,5 m²' },
+              ],
+            },
+            // A category this build has no translation for. It must still
+            // render, from its key, so a domain added on the backend needs no
+            // frontend release.
+            {
+              category: 'site_plant',
+              entities: [{ name: 'Turmkran', category: 'site_plant', role: null, measure: null }],
+            },
+          ],
+          compositions: [
+            {
+              component: 'Außenwand',
+              layers: [{ material: 'Stahlbeton', thickness: '20 cm', purpose: 'tragend' }],
+            },
+          ],
+          states: [{ element: 'Bestandsmauer', state: 'existing' }],
+          quantities: [
+            {
+              object: 'Bausubstanz erhalten',
+              property: 'Anteil',
+              value: '71',
+              unit: '%',
+              source: 'text',
+              confidence: 'high',
+            },
+          ],
+          relations: [{ subject: 'Rampe', relation: 'verbindet', object: 'Hof und Dach' }],
+          annotations: [],
+          source: 'visual',
+          confidence: 'medium',
+        },
+        document: {
+          title: 'Bildungscampus',
+          subtitle: null,
+          slogans: [],
+          author: null,
+          institution: null,
+          supervision: null,
+          location: null,
+          strategies: [],
+          processSteps: [],
+        },
+      },
+    }
+
+    it('reveals the structured analysis behind an advanced disclosure', async () => {
+      mockVisualDetails([structuredDetail])
+      render(
+        <FilePreviewPane
+          file={{ ...mockFile, contentTypes: ['text', 'drawing'] }}
+          projectId="proj-1"
+        />
+      )
+
+      await userEvent.click(screen.getByRole('button', { name: /detailed information/i }))
+      await screen.findByText('Grundriss des Erdgeschosses.')
+
+      // Advanced by design: the structured values stay hidden until asked for.
+      expect(screen.queryByText(/Atelier/)).toBeNull()
+      await userEvent.click(screen.getByRole('button', { name: /structured data/i }))
+
+      expect(screen.getByText('Atelier (Arbeiten, 24,5 m²)')).toBeDefined()
+      // A vocabulary term this build knows is translated…
+      expect(screen.getByText('Spaces and uses')).toBeDefined()
+      // …and one it has never seen is humanized from its key rather than
+      // dropped, so a domain added on the backend needs no frontend release.
+      expect(screen.getByText('Site plant')).toBeDefined()
+      expect(screen.getByText('Turmkran')).toBeDefined()
+      expect(screen.getByText('Stahlbeton 20 cm (tragend)')).toBeDefined()
+      expect(screen.getByText('Bestandsmauer: existing')).toBeDefined()
+      // A number keeps the meaning that makes it worth storing.
+      expect(screen.getByText('Bausubstanz erhalten — Anteil')).toBeDefined()
+      expect(screen.getByText('71 %')).toBeDefined()
+      expect(screen.getByText('Rampe → verbindet → Hof und Dach')).toBeDefined()
+      // An inferred reading must never read like a measured one.
+      expect(screen.getByText('read from the drawing · confidence medium')).toBeDefined()
+    })
+
+    it('offers no advanced disclosure when there is nothing beyond the description', async () => {
+      mockVisualDetails([
+        {
+          page: 1,
+          contentType: 'image',
+          drawingType: '',
+          scale: '',
+          segment: 0,
+          text: 'Ein Baustellenfoto.',
+          structured: {
+            schemaVersion: 4,
+            registry: 'architecture+general@abc123',
+            segment: {
+              domain: 'general',
+              segmentType: 'photo',
+              title: null,
+              scale: null,
+              summary: 'Ein Baustellenfoto.',
+              entityGroups: [],
+              compositions: [],
+              states: [],
+              quantities: [],
+              relations: [],
+              annotations: [],
+              source: null,
+              confidence: null,
+            },
+            document: {
+              title: null,
+              subtitle: null,
+              slogans: [],
+              author: null,
+              institution: null,
+              supervision: null,
+              location: null,
+              strategies: [],
+              processSteps: [],
+            },
+          },
+        },
+      ])
+      render(
+        <FilePreviewPane
+          file={{ ...mockFile, contentTypes: ['text', 'image'] }}
+          projectId="proj-1"
+        />
+      )
+
+      await userEvent.click(screen.getByRole('button', { name: /detailed information/i }))
+      await screen.findByText('Ein Baustellenfoto.')
+
+      expect(screen.queryByRole('button', { name: /structured data/i })).toBeNull()
+    })
+
+    it('still renders a chunk indexed before the structured schema', async () => {
+      mockVisualDetails([
+        {
+          page: 1,
+          contentType: 'drawing',
+          drawingType: 'schnitt',
+          scale: '1:50',
+          text: 'Ein Schnitt.',
+        },
+      ])
+      render(
+        <FilePreviewPane
+          file={{ ...mockFile, contentTypes: ['text', 'drawing'] }}
+          projectId="proj-1"
+        />
+      )
+
+      await userEvent.click(screen.getByRole('button', { name: /detailed information/i }))
+
+      expect(await screen.findByText('Ein Schnitt.')).toBeDefined()
+      expect(screen.queryByRole('button', { name: /structured data/i })).toBeNull()
+    })
+
     it('renders the HITL caption and the Updated row from real metadata', () => {
       render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
       expect(
-        screen.getByText(/Automatically detected on upload — your corrections improve future answers\./)
+        screen.getByText(
+          /Automatically detected on upload — your corrections improve future answers\./
+        )
       ).toBeDefined()
       expect(screen.getByText('Updated')).toBeDefined()
     })
@@ -259,7 +465,10 @@ describe('FilePreviewPane', () => {
       expect(screen.queryByText('Contents')).toBeNull()
 
       rerender(
-        <FilePreviewPane file={{ ...mockFile, contentTypes: ['text', 'table'] }} projectId="proj-1" />
+        <FilePreviewPane
+          file={{ ...mockFile, contentTypes: ['text', 'table'] }}
+          projectId="proj-1"
+        />
       )
       expect(screen.getByText('Contents')).toBeDefined()
       expect(screen.getByText('Text, Tables')).toBeDefined()
@@ -309,7 +518,9 @@ describe('FilePreviewPane', () => {
 
     it('adds a tag typed into the input on Enter: optimistic chip + PATCH shape', async () => {
       const user = userEvent.setup()
-      const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
 
       render(<FilePreviewPane file={{ ...mockFile, tags: ['Grundriss'] }} projectId="proj-1" />)
 
@@ -318,7 +529,9 @@ describe('FilePreviewPane', () => {
       // Optimistic: the new chip is present immediately.
       await waitFor(() => expect(screen.getByText('Brandschutz')).toBeDefined())
 
-      const tagsCall = fetchMock.mock.calls.find(([url]) => String(url) === '/api/documents/doc-1/tags')
+      const tagsCall = fetchMock.mock.calls.find(
+        ([url]) => String(url) === '/api/documents/doc-1/tags'
+      )
       expect(tagsCall).toBeDefined()
       expect(tagsCall![1]).toMatchObject({ method: 'PATCH' })
       expect(JSON.parse((tagsCall![1] as RequestInit).body as string)).toEqual({
@@ -328,7 +541,9 @@ describe('FilePreviewPane', () => {
 
     it('offers vocabulary suggestions while typing and adds one on click', async () => {
       const user = userEvent.setup()
-      const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
 
       render(<FilePreviewPane file={{ ...mockFile, tags: [] }} projectId="proj-1" />)
 
@@ -336,46 +551,70 @@ describe('FilePreviewPane', () => {
       await user.click(await screen.findByRole('button', { name: 'Schallschutz' }))
 
       await waitFor(() => expect(screen.getByText('Schallschutz')).toBeDefined())
-      const tagsCall = fetchMock.mock.calls.find(([url]) => String(url) === '/api/documents/doc-1/tags')
-      expect(JSON.parse((tagsCall![1] as RequestInit).body as string)).toEqual({ tags: ['Schallschutz'] })
+      const tagsCall = fetchMock.mock.calls.find(
+        ([url]) => String(url) === '/api/documents/doc-1/tags'
+      )
+      expect(JSON.parse((tagsCall![1] as RequestInit).body as string)).toEqual({
+        tags: ['Schallschutz'],
+      })
     })
 
     it('does not add free-form values outside the controlled vocabulary', async () => {
       const user = userEvent.setup()
-      const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
 
       render(<FilePreviewPane file={{ ...mockFile, tags: [] }} projectId="proj-1" />)
 
       await user.type(screen.getByRole('textbox', { name: /add tag/i }), 'made-up-tag{Enter}')
 
       expect(screen.getByText(/no matching tag/i)).toBeDefined()
-      const tagsCall = fetchMock.mock.calls.find(([url]) => String(url) === '/api/documents/doc-1/tags')
+      const tagsCall = fetchMock.mock.calls.find(
+        ([url]) => String(url) === '/api/documents/doc-1/tags'
+      )
       expect(tagsCall).toBeUndefined()
     })
 
     it('removes a tag via its × affordance and PATCHes the remainder', async () => {
       const user = userEvent.setup()
-      const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
 
       render(
-        <FilePreviewPane file={{ ...mockFile, tags: ['Grundriss', 'Brandschutz'] }} projectId="proj-1" />
+        <FilePreviewPane
+          file={{ ...mockFile, tags: ['Grundriss', 'Brandschutz'] }}
+          projectId="proj-1"
+        />
       )
 
       await user.click(screen.getByRole('button', { name: 'Remove tag Brandschutz' }))
 
       await waitFor(() => expect(screen.queryByText('Brandschutz')).toBeNull())
-      const tagsCall = fetchMock.mock.calls.find(([url]) => String(url) === '/api/documents/doc-1/tags')
+      const tagsCall = fetchMock.mock.calls.find(
+        ([url]) => String(url) === '/api/documents/doc-1/tags'
+      )
       expect(tagsCall![1]).toMatchObject({ method: 'PATCH' })
-      expect(JSON.parse((tagsCall![1] as RequestInit).body as string)).toEqual({ tags: ['Grundriss'] })
+      expect(JSON.parse((tagsCall![1] as RequestInit).body as string)).toEqual({
+        tags: ['Grundriss'],
+      })
     })
 
     it('notifies the parent with the saved tags after a successful PATCH', async () => {
       const user = userEvent.setup()
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as Response)
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: async () => ({}),
+      } as Response)
       const onTagsUpdated = vi.fn()
 
       render(
-        <FilePreviewPane file={{ ...mockFile, tags: ['Grundriss'] }} projectId="proj-1" onTagsUpdated={onTagsUpdated} />
+        <FilePreviewPane
+          file={{ ...mockFile, tags: ['Grundriss'] }}
+          projectId="proj-1"
+          onTagsUpdated={onTagsUpdated}
+        />
       )
 
       await user.type(screen.getByRole('textbox', { name: /add tag/i }), 'Brandschutz{Enter}')
@@ -387,11 +626,19 @@ describe('FilePreviewPane', () => {
 
     it('does not notify the parent and reverts the optimistic chip when the PATCH fails', async () => {
       const user = userEvent.setup()
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 500, json: async () => ({}) } as Response)
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: async () => ({}),
+      } as Response)
       const onTagsUpdated = vi.fn()
 
       render(
-        <FilePreviewPane file={{ ...mockFile, tags: ['Grundriss'] }} projectId="proj-1" onTagsUpdated={onTagsUpdated} />
+        <FilePreviewPane
+          file={{ ...mockFile, tags: ['Grundriss'] }}
+          projectId="proj-1"
+          onTagsUpdated={onTagsUpdated}
+        />
       )
 
       await user.type(screen.getByRole('textbox', { name: /add tag/i }), 'Brandschutz{Enter}')
@@ -671,7 +918,7 @@ describe('FilePreviewPane — a report Piloti wrote', () => {
     // sentence exists for a reader who is not hovering anything.
     expect(ask.closest('[title]')).toHaveAttribute(
       'title',
-      'Created by Piloti — not in the knowledge base',
+      'Created by Piloti — not in the knowledge base'
     )
     expect(ask).toHaveAccessibleDescription('Created by Piloti — not in the knowledge base')
   })
@@ -688,20 +935,23 @@ describe('FilePreviewPane — a report Piloti wrote', () => {
     // which is precisely why this is cheap to fix now and expensive to discover
     // later. `status` says where a document is in a pipeline and can move;
     // `authored_by` says what it is and cannot.
-    render(
-      <FilePreviewPane file={{ ...generated, status: 'completed' }} projectId="proj-1" />
-    )
+    render(<FilePreviewPane file={{ ...generated, status: 'completed' }} projectId="proj-1" />)
 
     const ask = screen.getByRole('button', { name: 'Ask Piloti' })
     expect(ask).toBeDisabled()
     expect(ask.closest('[title]')).toHaveAttribute(
       'title',
-      'Created by Piloti — not in the knowledge base',
+      'Created by Piloti — not in the knowledge base'
     )
   })
 
   it('still promises the wait for a document that really is being read', () => {
-    render(<FilePreviewPane file={{ ...generated, status: 'processing', authoredBy: 'user' }} projectId="proj-1" />)
+    render(
+      <FilePreviewPane
+        file={{ ...generated, status: 'processing', authoredBy: 'user' }}
+        projectId="proj-1"
+      />
+    )
 
     const ask = screen.getByRole('button', { name: 'Ask Piloti' })
     expect(ask).toBeDisabled()
