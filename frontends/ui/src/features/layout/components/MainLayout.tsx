@@ -33,6 +33,7 @@ import { documentDisplayName } from '@/lib/documents/display-name'
 import { useTranslations } from '@/i18n'
 import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 import { useComposerMetrics } from '../hooks/use-composer-metrics'
+import { motion } from '@/components/motion'
 
 interface MainLayoutProps {
   /** Whether the user is authenticated */
@@ -137,9 +138,11 @@ export const MainLayout: FC<MainLayoutProps> = ({
   // the floor into the empty canvas — so it is read once, here.
   const messageCount = currentConversation?.messages?.length ?? 0
 
-  // Composer geometry (--composer-h, --composer-lift) — see useComposerMetrics.
+  // Composer geometry (--composer-h, --welcome-offset, and the lift the stack
+  // travels on) — see useComposerMetrics.
   // Shared with the /dev preview route so the two cannot drift.
-  const { composerRef, columnVars, composerStyle } = useComposerMetrics(messageCount === 0)
+  const { composerRef, columnVars, composerStyle, composerMotion } =
+    useComposerMetrics(messageCount === 0)
 
   // Deep research SSE hook - manages connection when deep research starts
   useDeepResearch()
@@ -332,10 +335,18 @@ export const MainLayout: FC<MainLayoutProps> = ({
               (max-w-4xl inside — see InputArea) and given its own glass
               surface, so it reads as a distinct floating object rather than
               a same-width continuation of the transcript above it. */}
-          <div
+          <motion.div
             ref={composerRef}
             className="absolute inset-x-0 z-10 flex flex-col"
             style={composerStyle}
+            // The composer TRAVELS between the two places it lives. On an empty
+            // canvas it sits with the greeting in the middle of the column; the
+            // first message sends it to the floor, and before this it got there
+            // between two frames — the input the reader had just been typing in
+            // vanished and an identical one appeared somewhere else. A move is
+            // what says those are the same object. The rules for when that move
+            // is real, and why it is a transform, are in `useComposerMetrics`.
+            {...composerMotion}
           >
             {/* No sources warning - shown when no data sources or files available */}
             <NoSourcesBanner isAuthenticated={isAuthenticated} />
@@ -351,7 +362,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
               canCollaborate={canCollaborate}
               canChatInProject={canChatInProject}
             />
-          </div>
+          </motion.div>
         </div>
 
         {/* Research Panel (Right) - Pushes content, shares the width 50/50 */}

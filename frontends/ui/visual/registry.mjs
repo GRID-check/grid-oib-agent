@@ -265,7 +265,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/chat-welcome',
     description:
-      'The authenticated empty canvas as a user meets it: the real ChatArea welcome state AND the real composer beneath it, which is the whole point — the composer is LIFTED off the floor here (--composer-lift) so greeting and input read as one group in the middle of the screen. Nothing else on the canvas: no subtitle, no example chips, and the composer states neither an addressee nor a spark glyph. Desktop + mobile, where the lift has less room to give.',
+      'The authenticated empty canvas as a user meets it: the real ChatArea welcome state AND the real composer beneath it, which is the whole point — the composer is LIFTED off the floor here (a measured transform, so it can GLIDE to the floor when the first message lands rather than teleport) so greeting and input read as one group in the middle of the column. Nothing else on the canvas: no subtitle, no example chips, no "private workspace" chip stating what every thread here already is, and the composer names neither an addressee nor a spark glyph. Desktop + mobile, where the lift has less room to give.',
     waitFor: 'h1',
   },
   {
@@ -917,7 +917,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/chat-toolbar',
     description:
-      'The floating chat toolbar in the 768px column it actually gets. Left pill = orientation (history door + the thread\'s name) and takes all the elastic width; right pill = status, a hairline, then controls — information is never clickable and every control looks like one. Only New chat stays in the open; share, rename and the report are in the "…" menu. Three rows: a solo private thread (no collaboration furniture and no bare separator), a shared thread with long project + session names and three people, and a project-wide thread, where the rule REPLACES the faces: the audience there was never enumerated, so avatars would be a partial sample of it rather than a summary. Exactly one of the two forms, never both.',
+      'The floating chat toolbar in the 768px column it actually gets. The first row is a fresh, EMPTY chat: the right pill is absent because nothing in it is true yet, so the left one drops its frame too and the row goes quiet on both sides rather than reading as a toolbar with its right half missing. Then a started thread: left pill = orientation (history door + the thread\'s name) and takes all the elastic width; right pill = status, a hairline, then controls — information is never clickable and every control looks like one. Only New chat stays in the open; share, rename and the report are in the "…" menu. Three rows: a solo private thread (no collaboration furniture and no bare separator), a shared thread with long project + session names and three people, and a project-wide thread, where the rule REPLACES the faces: the audience there was never enumerated, so avatars would be a partial sample of it rather than a summary. Exactly one of the two forms, never both.',
     waitFor: '[data-testid="chat-toolbar-preview"]',
   },
   {

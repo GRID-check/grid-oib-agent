@@ -109,10 +109,7 @@ export const chat = {
     evening: 'Good evening',
     withName: '{greeting}, {name}.',
   },
-  // Empty-state lock chip + thread role tabs (click-dummy overhaul, WS-3).
-  workspace: {
-    private: 'Private workspace',
-  },
+  // Thread role tabs (click-dummy overhaul, WS-3).
   roles: {
     input: 'Input',
     result: 'Result',

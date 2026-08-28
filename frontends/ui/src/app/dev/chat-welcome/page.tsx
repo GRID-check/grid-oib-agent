@@ -11,7 +11,7 @@
  * `ChatArea` alone, which was enough while the canvas was a greeting, a subtitle
  * and a row of example chips — the composer was a separate concern pinned to the
  * bottom of the viewport. It is not a separate concern any more: on an empty
- * thread the composer is LIFTED off the floor (`--composer-lift`, see
+ * thread the composer is LIFTED off the floor (a measured transform, see
  * `useComposerMetrics`) so that it and the greeting read as one group in the
  * middle of the screen. That relationship is the subject under test, and it
  * cannot be photographed one half at a time.
@@ -41,6 +41,7 @@ import { AppConfigProvider, type AppConfig } from '@/shared/context'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { ChatArea, InputArea } from '@/features/layout/components'
 import { useComposerMetrics } from '@/features/layout/hooks/use-composer-metrics'
+import { motion } from '@/components/motion'
 import { useChatStore } from '@/features/chat'
 import type { ChatMessage } from '@/features/chat'
 
@@ -154,10 +155,16 @@ export default function ChatWelcomePreviewPage() {
     setReady(true)
   }, [variant, isPopulated])
 
-  // The thread is empty only in the default fixture, which is the whole
-  // point: that is the state that lifts the composer. A populated thread
-  // never does.
-  const { composerRef, columnVars, composerStyle } = useComposerMetrics(!isPopulated)
+  // Emptiness comes from the STORE, exactly as it does in `MainLayout`, not
+  // from the fixture that seeded it. The two agree on load — the default
+  // fixture seeds no messages and the populated one seeds four — so this reads
+  // identically in a screenshot. What it buys is the transition: type into the
+  // composer here and send, and the thread stops being empty for the same
+  // reason it does in the product, so the greeting's exit and the composer's
+  // descent can be driven by hand on this route instead of only in the app.
+  const messageCount = useChatStore((s) => s.currentConversation?.messages?.length ?? 0)
+  const { composerRef, columnVars, composerStyle, composerMotion } =
+    useComposerMetrics(messageCount === 0)
 
   if (variant === undefined) return null
 
@@ -166,10 +173,16 @@ export default function ChatWelcomePreviewPage() {
       <main className="bg-background flex h-dvh flex-col">
         <div className="relative flex min-h-0 flex-1 flex-col" style={columnVars}>
           {ready && <ChatArea isAuthenticated />}
-          <div
+          <motion.div
             ref={composerRef}
             className="absolute inset-x-0 z-10 flex flex-col"
             style={composerStyle}
+            // The same travel MainLayout gives it, from the same object: the
+            // lift is a transform, so the composer glides between the empty
+            // canvas and the floor instead of teleporting. A screenshot cannot
+            // hold motion, but the RESTING place is what the capture is
+            // evidence of, and it has to come from the same code path.
+            {...composerMotion}
           >
             {/* `canCollaborate` is on so the addressee line renders at all: its
                 default state is now silent, and an empty row is exactly the
@@ -182,7 +195,7 @@ export default function ChatWelcomePreviewPage() {
                 canCollaborate
               />
             )}
-          </div>
+          </motion.div>
         </div>
       </main>
     </AppConfigProvider>
