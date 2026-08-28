@@ -55,11 +55,13 @@
 
 import { describe, expect, it } from 'vitest'
 import { en } from '@/i18n/dictionaries/en'
-// The canonical card JSON Schema, generated from `models.py`. Reached by path
-// because it lives above the app root, exactly as `nested-fields.spec.ts` and
-// `scripts/generate-card-schemas.mjs` reach it.
-import cardJsonSchema from '../../../../../shared/cards/schemas.json'
+// The canonical card JSON Schema, generated from `models.py`. Loaded at
+// runtime (it lives above the app root, outside the Docker build context) —
+// see the helper for why a static import breaks the production image build.
+import { loadCardJsonSchema } from '@/test-utils/card-json-schema'
 import { exportKindOf, SKIPPED_FIELDS } from './cards'
+
+const cardJsonSchema = loadCardJsonSchema()
 
 interface JsonSchemaNode {
   $ref?: string
