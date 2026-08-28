@@ -5,10 +5,16 @@
    docs/design/click-dummy-overhaul-spec.md §4 and
    docs/design/grid-design-language.md). Warm paper surfaces, a near-black ink
    ramp, hairline alpha-ink borders that composite correctly on any surface,
-   layered soft shadows for elevation, and NO brand accent color on actions —
-   the primary action is near-black ink. The only chroma is the
+   layered soft shadows for elevation, and no accent color on ACTIONS — the
+   primary action is still near-black ink. Chroma is mostly the
    source/provenance signal system (--source-*, --status-*, --signal-*),
-   always paired with icon + label in the UI (color never travels alone).
+   always paired with icon + label in the UI (color never travels alone) —
+   plus one carved-out exception, --accent-pop (product decision
+   2026-08-27, §"Accents vs. signals" in the design doc): the app's one
+   general accent, sourced from the marketing site's chat mock. Used
+   sparingly — today, the composer — for a moment that wants to feel alive
+   rather than a fact about provenance, and it never substitutes for a
+   source's icon + label.
 
    Three var vocabularies are defined here:
 
@@ -87,6 +93,26 @@
   --status-done-tint: var(--source-auto-tint);
   --signal-error: oklch(0.567 0.157 31); /* #c14a38 — errors only */
   --signal-error-tint: oklch(0.941 0.02 32.5); /* #f9e7e3 */
+
+  /* ---- accent pop (light) — the app's one general accent, and the only
+     carved-out exception to "no brand accent color" (product decision
+     2026-08-27). Sourced from the marketing site's own chat mock
+     (frontends/web `--color-accent-500` #6e7d52 / `-400` #a4d06a — a
+     moss/lime green, hue ~126, distinct from source-project's hue-152
+     forest green so the two are never mistaken for one another). Used
+     sparingly, not attached to any one surface — never a provenance signal,
+     so it never carries a source icon or label. Base is tuned for 3:1
+     non-text contrast (icon/ring/border only); `-text` is the 4.5:1 variant
+     for anything that sets actual text in it. */
+  --accent-pop: oklch(0.62 0.13 126); /* #73942f-ish — composer ring/icon */
+  --accent-pop-tint: oklch(0.95 0.045 126); /* pale lime fill */
+  --accent-pop-text: oklch(0.46 0.11 126); /* readable-on-white variant */
+  /* For content sitting ON a SOLID --accent-pop fill (the armed send
+     button) — fixed dark, not theme-flipped: unlike --foreground, the base
+     it sits on is mid-to-bright green in BOTH themes, never near-black, so
+     the readable foreground is dark ink in both. 4.7:1 on the light base,
+     11:1 on the (brighter) dark base — see the dark block for that number. */
+  --accent-pop-foreground: oklch(0.2 0.02 126);
 
   /* ---- shadcn vars (light) — warm paper ---- */
   --background: oklch(0.973 0.003 106.4); /* #f6f6f4 — warm paper app bg */
@@ -212,6 +238,18 @@
   --status-done-tint: var(--source-auto-tint);
   --signal-error: oklch(0.672 0.144 31.6); /* lifted #c14a38 */
   --signal-error-tint: oklch(0.316 0.062 31.6);
+
+  /* ---- accent pop (dark) — lifted for charcoal, same hue-126 family as
+     light. The base lands almost exactly on the marketing site's own
+     `--color-accent-400` (#a4d06a), which is already the bright end of that
+     ramp — dark mode gets it near verbatim rather than lifted further. ---- */
+  --accent-pop: oklch(0.8 0.14 128);
+  --accent-pop-tint: oklch(0.32 0.05 126);
+  --accent-pop-text: oklch(0.86 0.12 128);
+  /* --accent-pop-foreground is NOT redeclared here — it is deliberately
+     fixed dark ink in both themes (see the light block: the base it sits on
+     is mid-to-bright green either way, never near-black), so it falls
+     through from :root via the cascade. */
 
   /* ---- shadcn vars (dark) — warm charcoal paper.
 
@@ -474,6 +512,14 @@
   --color-status-done-tint: var(--status-done-tint);
   --color-signal-error: var(--signal-error);
   --color-signal-error-tint: var(--signal-error-tint);
+
+  /* The one carved-out accent — see the light/dark blocks above. Not part of
+     the provenance system: bg-accent-pop / text-accent-pop-text /
+     ring-accent-pop — the app's one general accent, used sparingly. */
+  --color-accent-pop: var(--accent-pop);
+  --color-accent-pop-tint: var(--accent-pop-tint);
+  --color-accent-pop-text: var(--accent-pop-text);
+  --color-accent-pop-foreground: var(--accent-pop-foreground);
 
   --radius-sm: calc(var(--radius) - 6px);
   --radius-md: calc(var(--radius) - 4px);

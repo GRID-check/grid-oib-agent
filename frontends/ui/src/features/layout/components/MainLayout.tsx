@@ -311,10 +311,27 @@ export const MainLayout: FC<MainLayoutProps> = ({
             canCollaborate={canCollaborate}
           />
 
+          {/* Bottom fade scrim — the mirror of the top one, behind the floating
+              composer. Without it the last message stopped at a hard edge
+              exactly where the composer's own surface began: two opaque,
+              same-width, same-radius panels stacked flush, reading as one
+              collided block rather than a transcript with an input floating
+              over it. This dissolves the message column into the composer's
+              glass instead. Taller than the top scrim (h-40 vs h-24): the
+              composer is a multi-line card, not a slim pill row, so the
+              gradient needs more room to resolve before its edge. */}
+          <div
+            aria-hidden="true"
+            className="from-background pointer-events-none absolute inset-x-0 bottom-0 z-10 h-40 bg-gradient-to-t from-[2.5rem] to-transparent"
+          />
+
           {/* Floating composer stack: overlays the bottom of the chat scroll
               area instead of docking below it, so messages scroll behind the
               translucent input. ChatArea pads its bottom to keep the last
-              message readable above it. */}
+              message readable above it. Narrower than the message column
+              (max-w-4xl inside — see InputArea) and given its own glass
+              surface, so it reads as a distinct floating object rather than
+              a same-width continuation of the transcript above it. */}
           <div
             ref={composerRef}
             className="absolute inset-x-0 z-10 flex flex-col"
