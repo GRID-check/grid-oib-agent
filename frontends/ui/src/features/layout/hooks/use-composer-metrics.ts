@@ -202,7 +202,11 @@ export function useComposerMetrics(isThreadEmpty: boolean): ComposerMetrics {
     composerRef,
     composerMotion: {
       initial: false as const,
-      animate: { y: -composerLift },
+      // `composerLift === 0 ? 0 : …` rather than a bare negation: `-0` is what
+      // negating a zero lift produces, and it is a different value to `0` under
+      // `Object.is` — so the floor would be reachable as two values, and any
+      // consumer comparing against one of them would be wrong half the time.
+      animate: { y: composerLift === 0 ? 0 : -composerLift },
       transition: travelling ? springGlide : { duration: 0 },
       // Released on arrival rather than after a guessed delay, so a measurement
       // landing a moment after the journey ends is applied instantly again.
