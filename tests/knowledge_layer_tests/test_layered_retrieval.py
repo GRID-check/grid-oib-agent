@@ -138,7 +138,13 @@ class TestResolveTargetCollections:
 
 
 class TestRestrictScopeToTurn:
-    def test_session_focus_drops_archiv_and_base(self):
+    def test_session_focus_drops_archiv_but_keeps_the_building_code(self):
+        """A subject narrows which DOCUMENTS the turn reads, not whether the law applies.
+
+        Dropping ``base`` here made the product unable to answer its own central
+        question: attach a plan, ask whether it meets the escape-route
+        requirement, and retrieval held the plan and no OIB at all.
+        """
         from aiq_agent.common.focus_file import set_turn_intent
         from aiq_agent.common.source_kinds import Shelf
         from aiq_agent.knowledge.scoping import ScopedCollection
@@ -150,7 +156,10 @@ class TestRestrictScopeToTurn:
                 ScopedCollection("archiv_org", Shelf.ARCHIV),
                 ScopedCollection("s_1", Shelf.SESSION),
             ]
-            assert [entry.collection for entry in _restrict_scope_to_turn(entries)] == ["s_1"]
+            kept = [entry.collection for entry in _restrict_scope_to_turn(entries)]
+            # The Büroarchiv is still subtracted — that narrowing is what #429 asked for.
+            assert "archiv_org" not in kept
+            assert set(kept) == {"s_1", "oib_knowledge"}
         finally:
             set_turn_intent()
 

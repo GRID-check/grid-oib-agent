@@ -240,7 +240,9 @@ The backend maps that intent via `shelves_for_turn`
 (`src/aiq_agent/common/focus_file.py`) and subtracts other shelves at the
 knowledge-layer retrieve site. A client-supplied `include_shelves` list is
 **ignored** — the mapping owns the expansion so a client cannot ask for
-Archiv while claiming a project file. Absence of both shelf and preset
+Archiv while claiming a project file. A subject shelf never subtracts the
+building-code corpus (`base`): it narrows which *documents* a turn reads, not
+whether the law is applied. Absence of both shelf and preset
 leaves the signed scope intact (ADR-0024). See
 `docs/architecture/backend-deep-dive.md` § Collection scoping.
 

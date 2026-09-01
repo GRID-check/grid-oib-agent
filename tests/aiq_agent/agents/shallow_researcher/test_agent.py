@@ -2342,6 +2342,29 @@ class TestKnowledgeInventoryIsNotCitable:
         assert "document citation keys" in citation_block
         assert "knowledge_search" in citation_block
 
+    def test_shallow_prompt_asks_for_disagreement_between_sources_to_be_shown(self):
+        """The everyday chat surface had no rule about contradictory sources.
+
+        `deep_researcher/prompts/writer.j2` has told the writer to surface
+        disagreement for a long time; the shallow prompt — the one that answers
+        almost every question — mentioned contradiction only as a reason to
+        escalate or to lower confidence, never as something to TELL the reader.
+        In a legal product a smoothed-over difference is the dangerous failure:
+        an unqualified answer reads as a settled one, and gets built on.
+        """
+        source = self._prompt("shallow_researcher/prompts/researcher.j2")
+
+        assert "<source_disagreement>" in source
+        block = source.split("<source_disagreement>")[1].split("</source_disagreement>")[0]
+        # Show the difference rather than silently choosing.
+        assert "Do not silently pick one" in block
+        # Then resolve it by the precedence chain the domain brief already teaches.
+        assert "binds outranks what interprets" in block
+        # And when the chain cannot resolve it, say so instead of inventing a winner.
+        assert "sources disagree" in block
+        # An unresolved conflict must not be reported as high confidence.
+        assert "not `high`" in block
+
     def test_deep_researcher_prompt_marks_the_inventory_as_not_a_source(self):
         rendered = self._render(self._prompt("deep_researcher/prompts/researcher.j2"), self.DOCUMENTS)
 

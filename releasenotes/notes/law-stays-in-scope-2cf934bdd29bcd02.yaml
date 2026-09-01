@@ -1,0 +1,14 @@
+---
+fixes:
+  - >
+    Bezog sich eine Frage auf eine bestimmte Datei — ein Plan im Chat, ein
+    Projektdokument in der Vorschau —, wurde das OIB-Wissen aus der Suche
+    genommen. „Erfüllt dieser Grundriss die Fluchtweganforderungen?" durchsuchte
+    dann den Plan und keine Richtlinie. Das Baurecht bleibt jetzt immer dabei;
+    nur der Chip „Baurecht" sucht weiterhin ausschließlich dort.
+improvements:
+  - >
+    Wenn zwei Quellen einander widersprechen, zeigt Piloti den Unterschied jetzt
+    ausdrücklich an, nennt beide mit Fundstelle und sagt, welche Regel den
+    Vorrang entscheidet — oder dass sich der Widerspruch aus den Quellen nicht
+    auflösen lässt. Bisher wurde stillschweigend eine Variante gewählt.
