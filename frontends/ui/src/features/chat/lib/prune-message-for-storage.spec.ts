@@ -416,3 +416,48 @@ Citation: OIB-RL_2_Brandschutz.pdf, p.12
     })
   })
 })
+
+describe('the turn event survives the prune', () => {
+  const baseStep = {
+    id: 'ts_status',
+    userMessageId: 'm1',
+    functionName: 'status:retrieval:0',
+    displayName: 'status:retrieval:0',
+    category: 'tools' as const,
+    timestamp: new Date('2026-09-01T10:00:00Z'),
+    isComplete: true,
+  }
+
+  test('keeps the key and values of the newest live event, and drops the payload', () => {
+    const older = JSON.stringify({
+      kind: 'status',
+      channel: 'live',
+      slot: 'retrieval:0',
+      key: 'status.retrieval.plain',
+      values: { corpus: 'knowledge' },
+    })
+    const newer = JSON.stringify({
+      kind: 'status',
+      channel: 'live',
+      slot: 'retrieval:0',
+      key: 'status.retrieval.withQuery',
+      values: { corpus: 'knowledge', query: 'Fluchtweglänge GK4' },
+    })
+    const [pruned] = stripThinkingStepsForStorage([{ ...baseStep, content: `${older}\n${newer}` }])
+    expect(pruned.content).toBe('')
+    expect(pruned.turnEvent).toEqual({
+      key: 'status.retrieval.withQuery',
+      values: { corpus: 'knowledge', query: 'Fluchtweglänge GK4' },
+    })
+  })
+
+  test('a technical event is not hoisted, and a non-status step carries none', () => {
+    const technical = JSON.stringify({ kind: 'status', channel: 'technical', slot: 'x', key: 'status.budget' })
+    const [status, tool] = stripThinkingStepsForStorage([
+      { ...baseStep, content: technical },
+      { ...baseStep, id: 'ts_tool', functionName: 'knowledge_search', content: '{"results": 3}' },
+    ])
+    expect(status.turnEvent).toBeUndefined()
+    expect(tool.turnEvent).toBeUndefined()
+  })
+})
