@@ -264,6 +264,8 @@ let mockMentionData: unknown = {
   canInvite: true,
 }
 let mockMentionsLoading = false
+/** The hook's ladder re-arm, so a spec can see the composer ask again. */
+const mockRestartMentionCandidates = vi.fn()
 
 // The thread-level hand-off state behind the composer's addressee line. Mocked at
 // the hook boundary for the same reason: its own fetching/refresh behaviour is the
@@ -278,6 +280,7 @@ vi.mock('@/features/collaboration/hooks/use-sharing', () => ({
   useMentionCandidates: vi.fn((_conversationId: string | null, enabled: boolean) => ({
     data: enabled ? mockMentionData : null,
     loading: enabled ? mockMentionsLoading : false,
+    restart: mockRestartMentionCandidates,
   })),
   useAwaitingState: vi.fn((_conversationId: string | null, enabled: boolean) => ({
     // A gated org never gets an answer — which is what keeps the composer
@@ -331,6 +334,7 @@ describe('InputArea', () => {
       canInvite: true,
     }
     mockMentionsLoading = false
+    mockRestartMentionCandidates.mockClear()
     mockAwaitingPending = []
     resetThreadSharing()
     // Reset mocks to defaults - clearAllMocks doesn't reset mockReturnValue
@@ -1565,6 +1569,68 @@ describe('InputArea', () => {
 
       expect(await screen.findByTestId('mention-picker')).toBeInTheDocument()
       expect(screen.getByText('Loading people…')).toBeInTheDocument()
+    })
+
+    /**
+     * A THREAD'S FIRST `@` CAN OUTRUN THE THREAD.
+     *
+     * The conversation row reaches the server only with its first persisted
+     * message, so a `@` typed before anything was sent reads candidates that
+     * 404. The hook's retry ladder covers a few seconds of that and then gives
+     * up — and nothing re-armed it: `refresh` is keyed on the conversation id,
+     * which does not change when the row finally appears, and `mentionRequested`
+     * latches true on the first `@` so the enable flag never flips either. The
+     * picker stayed dead for the rest of that thread unless the reader happened
+     * to blur and refocus the tab, which is exactly the first-time interaction
+     * `@` exists to teach — and is what „@ Kollegin erwähnen funktioniert
+     * nicht" looks like from the outside.
+     */
+    describe('when the candidates never arrived', () => {
+      test('a fresh @ asks again', async () => {
+        const user = userEvent.setup()
+        // The ladder has been exhausted: no data, and no longer loading.
+        mockMentionData = null
+        mockMentionsLoading = false
+        render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
+
+        await user.click(composer())
+        // First `@` — this is the one that requested candidates at all.
+        await user.keyboard('@')
+        mockRestartMentionCandidates.mockClear()
+
+        // Leave the fragment and open a new one.
+        await user.keyboard('{Backspace}Frage an @')
+
+        expect(mockRestartMentionCandidates).toHaveBeenCalled()
+      })
+
+      test('but typing inside one fragment does not ask once per keystroke', async () => {
+        const user = userEvent.setup()
+        mockMentionData = null
+        mockMentionsLoading = false
+        render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
+
+        await user.click(composer())
+        await user.keyboard('@')
+        mockRestartMentionCandidates.mockClear()
+
+        // Six more characters inside the SAME `@…` fragment.
+        await user.keyboard('Markus')
+
+        expect(mockRestartMentionCandidates).not.toHaveBeenCalled()
+      })
+
+      test('and a picker that already has its candidates is left alone', async () => {
+        const user = userEvent.setup()
+        render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
+
+        await user.click(composer())
+        await user.keyboard('@')
+        mockRestartMentionCandidates.mockClear()
+        await user.keyboard('{Backspace}Frage an @')
+
+        expect(mockRestartMentionCandidates).not.toHaveBeenCalled()
+      })
     })
 
     /**

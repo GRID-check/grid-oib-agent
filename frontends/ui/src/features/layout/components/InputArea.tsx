@@ -764,10 +764,33 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // panel flashed open and vanished, advertising a feature this deployment does
   // not have (spec NF-8). The gate has to sit on the fetch: any other placement
   // leaves the round-trip, and the flicker is the round-trip.
-  const { data: mentionData, loading: mentionsLoading } = useMentionCandidates(
-    currentSessionId ?? null,
-    canCollaborate && mentionRequested
-  )
+  const {
+    data: mentionData,
+    loading: mentionsLoading,
+    restart: restartMentionCandidates,
+  } = useMentionCandidates(currentSessionId ?? null, canCollaborate && mentionRequested)
+
+  /**
+   * A FRESH `@` IS FRESH EVIDENCE, AND THE THREAD MAY SINCE HAVE BEEN PERSISTED.
+   *
+   * A conversation row reaches the server only with its first persisted
+   * message, so a `@` typed before anything was sent reads candidates that
+   * 404. The retry ladder in the hook covers a few seconds of that; past its
+   * last rung it gives up, and nothing re-armed it — `refresh` is keyed on the
+   * conversation id, which does not change when the row finally appears, and
+   * `mentionRequested` latches true on the first `@` so the enable flag never
+   * flips either. The result was a picker that stayed dead for the rest of that
+   * thread unless the reader happened to blur and refocus the tab.
+   *
+   * Held in a ref rather than a dependency because `syncMentionQuery` runs on
+   * every keystroke and every caret move; a changing identity there would make
+   * the mention trigger a function of how fast someone types.
+   */
+  const mentionRetryRef = useRef<(() => void) | null>(null)
+  mentionRetryRef.current =
+    mentionRequested && mentionData === null && !mentionsLoading ? restartMentionCandidates : null
+  /** Whether the caret was already inside an `@…` fragment on the last sync. */
+  const mentionFragmentOpenRef = useRef(false)
 
   /**
    * Re-evaluate whether the caret sits in an `@…` fragment. Called on every text
@@ -779,9 +802,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     const range = caret === null ? null : findMentionQuery(value, caret)
     setMentionQuery(range)
     if (range) {
+      // Only on the EDGE — the keystroke that opens a fragment. Asking again on
+      // every character of `@Mar…` would be a fetch per keystroke.
+      if (!mentionFragmentOpenRef.current) mentionRetryRef.current?.()
+      mentionFragmentOpenRef.current = true
       setMentionRequested(true)
       return
     }
+    mentionFragmentOpenRef.current = false
     // No fragment → nothing to dismiss; the next `@` starts clean.
     setMentionDismissed(false)
   }, [])
