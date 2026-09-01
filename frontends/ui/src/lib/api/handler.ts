@@ -253,9 +253,24 @@ export function errorResponse(error: unknown, request: Request): Response {
   if (isAuthzError(error)) {
     return NextResponse.json({ error: 'Forbidden', code: 'FORBIDDEN' }, { status: 403 })
   }
+  // Binding a filename to a uuid column is not an internal failure (#572).
+  if (isInvalidUuidQueryError(error)) {
+    return NextResponse.json({ error: 'Not found', code: 'NOT_FOUND' }, { status: 404 })
+  }
   const url = new URL(request.url)
   console.error(`[api] Unhandled error in ${request.method} ${url.pathname}:`, error)
   return NextResponse.json({ error: 'Internal server error', code: 'INTERNAL' }, { status: 500 })
+}
+
+/** Walk `error.cause` for Postgres `22P02` on a uuid column. */
+function isInvalidUuidQueryError(error: unknown): boolean {
+  let current: unknown = error
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    const message = current instanceof Error ? current.message : ''
+    if (/invalid input syntax for type uuid/i.test(message)) return true
+    current = current instanceof Error ? current.cause : undefined
+  }
+  return false
 }
 
 export async function resolveParams(

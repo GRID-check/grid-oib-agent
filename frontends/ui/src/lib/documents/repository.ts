@@ -13,6 +13,7 @@
 import 'server-only'
 import { and, count, desc, eq, inArray, isNull, ne } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { isUuid } from '@/lib/ids'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
 import {
   documents,
@@ -178,17 +179,21 @@ export async function listDocumentIdsForProject(
 }
 
 export async function documentIdsExisting(ids: readonly string[]): Promise<Set<string>> {
-  if (ids.length === 0) return new Set()
+  const uuids = ids.filter(isUuid)
+  if (uuids.length === 0) return new Set()
   const db = getDb()
   const rows = await db
     .select({ id: documents.id })
     .from(documents)
-    .where(inArray(documents.id, [...ids]))
+    .where(inArray(documents.id, uuids))
   return new Set(rows.map((row) => row.id))
 }
 
 /** Load a document by id scoped to an organization. */
 export async function findDocumentInOrg(documentId: string, organizationId: string): Promise<Document | null> {
+  // Filenames used to be bound here and Postgres threw `invalid input syntax
+  // for type uuid` (#572). A malformed id is not found, not a 500.
+  if (!isUuid(documentId)) return null
   const db = getDb()
   const [row] = await withTenant({ organizationId }, () =>
     db
