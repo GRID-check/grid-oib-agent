@@ -37,6 +37,15 @@ interface CitationPeekProps {
   onOpen?: () => void
   /** Outbound link, for web/RIS sources. */
   url?: string
+  /**
+   * The source resolved to nothing openable — say so, in place of the control.
+   *
+   * The alternative is silence, which is what this used to be: the reader is
+   * looking at a citation and wants to know whether checking it is possible.
+   * "There is no way in from here" is an answer; a control that closes the
+   * popover and does nothing is not.
+   */
+  unavailable?: boolean
 }
 
 /**
@@ -99,7 +108,13 @@ const LocusLine: FC<{ citation: CitationRef }> = ({ citation }) => {
   return <p className="text-xs tabular-nums text-muted-foreground">{text}</p>
 }
 
-export const CitationPeek: FC<CitationPeekProps> = ({ citation, snippet, onOpen, url }) => {
+export const CitationPeek: FC<CitationPeekProps> = ({
+  citation,
+  snippet,
+  onOpen,
+  url,
+  unavailable,
+}) => {
   const t = useTranslations('chat')
   const { document: doc } = citation
   const tint = doc.tint
@@ -174,6 +189,12 @@ export const CitationPeek: FC<CitationPeekProps> = ({ citation, snippet, onOpen,
             <FileSearch aria-hidden="true" className="size-3.5" />
             {t('citationPeek.openAtPage')}
           </button>
+        )}
+        {unavailable && !onOpen && (
+          <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
+            <FileSearch aria-hidden="true" className="size-3.5" />
+            {t('citationPeek.notOpenable')}
+          </span>
         )}
         {url && (
           <a

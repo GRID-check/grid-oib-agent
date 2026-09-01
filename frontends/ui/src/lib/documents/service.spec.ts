@@ -1521,7 +1521,7 @@ describe('getDocumentTextPreview', () => {
 
   it('404s a document with no stored object', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(
-      makeDocument({ id: 'doc-text', contentType: 'text/plain', storageKey: null })
+      makeDocument({ id: 'doc-text', contentType: 'text/plain', storageKey: undefined })
     )
 
     await expect(getDocumentTextPreview(session, 'doc-text')).rejects.toBeInstanceOf(NotFoundError)

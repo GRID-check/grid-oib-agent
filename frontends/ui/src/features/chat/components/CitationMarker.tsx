@@ -29,7 +29,9 @@ import { citationSnippet, type CitationRef } from '../lib/citations'
 import { useHoverPopover } from '@/hooks/use-hover-popover'
 import { useCitationScope } from './CitationScope'
 import { CitationPeek } from './CitationPeek'
-import { SourceDocumentDialog } from './SourcePreview'
+import { SourceDocumentDialog, useSourcePreviewIndex } from './SourcePreview'
+import { resolveCitationTarget } from '../lib/citations/target'
+import { useChatStore } from '../store'
 
 /**
  * An in-page anchor that the answer recognises as one of its own citations.
@@ -133,21 +135,16 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
           </button>
         </PopoverAnchor>
         <PopoverContent align="start" className="w-80 p-3" {...peek.contentProps}>
-          <CitationPeek
+          <ResolvedCitationPeek
             citation={ref}
             snippet={snippet}
-            url={ref.document.url}
-            onOpen={
-              ref.document.url
-                ? undefined
-                : () => {
-                    // The peek asked a question the document now answers in
-                    // full; leaving it hanging over the dialog would be two
-                    // views of one citation arguing for the same attention.
-                    peek.dismiss()
-                    setOpenDocument(ref)
-                  }
-            }
+            onOpen={() => {
+              // The peek asked a question the document now answers in full;
+              // leaving it hanging over the dialog would be two views of one
+              // citation arguing for the same attention.
+              peek.dismiss()
+              setOpenDocument(ref)
+            }}
           />
         </PopoverContent>
       </Popover>
@@ -157,6 +154,59 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
         <SourceDocumentDialog citation={openDocument} onClose={() => setOpenDocument(null)} />
       )}
     </>
+  )
+}
+
+/**
+ * The peek, with the open control offered only when there is something to open.
+ *
+ * A CONTROL THAT DOES NOTHING IS WORSE THAN NO CONTROL. „An dieser Stelle
+ * öffnen" used to be rendered for every citation without an outbound URL — no
+ * resolution attempted — and clicking it on a source the viewer cannot render
+ * (a plan, a `.docx`, a citation whose shelf holds no such file) mounted
+ * `SourceDocumentDialog`, which resolved to `info`, called `onClose()` and
+ * rendered `null`. The popover shut and nothing else happened. For an
+ * architecture practice, whose cited sources are largely the formats with no
+ * inline viewer, that is the most-pressed control in an answer failing
+ * silently — which reads as a broken product rather than as a limit.
+ *
+ * `CitationPeek` has always documented the contract (`onOpen` — "Absent when
+ * unopenable"); the marker was the one caller that did not honour it. Resolving
+ * here rather than in the marker keeps the old cost promise: `PopoverContent`
+ * mounts only while a peek is open, and the index behind it is module-cached
+ * per (project, conversation), so a page of markers still costs no fetches and
+ * a second peek costs none either.
+ */
+const ResolvedCitationPeek: FC<{
+  citation: CitationRef
+  snippet?: string
+  onOpen: () => void
+}> = ({ citation, snippet, onOpen }) => {
+  const projectId = useChatStore((s) => s.projectId)
+  const conversationId = useChatStore((s) => s.currentConversation?.id ?? null)
+  const url = citation.document.url
+  const previewIndex = useSourcePreviewIndex(projectId, conversationId, !url)
+
+  const target = url
+    ? null
+    : resolveCitationTarget(citation.document, {
+        locus: citation.locus,
+        storedDocuments: previewIndex?.storedDocuments,
+        baseCorpusFiles: previewIndex?.baseCorpusFiles,
+      })
+
+  // While the index is still loading the answer is not yet known, and the peek
+  // says nothing rather than promising an open it may not be able to keep.
+  const resolving = !url && previewIndex === null
+
+  return (
+    <CitationPeek
+      citation={citation}
+      snippet={snippet}
+      url={url}
+      onOpen={target?.kind === 'document' ? onOpen : undefined}
+      unavailable={!url && !resolving && target?.kind !== 'document'}
+    />
   )
 }
 
