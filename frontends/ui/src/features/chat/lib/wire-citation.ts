@@ -54,6 +54,8 @@ export const citationFromWire = (
     tool: wire.tool?.trim() || undefined,
     fileName: wire.file_name?.trim() || undefined,
     page: typeof wire.page === 'number' && Number.isFinite(wire.page) ? wire.page : undefined,
+    punkt: trimmed(wire.punkt),
+    score: typeof wire.score === 'number' && Number.isFinite(wire.score) ? wire.score : undefined,
     number:
       typeof wire.number === 'number' && Number.isInteger(wire.number) && wire.number > 0
         ? wire.number

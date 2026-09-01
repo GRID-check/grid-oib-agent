@@ -132,6 +132,8 @@ const addWireCitations = (
       tool: citation.tool,
       locus: {
         page,
+        punkt: citation.punkt,
+        score: citation.score,
         number: citation.number,
         // A wire source with no explicit flag is a source the backend chose to
         // send for THIS answer, so it counts as used; `isCited === false` is

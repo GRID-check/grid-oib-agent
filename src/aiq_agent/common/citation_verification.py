@@ -20,6 +20,7 @@ import dataclasses
 import difflib
 import hashlib
 import logging
+import math
 import os
 import re
 import threading
@@ -89,6 +90,17 @@ class SourceEntry:
     # the same (filename, page) key their bodies are joined (see ``add``). None
     # for URL/web sources and for output produced before this field was threaded.
     chunk_text: str | None = None
+    # The Punkt this passage belongs to ("3.5.2"), as the chunker established
+    # it and the knowledge layer's ``Punkt:`` line states it. This is the
+    # citation form Austrian building law uses; None for page-fallback chunks
+    # and every document without a numbered outline. When several chunks
+    # dedup onto one page entry the first stated Punkt survives (see ``add``).
+    punkt: str | None = None
+    # The retrieval score the knowledge layer printed for this passage, a true
+    # cosine similarity. Carried so a reader can ask not only WHERE a passage
+    # is but how nearly it matched; the best score of a page's chunks survives
+    # dedup. None for URL/web sources.
+    score: float | None = None
     # BINDING CLASSIFICATION carried to the client (see
     # ``binding_classification_for_entry``). Both default to the honest-unknown
     # value on purpose: a source that matched no catalogued norm must NEVER claim
@@ -328,18 +340,25 @@ class SourceRegistry:
                 self._citation_keys.append(entry)
                 if not added:
                     added = True
-            elif entry.chunk_text:
+            else:
                 # A single page may hold >1 retrieved chunk; dedup collapses them
                 # onto one (collection, filename, page) entry, but each chunk's
                 # body is distinct evidence for quote verification. Append the new
                 # body to the surviving entry so the whole-registry fuzzy match
-                # sees every chunk of the page rather than only the first.
+                # sees every chunk of the page rather than only the first. The
+                # provenance fields fold the same way: the first stated Punkt
+                # survives, and the page keeps the best score any chunk earned.
                 for existing in self._citation_keys:
                     if self._identity(existing) == dedup_key:
-                        if not existing.chunk_text:
-                            existing.chunk_text = entry.chunk_text
-                        elif entry.chunk_text not in existing.chunk_text:
-                            existing.chunk_text = f"{existing.chunk_text}\n\n{entry.chunk_text}"
+                        if entry.chunk_text:
+                            if not existing.chunk_text:
+                                existing.chunk_text = entry.chunk_text
+                            elif entry.chunk_text not in existing.chunk_text:
+                                existing.chunk_text = f"{existing.chunk_text}\n\n{entry.chunk_text}"
+                        if existing.punkt is None and entry.punkt:
+                            existing.punkt = entry.punkt
+                        if entry.score is not None and (existing.score is None or entry.score > existing.score):
+                            existing.score = entry.score
                         break
         if added:
             self._all.append(entry)
@@ -1069,6 +1088,8 @@ def _kl_entry(
     doc_class: str | None,
     chunk_text: str | None,
     tool_name: str,
+    punkt: str | None = None,
+    score: float | None = None,
 ) -> SourceEntry:
     """Build a knowledge-layer :class:`SourceEntry` from one hit's fields."""
     parsed_shelf = parse_shelf(shelf)
@@ -1081,7 +1102,20 @@ def _kl_entry(
         shelf=str(parsed_shelf) if parsed_shelf else None,
         doc_class=doc_class or None,
         chunk_text=chunk_text or None,
+        punkt=(punkt or "").strip() or None,
+        score=score,
     )
+
+
+def _parse_kl_score(value: str | None) -> float | None:
+    """The ``Relevance Score:`` value as a float, or None when absent or malformed."""
+    if not value:
+        return None
+    try:
+        score = float(value)
+    except ValueError:
+        return None
+    return score if math.isfinite(score) else None
 
 
 def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
@@ -1124,6 +1158,10 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
                     doc_class=_parse_kl_doc_class(_first(_KL_DOC_CLASS_RE, header)),
                     chunk_text=_kl_block_body(block),
                     tool_name=tool_name,
+                    punkt=_first(_KL_PUNKT_RE, header),
+                    # The score line is the header's last line by definition of
+                    # ``_kl_block_header``, so it is read off the whole block.
+                    score=_parse_kl_score(_first(_KL_SCORE_RE, block)),
                 )
             )
     else:
@@ -1815,6 +1853,11 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
         "binding_status": classification.binding_status,
         "file_name": file_name,
         "page": page,
+        # WHERE within the document, in the law's own numbering, and HOW NEARLY
+        # it matched. Both are absent (dropped by the None-filter) when the
+        # producer did not state them — a web source has neither.
+        "punkt": entry.punkt,
+        "score": entry.score,
     }
     return {key: value for key, value in payload.items() if value is not None}
 

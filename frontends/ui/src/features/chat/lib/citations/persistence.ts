@@ -58,6 +58,9 @@ const wireSourceSchema = z
     number: z.number().int().positive().nullish(),
     file_name: z.string().nullish(),
     page: z.number().int().positive().nullish(),
+    /** The Punkt and the retrieval score, so a reload keeps WHERE and HOW NEARLY. */
+    punkt: z.string().nullish(),
+    score: z.number().nullish(),
     kind: z.string().nullish(),
     /** Shelf the chunk came from (ADR-0047). Absent on messages stored before it. */
     shelf: z.string().nullish(),
@@ -106,6 +109,8 @@ export const encodeCitations = (
       number: citation.number,
       file_name: citation.fileName,
       page: citation.page,
+      punkt: citation.punkt,
+      score: citation.score,
       kind: citation.kind,
       shelf: citation.shelf,
       lane: citation.lane,

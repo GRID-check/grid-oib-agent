@@ -57,6 +57,10 @@ export interface CitationLocus {
   key: string
   /** 1-based page, when retrieval carried one. */
   page?: number
+  /** The Punkt within the document ("3.5.2"), when the chunker established one. */
+  punkt?: string
+  /** How nearly this passage matched the query: the retrieval score, when carried. */
+  score?: number
   /**
    * The `[N]` this locus carries in the answer prose. Present only when the
    * answer actually cited it AND the number is known (backend `verify_citations`
@@ -553,6 +557,8 @@ export class CitationAccumulator {
     snippet?: string | null
     locus?: {
       page?: number
+      punkt?: string
+      score?: number
       number?: number
       isCited?: boolean
       snippet?: string
@@ -654,6 +660,8 @@ export class CitationAccumulator {
     doc: CitedDocument,
     locus: {
       page?: number
+      punkt?: string
+      score?: number
       number?: number
       isCited?: boolean
       snippet?: string
@@ -662,6 +670,8 @@ export class CitationAccumulator {
   ): void {
     const page =
       typeof locus.page === 'number' && Number.isFinite(locus.page) ? locus.page : undefined
+    const score =
+      typeof locus.score === 'number' && Number.isFinite(locus.score) ? locus.score : undefined
     const key = locusKey(page, locus.citationKey)
     const existing = doc.loci.find((candidate) => candidate.key === key)
     if (existing) {
@@ -672,11 +682,18 @@ export class CitationAccumulator {
       // `||` for the same reason as the document fields above.
       existing.snippet = existing.snippet || locus.snippet?.trim() || undefined
       existing.citationKey = existing.citationKey || locus.citationKey?.trim() || undefined
+      existing.punkt = existing.punkt || locus.punkt?.trim() || undefined
+      // Several chunks of one page fold onto one locus; the page keeps the
+      // best match any of them earned, mirroring the backend registry.
+      existing.score =
+        existing.score === undefined ? score : score === undefined ? existing.score : Math.max(existing.score, score)
       return
     }
     doc.loci.push({
       key,
       page,
+      punkt: locus.punkt?.trim() || undefined,
+      score,
       number: locus.number,
       isCited: !!locus.isCited,
       snippet: locus.snippet?.trim() || undefined,
@@ -744,6 +761,8 @@ const looksLikeFilename = (value: string): boolean => FILENAME_LIKE_RE.test(valu
 export const locusOf = (citation: CitationSource): CitationLocus => ({
   key: locusKey(citation.page, citation.citationKey),
   page: typeof citation.page === 'number' ? citation.page : undefined,
+  punkt: citation.punkt?.trim() || undefined,
+  score: typeof citation.score === 'number' ? citation.score : undefined,
   number: citation.number,
   isCited: !!citation.isCited,
   citationKey: citation.citationKey?.trim() || undefined,

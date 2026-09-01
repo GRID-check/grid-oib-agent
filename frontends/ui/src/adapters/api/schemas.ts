@@ -296,6 +296,8 @@ export const NATSystemResponseMessageSchema = z.object({
           number: z.number().nullable().optional(),
           file_name: z.string().nullable().optional(),
           page: z.number().nullable().optional(),
+          punkt: z.string().nullable().optional(),
+          score: z.number().nullable().optional(),
         })
         .passthrough()
         // Per-entry tolerance: `.optional()` makes `undefined` a valid element

@@ -97,7 +97,9 @@ const LocusLine: FC<{ citation: CitationRef }> = ({ citation }) => {
 
   const text = citation.locus
     ? page != null
-      ? t('answerSources.page', { page })
+      ? citation.locus.punkt
+        ? t('answerSources.punktPage', { punkt: citation.locus.punkt, page })
+        : t('answerSources.page', { page })
       : t('citationPeek.wholeDocument')
     : pages.length === 1
       ? t('answerSources.page', { page: pages[0]! })
