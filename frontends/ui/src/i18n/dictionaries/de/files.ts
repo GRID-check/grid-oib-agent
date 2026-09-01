@@ -94,12 +94,17 @@ export const files: typeof en.files = {
     tryAgain: 'Erneut versuchen',
     noInlinePreview:
       'Für diesen Dateityp gibt es keine Inline-Vorschau. Laden Sie sie herunter, um das vollständige Dokument anzusehen.',
+    textTruncated:
+      'Es wird nur der Anfang dieser Datei angezeigt. Laden Sie sie herunter, um den vollständigen Inhalt zu lesen.',
     status: 'Status',
     properties: 'Eigenschaften',
     summaryMore: 'Vollständige Zusammenfassung',
     summaryLess: 'Weniger anzeigen',
     type: 'Typ',
     size: 'Größe',
+    originPath: 'Herkunft',
+    originPathCopied: 'Pfad kopiert',
+    originPathCopyFailed: 'Pfad konnte nicht kopiert werden',
     tags: 'Schlagwörter',
     noTags: 'Keine Schlagwörter',
     tagsSaveError: 'Schlagwörter konnten nicht gespeichert werden. Bitte erneut versuchen.',
@@ -208,6 +213,7 @@ export const files: typeof en.files = {
     noMatchDescription:
       'Versuchen Sie einen anderen Namen, ein Schlagwort oder eine Beschreibung – oder löschen Sie die Suche, um alle Dateien zu sehen.',
     clearSearch: 'Suche löschen',
+    clearFilters: 'Filter zurücksetzen',
     resetSearch: 'Suche zurücksetzen',
     recentlyUploaded: 'Zuletzt hochgeladen',
     semantic: {
@@ -324,6 +330,7 @@ export const files: typeof en.files = {
   upload: {
     uploading: 'Wird hochgeladen …',
     upload: 'Hochladen',
+    uploadFolder: 'Ordner hochladen',
   },
   errors: {
     validation: {
@@ -357,6 +364,14 @@ export const files: typeof en.files = {
   authorship: {
     byPiloti: 'Von Piloti erstellt',
     filter: 'Von Piloti',
+    /**
+     * Die Frage, die dieser Filter bisher unbeantwortet ließ: WELCHE Dateien
+     * das wären. Ohne diesen Leerzustand zeigte ein leeres Ergebnis „Dieser
+     * Ordner ist leer" über einem Ordner voller Dokumente.
+     */
+    emptyTitle: 'Piloti hat hier noch nichts abgelegt',
+    emptyDescription:
+      'Hier erscheinen die Dateien, die Piloti selbst erstellt hat: abgelegte Rechercheberichte und Diagramme. Hochgeladene Dokumente zählen nicht dazu, auch wenn Piloti sie gelesen hat.',
     // Warum „Piloti dazu fragen“ deaktiviert ist – deaktiviert, nicht
     // versteckt, wie beim noch nicht zitierbaren Dokument. Der Unterschied:
     // Hier gibt es kein „noch nicht“. Der Bericht wurde absichtlich nicht
@@ -373,6 +388,8 @@ export const files: typeof en.files = {
     filterUnassigned: 'Unvergeben',
     emptyUnassigned: 'Alle Dateien haben jemanden',
     emptyMine: 'Ihnen ist noch nichts zugewiesen',
+    emptyDescription:
+      'Ein anderer Filter zeigt Ihnen wieder alle Dateien dieses Ordners.',
     responsible: 'Verantwortlich',
     ask: 'Piloti dazu fragen',
     askDisabled: 'Sobald die Datei zitierbar ist',

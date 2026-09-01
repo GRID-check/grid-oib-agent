@@ -42,6 +42,12 @@ const gridRules = {
  *
  * Sprint 1 (charter §C): follow_ups, key_takeaways, verdict_header, summary,
  * callout, the two proposal cards.
+ *
+ * Sprint 2: the shared schematic chrome and the two table cards. `kit.tsx`
+ * earns its place first because it is the chrome for NINE cards — eyebrow,
+ * title, note and norm footer — so one migration moves all of them onto the
+ * ramp at once, and every schematic card migrated after it starts from a
+ * compliant shell.
  */
 const CARDS_ON_THE_TYPE_RAMP = [
   'src/features/grid-cards/components/FollowUpsCard.tsx',
@@ -51,6 +57,9 @@ const CARDS_ON_THE_TYPE_RAMP = [
   'src/features/grid-cards/components/CalloutCard.tsx',
   'src/features/grid-cards/components/ProposalShell.tsx',
   'src/features/grid-cards/components/DiagramCard.tsx',
+  'src/features/grid-cards/schematics/kit.tsx',
+  'src/features/grid-cards/components/ComparisonTableCard.tsx',
+  'src/features/grid-cards/components/TypedTableCard.tsx',
 ]
 
 /** @type {import('eslint').Linter.Config[]} */

@@ -174,6 +174,13 @@ export const documents = pgTable('documents', {
   collectionName: text('collection_name').notNull(),
   fileSize: integer('file_size'),
   contentType: text('content_type'),
+  // Where the file sat before it was uploaded, for a folder upload — e.g.
+  // `Wohnbau Nord/03_Einreichung/EG.pdf`. NULL for a picked file, which
+  // genuinely has none. Written once and never rewritten: this is a fact about
+  // the ORIGINAL, deliberately not `folder_id` / the materialised folder path
+  // (ADR-0049), which are Piloti's own filing and are meant to be rearranged.
+  // Migration 0072.
+  originPath: text('origin_path'),
   status: text('status').notNull().default('pending'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

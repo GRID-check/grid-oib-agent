@@ -95,6 +95,8 @@ export const files = {
     goneUndo: 'Undo',
     tryAgain: 'Try again',
     noInlinePreview: 'No inline preview for this file type. Download it to view the full document.',
+    textTruncated:
+      'Only the beginning of this file is shown. Download it to read the whole thing.',
     status: 'Status',
     // Heading for the rail's fact list (what the FILE is), distinct from
     // "Detailed information" below it (what the VLM saw on each page).
@@ -103,6 +105,9 @@ export const files = {
     summaryLess: 'Show less',
     type: 'Type',
     size: 'Size',
+    originPath: 'Came from',
+    originPathCopied: 'Path copied',
+    originPathCopyFailed: "Path couldn't be copied",
     tags: 'Tags',
     noTags: 'No tags',
     tagsSaveError: "Tags couldn't be saved. Please try again.",
@@ -224,6 +229,7 @@ export const files = {
     noMatchDescription:
       'Try a different name, tag or description, or clear the search to see every file.',
     clearSearch: 'Clear search',
+    clearFilters: 'Clear filters',
     resetSearch: 'Reset search',
     recentlyUploaded: 'Recently uploaded',
     semantic: {
@@ -346,6 +352,7 @@ export const files = {
   upload: {
     uploading: 'Uploading…',
     upload: 'Upload',
+    uploadFolder: 'Upload folder',
   },
   errors: {
     validation: {
@@ -380,6 +387,10 @@ export const files = {
     byPiloti: 'Created by Piloti',
     /** Filter chip beside All · Mine · Unassigned. */
     filter: 'By Piloti',
+    /** The question this filter left unanswered: WHICH files those would be. */
+    emptyTitle: 'Piloti has filed nothing here yet',
+    emptyDescription:
+      'This is where the files Piloti wrote itself appear: filed research reports and diagrams. Documents you uploaded do not count, even where Piloti has read them.',
     /**
      * Why Ask is disabled on a generated report — and it is disabled, not
      * hidden, following the pattern the citable-yet case already set. The
@@ -398,6 +409,8 @@ export const files = {
     filterUnassigned: 'Unassigned',
     emptyUnassigned: 'Every file has someone',
     emptyMine: 'Nothing is assigned to you yet',
+    emptyDescription:
+      'Another filter brings back every file in this folder.',
     responsible: 'Responsible',
     ask: 'Ask Piloti',
     askDisabled: 'Once the file is citable',

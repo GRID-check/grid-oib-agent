@@ -251,4 +251,48 @@ describe('an inline citation marker', () => {
     const link = screen.getByRole('link', { name: 'the section' })
     expect(link).toHaveAttribute('href', '#some-heading')
   })
+
+  /**
+   * A CONTROL THAT DOES NOTHING IS WORSE THAN NO CONTROL.
+   *
+   * „An dieser Stelle öffnen" used to be offered for every citation without an
+   * outbound URL, with no resolution attempted. On a source the viewer cannot
+   * render — a plan, a `.docx`, a citation whose shelf holds no such file — the
+   * click mounted the dialog, which resolved to `info`, closed itself and
+   * rendered nothing. The popover shut and nothing happened. Both directions
+   * are pinned here, because closing only one of them would trade a silent
+   * dead control for a silently missing live one.
+   */
+  describe('the open control is offered only when there is something to open', () => {
+    test('offers it for a base-corpus PDF the viewer can render', async () => {
+      const user = userEvent.setup()
+      renderAnswer()
+
+      await user.click(screen.getByRole('button', { name: /Source 1: OIB-Richtlinie 2\.1/i }))
+      const peek = await screen.findByRole('dialog')
+
+      expect(
+        await within(peek).findByText('Open at this passage', {}, { timeout: 5000 })
+      ).toBeInTheDocument()
+      expect(peek.querySelector('[data-citation-open]')).not.toBeNull()
+    })
+
+    test('says so instead when the cited file is in no shelf the reader can reach', async () => {
+      // The knowledge base answers with no such file, and there are no stored
+      // documents — the citation resolves to `info`, which is exactly the state
+      // that used to render a button that closed the popover and did nothing.
+      fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({ files: [], documents: [] })))
+
+      const user = userEvent.setup()
+      renderAnswer()
+
+      await user.click(screen.getByRole('button', { name: /Source 1: OIB-Richtlinie 2\.1/i }))
+      const peek = await screen.findByRole('dialog')
+
+      expect(
+        await within(peek).findByText('Cannot be opened in Piloti', {}, { timeout: 5000 })
+      ).toBeInTheDocument()
+      expect(peek.querySelector('[data-citation-open]')).toBeNull()
+    })
+  })
 })

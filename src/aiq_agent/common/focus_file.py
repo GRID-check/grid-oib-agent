@@ -52,12 +52,26 @@ def shelves_for_turn(*, focus_shelf: object = None, source_preset: object = None
     fallback when no file is bound.
     """
     shelf = _normalize_shelf(focus_shelf)
+    # THE LAW IS NOT A COMPETING SHELF, SO A SUBJECT FILE NEVER SUBTRACTS IT.
+    #
+    # A subject narrows WHICH DOCUMENTS a turn reads — that is what #429 and
+    # #436 asked for: "summarize this upload" must not walk the whole corpus,
+    # and a project question must not mix in Archiv hits. Neither complaint was
+    # about the building-code corpus, and dropping it made the product unable to
+    # answer its own central question: bind a plan, ask whether it meets the
+    # escape-route requirement, and retrieval held the plan and no OIB at all.
+    #
+    # The asymmetry gave it away. The `project` PRESET keeps `base`; the
+    # `project` SHELF did not, although the reader had expressed the same
+    # narrowing by a different control. `law` is the one branch that still
+    # subtracts everything else, because there the reader asked for the law
+    # alone.
     if shelf == "session":
-        return frozenset({"session"})
+        return frozenset({"session", "base"})
     if shelf == "project":
-        return frozenset({"project", "session"})
+        return frozenset({"project", "session", "base"})
     if shelf == "archiv":
-        return frozenset({"archiv", "session"})
+        return frozenset({"archiv", "session", "base"})
     preset = _normalize_preset(source_preset)
     if preset == "law":
         return frozenset({"base"})

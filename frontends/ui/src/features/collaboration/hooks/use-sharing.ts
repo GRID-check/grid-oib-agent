@@ -377,7 +377,7 @@ export function useAwaitingState(
 export function useMentionCandidates(
   conversationId: string | null,
   enabled: boolean,
-): { data: MentionCandidatesResponse | null; loading: boolean } {
+): { data: MentionCandidatesResponse | null; loading: boolean; restart: () => void } {
   const [data, setData] = useState<MentionCandidatesResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const seq = useRef(0)
@@ -448,5 +448,12 @@ export function useMentionCandidates(
     onRefresh: restart,
   })
 
-  return { data, loading }
+  // `restart` is returned as well as wired to the live events above: the
+  // composer needs it because a thread's FIRST `@` can outrun the thread. The
+  // conversation row reaches the server only with its first persisted message,
+  // so the candidates read 404s until then, and the ladder is finite — a user
+  // who types `@` before sending anything and stays in the tab had a dead
+  // picker for the rest of that thread, which is exactly the first-time
+  // interaction `@` exists to teach.
+  return { data, loading, restart }
 }

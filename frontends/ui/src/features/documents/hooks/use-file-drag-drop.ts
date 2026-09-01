@@ -9,6 +9,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { useAppConfig } from '@/shared/context'
 import { checkDraggedFilesSupported } from '../validation'
+import { asPathStampedFiles, readDroppedTree } from '../lib/dropped-entries'
 
 interface UseFileDragDropOptions {
   /** Callback when files are dropped */
@@ -86,11 +87,27 @@ export function useFileDragDrop({
 
       if (disabled) return
 
-      const files = Array.from(e.dataTransfer.files)
-      if (files.length === 0) return
-
-      // Pass files to callback - validation happens in uploadFiles
-      onDrop(files)
+      // A DROPPED FOLDER IS INVISIBLE TO `dataTransfer.files`.
+      //
+      // The browser reports directories only through the entries API, and only
+      // from within the drop event — so dragging a project folder onto the file
+      // area used to do nothing at all, silently: the overlay appeared, the
+      // finger let go, and the page carried on. `readDroppedTree` must capture
+      // its entries synchronously for that reason; it is called before any
+      // await here and returns null when the browser exposes none, which is
+      // the signal to use the list below exactly as this always did.
+      const transfer = e.dataTransfer
+      void (async () => {
+        const tree = await readDroppedTree(transfer)
+        if (tree) {
+          onDrop(asPathStampedFiles(tree))
+          return
+        }
+        const files = Array.from(transfer.files)
+        if (files.length === 0) return
+        // Validation happens in uploadFiles.
+        onDrop(files)
+      })()
     },
     [disabled, onDrop]
   )

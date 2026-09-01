@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
+import { FileTextPage, isTextPageType } from './file-text-page'
 import Image from 'next/image'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
@@ -14,6 +15,7 @@ import {
   FileText,
   FileType2,
   FolderOpen,
+  FolderTree,
   HardDrive,
   Layers,
   Maximize2,
@@ -93,6 +95,13 @@ interface FilePreviewPaneProps {
   onAssigneesChanged?: (assignees: FileItem['assignees']) => void
 }
 
+/**
+ * Kept in step with `PREVIEW_CONTENT_TYPES` in `lib/documents/service.ts`, which
+ * is the authority — this list only decides whether the pane ASKS. The two had
+ * drifted: BMP and TIFF passed the service and were missing here, so the BFF
+ * would have presigned bytes the pane never requested and the reader got the
+ * "no inline preview" mock for a file the product could show.
+ */
 const PREVIEW_TYPES = [
   'application/pdf',
   'image/png',
@@ -101,6 +110,8 @@ const PREVIEW_TYPES = [
   'image/gif',
   'image/webp',
   'image/svg+xml',
+  'image/bmp',
+  'image/tiff',
 ]
 
 /**
@@ -203,6 +214,13 @@ export function FilePreviewPane({
   const [previewFailed, setPreviewFailed] = useState(false)
   /** The document is not there any more (or not the reader's) — see `loadPreview`. */
   const [previewGone, setPreviewGone] = useState(false)
+  /**
+   * A text document's content, when the pane renders the bytes itself rather
+   * than handing a URL to an iframe. Null for every other format, and for a
+   * text document whose fetch has not landed — `previewFailed`/`previewGone`
+   * carry the failure, exactly as they do for the URL path.
+   */
+  const [previewText, setPreviewText] = useState<{ text: string; truncated: boolean } | null>(null)
   const [isLargePreviewOpen, setIsLargePreviewOpen] = useState(false)
   // "Detailed information": per-page VLM descriptions of the document's visual
   // chunks (drawings/images/charts), lazily loaded on first expand. Secondary
@@ -231,6 +249,14 @@ export function FilePreviewPane({
       tags: file.tags,
     }) === 'model'
   const canPreview = PREVIEW_TYPES.includes(file.contentType ?? '')
+  /**
+   * Text, Markdown and CSV are previewable too, by a different route: the pane
+   * fetches the CONTENT and renders it, because the object store publishes no
+   * CORS policy and a presigned URL is therefore unreadable to a `fetch`. Kept
+   * out of `canPreview` rather than folded into it — that flag means "there is
+   * a URL to put in an element", and these have none.
+   */
+  const isTextual = isTextPageType(file.contentType)
   const isImage = (file.contentType ?? '').startsWith('image/')
   // The large viewer dialog enlarges PDFs (native iframe viewer) and images
   // (img mode). Offer the expand affordance for both.
@@ -252,6 +278,41 @@ export function FilePreviewPane({
   const loadPreview = useCallback(() => {
     setPreviewFailed(false)
     setPreviewGone(false)
+
+    if (isTextual) {
+      // Same three outcomes as the URL path, and deliberately the same states,
+      // so the retry button and the "stop asking about it" way out work on a
+      // `.md` exactly as they do on a PDF.
+      setPreviewUrl(null)
+      setPreviewText(null)
+      setIsLoading(true)
+      let gone = false
+      fetch(`/api/documents/${file.id}/text`)
+        .then(async (r) => {
+          if (r.status === 404) {
+            gone = true
+            return null
+          }
+          return r.ok ? await r.json() : null
+        })
+        .then((data) => {
+          if (typeof data?.text === 'string') {
+            setPreviewText({ text: data.text, truncated: data.truncated === true })
+          } else if (gone) {
+            setPreviewGone(true)
+          } else {
+            setPreviewFailed(true)
+          }
+        })
+        .catch(() => {
+          setPreviewText(null)
+          setPreviewFailed(true)
+        })
+        .finally(() => setIsLoading(false))
+      return
+    }
+
+    setPreviewText(null)
     if (!canPreview) {
       setPreviewUrl(null)
       return
@@ -297,7 +358,7 @@ export function FilePreviewPane({
         setPreviewFailed(true)
       })
       .finally(() => setIsLoading(false))
-  }, [file.id, canPreview])
+  }, [file.id, canPreview, isTextual])
 
   useEffect(() => {
     loadPreview()
@@ -635,6 +696,16 @@ export function FilePreviewPane({
               projectId={projectId}
               className="size-full"
             />
+          ) : isTextual && isLoading ? (
+            <PageMock skeleton />
+          ) : isTextual && previewText ? (
+            <FileTextPage
+              text={previewText.text}
+              truncated={previewText.truncated}
+              contentType={file.contentType}
+              truncatedLabel={t('preview.textTruncated')}
+              peeking={peeking}
+            />
           ) : canPreview && isLoading ? (
             <PageMock skeleton />
           ) : canPreview && previewUrl ? (
@@ -719,7 +790,7 @@ export function FilePreviewPane({
                     <X className="size-3.5" aria-hidden />
                     {t('preview.goneAction')}
                   </Button>
-                ) : previewFailed && canPreview ? (
+                ) : previewFailed && (canPreview || isTextual) ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -885,6 +956,32 @@ export function FilePreviewPane({
                     {formatBytes(file.fileSize, locale)}
                   </span>
                 </MetaRow>
+                {file.originPath && (
+                  /* WHERE THIS FILE CAME FROM, so the reader can go back to it.
+                     The alternative on offer was download-and-edit, which makes
+                     a duplicate that the office server never hears about and
+                     that diverges from the moment it is saved. A path they can
+                     copy and paste into Explorer or Finder is the whole
+                     feature. Recorded by a folder upload only — a picked file
+                     genuinely has no origin path, and the row is absent rather
+                     than empty. */
+                  <MetaRow label={t('preview.originPath')} icon={FolderTree}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void navigator.clipboard
+                          ?.writeText(file.originPath!)
+                          .then(() => toast.success(t('preview.originPathCopied')))
+                          .catch(() => toast.error(t('preview.originPathCopyFailed')))
+                      }}
+                      title={file.originPath}
+                      className="text-foreground hover:text-foreground/80 min-w-0 truncate text-left font-mono text-xs underline-offset-2 hover:underline"
+                      data-testid="file-origin-path"
+                    >
+                      {file.originPath}
+                    </button>
+                  </MetaRow>
+                )}
                 {showMetadataPanel && (
                   <MetaRow label={t('preview.indexed.updated')} icon={Clock}>
                     <span className="text-foreground text-xs font-medium tabular-nums">

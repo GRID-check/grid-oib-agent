@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    „@ Kollegin oder Kollegen erwähnen" blieb wirkungslos, wenn man das @ als
+    Allererstes in einem neuen Chat tippte, noch bevor eine Nachricht abgeschickt
+    war: Die Liste der Personen war dann für diesen Chat dauerhaft leer, bis man
+    die Seite neu lud. Ein erneutes @ fragt die Liste jetzt noch einmal ab.

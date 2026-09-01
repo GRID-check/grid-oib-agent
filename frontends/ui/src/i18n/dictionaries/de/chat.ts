@@ -209,6 +209,7 @@ export const chat: typeof en.chat = {
   citationPeek: {
     wholeDocument: 'Gesamtes Dokument',
     openAtPage: 'An dieser Stelle öffnen',
+    notOpenable: 'In Piloti nicht zu öffnen',
     copyLink: 'Link kopieren',
     copyLinkAria: 'Link zu dieser Fundstelle kopieren: {label}',
     markerAria: 'Quelle {number}: {label} — Vorschau öffnen',

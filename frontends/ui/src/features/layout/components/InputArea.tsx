@@ -31,6 +31,7 @@ import {
   ChevronDown,
   Eye,
   FileText,
+  Loader2,
   Paperclip,
   RotateCw,
   Square,
@@ -484,6 +485,28 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     (f) => f.status === 'uploading' || f.status === 'ingesting'
   ).length
 
+  /**
+   * A message the composer accepted while its file was still being read.
+   *
+   * THE FILE IS THE QUESTION, AND IT WAS NOT THERE YET. Attaching a plan and
+   * asking about it in the same breath is the normal way to use this product,
+   * and it did not work: nothing about a session upload is inline — ingestion
+   * runs asynchronously behind a small worker pool with a per-page vision
+   * budget — so the turn was answered against a collection that was still
+   * empty. The agent is not told a file is in flight either (the per-turn
+   * inventory reads the summaries table, which is written only when the job
+   * finishes), so it answered confidently from everything except the document
+   * the question was about.
+   *
+   * Blocking the send was considered and rejected once already, for good
+   * reason: it makes the composer refuse a person who has something to say.
+   * Holding is the third option. The message leaves the composer exactly as if
+   * it had been sent, a line says what it is waiting for, and it goes the
+   * moment the file is readable — so the common case costs the user nothing
+   * and reads as Piloti being careful rather than as Piloti being slow.
+   */
+  const [heldForUpload, setHeldForUpload] = useState<string | null>(null)
+
   // An upload into this chat IS the thing the next send is about. Without a
   // subject the agent never receives focus_file_name and walks project +
   // Archiv instead (#429). Bind the latest ready file; do not re-bind after
@@ -764,10 +787,33 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // panel flashed open and vanished, advertising a feature this deployment does
   // not have (spec NF-8). The gate has to sit on the fetch: any other placement
   // leaves the round-trip, and the flicker is the round-trip.
-  const { data: mentionData, loading: mentionsLoading } = useMentionCandidates(
-    currentSessionId ?? null,
-    canCollaborate && mentionRequested
-  )
+  const {
+    data: mentionData,
+    loading: mentionsLoading,
+    restart: restartMentionCandidates,
+  } = useMentionCandidates(currentSessionId ?? null, canCollaborate && mentionRequested)
+
+  /**
+   * A FRESH `@` IS FRESH EVIDENCE, AND THE THREAD MAY SINCE HAVE BEEN PERSISTED.
+   *
+   * A conversation row reaches the server only with its first persisted
+   * message, so a `@` typed before anything was sent reads candidates that
+   * 404. The retry ladder in the hook covers a few seconds of that; past its
+   * last rung it gives up, and nothing re-armed it — `refresh` is keyed on the
+   * conversation id, which does not change when the row finally appears, and
+   * `mentionRequested` latches true on the first `@` so the enable flag never
+   * flips either. The result was a picker that stayed dead for the rest of that
+   * thread unless the reader happened to blur and refocus the tab.
+   *
+   * Held in a ref rather than a dependency because `syncMentionQuery` runs on
+   * every keystroke and every caret move; a changing identity there would make
+   * the mention trigger a function of how fast someone types.
+   */
+  const mentionRetryRef = useRef<(() => void) | null>(null)
+  mentionRetryRef.current =
+    mentionRequested && mentionData === null && !mentionsLoading ? restartMentionCandidates : null
+  /** Whether the caret was already inside an `@…` fragment on the last sync. */
+  const mentionFragmentOpenRef = useRef(false)
 
   /**
    * Re-evaluate whether the caret sits in an `@…` fragment. Called on every text
@@ -779,9 +825,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     const range = caret === null ? null : findMentionQuery(value, caret)
     setMentionQuery(range)
     if (range) {
+      // Only on the EDGE — the keystroke that opens a fragment. Asking again on
+      // every character of `@Mar…` would be a fetch per keystroke.
+      if (!mentionFragmentOpenRef.current) mentionRetryRef.current?.()
+      mentionFragmentOpenRef.current = true
       setMentionRequested(true)
       return
     }
+    mentionFragmentOpenRef.current = false
     // No fragment → nothing to dismiss; the next `@` starts clean.
     setMentionDismissed(false)
   }, [])
@@ -967,12 +1018,19 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     !disabled &&
     (mentionsLoading || mentionData !== null)
 
-  const handleSubmit = useCallback(async () => {
-    if (!message.trim() || disabled) return
+  /**
+   * @param heldText  A message the composer HELD rather than sent (see
+   *   `heldForUpload`). Passed explicitly because it is no longer in `message`
+   *   by the time the uploads settle, and a state round-trip to put it back
+   *   would send whatever the user had started typing since.
+   */
+  const handleSubmit = useCallback(async (heldText?: string) => {
+    const source = heldText ?? message
+    if (!source.trim() || disabled) return
     // Backstop for a send that never saw a focus event (prefill, deep link). A no-op
     // when focus already declared it.
     noteSendIntent()
-    const currentMessage = message.trim()
+    const currentMessage = source.trim()
     // Capture the session up front — the draft is cleared against THIS id on a
     // successful send, even if the session changes underneath us mid-await.
     const submittingSessionId = currentConversation?.id
@@ -1000,9 +1058,17 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     })
     const sentHumans = sent.humans
 
-    // Files may still be uploading/ingesting — we no longer gate the send behind
-    // a double-submit banner. The send button surfaces a subtle inline hint
-    // (see title below) but the user is always free to send.
+    // A file is still being read, and this message is about it. Hold rather
+    // than send: see `heldForUpload`. `heldText` means this IS the resumed
+    // send, so it must not be held a second time.
+    if (heldText === undefined && pendingCount > 0) {
+      setHeldForUpload(currentMessage)
+      setMessage('')
+      setMentionQuery(null)
+      onStoppedTyping()
+      return
+    }
+
     setMessage('')
     setMentionQuery(null)
     // The draft became a message; the claim has served its purpose and the
@@ -1079,6 +1145,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     message,
     mentions,
     disabled,
+    pendingCount,
     isResponseMode,
     respondToInteraction,
     sendMessage,
@@ -1094,6 +1161,31 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     t,
     tCollab,
   ])
+
+  /**
+   * The held message goes the moment the file is readable — or the moment it is
+   * clear it never will be.
+   *
+   * `pendingCount === 0` covers both: an upload that succeeded and one that
+   * failed leave the pending set the same way. That is deliberate. A message
+   * must not be swallowed by a broken upload; if the file did not make it, the
+   * question is still the user's to ask, and the answer will simply be the one
+   * they would have got before this existed.
+   */
+  useEffect(() => {
+    if (heldForUpload === null || pendingCount > 0) return
+    const text = heldForUpload
+    setHeldForUpload(null)
+    void handleSubmit(text)
+  }, [heldForUpload, pendingCount, handleSubmit])
+
+  /** Give up waiting and ask now, without the file. */
+  const sendHeldNow = useCallback(() => {
+    if (heldForUpload === null) return
+    const text = heldForUpload
+    setHeldForUpload(null)
+    void handleSubmit(text)
+  }, [heldForUpload, handleSubmit])
 
   // Post-research forward action: start a fresh session draft (the real
   // new-session path) so the user can ask follow-ups after a completed report,
@@ -1284,18 +1376,21 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               // still signalled by the ring on top of it, never by thickening
               // the outline. Textarea on top, hairline-separated control row
               // below.
-              // The ring is `accent-pop`, not the neutral `ring-ring` every
-              // other focus state in the app uses: this is the app's one
-              // carved-out accent (design doc §"Accent pop"), and typing is
-              // one of the rare moments it should show — a quiet green glow
-              // that says "live" rather than a fact about provenance.
+              // The ring is the neutral `ring-ring`, the same focus state every
+              // other field in the app uses. It was `accent-pop` — a green glow
+              // meant to read as "live" — and the accent was withdrawn: on the
+              // one surface where a colour is on screen for the whole time
+              // somebody is composing, green did not read as liveness so much as
+              // as a status, competing with the provenance greens the answer
+              // below it uses to mean something. See the design doc §"Accent
+              // pop" for what the accent was for and why it is gone.
               // NOT `active:scale-95`: the press response belongs on the controls a
               // reader actually presses (the chips and buttons in the row below), and
               // this div is the card that HOLDS them. With it here, putting the caret
               // in the textarea shrank the whole composer — text, chips and all — on
               // every mousedown, which reads as the surface flinching away from the
               // click rather than as a control acknowledging a press.
-              'bg-card/90 backdrop-blur-md supports-[backdrop-filter]:bg-card/85 focus-within:ring-accent-pop/45 duration-quick relative flex flex-col rounded-xl border border-input px-4 py-2.5 shadow-md transition-[box-shadow,border-color] ease-out focus-within:ring-2',
+              'bg-card/90 backdrop-blur-md supports-[backdrop-filter]:bg-card/85 focus-within:ring-ring/40 duration-quick relative flex flex-col rounded-xl border border-input px-4 py-2.5 shadow-md transition-[box-shadow,border-color] ease-out focus-within:ring-2',
               isDisabledByAuth && 'opacity-60',
               isDragging && isUnsupportedDrag
                 ? 'border-error border-2 border-dashed'
@@ -1675,6 +1770,30 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               unusual case, "Piloti is next" would remain something the user has to
               infer from an absence. Borderless on purpose — it is a statement
               standing among buttons, and must not read as one. */}
+              {/* The hold, said out loud. Without it the message simply
+                  vanishes from the composer and nothing arrives — which reads
+                  as a dropped send, the one impression a held message must not
+                  give. The way out is offered beside it: a reader who does not
+                  want to wait for the file can ask now and get the answer they
+                  would have got before this existed. */}
+              {heldForUpload !== null && (
+                <span
+                  className="text-muted-foreground flex items-center gap-1.5 text-xs"
+                  data-testid="composer-held-for-upload"
+                  role="status"
+                >
+                  <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />
+                  {t('inputArea.heldForUpload')}
+                  <button
+                    type="button"
+                    onClick={sendHeldNow}
+                    className="text-foreground font-medium underline-offset-2 hover:underline"
+                  >
+                    {t('inputArea.heldForUploadSendNow')}
+                  </button>
+                </span>
+              )}
+
               {canCollaborate && (
                 <AddresseeIndicator
                   mentions={activeMentions}
@@ -1837,18 +1956,16 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     <Button
                       size="icon"
                       className={cn(
-                        'size-9 rounded-lg shadow-md',
-                        // The one moment the accent fills a whole control: a
-                        // message ready to send. Ink otherwise (the Button's
-                        // own `default` variant) — the accent marks READINESS,
-                        // it does not become the button's permanent identity,
-                        // which is what would have made it a second action
-                        // color rather than a one-time cue.
-                        message.trim() &&
-                          !disabled &&
-                          'bg-accent-pop text-accent-pop-foreground shadow-xs hover:bg-accent-pop/90'
+                        // Ink, in both states. The armed button used to fill
+                        // with `accent-pop`, to mark readiness — but the
+                        // disabled/armed pair already reads as readiness
+                        // (the control goes from muted to solid and becomes
+                        // pressable), so the colour was carrying a distinction
+                        // the contrast had already made, in a hue this product
+                        // uses elsewhere to mean provenance.
+                        'size-9 rounded-lg shadow-md'
                       )}
-                      onClick={handleSubmit}
+                      onClick={() => handleSubmit()}
                       disabled={!message.trim() || disabled}
                       aria-label={
                         isResponseMode ? t('inputArea.sendResponse') : t('inputArea.sendMessage')

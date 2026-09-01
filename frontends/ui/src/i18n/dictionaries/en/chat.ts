@@ -222,6 +222,7 @@ export const chat = {
   citationPeek: {
     wholeDocument: 'Whole document',
     openAtPage: 'Open at this passage',
+    notOpenable: 'Cannot be opened in Piloti',
     copyLink: 'Copy link',
     copyLinkAria: 'Copy a link to this passage: {label}',
     markerAria: 'Source {number}: {label} — open preview',

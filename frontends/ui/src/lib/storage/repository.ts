@@ -15,7 +15,7 @@
  */
 
 import 'server-only'
-import { and, eq, isNull, sql } from 'drizzle-orm'
+import { and, eq, isNull, ne, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withPlatformAccess } from '@/lib/db/tenant-context'
 import { documents, DOCUMENT_SCOPES, type DocumentScope, type NewDocument } from '@/lib/db/schema'
@@ -188,6 +188,76 @@ export async function aggregateStorageUsageByOrganization(): Promise<
  * pre-upload check remains as a courtesy so an obviously-over-quota upload is
  * refused before the bytes move.
  */
+/**
+ * Point an existing document row at new bytes, under the same quota lock.
+ *
+ * The sibling of {@link insertDocumentWithinQuota}, for a re-upload of a
+ * filename this collection already holds. Usage is `sum(file_size)` over live
+ * rows, so the row being replaced is ALREADY counted — charging the full new
+ * size against a total that includes the old one would refuse a corrected plan
+ * for space the correction itself frees. The row is excluded from the sum and
+ * the new size charged in its place, which is the real delta.
+ *
+ * Same advisory lock as the insert path, and deliberately so: a replace and an
+ * insert racing for the last megabyte must serialize against each other, not
+ * only against their own kind.
+ */
+export async function replaceDocumentWithinQuota(
+  organizationId: string,
+  documentId: string,
+  next: {
+    storageKey: string
+    storageBucket: string | null
+    fileSize: number
+    contentType: string | null
+    folderId: string | null
+    createdBy: string
+  },
+  quotaBytes: number | null,
+): Promise<{ ok: true } | { ok: false; usedBytes: number }> {
+  const db = getDb()
+
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`storage_quota:${organizationId}`}, 0))`,
+    )
+
+    if (quotaBytes !== null) {
+      const [row] = await tx
+        .select({ bytes: sql<string>`coalesce(sum(${documents.fileSize}), 0)::bigint` })
+        .from(documents)
+        .where(
+          and(
+            eq(documents.organizationId, organizationId),
+            isNull(documents.deletedAt),
+            ne(documents.id, documentId),
+          ),
+        )
+
+      const usedBytes = Number(row?.bytes) || 0
+      if (usedBytes + next.fileSize > quotaBytes) {
+        return { ok: false as const, usedBytes }
+      }
+    }
+
+    await tx
+      .update(documents)
+      .set({
+        storageKey: next.storageKey,
+        storageBucket: next.storageBucket,
+        fileSize: next.fileSize,
+        contentType: next.contentType,
+        folderId: next.folderId,
+        createdBy: next.createdBy,
+        status: 'uploaded',
+        errorMessage: null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(documents.organizationId, organizationId), eq(documents.id, documentId)))
+    return { ok: true as const }
+  })
+}
+
 export async function insertDocumentWithinQuota(
   values: NewDocument,
   quotaBytes: number | null,

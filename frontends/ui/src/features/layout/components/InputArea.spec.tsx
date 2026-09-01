@@ -264,6 +264,8 @@ let mockMentionData: unknown = {
   canInvite: true,
 }
 let mockMentionsLoading = false
+/** The hook's ladder re-arm, so a spec can see the composer ask again. */
+const mockRestartMentionCandidates = vi.fn()
 
 // The thread-level hand-off state behind the composer's addressee line. Mocked at
 // the hook boundary for the same reason: its own fetching/refresh behaviour is the
@@ -278,6 +280,7 @@ vi.mock('@/features/collaboration/hooks/use-sharing', () => ({
   useMentionCandidates: vi.fn((_conversationId: string | null, enabled: boolean) => ({
     data: enabled ? mockMentionData : null,
     loading: enabled ? mockMentionsLoading : false,
+    restart: mockRestartMentionCandidates,
   })),
   useAwaitingState: vi.fn((_conversationId: string | null, enabled: boolean) => ({
     // A gated org never gets an answer — which is what keeps the composer
@@ -331,6 +334,7 @@ describe('InputArea', () => {
       canInvite: true,
     }
     mockMentionsLoading = false
+    mockRestartMentionCandidates.mockClear()
     mockAwaitingPending = []
     resetThreadSharing()
     // Reset mocks to defaults - clearAllMocks doesn't reset mockReturnValue
@@ -1568,6 +1572,68 @@ describe('InputArea', () => {
     })
 
     /**
+     * A THREAD'S FIRST `@` CAN OUTRUN THE THREAD.
+     *
+     * The conversation row reaches the server only with its first persisted
+     * message, so a `@` typed before anything was sent reads candidates that
+     * 404. The hook's retry ladder covers a few seconds of that and then gives
+     * up — and nothing re-armed it: `refresh` is keyed on the conversation id,
+     * which does not change when the row finally appears, and `mentionRequested`
+     * latches true on the first `@` so the enable flag never flips either. The
+     * picker stayed dead for the rest of that thread unless the reader happened
+     * to blur and refocus the tab, which is exactly the first-time interaction
+     * `@` exists to teach — and is what „@ Kollegin erwähnen funktioniert
+     * nicht" looks like from the outside.
+     */
+    describe('when the candidates never arrived', () => {
+      test('a fresh @ asks again', async () => {
+        const user = userEvent.setup()
+        // The ladder has been exhausted: no data, and no longer loading.
+        mockMentionData = null
+        mockMentionsLoading = false
+        render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
+
+        await user.click(composer())
+        // First `@` — this is the one that requested candidates at all.
+        await user.keyboard('@')
+        mockRestartMentionCandidates.mockClear()
+
+        // Leave the fragment and open a new one.
+        await user.keyboard('{Backspace}Frage an @')
+
+        expect(mockRestartMentionCandidates).toHaveBeenCalled()
+      })
+
+      test('but typing inside one fragment does not ask once per keystroke', async () => {
+        const user = userEvent.setup()
+        mockMentionData = null
+        mockMentionsLoading = false
+        render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
+
+        await user.click(composer())
+        await user.keyboard('@')
+        mockRestartMentionCandidates.mockClear()
+
+        // Six more characters inside the SAME `@…` fragment.
+        await user.keyboard('Markus')
+
+        expect(mockRestartMentionCandidates).not.toHaveBeenCalled()
+      })
+
+      test('and a picker that already has its candidates is left alone', async () => {
+        const user = userEvent.setup()
+        render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
+
+        await user.click(composer())
+        await user.keyboard('@')
+        mockRestartMentionCandidates.mockClear()
+        await user.keyboard('{Backspace}Frage an @')
+
+        expect(mockRestartMentionCandidates).not.toHaveBeenCalled()
+      })
+    })
+
+    /**
      * With collaboration off the composer must be byte-identical to the one that
      * shipped before the feature existed (spec NF-8) — and "identical" includes
      * the moment between keystroke and answer. The bug these two pin: the
@@ -2024,6 +2090,119 @@ describe('InputArea', () => {
       expect(screen.queryByTestId('upload-destination')).not.toBeInTheDocument()
     })
   })
+  /**
+   * THE FILE IS THE QUESTION, AND IT WAS NOT THERE YET.
+   *
+   * Attaching a plan and asking about it in the same breath is the normal way to
+   * use this product, and it did not work: nothing about a session upload is
+   * inline, so the turn was answered against a collection that was still empty
+   * and the agent answered confidently from everything except the document the
+   * question was about. The only signal was a `title` tooltip on the send button.
+   *
+   * Blocking the send was tried and rejected once, for good reason. Holding is
+   * the third option: the message leaves the composer as if sent, a line says
+   * what it waits for, and it goes when the file is readable.
+   */
+  describe('a message asked while its file is still being read', () => {
+    const composer = () => screen.getByPlaceholderText('Ask Piloti about this project …')
+
+    const withSessionFiles = (files: unknown[]) =>
+      vi.mocked(useFileUpload).mockReturnValue({
+        uploadFiles: mockUploadFiles,
+        deleteFile: mockDeleteFile,
+        retryFile: mockRetryFile,
+        sessionFiles: files,
+        isUploading: false,
+        error: null,
+        clearError: vi.fn(),
+      } as unknown as ReturnType<typeof useFileUpload>)
+
+    const ingesting = [
+      { id: 'file-1', fileName: 'grundriss.pdf', status: 'ingesting', collectionName: 'session-1' },
+    ]
+    const ready = [
+      { id: 'file-1', fileName: 'grundriss.pdf', status: 'success', collectionName: 'session-1' },
+    ]
+
+    test('is held rather than sent, and says so', async () => {
+      const user = userEvent.setup()
+      withSessionFiles(ingesting)
+      render(<InputArea isAuthenticated={true} />)
+
+      await user.click(composer())
+      await user.keyboard('Erfüllt der Grundriss die Fluchtweganforderungen?{Enter}')
+
+      // Not sent — sending now would answer against a collection with nothing in it.
+      expect(mockSendMessage).not.toHaveBeenCalled()
+      // And not silently swallowed: a vanished message with no answer reads as a
+      // dropped send, the one impression a held message must not give.
+      expect(screen.getByTestId('composer-held-for-upload')).toBeInTheDocument()
+    })
+
+    test('goes on its own the moment the file is readable', async () => {
+      const user = userEvent.setup()
+      withSessionFiles(ingesting)
+      const { rerender } = render(<InputArea isAuthenticated={true} />)
+
+      await user.click(composer())
+      await user.keyboard('Wie hoch ist die Attika?{Enter}')
+      expect(mockSendMessage).not.toHaveBeenCalled()
+
+      withSessionFiles(ready)
+      // `InputArea` is `memo`-wrapped, so a rerender with identical props is
+      // skipped entirely and the new mock value is never read. Changing a prop
+      // that does not affect this behaviour is what makes the rerender real.
+      rerender(<InputArea isAuthenticated={true} placeholder={undefined} />)
+
+      await waitFor(() => expect(mockSendMessage).toHaveBeenCalled())
+      expect(String(mockSendMessage.mock.calls[0]?.[0])).toBe('Wie hoch ist die Attika?')
+      expect(screen.queryByTestId('composer-held-for-upload')).not.toBeInTheDocument()
+    })
+
+    test('is not swallowed by an upload that failed', async () => {
+      const user = userEvent.setup()
+      withSessionFiles(ingesting)
+      const { rerender } = render(<InputArea isAuthenticated={true} />)
+
+      await user.click(composer())
+      await user.keyboard('Und ohne die Datei?{Enter}')
+
+      // A failed upload leaves the pending set exactly as a successful one does,
+      // and that is deliberate: the question is still the user's to ask.
+      withSessionFiles([{ ...ingesting[0], status: 'error' }])
+      // See the note above: `memo` skips a rerender with identical props.
+      rerender(<InputArea isAuthenticated={true} placeholder={undefined} />)
+
+      await waitFor(() => expect(mockSendMessage).toHaveBeenCalled())
+    })
+
+    test('offers a way to ask now without waiting', async () => {
+      const user = userEvent.setup()
+      withSessionFiles(ingesting)
+      render(<InputArea isAuthenticated={true} />)
+
+      await user.click(composer())
+      await user.keyboard('Was gilt allgemein?{Enter}')
+
+      await user.click(screen.getByRole('button', { name: /ask now without it/i }))
+
+      await waitFor(() => expect(mockSendMessage).toHaveBeenCalled())
+      expect(String(mockSendMessage.mock.calls[0]?.[0])).toBe('Was gilt allgemein?')
+    })
+
+    test('sends immediately when nothing is in flight', async () => {
+      const user = userEvent.setup()
+      withSessionFiles(ready)
+      render(<InputArea isAuthenticated={true} />)
+
+      await user.click(composer())
+      await user.keyboard('Ganz normale Frage{Enter}')
+
+      await waitFor(() => expect(mockSendMessage).toHaveBeenCalled())
+      expect(screen.queryByTestId('composer-held-for-upload')).not.toBeInTheDocument()
+    })
+  })
+
 })
 
 /**

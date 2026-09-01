@@ -34,7 +34,7 @@ import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/signed-image-url'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
-import { admitOrDiscard } from '@/lib/storage/admission'
+import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
 import { FEATURE_FLAGS, isCollaborationEnabled, isFeatureEnabled, isIfcModelsEnabled } from '@/lib/authz/feature-flags'
 import { listResourceAssignments } from '@/lib/assignments/service'
 import { deleteAssignmentsForResource } from '@/lib/assignments/repository'
@@ -53,6 +53,7 @@ import {
   markDocumentProcessing,
   setDocumentDisplayName,
   setDocumentIngestJob,
+  findLiveDocumentByFilename,
   type DocumentListRow,
 } from './repository'
 import { documentDisplayName, validateDocumentName } from './display-name'
@@ -70,6 +71,38 @@ const PREVIEW_CONTENT_TYPES = [
   'image/bmp',
   'image/tiff',
 ]
+
+/**
+ * Text-shaped documents the reader gets as TEXT rather than as a presigned URL.
+ *
+ * These are accepted at upload (`shared/config/file-upload.ts`) and had no
+ * viewer at all: a `.md` a colleague uploaded showed the same grey "download it
+ * to read it" mock as a `.dwg` we genuinely cannot render. They are separate
+ * from {@link PREVIEW_CONTENT_TYPES} because the answer is a different shape —
+ * the bytes come back through this origin as a string the pane renders, not as
+ * an object-store URL an iframe loads. The object store publishes no CORS
+ * policy, so a presigned URL is unreadable to a `fetch` anyway; that is the same
+ * constraint `streamDocumentFile` exists for.
+ *
+ * `text/html` is deliberately absent and must stay absent. These bytes are
+ * uploaded by users and would be returned same-origin.
+ */
+const TEXT_PREVIEW_CONTENT_TYPES = [
+  'text/plain',
+  'text/markdown',
+  'text/x-markdown',
+  'text/csv',
+]
+
+/**
+ * How much of a text document crosses the wire for a preview.
+ *
+ * A preview is a look at a file, not a delivery of it — the download button is
+ * two centimetres away and is the honest route to the whole thing. 256 KiB is
+ * some 4000 lines of prose, past the point where anyone is reading rather than
+ * searching, and it bounds a response that would otherwise be the upload limit.
+ */
+const TEXT_PREVIEW_MAX_BYTES = 256 * 1024
 
 /**
  * Content types the signed image route hands to the Next optimizer.
@@ -540,6 +573,45 @@ export interface UploadDocumentInput {
   projectId: string
   folderId: string | null
   file: File
+  /**
+   * Where the file sat before it was uploaded, when the browser knows — a
+   * folder upload reports `webkitRelativePath`. Absent for a picked file.
+   * Recorded once (migration 0072) and never rewritten; see the schema comment
+   * for why this is not Piloti's own folder path.
+   */
+  originPath?: string | null
+}
+
+/** Longest origin path recorded. Deep office trees exist; unbounded text does not belong in a row. */
+const ORIGIN_PATH_MAX_CHARS = 1024
+
+/**
+ * A browser-reported origin path, made safe to store and to show.
+ *
+ * This string is USER-CONTROLLED — it is whatever the operating system had in
+ * a folder name — and it is rendered back to other people in the same
+ * organization, so it is treated the way every other piece of uploaded text is:
+ * bounded, normalised, and stripped of the characters that would let it
+ * pretend to be something else.
+ *
+ * Backslashes become forward slashes so a Windows tree and a macOS one read
+ * alike. Leading slashes, `.` and `..` segments are dropped: this is a label,
+ * never a path anything resolves, and an absolute or climbing path in a label
+ * is only ever a way to mislead a reader about where a file came from. Control
+ * characters go for the same reason a filename's do.
+ */
+function sanitizeOriginPath(raw: string | null | undefined): string | null {
+  if (typeof raw !== 'string') return null
+  const segments = raw
+    .replace(/\\/g, '/')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment !== '' && segment !== '.' && segment !== '..')
+  if (segments.length === 0) return null
+  const joined = segments.join('/')
+  return joined.slice(0, ORIGIN_PATH_MAX_CHARS) || null
 }
 
 export interface UploadDocumentResult {
@@ -630,6 +702,7 @@ export async function uploadDocument(
   request: Request,
 ): Promise<UploadDocumentResult> {
   const { projectId, folderId, file } = input
+  const originPath = sanitizeOriginPath(input.originPath)
 
   await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
   await assertUploadTypeAllowed(session, file.name)
@@ -648,8 +721,32 @@ export async function uploadDocument(
   const project = await findProjectInOrg(projectId, session.organizationId)
   if (!project) throw new NotFoundError('Project not found')
 
-  const documentId = crypto.randomUUID()
   const collectionName = project.collectionName
+
+  /*
+   * A RE-UPLOAD REPLACES; IT DOES NOT ACCUMULATE.
+   *
+   * This used to mint a fresh id and insert unconditionally. There is no unique
+   * index on (collection, filename), so a second upload of the same name wrote
+   * a second row and a second stored object charged to the organization's
+   * quota — while the ingest pipeline's `_replace_previous_versions` deletes
+   * chunks BY FILENAME, so the newcomer's chunks replaced the incumbent's. The
+   * first row survived: listed, downloadable, cited by nothing, findable by
+   * nothing. A ghost, and a paid-for one.
+   *
+   * The backend already treats the filename as the document's identity. This
+   * makes the row agree: the SAME id is pointed at the new bytes, so every
+   * citation, chat subject and folder assignment that referenced the document
+   * keeps working, and re-dropping a corrected plan does what a person dropping
+   * it means by the gesture.
+   *
+   * Deliberately not a 409. Refusing the upload would be defensible if the two
+   * files were unrelated, but the pipeline downstream has already decided they
+   * are the same document, and a refusal leaves the reader with the OLD file
+   * and no way to say "no, this one".
+   */
+  const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, file.name)
+  const documentId = superseded?.id ?? crypto.randomUUID()
   const storageKey = buildStorageKey(session.organizationId, projectId, documentId, file.name, folderPath)
 
   // Create the organization's bucket if this is its first upload (ADR-0043).
@@ -675,22 +772,59 @@ export async function uploadDocument(
   // The object is already written, so a refusal has to take it back — the row was
   // not inserted, so nothing else will ever reference those bytes and leaving
   // them would be an orphan that only a bucket-wide sweep could find.
-  await admitOrDiscard(storageBucket, storageKey, {
-    id: documentId,
-    organizationId: session.organizationId,
-    projectId,
-    folderId: folderId ?? null,
-    createdBy: session.userId,
-    filename: file.name,
-    storageKey,
-    // Recorded even when it IS the shared bucket, so only rows predating
-    // migration 0033 rely on the NULL-means-shared convention.
-    storageBucket,
-    collectionName,
-    fileSize: file.size,
-    contentType: file.type || null,
-    status: 'uploaded',
-  })
+  if (superseded) {
+    // The row already exists and is already counted against the quota, so the
+    // charge is the DELTA — see `replaceDocumentWithinQuota`. Charging the full
+    // size against a total that still includes the old one would refuse a
+    // corrected plan for space the correction itself frees.
+    await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
+      storageKey,
+      storageBucket,
+      fileSize: file.size,
+      contentType: file.type || null,
+      folderId: folderId ?? null,
+      createdBy: session.userId,
+    })
+    // The old object, when the new bytes did not land on top of it. They
+    // usually do — the key is derived from the id, which is preserved — but a
+    // re-upload into a DIFFERENT folder builds a different path, and the
+    // superseded object would otherwise be an orphan no sweep short of a
+    // bucket walk could find. Best-effort: the row is already correct, and
+    // failing the request over a leaked object would be the wrong trade.
+    if (superseded.storageKey !== storageKey) {
+      try {
+        await s3Client.send(
+          new DeleteObjectCommand({
+            Bucket: resolveDocumentBucket(superseded.storageBucket),
+            Key: superseded.storageKey,
+          }),
+        )
+      } catch (error) {
+        console.error('[documents] failed to remove the superseded object', {
+          documentId,
+          cause: error instanceof Error ? error.name : 'unknown',
+        })
+      }
+    }
+  } else {
+    await admitOrDiscard(storageBucket, storageKey, {
+      id: documentId,
+      organizationId: session.organizationId,
+      projectId,
+      folderId: folderId ?? null,
+      createdBy: session.userId,
+      filename: file.name,
+      storageKey,
+      // Recorded even when it IS the shared bucket, so only rows predating
+      // migration 0033 rely on the NULL-means-shared convention.
+      storageBucket,
+      collectionName,
+      fileSize: file.size,
+      contentType: file.type || null,
+      originPath,
+      status: 'uploaded',
+    })
+  }
 
   const { jobId: ingestJobId, status: ingestStatus } = await dispatchDocument({
     organizationId: session.organizationId,
@@ -714,7 +848,14 @@ export async function uploadDocument(
     targetType: 'document',
     targetId: documentId,
     // Filename is user-controlled — cap it before it reaches the trail.
-    metadata: { projectId, filename: file.name.slice(0, 200), fileSize: file.size },
+    // `replaced` distinguishes a new document from new bytes under an existing
+    // id, which is the one thing the trail could no longer infer from the id.
+    metadata: {
+      projectId,
+      filename: file.name.slice(0, 200),
+      fileSize: file.size,
+      ...(superseded ? { replaced: true } : {}),
+    },
     request,
   })
 
@@ -980,11 +1121,23 @@ const REINDEX_CONCURRENCY = 4
  * Distinct from `reingestDocument`, which is a RETRY: that one refuses anything
  * whose status is not `failed`, because re-dispatching a healthy document is a
  * different and more dangerous operation. This is that operation, and the danger
- * is duplication — the ingest endpoint downloads and indexes, it does not replace,
- * so dispatching a document that already has chunks leaves BOTH sets in the
- * collection, both retrievable and both rendering as a valid citation.
+ * is duplication.
  *
- * So the delete is a PRECONDITION here, not a courtesy. `deleteDocument` swallows
+ * The ingest endpoint DOES replace now — `_replace_previous_versions`
+ * (`llamaindex/adapter.py`, since `166dd79`) deletes the collection's chunks for
+ * an incoming filename before writing new ones. This comment claimed the
+ * opposite until 2026-09; the behaviour was safe and the reasoning was not, which
+ * is the worse of the two to leave lying around.
+ *
+ * The delete stays a PRECONDITION rather than becoming redundant, for two
+ * reasons that outlive the backend's current behaviour. It matches on the
+ * NORMALISED filename only, so a document this project holds under a name the
+ * incoming batch does not repeat keeps its old chunks; and it is wrapped in a
+ * bare `except` that only logs, so a failed replacement never fails the ingest.
+ * Relying on it would make this function's guarantee depend on a best-effort
+ * step in another tier.
+ *
+ * `deleteDocument` swallows
  * a failed chunk-delete on purpose (the durable row and object cleanup matter more,
  * and leftover chunks get swept by the next reconcile). The same failure here means
  * the opposite: dispatching after it would create the duplicate this whole function
@@ -1529,6 +1682,61 @@ export async function streamDocumentFile(
       'Content-Security-Policy': "frame-ancestors 'self'",
     },
   })
+}
+
+/**
+ * A text document's content, for the pane that renders it.
+ *
+ * Bounded by {@link TEXT_PREVIEW_MAX_BYTES} and decoded as UTF-8 with
+ * replacement characters rather than a throw: a Windows-authored `.csv` in
+ * cp1252 is common, and half a mojibake table still tells the reader which file
+ * they are looking at. `truncated` is part of the contract because a viewer that
+ * silently shows the first half of a document is worse than one that shows none
+ * of it — the reader would take the last line they see for the end of the file.
+ */
+export async function getDocumentTextPreview(
+  session: AuthorizedSession,
+  documentId: string,
+): Promise<{ text: string; truncated: boolean; contentType: string; filename: string }> {
+  const doc = await getAccessibleDocument(session, documentId)
+  if (!doc.storageKey) throw new NotFoundError('File not available')
+
+  const contentType = doc.contentType || 'application/octet-stream'
+  if (!TEXT_PREVIEW_CONTENT_TYPES.includes(contentType)) {
+    throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Not a text document', { contentType })
+  }
+
+  let bytes: Uint8Array
+  try {
+    const object = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: resolveDocumentBucket(doc.storageBucket),
+        Key: doc.storageKey,
+        // One byte past the cap, so a file sitting exactly on it is not reported
+        // as truncated. Servers that ignore Range answer with the whole object,
+        // which the slice below bounds anyway.
+        Range: `bytes=0-${TEXT_PREVIEW_MAX_BYTES}`,
+      }),
+    )
+    if (!object.Body) throw new NotFoundError('File not available')
+    bytes = await object.Body.transformToByteArray()
+  } catch {
+    throw new NotFoundError('File not available')
+  }
+
+  const truncated = bytes.byteLength > TEXT_PREVIEW_MAX_BYTES
+  const decoder = new TextDecoder('utf-8')
+  let text = decoder.decode(bytes.subarray(0, TEXT_PREVIEW_MAX_BYTES))
+  // A Range cut lands mid-codepoint as often as not, and the decoder turns the
+  // orphaned bytes into a replacement glyph at the very end of the text. Drop
+  // the trailing partial line instead: a half-written last row of a CSV reads
+  // as data, and the truncation notice below it is the honest statement.
+  if (truncated) {
+    const lastBreak = text.lastIndexOf('\n')
+    if (lastBreak > 0) text = text.slice(0, lastBreak)
+  }
+
+  return { text, truncated, contentType, filename: doc.filename }
 }
 
 /**

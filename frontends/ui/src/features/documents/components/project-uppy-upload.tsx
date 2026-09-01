@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef } from 'react'
-import { Upload } from 'lucide-react'
+import { FolderUp, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
@@ -21,6 +21,16 @@ interface ProjectUppyUploadProps {
   variant?: 'default' | 'outline' | 'dropcard'
   size?: 'sm' | 'default'
   label?: string
+  /**
+   * Offer a second trigger that picks a WHOLE FOLDER.
+   *
+   * A büro onboarding a project moves a directory tree, not a hand-picked list,
+   * and the file picker cannot express that at all. Kept as a separate control
+   * rather than a mode on this one: an input carrying `webkitdirectory` can
+   * ONLY choose folders, so making it the same button would take away the
+   * ordinary case to add the bulk one.
+   */
+  allowFolders?: boolean
 }
 
 /**
@@ -36,9 +46,11 @@ export function ProjectUppyUpload({
   variant = 'default',
   size = 'sm',
   label,
+  allowFolders = false,
 }: ProjectUppyUploadProps) {
   const t = useTranslations('files')
   const inputRef = useRef<HTMLInputElement>(null)
+  const folderInputRef = useRef<HTMLInputElement>(null)
   const buttonLabel = label ?? t('upload.upload')
   // Server-computed, flag-gated accept-list and size limit (image types only
   // when the `image-upload` flag allows). Falls back to the static defaults if
@@ -56,15 +68,38 @@ export function ProjectUppyUpload({
   }
 
   const input = (
-    <input
-      ref={inputRef}
-      type="file"
-      multiple
-      accept={acceptedTypes}
-      className="hidden"
-      onChange={handleChange}
-      data-testid={variant === 'dropcard' ? 'project-upload-dropcard-input' : 'project-upload-input'}
-    />
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept={acceptedTypes}
+        className="hidden"
+        onChange={handleChange}
+        data-testid={
+          variant === 'dropcard' ? 'project-upload-dropcard-input' : 'project-upload-input'
+        }
+      />
+      {allowFolders && (
+        <input
+          ref={folderInputRef}
+          type="file"
+          multiple
+          // No `accept`: a folder input applies it to the FOLDER, not to the
+          // files inside, and the browser then offers nothing at all. What is
+          // acceptable is decided by the validator on the way through, which is
+          // where the whole rejected/accepted report comes from anyway.
+          //
+          // Both spellings, and both as strings: `webkitdirectory` is the one
+          // every engine implements and `directory` is the standardised name,
+          // and React only forwards these to the DOM when they are strings.
+          {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
+          className="hidden"
+          onChange={handleChange}
+          data-testid="project-upload-folder-input"
+        />
+      )}
+    </>
   )
 
   if (variant === 'dropcard') {
@@ -114,6 +149,24 @@ export function ProjectUppyUpload({
         {isUploading ? <Spinner size="sm" /> : <Upload className="size-4" aria-hidden />}
         {isUploading ? t('upload.uploading') : buttonLabel}
       </Button>
+      {allowFolders && (
+        // Beside the file button, not instead of it: an input carrying
+        // `webkitdirectory` can only choose folders, so one control cannot be
+        // both. Quiet by default — picking a folder is the occasional
+        // onboarding move, not the everyday one.
+        <Button
+          type="button"
+          onClick={() => folderInputRef.current?.click()}
+          disabled={isUploading}
+          size={size}
+          variant="ghost"
+          className="gap-2"
+          data-testid="project-upload-folder-trigger"
+        >
+          <FolderUp className="size-4" aria-hidden />
+          {t('upload.uploadFolder')}
+        </Button>
+      )}
     </>
   )
 }

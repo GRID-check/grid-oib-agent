@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, type ReactNode } from 'react'
 import type { FileItem, FolderItem } from './project-file-workspace'
-import { Search, SearchX, FolderOpen, Sparkles, UploadCloud } from 'lucide-react'
+import { Search, SearchX, FilterX, FolderOpen, Sparkles, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -34,6 +34,23 @@ interface FileBrowserPaneProps {
   selectedFileId: string | null
   onSelectFile: (id: string | null) => void
   isLoading: boolean
+  /**
+   * What emptied this level, when a FILTER did rather than the folder being
+   * empty. The pane is handed already-filtered files and cannot tell the two
+   * apart; the caller owns the filter state, so it owns the sentence.
+   *
+   * Without it, turning on a filter that matches nothing rendered "this folder
+   * is empty" over a folder full of documents — which is how „Von Piloti" came
+   * to read as a broken or meaningless filter rather than an empty one.
+   */
+  filterEmptyNotice?: { title: string; description: string; onClear: () => void } | null
+  /**
+   * Move a document into a folder by dragging it there. Absent on a surface
+   * with no folders (the Archiv), which is also what turns the drag OFF: a card
+   * that lifts under the finger where nothing can receive it promises a move
+   * this surface cannot make.
+   */
+  onDropDocumentInFolder?: (documentId: string, folderId: string | null) => void
   /** Upload control rendered inside the first-run empty state. */
   uploadControl?: ReactNode
   /** Dashed upload card rendered as the last tile of the grid (project corpus). */
@@ -81,6 +98,8 @@ export function FileBrowserPane({
   search,
   view = 'cards',
   showAssignment = false,
+  filterEmptyNotice,
+  onDropDocumentInFolder,
   renderActions,
 }: FileBrowserPaneProps) {
   const t = useTranslations('files')
@@ -179,6 +198,31 @@ export function FileBrowserPane({
     )
   }
 
+  // A FILTER EMPTIED IT, AND THAT OUTRANKS BOTH EMPTY STATES BELOW.
+  //
+  // Checked first because a filter that matches nothing empties the CORPUS,
+  // not just the level — which sent the reader to the first-run "no documents
+  // yet, upload one" panel in a project with a hundred documents in it. Both
+  // states below describe an absence of files; this one describes an absence
+  // of MATCHES, and only it can name what to do about it.
+  if (filterEmptyNotice) {
+    return (
+      <div className="flex h-full items-center justify-center p-8">
+        <EmptyState
+          variant="bare"
+          icon={FilterX}
+          title={filterEmptyNotice.title}
+          description={filterEmptyNotice.description}
+          action={
+            <Button variant="outline" size="sm" onClick={filterEmptyNotice.onClear}>
+              {t('browser.clearFilters')}
+            </Button>
+          }
+        />
+      </div>
+    )
+  }
+
   // First-run empty state — nothing anywhere: no documents, no folders. An
   // EMPTY FOLDER is not this case; it keeps the breadcrumb so the reader can
   // walk back out or create something where they stand.
@@ -219,6 +263,7 @@ export function FileBrowserPane({
           currentFolderId={folderNav.currentFolderId}
           onNavigate={folderNav.onNavigate}
           onCreateFolder={folderNav.onCreateFolder}
+          onDropDocument={onDropDocumentInFolder}
         />
       )}
 
@@ -401,6 +446,7 @@ export function FileBrowserPane({
                     onOpen={folderNav.onNavigate}
                     onRenameFolder={folderNav.onRenameFolder}
                     onDeleteFolder={folderNav.onDeleteFolder}
+                    onDropDocument={onDropDocumentInFolder}
                   />
                 ))}
               </div>
@@ -449,6 +495,7 @@ export function FileBrowserPane({
                       onOpen={folderNav.onNavigate}
                       onRenameFolder={folderNav.onRenameFolder}
                       onDeleteFolder={folderNav.onDeleteFolder}
+                      onDropDocument={onDropDocumentInFolder}
                     />
                   </motion.div>
                 ))}
@@ -466,6 +513,7 @@ export function FileBrowserPane({
                     locale={locale}
                     footerLead={showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined}
                     actions={renderActions?.(file)}
+                    draggable={Boolean(onDropDocumentInFolder)}
                   />
                 </motion.div>
               ))}

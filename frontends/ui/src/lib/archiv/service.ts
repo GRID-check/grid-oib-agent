@@ -40,8 +40,9 @@ import {
 import { collectionDocumentsUrl, collectionFileRef } from '@/lib/documents/collection-file-ref'
 import { deleteBimDerivedObjects } from '@/lib/bim/service'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
-import { admitOrDiscard } from '@/lib/storage/admission'
+import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
+import { findLiveDocumentByFilename } from '@/lib/documents/repository'
 import type { DocumentListRow } from '@/lib/documents/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { archivCollectionName } from './collection'
@@ -121,8 +122,13 @@ export async function uploadArchivDocument(
   // bytes, so it must not be a way around the quota (ADR-0042).
   await assertWithinStorageQuota(session.organizationId, file.size)
 
-  const documentId = crypto.randomUUID()
   const collectionName = archivCollectionName(session.organizationId)
+  // Same replace-on-re-upload rule as the project path, for the same reason and
+  // through the same helpers — see `uploadDocument`. The Archiv is not a
+  // different filing system; it is the same table with `scope = 'archiv'`, so a
+  // second upload of one filename left the same paid-for ghost here.
+  const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, file.name)
+  const documentId = superseded?.id ?? crypto.randomUUID()
   const storageKey = buildArchivStorageKey(session.organizationId, documentId, file.name)
 
   // Same provisioning step as the project path (ADR-0043): the Archiv shares
@@ -143,21 +149,50 @@ export async function uploadArchivDocument(
   // refusal (ADR-0042). The Archiv shares the tenant's bytes, so it must not be
   // a way around the limit — including under concurrency, which is what the
   // pre-check above cannot cover.
-  await admitOrDiscard(storageBucket, storageKey, {
-    id: documentId,
-    organizationId: session.organizationId,
-    projectId: null,
-    scope: 'archiv',
-    folderId: null,
-    createdBy: session.userId,
-    filename: file.name,
-    storageKey,
-    storageBucket,
-    collectionName,
-    fileSize: file.size,
-    contentType: file.type || null,
-    status: 'uploaded',
-  })
+  if (superseded) {
+    await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
+      storageKey,
+      storageBucket,
+      fileSize: file.size,
+      contentType: file.type || null,
+      folderId: null,
+      createdBy: session.userId,
+    })
+    // The Archiv is flat, so the key is a pure function of the id and the new
+    // bytes land on the old ones. Kept as a guard rather than an assumption:
+    // if the key rule ever gains a component, the orphan appears silently.
+    if (superseded.storageKey !== storageKey) {
+      try {
+        await s3Client.send(
+          new DeleteObjectCommand({
+            Bucket: resolveDocumentBucket(superseded.storageBucket),
+            Key: superseded.storageKey,
+          }),
+        )
+      } catch (error) {
+        console.error('[archiv] failed to remove the superseded object', {
+          documentId,
+          cause: error instanceof Error ? error.name : 'unknown',
+        })
+      }
+    }
+  } else {
+    await admitOrDiscard(storageBucket, storageKey, {
+      id: documentId,
+      organizationId: session.organizationId,
+      projectId: null,
+      scope: 'archiv',
+      folderId: null,
+      createdBy: session.userId,
+      filename: file.name,
+      storageKey,
+      storageBucket,
+      collectionName,
+      fileSize: file.size,
+      contentType: file.type || null,
+      status: 'uploaded',
+    })
+  }
 
   // Same dispatcher as every other shelf: the STEP source of an IFC is never
   // embedded, so an uploaded model is parsed and its digest is what reaches the

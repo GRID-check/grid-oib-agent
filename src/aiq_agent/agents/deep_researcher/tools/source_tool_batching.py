@@ -13,6 +13,20 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+
+class SourceToolSlotTimeout(TimeoutError):
+    """No concurrency slot came free — the source tool was never called.
+
+    Distinct from the ``TimeoutError`` an upstream source raises, and the
+    distinction is the whole point. Both are ``TimeoutError`` to anything that
+    does not care (this subclasses it deliberately, so existing handlers keep
+    working), but they mean opposite things: an upstream timeout is evidence
+    about a source, while this one is evidence about OUR OWN scheduling. Letting
+    the second wear the first's name told the deep researcher its sources were
+    failing when nothing had been asked of them.
+    """
+
+
 DEFAULT_MAX_CONCURRENT_SOURCE_TOOL_CALLS = 5
 DEFAULT_MAX_SOURCE_TOOL_BATCH_SIZE = 4
 DEFAULT_SOURCE_TOOL_CONCURRENCY_TIMEOUT = 120.0
@@ -54,7 +68,7 @@ class SourceToolConcurrencyLimiter:
             try:
                 await asyncio.wait_for(semaphore.acquire(), timeout=self.acquire_timeout)
             except TimeoutError as exc:
-                raise TimeoutError(
+                raise SourceToolSlotTimeout(
                     f"Timed out waiting for a source-tool concurrency slot after {self.acquire_timeout} seconds"
                 ) from exc
             acquired = True
@@ -145,8 +159,29 @@ def _make_throttled_source_tool(
     """Create a same-name wrapper that throttles calls to a non-batchable source tool."""
 
     async def _run_throttled(**kwargs) -> object:
-        async with limiter.limit():
-            result = await original_tool.ainvoke(kwargs)
+        # A SLOT TIMEOUT IS OURS, NOT THE SOURCE'S, AND IT MUST NOT END THE RUN.
+        #
+        # The batch wrapper above already represents one to the model, as a
+        # per-item `ERROR:` line it can read and route around. This wrapper —
+        # the one every non-batchable source tool gets — let it escape into the
+        # graph instead, where `DeepResearcherAgent` catches TimeoutError and
+        # treats the WHOLE run as cut off by an upstream timeout. Two wrappers
+        # around one limiter, disagreeing about whether waiting for our own
+        # semaphore is a tool failure or a run failure.
+        #
+        # Early in a run there is nothing to salvage (the report is under
+        # `MIN_SALVAGE_REPORT_CHARS`), so `_finalize_cutoff` re-raises and the
+        # reader gets „Bericht konnte nicht abgeschlossen werden" for a source
+        # that was never even asked anything.
+        #
+        # An upstream timeout raised BY the tool still flows through untouched:
+        # that one is real evidence about a source, and the run-level cutoff
+        # handling for it is deliberate.
+        try:
+            async with limiter.limit():
+                result = await original_tool.ainvoke(kwargs)
+        except SourceToolSlotTimeout as exc:
+            return f"ERROR: {exc}. No call was made; try this source again or use another."
         return result
 
     args_schema = getattr(original_tool, "args_schema", None)

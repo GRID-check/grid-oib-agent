@@ -262,6 +262,8 @@ export const research = {
     chatMessageInput: 'Chat message input',
     stopStreaming: 'Stop response',
     sendWhilePending: 'Files are still processing — send anyway?',
+    heldForUpload: 'Sending as soon as the file has been read.',
+    heldForUploadSendNow: 'Ask now without it',
     removeFile: 'Remove file: {name}',
     retryUpload: 'Retry upload',
     manageFiles: 'Manage files',

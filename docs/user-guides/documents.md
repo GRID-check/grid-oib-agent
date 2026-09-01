@@ -87,6 +87,65 @@ Additional limits:
 - **Duplicate filenames** within a session are rejected
 - Files already tracked in the current session are skipped on re-upload
 
+## Moving a file into a folder
+
+Drag it onto the folder — a card, a row, or „Alle Dateien" in the breadcrumb to
+move it back to the top level. The folder lights up as the target while you are
+over it. „Verschieben" in a file's overflow menu does the same thing and remains
+the way to move a file into a folder you are not currently looking at.
+
+Dragging a file inside Piloti never starts an upload: a drag carrying files from
+your desktop and a drag carrying a document already here are different things to
+the browser, and only the first raises the upload overlay.
+
+## Uploading a whole folder
+
+A büro onboarding a project moves a directory tree, not a hand-picked list. Two
+ways to give Piloti one:
+
+- **„Ordner hochladen"**, beside the upload button in a project's Dateiablage.
+- **Dragging the folder** onto the file area. A dropped folder used to do
+  nothing at all — the browser reports directories through a different API than
+  loose files, and the old handler read only the loose ones — so the overlay
+  appeared, the finger let go, and nothing happened.
+
+Everything under the folder is uploaded, at any depth. What Piloti will not read
+is refused per file, in the usual upload report; the folder as a whole is never
+rejected for containing one file of the wrong kind.
+
+**The original path is recorded, and shown.** A file that arrives this way keeps
+where it came from — `Wohnbau Nord/03_Einreichung/Grundrisse/EG.pdf` — visible
+under „Herkunft" in the file's detail panel and copyable with a click. That is
+deliberately not the same thing as the folder you file it into here: Piloti's
+folders are yours to rename and rearrange, while the origin is a fact about the
+file and is never rewritten. The point of it is that you can go back and work on
+the ORIGINAL on the office server, instead of downloading a copy that diverges
+from the moment you save it.
+
+Very large drops are bounded (files, depth, and a time limit). When a bound is
+reached you are told the upload is incomplete rather than left with a silently
+partial one — a bulk upload that quietly took the first half is worse than one
+that refuses, because the missing files look exactly like files nobody chose.
+
+Project and Büroarchiv uploads are bounded by the organization's **storage
+quota** and by the **per-file** size limit. The batch total-size limit applies
+only to chat-session attachments: it exists for a conversation, which has no
+quota behind it.
+
+**Re-uploading a file that is already there replaces it.** Dropping a corrected
+plan under the same name into the same project (or the Büroarchiv) points the
+existing document at the new bytes and re-indexes it: the document keeps its
+identity, so citations, chat subjects and folder placement all survive, and the
+organization is charged for one copy rather than two. This is the behaviour the
+ingestion pipeline already had — it replaces a document's passages by filename —
+and the file list now agrees with it. Before, a re-upload left the first entry
+listed and downloadable but findable by nothing, because its passages had been
+replaced by the second one's.
+
+The browser-side duplicate warning above is a convenience and is per-browser: it
+is remembered locally, so it does not appear in a different browser or a private
+window. The replacement rule is enforced on the server and does not depend on it.
+
 ---
 
 ## Upload Progress

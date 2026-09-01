@@ -38,6 +38,14 @@ _inventory_drops: ContextVar[dict[Shelf | None, int]] = ContextVar("grid_invento
 _USER_SHELF_ORDER: tuple[Shelf, ...] = (Shelf.ARCHIV, Shelf.PROJECT, Shelf.SESSION)
 _INVENTORY_ORDER: tuple[Shelf, ...] = (*_USER_SHELF_ORDER, Shelf.BASE)
 
+#: How many in-flight filenames the prompt names before it counts the rest.
+#:
+#: Same rule as every other block here: carry the shape, not the list. A bulk
+#: upload can have hundreds of files in flight, and the model needs to know
+#: THAT rather than WHICH — past a handful the names stop informing the answer
+#: and start being paid for on every turn.
+_IN_FLIGHT_MAX_NAMED = 5
+
 _SHELF_BLURBS: dict[Shelf, str] = {
     Shelf.BASE: (
         "always on this request — platform OIB / law corpus. Every turn has this, project or not. Never the Büroarchiv."
@@ -428,6 +436,7 @@ def render_inventory_block(
     *,
     in_scope_shelves: Sequence[Any] | None = None,
     focus_shelf: Shelf | str | None = None,
+    in_flight: Sequence[str] | None = None,
 ) -> str:
     """Markdown inventory grouped by shelf, including empty in-scope shelves.
 
@@ -436,6 +445,15 @@ def render_inventory_block(
 
     ``focus_shelf`` is a listing question about ONE shelf: only that group is
     printed, so OIB filenames cannot be recited as Büroarchiv.
+
+    ``in_flight`` names files whose ingestion has not finished. THE ABSENCE OF
+    A FILE IS NOT THE SAME FACT AS ITS NON-EXISTENCE, and this inventory could
+    only ever state the second. It is built from the summaries table, written
+    when a job COMPLETES, so a plan attached moments ago is missing here in
+    exactly the way it is missing from retrieval — and the model, seeing a
+    complete-looking shelf, answered confidently without the one document the
+    question was about. Naming those files lets the answer say what it could
+    not see.
     """
     groups: dict[Shelf, list[Any]] = {shelf: [] for shelf in _INVENTORY_ORDER}
     unknown: list[Any] = []
@@ -461,7 +479,7 @@ def render_inventory_block(
             continue
         if shelf in scoped or groups[shelf]:
             show.append(shelf)
-    if not show and not unknown:
+    if not show and not unknown and not (in_flight or []):
         return ""
     if focused is not None:
         unknown = []
@@ -493,6 +511,21 @@ def render_inventory_block(
             "`Brandschutz/…`. You may name folders when you talk about the files, and "
             "you may pass `folder=` to `knowledge_search` to read only what is filed "
             "there. Files with no `(Ordner: …)` sit at the top level."
+        )
+        lines.append("")
+
+    pending = [name for name in (in_flight or []) if name]
+    if pending:
+        shown = pending[:_IN_FLIGHT_MAX_NAMED]
+        rest = len(pending) - len(shown)
+        tail = f", und {rest} weitere" if rest > 0 else ""
+        lines.append(
+            "**Still being read.** These files were uploaded but their indexing has not "
+            f"finished, so they are NOT in the inventory above and a search will not find "
+            f"them yet: {', '.join(f'`{name}`' for name in shown)}{tail}. If the question "
+            "depends on one of them, say plainly that it is still being processed and "
+            "answer what you can without it — do not present an answer that omits it as "
+            "though the file had been read."
         )
         lines.append("")
 

@@ -1,0 +1,8 @@
+---
+features:
+  - >
+    Piloti kann Pläne jetzt tatsächlich ansehen. Bisher las der Agent nur die
+    beim Einlesen erzeugten Beschreibungen einer Zeichnung, nie die Zeichnung
+    selbst — das Werkzeug dafür war gebaut, aber mit keinem Agenten verbunden.
+    Bei Fragen, bei denen es darauf ankommt, was auf einem Grundriss oder
+    Schnitt zu sehen ist, öffnet Piloti die Seite jetzt als Bild.

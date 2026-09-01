@@ -1,0 +1,11 @@
+---
+fixes:
+  - >
+    Wenn ein Filter in der Dateiablage nichts fand, stand dort „Noch keine
+    Dokumente" — auch in einem Projekt voller Dateien, mit dem Angebot,
+    etwas hochzuladen. Jetzt steht dort, welcher Filter gerade nichts trifft,
+    und daneben der Weg zurück.
+  - >
+    „Von Piloti" erklärt sich jetzt selbst: Ist der Filter leer, steht dort,
+    welche Dateien das wären — von Piloti abgelegte Rechercheberichte und
+    Diagramme, nicht die von Ihnen hochgeladenen Dokumente.

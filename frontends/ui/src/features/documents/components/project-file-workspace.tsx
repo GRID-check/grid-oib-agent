@@ -89,6 +89,17 @@ export interface FileItem {
   contentType: string | null
   status: string | null
   folderId: string | null
+  /**
+   * Where the file sat before it was uploaded, for a folder upload — e.g.
+   * `Wohnbau Nord/03_Einreichung/EG.pdf`. Null for a picked file, and null for
+   * everything uploaded before this was recorded.
+   *
+   * NOT `folderId`: that is Piloti's own filing, which somebody here chose and
+   * can change. This is a fact about the original, and it is what a person
+   * needs in order to go back and work on that original instead of editing a
+   * downloaded duplicate.
+   */
+  originPath?: string | null
   createdAt: string
   /** Server-persisted reason a document is in `failed` status, if any. */
   errorMessage: string | null
@@ -437,6 +448,40 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     return assignmentFiltered.filter((file) => (file.folderId ?? null) === selectedFolderId)
   }, [assignmentFiltered, selectedFolderId, foldersError])
 
+  /**
+   * When a FILTER emptied the level rather than the folder being empty.
+   *
+   * The browser pane is handed already-filtered files and cannot tell the two
+   * apart, so it drew "this folder is empty" over a folder full of documents
+   * the moment a filter matched nothing. „Von Piloti" is the one that cost
+   * most: it is the filter whose meaning nobody could infer, and the only
+   * place the product could have explained it — the state where it matches
+   * nothing — said something false instead.
+   *
+   * Authorship wins when both are on: it is the narrower and the less obvious
+   * of the two, so it is the one a reader needs explained.
+   */
+  const filterEmptyNotice = useMemo(() => {
+    const clear = () => {
+      setAgentAuthoredOnly(false)
+      setAssignmentFilter('all')
+    }
+    if (agentAuthoredOnly) {
+      return {
+        title: t('authorship.emptyTitle'),
+        description: t('authorship.emptyDescription'),
+        onClear: clear,
+      }
+    }
+    if (!canCollaborate || assignmentFilter === 'all') return null
+    return {
+      title:
+        assignmentFilter === 'mine' ? t('assignment.emptyMine') : t('assignment.emptyUnassigned'),
+      description: t('assignment.emptyDescription'),
+      onClear: clear,
+    }
+  }, [agentAuthoredOnly, assignmentFilter, canCollaborate, t])
+
   // After a successful re-ingestion the document is back to 'pending'; reflect
   // that locally so the badge flips to "Processing" and the dead-end failure UI
   // clears. Server-side reconciliation resolves the final status on the next read.
@@ -481,6 +526,49 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   const handleMoved = useCallback((fileId: string, folderId: string | null) => {
     setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, folderId } : f)))
   }, [])
+
+  /**
+   * A file dragged onto a folder.
+   *
+   * The same `PATCH .../folder` the „Verschieben" menu item already used — this
+   * adds the gesture, not the capability, which is why it goes through one
+   * request rather than a second code path that could disagree with the menu
+   * about what a move is.
+   *
+   * The list is updated optimistically and put back on failure: the card
+   * visibly leaves the level under the finger, so leaving it there until a
+   * round trip returns would make a successful move look broken and a failed
+   * one look successful.
+   */
+  const handleDropInFolder = useCallback(
+    async (documentId: string, folderId: string | null) => {
+      const file = files.find((candidate) => candidate.id === documentId)
+      if (!file || (file.folderId ?? null) === folderId) return
+      const previousFolderId = file.folderId ?? null
+      const folderName = folderId
+        ? (folders.find((folder) => folder.id === folderId)?.name ?? '')
+        : t('folders.allFiles')
+
+      setFiles((prev) => prev.map((f) => (f.id === documentId ? { ...f, folderId } : f)))
+      try {
+        const res = await fetch(`/api/documents/${documentId}/folder`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folderId }),
+        })
+        if (!res.ok) throw new Error(`Move failed (${res.status})`)
+        toast.success(
+          t('actions.moved', { name: documentDisplayName(file), folder: folderName })
+        )
+      } catch {
+        setFiles((prev) =>
+          prev.map((f) => (f.id === documentId ? { ...f, folderId: previousFolderId } : f))
+        )
+        toast.error(t('actions.moveError'))
+      }
+    },
+    [files, folders, t]
+  )
 
   const handleSelectFile = useCallback(
     (id: string | null) => {
@@ -714,6 +802,8 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             folderId={selectedFolderId}
             onUpload={(files) => uploadFiles(files)}
             isUploading={isUploading}
+            // The durable corpus is where a büro brings a whole project in.
+            allowFolders
           />
         </div>
       </ProjectSectionActions>
@@ -772,6 +862,8 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               search={search}
               view={view}
               showAssignment={canCollaborate}
+              filterEmptyNotice={filterEmptyNotice}
+              onDropDocumentInFolder={handleDropInFolder}
               renderActions={(file) => (
                 <DocumentActionsMenu
                   document={file}

@@ -1,0 +1,8 @@
+---
+improvements:
+  - >
+    Die Karten im Chat sind ruhiger und besser lesbar. Vergleichs- und
+    Datentabellen standen durchgehend in der kleinsten Schriftgröße, die Piloti
+    kennt; sie stehen jetzt in der normalen Textgröße für Listenzeilen.
+    Spaltenköpfe heben sich durch den Schriftschnitt ab, nicht durch eine
+    weitere Größe.

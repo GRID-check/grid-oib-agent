@@ -857,6 +857,9 @@ class ShallowResearcherAgent:
                     user_info=user_info,
                     current_datetime=current_datetime,
                     available_documents=_documents_dump,
+                    # Not a document list: the files that are NOT yet in one.
+                    # `render_prompt_template` hands it to the inventory block.
+                    in_flight_documents=state.in_flight_documents,
                     project_context=state.project_context,
                     platform_lessons=render_lessons_block(state.platform_lessons),
                     focus_file_name=state.focus_file_name,

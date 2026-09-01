@@ -24,9 +24,13 @@ export function includeShelvesForTurn(input: {
   subjectShelf?: RetrievalShelf | null
   preset?: SourcePresetId | null
 }): RetrievalShelf[] | undefined {
-  if (input.subjectShelf === 'session') return ['session']
-  if (input.subjectShelf === 'project') return ['project', 'session']
-  if (input.subjectShelf === 'archiv') return ['archiv', 'session']
+  // The law is not a competing shelf, so a subject file never subtracts it —
+  // see `shelves_for_turn` in `src/aiq_agent/common/focus_file.py` for the
+  // argument and for the asymmetry (the `project` PRESET kept `base`; the
+  // `project` SHELF did not) that exposed it.
+  if (input.subjectShelf === 'session') return ['session', 'base']
+  if (input.subjectShelf === 'project') return ['project', 'session', 'base']
+  if (input.subjectShelf === 'archiv') return ['archiv', 'session', 'base']
   if (input.preset === 'law') return ['base']
   if (input.preset === 'project') return ['project', 'session', 'base']
   if (input.preset === 'office') return ['archiv', 'session', 'base']

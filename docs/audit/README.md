@@ -8,6 +8,7 @@ treat an open item in one as work that is still queued.
 | File | What it recorded | Period |
 |---|---|---|
 | [`feedback-backlog.md`](feedback-backlog.md) | Colleague feedback triage, verified against the code (`FB-*` ids) | from 2026-07-14 |
+| [`pilot-feedback-triage-2026-09.md`](pilot-feedback-triage-2026-09.md) | Pre-pilot stakeholder feedback, every item verified against the code before anything was changed | 2026-09-01 |
 | [`ux-system-audit.md`](ux-system-audit.md) | UX system audit, rounds 0–8 | from 2026-07-10 |
 | [`overnight-run-log.md`](overnight-run-log.md) | Overnight run cycles, one entry per cycle | from 2026-07-05 |
 

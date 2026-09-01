@@ -51,6 +51,7 @@ export async function listSessionDocuments(
         authoredBy: documents.authoredBy,
         collectionName: documents.collectionName,
         folderId: documents.folderId,
+        originPath: documents.originPath,
         createdAt: documents.createdAt,
         updatedAt: documents.updatedAt,
         errorMessage: documents.errorMessage,

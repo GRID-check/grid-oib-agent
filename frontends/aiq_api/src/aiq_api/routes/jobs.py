@@ -1776,6 +1776,21 @@ async def _sse_generator(job_store, job_id: str, db_url: str, start_event_id: in
             yield event
 
 
+#: How long an SSE stream may go byte-silent before it sends a keepalive comment.
+#:
+#: Nothing in either generator emitted anything while a job sat queued or a
+#: worker was still building its graph, and deep research is silent for minutes
+#: at a time by design. Node's undici applies a 300 s inactivity `bodyTimeout`
+#: to the BFF's `fetch` of this stream, so a quiet run was torn down from the
+#: proxy side at exactly the moment the reader was waiting hardest — which is
+#: the "deep research just stops" report. A comment frame is invisible to
+#: `EventSource` (the spec says to ignore it) and costs 13 bytes.
+SSE_KEEPALIVE_SECONDS = 20.0
+
+#: An SSE comment: ignored by every client, resets every inactivity timer.
+SSE_KEEPALIVE_FRAME = ": keepalive\n\n"
+
+
 async def _sse_generator_postgres(
     job_store, job_id: str, db_url: str, start_event_id: int = 0, progress: dict[str, int] | None = None
 ):
@@ -1901,11 +1916,19 @@ async def _sse_generator_postgres(
                 logger.info(f"SSE pub-sub: Job {job_id} already complete, sent {len(events)} events")
                 return
 
+            last_sent = time.monotonic()
+            keepalive_cursor = last_event_id
+
             while True:
                 if connection_manager.is_shutting_down:
                     logger.info("SSE pub-sub stream closing for job %s due to server shutdown", job_id)
                     yield format_sse("job.shutdown", {"message": "Server shutting down"})
                     break
+                # Any real frame counts as liveness; the keepalive only fills
+                # genuine silence rather than adding to a busy stream.
+                if last_event_id != keepalive_cursor:
+                    keepalive_cursor = last_event_id
+                    last_sent = time.monotonic()
 
                 try:
                     try:
@@ -1935,6 +1958,9 @@ async def _sse_generator_postgres(
                                 advance_cursor(db_event_id)
                             event_type = event.pop("type", "event")
                             yield format_sse(event_type, event, db_event_id)
+                        if not fallback_events and time.monotonic() - last_sent >= SSE_KEEPALIVE_SECONDS:
+                            last_sent = time.monotonic()
+                            yield SSE_KEEPALIVE_FRAME
 
                     job = await job_store.get_job(job_id)
                     if not job:
@@ -2010,6 +2036,8 @@ async def _sse_generator_polling(job_store, job_id: str, db_url: str, start_even
     is_reconnect = start_event_id > 0
     in_replay_mode = True
     replay_mode_announced = False
+    last_sent = time.monotonic()
+    keepalive_cursor = start_event_id
 
     def format_sse(event_type: str, data: dict, event_id: int | None = None) -> str:
         # Synthetic events (job.status, stream.mode, ...) reuse the last real
@@ -2107,6 +2135,16 @@ async def _sse_generator_polling(job_store, job_id: str, db_url: str, start_even
                 if not in_replay_mode and not replay_mode_announced:
                     replay_mode_announced = True
                     yield format_sse("stream.mode", {"mode": "live"})
+
+                # Same silence problem as the pub-sub generator, at a 0.5 s tick:
+                # a live-mode poll that finds nothing yields nothing, and the
+                # proxy's inactivity timer does not know the job is fine.
+                if last_event_id != keepalive_cursor:
+                    keepalive_cursor = last_event_id
+                    last_sent = time.monotonic()
+                elif time.monotonic() - last_sent >= SSE_KEEPALIVE_SECONDS:
+                    last_sent = time.monotonic()
+                    yield SSE_KEEPALIVE_FRAME
 
                 shutdown_signaled = await connection_manager.wait_or_shutdown(0.5)
                 if shutdown_signaled:

@@ -183,7 +183,9 @@ class TestExtractQueryFromText:
             query, _sources, _skills = _extract_query_from_text(text)
             assert query == "Fass zusammen"
             assert get_focused_file_name() == "Protokoll.pdf"
-            assert get_turn_shelves() == frozenset({"session"})
+            # `base` rides along with every subject shelf — a subject narrows
+            # which documents the turn reads, not whether the law applies.
+            assert get_turn_shelves() == frozenset({"session", "base"})
         finally:
             set_turn_intent()
 

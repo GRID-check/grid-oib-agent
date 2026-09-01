@@ -604,6 +604,16 @@ A subject shelf wins over a preset. Absence of both leaves the signed scope
 intact (ADR-0024: Archiv stays in every unscoped project turn). The TS twin
 is `includeShelvesForTurn` in `frontends/ui/src/features/layout/lib/retrieval-scope.ts`.
 
+**A subject file never subtracts `base`.** A subject narrows which *documents*
+a turn reads, which is what #429 and #436 asked for; neither was about the
+building-code corpus. Dropping it made the product unable to answer its own
+central question — bind a plan, ask whether it meets the escape-route
+requirement, and retrieval held the plan and no OIB. The asymmetry that exposed
+it: the `project` PRESET kept `base` and the `project` SHELF did not, although a
+reader reaches for either to say the same thing. `law` is the one branch that
+still subtracts everything else, because there the reader asked for the law
+alone.
+
 **The subject is also a prompt fact, not only a retrieval hint.** Scoping
 retrieval to the right file answers "where do I look"; it does not answer "what
 is *this document*". `register.py` lifts the turn ContextVars onto

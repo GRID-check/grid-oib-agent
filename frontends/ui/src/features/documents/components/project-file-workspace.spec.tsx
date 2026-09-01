@@ -151,7 +151,7 @@ describe('ProjectFileWorkspace', () => {
     expect(screen.getByText(/drop files to upload/i)).toBeInTheDocument()
   })
 
-  it('routes a dropped file into the existing upload path (uploadFiles)', () => {
+  it('routes a dropped file into the existing upload path (uploadFiles)', async () => {
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     const dropzone = screen.getByTestId('workspace-dropzone')
     const file = new File(['x'], 'plan.pdf', { type: 'application/pdf' })
@@ -160,13 +160,17 @@ describe('ProjectFileWorkspace', () => {
     fireEvent.dragEnter(dropzone, { dataTransfer })
     fireEvent.drop(dropzone, { dataTransfer })
 
-    expect(mockUploadFiles).toHaveBeenCalledTimes(1)
+    // The drop path resolves a microtask later: a DROPPED FOLDER is invisible
+    // to `dataTransfer.files` and has to be walked through the entries API, so
+    // the handler captures entries synchronously and hands over the files
+    // afterwards. A plain file drop still ends in exactly this call.
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledTimes(1))
     expect(mockUploadFiles).toHaveBeenCalledWith([file])
     // Overlay clears after drop.
     expect(screen.queryByTestId('workspace-drop-overlay')).not.toBeInTheDocument()
   })
 
-  it('flags an unsupported drag but still defers rejection to uploadFiles, like the button', () => {
+  it('flags an unsupported drag but still defers rejection to uploadFiles, like the button', async () => {
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     const dropzone = screen.getByTestId('workspace-dropzone')
     const badFile = new File(['x'], 'photo.png', { type: 'image/png' })
@@ -178,7 +182,99 @@ describe('ProjectFileWorkspace', () => {
 
     fireEvent.drop(dropzone, { dataTransfer })
     // Same contract as the button: files still flow to uploadFiles, which validates.
-    expect(mockUploadFiles).toHaveBeenCalledWith([badFile])
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([badFile]))
+  })
+})
+
+/**
+ * „Bisher keine Möglichkeit, Dateien per Drag & Drop in Ordner zu verschieben."
+ *
+ * The move itself already existed — `PATCH /api/documents/[id]/folder`, offered
+ * as „Verschieben" in the overflow menu — so what was missing was the gesture
+ * people try first, and whose absence reads as the capability being absent.
+ *
+ * The hazard is that this workspace ALREADY listens for drags: dropping files
+ * from the desktop is how you upload. The two must not be confused, and the
+ * discriminator is a fact the browser guarantees rather than a flag we set —
+ * `dataTransfer.types` contains `Files` only for a drag carrying real files.
+ */
+describe('ProjectFileWorkspace — dragging a file into a folder', () => {
+  const dragTransfer = (documentId: string) => {
+    const store: Record<string, string> = { 'application/x-grid-document-id': documentId }
+    return {
+      types: ['application/x-grid-document-id'],
+      getData: (key: string) => store[key] ?? '',
+      setData: (key: string, value: string) => {
+        store[key] = value
+      },
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    server.use(
+      http.get('/api/projects/:projectId/folders', () =>
+        HttpResponse.json({ folders: [{ id: 'folder-1', name: 'Brandschutz', parentId: null }] })
+      ),
+      http.get('/api/documents', () =>
+        HttpResponse.json({
+          documents: [
+            {
+              id: 'doc-1',
+              filename: 'plan.pdf',
+              displayName: null,
+              fileSize: 1024,
+              contentType: 'application/pdf',
+              status: 'ready',
+              folderId: null,
+              createdAt: '2026-01-01T00:00:00Z',
+              errorMessage: null,
+              summary: null,
+              pageCount: null,
+              chunkCount: null,
+              contentTypes: null,
+              tags: null,
+            },
+          ],
+        })
+      ),
+      http.patch('/api/documents/:id/folder', () => HttpResponse.json({ ok: true }))
+    )
+  })
+
+  it('moves the file through the same endpoint the menu uses', async () => {
+    const patched: Array<{ url: string; body: unknown }> = []
+    server.use(
+      http.patch('/api/documents/:id/folder', async ({ request, params }) => {
+        patched.push({ url: String(params.id), body: await request.json() })
+        return HttpResponse.json({ ok: true })
+      })
+    )
+
+    renderWorkspace(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
+    )
+
+    const folder = await screen.findByTestId('folder-card-folder-1')
+    fireEvent.dragOver(folder, { dataTransfer: dragTransfer('doc-1') })
+    fireEvent.drop(folder, { dataTransfer: dragTransfer('doc-1') })
+
+    await waitFor(() => expect(patched).toHaveLength(1))
+    expect(patched[0]).toMatchObject({ url: 'doc-1', body: { folderId: 'folder-1' } })
+  })
+
+  it('does not raise the upload overlay for a drag that started in the page', async () => {
+    renderWorkspace(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
+    )
+
+    const dropzone = screen.getByTestId('workspace-dropzone')
+    // No `Files` in `types` — this drag carries a document id, not an upload.
+    fireEvent.dragEnter(dropzone, { dataTransfer: dragTransfer('doc-1') })
+
+    expect(screen.queryByTestId('workspace-drop-overlay')).not.toBeInTheDocument()
+    expect(mockUploadFiles).not.toHaveBeenCalled()
   })
 })
 
