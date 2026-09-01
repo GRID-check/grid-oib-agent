@@ -94,6 +94,8 @@ export const files: typeof en.files = {
     tryAgain: 'Erneut versuchen',
     noInlinePreview:
       'Für diesen Dateityp gibt es keine Inline-Vorschau. Laden Sie sie herunter, um das vollständige Dokument anzusehen.',
+    textTruncated:
+      'Es wird nur der Anfang dieser Datei angezeigt. Laden Sie sie herunter, um den vollständigen Inhalt zu lesen.',
     status: 'Status',
     properties: 'Eigenschaften',
     summaryMore: 'Vollständige Zusammenfassung',

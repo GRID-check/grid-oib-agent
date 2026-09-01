@@ -72,6 +72,38 @@ const PREVIEW_CONTENT_TYPES = [
 ]
 
 /**
+ * Text-shaped documents the reader gets as TEXT rather than as a presigned URL.
+ *
+ * These are accepted at upload (`shared/config/file-upload.ts`) and had no
+ * viewer at all: a `.md` a colleague uploaded showed the same grey "download it
+ * to read it" mock as a `.dwg` we genuinely cannot render. They are separate
+ * from {@link PREVIEW_CONTENT_TYPES} because the answer is a different shape —
+ * the bytes come back through this origin as a string the pane renders, not as
+ * an object-store URL an iframe loads. The object store publishes no CORS
+ * policy, so a presigned URL is unreadable to a `fetch` anyway; that is the same
+ * constraint `streamDocumentFile` exists for.
+ *
+ * `text/html` is deliberately absent and must stay absent. These bytes are
+ * uploaded by users and would be returned same-origin.
+ */
+const TEXT_PREVIEW_CONTENT_TYPES = [
+  'text/plain',
+  'text/markdown',
+  'text/x-markdown',
+  'text/csv',
+]
+
+/**
+ * How much of a text document crosses the wire for a preview.
+ *
+ * A preview is a look at a file, not a delivery of it — the download button is
+ * two centimetres away and is the honest route to the whole thing. 256 KiB is
+ * some 4000 lines of prose, past the point where anyone is reading rather than
+ * searching, and it bounds a response that would otherwise be the upload limit.
+ */
+const TEXT_PREVIEW_MAX_BYTES = 256 * 1024
+
+/**
  * Content types the signed image route hands to the Next optimizer.
  *
  * Deliberately narrower than {@link PREVIEW_CONTENT_TYPES}. SVG is excluded
@@ -1529,6 +1561,61 @@ export async function streamDocumentFile(
       'Content-Security-Policy': "frame-ancestors 'self'",
     },
   })
+}
+
+/**
+ * A text document's content, for the pane that renders it.
+ *
+ * Bounded by {@link TEXT_PREVIEW_MAX_BYTES} and decoded as UTF-8 with
+ * replacement characters rather than a throw: a Windows-authored `.csv` in
+ * cp1252 is common, and half a mojibake table still tells the reader which file
+ * they are looking at. `truncated` is part of the contract because a viewer that
+ * silently shows the first half of a document is worse than one that shows none
+ * of it — the reader would take the last line they see for the end of the file.
+ */
+export async function getDocumentTextPreview(
+  session: AuthorizedSession,
+  documentId: string,
+): Promise<{ text: string; truncated: boolean; contentType: string; filename: string }> {
+  const doc = await getAccessibleDocument(session, documentId)
+  if (!doc.storageKey) throw new NotFoundError('File not available')
+
+  const contentType = doc.contentType || 'application/octet-stream'
+  if (!TEXT_PREVIEW_CONTENT_TYPES.includes(contentType)) {
+    throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Not a text document', { contentType })
+  }
+
+  let bytes: Uint8Array
+  try {
+    const object = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: resolveDocumentBucket(doc.storageBucket),
+        Key: doc.storageKey,
+        // One byte past the cap, so a file sitting exactly on it is not reported
+        // as truncated. Servers that ignore Range answer with the whole object,
+        // which the slice below bounds anyway.
+        Range: `bytes=0-${TEXT_PREVIEW_MAX_BYTES}`,
+      }),
+    )
+    if (!object.Body) throw new NotFoundError('File not available')
+    bytes = await object.Body.transformToByteArray()
+  } catch {
+    throw new NotFoundError('File not available')
+  }
+
+  const truncated = bytes.byteLength > TEXT_PREVIEW_MAX_BYTES
+  const decoder = new TextDecoder('utf-8')
+  let text = decoder.decode(bytes.subarray(0, TEXT_PREVIEW_MAX_BYTES))
+  // A Range cut lands mid-codepoint as often as not, and the decoder turns the
+  // orphaned bytes into a replacement glyph at the very end of the text. Drop
+  // the trailing partial line instead: a half-written last row of a CSV reads
+  // as data, and the truncation notice below it is the honest statement.
+  if (truncated) {
+    const lastBreak = text.lastIndexOf('\n')
+    if (lastBreak > 0) text = text.slice(0, lastBreak)
+  }
+
+  return { text, truncated, contentType, filename: doc.filename }
 }
 
 /**

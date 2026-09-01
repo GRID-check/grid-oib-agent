@@ -115,6 +115,112 @@ const GENERATED_FIXTURE: FileItem = {
   tags: [],
 }
 
+/**
+ * The three text-shaped documents, which are the formats that had no viewer at
+ * all: they drew the same grey "download it to read it" page mock as a `.dwg`,
+ * although the bytes ARE the content. Three fixtures rather than one, because
+ * the whole argument for rendering them separately is that a Markdown checklist
+ * read as headings and boxes is a checklist and read as asterisks is a diff.
+ */
+const TEXT_FIXTURES: Record<'markdown' | 'csv' | 'text', FileItem> = {
+  markdown: {
+    id: 'dev-doc-md',
+    filename: 'Bueroablauf_Einreichplanung.md',
+    displayName: null,
+    fileSize: 2_140,
+    contentType: 'text/markdown',
+    status: 'ready',
+    folderId: null,
+    createdAt: '2026-06-14T09:00:00Z',
+    errorMessage: null,
+    summary: 'Interne Checkliste für die Einreichplanung, Stand Juni 2026.',
+    pageCount: null,
+    chunkCount: 4,
+    contentTypes: ['text'],
+    tags: ['Checkliste'],
+  },
+  csv: {
+    id: 'dev-doc-csv',
+    filename: 'U-Werte_Bauteilkatalog.csv',
+    displayName: null,
+    fileSize: 860,
+    contentType: 'text/csv',
+    status: 'ready',
+    folderId: null,
+    createdAt: '2026-06-14T09:00:00Z',
+    errorMessage: null,
+    summary: 'Bauteilkatalog mit U-Werten und den zugehörigen OIB-Anforderungen.',
+    pageCount: null,
+    chunkCount: 2,
+    contentTypes: ['text', 'table'],
+    tags: [],
+  },
+  text: {
+    id: 'dev-doc-txt',
+    filename: 'Protokoll_Bauverhandlung.txt',
+    displayName: null,
+    fileSize: 1_180,
+    contentType: 'text/plain',
+    status: 'ready',
+    folderId: null,
+    createdAt: '2026-06-14T09:00:00Z',
+    errorMessage: null,
+    summary: null,
+    pageCount: null,
+    chunkCount: 1,
+    contentTypes: ['text'],
+    tags: [],
+  },
+}
+
+const MARKDOWN_BODY = `# Einreichplanung — Bürocheckliste
+
+Gilt für alle Einreichungen in Oberösterreich ab **Juni 2026**.
+
+## Vor der Abgabe
+
+- [x] Lageplan mit Höhenkoten, Maßstab 1:500
+- [x] Grundrisse aller Geschosse, 1:100
+- [ ] Energieausweis nach OIB-RL 6
+- [ ] Nachweis der zwei Fluchtwege je Nutzungseinheit (OIB-RL 2)
+
+## Häufige Rückfragen der Behörde
+
+| Thema | Fundstelle | Anmerkung |
+| --- | --- | --- |
+| Fluchtweglänge | OIB-RL 2, Pkt. 5.1.1 | max. 40 m im notwendigen Flur |
+| Anleiterbarkeit | OIB-RL 2, Pkt. 5.2 | Ostfassade, Aufstellfläche prüfen |
+
+> Bei Gebäudeklasse 4 ist das Sicherheitstreppenhaus früh mit der Feuerwehr
+> abzustimmen — Nachbesserungen kosten hier regelmäßig zwei Wochen.
+`
+
+const CSV_BODY = `Bauteil;U-Wert [W/m²K];Anforderung OIB-6;Bewertung
+Außenwand gegen Außenluft;0,20;0,35;erfüllt
+Oberste Geschossdecke;0,15;0,20;erfüllt
+Fenster (Uw);1,10;1,40;erfüllt
+Kellerdecke;0,38;0,40;"knapp erfüllt, Nachweis beilegen"
+Eingangstür;1,60;1,70;erfüllt
+`
+
+const TEXT_BODY = `Protokoll der Bauverhandlung
+Wohnbau Nord, Linz — 14.06.2026, 09:00 Uhr
+
+Anwesend:
+  Bauwerberin      Wohnbau Nord GmbH, vertreten durch DI Huber
+  Sachverständiger Amt der Oö. Landesregierung, DI Mayrhofer
+  Nachbarn         Grundstück 412/3 und 412/7
+
+Verhandlungsgegenstand
+  Neubau eines Wohngebaeudes der Gebaeudeklasse 4 mit vier Wohneinheiten
+  je Regelgeschoss, Errichtung in Brettsperrholz-Bauweise.
+
+Ergebnis
+  Keine Einwendungen der Nachbarn zur Bebauungshoehe. Der Sachverständige
+  fordert die Vorlage des Rauchableitungsnachweises fuer das Treppenhaus
+  binnen vier Wochen nach.
+`
+
 // Install the fetch shim at module scope (before any component effect fires) so
 /**
  * A structured analysis exactly as the BFF hands it over (already normalized
@@ -209,6 +315,18 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       if (/\/api\/documents\/.+\/preview$/.test(url)) {
         return Response.json({ url: PAGE_SVG })
       }
+      // The text route answers with the CONTENT, not a URL — the object store
+      // publishes no CORS policy, so a presigned link is unreadable to a fetch.
+      const textMatch = /\/api\/documents\/(.+)\/text$/.exec(url)
+      if (textMatch) {
+        const body =
+          textMatch[1] === 'dev-doc-csv'
+            ? CSV_BODY
+            : textMatch[1] === 'dev-doc-txt'
+              ? TEXT_BODY
+              : MARKDOWN_BODY
+        return Response.json({ text: body, truncated: textMatch[1] === 'dev-doc-txt' })
+      }
       if (/\/api\/documents\/.+\/visual-details$/.test(url)) {
         return Response.json({
           details: [
@@ -261,11 +379,23 @@ export default function FilePreviewDevPage({
   // `?authored=agent` swaps in the document Piloti wrote. One route rather than
   // two so the two states are photographed through the same dialog, with the
   // same shim and the same props — the only variable is the file.
-  const authored = use(searchParams).authored
+  //
+  // `?variant=markdown|csv|text` swaps in a text-shaped document, for the same
+  // reason: same dialog, same shim, the file is the only variable. The `text`
+  // one is served truncated on purpose — a viewer that silently shows the first
+  // half of a document is worse than one that shows none of it, so the notice
+  // under the page is part of the surface and has to be photographed.
+  const params = use(searchParams)
+  const authored = params.authored
+  const variant = typeof params.variant === 'string' ? params.variant : undefined
+  const textFixture =
+    variant === 'markdown' || variant === 'csv' || variant === 'text'
+      ? TEXT_FIXTURES[variant]
+      : null
 
   return (
     <FilePreviewDialog
-      file={authored === 'agent' ? GENERATED_FIXTURE : FIXTURE}
+      file={textFixture ?? (authored === 'agent' ? GENERATED_FIXTURE : FIXTURE)}
       projectId="proj-demo"
       projectName="Wohnbau Nord — Linz"
       canManage

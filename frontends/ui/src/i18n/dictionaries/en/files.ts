@@ -95,6 +95,8 @@ export const files = {
     goneUndo: 'Undo',
     tryAgain: 'Try again',
     noInlinePreview: 'No inline preview for this file type. Download it to view the full document.',
+    textTruncated:
+      'Only the beginning of this file is shown. Download it to read the whole thing.',
     status: 'Status',
     // Heading for the rail's fact list (what the FILE is), distinct from
     // "Detailed information" below it (what the VLM saw on each page).

@@ -350,6 +350,30 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[role="dialog"]',
   },
   {
+    id: 'file-preview-markdown',
+    mobile: true,
+    path: '/dev/file-preview?variant=markdown',
+    description:
+      'A .md opened in the same file-preview modal, rendered as a document rather than as raw asterisks. Text, Markdown and CSV are accepted at upload and until now drew the identical grey "no inline preview" mock as a .dwg — a format we genuinely cannot open — although for these the bytes ARE the content. What this pins is that the checklist reads as a checklist: headings, task boxes, a table and a blockquote, at the prose size the rest of the product uses.',
+    waitFor: 'text=Einreichplanung',
+  },
+  {
+    id: 'file-preview-csv',
+    mobile: true,
+    path: '/dev/file-preview?variant=csv',
+    description:
+      'The same modal on a semicolon-delimited CSV — a German Excel export, which is the common case. The delimiter is sniffed rather than assumed: read comma-first, this file renders as one column of full rows, which looks less like a misparse than like a one-column file. The last row also carries a quoted cell containing its own semicolon, so the quoting rule is photographed too.',
+    waitFor: 'text=U-Wert',
+  },
+  {
+    id: 'file-preview-text',
+    mobile: true,
+    path: '/dev/file-preview?variant=text',
+    description:
+      'A .txt, monospaced and soft-wrapped, served TRUNCATED so the notice under the page is part of the evidence. A preview is a look at a file, not a delivery of it, and the failure this pins is the silent cut: without the line, the last row a reader sees reads as the end of the document.',
+    waitFor: 'text=Bauverhandlung',
+  },
+  {
     id: 'file-preview-model',
     mobile: true,
     path: '/dev/file-preview-model',

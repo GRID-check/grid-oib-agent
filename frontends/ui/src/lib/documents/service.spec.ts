@@ -95,6 +95,7 @@ import {
   joinHitsToFiles,
   deriveSearchTopK,
   dispatchDocument,
+  getDocumentTextPreview,
   AgentAuthoredDocumentNotIndexableError,
   INGEST_DISPATCH_FAILED_MESSAGE,
 } from './service'
@@ -1443,5 +1444,86 @@ describe('the authorship gate on the (collection, filename) join', () => {
       expect(result).toEqual({ projectId: 'proj-1', queued: 0, skipped: 1, failed: [] })
       expect(documentCalls()).toHaveLength(0)
     })
+  })
+})
+
+describe('getDocumentTextPreview', () => {
+  const textDoc = (contentType: string) =>
+    makeDocument({
+      id: 'doc-text',
+      filename: 'katalog.csv',
+      contentType,
+      storageKey: 'org/org-1/project/proj-1/doc/doc-text/katalog.csv',
+    })
+
+  const bodyOf = (text: string) => ({
+    transformToByteArray: async () => new TextEncoder().encode(text),
+  })
+
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+  })
+
+  it('returns the bytes as text for a format the pane renders itself', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(textDoc('text/csv'))
+    vi.mocked(s3Client.send).mockResolvedValue({ Body: bodyOf('a;b\n1;2\n') } as never)
+
+    await expect(getDocumentTextPreview(session, 'doc-text')).resolves.toMatchObject({
+      text: 'a;b\n1;2\n',
+      truncated: false,
+    })
+  })
+
+  /**
+   * The route exists so the pane can render text; handing it a PDF would let a
+   * caller pull arbitrary bytes through a JSON string. The presign route is
+   * where a PDF belongs.
+   */
+  it('refuses a content type it is not for', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(textDoc('application/pdf'))
+
+    await expect(getDocumentTextPreview(session, 'doc-text')).rejects.toMatchObject({
+      status: 415,
+    })
+  })
+
+  it('never serves HTML, which would be script in a same-origin response', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(textDoc('text/html'))
+
+    await expect(getDocumentTextPreview(session, 'doc-text')).rejects.toMatchObject({
+      status: 415,
+    })
+  })
+
+  it('bounds the response and says it did, rather than cutting the file silently', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(textDoc('text/plain'))
+    // One byte past the cap is what makes the range request report truncation.
+    const oversized = 'x'.repeat(256 * 1024) + '\nlast'
+    vi.mocked(s3Client.send).mockResolvedValue({ Body: bodyOf(oversized) } as never)
+
+    const result = await getDocumentTextPreview(session, 'doc-text')
+
+    expect(result.truncated).toBe(true)
+    expect(result.text.length).toBeLessThanOrEqual(256 * 1024)
+  })
+
+  it('asks the object store for a bounded range, not for the whole object', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(textDoc('text/plain'))
+    vi.mocked(s3Client.send).mockResolvedValue({ Body: bodyOf('short') } as never)
+
+    await getDocumentTextPreview(session, 'doc-text')
+
+    const command = vi.mocked(s3Client.send).mock.calls.at(-1)?.[0] as
+      | { input?: { Range?: string } }
+      | undefined
+    expect(command?.input?.Range).toBe(`bytes=0-${256 * 1024}`)
+  })
+
+  it('404s a document with no stored object', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({ id: 'doc-text', contentType: 'text/plain', storageKey: null })
+    )
+
+    await expect(getDocumentTextPreview(session, 'doc-text')).rejects.toBeInstanceOf(NotFoundError)
   })
 })
