@@ -28,7 +28,7 @@ import {
   ArrowUp,
   AtSign,
   Check,
-  ChevronDown,
+  // ChevronDown, — withheld with the composer scope chip
   Eye,
   FileText,
   Loader2,
@@ -37,7 +37,7 @@ import {
   Square,
   X,
   XCircle,
-  ZoomIn,
+  // ZoomIn, — withheld with the composer Deep-Research pill
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -46,7 +46,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+// Withheld with the composer scope chip, whose disabled "Alle Projekte" row was
+// this file's only tooltip.
+// import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { AnimatePresence, motion, easeQuiet, springSnappy } from '@/components/motion'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
@@ -312,7 +314,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   placeholder,
   isAuthenticated = false,
   connectionMode = 'websocket',
-  projectName,
+  // projectName, — accepted and unused while the scope chip is withheld; the
+  // prop stays on the interface so callers and specs need no change.
   canCollaborate = false,
   canChatInProject = true,
 }) {
@@ -601,8 +604,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   // Layout store — individual selectors for minimal re-render surface
   const knowledgeLayerAvailable = useLayoutStore((s) => s.knowledgeLayerAvailable)
-  const deepResearchIntent = useLayoutStore((s) => s.deepResearchIntent)
-  const setDeepResearchIntent = useLayoutStore((s) => s.setDeepResearchIntent)
+  // Withheld with the Deep-Research pill and its hint (control row below).
+  // const deepResearchIntent = useLayoutStore((s) => s.deepResearchIntent)
+  // const setDeepResearchIntent = useLayoutStore((s) => s.setDeepResearchIntent)
   const applySourcePreset = useLayoutStore((s) => s.applySourcePreset)
   const projectId = useChatStore((s) => s.projectId)
 
@@ -877,35 +881,39 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     ]
   )
 
-  /**
+  /*
    * Start a mention from the composer's addressee line — the only affordance that
    * teaches `@` exists (spec MN-3 had no discovery story at all).
+   *
+   * Withheld with the offer that called it (see `AddresseeIndicator` in the
+   * control row below); kept here so restoring the offer is one uncomment.
    *
    * Types the character rather than opening the picker directly: `syncMentionQuery`
    * already owns "the caret sits in an `@…` fragment", so going through the text is
    * the one path that cannot drift from what typing `@` by hand does. It also leaves
    * the user somewhere sensible if they change their mind — one backspace.
+
+    const handleMentionSomeone = useCallback(() => {
+      // Belt and braces with the `undefined` handler at the call site: this one is
+      // reachable by anything holding a stale reference, and it writes to the
+      // conversation's draft.
+      if (cannotContribute) return
+      const el = textareaRef.current
+      const base = message.length > 0 && !message.endsWith(' ') ? `${message} ` : message
+      const next = `${base}@`
+      // Route through handleValueChange, not a bare setMessage: a fresh thread
+      // gets its session (and the draft) here, and `syncMentionQuery` runs inside
+      // it — the one path that cannot drift from what typing `@` by hand does.
+      handleValueChange(next, next.length)
+      setMentionDismissed(false)
+      // Focus AFTER the value lands, so the caret is at the end of the fragment the
+      // picker is filtering on.
+      requestAnimationFrame(() => {
+        el?.focus()
+        el?.setSelectionRange(next.length, next.length)
+      })
+    }, [message, handleValueChange, cannotContribute])
    */
-  const handleMentionSomeone = useCallback(() => {
-    // Belt and braces with the `undefined` handler at the call site: this one is
-    // reachable by anything holding a stale reference, and it writes to the
-    // conversation's draft.
-    if (cannotContribute) return
-    const el = textareaRef.current
-    const base = message.length > 0 && !message.endsWith(' ') ? `${message} ` : message
-    const next = `${base}@`
-    // Route through handleValueChange, not a bare setMessage: a fresh thread
-    // gets its session (and the draft) here, and `syncMentionQuery` runs inside
-    // it — the one path that cannot drift from what typing `@` by hand does.
-    handleValueChange(next, next.length)
-    setMentionDismissed(false)
-    // Focus AFTER the value lands, so the caret is at the end of the fragment the
-    // picker is filtering on.
-    requestAnimationFrame(() => {
-      el?.focus()
-      el?.setSelectionRange(next.length, next.length)
-    })
-  }, [message, handleValueChange, cannotContribute])
 
   const syncMentionQueryFromElement = useCallback(
     (element: HTMLTextAreaElement) => {
@@ -1338,7 +1346,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   // Scope chip label: the active project (display-only scope; cross-project
   // search does not exist yet — spec §2.3, honest disabled option).
-  const scopeLabel = projectName || tChat('composer.scopeFallback')
+  // Withheld with the chip that rendered it, in the control row below.
+  // const scopeLabel = projectName || tChat('composer.scopeFallback')
 
   return (
     // Narrower than the message column (max-w-5xl in ChatArea/ChatToolbar) on
@@ -1648,16 +1657,26 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
             {/* Bottom control row — hairline-separated from the textarea.
             Order per the click dummy: scope · Datengrundlage · Deep-Research,
-            then attach + send pushed right. */}
+            all three of which are withheld — see the commented-out blocks
+            inside — leaving attach + send pushed right. */}
             <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t pt-2.5">
-              {/* Scope chip — current project; cross-project is honestly disabled.
-              Dashed status-active dot + label + chevron (dummy composer). */}
+              {/* Scope chip — WITHHELD for now (product decision, 2026-09):
+              commented out rather than deleted so it can return, the same
+              treatment as the Datenbasis picker below. It was display-only —
+              cross-project search does not exist, which is why the second option
+              was honestly disabled — so hiding it narrows nothing: every turn
+              still goes out scoped to the project in the URL.
+              To restore: uncomment this block, the `scopeLabel` line above, the
+              `projectName` destructure, and the `ChevronDown` / `Tooltip` imports.
+
+              // Scope chip — current project; cross-project is honestly disabled.
+              // Dashed status-active dot + label + chevron (dummy composer).
               <Popover>
                 <PopoverTrigger asChild>
-                  {/* The primitive, not a hand-rolled `<button>`: the outline/sm
-                  variant IS this chip's geometry, and it ships the press
-                  response with its `motion-reduce` escape for free. Matches
-                  `SourceBasisTrigger` beside it. */}
+                  // The primitive, not a hand-rolled `<button>`: the outline/sm
+                  // variant IS this chip's geometry, and it ships the press
+                  // response with its `motion-reduce` escape for free. Matches
+                  // `SourceBasisTrigger` beside it.
                   <Button
                     type="button"
                     variant="outline"
@@ -1668,8 +1687,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     className="min-w-0"
                   >
                     <span className="border-status-active flex size-3.5 shrink-0 items-center justify-center rounded-full border border-dashed">
-                      {/* 5px: the dot has to sit INSIDE a 14px dashed ring with a
-                      visible gap on every side, and the 6px token step closes it. */}
+                      // 5px: the dot has to sit INSIDE a 14px dashed ring with a
+                      // visible gap on every side, and the 6px token step closes it.
                       <span className="bg-status-active size-[5px] rounded-full" />
                     </span>
                     <span className="text-foreground/85 hidden max-w-44 truncate sm:inline">
@@ -1694,7 +1713,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   </div>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      {/* span wrapper: disabled elements don't emit hover events */}
+                      // span wrapper: disabled elements don't emit hover events
                       <span className="block" tabIndex={0}>
                         <button
                           type="button"
@@ -1713,6 +1732,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   </Tooltip>
                 </PopoverContent>
               </Popover>
+              */}
 
               {/* Datenbasis — the one control for WHERE Piloti may look.
               WITHHELD for now (product decision, 2026-08): the picker is
@@ -1744,12 +1764,21 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 </PopoverContent>
               </Popover> */}
 
-              {/* Deep-Research intent pill — preference, NOT a hard trigger:
-              the agent auto-escalates on its own (spec §2.2(6)) */}
-              {/* Same rebuild as the scope chip beside it. Pressed is the `default`
-              (ink) variant and resting is `outline`, so "on" is the ink fill the
-              design language reserves for the action — no third hand-rolled
-              state, and the press response comes from the primitive. */}
+              {/* Deep-Research intent pill — WITHHELD for now (product decision,
+              2026-09): commented out rather than deleted so it can return, the
+              same treatment as the Datenbasis picker above. It only ever recorded
+              a preference — escalation is the agent's own call (spec §2.2(6)) —
+              and nothing outside this file reads `deepResearchIntent`, so no
+              request changes shape while it is hidden.
+              To restore: uncomment this block, the two `deepResearchIntent` store
+              lines above, the hint paragraph below it, and the `ZoomIn` import.
+
+              // Deep-Research intent pill — preference, NOT a hard trigger:
+              // the agent auto-escalates on its own (spec §2.2(6))
+              // Same rebuild as the scope chip beside it. Pressed is the `default`
+              // (ink) variant and resting is `outline`, so "on" is the ink fill the
+              // design language reserves for the action — no third hand-rolled
+              // state, and the press response comes from the primitive.
               <Button
                 type="button"
                 variant={deepResearchIntent ? 'default' : 'outline'}
@@ -1764,6 +1793,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 <ZoomIn className="size-3.5" aria-hidden="true" />
                 <span className="hidden sm:inline">{tChat('composer.deepResearch')}</span>
               </Button>
+              */}
 
               {/* Who this message goes to — ALWAYS, whenever collaboration exists at
               all. The point of it being unconditional: if it only appeared in the
@@ -1810,7 +1840,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   // and this one link sat above "Sie können hier mitlesen", live and
                   // underlined, offering to type an `@` into a disabled textarea.
                   // Same class as the paperclip and the Datengrundlage popover.
-                  onMentionSomeone={cannotContribute ? undefined : handleMentionSomeone}
+                  //
+                  // WITHHELD (product decision, 2026-09): the offer is the only
+                  // thing that teaches `@` exists, so it is commented out rather
+                  // than deleted. Omitting the handler is the component's own
+                  // documented way to hide it — the addressee STATEMENTS ("Geht an
+                  // Anna Berger", "wartet auf …") are untouched, and typing `@` by
+                  // hand still opens the picker. To restore: uncomment the prop
+                  // below and `handleMentionSomeone` above.
+                  // onMentionSomeone={cannotContribute ? undefined : handleMentionSomeone}
                 />
               )}
 
@@ -2090,13 +2128,17 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               </p>
             )}
 
-            {/* Honest Deep-Research hint: the pill records intent; escalation
-            stays automatic. Never promises a forced deep-research run. */}
+            {/* Honest Deep-Research hint — WITHHELD with the pill that set the
+            intent (see the commented-out block in the control row above). The
+            flag is persisted, so leaving this here would strand the sentence on
+            screen for anyone who had the pill switched on when it went away,
+            with nothing left to switch it off.
+
             {deepResearchIntent && (
               <p className="text-muted-foreground mt-2 text-xs leading-relaxed" role="note">
                 {tChat('composer.deepResearchHint')}
               </p>
-            )}
+            )} */}
 
             {/* Post-research helper line — the explanation that used to live in the
             (no-op) send popover, now always visible next to the "Neue Sitzung

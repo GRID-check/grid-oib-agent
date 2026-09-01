@@ -430,16 +430,17 @@ describe('InputArea', () => {
     await user.tab()
     expect(input).toHaveFocus()
 
-    // Order per the click-dummy composer: scope · Deep Research, then attach +
-    // send (the files counter appears only once files are attached, so it is
-    // absent here). The Datengrundlage trigger is withheld with the picker —
-    // see the commented-out block in InputArea.
+    // Order per the click-dummy composer: attach + send (the files counter
+    // appears only once files are attached, so it is absent here). The scope
+    // chip, the Datengrundlage trigger and the Deep-Research pill are all
+    // withheld — see the commented-out blocks in InputArea — so the walk goes
+    // straight from the textarea to the right-hand actions.
     await user.type(input, 'Hello')
-    await user.tab()
-    expect(screen.getByRole('button', { name: /search scope/i })).toHaveFocus()
+    // await user.tab()
+    // expect(screen.getByRole('button', { name: /search scope/i })).toHaveFocus()
 
-    await user.tab()
-    expect(screen.getByRole('button', { name: /deep research preference/i })).toHaveFocus()
+    // await user.tab()
+    // expect(screen.getByRole('button', { name: /deep research preference/i })).toHaveFocus()
 
     await user.tab()
     expect(screen.getByRole('button', { name: /attach files/i })).toHaveFocus()
@@ -1250,7 +1251,10 @@ describe('InputArea', () => {
       expect(mockStopStreaming).toHaveBeenCalledTimes(1)
     })
 
-    test('deep research pill toggles the stored intent (off → on)', async () => {
+    /* The Deep-Research pill is WITHHELD from the composer for now (see the
+       commented-out block in InputArea), and so is the hint it switched on.
+       Skipped, not deleted, so they resume with it. */
+    test.skip('deep research pill toggles the stored intent (off → on)', async () => {
       const user = userEvent.setup()
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 
@@ -1262,7 +1266,7 @@ describe('InputArea', () => {
       expect(mockSetDeepResearchIntent).toHaveBeenCalledWith(true)
     })
 
-    test('deep research pill shows the honest auto-escalation hint when on', () => {
+    test.skip('deep research pill shows the honest auto-escalation hint when on', () => {
       mockDeepResearchIntent = true
 
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
@@ -1273,7 +1277,10 @@ describe('InputArea', () => {
       expect(screen.getByText(/escalates to deep research automatically/i)).toBeInTheDocument()
     })
 
-    test('scope chip shows the project name and a disabled "All projects" option', async () => {
+    /* The scope chip is WITHHELD from the composer for now (see the
+       commented-out block in InputArea). Skipped, not deleted, so it resumes
+       with the chip. */
+    test.skip('scope chip shows the project name and a disabled "All projects" option', async () => {
       const user = userEvent.setup()
       render(
         <InputArea isAuthenticated={true} connectionMode="sse" projectName="Wohnbau Favoriten" />
@@ -1691,10 +1698,12 @@ describe('InputArea', () => {
       render(<InputArea isAuthenticated canCollaborate connectionMode="sse" />)
 
       expect(addressee()).toHaveAttribute('data-mode', 'agent')
-      // No statement. What remains on the line is the `@` offer, which is not
-      // one — it teaches that mentions exist and is deliberately untouched.
+      // No statement, and nothing else on the line: the `@` offer that used to
+      // remain here is withheld with the rest of the control row.
       expect(addressee()).not.toHaveTextContent(/goes to/i)
-      expect(screen.getByTestId('composer-mention-offer')).toBeInTheDocument()
+      // The offer is WITHHELD from the composer for now (see the commented-out
+      // prop in InputArea); the silence above is what this test is about.
+      // expect(screen.getByTestId('composer-mention-offer')).toBeInTheDocument()
     })
 
     test('switches to the tagged person as the mention is inserted', async () => {
@@ -1713,10 +1722,12 @@ describe('InputArea', () => {
       // …and back to silence when the token is edited away (MN-3).
       await user.clear(composer())
       expect(addressee()).toHaveAttribute('data-mode', 'agent')
-      // No statement. What remains on the line is the `@` offer, which is not
-      // one — it teaches that mentions exist and is deliberately untouched.
+      // No statement, and nothing else on the line: the `@` offer that used to
+      // remain here is withheld with the rest of the control row.
       expect(addressee()).not.toHaveTextContent(/goes to/i)
-      expect(screen.getByTestId('composer-mention-offer')).toBeInTheDocument()
+      // The offer is WITHHELD from the composer for now (see the commented-out
+      // prop in InputArea); the silence above is what this test is about.
+      // expect(screen.getByTestId('composer-mention-offer')).toBeInTheDocument()
     })
 
     test('says the message goes to the CHAT while the thread awaits a person, and how to reach Piloti', () => {
@@ -1929,8 +1940,12 @@ describe('InputArea', () => {
       expect(screen.getByRole('button', { name: /attach files/i })).toBeDisabled()
       // The scope chip and the deep-research pill persist onto the conversation,
       // so they are writes too — `disabled` used to reach only the textarea and
-      // the send button.
-      expect(screen.getByLabelText(/deep.research/i)).toBeDisabled()
+      // the send button. Both are withheld from the composer for now, so what is
+      // asserted here is their absence; the disabled-for-viewers checks resume
+      // with the controls.
+      // expect(screen.getByLabelText(/deep.research/i)).toBeDisabled()
+      expect(screen.queryByLabelText(/deep.research/i)).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /search scope/i })).not.toBeInTheDocument()
       // The Datenbasis trigger is withheld from the composer for now — its
       // disabled-for-viewers assertion resumes with the picker.
       expect(screen.queryByRole('button', { name: /data basis/i })).not.toBeInTheDocument()
@@ -1980,6 +1995,9 @@ describe('InputArea', () => {
     })
 
     test('is not invited to mention anybody either', () => {
+      // Passing for a second reason while the offer is withheld from EVERY
+      // reader: this stays as the viewer-specific guard it was written to be,
+      // and bites again the moment the offer comes back.
       // Caught by looking at the screenshot rather than the code: the whole
       // control row was correctly dimmed and this one link sat above "Sie können
       // hier mitlesen", live and underlined, offering to type an `@` into a
@@ -2003,7 +2021,9 @@ describe('InputArea', () => {
       // Asserted here as well as by their absence above, so the viewer's version
       // of those checks cannot pass because the query itself stopped matching.
       expect(screen.getByRole('button', { name: /^manage \d/i })).toBeInTheDocument()
-      expect(screen.getByTestId('composer-mention-offer')).toBeInTheDocument()
+    // The `@` offer is WITHHELD from the composer for now (see the commented-out
+    // prop in InputArea), so its counter-assertion is parked with it.
+    // expect(screen.getByTestId('composer-mention-offer')).toBeInTheDocument()
     })
 
     test.skip('the presets outlive onboarding — they are in the picker, not on a chip row', async () => {

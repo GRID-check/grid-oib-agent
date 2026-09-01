@@ -37,7 +37,8 @@
  */
 
 import { notFound } from 'next/navigation'
-import { ArrowUp, AtSign, ChevronDown, Layers, ZoomIn } from 'lucide-react'
+// `ChevronDown`, `Layers` and `ZoomIn` go with the withheld chips below.
+import { ArrowUp, AtSign } from 'lucide-react'
 
 import { AddresseeIndicator } from '@/features/collaboration/components/AddresseeIndicator'
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
@@ -70,6 +71,11 @@ function MockComposer({
       <p className="min-h-[40px] px-1.5 py-1 text-[14.5px] leading-[1.5] text-foreground">{text}</p>
 
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t pt-2.5">
+        {/* Scope chip, Datengrundlage and Deep Research — all three are WITHHELD
+        from the real composer (see the commented-out blocks in `InputArea`), so the
+        facsimile drops them too. A preview that keeps furniture the product has put
+        away is evidence for a screen nobody sees.
+
         <span className="bg-card shadow-xs inline-flex h-8 items-center gap-[7px] rounded-lg border px-[11px]">
           <span className="border-status-active flex size-[14px] shrink-0 items-center justify-center rounded-full border border-dashed">
             <span className="bg-status-active size-[5px] rounded-full" />
@@ -88,6 +94,7 @@ function MockComposer({
           <ZoomIn className="size-3.5" aria-hidden />
           Deep Research
         </span>
+        */}
 
         {children}
 
@@ -128,15 +135,19 @@ function Previews(): JSX.Element {
     <>
       <section className="space-y-3">
         <Eyebrow>Standard — der Chat fragt Piloti, ohne es zu sagen</Eyebrow>
-        {/* `onMentionSomeone` is passed because the real composer passes it, and
-            without it this preview quietly captured a state the product never
-            shows: the affordance renders only when a handler exists, so every
-            screenshot taken here was evidence for a variant nobody sees. */}
+        {/* `onMentionSomeone` used to be passed because the real composer passed
+            it — without it this preview quietly captured a state the product never
+            showed, since the affordance renders only when a handler exists. It is
+            now the other way round: the composer withholds the offer, so passing a
+            handler here would be the drift. */}
         <MockComposer text="Gilt die 40-m-Grenze auch für das nördliche Treppenhaus?">
           <AddresseeIndicator
             mentions={[]}
             awaitingHuman={false}
-            onMentionSomeone={() => undefined}
+            // The offer is WITHHELD from the real composer (see the commented-out
+            // prop in `InputArea`), so it is withheld here too: this preview exists
+            // to show what the product shows.
+            // onMentionSomeone={() => undefined}
           />
         </MockComposer>
       </section>

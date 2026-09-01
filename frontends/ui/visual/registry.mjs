@@ -233,7 +233,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/composer',
     description:
-      'The chat composer (real InputArea, backend-free) in its empty-thread state — textarea, scope/deep-research controls (the Datenbasis picker is withheld for now), attach + send — desktop + mobile.',
+      'The chat composer (real InputArea, backend-free) in its empty-thread state — textarea, then a control row holding only attach + send: the scope chip, the Datenbasis picker and the Deep-Research pill are all withheld for now — desktop + mobile.',
     waitFor: '[data-testid="composer-preview"]',
   },
   {
@@ -901,7 +901,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/composer-addressee',
     description:
-      'The composer\'s always-present statement of WHO receives this message (ADR-0034 addendum). Every rendering in one still: "Geht an Piloti" by default, "Geht an <Name>" the moment a colleague is tagged, both names when a person AND @Piloti are tagged, and "Geht an den Chat" + "@Piloti eingeben, um Piloti zu fragen" while the thread waits on a human. Always present on purpose — if it only appeared in the unusual case, "Piloti is next" would stay an inference.',
+      'The composer\'s always-present statement of WHO receives this message (ADR-0034 addendum). Every rendering in one still: silence by default (the "@ Kollegin oder Kollegen erwähnen" offer is withheld with the rest of the control row), "Geht an <Name>" the moment a colleague is tagged, both names when a person AND @Piloti are tagged, and "Geht an den Chat" + "@Piloti eingeben, um Piloti zu fragen" while the thread waits on a human. Always present on purpose — if it only appeared in the unusual case, "Piloti is next" would stay an inference.',
     waitFor: '[data-testid="composer-addressee-preview"]',
   },
   {

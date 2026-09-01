@@ -1,0 +1,9 @@
+---
+improvements:
+  - >
+    The chat input is quieter: the project scope chip, the Deep Research
+    preference and the offer to mention a colleague are no longer shown.
+    Nothing changes about how Piloti answers — every question is still scoped
+    to the project you are in, Piloti still moves to deep research on its own
+    when a question calls for it, and typing an at sign still opens the person
+    picker.
