@@ -1012,11 +1012,23 @@ const REINDEX_CONCURRENCY = 4
  * Distinct from `reingestDocument`, which is a RETRY: that one refuses anything
  * whose status is not `failed`, because re-dispatching a healthy document is a
  * different and more dangerous operation. This is that operation, and the danger
- * is duplication — the ingest endpoint downloads and indexes, it does not replace,
- * so dispatching a document that already has chunks leaves BOTH sets in the
- * collection, both retrievable and both rendering as a valid citation.
+ * is duplication.
  *
- * So the delete is a PRECONDITION here, not a courtesy. `deleteDocument` swallows
+ * The ingest endpoint DOES replace now — `_replace_previous_versions`
+ * (`llamaindex/adapter.py`, since `166dd79`) deletes the collection's chunks for
+ * an incoming filename before writing new ones. This comment claimed the
+ * opposite until 2026-09; the behaviour was safe and the reasoning was not, which
+ * is the worse of the two to leave lying around.
+ *
+ * The delete stays a PRECONDITION rather than becoming redundant, for two
+ * reasons that outlive the backend's current behaviour. It matches on the
+ * NORMALISED filename only, so a document this project holds under a name the
+ * incoming batch does not repeat keeps its old chunks; and it is wrapped in a
+ * bare `except` that only logs, so a failed replacement never fails the ingest.
+ * Relying on it would make this function's guarantee depend on a best-effort
+ * step in another tier.
+ *
+ * `deleteDocument` swallows
  * a failed chunk-delete on purpose (the durable row and object cleanup matter more,
  * and leftover chunks get swept by the next reconcile). The same failure here means
  * the opposite: dispatching after it would create the duplicate this whole function
