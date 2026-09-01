@@ -34,6 +34,7 @@ import {
   MessageSquare,
   UserPlus,
   type LucideIcon,
+  AlertTriangle,
 } from 'lucide-react'
 
 import { useI18n, useLocale, useTranslations } from '@/i18n'
@@ -69,6 +70,7 @@ const ICONS: Record<(typeof INBOX_TYPE_PRESENTATION)[keyof typeof INBOX_TYPE_PRE
     'user-plus': UserPlus,
     'check-circle': CheckCircle2,
     'hard-drive': HardDrive,
+    'alert-triangle': AlertTriangle,
   }
 
 /** Dictionary root for the item-type entries. */

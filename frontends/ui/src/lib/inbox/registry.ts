@@ -104,6 +104,27 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     retentionDays: 60,
     gate: 'collaboration',
   },
+  /*
+    A background run ended. `per-anchor` with the backend job id as the anchor:
+    two runs of one job are two pieces of work, each with its own report, so
+    they must not fold into one counted row. Informational: the inbox cannot
+    resolve a run, and an actionable row would sit in the badge for good.
+    Operational: jobs are not a collaboration feature, and a tenant with
+    collaboration off still schedules them. A failure is kept longer — it is
+    the one the reader most needs to still find.
+  */
+  'job.completed': {
+    actionable: false,
+    grouping: 'per-anchor',
+    retentionDays: 30,
+    gate: 'operational',
+  },
+  'job.failed': {
+    actionable: false,
+    grouping: 'per-anchor',
+    retentionDays: 60,
+    gate: 'operational',
+  },
 }
 
 /** Whether a type is actionable (denormalized onto the row for a cheap count). */

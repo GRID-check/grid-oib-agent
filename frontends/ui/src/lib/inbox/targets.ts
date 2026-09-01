@@ -38,6 +38,7 @@ import {
   type InboxTargetType,
   type ShareableResourceType,
 } from '@/lib/db/schema'
+import { requireProjectAccess } from '@/lib/authz/projects'
 import { resolveResourceAccess } from '@/lib/sharing/access'
 import { describeResource } from '@/lib/sharing/registry'
 
@@ -139,9 +140,36 @@ const shareableTargets = Object.fromEntries(
   SHAREABLE_RESOURCE_TYPES.map((type) => [type, shareableTarget(type)]),
 ) as Record<ShareableResourceType, InboxTargetDescriptor>
 
+/**
+ * A project — the target of a background run's outcome.
+ *
+ * A job is project-scoped work, and its report is filed in the project, so the
+ * place a "your run is done" row lands is the project's automation page, where
+ * the run history already shows every run with its live status. Access is the
+ * same question the page itself asks (`project:view`, re-derived at read time
+ * per spec IB-13): a member removed from the project since the run ended sees a
+ * redacted row rather than a link into a project they can no longer open.
+ * `requireProjectAccess` throws for "no"; here "no" is the ordinary answer and
+ * must not take the inbox down, so it is caught and returned as `null`.
+ */
+const projectTarget: InboxTargetDescriptor = {
+  type: 'project',
+  resolve: async (session, resourceId) => {
+    try {
+      await requireProjectAccess(session, resourceId, 'project:view')
+    } catch {
+      return null
+    }
+    return {
+      deepLink: () => `/app/projects/${resourceId}/automation?tab=jobs`,
+    }
+  },
+}
+
 export const INBOX_TARGET_REGISTRY: Record<InboxTargetType, InboxTargetDescriptor> = {
   ...shareableTargets,
   organization: organizationTarget,
+  project: projectTarget,
 }
 
 /**

@@ -207,6 +207,9 @@ export const jobRuns = pgTable(
     // Created via `("schedule_id","created_at" DESC)` in the SQL migration so
     // the newest-first run-history query is a plain index scan.
     jobCreatedIdx: index('idx_job_runs_job_created').on(table.scheduleId, table.createdAt),
+    // The worker reports a run's outcome by the BACKEND job id (the only id it
+    // holds), so that lookup needs its own index (migration 0073).
+    backendJobIdx: index('idx_job_runs_backend_job_id').on(table.jobId),
     projectIdx: index('idx_job_runs_project_id').on(table.projectId),
     orgIdx: index('idx_job_runs_organization_id').on(table.organizationId),
     createdIdx: index('idx_job_runs_created_at').on(table.createdAt),
