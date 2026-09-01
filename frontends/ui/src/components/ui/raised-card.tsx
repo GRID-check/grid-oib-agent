@@ -32,7 +32,7 @@
  * is how a refactor breaks four surfaces at once.
  */
 
-import type { ComponentProps, ReactNode } from 'react'
+import type { ComponentProps, JSX, ReactNode } from 'react'
 import { motion, motionQuick, springPress } from '@/components/motion'
 import { cn } from '@/lib/utils'
 

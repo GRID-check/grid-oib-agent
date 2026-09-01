@@ -13,6 +13,7 @@
  */
 
 import { useEffect } from 'react'
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { PlatformRetrievalSettings } from '@/app/app/(shell)/platform/retrieval/platform-retrieval-settings'
 import { RETRIEVAL_SETTINGS } from '@/lib/retrieval-settings/catalog'

@@ -24,6 +24,7 @@
  */
 
 import { useState } from 'react'
+import type { JSX } from 'react'
 import { AlertCircle, CheckCircle2, Inbox as InboxIcon } from 'lucide-react'
 
 import { useTranslations } from '@/i18n'

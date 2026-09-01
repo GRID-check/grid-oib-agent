@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
+import type { JSX } from 'react'
 import { FileTextPage, isTextPageType } from './file-text-page'
 import Image from 'next/image'
 import dynamic from 'next/dynamic'

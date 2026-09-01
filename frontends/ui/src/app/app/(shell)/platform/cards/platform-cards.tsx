@@ -21,7 +21,7 @@
  * not be able to fire a write.
  */
 
-import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type FC, useCallback, useEffect, useMemo, useState } from 'react'
 import { ExternalLink, Image as ImageIcon, Lock, MousePointerClick } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -59,24 +59,21 @@ interface CatalogDto {
 /**
  * A preview that cannot be operated.
  *
- * `inert` is set through the DOM property rather than as a JSX attribute: this
- * app is on React 18, which passes unknown props through as attributes but
- * types them as errors. The property is the same switch — it removes the whole
- * subtree from hit-testing, focus order and the accessibility tree, which is
- * what a picture of a card should be. `pointer-events-none` alone would leave
- * the buttons keyboard-reachable, and a tabbed-to "Yes" still writes.
+ * `inert` removes the whole subtree from hit-testing, focus order and the
+ * accessibility tree, which is what a picture of a card should be.
+ * `pointer-events-none` alone would leave the buttons keyboard-reachable, and
+ * a tabbed-to "Yes" still writes.
+ *
+ * It is a plain JSX attribute now. It used to be set on the DOM node from an
+ * effect, because React 18 passed an unknown prop through as an attribute but
+ * typed it as an error; React 19 types `inert`, so the attribute is also inert
+ * on the server-rendered markup rather than from the first effect onwards.
  */
-const InertPreview: FC<{ children: React.ReactNode }> = ({ children }) => {
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (ref.current) ref.current.inert = true
-  }, [])
-  return (
-    <div ref={ref} className="pointer-events-none select-none">
-      {children}
-    </div>
-  )
-}
+const InertPreview: FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div inert className="pointer-events-none select-none">
+    {children}
+  </div>
+)
 
 const CatalogEntry: FC<{ card: CatalogCardDto }> = ({ card }) => {
   const t = useTranslations('platform')

@@ -16,6 +16,7 @@
  */
 
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
+import type { JSX } from 'react'
 import { usePanelRef } from 'react-resizable-panels'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { useIsMobile } from '@/hooks/use-is-mobile'

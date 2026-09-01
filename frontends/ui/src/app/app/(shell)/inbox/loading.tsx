@@ -4,6 +4,7 @@
  * rather than a blank frame.
  */
 
+import type { JSX } from 'react'
 import { PageSheetSkeleton } from '@/components/shell/page-sheet-skeleton'
 import { getTranslations } from '@/i18n/server'
 

@@ -48,6 +48,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
+import type { JSX } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { FileBrowserPane, type FolderNavigation } from '@/features/documents/components/file-browser-pane'
 import { FileSearchBar, FileSearchField } from '@/features/documents/components/file-search-bar'

@@ -25,6 +25,7 @@
  */
 
 import { useCallback, useMemo, useState } from 'react'
+import type { JSX } from 'react'
 import { X } from 'lucide-react'
 import { toast } from 'sonner'
 import { z } from 'zod'

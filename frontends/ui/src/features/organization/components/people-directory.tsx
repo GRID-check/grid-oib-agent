@@ -39,6 +39,7 @@
  */
 
 import { useMemo } from 'react'
+import type { JSX } from 'react'
 import { UsersManagement, WorkOsWidgets } from '@workos-inc/widgets'
 import { Users } from 'lucide-react'
 import '@radix-ui/themes/styles.css'

@@ -44,6 +44,7 @@
 import Link from 'next/link'
 import { Clock3, FileText, MessageSquare, Settings } from 'lucide-react'
 import { useMemo } from 'react'
+import type { JSX } from 'react'
 import { projectInitials } from '@/features/projects/lib/project-initials'
 import type { Project } from '@/lib/db/schema'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'

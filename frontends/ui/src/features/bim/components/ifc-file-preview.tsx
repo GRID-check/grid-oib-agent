@@ -48,6 +48,7 @@
  */
 
 import { useMemo } from 'react'
+import type { JSX } from 'react'
 import Link from 'next/link'
 import { ArrowUpRight, Boxes } from 'lucide-react'
 import { useTranslations } from '@/i18n'

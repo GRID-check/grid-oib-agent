@@ -21,6 +21,7 @@
  */
 
 import { useEffect } from 'react'
+import type { JSX } from 'react'
 import { I18nProvider } from '@/i18n'
 import { JobsPanel } from '@/features/jobs/components/jobs-panel'
 

@@ -34,6 +34,7 @@
  */
 
 import { useId, useMemo, useState } from 'react'
+import type { JSX } from 'react'
 
 import { useLocale, useTranslations } from '@/i18n'
 import {

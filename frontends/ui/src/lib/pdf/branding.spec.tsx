@@ -23,9 +23,20 @@ import React from 'react'
 import { describe, expect, it } from 'vitest'
 import { CoverContent, RunningHeader } from './branding'
 
-/** Every string in a rendered tree, in document order. */
-const strings = (node: React.ReactNode, out: string[] = []): string[] => {
-  React.Children.forEach(node, (child) => {
+/**
+ * Every string in a rendered tree, in document order.
+ *
+ * The union in the parameter is what calling a component directly hands back:
+ * React 19 types a function component as returning `ReactNode |
+ * Promise<ReactNode>`, because a server component may be async. Nothing here
+ * is — `@react-pdf` cannot render a promise — so the narrowing is stated once,
+ * at the top of the walk.
+ */
+const strings = (
+  node: React.ReactNode | Promise<React.ReactNode>,
+  out: string[] = []
+): string[] => {
+  React.Children.forEach(node as React.ReactNode, (child) => {
     if (typeof child === 'string') out.push(child)
     else if (React.isValidElement(child)) {
       const rendered =

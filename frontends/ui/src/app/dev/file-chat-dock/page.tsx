@@ -5,6 +5,7 @@
  * hairline + shadow-xs language as the thread toolbar.
  */
 
+import type { JSX } from 'react'
 import { Maximize2, X } from 'lucide-react'
 import { I18nProvider } from '@/i18n'
 import { FilePreviewPane } from '@/features/documents/components/file-preview-pane'

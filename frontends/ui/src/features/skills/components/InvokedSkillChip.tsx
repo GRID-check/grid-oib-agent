@@ -16,6 +16,7 @@
  * the message can never disagree about whether a skill is attached.
  */
 
+import type { JSX } from 'react'
 import { X } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 

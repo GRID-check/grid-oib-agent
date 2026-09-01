@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import type { JSX } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   AlertCircle,

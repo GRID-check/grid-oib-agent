@@ -20,6 +20,7 @@
  * everything except the picture is available.
  */
 
+import type { JSX } from 'react'
 import dynamic from 'next/dynamic'
 import { MonitorX } from 'lucide-react'
 import { useTranslations } from '@/i18n'

@@ -28,6 +28,7 @@
  * queries THIS element rather than one it guesses from a description.
  */
 
+import type { JSX } from 'react'
 import Link from 'next/link'
 import { EyeOff, MessageSquarePlus, Scan } from 'lucide-react'
 import { Button } from '@/components/ui/button'

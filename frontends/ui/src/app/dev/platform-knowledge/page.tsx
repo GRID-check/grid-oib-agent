@@ -9,6 +9,7 @@
  * linked from anywhere and 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { BaseKnowledge } from '@/app/app/(shell)/platform/base-knowledge'
 
 const DOC_CLASSES = [

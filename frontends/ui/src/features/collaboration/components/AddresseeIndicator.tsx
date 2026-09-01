@@ -31,6 +31,7 @@
  * is announced rather than only drawn.
  */
 
+import type { JSX } from 'react'
 import { AtSign, Users } from 'lucide-react'
 
 import { AvatarStack, type AvatarStackPerson } from '@/components/ui/avatar-stack'

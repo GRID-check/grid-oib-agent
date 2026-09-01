@@ -23,6 +23,7 @@
  */
 
 import { useState } from 'react'
+import type { JSX } from 'react'
 import { Clock, CornerUpLeft, Hand } from 'lucide-react'
 
 import { AvatarStack, PersonAvatar } from '@/components/ui/avatar-stack'

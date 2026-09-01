@@ -44,6 +44,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import type { JSX } from 'react'
 import { Slash } from 'lucide-react'
 
 import {

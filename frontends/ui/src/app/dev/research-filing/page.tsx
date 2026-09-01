@@ -40,6 +40,7 @@
  * so the fixture puts one there before anything renders.
  */
 
+import type { JSX } from 'react'
 import { I18nProvider } from '@/i18n'
 import { DeepResearchBanner } from '@/features/chat/components'
 import { useChatStore } from '@/features/chat/store'

@@ -42,7 +42,7 @@
  */
 
 import { useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { JSX, ReactNode } from 'react'
 import { AlertTriangle, Info, MoreHorizontal, Search, ShieldCheck, UserMinus, UserPlus, X } from 'lucide-react'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'

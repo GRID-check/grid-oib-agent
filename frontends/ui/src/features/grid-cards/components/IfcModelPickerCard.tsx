@@ -19,6 +19,7 @@
  */
 
 import { useMemo } from 'react'
+import type { JSX } from 'react'
 import Link from 'next/link'
 import { ArrowRight, Boxes } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'

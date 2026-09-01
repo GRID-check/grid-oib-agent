@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { JSX } from 'react'
 import { toast } from 'sonner'
 import {
   AlertCircle,

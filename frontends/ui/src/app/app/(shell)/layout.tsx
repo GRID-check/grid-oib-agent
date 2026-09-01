@@ -32,6 +32,7 @@
  */
 
 import { type ReactNode } from 'react'
+import type { JSX } from 'react'
 import { AppShellChrome } from '@/components/shell/app-shell-chrome'
 import { RouteFocus } from '@/shared/components/route-focus'
 import { resolveShellChrome } from '@/lib/shell/chrome'

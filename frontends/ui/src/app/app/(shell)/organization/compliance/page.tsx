@@ -12,6 +12,7 @@
  * `org-compliance-officer` role holds both permissions, so it is unaffected.
  */
 
+import type { JSX } from 'react'
 import { ScrollText, ShieldAlert } from 'lucide-react'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { canViewAuditLogs } from '@/lib/authz/organizations'

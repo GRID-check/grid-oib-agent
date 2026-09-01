@@ -18,6 +18,7 @@
  * `absolute` inside the `relative` chat column).
  */
 
+import type { JSX } from 'react'
 import { render } from '@testing-library/react'
 import { describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { useComposerMetrics, type ComposerMetrics } from './use-composer-metrics'

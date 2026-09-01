@@ -20,6 +20,7 @@
  * pins to its column instead of to the viewport.
  */
 
+import type { JSX } from 'react'
 import { AppSidebar } from '@/components/shell/app-sidebar'
 import { OrgHeader } from '@/components/shell/org-header'
 

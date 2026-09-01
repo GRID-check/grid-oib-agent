@@ -31,6 +31,7 @@
  */
 
 import { useEffect, useState, type MouseEvent } from 'react'
+import type { JSX } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'

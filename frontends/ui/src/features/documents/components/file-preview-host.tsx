@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import type { JSX } from 'react'
 import { usePathname } from 'next/navigation'
 import { usePanelRef } from 'react-resizable-panels'
 import { AlertCircle, Download, Maximize2, PanelRight, X } from 'lucide-react'
@@ -171,15 +172,6 @@ export function FilePreviewHost({
     if (opener?.isConnected) opener.focus()
   }, [chromeVisible])
 
-  // Parked pane stays mounted (IFC camera) but must not take focus or sit in
-  // the a11y tree. React 18 has no typing for `inert`, so set it on the node.
-  useEffect(() => {
-    const el = panelRef.current
-    if (!el) return
-    if (parked) el.setAttribute('inert', '')
-    else el.removeAttribute('inert')
-  }, [parked])
-
   /**
    * A document that is still being read settles ON SCREEN.
    *
@@ -242,6 +234,12 @@ export function FilePreviewHost({
       )}
       <div
         ref={panelRef}
+        // The parked pane stays mounted (the IFC camera survives with it) but
+        // must not take focus or sit in the a11y tree. This was an effect
+        // setting the attribute on the node, because React 18 had no typing
+        // for `inert`; React 19 types it, so the state that decides it says so
+        // directly.
+        inert={parked}
         role={parked ? undefined : peeking ? 'complementary' : 'dialog'}
         aria-modal={chromeVisible && overlay ? true : undefined}
         aria-label={parked ? undefined : t('preview.dialogLabel', { name })}

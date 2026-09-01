@@ -258,8 +258,56 @@ export function errorResponse(error: unknown, request: Request): Response {
     return NextResponse.json({ error: 'Not found', code: 'NOT_FOUND' }, { status: 404 })
   }
   const url = new URL(request.url)
-  console.error(`[api] Unhandled error in ${request.method} ${url.pathname}:`, error)
+  console.error(
+    `[api] Unhandled error in ${request.method} ${url.pathname}: ${causeChain(error)}`,
+    error
+  )
   return NextResponse.json({ error: 'Internal server error', code: 'INTERNAL' }, { status: 500 })
+}
+
+/** How much of one link's own message the summary carries. */
+const CAUSE_MESSAGE_HEAD = 200
+
+/**
+ * One link of an error chain: what threw, and the facts that say why.
+ *
+ * A postgres driver error puts the diagnosis in properties rather than in the
+ * message — `code` is the SQLSTATE, `constraint` names what refused the row,
+ * `detail` says which value — so those are lifted in front of the message
+ * instead of being left for a reader who only ever sees the message.
+ */
+function describeCause(error: unknown): string {
+  if (!(error instanceof Error)) return String(error).slice(0, CAUSE_MESSAGE_HEAD)
+  const facts = error as Error & { code?: unknown; constraint?: unknown; detail?: unknown }
+  const stated = [facts.code, facts.constraint, facts.detail]
+    .filter((fact): fact is string => typeof fact === 'string' && fact !== '')
+    .join(' ')
+  const head = error.message.split('\n')[0].slice(0, CAUSE_MESSAGE_HEAD)
+  return stated === '' ? `${error.name}: ${head}` : `${error.name} ${stated}: ${head}`
+}
+
+/**
+ * The whole chain on one short line, in FRONT of the error itself.
+ *
+ * A failed drizzle query states its SQL and every bound parameter in its own
+ * `message` — kilobytes of it for a chat message's metadata — and hangs the
+ * postgres error off `cause`. Anything that captures a log entry by its first
+ * few thousand characters therefore keeps the part that is identical for every
+ * caller and drops the only part that says what went wrong: #576, #579 and
+ * #581 were all filed with the parameters and without the SQLSTATE, which is
+ * why none of them could be diagnosed from the report.
+ *
+ * Summarising first costs one line and makes the head of the entry the part
+ * worth reading. The error still follows in full for anyone reading all of it.
+ */
+function causeChain(error: unknown): string {
+  const links: string[] = []
+  let current: unknown = error
+  for (let depth = 0; depth < 4 && current !== undefined && current !== null; depth += 1) {
+    links.push(describeCause(current))
+    current = current instanceof Error ? current.cause : undefined
+  }
+  return links.join(' <- caused by ')
 }
 
 /** Walk `error.cause` for Postgres `22P02` on a uuid column. */

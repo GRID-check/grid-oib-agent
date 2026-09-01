@@ -36,6 +36,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { JSX } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   Boxes,

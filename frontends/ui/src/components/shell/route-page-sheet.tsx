@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import type { JSX } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { PageSheet } from '@/components/ui/page-sheet'

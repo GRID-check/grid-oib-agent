@@ -17,6 +17,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import type { JSX } from 'react'
 import { usePathname } from 'next/navigation'
 
 import { PageHeader } from '@/components/ui/page-header'

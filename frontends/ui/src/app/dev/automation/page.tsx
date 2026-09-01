@@ -12,6 +12,7 @@
  * the subject, not the fixtures.
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { I18nProvider } from '@/i18n'
 import { AutomationPanel } from '@/features/automation/components/automation-panel'

@@ -17,6 +17,7 @@
  */
 
 import { useMemo, useState } from 'react'
+import type { JSX } from 'react'
 import { AlertTriangle, Download, Ruler, Sparkles, Table2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'

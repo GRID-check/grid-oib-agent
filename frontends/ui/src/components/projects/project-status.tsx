@@ -12,7 +12,7 @@
  * only once the data model grows a real completion/archive concept.
  */
 
-import type { CSSProperties } from 'react'
+import type { CSSProperties, JSX } from 'react'
 import { Activity } from 'lucide-react'
 import type { Project } from '@/lib/db/schema'
 import { useTranslations } from '@/i18n'

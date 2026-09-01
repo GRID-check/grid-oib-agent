@@ -16,6 +16,7 @@
  * and the picker search. Not linked from anywhere and 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { PlatformModelDefaults } from '@/app/app/(shell)/platform/models/platform-model-defaults'
 import { AGENT_GROUPS as REGISTRY } from '@/lib/model-config/agent-groups'

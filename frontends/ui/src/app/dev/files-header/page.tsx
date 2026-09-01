@@ -27,6 +27,7 @@
  */
 
 import { use, useState } from 'react'
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { LayoutGrid, List } from 'lucide-react'
 import { PageHeader } from '@/components/ui/page-header'

@@ -137,7 +137,7 @@ The stack runs eight Compose services: `postgres`, `seaweedfs` (+ `seaweedfs-ini
 
 | Layer | Technology | Role |
 |---|---|---|
-| **Frontend** | Next.js 16, React 18, TypeScript, **shadcn/ui + Tailwind v4** | Project-centric chat UI |
+| **Frontend** | Next.js 16, React 19, TypeScript, **shadcn/ui + Tailwind v4** | Project-centric chat UI |
 | **Backend** | Python 3.11+, FastAPI, Uvicorn | AI endpoint server (`aiq_api` plugin) |
 | **AI Orchestration** | NeMo Agent Toolkit (NAT), LangGraph, Dask | Multi-agent pipeline + async jobs |
 | **RAG** | ChromaDB, LlamaIndex | Chunking · embeddings · scoped retrieval |

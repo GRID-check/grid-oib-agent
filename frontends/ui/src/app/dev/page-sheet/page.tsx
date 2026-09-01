@@ -14,6 +14,7 @@
  */
 
 import { useState } from 'react'
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { PageSheet } from '@/components/ui/page-sheet'

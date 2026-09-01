@@ -29,6 +29,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import type { JSX } from 'react'
 import { AlertCircle, BookOpen, ChevronDown, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'

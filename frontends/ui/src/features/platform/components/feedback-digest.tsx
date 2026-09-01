@@ -25,6 +25,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { JSX } from 'react'
 import { RefreshCw, Sparkles, ThumbsDown, ThumbsUp } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'

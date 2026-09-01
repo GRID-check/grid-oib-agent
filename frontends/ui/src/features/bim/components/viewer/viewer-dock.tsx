@@ -23,6 +23,7 @@
  */
 
 import { type ReactNode } from 'react'
+import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
 import { ViewerSurface } from './viewer-surface'
 

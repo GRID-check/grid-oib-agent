@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import { type Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { withPageSession } from '@/lib/auth/require-auth'

@@ -62,6 +62,7 @@
  */
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import type { JSX } from 'react'
 /**
  * The renderer, typed by the renderer.
  *
@@ -195,9 +196,8 @@ export interface IfcViewerCanvasProps {
   /**
    * Bumped to capture the current view as a PNG.
    *
-   * A counter for the same reason `fitNonce` is one: a `ref` cannot cross the
-   * `next/dynamic` boundary on React 18, and capturing the same view twice is
-   * two events rather than one piece of state.
+   * A counter for the same reason `fitNonce` is one: capturing the same view
+   * twice is two events rather than one piece of state.
    */
   captureNonce?: number
   /** The PNG data URL, or null when the capture failed. */
@@ -1041,11 +1041,16 @@ export function IfcViewerCanvas({
 
   // This used to be a `useImperativeHandle`, which never worked. The parent
   // reaches this component through `next/dynamic`, whose `LoadableComponent`
-  // is a plain function component, so on React 18 the JSX runtime strips `ref`
-  // out of props before it can arrive. `ref.current` was React's internal
+  // is a plain function component, so React 18's JSX runtime stripped `ref`
+  // out of props before it could arrive. `ref.current` was React's internal
   // lazy-retry object — truthy, so the parent's `?.fit()` did not
   // short-circuit; it threw a TypeError on every click. A nonce crosses
   // `dynamic` because it is an ordinary prop.
+  //
+  // React 19 makes `ref` an ordinary prop too, so the boundary is no longer
+  // the reason. The nonce stays for the one below it: pressing the view you
+  // are already on has to be an event, and a ref call is not state the parent
+  // can re-run from.
   //
   // The initial value is skipped: the load path fits once on its own, and
   // fitting before the first batch lands frames an empty scene.

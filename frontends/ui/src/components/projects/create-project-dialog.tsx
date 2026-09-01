@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useState } from 'react'
+import type { JSX } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { Plus } from 'lucide-react'
 

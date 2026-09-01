@@ -19,6 +19,7 @@
  * hover is the wrong place to put anything consequential.
  */
 
+import type { JSX } from 'react'
 import { Sparkles } from 'lucide-react'
 
 import { PersonAvatar } from '@/components/ui/avatar-stack'

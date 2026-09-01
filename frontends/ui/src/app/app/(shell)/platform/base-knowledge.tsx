@@ -21,6 +21,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
+import type { JSX } from 'react'
 import { toast } from 'sonner'
 import {
   AlertCircle,

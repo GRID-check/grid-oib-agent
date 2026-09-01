@@ -30,6 +30,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { Inbox as InboxIcon } from 'lucide-react'
 

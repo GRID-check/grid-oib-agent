@@ -16,6 +16,7 @@
  * two still cannot disagree.
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 
 import { withPageSession } from '@/lib/auth/require-auth'

@@ -31,6 +31,7 @@
  */
 
 import { useRef, useState } from 'react'
+import type { JSX } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { ArrowUp, Layers } from 'lucide-react'
 

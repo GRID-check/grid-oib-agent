@@ -62,6 +62,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 
 import { I18nProvider } from '@/i18n'

@@ -16,6 +16,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import type { JSX } from 'react'
 import Link from 'next/link'
 import { AlertCircle, ArrowRight, CalendarClock, Hand } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'

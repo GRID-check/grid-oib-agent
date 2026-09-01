@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ShellContent } from '@/components/shell'
 import { getTranslations } from '@/i18n/server'

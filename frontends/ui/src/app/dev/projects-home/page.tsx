@@ -15,6 +15,7 @@
 
 import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
+import type { JSX } from 'react'
 import { ProjectsGrid } from '@/components/projects/projects-grid'
 import type { Project } from '@/lib/db/schema'
 

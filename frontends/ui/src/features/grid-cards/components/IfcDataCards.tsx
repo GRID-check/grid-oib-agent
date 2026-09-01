@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
+import type { JSX } from 'react'
 import Link from 'next/link'
 import { ArrowRight, Boxes, Download, GitCompare, ShieldCheck, Table2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'

@@ -42,7 +42,7 @@
  */
 
 import { useId } from 'react'
-import type { ReactNode } from 'react'
+import type { JSX, ReactNode } from 'react'
 import { Users } from 'lucide-react'
 
 import { motion, springGentle } from '@/components/motion'

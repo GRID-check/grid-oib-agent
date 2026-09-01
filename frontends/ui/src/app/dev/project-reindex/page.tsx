@@ -12,6 +12,7 @@
  * clicking would fire a real POST against an API this route has no session for.
  */
 
+import type { JSX } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { RaisedCard, RaisedCardBody } from '@/components/ui/raised-card'

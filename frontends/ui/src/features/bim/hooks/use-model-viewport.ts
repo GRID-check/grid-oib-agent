@@ -246,10 +246,10 @@ export function useModelViewport({
   /**
    * Counters, not a ref.
    *
-   * The canvas is behind `next/dynamic`, and a `ref` cannot cross that on
-   * React 18 — see the note in `ifc-viewer-canvas.tsx`. These are ordinary
-   * props, and they also give "press the view you are already on" a state
-   * change to hang off, which a bare view name cannot.
+   * The canvas is behind `next/dynamic`, which is where this started — see the
+   * note in `ifc-viewer-canvas.tsx`. These are ordinary props, and they give
+   * "press the view you are already on" a state change to hang off, which a
+   * bare view name cannot.
    */
   const [viewNonce, setViewNonce] = useState(0)
   const [fitNonce, setFitNonce] = useState(0)

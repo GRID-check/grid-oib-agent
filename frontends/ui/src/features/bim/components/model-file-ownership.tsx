@@ -8,6 +8,7 @@
  * chrome, dressed as viewport icon buttons so it sits in the existing pill.
  */
 
+import type { JSX } from 'react'
 import { MessageSquare, UserPlus } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from '@/i18n'

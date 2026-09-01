@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useRef } from 'react'
+import type { JSX } from 'react'
 import Link from 'next/link'
 import { FileText, X } from 'lucide-react'
 import { AnimatePresence, motion, easeQuiet } from '@/components/motion'
