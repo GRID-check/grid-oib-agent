@@ -565,7 +565,15 @@ There is no visual-regression diffing, no render-time budget and no bundle-size 
 
 ## E. Status
 
-**Last updated: 2026-08-19.** Sprint 1 has shipped (`b82f23e1`): the §A2 type ramp, the §A3 colour-role fix, and items 1, 4, 6, 17, 18, 19. Everything else below is still a design contract, not a description of shipped work — read the Status column per row rather than assuming either way.
+**Last updated: 2026-09-01.** Sprint 1 has shipped (`b82f23e1`): the §A2 type ramp, the §A3 colour-role fix, and items 1, 4, 6, 17, 18, 19. Everything else below is still a design contract, not a description of shipped work — read the Status column per row rather than assuming either way.
+
+**Type-ramp sprint 2 (2026-09-01)** put `schematics/kit.tsx` and the two table cards on the ramp, out of the sprint order above, for a reason worth recording. The trigger was a stakeholder report — „Textgröße teilweise viel zu klein, zu viele Typo-Arten, insgesamt zu unruhig (z. B. bei Vergleichstabellen-Output-Cards)" — which is §0.3 observed from the outside, and it named the exact card §C had scheduled last.
+
+`kit.tsx` went first because it is the chrome for NINE cards: eyebrow, title, note and norm footer. One migration moves all of them, and every schematic card migrated after it starts from a compliant shell.
+
+The tables were the substance. `comparison_table` rendered **thirteen distinct type treatments, none above 14px**, with its entire content at 12px — the CAPTION step — inside a 16px answer. That is a misreading of this document rather than a limit in it: §A2 defines Body as "every row of every list. The default." and a comparison table's rows are rows of a list. The whole table is now one size, with weight and ink carrying the hierarchy that size had been spending itself on. `typed_table` had the same defect and took the same fix. Only the type scale moved; the transposing mobile layout §C calls the hardest single thing in this charter is untouched and still Pending.
+
+**Note what this sprint did NOT settle.** The ramp tops out at 13.5px Body while the prose it interrupts is 16px (`MarkdownRenderer`, `text-base`), so a migrated card is still systematically smaller than the paragraph above it. Every step is *internally* consistent and *externally* undersized. Whether to re-base the ramp against the prose baseline is a product decision affecting all 35 cards at once, and it is open.
 
 ### Implemented
 *(none)*
@@ -588,7 +596,7 @@ There is no visual-regression diffing, no render-time budget and no bundle-size 
 | # | Card | Section | Effort | Status |
 |---|---|---|---|---|
 | 1 | follow_ups | B1 | S | **Done** (Sprint 1, `b82f23e1`) — frame dropped; `title` deliberately KEPT, see note below |
-| 2 | comparison_table | B1 | L | Pending |
+| 2 | comparison_table | B1 | L | **Type scale done** (ramp sprint 2, 2026-09-01) — one size for the table, weight/ink for hierarchy. The transposing mobile layout is still Pending |
 | 3 | requirement_checklist | B1 | M | Pending |
 | 4 | key_takeaways | B1 | S | **Done** (Sprint 1, `b82f23e1`) |
 | 5 | legal_basis | B1 | M | Pending — schema now LANDED (`284b2625`), so no longer blocked; the recessed ground / margin § column / hanging quote marks remain |
