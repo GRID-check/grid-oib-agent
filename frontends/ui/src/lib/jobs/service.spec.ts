@@ -44,7 +44,12 @@ vi.mock('@/lib/request-context', () => ({
 
 vi.mock('@/lib/workos/feature-flags', () => ({
   isOrgFeatureEnabled: vi.fn(),
+  isMemoryReflectionEnabled: vi.fn(async () => true),
   SKILLS_FLAG: 'skills',
+}))
+
+vi.mock('@/lib/projects/memory-service', () => ({
+  buildProjectMemoryDigest: vi.fn(async () => 'PROJECT_MEMORY v1\n- Atrium ist OIB 2.3'),
 }))
 
 vi.mock('@/lib/skills/service', () => ({
@@ -79,6 +84,8 @@ import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-prof
 import { resolveSelectableSkills, resolveSkillSnapshot } from '@/lib/skills/service'
 import { insertConversation } from '@/lib/conversations/repository'
 import * as repository from './repository'
+import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
+import { buildGridRequestContextWireHeaders } from '@/lib/request-context'
 import { submitJob, JobSubmitSkippedError, JobSubmitError } from './backend-client'
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { Job, JobRun } from '@/lib/db/schema'
@@ -355,6 +362,30 @@ describe('fireJob', () => {
       expect.objectContaining({ status: 'submitted', trigger: 'manual', jobId: 'backend-job-1' })
     )
     expect(repository.touchJobLastRun).toHaveBeenCalled()
+  })
+
+  it('sends the project memory digest and the reflection flag, ranked against the fire prompt', async () => {
+    await fireJob(makeJob({ output: 'deep-research' }), 'manual', 'user_1')
+    const payload = vi.mocked(submitJob).mock.calls[0][0]
+    expect(payload.project_memory).toBe('PROJECT_MEMORY v1\n- Atrium ist OIB 2.3')
+    expect(payload.memory_reflection_enabled).toBe(true)
+    // Recall is ranked against what the job will actually ask, not left to
+    // pinned-then-recent.
+    const [, , options] = vi.mocked(buildProjectMemoryDigest).mock.calls[0]
+    expect(options?.query).toBe(payload.input)
+    // The signed envelope carries the same digest, so the worker's headers and
+    // its payload can never disagree.
+    const envelope = vi.mocked(buildGridRequestContextWireHeaders).mock.calls[0][0]
+    expect(envelope.projectMemory).toBe('PROJECT_MEMORY v1\n- Atrium ist OIB 2.3')
+    expect(envelope.memoryReflectionEnabled).toBe(true)
+  })
+
+  it('still fires when the memory digest cannot be built', async () => {
+    vi.mocked(buildProjectMemoryDigest).mockRejectedValueOnce(new Error('embedder down'))
+    await fireJob(makeJob({ output: 'deep-research' }), 'manual', 'user_1')
+    const payload = vi.mocked(submitJob).mock.calls[0][0]
+    expect(payload.project_memory).toBeNull()
+    expect(repository.insertJobRun).toHaveBeenCalledWith(expect.objectContaining({ status: 'submitted' }))
   })
 
   it('sends skills: [] and a bare prompt for a job with no skill', async () => {

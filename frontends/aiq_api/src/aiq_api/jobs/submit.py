@@ -64,6 +64,7 @@ def _build_run_agent_payload(
     auth_token,
     collection_scope,
     project_context,
+    project_memory,
     platform_lessons,
     model_overrides,
     usage_context,
@@ -110,6 +111,7 @@ def _build_run_agent_payload(
         "auth_token": auth_token,
         "collection_scope": collection_scope,
         "project_context": project_context,
+        "project_memory": project_memory,
         "platform_lessons": platform_lessons,
         "model_overrides": model_overrides,
         "usage_context": usage_context,
@@ -337,6 +339,9 @@ async def submit_agent_job(
     auth_token: str | None = None,
     collection_scope: list[str] | None = None,
     project_context: str | None = None,
+    # The project-memory digest as of submit time, the worker's fallback when
+    # its own live fetch fails. The chat path leaves it None: the worker fetches.
+    project_memory: str | None = None,
     # Rendered PLATFORM_LESSONS block. Passed explicitly rather than resolved in
     # the worker: request contextvars do not survive into a background job, and
     # the holdout decision belongs to the turn that dispatched the job.
@@ -580,6 +585,7 @@ async def submit_agent_job(
                 auth_token=auth_token,
                 collection_scope=collection_scope,
                 project_context=project_context,
+                project_memory=project_memory,
                 platform_lessons=platform_lessons,
                 model_overrides=model_overrides,
                 usage_context=usage_context,
@@ -615,6 +621,7 @@ async def submit_agent_job(
                     auth_token,
                     collection_scope,
                     project_context,
+                    project_memory,
                     platform_lessons,
                     model_overrides,
                     usage_context,

@@ -21,6 +21,12 @@ from typing import Any
 
 from starlette.datastructures import Headers
 
+from aiq_agent.project_context import ORGANIZATION_ID_HEADER
+from aiq_agent.project_context import PROJECT_ID_HEADER
+from aiq_agent.project_context import PROJECT_MEMORY_HEADER
+from aiq_agent.project_context import USER_ID_HEADER
+from aiq_agent.project_context import compose_project_context
+
 from .callbacks import AgentEventCallback
 from .conversation_output import FAILURE_NOTICE
 from .conversation_output import INTERRUPTED_NOTICE
@@ -458,6 +464,32 @@ async def _create_llm_provider(builder: Any, fn_config: Any) -> tuple[Any, Any]:
     return provider, default_llm
 
 
+def _inject_worker_headers(context_state: Any, headers: dict[str, str]) -> None:
+    """Layer ``headers`` onto the worker's request metadata.
+
+    A background worker has no inbound request, so everything a chat turn
+    would read from its headers has to be placed there by hand, and every
+    reader downstream (`Context.get().metadata.headers`) then works unchanged.
+    Layered, not replaced: each call keeps what earlier calls put there.
+    """
+    request_attrs = context_state.metadata.get()
+    existing = dict(request_attrs.headers) if request_attrs and request_attrs.headers else {}
+    request_attrs._request.headers = Headers(headers={**existing, **headers})
+    context_state.metadata.set(request_attrs)
+
+
+def _workflow_reflection_llm_ref(config: Any) -> str | None:
+    """The chat workflow's ``memory_reflection_llm`` ref, as a plain str, or None.
+
+    The interactive submit path reads it off the live config and carries it in
+    the job; the BFF's scheduled-job submit cannot, because only the worker
+    holds the config. Same ref, resolved one step later.
+    """
+    workflow = getattr(config, "workflow", None)
+    ref = getattr(workflow, "memory_reflection_llm", None)
+    return str(ref) if ref else None
+
+
 async def run_agent_job(
     configure_logging: bool,
     log_level: int,
@@ -480,6 +512,11 @@ async def run_agent_job(
     auth_token: str | None = None,
     collection_scope: list[str] | None = None,
     project_context: str | None = None,
+    # The project-memory digest the BFF built when the job fired. A FALLBACK:
+    # the worker fetches a live digest first (a queued job may wait minutes,
+    # and the reflection pass at the end of a long run wants memory as of
+    # then), and keeps this one only when that fetch fails.
+    project_memory: str | None = None,
     # Rendered PLATFORM_LESSONS block, carried in the job payload because
     # request contextvars do not survive into a background worker.
     platform_lessons: str | None = None,
@@ -798,6 +835,56 @@ async def run_agent_job(
                 request_attrs._request.headers = Headers(headers={**existing_headers, MODEL_OVERRIDES_HEADER: encoded})
                 context_state.metadata.set(request_attrs)
 
+            # WHO this job runs for. The chat path sets these on the WebSocket
+            # upgrade and every project-scoped tool reads them back through
+            # `get_project_id_from_context()`; a worker had none, so `remember`
+            # answered "no project in scope" on every deep-research run and the
+            # memory the run should have kept was never written.
+            _identity = (usage_context or {}).get("identity") or {}
+            _identity_headers = {
+                name: value
+                for name, value in (
+                    (PROJECT_ID_HEADER, _identity.get("project_id")),
+                    (ORGANIZATION_ID_HEADER, _identity.get("organization_id")),
+                    (USER_ID_HEADER, _identity.get("user_id")),
+                )
+                if isinstance(value, str) and value.strip()
+            }
+            if _identity_headers:
+                _inject_worker_headers(context_state, _identity_headers)
+
+            # WHAT the project already knows. The chat path fetches a live digest
+            # per turn and falls back to the connection-time one only on failure
+            # (chat_researcher/register.py); the same discipline here, with the
+            # BFF-built `project_memory` as the frozen fallback. A successful
+            # fetch is authoritative even when empty — memory may have been
+            # cleared since the job fired.
+            memory_digest = project_memory
+            if _identity.get("project_id") or _identity.get("organization_id"):
+                try:
+                    from aiq_agent.knowledge.project_memory import fetch_memory_digest
+
+                    memory_digest = await asyncio.to_thread(
+                        fetch_memory_digest,
+                        project_id=_identity.get("project_id"),
+                        organization_id=_identity.get("organization_id"),
+                        query=input_text,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Job %s: live memory digest fetch failed; using the digest from submit time",
+                        job_id,
+                        exc_info=True,
+                    )
+            if memory_digest:
+                _inject_worker_headers(
+                    context_state,
+                    {PROJECT_MEMORY_HEADER: base64.urlsafe_b64encode(memory_digest.encode()).rstrip(b"=").decode()},
+                )
+            # The agent state gets what a chat turn gets: profile and memory,
+            # composed the way `get_project_context_from_context()` composes them.
+            agent_project_context = compose_project_context(project_context, memory_digest)
+
             workflow_metadata = TraceMetadata(
                 provided_metadata={
                     "workflow_run_id": job_id,
@@ -926,7 +1013,7 @@ async def run_agent_job(
                             event_store=event_store,
                             user_info=user_info,
                             clarifier_result=clarifier_result,
-                            project_context=project_context,
+                            project_context=agent_project_context,
                             platform_lessons=platform_lessons,
                             force_skills=force_skills,
                             organization_id=_job_org_id,
@@ -981,12 +1068,14 @@ async def run_agent_job(
                     await _run_deep_research_reflection(
                         builder=builder,
                         job_id=job_id,
-                        reflection_llm_ref=memory_reflection_llm,
+                        # A scheduled job's submitter (the BFF) knows the flag but
+                        # not the config's LLM ref; the worker has the config.
+                        reflection_llm_ref=memory_reflection_llm or _workflow_reflection_llm_ref(config),
                         reflection_enabled=memory_reflection_enabled,
                         query=input_text,
                         report=report,
                         usage_context=usage_context,
-                        project_context=project_context,
+                        memory_digest=memory_digest,
                         org_credential=resolved_org_credential,
                         model_overrides=model_overrides,
                     )
@@ -1415,7 +1504,7 @@ async def _run_deep_research_reflection(
     query: str,
     report: str,
     usage_context: dict | None,
-    project_context: str | None,
+    memory_digest: str | None,
     org_credential: Any,
     model_overrides: dict[str, str] | None,
 ) -> None:
@@ -1471,7 +1560,11 @@ async def _run_deep_research_reflection(
                 project_id=project_id,
                 organization_id=identity.get("organization_id"),
                 conversation_id=identity.get("conversation_id"),
-                memory_digest=project_context,
+                # The MEMORY digest, not the intake profile: the pass compares
+                # the report against what is already remembered, and against
+                # the profile it re-recorded known findings and could never
+                # resolve a supersede quote.
+                memory_digest=memory_digest,
             )
     except Exception:
         logger.warning("Job %s: deep-research memory reflection failed (non-fatal)", job_id, exc_info=True)

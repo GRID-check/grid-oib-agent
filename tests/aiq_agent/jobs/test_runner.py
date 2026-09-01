@@ -48,6 +48,7 @@ Test coverage:
         - Error message filtering for CancelledError
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -1926,7 +1927,7 @@ class TestDeepResearchReflection:
                 query="what beam depth did we settle on?",
                 report=report,
                 usage_context=self._identity(),
-                project_context="existing project memory",
+                memory_digest="existing project memory",
                 org_credential=None,
                 model_overrides=None,
             )
@@ -1961,7 +1962,7 @@ class TestDeepResearchReflection:
                 query="q",
                 report="R" * 80,
                 usage_context=self._identity(),
-                project_context="mem",
+                memory_digest="mem",
                 org_credential=None,
                 model_overrides=None,
             )
@@ -1989,7 +1990,7 @@ class TestDeepResearchReflection:
                 query="q",
                 report="R" * 80,
                 usage_context=self._identity(),
-                project_context="mem",
+                memory_digest="mem",
                 org_credential=None,
                 model_overrides=None,
             )
@@ -2017,7 +2018,7 @@ class TestDeepResearchReflection:
                 query="q",
                 report="R" * 80,
                 usage_context=self._identity(project_id=None),
-                project_context="mem",
+                memory_digest="mem",
                 org_credential=None,
                 model_overrides=None,
             )
@@ -2054,7 +2055,7 @@ class TestDeepResearchReflection:
                 query="q",
                 report="R" * 80,
                 usage_context=self._identity(),
-                project_context="mem",
+                memory_digest="mem",
                 org_credential=None,
                 model_overrides=None,
             )
@@ -2495,3 +2496,68 @@ class TestVerifiedCitedSourceStream:
             callback.emit_final_report(REPORT_CITING_BOTH)
 
         assert [item["type"] for item in emitted] == [ArtifactType.OUTPUT]
+
+
+class TestWorkerHeaderInjection:
+    """A worker has no inbound request; what a chat turn reads from headers is
+    placed there by hand, layered so each injection keeps the earlier ones."""
+
+    @staticmethod
+    def _context_state():
+        from starlette.datastructures import Headers
+
+        request = SimpleNamespace(headers=Headers(headers={"x-existing": "1"}))
+        # `attrs.headers` must follow `_request.headers`, as the real object does.
+        return SimpleNamespace(metadata=_Slot(_LiveAttrs(request)))
+
+    def test_layers_headers_and_keeps_existing_ones(self):
+        from aiq_api.jobs.runner import _inject_worker_headers
+
+        state = self._context_state()
+        _inject_worker_headers(state, {"x-grid-project-id": "proj-1"})
+        _inject_worker_headers(state, {"x-grid-organization-id": "org-1"})
+        headers = state.metadata.get().headers
+        assert headers["x-existing"] == "1"
+        assert headers["x-grid-project-id"] == "proj-1"
+        assert headers["x-grid-organization-id"] == "org-1"
+
+
+class TestWorkflowReflectionLlmRef:
+    def test_reads_the_workflow_ref_as_a_plain_string(self):
+        from aiq_api.jobs.runner import _workflow_reflection_llm_ref
+
+        class _Ref(str):
+            pass
+
+        config = SimpleNamespace(workflow=SimpleNamespace(memory_reflection_llm=_Ref("memory_reflection_llm")))
+        ref = _workflow_reflection_llm_ref(config)
+        assert ref == "memory_reflection_llm"
+        assert type(ref) is str
+
+    def test_none_when_the_workflow_declares_no_ref(self):
+        from aiq_api.jobs.runner import _workflow_reflection_llm_ref
+
+        assert _workflow_reflection_llm_ref(SimpleNamespace(workflow=SimpleNamespace())) is None
+        assert _workflow_reflection_llm_ref(SimpleNamespace()) is None
+
+
+class _LiveAttrs:
+    """Mirrors NAT's request attributes: ``headers`` reads through to the request."""
+
+    def __init__(self, request):
+        self._request = request
+
+    @property
+    def headers(self):
+        return self._request.headers
+
+
+class _Slot:
+    def __init__(self, value):
+        self._value = value
+
+    def get(self):
+        return self._value
+
+    def set(self, value):
+        self._value = value

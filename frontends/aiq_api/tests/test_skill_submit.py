@@ -292,6 +292,9 @@ def test_successful_submit_forwards_identity_scope_and_forced_skills(client, pro
     assert kwargs["collection_scope"] == ["oib_knowledge", "proj_uuid_1", "s_conv1"]
     assert kwargs["project_context"] is None
     assert kwargs["model_overrides"] == {"researcher": "openrouter/some-model"}
+    # Absent from the body: no digest travels, and reflection stays off.
+    assert kwargs["project_memory"] is None
+    assert kwargs["memory_reflection_enabled"] is False
 
     # Principal is the skill owner (type "jwt" matches the WorkOS principal
     # they present later), so job-access ownership authz keeps working.
@@ -378,3 +381,16 @@ def test_route_not_on_external_allowlist():
     for allowed in EXTERNAL_ALLOWED_PATHS:
         if allowed.endswith("/"):
             assert not path.startswith(allowed)
+
+
+def test_memory_digest_and_reflection_flag_are_forwarded(client, prod_token, submit_mock):
+    """A scheduled run gets what a chat turn gets: the project's memory, and the
+    organization's reflection flag as the BFF evaluated it."""
+    body = _valid_body()
+    body["project_memory"] = "PROJECT_MEMORY v1\n- Atrium ist OIB 2.3"
+    body["memory_reflection_enabled"] = True
+    resp = _post(client, body)
+    assert resp.status_code == 200
+    kwargs = submit_mock.await_args.kwargs
+    assert kwargs["project_memory"] == "PROJECT_MEMORY v1\n- Atrium ist OIB 2.3"
+    assert kwargs["memory_reflection_enabled"] is True
