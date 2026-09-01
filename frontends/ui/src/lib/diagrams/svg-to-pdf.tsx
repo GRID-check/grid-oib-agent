@@ -216,6 +216,29 @@ function textOf(node: SvgNode): string {
   return node.children.map(textOf).join('')
 }
 
+/**
+ * Whether a mapped `<text>` would print nothing.
+ *
+ * An empty label has to be dropped HERE rather than handed on as an empty
+ * `<Text>` or `<Tspan>`, because `@react-pdf/layout` lays a tspan out by
+ * reading `lines[0].xAdvance` and a tspan with no text has no lines — it
+ * throws `Cannot read properties of undefined (reading 'xAdvance')` and takes
+ * the whole document with it. mermaid emits such tspans (a label line that
+ * came out blank), so this is reached by real drawings, not just malformed
+ * ones.
+ *
+ * It used to survive by accident: React 18 turned an empty string child into
+ * an empty text instance, which gave the tspan one zero-width line to measure.
+ * React 19's reconciler drops an empty string child instead, leaving the tspan
+ * childless. Nothing about an empty label was ever worth drawing, so the
+ * mapper refuses it outright and the PDF no longer depends on which reconciler
+ * `@react-pdf` selected.
+ */
+function isBlank(children: React.ReactNode | string): boolean {
+  if (typeof children === 'string') return children === ''
+  return Array.isArray(children) && children.every((child) => child === null)
+}
+
 function numeric(element: SvgElement, name: string): number | undefined {
   const raw = attributeOf(element, name)
   if (raw === undefined) return undefined
@@ -460,20 +483,26 @@ function toPdfNode(node: SvgNode, key: number): React.ReactNode {
       const nested = element.children.filter(
         (child): child is SvgElement => child.kind === 'element' && child.name === 'tspan',
       )
+      const children =
+        nested.length > 0 ? nested.map((child, index) => toPdfNode(child, index)) : textOf(element)
+      if (isBlank(children)) return null
       return (
         <G key={key} style={fontStyleOf(element)}>
           <Text {...style} x={x} y={y}>
-            {nested.length > 0 ? nested.map((child, index) => toPdfNode(child, index)) : textOf(element)}
+            {children}
           </Text>
         </G>
       )
     }
-    case 'tspan':
+    case 'tspan': {
+      const text = textOf(element)
+      if (text === '') return null
       return (
         <Tspan key={key} x={attributeOf(element, 'x')} y={attributeOf(element, 'y')} {...style}>
-          {textOf(element)}
+          {text}
         </Tspan>
       )
+    }
     default:
       // `svg` (handled by the caller), `title`, `desc`, `metadata` — and any
       // element `svg.ts` starts admitting without a branch here, which is the

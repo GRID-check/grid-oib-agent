@@ -115,6 +115,27 @@ describe('a diagram becomes a PDF, without a browser', () => {
     expect(Buffer.from(pdf).toString('latin1')).toContain('Helvetica-Bold')
   })
 
+  it('draws a diagram whose label came out blank', async () => {
+    // mermaid emits an empty `<tspan>` for a label line with nothing on it, and
+    // an empty tspan has no lines for `@react-pdf/layout` to measure: it reads
+    // `lines[0].xAdvance` and throws, taking the whole document down. The
+    // drawing around the blank label still has to arrive, so the mapper drops
+    // the empty node rather than passing it on.
+    //
+    // This survived React 18 by accident — its reconciler kept an empty string
+    // child as an empty text instance, which measured as one zero-width line —
+    // so the assertion is on the mapper's output, not on a React version.
+    const rect = '<rect x="10" y="10" width="80" height="40" fill="#eef"/>'
+    const runs = async (svgBody: string) =>
+      contentStreams(await pdfFor(svgBody)).join('\n').match(/\bTJ\b/g)?.length ?? 0
+
+    const pdf = await pdfFor(`${rect}<text x="20" y="30"><tspan></tspan></text>`)
+    expect(contentStreams(pdf).join('\n')).toContain('10 10 m')
+    // And the blank label added no text of its own: the only runs on the page
+    // are the frame's, which the drawing alone already carries.
+    expect(await runs(`${rect}<text x="20" y="30"><tspan></tspan></text>`)).toBe(await runs(rect))
+  })
+
   it('turns the page to follow the drawing', async () => {
     // A wide flowchart rotated onto a portrait page is the same drawing at half
     // the size, and the whole reason this artifact exists is that somebody has
