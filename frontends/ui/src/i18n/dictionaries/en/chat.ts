@@ -787,7 +787,6 @@ export const chat = {
     // Compact "what actually ran" chips in the Herleitung basis — one chip per
     // executed agent/tool, without the technical-steps opt-in.
     executedSteps: 'Ran:',
-    searched: 'Searched for',
     stepName: {
       understanding: 'Classification',
       routing: 'Research path',

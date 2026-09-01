@@ -1,8 +1,0 @@
----
-improvements:
-  - >
-    Die Herleitung zeigt jetzt auch nach der Antwort, wonach tatsächlich gesucht
-    wurde — etwa „Sucht OIB-Wissen: ‚Rettungswege Gebäudeklasse 4'". Bisher stand
-    das nur während der Bearbeitung da und war weg, sobald die Antwort fertig
-    war; übrig blieb eine Zeile mit Werkzeugnamen. Die Suchanfragen bleiben auch
-    erhalten, wenn Sie das Gespräch später wieder öffnen.

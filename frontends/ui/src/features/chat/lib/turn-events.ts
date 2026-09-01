@@ -78,11 +78,6 @@ export interface TurnEventStep {
   functionName: string
   content?: string
   rawPayload?: string
-  /**
-   * The compact trail a pruned step carries in place of the payload it was
-   * derived from. Present only after storage pruning; see `deriveSearchTrail`.
-   */
-  searchTrail?: Array<{ key: string; values?: Record<string, string> }>
 }
 
 /**
@@ -133,64 +128,6 @@ export const turnEventLiveText = (
     if (text) return text
   }
   return null
-}
-
-/** A retrieval the turn performed: what was asked, of which corpus. */
-export interface SearchTrailEntry {
-  key: string
-  values?: Record<string, string>
-}
-
-/** Turn-event keys that name a retrieval — the ones worth keeping after the turn. */
-const RETRIEVAL_KEY_RE = /(^|\.)retrieval(\.|$)/
-
-/**
- * What the turn actually searched for, in the order it did.
- *
- * THE QUERY WAS ALREADY ON THE WIRE AND WAS BEING THROWN AWAY. The backend
- * states each retrieval as a key plus values — corpus and query — and the live
- * line renders it beautifully („Sucht OIB-Wissen: ‚Fluchtweglänge GK4'"). Then
- * the answer lands, the header says "Fertig", and every one of those sentences
- * is gone, leaving a row of bare tool nouns as the whole record of the search.
- *
- * Kept as key + values rather than as the sentence, so the phrasing is still
- * the reader's dictionary's job on every render — including after a reload in
- * a different language.
- *
- * Deduplicated on the rendered fact: the same query announced twice (a retry,
- * a re-emitted status) is one search to a reader.
- */
-export const deriveSearchTrail = (
-  steps: readonly TurnEventStep[]
-): SearchTrailEntry[] => {
-  const trail: SearchTrailEntry[] = []
-  const seen = new Set<string>()
-
-  const push = (entry: SearchTrailEntry) => {
-    if (!RETRIEVAL_KEY_RE.test(entry.key)) return
-    const identity = `${entry.key}|${JSON.stringify(entry.values ?? {})}`
-    if (seen.has(identity)) return
-    seen.add(identity)
-    trail.push(entry)
-  }
-
-  for (const step of steps) {
-    // A pruned step carries the trail already; an unpruned one carries the
-    // payload it was derived from. Preferring the derived form keeps a reopened
-    // conversation identical to the live one.
-    if (step.searchTrail && step.searchTrail.length > 0) {
-      for (const entry of step.searchTrail) push(entry)
-      continue
-    }
-    if (!isStatusStepName(step.functionName || '')) continue
-    for (const payload of parseStepEventPayloads(stepEventPayload(step))) {
-      if (payload.channel === 'technical') continue
-      const key = payload.key?.trim()
-      if (key) push({ key, values: payload.values })
-    }
-  }
-
-  return trail
 }
 
 /**

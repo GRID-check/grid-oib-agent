@@ -7,7 +7,6 @@
 
 import type { ChatMessage } from '../types'
 import { extractTraceLanesFromPayload } from './trace-lanes'
-import { deriveSearchTrail } from './turn-events'
 
 /**
  * Cap string content to prevent excessively large values.
@@ -45,14 +44,6 @@ export const stripThinkingStepsForStorage = (
           : payload.trim()
             ? extractTraceLanesFromPayload(payload)
             : undefined
-      // WHAT THE TURN SEARCHED FOR, kept for the same reason the lanes are:
-      // `content` and `rawPayload` are stripped below, and the retrieval
-      // queries live in them. Without this, reopening a conversation loses the
-      // one part of the Herleitung that says anything specific — the row of
-      // tool nouns survives and „Sucht OIB-Wissen: ‚Fluchtweglänge GK4'" does
-      // not. Key and values, never the sentence: the reader's dictionary
-      // phrases it on every render, including in another language.
-      const searchTrail = step.searchTrail ?? deriveSearchTrail([step])
       return {
         id: step.id,
         userMessageId: step.userMessageId,
@@ -65,7 +56,6 @@ export const stripThinkingStepsForStorage = (
         isTopLevel: step.isTopLevel,
         category: step.category,
         ...(derived && derived.length > 0 ? { traceLanes: derived } : {}),
-        ...(searchTrail.length > 0 ? { searchTrail } : {}),
       }
     })
 }

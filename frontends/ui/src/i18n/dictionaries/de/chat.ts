@@ -762,7 +762,6 @@ export const chat: typeof en.chat = {
     // Kompakte Chips „was tatsächlich gelaufen ist" in der Herleitung-Basis —
     // ein Chip pro ausgeführtem Agenten/Tool, ohne Technik-Opt-in.
     executedSteps: 'Ausgeführt:',
-    searched: 'Gesucht',
     stepName: {
       understanding: 'Einordnung',
       routing: 'Rechercheweg',

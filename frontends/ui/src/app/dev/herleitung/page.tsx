@@ -114,43 +114,8 @@ const citations: CitationSource[] = [
   },
 ]
 
-/**
- * The retrieval statuses the turn emitted, as the backend states them: a key
- * plus values, never a sentence. They drive the „Gesucht" list — the part of a
- * finished Herleitung that says what was actually asked of which corpus, and
- * which the panel used to show only while the turn was live and then discard.
- */
-const retrievalSteps: ThinkingStep[] = [
-  {
-    ...step,
-    id: 'retrieval-0',
-    functionName: 'status:retrieval:0',
-    displayName: 'status:retrieval:0',
-    content: JSON.stringify({
-      kind: 'status',
-      channel: 'live',
-      slot: 'retrieval:0',
-      key: 'status.retrieval.withQuery',
-      values: { corpus: 'knowledge', query: 'Rettungswege Gebäudeklasse 4 Büro' },
-    }),
-  },
-  {
-    ...step,
-    id: 'retrieval-1',
-    functionName: 'status:retrieval:1',
-    displayName: 'status:retrieval:1',
-    content: JSON.stringify({
-      kind: 'status',
-      channel: 'live',
-      slot: 'retrieval:1',
-      key: 'status.retrieval.withQuery',
-      values: { corpus: 'ris', query: 'Wiener Bauordnung § 106 Fluchtwege' },
-    }),
-  },
-]
-
 const defaultCommon = {
-  steps: [step, ...retrievalSteps],
+  steps: [step],
   isThinking: false as const,
   defaultOpen: true,
   userQuestion:
