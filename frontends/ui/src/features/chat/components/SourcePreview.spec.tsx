@@ -430,6 +430,23 @@ describe('a document read at several pages', () => {
     expect(current()).toBe(1)
   })
 
+  test('the rail follows the passage you move to', async () => {
+    // A document read at nine places scrolls its rail. Stepping used to walk
+    // the current entry off the bottom of it: the one control that says WHERE
+    // YOU ARE stopped saying it exactly when the list got long enough to need
+    // saying.
+    const scrollIntoView = vi.fn()
+    vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(scrollIntoView)
+    const user = userEvent.setup()
+    const rail = await openRail(user)
+
+    scrollIntoView.mockClear()
+    await user.click(within(rail).getAllByRole('listitem')[2]!.querySelector('button')!)
+
+    const scrolled = scrollIntoView.mock.instances.at(-1) as Element | undefined
+    expect(scrolled?.textContent).toContain('p. 14')
+  })
+
   /**
    * A single Fundstelle gets the rail too. It used to be withheld — one entry is
    * nowhere to navigate — which left two citations that look identical from the

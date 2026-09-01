@@ -5,6 +5,14 @@ improvements:
     die geöffnete Seite nur ein Bild: Die Maus konnte nichts auswählen, und auch
     die Suche des Browsers fand darin nichts.
   - >
+    Wer eine Stelle selbst markiert, bekommt sie auf Wunsch als fertiges Zitat —
+    mit Dokument und Seitenzahl, in derselben Form wie die Zitate aus der
+    Antwort. Damit sieht eine Stelle aus dem Dokument und eine aus dem Chat in
+    der Stellungnahme gleich aus.
+  - >
+    Die Werkzeugleiste zeigt jetzt die Seite, auf der man gerade liest, statt
+    nur die Gesamtzahl der Seiten — und sie zählt beim Scrollen mit.
+  - >
     Die Liste der Fundstellen steht jetzt immer neben dem Dokument, auch wenn
     eine Quelle nur an einer Stelle gelesen wurde. Sie sagt beim Lesen weiter
     oben oder unten im Dokument, welche Passage gerade geprüft wird, und zeigt
@@ -14,7 +22,12 @@ fixes:
   - >
     Stimmt die Seitenzahl einer Fundstelle nicht mit der Seite im PDF überein —
     üblich bei Dokumenten mit Deckblatt —, wird die zitierte Stelle jetzt auch
-    auf der Seite davor und danach gesucht statt gar nicht markiert.
+    auf der Seite davor und danach gesucht statt gar nicht markiert. Bleibt sie
+    unauffindbar, sagt das Fenster das ausdrücklich, statt die Seite wortlos
+    ohne Markierung zu zeigen.
+  - >
+    In einer langen Fundstellenliste bleibt die gerade geöffnete Stelle sichtbar:
+    Bisher wanderte sie beim Weiterblättern aus der Liste heraus.
   - >
     Am Telefon sprang das geöffnete Zitat über die markierte Stelle hinaus, so
     dass die Passage oberhalb des sichtbaren Bereichs lag und die Seite leer

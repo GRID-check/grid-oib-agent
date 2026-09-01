@@ -58,6 +58,12 @@ export interface PdfViewerDialogProps {
    */
   highlightColor?: string
   /**
+   * Turns a passage the reader selects in the document into the text they want
+   * on their clipboard — passed straight through to the document view, which
+   * owns the affordance. Unset, no such offer is made.
+   */
+  quoteFormat?: (quote: { text: string; page: number }) => string
+  /**
    * Skip the Next image optimizer for `isImage` mode. Defaults to TRUE, which
    * is the safe answer for any caller that has not thought about it: `src` here
    * can be a presigned object-store URL on an un-allow-listed host, or this
@@ -95,7 +101,7 @@ export interface PdfViewerDialogProps {
   aside?: ReactNode
 }
 
-export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src: srcOverride, isImage, imageUnoptimized = true, highlight, highlightColor, headerChip, headerActions, children, aside }: PdfViewerDialogProps) {
+export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src: srcOverride, isImage, imageUnoptimized = true, highlight, highlightColor, quoteFormat, headerChip, headerActions, children, aside }: PdfViewerDialogProps) {
   const t = useTranslations('knowledge')
   const baseSrc = srcOverride ?? `/api/knowledge-base/documents/${encodeURIComponent(fileName)}`
   // The fragment is for the "open in new tab" link and the image branch, which
@@ -172,6 +178,7 @@ export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src
                 page={page}
                 highlight={highlight}
                 highlightColor={highlightColor}
+                quoteFormat={quoteFormat}
               />
             ))}
         </div>

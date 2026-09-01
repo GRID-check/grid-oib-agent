@@ -723,10 +723,28 @@ body {
    affordance collapses under prefers-reduced-motion to the resting mark alone,
    which still answers "which sentence".
 
-   One tint strength serves both themes on purpose: what the mark composites
-   against is the rendered PAGE, which is paper-white whatever the app around it
-   is wearing.
+   What the mark composites against is the rendered PAGE, which is paper-white
+   whatever the app around it is wearing — so the COMPOSITE has to come out the
+   same in both themes, and that is exactly why the mix cannot. The provenance
+   tints are lifted for charcoal (`--source-law` is L 0.51 on light, L 0.72 on
+   dark), and the same 38% of a much lighter blue over white is a much fainter
+   mark: measured side by side, the dark-theme highlight had lost most of its
+   ability to say "here". The strengths below restore it — alpha × (1 − L) held
+   roughly constant across the two — rather than accepting a signal that is
+   quietly weaker for half the users.
    ============================================================================= */
+:root {
+  --passage-strength: 38%;
+  --passage-peak: 88%;
+  --passage-halo: 30%;
+}
+
+.dark {
+  --passage-strength: 65%;
+  --passage-peak: 95%;
+  --passage-halo: 45%;
+}
+
 @keyframes grid-passage-ping {
   0% {
     background-color: transparent;
@@ -737,11 +755,16 @@ body {
      into, which is the whole event. The halo spreads past the band so the eye is
      caught by a shape appearing, not only by a colour changing. */
   30% {
-    background-color: color-mix(in oklch, var(--passage-tint, var(--ring)) 88%, transparent);
-    box-shadow: 0 0 0 5px color-mix(in oklch, var(--passage-tint, var(--ring)) 30%, transparent);
+    background-color: color-mix(in oklch, var(--passage-tint, var(--ring)) var(--passage-peak), transparent);
+    box-shadow: 0 0 0 5px
+      color-mix(in oklch, var(--passage-tint, var(--ring)) var(--passage-halo), transparent);
   }
   100% {
-    background-color: color-mix(in oklch, var(--passage-tint, var(--ring)) 38%, transparent);
+    background-color: color-mix(
+      in oklch,
+      var(--passage-tint, var(--ring)) var(--passage-strength),
+      transparent
+    );
     box-shadow: 0 0 0 0 transparent;
   }
 }
@@ -750,7 +773,11 @@ body {
   /* The resting mark. Multiply keeps the glyphs underneath readable through the
      fill — a plain opaque tint over rasterised text greys it out, which is the
      one thing a highlight must not do to the sentence it is pointing at. */
-  background-color: color-mix(in oklch, var(--passage-tint, var(--ring)) 38%, transparent);
+  background-color: color-mix(
+    in oklch,
+    var(--passage-tint, var(--ring)) var(--passage-strength),
+    transparent
+  );
   mix-blend-mode: multiply;
   border-radius: 2px;
 }

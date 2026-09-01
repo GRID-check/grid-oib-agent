@@ -34,7 +34,7 @@ import {
   type FC,
 } from 'react'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
-import { AlertTriangle, Crosshair, Minus, Plus } from 'lucide-react'
+import { AlertTriangle, Check, Crosshair, Minus, Plus, Quote } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ButtonGroup } from '@/components/ui/button-group'
 import { Spinner } from '@/components/ui/spinner'
@@ -63,6 +63,19 @@ export interface PdfDocumentViewProps {
    * the chat feature's vocabulary.
    */
   highlightColor?: string
+  /**
+   * Turn a passage the READER selected into the text they want on their
+   * clipboard — a quotation with the document and page attached, the form a
+   * Stellungnahme quotes in.
+   *
+   * A formatter rather than a component: the citation vocabulary belongs to
+   * whoever opened this viewer (the chat knows the document's title, its
+   * Richtlinie, its edition), and the viewer knows only which page the words
+   * were on. Left unset the affordance is not offered at all, which is the
+   * right answer for a plain file preview — the browser's own copy is enough
+   * for someone who is not citing anything.
+   */
+  quoteFormat?: (quote: { text: string; page: number }) => string
   className?: string
 }
 
@@ -85,9 +98,32 @@ const PASSAGE_SCROLL_OFFSET = 0.28
 /** Cap on device-pixel oversampling; past 2× the memory buys nothing visible. */
 const MAX_PIXEL_RATIO = 2
 
+/**
+ * The band, as a share of the frame, that decides which page the reader is ON.
+ * A thin strip across the middle: whatever crosses it is what they are reading,
+ * and only one page can be there at a time, so the counter never flickers
+ * between two pages the way a "most visible" rule does at a page boundary.
+ */
+const CURRENT_PAGE_BAND = '-45% 0px -45% 0px'
+
+/** How long a copied-confirmation stays up before the bar goes quiet again. */
+const COPIED_FEEDBACK_MS = 1600
+
+/** Shorter than this, a selection is a mis-click rather than a quotation. */
+const MIN_QUOTE_LENGTH = 3
+
 interface PassageHit {
   page: number
   rects: HighlightRect[]
+}
+
+/** A selection the reader made, and where to hang the offer to quote it. */
+interface QuoteSelection {
+  text: string
+  page: number
+  /** Top-left of the selection, in the page stack's own coordinates. */
+  x: number
+  y: number
 }
 
 export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
@@ -96,6 +132,7 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
   page,
   highlight,
   highlightColor,
+  quoteFormat,
   className,
 }) => {
   const t = useTranslations('knowledge')
@@ -112,8 +149,25 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
   // Bumped to replay the arrival animation — a CSS animation only runs on
   // mount, so re-pinging means remounting the marks.
   const [ping, setPing] = useState(0)
+  // Which page the reader is on, for the counter. Not the same question as
+  // which page is rendered: several are, always.
+  const [currentPage, setCurrentPage] = useState(1)
+  // Pages that read their text and did not hold the passage. Once every page
+  // that could have held it has said so, the viewer can say so too.
+  const [missed, setMissed] = useState<number[]>([])
+  // The reader's own selection, in the content's coordinates, plus what to do
+  // with it. Null whenever nothing is selected inside the document.
+  const [quote, setQuote] = useState<QuoteSelection | null>(null)
+  const [copied, setCopied] = useState<'idle' | 'done' | 'failed'>('idle')
 
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  // The page stack itself. Selection coordinates are measured against THIS, not
+  // the frame: it scrolls with the document, so the quote bar stays on the words
+  // it belongs to instead of hanging in the frame while the text moves away.
+  const contentRef = useRef<HTMLDivElement | null>(null)
+  // The text the current offer is for, so a re-measure can tell a new selection
+  // from the same one seen again.
+  const quotedRef = useRef<string | null>(null)
   // Whether THIS question has already been answered, read synchronously so two
   // pages reporting a hit in the same tick cannot both act on it.
   const foundRef = useRef(false)
@@ -179,6 +233,7 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
     foundRef.current = false
     setHit(null)
     setRadius(0)
+    setMissed([])
   }, [page, highlight])
 
   useEffect(() => {
@@ -282,8 +337,11 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
    * it is a different passage that happens to read alike.
    */
   const handleMiss = useCallback(
-    (missed: number) => {
-      if (page && missed === page) setRadius((current) => Math.max(current, 1))
+    (missedPage: number) => {
+      setMissed((current) =>
+        current.includes(missedPage) ? current : [...current, missedPage],
+      )
+      if (page && missedPage === page) setRadius((current) => Math.max(current, 1))
     },
     [page],
   )
@@ -316,10 +374,156 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
     pageRefs.current.get(page)?.scrollIntoView({ block: 'start' })
   }, [doc, page, hit, defaultAspect])
 
+  /**
+   * Which page the reader is on.
+   *
+   * One observer over the whole stack rather than a handler per scroll event:
+   * a 200-page document would otherwise measure 200 rectangles per frame to
+   * answer a question the browser is already computing. The pages are all
+   * mounted (only their bitmaps are lazy), so this can be wired once the
+   * document arrives.
+   */
+  useEffect(() => {
+    const frame = scrollRef.current
+    if (!doc || !frame || typeof IntersectionObserver === 'undefined') return
+    // Which pages are in the band, kept ACROSS callbacks. A batch reports
+    // changes — the page leaving and the page arriving — not the whole truth,
+    // so deciding from one batch alone would answer from half the picture.
+    const inBand = new Map<number, boolean>()
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const number = Number((entry.target as HTMLElement).dataset.page)
+          if (Number.isFinite(number)) inBand.set(number, entry.isIntersecting)
+        }
+        const [first] = [...inBand]
+          .filter(([, isInBand]) => isInBand)
+          .map(([number]) => number)
+          .sort((a, b) => a - b)
+        // Lowest wins, so the moment a page boundary straddles the band the
+        // counter reads as the page you are still leaving rather than flicking
+        // forward and back across it.
+        if (first) setCurrentPage(first)
+      },
+      { root: frame, rootMargin: CURRENT_PAGE_BAND },
+    )
+    pageRefs.current.forEach((node) => observer.observe(node))
+    return () => observer.disconnect()
+  }, [doc])
+
+  /**
+   * Read the reader's selection: what it says, which page it is on, and where
+   * to hang the offer to quote it. Nothing selected inside the document
+   * withdraws the offer.
+   */
+  const readSelection = useCallback((): void => {
+    const frame = scrollRef.current
+    const content = contentRef.current
+    if (!quoteFormat || !frame || !content) return
+
+    const selection = document.getSelection()
+    const range =
+      selection && !selection.isCollapsed && selection.rangeCount > 0
+        ? selection.getRangeAt(0)
+        : null
+    const node = range
+      ? range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+        ? (range.commonAncestorContainer as Element)
+        : range.commonAncestorContainer.parentElement
+      : null
+    const text = range ? selection!.toString().trim() : ''
+    // A selection outside this document is somebody else's, and a two-character
+    // one is a mis-click rather than a quotation.
+    if (!range || !node || !frame.contains(node) || text.length < MIN_QUOTE_LENGTH) {
+      quotedRef.current = null
+      return setQuote(null)
+    }
+
+    // Only a NEW selection clears the confirmation. Re-measuring after a zoom
+    // must not wipe the "copied" the reader just earned.
+    if (quotedRef.current !== text) {
+      quotedRef.current = text
+      setCopied('idle')
+    }
+    const rect = range.getBoundingClientRect()
+    const origin = content.getBoundingClientRect()
+    setQuote({
+      text,
+      page: Number(node.closest('[data-page]')?.getAttribute('data-page')) || currentPage,
+      x: rect.left - origin.left,
+      y: rect.top - origin.top,
+    })
+  }, [quoteFormat, currentPage])
+
+  /**
+   * Ask on RELEASE, not on every `selectionchange`: mid-drag the offer would
+   * chase the cursor across the page, which is noise during the one gesture
+   * that has to feel precise. `selectionchange` is still listened to, for the
+   * opposite job — the moment the selection collapses, the offer goes.
+   */
+  useEffect(() => {
+    const frame = scrollRef.current
+    if (!quoteFormat || !frame) return
+
+    const collapse = (): void => {
+      const selection = document.getSelection()
+      if (!selection || selection.isCollapsed) setQuote(null)
+    }
+
+    frame.addEventListener('pointerup', readSelection)
+    frame.addEventListener('keyup', readSelection)
+    document.addEventListener('selectionchange', collapse)
+    return () => {
+      frame.removeEventListener('pointerup', readSelection)
+      frame.removeEventListener('keyup', readSelection)
+      document.removeEventListener('selectionchange', collapse)
+    }
+  }, [quoteFormat, readSelection])
+
+  // The offer is placed in the page stack's coordinates, and a zoom step moves
+  // every word under it. Re-measuring keeps it on the sentence; without this it
+  // stayed where the words used to be, which for a reader who zoomed in to read
+  // the passage before quoting it is exactly when it matters.
+  useEffect(() => {
+    // The ref rather than the state, deliberately: this effect WRITES the
+    // selection state, so reading it here would make the effect its own trigger.
+    if (quotedRef.current) readSelection()
+  }, [zoom, readSelection])
+
+  const copyQuote = useCallback(async (): Promise<void> => {
+    if (!quote || !quoteFormat) return
+    try {
+      await navigator.clipboard.writeText(quoteFormat({ text: quote.text, page: quote.page }))
+      setCopied('done')
+    } catch {
+      // Blocked clipboard, insecure context, denied permission. Saying so in
+      // the bar beats a silent button: the reader is about to paste.
+      setCopied('failed')
+    }
+  }, [quote, quoteFormat])
+
+  // Let the confirmation fade by itself. A bar that stays on "copied" forever
+  // stops being feedback and starts being a label.
+  useEffect(() => {
+    if (copied === 'idle') return
+    const timer = window.setTimeout(() => setCopied('idle'), COPIED_FEEDBACK_MS)
+    return () => window.clearTimeout(timer)
+  }, [copied])
+
   const pages = useMemo(
     () => (doc ? Array.from({ length: doc.numPages }, (_, index) => index + 1) : []),
     [doc],
   )
+
+  // Every page that could hold this passage has read its text and none did.
+  // Until all of them have answered the viewer says nothing, because "not
+  // found" and "still looking" are different claims and only one is true yet.
+  const candidatePages =
+    doc && page && highlight
+      ? [page - 1, page, page + 1].filter((number) => number >= 1 && number <= doc.numPages)
+      : []
+  const passageMissing =
+    !hit && candidatePages.length > 0 && candidatePages.every((number) => missed.includes(number))
 
   if (failed) {
     return (
@@ -343,10 +547,27 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
           passage on a phone meant scrolling the document sideways to find the
           controls for it. Wrapping costs one line and only when it is needed. */}
       <div className="flex shrink-0 flex-wrap items-center gap-2">
+        {/* Where the reader IS, not how long the document is. A page count is a
+            fact about the file; "page 12 of 34" is the answer to the question a
+            reader in the middle of a Bescheid actually has, and it is the half
+            of the citation that has to survive them scrolling away from it. */}
         <span className="text-xs tabular-nums text-muted-foreground">
-          {doc ? t('viewer.pageCount', { count: doc.numPages }) : t('viewer.loading')}
+          {doc
+            ? t('viewer.pagePosition', { page: currentPage, count: doc.numPages })
+            : t('viewer.loading')}
         </span>
         <span className="flex-1" />
+        {passageMissing && (
+          // The reader clicked a Fundstelle and nothing lit up. Before this the
+          // viewer let them conclude what they liked from that — that the
+          // passage was not in the document, that the feature was broken, that
+          // they had missed it. It is none of those: the page is right and the
+          // sentence could not be located on it.
+          <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            <AlertTriangle aria-hidden className="size-3.5 shrink-0" />
+            {t('viewer.passageNotFound')}
+          </p>
+        )}
         {hit && (
           // After scrolling away — or after a rail jump to another Fundstelle —
           // the way back is one control, not a hunt.
@@ -400,7 +621,16 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
             {t('viewer.loading')}
           </div>
         )}
-        <div className="flex flex-col items-center gap-3">
+        {/* `relative`: the quote bar is positioned against this stack, so it
+            travels with the words it is offering to quote. */}
+        <div ref={contentRef} className="relative flex flex-col items-center gap-3">
+          {quote && quoteFormat && (
+            <QuoteBar
+              selection={quote}
+              state={copied}
+              onCopy={() => void copyQuote()}
+            />
+          )}
           {doc &&
             pages.map((number) => (
               <PdfPageCanvas
@@ -421,6 +651,64 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
             ))}
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * The offer that turns a selection into a citation.
+ *
+ * Anchored to the selection rather than parked in the toolbar, because the
+ * gesture and the offer belong together: the reader has just dragged across a
+ * sentence and their eyes are on it. One action, in the reader's own language
+ * of what they are doing — not "copy text", which the browser already does,
+ * but "copy this AS A CITATION", with the document and page the viewer knows
+ * and their clipboard otherwise would not.
+ *
+ * `onMouseDown` is prevented on purpose: the default would move focus and
+ * collapse the very selection the button exists to act on, so the click would
+ * copy nothing.
+ */
+const QuoteBar: FC<{
+  selection: QuoteSelection
+  state: 'idle' | 'done' | 'failed'
+  onCopy: () => void
+}> = ({ selection, state, onCopy }) => {
+  const t = useTranslations('knowledge')
+  const label =
+    state === 'done'
+      ? t('viewer.quoteCopied')
+      : state === 'failed'
+        ? t('viewer.copyFailed')
+        : t('viewer.copyQuote')
+  return (
+    <div
+      data-testid="pdf-quote-bar"
+      className="absolute z-10 -translate-y-full pb-1.5"
+      // Clamped at the left edge: a selection that starts in the page's gutter
+      // would otherwise hang the bar outside the frame and clip it.
+      style={{ left: Math.max(0, selection.x), top: selection.y }}
+    >
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={onCopy}
+        // `bg-card` is load-bearing, not decoration: the outline variant is
+        // transparent, and this bar floats over the rendered PAGE, which is
+        // paper-white in both themes. In dark mode that put near-white label
+        // text on white paper — a control that was, measurably, invisible
+        // exactly where it is offered.
+        className="bg-card shadow-sm"
+      >
+        {state === 'done' ? (
+          <Check aria-hidden className="size-3.5" />
+        ) : (
+          <Quote aria-hidden className="size-3.5" />
+        )}
+        {label}
+      </Button>
     </div>
   )
 }
