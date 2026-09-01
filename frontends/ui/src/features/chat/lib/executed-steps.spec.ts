@@ -259,4 +259,70 @@ describe('deriveExecutedSteps — turn status events', () => {
     expect(chips.map((c) => c.key)).toEqual(['knowledge_search_tool'])
     expect(chips[0].label).toBe('thinking.stepName.corpus')
   })
+
+  describe('one chip per kind of work, not per tool call', () => {
+    /**
+     * The stakeholder report was „AUSGEFÜHRT: Einordnung, Assistent,
+     * OIB-Wissen, OIB-Wissen, OIB-Wissen…" — a word repeated, which reads as a
+     * stutter rather than as three tools and tells the reader nothing the first
+     * chip had not. The cause was deduplicating on the internal tool NAME while
+     * labelling by rule: `ris_search_tool`, `ris_fetch_tool` and
+     * `ris_catalog_lookup_tool` are three names for one chip.
+     */
+    test('renders RIS once, however many RIS tools ran', () => {
+      const steps = [
+        step({ functionName: 'ris_search_tool' }),
+        step({ functionName: 'ris_fetch_tool' }),
+        step({ functionName: 'ris_catalog_lookup_tool' }),
+      ]
+
+      expect(deriveExecutedSteps(steps, t).map((chip) => chip.label)).toEqual([
+        'thinking.stepName.ris',
+      ])
+    })
+
+    test('renders the corpus once, however many retrieval tools ran', () => {
+      const steps = [
+        step({ functionName: 'knowledge_search' }),
+        step({ functionName: 'knowledge_search' }),
+        step({ functionName: 'corpus_retrieve' }),
+      ]
+
+      expect(deriveExecutedSteps(steps, t)).toHaveLength(1)
+    })
+
+    test('still shows different kinds of work as different chips', () => {
+      const steps = [
+        step({ functionName: 'intent_classifier' }),
+        step({ functionName: 'knowledge_search' }),
+        step({ functionName: 'ris_search_tool' }),
+        step({ functionName: 'web_search_tool' }),
+      ]
+
+      expect(deriveExecutedSteps(steps, t)).toHaveLength(4)
+    })
+
+    test('a later tool under one chip still clears the running flag', () => {
+      // Steps are newest last, so the completed fetch must un-run the chip the
+      // in-progress search raised — otherwise a finished turn keeps a spinner.
+      const steps = [
+        step({ functionName: 'ris_search_tool', isComplete: false }),
+        step({ functionName: 'ris_fetch_tool', isComplete: true }),
+      ]
+
+      const chips = deriveExecutedSteps(steps, t)
+
+      expect(chips).toHaveLength(1)
+      expect(chips[0]!.running).toBe(false)
+    })
+
+    test('and a later tool under one chip can raise it', () => {
+      const steps = [
+        step({ functionName: 'ris_search_tool', isComplete: true }),
+        step({ functionName: 'ris_fetch_tool', isComplete: false }),
+      ]
+
+      expect(deriveExecutedSteps(steps, t)[0]!.running).toBe(true)
+    })
+  })
 })

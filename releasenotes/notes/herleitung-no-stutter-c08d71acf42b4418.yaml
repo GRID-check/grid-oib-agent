@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Die Zeile „Ausgeführt" in der Herleitung wiederholte dasselbe Wort mehrfach
+    — „RIS, RIS, RIS" oder „OIB-Wissen, OIB-Wissen". Dahinter standen zwar
+    verschiedene interne Werkzeuge, für die Lesende war es aber dieselbe Art von
+    Arbeit. Jede Art erscheint jetzt einmal.

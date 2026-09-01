@@ -132,7 +132,19 @@ export const deriveExecutedSteps = (
   steps: ExecutedStepInput[],
   t: (key: string) => string
 ): ExecutedStep[] => {
-  const seen = new Set<string>()
+  // Keyed by what the reader SEES, not by the internal tool name.
+  //
+  // `ris_search_tool`, `ris_fetch_tool` and `ris_catalog_lookup_tool` are three
+  // names for one chip („RIS"), and `knowledge_search` shares its rule with
+  // every other retrieval tool. Deduplicating on the raw name therefore printed
+  // the same word two or three times in a row — „RIS, RIS, RIS" — which reads
+  // as a stutter rather than as three tools, and told the reader nothing the
+  // first chip had not. A chip stands for a KIND of work; the row is a list of
+  // what was done, not a call log.
+  //
+  // Skills keep their own identity: two named skills are two different things
+  // and each has earned its chip.
+  const seen = new Map<string, ExecutedStep>()
   const out: ExecutedStep[] = []
   let sawNamedSkill = false
 
@@ -146,21 +158,18 @@ export const deriveExecutedSteps = (
     // Status one-liners are sentences, not executed tools (see the header).
     if (isStatusStepName(name)) continue
 
-    if (seen.has(name)) {
-      // A later re-run of the same tool REPLACES the running flag — steps are
-      // newest last, so a completed re-run must clear a chip an earlier
-      // in-progress entry marked as running (restored turns carry both rows).
-      const existing = out.find((e) => e.key === name)
-      if (existing) existing.running = !step.isComplete
-      continue
-    }
-
     if (isSkillStepName(name)) {
       const chip = skillChip(step, t)
       if (!chip) continue
-      seen.add(name)
+      const existing = seen.get(`skill:${name}`)
+      if (existing) {
+        existing.running = !step.isComplete
+        continue
+      }
+      const entry = { key: name, ...chip, running: !step.isComplete }
+      seen.set(`skill:${name}`, entry)
       sawNamedSkill = true
-      out.push({ key: name, ...chip, running: !step.isComplete })
+      out.push(entry)
       continue
     }
 
@@ -169,12 +178,15 @@ export const deriveExecutedSteps = (
     // applied. Label it honestly and unnamed; the richer `skill:` chips
     // supersede it below when the backend emits them.
     if (isUseSkillStepName(name)) {
-      seen.add(name)
-      out.push({
-        key: name,
-        label: t('thinking.stepName.skillUnnamed'),
-        running: !step.isComplete,
-      })
+      const label = t('thinking.stepName.skillUnnamed')
+      const existing = seen.get(`label:${label}`)
+      if (existing) {
+        existing.running = !step.isComplete
+        continue
+      }
+      const entry = { key: name, label, running: !step.isComplete }
+      seen.set(`label:${label}`, entry)
+      out.push(entry)
       continue
     }
 
@@ -185,8 +197,18 @@ export const deriveExecutedSteps = (
     // English noun phrase would only look like work that was done.
     if (!rule) continue
 
-    seen.add(name)
-    out.push({ key: name, label: t(`thinking.stepName.${rule.key}`), running: !step.isComplete })
+    const label = t(`thinking.stepName.${rule.key}`)
+    const existing = seen.get(`label:${label}`)
+    if (existing) {
+      // A later step under the same chip REPLACES the running flag — steps are
+      // newest last, so a completed run must clear a chip an earlier
+      // in-progress entry marked as running (restored turns carry both rows).
+      existing.running = !step.isComplete
+      continue
+    }
+    const entry = { key: name, label, running: !step.isComplete }
+    seen.set(`label:${label}`, entry)
+    out.push(entry)
   }
 
   // One fact, one chip: when named skill steps are present they say everything
