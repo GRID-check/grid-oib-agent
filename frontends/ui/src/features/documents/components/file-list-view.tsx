@@ -5,7 +5,7 @@ import { ArrowDown, ArrowUp } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { DocumentStatusBadge } from './document-status'
 import { extChipTint, fileExtensionLabel } from '../document-kind'
-import { RELEVANCE_SORT, nextSort, sortFiles, type FileSort, type FileSortKey } from '../lib/file-sort'
+import { DEFAULT_FILE_SORT, RELEVANCE_SORT, nextSort, sortFiles, type FileSort, type FileSortKey } from '../lib/file-sort'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime, formatBytes, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -47,9 +47,17 @@ interface FileListViewProps {
    * away without saying so.
    */
   semantic?: boolean
+  /**
+   * The listing's order, when somebody outside owns it.
+   *
+   * The workspace does, so its filter menu and these column headers set the
+   * same thing and switching to the card grid keeps the order. Left out — by
+   * the semantic branches, and by fixtures — the view falls back to holding it
+   * itself, which is what it did before the order was lifted.
+   */
+  sort?: FileSort
+  onSortChange?: (next: FileSort) => void
 }
-
-const DEFAULT_SORT: FileSort = { key: 'added', direction: 'desc' }
 
 /** A 0..1 backend score as the whole percent the reader sees. */
 const percentOf = (score: number | undefined): number =>
@@ -64,10 +72,19 @@ export function FileListView({
   onSelectFile,
   renderActions,
   semantic = false,
+  sort: controlledSort,
+  onSortChange,
 }: FileListViewProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
-  const [sort, setSort] = useState<FileSort>(semantic ? RELEVANCE_SORT : DEFAULT_SORT)
+  const [uncontrolledSort, setUncontrolledSort] = useState<FileSort>(
+    semantic ? RELEVANCE_SORT : DEFAULT_FILE_SORT
+  )
+  // A ranked result set keeps its own relevance order whatever the workspace
+  // holds — the same rule as the menu, which hides the sort section while a
+  // semantic search is active.
+  const sort = semantic || !controlledSort ? uncontrolledSort : controlledSort
+  const setSort = semantic || !onSortChange ? setUncontrolledSort : onSortChange
   const bodyRef = useRef<HTMLTableSectionElement>(null)
 
   const rows = useMemo(() => sortFiles(files, sort, locale), [files, sort, locale])

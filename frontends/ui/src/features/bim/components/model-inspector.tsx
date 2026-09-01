@@ -43,7 +43,15 @@ export interface ModelInspectorProps {
   element: BimElementDetail | null
   isLoading: boolean
   error: string | null
-  projectId: string
+  /**
+   * The project whose chat "Piloti dazu fragen" opens, or `null` in the Archiv.
+   *
+   * The question is asked IN a conversation, and a conversation belongs to a
+   * project — so without one there is nowhere to send it and the button is not
+   * offered. Everything else this panel shows is a property of the element and
+   * is unaffected.
+   */
+  projectId: string | null
   modelFilename: string | null
   onClose: () => void
   /**
@@ -156,6 +164,7 @@ export function ModelInspector({
                 )}
               </div>
             )}
+          {projectId && (
           <Button asChild variant="ghost" size="sm" className="w-full justify-start gap-2">
             <Link
               href={elementQuestionHref(
@@ -173,6 +182,7 @@ export function ModelInspector({
               {t('stage.selection.ask')}
             </Link>
           </Button>
+          )}
           </div>
         )
       }

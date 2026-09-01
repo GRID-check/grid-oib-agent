@@ -1,0 +1,12 @@
+---
+features:
+  - >
+    Die Dateien-Kopfzeile hat jetzt ein Filtermenü statt einer offenen
+    Filterleiste, und es kann mehr als vorher: filtern nach Zuständigkeit,
+    Herkunft, Status und Dateityp, plus die Sortierung. Eine Zahl am Button
+    sagt, wie viele Filter gerade aktiv sind.
+  - >
+    Die Sortierung gilt jetzt für beide Ansichten. Bisher gehörte sie der
+    Listenansicht allein, sodass ein Wechsel auf Kacheln die gewählte Reihenfolge
+    verwarf und "was ist das Neueste" nur in einer der beiden Ansichten zu
+    beantworten war.

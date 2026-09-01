@@ -92,6 +92,14 @@ export interface FilePreviewContext {
   scope?: DocumentScope
   canCollaborate?: boolean
   showMetadataPanel?: boolean
+  /**
+   * Whether an `.ifc` preview offers the model workspace (`ifc-models`).
+   *
+   * The flag used to decide whether a click on a model card SKIPPED the preview
+   * and went straight to the workspace. It decides the opposite thing now: the
+   * preview always opens, and this says whether it also offers the way on.
+   */
+  showModels?: boolean
   onRenamed?: (fileId: string, displayName: string | null) => void
   onDeleted?: (fileId: string) => void
   onReingested?: (fileId: string, status: string) => void

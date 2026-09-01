@@ -14,7 +14,14 @@ import { useFileSearch } from '../hooks/use-file-search'
 import { inferDocumentKind } from '../document-kind'
 import { FileBrowserPane } from './file-browser-pane'
 import { FileSearchField } from './file-search-bar'
-import { FileFilterStrip, type AssignmentFilter } from './file-filter-strip'
+import { FileFilterMenu } from './file-filter-menu'
+import {
+  NO_FILE_FILTERS,
+  applyFileFilters,
+  activeFilterCount,
+  type FileFilters,
+} from '../lib/file-filters'
+import { DEFAULT_FILE_SORT, type FileSort } from '../lib/file-sort'
 import { DocumentActionsMenu } from './document-actions'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
@@ -40,15 +47,31 @@ interface ProjectFileWorkspaceProps {
    */
   showMetadataPanel?: boolean
   /**
-   * Whether an `.ifc` opens as a building (WorkOS `ifc-models`, ADR-0046).
+   * Whether the model workspace is reachable (WorkOS `ifc-models`, ADR-0046).
    *
-   * The model viewer used to be a page of its own behind this flag. It is a
-   * file preview now — there is no route left to hide — so the flag decides
-   * what a click on a model card DOES: open the viewer, or fall through to the
-   * ordinary file preview. Off by default here, because a viewer whose
+   * The flag has been three things. It hid a `/model` route; then, once the
+   * route was folded in here, it decided whether a click on a model card
+   * SKIPPED the file preview and went straight to the full-screen stage. That
+   * second meaning is what made an `.ifc` the one file type with no preview,
+   * and made the same file behave differently in Dateien and in the Archiv.
+   *
+   * It decides the smallest of the three things now: whether the preview offers
+   * the way on. A click always opens the preview, and `?model=` always opens
+   * the stage — the flag only gates the affordance between them, which is the
+   * shape a flag should have. Off by default here, because a viewer whose
    * endpoints answer 403 is worse than no viewer.
    */
   showModels?: boolean
+  /**
+   * Whether a click on an `.ifc` opens the preview first (`ifc-preview-first`).
+   *
+   * Defaults to preview-first, which is the safer direction to be wrong in: a
+   * reader who wanted the stage is one button from it inside the preview, while
+   * a reader thrown into a full-screen viewport has lost the preview entirely.
+   * Threaded from the page alongside the Archiv's copy of the same flag — the
+   * two surfaces must move together or the defect this fixes comes back.
+   */
+  previewFirst?: boolean
   /** Faces, Unvergeben, Zuweisen — behind the collaboration flag. */
   canCollaborate?: boolean
   currentUserId?: string
@@ -164,7 +187,7 @@ type FileView = 'cards' | 'list'
 
 const VIEW_STORAGE_KEY = 'grid.files.view'
 
-export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false, canCollaborate = false, currentUserId }: ProjectFileWorkspaceProps) {
+export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false, previewFirst = true, canCollaborate = false, currentUserId }: ProjectFileWorkspaceProps) {
   const t = useTranslations('files')
   const router = useRouter()
   const pathname = usePathname()
@@ -178,25 +201,14 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
    * it, and every `/model?…` link ever written into a chat answer redirects
    * here and opens the same thing. Dateien itself learns exactly one fact —
    * whether that parameter is present.
+   *
+   * Nothing on this page sets it any more: the preview's own
+   * open-in-workspace link is the way in, and it is a real `href` so it opens
+   * in a new tab on middle-click. The parameter is still read here because
+   * chat answers, the `/model` redirect and a copied URL all arrive through
+   * it.
    */
   const stageModel = showModels ? (searchParams?.get('model')?.trim() ?? null) : null
-
-  const openModel = useCallback(
-    (filename: string) => {
-      const params = new URLSearchParams(searchParams?.toString() ?? '')
-      params.set('model', filename)
-      // `push`, not `replace`. The comment above says the back button closes
-      // the stage; with `replace` it pushed no history entry, so back left the
-      // Files page entirely and discarded the camera, the cut, the selection,
-      // the hidden set and every measurement. On a phone, back is the primary
-      // way anyone dismisses a full-screen overlay.
-      //
-      // Closing still REPLACES, so shutting the stage does not leave an entry
-      // that back would re-open.
-      router.push(`${pathname ?? ''}?${params.toString()}`, { scroll: false })
-    },
-    [pathname, router, searchParams]
-  )
 
   /**
    * Close the viewer, and take its whole view with it.
@@ -205,6 +217,24 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
    * behind as dead parameters on the file browser — and re-opening any model
    * afterwards would inherit a selection from a different building.
    */
+  /**
+   * Straight to the stage, for the flag-off path.
+   *
+   * `push`, not `replace`: with `replace` the back button left the Files page
+   * entirely and discarded the camera, the cut, the selection, the hidden set
+   * and every measurement. On a phone, back is the primary way anyone dismisses
+   * a full-screen overlay. Closing still REPLACES, so shutting the stage does
+   * not leave an entry that back would re-open.
+   */
+  const openModel = useCallback(
+    (filename: string) => {
+      const params = new URLSearchParams(searchParams?.toString() ?? '')
+      params.set('model', filename)
+      router.push(`${pathname ?? ''}?${params.toString()}`, { scroll: false })
+    },
+    [pathname, router, searchParams]
+  )
+
   const closeModel = useCallback(() => {
     const params = new URLSearchParams(searchParams?.toString() ?? '')
     for (const key of ['model', 'element', 'storey', 'xray', 'tab', 'view', 'cut', 'cutup', 'proj']) {
@@ -228,7 +258,42 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     setView(next)
     if (typeof window !== 'undefined') window.localStorage.setItem(VIEW_STORAGE_KEY, next)
   }, [])
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
+  /**
+   * Which folder is open, in the URL rather than in state.
+   *
+   * It was `useState`, and that made the folder tree the one part of this page
+   * the browser did not know about: three folders deep, the back button left
+   * Dateien entirely instead of going up one level, a reload dropped the reader
+   * at the root, and a folder could not be sent to a colleague at all. Every
+   * other view on this page — which model, which storey, which element — has
+   * lived in the URL for exactly these reasons; the folder was the exception.
+   *
+   * `?folder=<id>` and not a path segment: the folder tree is arbitrarily deep
+   * and folders are renameable, so a route would need either a catch-all
+   * segment resolved by name (ambiguous — two siblings may share a name) or the
+   * same id in a prettier place. The id is what the API takes.
+   */
+  const selectedFolderId = searchParams?.get('folder')?.trim() || null
+
+  /**
+   * `push`, so each folder is its own history entry and back means "up one
+   * level" — which is the whole point of moving this into the URL. `scroll:
+   * false` because the listing replaces itself in place.
+   */
+  const setSelectedFolderId = useCallback(
+    (next: string | null) => {
+      const params = new URLSearchParams(searchParams?.toString() ?? '')
+      if (next === null) params.delete('folder')
+      else params.set('folder', next)
+      // Leaving a level closes whatever was open in it: a `doc` from the folder
+      // you just left is not in the folder you just entered.
+      params.delete('doc')
+      const query = params.toString()
+      const path = pathname ?? ''
+      router.push(query ? `${path}?${query}` : path, { scroll: false })
+    },
+    [pathname, router, searchParams]
+  )
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
   const [folders, setFolders] = useState<FolderItem[]>([])
   const [files, setFiles] = useState<FileItem[]>([])
@@ -265,7 +330,19 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
    * effect below re-reads the listing, because `loadFiles` changes identity
    * with it.
    */
-  const [agentAuthoredOnly, setAgentAuthoredOnly] = useState(false)
+  const [filters, setFilters] = useState<FileFilters>(NO_FILE_FILTERS)
+  const agentAuthoredOnly = filters.agentAuthoredOnly
+
+  /**
+   * Ordering, lifted out of the detail view.
+   *
+   * `FileListView` used to own this. That made the order a property of ONE of
+   * the two views: switching to Kacheln threw away the sort you had chosen, and
+   * "which is the newest" was a question only the list could answer. It is a
+   * question about the listing, so it is asked here and both views read it —
+   * the list's column headers write back to this same state.
+   */
+  const [sort, setSort] = useState<FileSort>(DEFAULT_FILE_SORT)
 
   /**
    * @param quiet Refresh without the skeleton — used by the settling poll
@@ -423,18 +500,20 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     wasUploading.current = isUploading
   }, [isUploading, loadFiles])
 
-  const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilter>('all')
-
   const docParam = searchParams?.get('doc')
 
-  /** Assignment/authorship filters, over the whole corpus — the search scope. */
-  const assignmentFiltered = useMemo(() => {
-    if (!canCollaborate || assignmentFilter === 'all') return files
-    if (assignmentFilter === 'unassigned') {
-      return files.filter((file) => !file.assignees || file.assignees.length === 0)
-    }
-    return files.filter((file) => file.assignees?.some((person) => person.userId === currentUserId))
-  }, [files, canCollaborate, assignmentFilter, currentUserId])
+  /**
+   * The filter menu applied to the whole corpus — and therefore the search
+   * scope too, so a narrowed listing stays narrowed when you search it.
+   *
+   * `agentAuthoredOnly` is deliberately absent: it is a query parameter on the
+   * listing endpoint (see `loadFiles`), so `files` has already been narrowed by
+   * it before this runs.
+   */
+  const filteredFiles = useMemo(
+    () => applyFileFilters(files, filters, { canCollaborate: !!canCollaborate, currentUserId }),
+    [files, filters, canCollaborate, currentUserId]
+  )
 
   /**
    * The current LEVEL, Finder-style: the root shows the unfiled documents plus
@@ -444,9 +523,9 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
    * whole corpus instead.
    */
   const levelFiles = useMemo(() => {
-    if (foldersError) return assignmentFiltered
-    return assignmentFiltered.filter((file) => (file.folderId ?? null) === selectedFolderId)
-  }, [assignmentFiltered, selectedFolderId, foldersError])
+    if (foldersError) return filteredFiles
+    return filteredFiles.filter((file) => (file.folderId ?? null) === selectedFolderId)
+  }, [filteredFiles, selectedFolderId, foldersError])
 
   /**
    * When a FILTER emptied the level rather than the folder being empty.
@@ -462,25 +541,35 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
    * of the two, so it is the one a reader needs explained.
    */
   const filterEmptyNotice = useMemo(() => {
-    const clear = () => {
-      setAgentAuthoredOnly(false)
-      setAssignmentFilter('all')
-    }
-    if (agentAuthoredOnly) {
+    const clear = () => setFilters(NO_FILE_FILTERS)
+    if (activeFilterCount(filters, !!canCollaborate) === 0) return null
+    if (filters.agentAuthoredOnly) {
       return {
         title: t('authorship.emptyTitle'),
         description: t('authorship.emptyDescription'),
         onClear: clear,
       }
     }
-    if (!canCollaborate || assignmentFilter === 'all') return null
+    if (canCollaborate && filters.assignment !== 'all') {
+      return {
+        title:
+          filters.assignment === 'mine'
+            ? t('assignment.emptyMine')
+            : t('assignment.emptyUnassigned'),
+        description: t('assignment.emptyDescription'),
+        onClear: clear,
+      }
+    }
+    // Type and status have no explanation of their own to give — unlike „Von
+    // Piloti", whose meaning nobody could infer, these two say what they mean
+    // on the chip. What the reader needs is the fact that a filter, and not an
+    // empty folder, is why they are looking at nothing.
     return {
-      title:
-        assignmentFilter === 'mine' ? t('assignment.emptyMine') : t('assignment.emptyUnassigned'),
-      description: t('assignment.emptyDescription'),
+      title: t('filters.emptyTitle'),
+      description: t('filters.emptyDescription'),
       onClear: clear,
     }
-  }, [agentAuthoredOnly, assignmentFilter, canCollaborate, t])
+  }, [filters, canCollaborate, t])
 
   // After a successful re-ingestion the document is back to 'pending'; reflect
   // that locally so the badge flips to "Processing" and the dead-end failure UI
@@ -579,13 +668,26 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       }
       const file = files.find((candidate) => candidate.id === id)
       if (!file) return
-      const isModel =
+      // An `.ifc` opens the way every other file opens — by default.
+      //
+      // It used to be intercepted here unconditionally and thrown at the
+      // full-screen stage, which made the model the ONE file type with no
+      // preview, and meant the same file behaved differently depending on which
+      // workspace you clicked it in: the Archiv had no stage to jump to, so it
+      // showed a preview with no way out.
+      //
+      // Both halves are fixed, and the choice is now a flag rather than a
+      // surface's private opinion. The Archiv runs this identical branch off
+      // the identical flag, so the two cannot disagree again.
+      if (
+        !previewFirst &&
+        showModels &&
         inferDocumentKind({
           filename: file.filename,
           contentType: file.contentType,
           tags: file.tags,
         }) === 'model'
-      if (showModels && isModel) {
+      ) {
         openModel(file.filename)
         return
       }
@@ -596,6 +698,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         scope: 'files',
         canCollaborate,
         showMetadataPanel,
+        showModels,
         onRenamed: handleRenamed,
         onDeleted: handleDeleted,
         onReingested: handleReingested,
@@ -605,6 +708,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     [
       files,
       showModels,
+      previewFirst,
       openModel,
       projectId,
       projectName,
@@ -740,7 +844,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       )
       return true
     },
-    [projectId, t, folders, files, selectedFolderId, loadFolders, loadFiles]
+    [projectId, t, folders, files, selectedFolderId, setSelectedFolderId, loadFolders, loadFiles]
   )
 
   return (
@@ -774,12 +878,15 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               <List />
             </ToggleGroupItem>
           </ToggleGroup>
-          <FileFilterStrip
+          <FileFilterMenu
             canCollaborate={!!canCollaborate}
-            assignmentFilter={assignmentFilter}
-            onAssignmentFilterChange={setAssignmentFilter}
-            agentAuthoredOnly={agentAuthoredOnly}
-            onAgentAuthoredOnlyChange={setAgentAuthoredOnly}
+            filters={filters}
+            onFiltersChange={setFilters}
+            sort={sort}
+            onSortChange={setSort}
+            // A ranked result set orders itself; offering a column here would
+            // throw the ranking away without saying so.
+            sortDisabled={search.semantic.active}
           />
           {/* The corpus search, in the header with the other controls that act
               on the listing — one search on the page, not a band under the one
@@ -855,12 +962,14 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
           ) : (
             <FileBrowserPane
               files={levelFiles}
-              searchFiles={assignmentFiltered}
+              searchFiles={filteredFiles}
               selectedFileId={selectedFileId}
               onSelectFile={handleSelectFile}
               isLoading={isLoadingFiles || isLoadingFolders}
               search={search}
               view={view}
+              sort={sort}
+              onSortChange={setSort}
               showAssignment={canCollaborate}
               filterEmptyNotice={filterEmptyNotice}
               onDropDocumentInFolder={handleDropInFolder}

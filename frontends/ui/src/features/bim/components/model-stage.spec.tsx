@@ -114,6 +114,15 @@ vi.mock('../hooks/use-bim-model', () => ({
     error: modelsError,
     reload: modelsReload,
   }),
+  // The Archiv's path: the stage has no project there, so it resolves the one
+  // model from the document it was opened on. Idle in these tests, which all
+  // pass a project — the stage picks whichever of the two is relevant.
+  useDocumentBimModel: () => ({
+    data: null,
+    isLoading: false,
+    error: null,
+    reload: () => {},
+  }),
   useBimElements: () => ({
     data: state.elementsLoading ? null : state.elements,
     isLoading: state.elementsLoading,

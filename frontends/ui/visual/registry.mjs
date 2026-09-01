@@ -406,6 +406,30 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="upload-tray"]',
   },
   {
+    id: 'files-filter-menu',
+    mobile: true,
+    path: '/dev/files-filter-menu',
+    description:
+      'Every way of narrowing and ordering the Dateien listing, behind one button. The strip this replaced sat open in the page header beside a view switch, a `lg:w-72` search field and an upload button \u2014 about 1100px of controls in the ~900px a header gets inside the sidebar \u2014 and had no room left for the filters people asked for. The shot has to carry the cost of hiding them: the trigger at rest, the trigger with a count (a dimension counts ONCE however many values it holds), and the open panel with all five sections, Sortierung included \u2014 ordering used to be private to the detail view, so switching to Kacheln discarded it.',
+    waitFor: '[data-testid="file-filter-menu"]',
+  },
+  {
+    id: 'files-header',
+    mobile: true,
+    path: '/dev/files-header',
+    description:
+      'The Dateien header: section title, its description, and every control that acts on the listing — view toggle, the two filter axes, corpus search, and the upload button. Pinned because a layout regression landed here unphotographed: folder upload shipped as a SECOND full-width button, the action side took the width it needed, and the header\u2019s `min-w-0` title block gave up the rest, rendering \u201eDokumente, auf die sich Piloti in diesem Projekt st\u00fctzt.\u201c as a four-word column. What this shot proves is that the description still reads as a sentence beside a single upload control.',
+    waitFor: 'text=Hochladen',
+  },
+  {
+    id: 'files-header-narrow',
+    mobile: true,
+    path: '/dev/files-header?variant=narrow',
+    description:
+      'The same header at a laptop width, which is where the squeeze appeared first \u2014 a wide desktop has slack that hides it. The controls may wrap here; what must not happen is the title block collapsing to a narrow column while the action side keeps its full width.',
+    waitFor: 'text=Hochladen',
+  },
+  {
     id: 'file-browser',
     mobile: true,
     path: '/dev/file-browser',
