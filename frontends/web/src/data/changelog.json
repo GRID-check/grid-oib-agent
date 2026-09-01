@@ -133,6 +133,22 @@
             {
               "en": "Ein Hinweis erscheint dort, wo er hingehört: der Assistent verankert ihn beim Absatz, den er betrifft, statt ihn ans Ende der Antwort zu hängen.",
               "de": "Ein Hinweis erscheint dort, wo er hingehört: der Assistent verankert ihn beim Absatz, den er betrifft, statt ihn ans Ende der Antwort zu hängen."
+            },
+            {
+              "en": "Im Quellendokument lässt sich jetzt Text markieren und kopieren. Bisher war die geöffnete Seite nur ein Bild: Die Maus konnte nichts auswählen, und auch die Suche des Browsers fand darin nichts.",
+              "de": "Im Quellendokument lässt sich jetzt Text markieren und kopieren. Bisher war die geöffnete Seite nur ein Bild: Die Maus konnte nichts auswählen, und auch die Suche des Browsers fand darin nichts."
+            },
+            {
+              "en": "Wer eine Stelle selbst markiert, bekommt sie auf Wunsch als fertiges Zitat — mit Dokument und Seitenzahl, in derselben Form wie die Zitate aus der Antwort. Damit sieht eine Stelle aus dem Dokument und eine aus dem Chat in der Stellungnahme gleich aus.",
+              "de": "Wer eine Stelle selbst markiert, bekommt sie auf Wunsch als fertiges Zitat — mit Dokument und Seitenzahl, in derselben Form wie die Zitate aus der Antwort. Damit sieht eine Stelle aus dem Dokument und eine aus dem Chat in der Stellungnahme gleich aus."
+            },
+            {
+              "en": "Die Werkzeugleiste zeigt jetzt die Seite, auf der man gerade liest, statt nur die Gesamtzahl der Seiten — und sie zählt beim Scrollen mit.",
+              "de": "Die Werkzeugleiste zeigt jetzt die Seite, auf der man gerade liest, statt nur die Gesamtzahl der Seiten — und sie zählt beim Scrollen mit."
+            },
+            {
+              "en": "Die Liste der Fundstellen steht jetzt immer neben dem Dokument, auch wenn eine Quelle nur an einer Stelle gelesen wurde. Sie sagt beim Lesen weiter oben oder unten im Dokument, welche Passage gerade geprüft wird, und zeigt die aktuelle Fundstelle vollständig — der Kasten über dem Dokument entfällt dafür, das Dokument wird entsprechend größer dargestellt.",
+              "de": "Die Liste der Fundstellen steht jetzt immer neben dem Dokument, auch wenn eine Quelle nur an einer Stelle gelesen wurde. Sie sagt beim Lesen weiter oben oder unten im Dokument, welche Passage gerade geprüft wird, und zeigt die aktuelle Fundstelle vollständig — der Kasten über dem Dokument entfällt dafür, das Dokument wird entsprechend größer dargestellt."
             }
           ]
         },
@@ -214,6 +230,18 @@
             {
               "en": "BMP- und TIFF-Bilder meldeten „keine Vorschau verfügbar\", obwohl der Server sie ausgeliefert hätte. Die beiden Listen, die darüber entscheiden, waren auseinandergelaufen.",
               "de": "BMP- und TIFF-Bilder meldeten „keine Vorschau verfügbar\", obwohl der Server sie ausgeliefert hätte. Die beiden Listen, die darüber entscheiden, waren auseinandergelaufen."
+            },
+            {
+              "en": "Stimmt die Seitenzahl einer Fundstelle nicht mit der Seite im PDF überein — üblich bei Dokumenten mit Deckblatt —, wird die zitierte Stelle jetzt auch auf der Seite davor und danach gesucht statt gar nicht markiert. Bleibt sie unauffindbar, sagt das Fenster das ausdrücklich, statt die Seite wortlos ohne Markierung zu zeigen.",
+              "de": "Stimmt die Seitenzahl einer Fundstelle nicht mit der Seite im PDF überein — üblich bei Dokumenten mit Deckblatt —, wird die zitierte Stelle jetzt auch auf der Seite davor und danach gesucht statt gar nicht markiert. Bleibt sie unauffindbar, sagt das Fenster das ausdrücklich, statt die Seite wortlos ohne Markierung zu zeigen."
+            },
+            {
+              "en": "In einer langen Fundstellenliste bleibt die gerade geöffnete Stelle sichtbar: Bisher wanderte sie beim Weiterblättern aus der Liste heraus.",
+              "de": "In einer langen Fundstellenliste bleibt die gerade geöffnete Stelle sichtbar: Bisher wanderte sie beim Weiterblättern aus der Liste heraus."
+            },
+            {
+              "en": "Am Telefon sprang das geöffnete Zitat über die markierte Stelle hinaus, so dass die Passage oberhalb des sichtbaren Bereichs lag und die Seite leer wirkte. Außerdem verdrängten die Kopieren-Schaltflächen im Kopf des Dokumentfensters den Dokumentnamen. Beides ist behoben.",
+              "de": "Am Telefon sprang das geöffnete Zitat über die markierte Stelle hinaus, so dass die Passage oberhalb des sichtbaren Bereichs lag und die Seite leer wirkte. Außerdem verdrängten die Kopieren-Schaltflächen im Kopf des Dokumentfensters den Dokumentnamen. Beides ist behoben."
             }
           ]
         }
