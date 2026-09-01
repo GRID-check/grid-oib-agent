@@ -70,17 +70,21 @@ describe('preferredCardsOf', () => {
   it('parses the comma list, trimming and deduplicating', () => {
     expect(preferredCardsOf({})).toEqual([])
     expect(preferredCardsOf({ [METADATA_CARDS]: '' })).toEqual([])
-    expect(preferredCardsOf({ [METADATA_CARDS]: ' summary , legal_basis ' })).toEqual([
-      'summary',
+    expect(preferredCardsOf({ [METADATA_CARDS]: ' condition_tree , legal_basis ' })).toEqual([
+      'condition_tree',
       'legal_basis',
     ])
-    expect(preferredCardsOf({ [METADATA_CARDS]: 'summary,summary' })).toEqual(['summary'])
+    expect(preferredCardsOf({ [METADATA_CARDS]: 'condition_tree,condition_tree' })).toEqual([
+      'condition_tree',
+    ])
   })
 
-  it('drops names the catalogue no longer offers, including system cards', () => {
+  it('drops names the catalogue no longer offers, including system and envelope cards', () => {
     expect(
-      preferredCardsOf({ [METADATA_CARDS]: 'summary,memory_proposal,gibt_es_nicht' })
-    ).toEqual(['summary'])
+      preferredCardsOf({ [METADATA_CARDS]: 'condition_tree,memory_proposal,gibt_es_nicht' })
+    ).toEqual(['condition_tree'])
+    // Envelope shapes are answer fields now, never a card preference.
+    expect(preferredCardsOf({ [METADATA_CARDS]: 'summary,verdict_header,callout' })).toEqual([])
   })
 })
 
@@ -90,9 +94,9 @@ describe('createSkillSchema — grid-cards write boundary', () => {
   it('accepts known card types', () => {
     const parsed = createSkillSchema.parse({
       ...valid,
-      metadata: { [METADATA_CARDS]: 'summary,comparison_table' },
+      metadata: { [METADATA_CARDS]: 'condition_tree,comparison_table' },
     })
-    expect(parsed.metadata?.[METADATA_CARDS]).toBe('summary,comparison_table')
+    expect(parsed.metadata?.[METADATA_CARDS]).toBe('condition_tree,comparison_table')
   })
 
   it('rejects unknown card types and system cards', () => {
