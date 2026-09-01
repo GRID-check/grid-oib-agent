@@ -53,6 +53,7 @@
 import { CITATIONS_PAYLOAD_VERSION } from '@/features/chat/lib/citations'
 import type { WireCitationSource } from '@/features/chat/types'
 import { sanitizeProvenance, type MessageProvenance } from './message-provenance'
+import { sanitizeAnswerMeta } from './message-answer-meta'
 
 /**
  * The metadata keys the backend writes in wire spelling. Listed so the
@@ -77,6 +78,10 @@ const BACKEND_ANSWER_KEYS = [
   'truncation_reason',
   'degraded_reasons',
   'citations_removed',
+  // The answer's structured anatomy (verdict / takeaways / callout) — the
+  // envelope's gated wire payload, stored under the camelCase key the client
+  // writer uses so history reads one dialect.
+  'answer_meta',
 ] as const
 
 /**
@@ -325,6 +330,11 @@ export function normalizeAgentAnswerMetadata(
   if (out.provenance === undefined) {
     const provenance = provenanceFromBackendMetadata(metadata)
     if (provenance) out.provenance = provenance
+  }
+
+  if (out.answerMeta === undefined) {
+    const answerMeta = sanitizeAnswerMeta(metadata.answer_meta)
+    if (answerMeta) out.answerMeta = answerMeta
   }
 
   return out

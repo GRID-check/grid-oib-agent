@@ -1,8 +1,8 @@
-"""The house skills, end to end: seed row → resolver → runtime → the model's input.
+"""Standard skills, end to end: served row → resolver → runtime → the model's input.
 
-Piloti's writing voice and its card judgement are not features the model may
-opt into. They are ``delivery: 'standard'`` rows (migrations 0053–0058), and
-everything that makes them apply is a chain of five separate mechanisms, each
+A ``delivery: 'standard'`` platform row is not a feature the model may opt
+into — it is fleet policy the moment a platform owner publishes one, and
+everything that makes it apply is a chain of five separate mechanisms, each
 one covered in isolation and none of them covered together:
 
 1. ``delivery: 'standard'`` makes ``Skill.standard`` true, which makes
@@ -19,11 +19,16 @@ one covered in isolation and none of them covered together:
 
 Every link has unit coverage somewhere. The chain does not, and it is the kind
 of thing a refactor breaks in silence: the answer is still produced, just
-without its voice, and nothing fails. So these run the REAL register wiring,
-the REAL runtime and the REAL seeded rows against a scripted LLM, and assert on
-the text that actually reached the model.
+without the published instructions, and nothing fails. So these run the REAL
+register wiring and the REAL runtime against a scripted LLM, and assert on the
+text that actually reached the model.
 
-Only the resolver's HTTP call and the LLM are faked. No database, no network.
+The rows here are SYNTHETIC. They used to be the seeded ``piloti-voice`` /
+``piloti-cards`` house skills, whose craft moved into the system prompts and
+whose rows migration 0071 retired — but the chain they exercised is exactly
+what the next published standard skill rides, so the test keeps the shape of
+those rows (one with ``grid-cards``, one without, both hidden) under neutral
+names. Only the resolver's HTTP call and the LLM are faked.
 """
 
 from __future__ import annotations
@@ -47,17 +52,45 @@ from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.skills.resolver import SkillResolver
 from nat.builder.context import ContextState
-from tests.aiq_agent.skills.seeded_skill_rows import effective_row
 
-VOICE = "piloti-voice"
-CARDS = "piloti-cards"
+VOICE = "org-voice"
+CARDS = "org-cards"
 
-#: One sentence from each seeded body, chosen because it could not appear in a
+#: One sentence in each synthetic body, chosen because it could not appear in a
 #: prompt, a tool description or a model answer by accident. Their presence is
 #: the only proof the BODY arrived rather than the one-line catalog entry, and
 #: their absence is the token-budget guarantee on a conversational turn.
 VOICE_PHRASE = "Ein Vorbehalt, der der Antwort vorausgeht, ist eine Absicherung gegen die eigene Aussage."
 CARDS_PHRASE = "die Karte trägt den WERT, die Prosa trägt den SATZ."
+
+#: The rows the faked BFF serves — the shape ``/skills/resolve`` produces for a
+#: published platform row. One declares ``grid-cards`` (live, non-envelope
+#: types), one does not; both are hidden standard delivery, mirroring the
+#: retired house skills whose chain this file keeps guarded.
+_SERVED_ROWS: dict[str, dict[str, str]] = {
+    VOICE: {
+        "name": VOICE,
+        "description": "Wie eine Antwort gebaut ist — Antwort zuerst, Vorbehalte zuletzt.",
+        "body": (f"# Wie eine Antwort gebaut ist\n\nDie Zahl oder das Urteil steht im ersten Satz. {VOICE_PHRASE}\n"),
+        "metadata": '{"grid-agents": "shallow_researcher,deep_researcher", "grid-hidden": "true"}',
+        "delivery": "standard",
+    },
+    CARDS: {
+        "name": CARDS,
+        "description": "Welche Karte eine Antwort besser macht.",
+        "body": (f"# Welche Karte eine Antwort besser macht\n\nDie Aufteilung: {CARDS_PHRASE}\n"),
+        "metadata": (
+            '{"grid-agents": "shallow_researcher", "grid-hidden": "true", '
+            '"grid-cards": "condition_tree,typed_table,process_map"}'
+        ),
+        "delivery": "standard",
+    },
+}
+
+
+def effective_row(name: str) -> dict[str, str]:
+    """The synthetic stand-in for the retired seeded rows (see module docstring)."""
+    return _SERVED_ROWS[name]
 
 
 @tool
@@ -130,13 +163,13 @@ def bypass_citation_pipeline():
 
 
 def _served_row(name: str) -> dict[str, object]:
-    """One seeded skill in the shape the BFF's ``/skills/resolve`` serves it.
+    """One published skill in the shape the BFF's ``/skills/resolve`` serves it.
 
     ``standard`` is the flag the BFF sets from the row's ``delivery`` column —
     the only thing that carries "this is fleet policy" across the process
-    boundary. Deriving it here from the SQL rather than hardcoding ``True``
-    keeps the seed at the head of the chain: a seed flipped to ``offer``
-    produces a payload the backend must not force.
+    boundary. Deriving it here from the row rather than hardcoding ``True``
+    keeps the delivery column at the head of the chain: a row flipped to
+    ``offer`` produces a payload the backend must not force.
     """
     row = effective_row(name)
     return {
@@ -350,8 +383,9 @@ class TestAConversationalTurn:
         ``use_skill`` tool is offered, and no sentence of either body is in
         front of the model.
         """
-        bodies = len(effective_row(VOICE)["body"]) + len(effective_row(CARDS)["body"])
-        assert bodies > 10_000, "the two house bodies are what this turn is avoiding"
+        # The seeded house bodies this gate once avoided ran to ~22,000
+        # characters; the synthetic rows are small, so the guarantee is asserted
+        # on the sentinel phrases below rather than on a size floor.
 
         llm = _scripted_llm(AIMessage(content="Hallo! Womit kann ich helfen?"))
         state = ShallowResearchAgentState(

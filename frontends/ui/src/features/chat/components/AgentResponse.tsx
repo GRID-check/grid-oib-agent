@@ -23,7 +23,12 @@ import { formatTime } from '@/shared/utils/format-time'
 import { useLayoutStore } from '@/features/layout/store'
 import { GridCardItem, GridCards } from '@/features/grid-cards/components/GridCards'
 import { CardSetProvider } from '@/features/grid-cards/card-set'
-import { remarkCardMarkers, unplacedCardIndices } from '@/features/grid-cards/card-markers'
+import {
+  CALLOUT_SLOT_INDEX,
+  hasPlacedCalloutMarker,
+  remarkCardMarkers,
+  unplacedCardIndices,
+} from '@/features/grid-cards/card-markers'
 import { MarkdownSlotProvider } from '@/shared/components/MarkdownRenderer/slot-context'
 import type { GridCard } from '@/shared/cards/schemas'
 import type { CitationSource } from '../types'
@@ -36,10 +41,6 @@ import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks'
-// Imported from its module rather than the barrel: the specs around this
-// component mock `../hooks` wholesale for `useLoadJobData`, and a reveal that
-// disappears under a partial mock takes every one of them down with it.
-import { useTypedReveal } from '../hooks/use-typed-reveal'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   answerDocuments,
@@ -53,6 +54,9 @@ import { SkillsUsedDisclosure } from '@/features/skills/components/SkillsUsedDis
 import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
 import { turnMemoryItems } from '../lib/turn-memory'
+import { answerMetaToAnatomy } from '../lib/answer-meta-cards'
+import { AnatomyBlock, AnatomyMasthead } from './AnswerAnatomy'
+import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
 import { ConfidenceChip } from './ConfidenceChip'
 import { AnswerFeedback } from './AnswerFeedback'
 import { AnswerActions } from './AnswerActions'
@@ -60,10 +64,10 @@ import { AnswerActions } from './AnswerActions'
 /**
  * The first paragraph of a long answer, typeset as a lede.
  *
- * The agent is asked to lead with the ruling or the number. That rule lives in
- * the `piloti-voice` platform skill („Der erste Satz ist die Antwort"), which is
- * applied on every answering turn; `<answer_shape>` in the researcher prompt now
- * only routes to it. Either way the answer arrives with its conclusion first —
+ * The agent is asked to lead with the ruling or the number. That rule is the
+ * `<stimme>` section of the researcher's system prompt („Der erste Satz ist die
+ * Antwort"), unconditional on every answering turn since the `piloti-voice`
+ * platform skill was folded into it. The answer arrives with its conclusion first —
  * but a conclusion set at exactly the weight of the reasoning beneath it is a
  * conclusion the reader still has to go looking for.
  * One notch of size and air is enough to make the answer legible before the
@@ -140,6 +144,13 @@ export interface AgentResponseProps {
    * component in the thread column, not part of the answer card (§6.1).
    */
   stages?: MessageStages
+  /**
+   * The answer's structured anatomy (verdict / takeaways / callout) — native
+   * answer fields with a FIXED layout: the verdict renders above the prose,
+   * the callout and the takeaways after it. Gated backend-side and sanitized
+   * at every boundary; never part of `cards`.
+   */
+  answerMeta?: AnswerMeta
   /** The assistant's guarded self-assessed answer confidence (shallow answers only) */
   answerConfidence?: 'low' | 'medium' | 'high'
   /**
@@ -472,6 +483,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   conversationId,
   cardInteractions,
   stages,
+  answerMeta,
   answerConfidence,
   answerConfidenceCappedReason,
   answerConfidenceReason,
@@ -503,24 +515,25 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // prose become links to its rows. Answers without such a section are untouched.
   const fallbackId = useId()
   const anchorPrefix = answerSourceAnchorPrefix(messageId ?? fallbackId)
-  // What the reader may see this frame. The answer is finished before its first
-  // delta leaves the agent, so `isStreaming` is a state the turn passes through
-  // in a frame or two — the writing is the REVEAL, and it belongs here rather
-  // than in the store, which stays the authoritative full text for persistence,
-  // export and copy. See `hooks/use-typed-reveal.ts`.
-  const { text: revealedContent, isTyping } = useTypedReveal(content)
-  // "Still arriving" as far as the reader is concerned: the caret trails the
-  // text, the footer stays reserved at its height, and nothing that acts on a
-  // WHOLE answer — the copy actions, the cards no marker claimed — is offered
-  // over half of one.
-  const stillArriving = isStreaming || isTyping
+  // The answer is finished before its first delta leaves the agent, so
+  // `isStreaming` is a state the turn passes through in a frame or two. The
+  // client-side typewriter that used to pace the reveal (`use-typed-reveal`)
+  // was removed deliberately: the full text paints as soon as it arrives.
+  // "Still arriving" is therefore the real streaming window only — the caret
+  // trails the text, the footer stays reserved at its height, and nothing that
+  // acts on a WHOLE answer — the copy actions, the cards no marker claimed —
+  // is offered over half of one.
+  const stillArriving = isStreaming
   const {
     body,
     entries: sourceEntries,
     numbers: citationNumbers,
-  } = useMemo(() => splitAnswerBody(revealedContent), [revealedContent])
+  } = useMemo(() => splitAnswerBody(content), [content])
 
-  const ledeClass = opensWithLede(body, stillArriving) ? LEDE_CLASS : ''
+  // The lede is suppressed when the envelope carries a summary: the masthead's
+  // standfirst holds that emphasis, and a 17px summary over a 17px first
+  // paragraph would be the same statement twice at the same weight.
+  // (`anatomy` is declared below; the class is derived after it.)
   // The markers are linked while the body is PARSED, not before: `[2][3]` — two
   // sources behind one claim, the shape the backend is told to write — is
   // indistinguishable from reference-link syntax in raw text, and used to reach
@@ -530,21 +543,54 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // `[[card:2]]` on a line of its own, and the card is spliced in there rather
   // than stacked above the answer it is supposed to illustrate.
   const cardCount = cards?.length ?? 0
+  // The answer's structured anatomy, rendered FLAT (`AnswerAnatomy.tsx`) as
+  // answer typography: the verdict as the masthead above the prose, the
+  // takeaways closing it, the callout beside the paragraph its `[[callout]]`
+  // marker anchors it to — or after the prose when unanchored. The shape set
+  // feeds every CardSetProvider so cross-card rules (charter §A2) see the
+  // anatomy too, even though it never joins the `cards` array.
+  const anatomy = useMemo(() => answerMetaToAnatomy(answerMeta), [answerMeta])
+  const ledeClass = opensWithLede(body, stillArriving) && !anatomy?.summary ? LEDE_CLASS : ''
   const markerPlugins = useMemo(
     (): PluggableList => [
       [remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix }],
-      [remarkCardMarkers, { count: cardCount }],
+      [remarkCardMarkers, { count: cardCount, callout: Boolean(anatomy?.callout) }],
     ],
-    [citationNumbers, anchorPrefix, cardCount]
+    [citationNumbers, anchorPrefix, cardCount, anatomy]
   )
   // The cards the prose did NOT claim. Read off the same body the renderer
   // parses, because the block below has to be built before that parse happens.
   const fallbackCardIndices = useMemo(() => unplacedCardIndices(body, cardCount), [body, cardCount])
+  // The after-prose anatomy: the callout leaves this block the moment the
+  // prose claims it with a marker — same pre-render reading as the card
+  // fallback above, and for the same reason.
+  const anatomyBelow = useMemo(() => {
+    if (!anatomy) return []
+    if (anatomy.callout && hasPlacedCalloutMarker(body)) {
+      return anatomy.below.filter((card) => card.type !== 'callout')
+    }
+    return anatomy.below
+  }, [anatomy, body])
   // Renders nothing when the index has no card yet — while streaming a marker
   // routinely arrives several frames before the card it names, and a hole is
   // better than a crash or a raw `[[card:2]]`.
+  const cardSet = useMemo(
+    () => [...(cards ?? []), ...(anatomy?.all ?? [])],
+    [cards, anatomy]
+  )
   const renderCardSlot = useCallback(
     (index: number) => {
+      // The callout's slot: the one anatomy block the prose may anchor.
+      if (index === CALLOUT_SLOT_INDEX) {
+        if (!anatomy?.callout) return null
+        return (
+          <div className="mb-3 block!">
+            <CardSetProvider cards={cardSet}>
+              <AnatomyBlock card={anatomy.callout} />
+            </CardSetProvider>
+          </div>
+        )
+      }
       const card = cards?.[index]
       if (!card) return null
       // `mb-3` is the paragraph rhythm of the markdown body: the card replaced
@@ -557,13 +603,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               by a marker still has to know what ELSE the answer is carrying —
               `summary` and `verdict_header` must not both claim the top of it
               (grid-card-charter.md §A2). See `grid-cards/card-set.tsx`. */}
-          <CardSetProvider cards={cards ?? []}>
+          <CardSetProvider cards={cardSet}>
             <GridCardItem card={card} index={index} projectId={projectId} messageId={messageId} />
           </CardSetProvider>
         </div>
       )
     },
-    [cards, projectId, messageId]
+    [cards, cardSet, projectId, messageId]
   )
   // ONE derivation for the whole answer: the inline `[N]` markers in the prose
   // and the provenance chips below are the same citations seen twice, and two
@@ -713,6 +759,12 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       <DiagramFilingProvider target={diagramFilingTarget}>
       <AnswerCitations documents={documents} anchorPrefix={anchorPrefix}>
       <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
+        {/* The answer's masthead — verdict and/or summary, flat above the prose. */}
+        {anatomy && (anatomy.verdict || anatomy.summary) && (
+          <CardSetProvider cards={cardSet}>
+            <AnatomyMasthead verdict={anatomy.verdict} summary={anatomy.summary} />
+          </CardSetProvider>
+        )}
         {/* Response Content rendered as markdown (with streaming caret). While
             streaming, the markdown block + its last child are forced inline so
             the caret trails the final glyph instead of dropping to a new line.
@@ -740,6 +792,17 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             column's `gap-2` is 8px and the markdown body's paragraph rhythm is
             12px, so without it an UNPLACED card hugged the prose 4px tighter
             than a placed one — visible the moment an answer carries both. */}
+        {/* The anatomy below the prose: the callout (unless its marker placed
+            it inline), then the takeaways. */}
+        {!stillArriving && anatomyBelow.length > 0 && (
+          <div className="mt-1 flex flex-col gap-3">
+            <CardSetProvider cards={cardSet}>
+              {anatomyBelow.map((card) => (
+                <AnatomyBlock key={card.type} card={card} />
+              ))}
+            </CardSetProvider>
+          </div>
+        )}
         {!stillArriving && cards && fallbackCardIndices.length > 0 && (
           <div className="mt-1">
             <GridCards
@@ -884,7 +947,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             provenance footer by a single hairline, so the whole thing reads as
             one considered object with sections — not a card floating in a tray. */}
         <div className="flex flex-col gap-2 break-words border-b bg-card px-[22px] pb-[17px] pt-[18px]">
-          {/* Response Content rendered as markdown (with streaming caret).
+          {/* The answer's masthead — verdict and/or summary, flat above the prose. */}
+          {anatomy && (anatomy.verdict || anatomy.summary) && (
+          <CardSetProvider cards={cardSet}>
+            <AnatomyMasthead verdict={anatomy.verdict} summary={anatomy.summary} />
+          </CardSetProvider>
+        )}
+        {/* Response Content rendered as markdown (with streaming caret).
               Cards the answer placed with a marker are spliced into this body. */}
           <MarkdownSlotProvider render={renderCardSlot}>
             <div
@@ -906,7 +975,18 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               rhythm is 12px, so without it an UNPLACED card hugged the prose 4px
               tighter than a placed one — visible the moment an answer carries
               both, which is what /dev/chat-turn?variant=two-cards shows. */}
-          {!stillArriving && cards && fallbackCardIndices.length > 0 && (
+          {/* The anatomy below the prose: the callout (unless its marker placed
+              it inline), then the takeaways. */}
+          {!stillArriving && anatomyBelow.length > 0 && (
+          <div className="mt-1 flex flex-col gap-3">
+            <CardSetProvider cards={cardSet}>
+              {anatomyBelow.map((card) => (
+                <AnatomyBlock key={card.type} card={card} />
+              ))}
+            </CardSetProvider>
+          </div>
+        )}
+        {!stillArriving && cards && fallbackCardIndices.length > 0 && (
             <div className="mt-1">
               <GridCards
                 cards={cards}

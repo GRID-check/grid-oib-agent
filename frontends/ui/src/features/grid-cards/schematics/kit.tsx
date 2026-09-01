@@ -37,6 +37,7 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { useTranslations, type Translator } from '@/i18n'
 import { AskAboutChip } from '../components/AskAboutChip'
+import { CARD_SHELL } from '../components/card-chrome'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { resolveCorpusFileName } from '@/features/knowledge/lib/resolve-corpus-file'
 import { useCorpusFiles } from '@/features/knowledge/lib/use-corpus-files'
@@ -610,12 +611,19 @@ export const DimChecksList: FC<DimChecksListProps> = ({ checks, className }) => 
 
 interface NormRefFooterProps {
   reference: NormReferenceData | null | undefined
+  /**
+   * Drop the separating top rule. For the flat answer anatomy, whose masthead
+   * ends with its own hairline — a second rule directly above it would read as
+   * a table border. The framed cards keep the rule: on a ground, a footer
+   * needs the separation.
+   */
+  bare?: boolean
 }
 
 /** Footer chip echoing LegalBasisCard: document + section badge + edition.
  * When the referenced document resolves to a base-corpus PDF, the citation
  * opens the actual source in the in-app viewer. */
-export const NormRefFooter: FC<NormRefFooterProps> = ({ reference }) => {
+export const NormRefFooter: FC<NormRefFooterProps> = ({ reference, bare = false }) => {
   // Named for its namespace: every other translator in this file is scoped to
   // `chat`, and two `t`s in one file bound to different namespaces are
   // indistinguishable to `key-coverage.spec.ts`.
@@ -625,7 +633,7 @@ export const NormRefFooter: FC<NormRefFooterProps> = ({ reference }) => {
   if (!reference?.document) return null
   const corpusFileName = resolveCorpusFileName(reference.document, corpusFiles)
   return (
-    <div className="flex flex-col gap-2 border-t pt-3">
+    <div className={bare ? 'flex flex-col gap-2' : 'flex flex-col gap-2 border-t pt-3'}>
       <div className="card-caption flex flex-wrap items-center gap-2 text-muted-foreground">
         <Scale className="size-3.5" aria-hidden="true" />
         <span className="font-medium text-foreground">{reference.document}</span>
@@ -710,7 +718,7 @@ export const SchematicCard: FC<SchematicCardProps> = ({
 }) => {
   const t = useTranslations('chat')
   return (
-    <Card className="animate-in fade-in-0 slide-in-from-bottom-1 gap-3 p-5 shadow-xs">
+    <Card className={cn(CARD_SHELL, 'animate-in fade-in-0 slide-in-from-bottom-1 gap-3 p-5')}>
       <div className="flex items-center justify-between gap-2">
         <div className="card-eyebrow flex items-center gap-1.5 text-muted-foreground">
           <Icon className="size-3.5" aria-hidden="true" />

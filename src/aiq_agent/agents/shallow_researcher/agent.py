@@ -32,6 +32,10 @@ from aiq_agent.common import content_to_text
 from aiq_agent.common import get_source_id_for_tool
 from aiq_agent.common import load_prompt
 from aiq_agent.common import render_prompt_template
+from aiq_agent.common.answer_envelope import extract_answer_envelope
+from aiq_agent.common.answer_envelope import gate_answer_meta
+from aiq_agent.common.answer_envelope import render_envelope_response_format
+from aiq_agent.common.answer_envelope import resolve_callout_marker
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
@@ -148,6 +152,26 @@ _RESEARCH_ONLY_BASENAMES = frozenset({"surface_documents", "ifc_query", "ifc_mea
 # bind_tools (pure CPU, no network), while an unbounded dict on a long-lived
 # worker costs memory forever.
 _MAX_CACHED_BINDINGS = 32
+
+# Provider enforcement for the ```answer_json envelope, strongest first:
+#
+# 1. OpenRouter STRUCTURED OUTPUTS (`json_schema`, strict) — the reply is one
+#    schema-valid JSON object, derived from the same Pydantic models as the
+#    validator (`render_envelope_response_format`). The envelope is a small,
+#    flat schema, so strict mode is expressible — unlike the 20-way card
+#    union that pushed `cards/generate.py` down to `json_object`.
+# 2. `json_object` — syntactic validity only, widely honored.
+# 3. A plain call — the fenced contract taught in the prompt, parsed by the
+#    fail-open extractor.
+#
+# Each step is bound per-call with a fallback to the next (see
+# `_ainvoke_with_envelope_json_mode`), never construction-time: a provider
+# that rejects a parameter must degrade to the next rung, not to a failed
+# turn. The deterministic gates stay the editorial enforcement either way.
+_ENVELOPE_RESPONSE_FORMATS: tuple[dict[str, Any], ...] = (
+    render_envelope_response_format(),
+    {"type": "json_object"},
+)
 
 
 def _count_interaction_calls(tool_calls: Iterable[Any]) -> int:
@@ -420,6 +444,7 @@ class ShallowResearcherAgent:
         callbacks: list[Any] | None = None,
         tool_search: ToolSearchSettings | None = None,
         deferred_tool_loading: DeferredToolLoadingSettings | None = None,
+        envelope_json_mode_with_tools: bool = False,
     ) -> None:
         """
         Initialize the shallow researcher agent.
@@ -446,6 +471,16 @@ class ShallowResearcherAgent:
                 disabled settings object) leaves every path below exactly as it
                 was: the full binding, the full prompt tool list, the full
                 ToolNode.
+            envelope_json_mode_with_tools: Whether provider JSON mode
+                (``response_format: json_object``) is ALSO bound on the
+                tool-bound research iterations, not only on the tool-free
+                forced-synthesis call. Default False, deliberately: some
+                OpenRouter-routed providers accept the parameter and then stop
+                emitting tool calls — a silent degradation the per-call
+                fallback cannot see, the exact failure class
+                ``verify_deferred_tool_loading`` exists for. The envelope
+                extractor is fail-open either way, so JSON mode is a guarantee
+                of syntactic validity, never the enforcement.
             deferred_tool_loading: Optional OpenRouter server-side tool search.
                 None (or disabled) binds tool schemas the way it always has.
                 Orthogonal to ``tool_search``: that one decides WHICH tools are
@@ -462,6 +497,7 @@ class ShallowResearcherAgent:
         self.deferred_tool_loading = (
             deferred_tool_loading if (deferred_tool_loading is not None and deferred_tool_loading.enabled) else None
         )
+        self.envelope_json_mode_with_tools = envelope_json_mode_with_tools
 
         # Load prompts
         self.system_prompt = system_prompt or self._load_system_prompt()
@@ -538,6 +574,35 @@ class ShallowResearcherAgent:
     def _get_llm(self) -> BaseChatModel:
         """Get the LLM for shallow research."""
         return self.llm_provider.get(LLMRole.RESEARCHER)
+
+    async def _ainvoke_with_envelope_json_mode(self, llm: Any, messages: list[Any]) -> Any:
+        """Invoke ``llm`` down the envelope-enforcement ladder, strongest first.
+
+        The ``cards/generate.py::_ainvoke_card_llm`` idiom, extended to a
+        chain: strict ``json_schema`` (OpenRouter structured outputs — the
+        reply IS the envelope), then ``json_object`` (syntactic validity),
+        then a plain call (the fenced contract, parsed by the fail-open
+        extractor). Each rung is bound per-call and a provider that rejects it
+        drops to the next. Accepts both the bare researcher LLM and a
+        tool-bound RunnableBinding (``bind`` merges kwargs on either).
+
+        The fallback catches the LOUD failure only. OpenRouter's other mode —
+        accepting the parameter and silently degrading (dropping tool calls, or
+        routing to a provider that ignores it) — is invisible here by nature,
+        which is why enforcement defaults to the tool-FREE forced-synthesis
+        call and rides tool-bound iterations only behind
+        ``envelope_json_mode_with_tools``.
+        """
+        for response_format in _ENVELOPE_RESPONSE_FORMATS:
+            try:
+                return await llm.bind(response_format=response_format).ainvoke(messages)
+            except Exception as e:
+                logger.warning(
+                    "Envelope response_format %s failed (%s); falling back",
+                    response_format.get("type"),
+                    str(e).split("\n")[0],
+                )
+        return await llm.ainvoke(messages)
 
     def _bind_research_tools(self, tools: Sequence[BaseTool]) -> Any:
         """Bind a RESEARCH-turn tool set, deferring the schemas when configured.
@@ -808,6 +873,9 @@ class ShallowResearcherAgent:
                     # Skills catalog + forced-skills block (already collated by
                     # the register layer; None renders no section).
                     skills_block=state.skills_block,
+                    # `answer_envelope_schema` is injected by the renderer
+                    # itself (prompt_utils), so no caller can teach an empty
+                    # schema by forgetting a kwarg.
                 )
                 if os.environ.get("DEBUG_PROMPTS"):
                     logger.debug("Rendered system prompt:\n%s", rendered_system_prompt)
@@ -859,13 +927,22 @@ class ShallowResearcherAgent:
                     synthesis_anchor = HumanMessage(
                         content=(
                             "You have exhausted your research budget. Synthesize the final answer now "
+                            "as your ```answer_json envelope object, "
                             "using the citations [1], [2] and the '## References' format. "
                             "Do not attempt any further tool calls."
                         )
                     )
 
                     full_messages = [system_message] + processed_history + [synthesis_anchor]
-                    response = await self._get_llm().ainvoke(full_messages)
+                    # Forced synthesis is the tool-FREE call, so provider JSON
+                    # mode is safe here unconditionally on research turns: there
+                    # is no tool call left to suppress, and the envelope is due.
+                    # Meta turns answer in prose (no envelope contract), so they
+                    # keep the plain call.
+                    if state.requires_sources:
+                        response = await self._ainvoke_with_envelope_json_mode(self._get_llm(), full_messages)
+                    else:
+                        response = await self._get_llm().ainvoke(full_messages)
                     return {
                         "messages": [response],
                         "tool_iterations": iterations,
@@ -877,7 +954,14 @@ class ShallowResearcherAgent:
                     }
 
                 full_messages = [system_message] + processed_history
-                response = await active_llm_with_tools.ainvoke(full_messages)
+                # Tool-bound iterations get JSON mode only by explicit opt-in:
+                # the constructor docstring carries the silent-tool-suppression
+                # argument for the default. Even opted in, meta turns stay
+                # plain — their reply is prose, not an envelope.
+                if self.envelope_json_mode_with_tools and state.requires_sources:
+                    response = await self._ainvoke_with_envelope_json_mode(active_llm_with_tools, full_messages)
+                else:
+                    response = await active_llm_with_tools.ainvoke(full_messages)
 
                 new_iterations = iterations
                 new_interaction_iterations = interaction_iterations
@@ -1168,6 +1252,11 @@ class ShallowResearcherAgent:
         escalation_requested: bool | None = None
         answer_confidence_marker: str | None = None
         answer_confidence_marker_reason: str | None = None
+        # The gated answer_meta payload (verdict / takeaways / callout), or None
+        # when the answer carried no trailer or nothing survived the gates. It
+        # travels as structured state like the confidence marker above — a
+        # native field of the answer, never a card.
+        answer_meta_payload: dict[str, Any] | None = None
         # Transparency summary of any citations dropped by verify_citations this
         # turn. Populated in the verification block below; stays None when the
         # registry was empty or nothing was removed, so the field stays absent.
@@ -1204,10 +1293,28 @@ class ShallowResearcherAgent:
                 # card registry) so the markers below and the citation pipeline
                 # operate on clean prose.
                 content = strip_and_salvage_dsml_tool_calls(content)
+                # The answer envelope comes apart FIRST: a research reply is one
+                # ```answer_json object whose `answer` field is the prose, so
+                # until it is split the two tail-anchored marker detectors below
+                # would be reading JSON instead of the answer's final lines.
+                # Gating waits until the prose is final (post-verification).
+                content, answer_meta = extract_answer_envelope(content)
                 content, escalation_requested = detect_and_strip_escalation_marker(content)
                 content, answer_confidence_marker, answer_confidence_marker_reason = detect_and_strip_confidence_marker(
                     content
                 )
+                # The envelope's CONTROL fields are the canonical carriers; the
+                # bracket markers stay understood as the fallback (and are
+                # stripped above regardless, so neither grammar ever reaches
+                # the reader). Escalation is OR-ed — either channel saying
+                # "insufficient" is the model saying it.
+                if answer_meta is not None:
+                    if answer_meta.escalate_to_deep:
+                        escalation_requested = True
+                    if answer_meta.confidence is not None:
+                        answer_confidence_marker = answer_meta.confidence.level
+                        reason = (answer_meta.confidence.reason or "").strip()
+                        answer_confidence_marker_reason = reason[:300] or None
 
                 # Step 1: verify citations against registry
                 if registry.all_sources():
@@ -1363,6 +1470,27 @@ class ShallowResearcherAgent:
                         for entry_id, number in citation_numbers.items()
                     }
 
+                # The structured trailer, gated now that the text is final.
+                # Skipped on an escalating turn: the shallow answer is about to
+                # be superseded by deep research, and a verdict attached to a
+                # discarded answer would decorate the job-submission stub. The
+                # takeaway gate judges the PROSE, not the sources apparatus.
+                if answer_meta is not None and not escalation_requested:
+                    answer_meta_payload = gate_answer_meta(
+                        answer_meta,
+                        prose_chars=len(_prose_without_references(content)),
+                    )
+
+                # The callout's placement marker, resolved against what the
+                # gates decided: at most the first own-line `[[callout]]` stays
+                # (the frontend draws the callout there), and every marker is
+                # stripped when no callout survived — the reader must never
+                # meet a marker with nothing behind it.
+                content = resolve_callout_marker(
+                    content,
+                    has_callout=bool(answer_meta_payload and "callout" in answer_meta_payload),
+                )
+
                 # Emit verified/sanitized report so the frontend shows the
                 # cleaned version (overwrites the raw draft auto-emitted
                 # during ainvoke).
@@ -1419,6 +1547,10 @@ class ShallowResearcherAgent:
         validated_result["escalation_requested"] = escalation_requested
         validated_result["answer_confidence_marker"] = answer_confidence_marker
         validated_result["answer_confidence_marker_reason"] = answer_confidence_marker_reason
+        # The answer's structured anatomy (verdict / takeaways / callout), gated
+        # above. None when absent, so the wire field stays off rather than
+        # null-spamming a frame the frontend reads on presence.
+        validated_result["answer_meta"] = answer_meta_payload
         # Wire-ready sources for Belegt-durch chips / PDF open (file/page/collection).
         # Emit ONLY the sources the model cited in THIS turn's answer
         # (``relevant_sources``), never the cumulative session registry — a

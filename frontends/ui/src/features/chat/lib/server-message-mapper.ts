@@ -34,6 +34,7 @@
 
 import type { Message } from '@/lib/db/schema'
 import { CAPPED_REASONS } from '@/lib/conversations/message-provenance'
+import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
 import { sanitizeStages } from '@/lib/conversations/message-stages'
 
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
@@ -131,6 +132,12 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
     // that indexes a lookup table by an unvalidated field, threw during
     // render, and blanked the WHOLE conversation rather than that one card.
     ...(Array.isArray(metadata.cards) ? { cards: validateGridCards(metadata.cards) } : {}),
+    // Re-sanitized on read like `cards`: a stored row is client-written jsonb,
+    // and the renderer must never meet an unbounded shape.
+    ...(() => {
+      const answerMeta = sanitizeAnswerMeta(metadata.answerMeta)
+      return answerMeta ? { answerMeta } : {}
+    })(),
     // Restored WITH their answers: a card whose patch was already applied must
     // not come back offering the button again (see card-decision.ts). Narrowed
     // rather than cast — this jsonb blob is the only card state not written by

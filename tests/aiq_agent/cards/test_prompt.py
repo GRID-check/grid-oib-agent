@@ -23,7 +23,7 @@ class TestBuildCardGenerationPrompt:
 
     def test_contains_card_type_descriptions(self):
         prompt = build_card_generation_prompt()
-        assert "concise overview" in prompt
+        assert "A legal norm, regulation, or OIB Richtlinie" in prompt
         assert "legal norm" in prompt.lower()
 
     def test_expands_nested_building_blocks(self):
@@ -123,8 +123,10 @@ class TestTheDoctrineReachesThePostHocPath:
         # generic ones that fire on an ordinary answer.
         assert "a riser, tread or stair width" in prompt
         assert "-> stair_diagram" in prompt
-        assert "the two to five points the reader must leave with" in prompt
-        assert "changes what the reader DOES" in prompt
+        # The rhetorical triggers left the table with their card types: those
+        # shapes are answer-envelope fields now, on every surface.
+        assert "key_takeaways" not in prompt
+        assert "-> callout" not in prompt
 
     def test_the_negative_default_survives(self):
         # The trigger table without its counterweight is an instruction to
@@ -166,7 +168,7 @@ class TestTheDoctrineReachesThePostHocPath:
         # The ordering rule used to end on "follow_ups last", which was the only
         # place the word survived the removals above.
         assert "WHERE THEY GO" in prompt
-        assert "the verdict first, the substance after it" in prompt
+        assert "the substance the report turns on first" in prompt
 
     def test_both_surfaces_render_the_one_doctrine(self):
         # The pairing that keeps this from becoming a copy: neither surface
@@ -248,9 +250,12 @@ class TestTheCraftThatCouldNotBeInherited:
     def test_the_generic_cards_carry_their_test(self):
         prompt = build_card_generation_prompt()
         assert "WHICH ONE EARNS ITS PLACE" in prompt
-        assert "would a reader who reads ONLY this card" in prompt  # key_takeaways
-        assert "ONE headline value" in prompt  # verdict_header
-        assert "A second callout" in prompt  # callout
+        # calculation: only a number the report WORKED OUT, operands as stated.
+        assert "a number the report WORKED OUT" in prompt
+        # The envelope paragraphs are gone with their card types — a craft
+        # section teaching a card the validator drops is dead prompt weight.
+        assert "verdict_header" not in prompt
+        assert "A second callout" not in prompt
 
     def test_the_three_table_shaped_cards_are_told_apart(self):
         prompt = build_card_generation_prompt()

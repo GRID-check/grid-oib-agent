@@ -221,6 +221,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="answer-layer-preview"]',
   },
   {
+    id: 'answer-anatomy',
+    mobile: true,
+    path: '/dev/chat-turn?variant=anatomy',
+    description:
+      "The envelope's native anatomy rendered FLAT, as answer typography rather than boxed cards: the masthead (eyebrow subject, large verdict value, the summary as a lede-sized standfirst, one closing hairline — no frame, no ground), the callout anchored between two paragraphs by its own-line [[callout]] marker and reading as an accent-ruled aside in the flow, and the takeaways closing the answer as an eyebrow + staircase block. Judge that nothing here reads as an object ON the answer — one document, hierarchy carried by type and rules — that the summary holds the lede emphasis exactly once (the first prose paragraph must NOT also be enlarged), and that the prose qualifies the masthead instead of repeating it.",
+    waitFor: '[data-testid="answer-layer-preview"]',
+  },
+  {
     id: 'composer',
     mobile: true,
     path: '/dev/composer',

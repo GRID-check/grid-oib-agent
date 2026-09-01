@@ -137,6 +137,13 @@ class ShallowResearchAgentState(BaseModel):
     # absent/malformed. The chat node surfaces it as ``answer_confidence_reason``
     # so the UI can show WHY the model chose the level.
     answer_confidence_marker_reason: str | None = None
+    # The answer's structured anatomy — verdict / takeaways / callout — parsed
+    # from the ```answer_json envelope, validated and GATED in run() (see
+    # ``common.answer_envelope.gate_answer_meta``). A native field of the
+    # answer like the confidence above, never a card: the frontend renders it
+    # as answer typography. None when the envelope was absent, malformed, or
+    # nothing survived the gates.
+    answer_meta: dict[str, Any] | None = None
     # Structured sources captured this turn (wire-ready dicts from
     # ``source_entry_to_wire``). Surfaced on the final ChatResponse so the FE
     # can open document previews without inventing filenames.

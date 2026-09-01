@@ -1440,6 +1440,9 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           ...(message.errorData && { errorData: message.errorData }),
           ...(message.fileData && { fileData: message.fileData }),
           ...(message.cards && { cards: message.cards }),
+          // The answer's structured anatomy — sanitized at the wire boundary
+          // on write and re-sanitized by the mapper on read, like `cards`.
+          ...(message.answerMeta && { answerMeta: message.answerMeta }),
           ...(message.cardInteractions && { cardInteractions: message.cardInteractions }),
           ...(message.enabledDataSources && { enabledDataSources: message.enabledDataSources }),
           ...(message.messageFiles && { messageFiles: message.messageFiles }),

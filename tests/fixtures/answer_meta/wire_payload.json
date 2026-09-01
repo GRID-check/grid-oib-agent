@@ -1,0 +1,27 @@
+{
+  "v": 1,
+  "summary": "Tragende Bauteile in GK 4 sind in REI 60 auszuführen; in Kellergeschossen gilt REI 90.",
+  "verdict": {
+    "value": "REI 60",
+    "subject": "Feuerwiderstand tragender Bauteile",
+    "reference": {
+      "document": "OIB-Richtlinie 2",
+      "section": "Tabelle 1b",
+      "edition": "Ausgabe Mai 2023"
+    }
+  },
+  "callout": {
+    "kind": "frist",
+    "text": "Die Bauverhandlung ist binnen sechs Wochen nach Einreichung anzuberaumen.",
+    "detail": "Die Frist ruht, solange eine Ergänzung des Einreichplans verlangt ist."
+  },
+  "takeaways": [
+    {
+      "text": "Maßgeblich ist das Fluchtniveau, nicht die Geschoßzahl",
+      "detail": "Die Grenze zu GK 5 liegt bei 11 m."
+    },
+    {
+      "text": "Tragende Bauteile mindestens REI 60"
+    }
+  ]
+}

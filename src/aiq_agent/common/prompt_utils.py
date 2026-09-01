@@ -87,6 +87,14 @@ def render_prompt_template(template: str, **kwargs: Any) -> str:
             # when it knows; every other caller renders exactly as before.
             in_flight=kwargs.get("in_flight_documents"),
         )
+    if "answer_envelope_schema" not in kwargs:
+        # Same injection pattern as the inventory above: the envelope schema is
+        # rendered from the models that validate it (one source of truth), and
+        # defaulting it HERE means no caller can render a prompt whose
+        # <answer_envelope> section silently teaches an empty schema.
+        from aiq_agent.common.answer_envelope import render_envelope_schema
+
+        kwargs["answer_envelope_schema"] = render_envelope_schema()
     try:
         return _compile_template(template).render(**kwargs)
     except jinja2.TemplateError as e:

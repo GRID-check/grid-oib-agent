@@ -502,8 +502,15 @@
     {
       "idx": 71,
       "version": "7",
-      "when": 1788566400005,
-      "tag": "0071_document_origin_path",
+      "when": 1788480000006,
+      "tag": "0071_retire_piloti_house_skills",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1788566400006,
+      "tag": "0072_document_origin_path",
       "breakpoints": true
     }
   ]

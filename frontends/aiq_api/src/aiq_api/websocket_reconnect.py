@@ -486,6 +486,9 @@ _TRANSPARENCY_EXTRA_FIELDS = (
     "research_truncated",
     "job_admission_rejected",
     "retry_after_seconds",
+    # The answer's structured anatomy (verdict / takeaways / callout) — a
+    # native answer field, gated backend-side, rendered as answer typography.
+    "answer_meta",
 )
 
 # Agent Skills extra (the chat agent records which skills it force-activated

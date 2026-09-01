@@ -164,6 +164,11 @@ class ChatResearcherState(BaseModel):
     # Present only when citation verification removed ≥1 citation from the answer:
     # ``{"count": int, "reasons": [str, ...]}`` (reasons deduplicated, max 5).
     citations_removed: dict[str, Any] | None = None
+    # The answer's structured anatomy — verdict / takeaways / callout — already
+    # validated and gated by the shallow agent (``answer_meta.gate_answer_meta``).
+    # A native field of the answer, rendered by the frontend as answer
+    # typography, never a card. Present only when something survived the gates.
+    answer_meta: dict[str, Any] | None = None
     # TRUE when the research turn was cut off at its tool-iteration ceiling and
     # forced into synthesis. Absent on every turn that finished inside its
     # budget: presence is the fact. Lifted onto the terminal ChatResponse as

@@ -23,53 +23,36 @@ If a value is unknown, omit it and set that check's status to "needs_input" — 
 the report does not carry what a card needs, emit no card: the report already answers the question
 without it."""
 
-# The CRAFT, in the only form this path can use. The judgement itself lives in the `piloti-cards`
-# platform skill, which is applied to the ANSWERING agents; post-hoc generation is a separate LLM
-# call with no skill runtime, so it cannot reach it. Inlining that body was rejected twice over.
-# On cost: it is ~2,600 tokens of German against a ~7,000-token prompt, a third again for one
-# best-effort call. On truth: most of it teaches the division of labour between a card and the
-# prose beside it — write the qualifying sentence here, put the consequence there, delete the card
-# if it and the first sentence say the same thing — and every one of those moves edits an answer
-# this path cannot edit.
-#
-# What survives the translation is the part that is a TEST over a finished text rather than an
-# instruction about writing one, compressed to the tests and stripped of the worked examples that
-# are where the skill's tokens actually go. Each line below is something the model can decide by
-# reading the report it was handed.
+# The CRAFT, in the only form this path can use: the part that is a TEST over a finished text
+# rather than an instruction about writing one. The answering agent's card craft lives in the
+# `<cards>` section of its system prompt; post-hoc generation is a separate LLM call over a
+# finished report, so it carries only what the model can decide by reading the text it was handed.
 #
 # The `follow_ups` paragraph was removed when the card was retired
-# (`SYSTEM_CARD_TYPES`, docs/architecture/post-answer-stages.md §7.10). It had to go rather than
-# stay: `validate_cards` drops every system/retired type, so the paragraph would have been an
-# instruction to build a card this path's own validator silently throws away — the worst kind of
-# dead prompt weight, because the model spends output on it and nothing says the output was
-# discarded.
+# (`SYSTEM_CARD_TYPES`, docs/architecture/post-answer-stages.md §7.10), and the three envelope
+# paragraphs (`key_takeaways`, `verdict_header`, `callout`) went the same way when those shapes
+# left the card system for the `answer_meta` trailer (`ENVELOPE_CARD_TYPES`): `validate_cards`
+# drops every withheld type, so a paragraph teaching one would be an instruction to build a card
+# this path's own validator silently throws away — the worst kind of dead prompt weight.
 #
-# What that costs, stated rather than glossed: a finished deep-research REPORT now carries no
-# follow-up questions at all. The post-answer stage does not fill the gap — its gate skips a turn
-# with a `deep_research_job_id`, because the chat turn is only a stub and the report exists when
-# the job finishes, not when the turn does (§7.6). Covering the report path means declaring a
-# stage on the job runner, which is separate work and is not in this change.
+# What that costs, stated rather than glossed: a finished deep-research REPORT currently carries
+# neither follow-up questions nor the rhetorical anatomy (verdict, takeaways, callout) the shallow
+# answer now gets natively. The report's own lead paragraph is its verdict and the outline is its
+# navigation, so the loss is modest — and the honest fix is teaching the deep WRITER the same
+# `answer_meta` trailer and parsing it in the job runner, which is separate work and not in this
+# change. Building the anatomy as cards here again is NOT that fix: it would be a second,
+# parallel delivery system for the same content.
 _POST_HOC_CRAFT = """\
 WHICH ONE EARNS ITS PLACE. A long report is exactly where a card pays off and exactly where they
 pile up, so each has to pass its own test against the report you were given:
-  key_takeaways — would a reader who reads ONLY this card leave with the same answer as one who
-    read the report? If not, rewrite it rather than emit it. Points that name the report's
-    sections ("Rechtsgrundlage, Anwendung, Fazit") are its table of contents, not its content;
-    each point must be a statement that stands on its own.
-  verdict_header — only when the report turns on ONE headline value a reader could copy down: a
-    number, a class, a finding like "nicht geregelt". A report whose core is a paragraph has no
-    verdict to raise, and a paragraph squeezed into the header claims more than the report does.
-  callout — the ONE sentence that changes what the reader DOES: a Frist, a Land-specific
-    deviation, a condition that is easy to skim past. Not the most interesting sentence, the most
-    consequential one. A second callout puts both back at the weight of ordinary prose, which is
-    the one weight they must not have.
   condition_tree, typed_table and comparison_table all look like a table of cases and are
     routinely confused. Ask what the reader does with the rows: exactly one row applies to this
     project (condition_tree), all rows apply at once (typed_table), or the reader chooses one
     (comparison_table).
-A verdict_header on top and one card carrying the substance is a full kit even for a very long
-report — the shared doctrine above states the budget those two spend, and this path does not get
-its own."""
+  a calculation card only for a number the report WORKED OUT, with the operands it states — never
+    one merely cited, and never operands completed from your own knowledge.
+One or two cards carrying real substance is a full kit even for a very long report — the shared
+doctrine above states the budget they spend, and this path does not get its own."""
 
 # Ordering, which is the whole of what this path controls about placement. The runner attaches the
 # returned list to the finished report as-is (see `aiq_api.jobs.runner`), so list order IS render
@@ -79,7 +62,7 @@ its own."""
 _POST_HOC_ORDERING = """\
 WHERE THEY GO. The cards are attached after the whole report, in the order you list them — there
 is no marker and no way to place one beside a paragraph. So list them in the order the answer is
-built: the verdict first, the substance after it."""
+built: the substance the report turns on first."""
 
 
 def build_card_generation_prompt() -> str:

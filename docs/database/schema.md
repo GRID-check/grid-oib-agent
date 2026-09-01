@@ -179,7 +179,7 @@ export const documents = pgTable('documents', {
   // genuinely has none. Written once and never rewritten: this is a fact about
   // the ORIGINAL, deliberately not `folder_id` / the materialised folder path
   // (ADR-0049), which are Piloti's own filing and are meant to be rearranged.
-  // Migration 0071.
+  // Migration 0072.
   originPath: text('origin_path'),
   status: text('status').notNull().default('pending'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

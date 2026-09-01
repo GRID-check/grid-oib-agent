@@ -4,6 +4,7 @@ import { type ReactNode } from 'react'
 import { Card } from '@/components/ui/card'
 import { motion, springGentle } from '@/components/motion'
 import { cn } from '@/lib/utils'
+import { CARD_SHELL } from './card-chrome'
 
 /** The left-accent tone of a proposal card by its lifecycle state. */
 type ProposalTone = 'pending' | 'accepted' | 'dismissed'
@@ -46,7 +47,7 @@ export function ProposalShell({
 }) {
   return (
     <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={springGentle}>
-      <Card className={cn('border-l-2 p-5 shadow-xs', TONE_CLASS[tone], className)}>{children}</Card>
+      <Card className={cn(CARD_SHELL, 'border-l-2 p-5', TONE_CLASS[tone], className)}>{children}</Card>
     </motion.div>
   )
 }

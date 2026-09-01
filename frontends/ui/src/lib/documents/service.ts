@@ -576,7 +576,7 @@ export interface UploadDocumentInput {
   /**
    * Where the file sat before it was uploaded, when the browser knows — a
    * folder upload reports `webkitRelativePath`. Absent for a picked file.
-   * Recorded once (migration 0071) and never rewritten; see the schema comment
+   * Recorded once (migration 0072) and never rewritten; see the schema comment
    * for why this is not Piloti's own folder path.
    */
   originPath?: string | null

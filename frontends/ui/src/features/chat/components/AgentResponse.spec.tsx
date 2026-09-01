@@ -65,15 +65,6 @@ vi.mock('@/adapters/auth', () => ({
 const mockImportJobStream = vi.fn()
 const mockLoadResearchPanelTab = vi.fn()
 
-// The typing reveal is off under vitest (see `use-typed-reveal.ts`), so the one
-// thing this component does with it — treat a half-shown answer as still
-// arriving — has to be driven explicitly. `text: null` means "whatever the
-// component was handed", which is what every other test in this file wants.
-const { reveal } = vi.hoisted(() => ({ reveal: { text: null as string | null, isTyping: false } }))
-vi.mock('../hooks/use-typed-reveal', () => ({
-  useTypedReveal: (content: string) => ({ text: reveal.text ?? content, isTyping: reveal.isTyping }),
-}))
-
 vi.mock('../hooks', () => ({
   useLoadJobData: () => ({
     loadReport: vi.fn(),
@@ -95,8 +86,6 @@ describe('AgentResponse', () => {
     vi.clearAllMocks()
     mockImportJobStream.mockClear()
     mockLoadResearchPanelTab.mockClear()
-    reveal.text = null
-    reveal.isTyping = false
   })
 
   test('renders response content', () => {
@@ -762,33 +751,96 @@ describe('AgentResponse', () => {
     })
   })
 
-  describe('the typing reveal', () => {
-    // The answer is finished before its first delta leaves the agent, so
-    // `isStreaming` lasts a frame or two and the WRITING is this reveal. Every
-    // affordance that acts on a whole answer has to follow it rather than the
-    // socket, or it lands over half an answer.
-    test('an answer half revealed shows only what has been revealed', () => {
-      reveal.text = 'Die Antwort'
-      reveal.isTyping = true
+  describe('the answer anatomy (answerMeta)', () => {
+    // Native answer fields, never cards: the verdict renders ABOVE the prose,
+    // the callout and the takeaways after it, in that fixed order — the model
+    // owns content, the frontend owns placement.
+    const answerMeta = {
+      v: 1,
+      summary: 'In GK 4 gilt REI 60; maßgeblich ist das Fluchtniveau.',
+      verdict: { value: 'REI 60', subject: 'Feuerwiderstand tragender Bauteile' },
+      callout: { kind: 'frist' as const, text: 'Binnen sechs Wochen anzuberaumen.' },
+      takeaways: [
+        { text: 'Maßgeblich ist das Fluchtniveau' },
+        { text: 'Tragende Bauteile mindestens REI 60' },
+      ],
+    }
 
-      render(<AgentResponse content="Die Antwort ist ja, ab GK4." />)
-
-      expect(screen.getByText('Die Antwort')).toBeInTheDocument()
-      expect(screen.queryByText('Die Antwort ist ja, ab GK4.')).not.toBeInTheDocument()
+    test('renders the masthead above the prose and the rest after it', () => {
+      const { container } = render(
+        <AgentResponse content="REI 60 gilt, und maßgeblich ist das Fluchtniveau." answerMeta={answerMeta} />
+      )
+      const text = container.textContent ?? ''
+      expect(text).toContain('REI 60')
+      expect(text).toContain('Binnen sechs Wochen anzuberaumen.')
+      expect(text).toContain('Maßgeblich ist das Fluchtniveau')
+      // Fixed order: verdict then summary (the masthead) before the prose,
+      // the callout and takeaways after it.
+      expect(text.indexOf('REI 60')).toBeLessThan(text.indexOf('In GK 4 gilt REI 60'))
+      expect(text.indexOf('In GK 4 gilt REI 60')).toBeLessThan(text.indexOf('REI 60 gilt,'))
+      expect(text.indexOf('REI 60 gilt,')).toBeLessThan(text.indexOf('Binnen sechs Wochen'))
+      expect(text.indexOf('Binnen sechs Wochen')).toBeLessThan(text.indexOf('Maßgeblich ist das Fluchtniveau'))
     })
 
-    test('an answer still being revealed cannot be copied', () => {
-      reveal.text = 'Die Antwort'
-      reveal.isTyping = true
+    test('a summary holds the lede emphasis alone — the first paragraph stays body-sized', () => {
+      // Long enough to clear the lede threshold on its own; with a summary in
+      // the masthead the first paragraph must NOT also be enlarged.
+      const longBody = `${'Ein ausreichend langer erster Absatz. '.repeat(20)}\n\nZweiter Absatz.`
+      const { container } = render(<AgentResponse content={longBody} answerMeta={answerMeta} />)
+      expect(container.querySelector('[class*="first-child\\]:text-"]')).toBeNull()
 
-      render(<AgentResponse content="Die Antwort ist ja, ab GK4." />)
+      // Without a summary the lede styling still fires as before.
+      const { verdict, callout, takeaways } = answerMeta
+      const { container: plain } = render(
+        <AgentResponse content={longBody} answerMeta={{ v: 1, verdict, callout, takeaways }} />
+      )
+      expect(plain.querySelector('[class*="first-child\\]:text-"]')).not.toBeNull()
+    })
+
+    test('an answer without anatomy renders exactly as before', () => {
+      const { container } = render(<AgentResponse content="Nur Prosa." />)
+      expect(container.textContent).toContain('Nur Prosa.')
+    })
+
+    test('the below-prose anatomy waits for the stream like unclaimed cards do', () => {
+      const { container } = render(
+        <AgentResponse content="REI 60 gilt." answerMeta={answerMeta} isStreaming />
+      )
+      expect(container.textContent).not.toContain('Binnen sechs Wochen')
+    })
+
+    test('a body that claims the callout with [[callout]] takes it out of the after-prose block', () => {
+      // `MarkdownRenderer` is stubbed here, so the SPLICE itself cannot be
+      // seen (card-markers.spec.tsx proves it against the real parser and
+      // DOM); what this surface owns is the other half of the contract — a
+      // claimed callout must not ALSO render after the prose.
+      const { container } = render(
+        <AgentResponse
+          content={'Erster Absatz.\n\n[[callout]]\n\nZweiter Absatz.'}
+          answerMeta={answerMeta}
+        />
+      )
+      const text = container.textContent ?? ''
+      expect(text).not.toContain('Binnen sechs Wochen')
+      // The takeaways still close the answer.
+      expect(text).toContain('Maßgeblich ist das Fluchtniveau')
+    })
+  })
+
+  describe('a streaming answer', () => {
+    // The client-side typewriter was removed: the full text paints as soon as
+    // it arrives, and `isStreaming` — the real socket window — is the only
+    // "still arriving" state left. Affordances that act on a whole answer
+    // still have to wait for it.
+    test('an answer still streaming cannot be copied', () => {
+      render(<AgentResponse content="Die Antwort ist ja, ab GK4." isStreaming />)
 
       expect(screen.queryByRole('button', { name: 'Copy answer' })).not.toBeInTheDocument()
     })
 
-    test('a card no marker claimed waits for the reveal to finish', () => {
+    test('a card no marker claimed waits for the stream to finish', () => {
       // "Unplaced" is read off the body SO FAR. A card whose `[[card:N]]` has
-      // not been typed out yet looks unplaced, and drawing it here would put it
+      // not arrived yet looks unplaced, and drawing it mid-stream would put it
       // below the prose for a second and then jump it up the answer.
       const cards = [
         {
@@ -798,19 +850,13 @@ describe('AgentResponse', () => {
           key_points: null,
         },
       ]
-      reveal.text = 'Die '
-      reveal.isTyping = true
 
-      const midReveal = render(<AgentResponse content="Die Antwort." cards={cards} />)
-      expect(midReveal.container.textContent).not.toContain('Nachgestellte Karte')
-      midReveal.unmount()
+      const midStream = render(<AgentResponse content="Die " cards={cards} isStreaming />)
+      expect(midStream.container.textContent).not.toContain('Nachgestellte Karte')
+      midStream.unmount()
 
-      // A second render rather than a rerender: the component is memoized on
-      // its props, and the reveal is not one of them.
-      reveal.text = null
-      reveal.isTyping = false
-      const revealed = render(<AgentResponse content="Die Antwort." cards={cards} />)
-      expect(revealed.container.textContent).toContain('Nachgestellte Karte')
+      const finished = render(<AgentResponse content="Die Antwort." cards={cards} />)
+      expect(finished.container.textContent).toContain('Nachgestellte Karte')
     })
   })
 })

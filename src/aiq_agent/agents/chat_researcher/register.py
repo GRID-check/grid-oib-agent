@@ -196,6 +196,9 @@ _STREAM_EXTRA_FIELDS = (
     "research_truncated",
     "job_admission_rejected",
     "retry_after_seconds",
+    # The answer's structured anatomy (verdict / takeaways / callout), gated by
+    # the shallow agent — a native answer field, never a card.
+    "answer_meta",
     # Agent Skills: which skills ran this turn — i.e. whose instructions the
     # model actually fetched, in the order it fetched them — and the
     # ``grid-hidden`` subset the disclosure mutes until the reader opens the
@@ -335,6 +338,7 @@ def _apply_transparency_extras(response: ChatResponse, result: object) -> None:
     retry_after_seconds = _result_field(result, "retry_after_seconds")
     skills_activated = _result_field(result, "skills_activated")
     skills_hidden = _result_field(result, "skills_hidden")
+    answer_meta = _result_field(result, "answer_meta")
 
     if routing_decision:
         response.routing_decision = routing_decision
@@ -364,6 +368,10 @@ def _apply_transparency_extras(response: ChatResponse, result: object) -> None:
         # the wire would null-spam a frame the frontend reads on presence.
         if skills_hidden:
             response.skills_hidden = skills_hidden
+    # Presence-rendered like everything above; already validated and gated by
+    # the shallow agent, so anything non-dict here is a caller bug, not data.
+    if isinstance(answer_meta, dict) and answer_meta:
+        response.answer_meta = answer_meta
 
 
 def _response_to_chunks(response: ChatResponse, *, stream: bool) -> list[ChatResponseChunk]:

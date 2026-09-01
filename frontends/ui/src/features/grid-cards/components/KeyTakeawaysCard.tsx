@@ -41,10 +41,18 @@ import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { KeyTakeawayData } from '../schematics/types'
+import { CARD_SHELL } from './card-chrome'
 
 interface KeyTakeawaysCardProps {
   title?: string | null
   items: KeyTakeawayData[]
+  /**
+   * Render flat on the answer surface: the envelope's native `takeaways`
+   * field is the answer's own closing block, so it gets the eyebrow and the
+   * staircase but no ground and no frame. The framed default remains for
+   * stored threads whose takeaways arrived as a card.
+   */
+  flat?: boolean
 }
 
 /** „01", „02" … — the ordinal in the gutter, so a rank is visible unread. */
@@ -146,7 +154,7 @@ const TakeawayRow: FC<{ item: KeyTakeawayData; index: number }> = ({ item, index
   )
 }
 
-export const KeyTakeawaysCard: FC<KeyTakeawaysCardProps> = ({ title, items }) => {
+export const KeyTakeawaysCard: FC<KeyTakeawaysCardProps> = ({ title, items, flat = false }) => {
   const t = useTranslations('chat')
   // An item with no `text` is skipped rather than rendered empty: every field
   // inside every array item reaches the renderer unvalidated (§0.5.1), and a
@@ -157,8 +165,8 @@ export const KeyTakeawaysCard: FC<KeyTakeawaysCardProps> = ({ title, items }) =>
 
   if (takeaways.length === 0) return null
 
-  return (
-    <Card className="gap-2 p-5 shadow-xs">
+  const body = (
+    <>
       <SectionLabel icon={Highlighter}>{t('cards.keyTakeaways.eyebrow')}</SectionLabel>
       {title && <p className="card-title text-foreground">{title}</p>}
 
@@ -171,6 +179,12 @@ export const KeyTakeawaysCard: FC<KeyTakeawaysCardProps> = ({ title, items }) =>
           </li>
         ))}
       </ol>
-    </Card>
+    </>
   )
+
+  if (flat) {
+    return <div className="flex flex-col gap-2">{body}</div>
+  }
+
+  return <Card className={cn(CARD_SHELL, 'gap-2 p-5')}>{body}</Card>
 }

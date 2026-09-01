@@ -391,6 +391,12 @@ export const NATSystemResponseMessageSchema = z.object({
   job_admission_rejected: z.literal(true).optional().catch(undefined),
   // Retry hint (seconds) — only alongside job_admission_rejected.
   retry_after_seconds: z.number().optional().catch(undefined),
+  // The answer's structured anatomy (verdict / takeaways / callout), already
+  // validated and GATED backend-side (`common/answer_envelope.py`) and
+  // sanitized again by `sanitizeAnswerMeta` before it is stored or rendered —
+  // so the wire schema stays a permissive record and the one bound lives in
+  // one place instead of two that drift.
+  answer_meta: z.record(z.unknown()).optional().catch(undefined),
 })
 
 /** Intermediate step content */

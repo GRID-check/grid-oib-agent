@@ -275,7 +275,7 @@ export const documents = pgTable('documents', {
   contentType: text('content_type'),
   /**
    * Where this file sat before it was uploaded, as the browser reported it —
-   * e.g. `Wohnbau Nord/03_Einreichung/Grundrisse/EG.pdf` (migration 0071).
+   * e.g. `Wohnbau Nord/03_Einreichung/Grundrisse/EG.pdf` (migration 0072).
    *
    * Only a folder upload has one; a file chosen through the picker genuinely
    * does not, and NULL says so rather than a guess derived from the filename.

@@ -131,6 +131,7 @@ def _salvage_card(card_json: str) -> None:
     try:
         import json
 
+        from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
         from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
         from aiq_agent.cards.models import grid_card_adapter
         from aiq_agent.cards.registry import get_card_registry
@@ -141,9 +142,10 @@ def _salvage_card(card_json: str) -> None:
         if not isinstance(payload, dict):
             return
         validated = grid_card_adapter.validate_python(payload).model_dump(exclude_none=True)
-        if validated.get("type") in SYSTEM_CARD_TYPES:
+        if validated.get("type") in SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES:
             # System cards are emitted only by their owning tool on a sanctioned
-            # path — never salvage one from leaked model text.
+            # path, and envelope shapes are answer-envelope fields, not cards —
+            # never salvage either from leaked model text.
             return
         registry = get_card_registry()
         if registry is None:

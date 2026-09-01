@@ -48,7 +48,23 @@ export interface CardMarkerOptions {
    * and it must not flash as literal text in between.
    */
   count: number
+  /**
+   * Whether this answer carries a callout to place. The `[[callout]]` marker
+   * anchors the envelope's one callout beside the paragraph it qualifies
+   * (`answer_envelope.CALLOUT_MARKER` — the backend has already reduced the
+   * prose to at most one own-line marker, and stripped them all when the
+   * callout was gated out). Same own-line contract as a card marker; a marker
+   * with no callout behind it is stripped, never shown.
+   */
+  callout?: boolean
 }
+
+/**
+ * The slot index `[[callout]]` resolves to. Sentinel: card slots are the
+ * non-negative indices of the `cards` array, and the callout is not a card —
+ * the surface's slot renderer branches on this value.
+ */
+export const CALLOUT_SLOT_INDEX = -1
 
 /**
  * Remark plugin splicing each placed card into the flow of the answer.
@@ -58,7 +74,7 @@ export interface CardMarkerOptions {
  * it with the card at that index.
  */
 export const remarkCardMarkers =
-  ({ count }: CardMarkerOptions) =>
+  ({ count, callout = false }: CardMarkerOptions) =>
   (tree: Root): void => {
     const children: RootContent[] = []
     let changed = false
@@ -66,7 +82,7 @@ export const remarkCardMarkers =
     for (const child of tree.children) {
       // Only a top-level paragraph can host a card: it is the one position
       // where replacing the node keeps the document's content model valid.
-      const placed = child.type === 'paragraph' ? placeMarkers(child, count) : null
+      const placed = child.type === 'paragraph' ? placeMarkers(child, count, callout) : null
       if (placed) {
         children.push(...placed)
         changed = true
@@ -91,17 +107,17 @@ const cardSlot = (index: number): Paragraph => ({
   data: { hName: MARKDOWN_SLOT_TAG, hProperties: { index: String(index) } },
 })
 
-/** Where one `[[card:N]]` sits in a run of literal text. */
+/** Where one `[[card:N]]` or `[[callout]]` sits in a run of literal text. */
 interface Marker {
   /** Offset of the first `[`. */
   start: number
   /** Offset just past the last `]`. */
   end: number
-  /** The 1-based card number the agent wrote. */
-  number: number
+  /** The 1-based card number the agent wrote, or the callout sentinel. */
+  number: number | 'callout'
 }
 
-const MARKER = /\[\[card:(\d+)\]\]/g
+const MARKER = /\[\[card:(\d+)\]\]|\[\[callout\]\]/g
 
 const findMarkers = (value: string): Marker[] => {
   const markers: Marker[] = []
@@ -112,7 +128,7 @@ const findMarkers = (value: string): Marker[] => {
     markers.push({
       start: match.index,
       end: match.index + match[0].length,
-      number: Number(match[1]),
+      number: match[1] === undefined ? 'callout' : Number(match[1]),
     })
   }
   return markers
@@ -125,7 +141,7 @@ const findMarkers = (value: string): Marker[] => {
  * A marker out of range yields no slot but still splits the paragraph — the
  * text goes, the card comes back in the fallback block.
  */
-const placeMarkers = (paragraph: Paragraph, count: number): RootContent[] | null => {
+const placeMarkers = (paragraph: Paragraph, count: number, callout: boolean): RootContent[] | null => {
   const out: RootContent[] = []
   let run: PhrasingContent[] = []
   let found = false
@@ -156,7 +172,11 @@ const placeMarkers = (paragraph: Paragraph, count: number): RootContent[] | null
       const before = child.value.slice(cursor, marker.start)
       if (before.length > 0) run.push({ type: 'text', value: before })
       flush()
-      if (marker.number >= 1 && marker.number <= count) out.push(cardSlot(marker.number - 1))
+      if (marker.number === 'callout') {
+        if (callout) out.push(cardSlot(CALLOUT_SLOT_INDEX))
+      } else if (marker.number >= 1 && marker.number <= count) {
+        out.push(cardSlot(marker.number - 1))
+      }
       cursor = marker.end
       // The newline that ended the marker's line belongs to the marker, not to
       // the prose after it — left in, it opens the next paragraph with a blank.
@@ -261,7 +281,7 @@ const stripMarkers = (parent: Parent): void => {
  * pays a half-arrived fence or table. Only the tail is touched: a `[[` in the
  * middle of a finished answer is prose.
  */
-const PARTIAL_TAIL = /\[\[(?:c(?:a(?:r(?:d(?::\d*\]?)?)?)?)?)?$/
+const PARTIAL_TAIL = /\[\[(?:c(?:a(?:r(?:d(?::\d*\]?)?)?|l(?:l(?:o(?:u(?:t\]?)?)?)?)?)?)?)?$/
 
 const stripPartialTail = (tree: Root): void => {
   const last = lastText(tree)
@@ -309,6 +329,26 @@ export const placedCardIndices = (markdown: string, count: number): ReadonlySet<
     if (number >= 1 && number <= count) placed.add(number - 1)
   }
   return placed
+}
+
+const CALLOUT_LINE_MARKER = /^ {0,3}\[\[callout\]\][ \t]*$/
+
+/**
+ * Whether the prose claims the callout — the same line-based reading
+ * `placedCardIndices` does for cards, for the same reason: the surface must
+ * decide before render whether its after-prose block still owes the callout.
+ */
+export const hasPlacedCalloutMarker = (markdown: string): boolean => {
+  let fenced = false
+  for (const line of markdown.split('\n')) {
+    if (FENCE.test(line)) {
+      fenced = !fenced
+      continue
+    }
+    if (fenced) continue
+    if (CALLOUT_LINE_MARKER.test(line)) return true
+  }
+  return false
 }
 
 /** The indices of the cards no marker claimed, in order — the fallback block. */
