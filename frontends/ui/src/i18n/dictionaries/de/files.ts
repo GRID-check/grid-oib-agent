@@ -210,6 +210,7 @@ export const files: typeof en.files = {
     noMatchDescription:
       'Versuchen Sie einen anderen Namen, ein Schlagwort oder eine Beschreibung – oder löschen Sie die Suche, um alle Dateien zu sehen.',
     clearSearch: 'Suche löschen',
+    clearFilters: 'Filter zurücksetzen',
     resetSearch: 'Suche zurücksetzen',
     recentlyUploaded: 'Zuletzt hochgeladen',
     semantic: {
@@ -359,6 +360,14 @@ export const files: typeof en.files = {
   authorship: {
     byPiloti: 'Von Piloti erstellt',
     filter: 'Von Piloti',
+    /**
+     * Die Frage, die dieser Filter bisher unbeantwortet ließ: WELCHE Dateien
+     * das wären. Ohne diesen Leerzustand zeigte ein leeres Ergebnis „Dieser
+     * Ordner ist leer" über einem Ordner voller Dokumente.
+     */
+    emptyTitle: 'Piloti hat hier noch nichts abgelegt',
+    emptyDescription:
+      'Hier erscheinen die Dateien, die Piloti selbst erstellt hat: abgelegte Rechercheberichte und Diagramme. Hochgeladene Dokumente zählen nicht dazu, auch wenn Piloti sie gelesen hat.',
     // Warum „Piloti dazu fragen“ deaktiviert ist – deaktiviert, nicht
     // versteckt, wie beim noch nicht zitierbaren Dokument. Der Unterschied:
     // Hier gibt es kein „noch nicht“. Der Bericht wurde absichtlich nicht
@@ -375,6 +384,8 @@ export const files: typeof en.files = {
     filterUnassigned: 'Unvergeben',
     emptyUnassigned: 'Alle Dateien haben jemanden',
     emptyMine: 'Ihnen ist noch nichts zugewiesen',
+    emptyDescription:
+      'Ein anderer Filter zeigt Ihnen wieder alle Dateien dieses Ordners.',
     responsible: 'Verantwortlich',
     ask: 'Piloti dazu fragen',
     askDisabled: 'Sobald die Datei zitierbar ist',

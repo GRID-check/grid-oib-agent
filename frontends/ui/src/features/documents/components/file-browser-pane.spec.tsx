@@ -456,3 +456,54 @@ describe('FileBrowserPane — search zero-match', () => {
     expect(screen.queryByRole('button', { name: /clear search/i })).not.toBeInTheDocument()
   })
 })
+
+
+/**
+ * A FILTER THAT MATCHES NOTHING MUST NOT CLAIM THE FOLDER IS EMPTY.
+ *
+ * The pane is handed already-filtered files, so it could not tell the two
+ * apart and drew "this folder is empty" over a folder full of documents. „Von
+ * Piloti" paid for that twice: it is the filter whose meaning nobody could
+ * infer, and the one state where the product could have explained it said
+ * something false instead.
+ */
+describe('FileBrowserPane — a filter emptied the level', () => {
+  const notice = {
+    title: 'Piloti hat hier noch nichts abgelegt',
+    description: 'Hier erscheinen die Dateien, die Piloti selbst erstellt hat.',
+    onClear: vi.fn(),
+  }
+
+  beforeEach(() => notice.onClear.mockClear())
+
+  it('says which filter emptied it, instead of that the folder is empty', () => {
+    renderPane({ files: [], filterEmptyNotice: notice })
+
+    expect(screen.getByText(notice.title)).toBeInTheDocument()
+    expect(screen.getByText(notice.description)).toBeInTheDocument()
+    expect(screen.queryByText('This folder is empty')).not.toBeInTheDocument()
+  })
+
+  it('offers the way out that actually applies — widen the filter, not upload', async () => {
+    const user = userEvent.setup()
+    renderPane({
+      files: [],
+      filterEmptyNotice: notice,
+      uploadControl: <button type="button">Upload a file</button>,
+    })
+
+    // Uploading answers a question nobody asked: the files exist, the filter
+    // is hiding them.
+    expect(screen.queryByText('Upload a file')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /clear filters/i }))
+    expect(notice.onClear).toHaveBeenCalled()
+  })
+
+  it('leaves the genuine empty folder alone', () => {
+    renderPane({ files: [], filterEmptyNotice: null, uploadControl: <button type="button">Upload a file</button> })
+
+    expect(screen.getByText('Upload a file')).toBeInTheDocument()
+    expect(screen.queryByText(notice.title)).not.toBeInTheDocument()
+  })
+})

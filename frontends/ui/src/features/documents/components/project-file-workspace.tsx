@@ -437,6 +437,40 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     return assignmentFiltered.filter((file) => (file.folderId ?? null) === selectedFolderId)
   }, [assignmentFiltered, selectedFolderId, foldersError])
 
+  /**
+   * When a FILTER emptied the level rather than the folder being empty.
+   *
+   * The browser pane is handed already-filtered files and cannot tell the two
+   * apart, so it drew "this folder is empty" over a folder full of documents
+   * the moment a filter matched nothing. „Von Piloti" is the one that cost
+   * most: it is the filter whose meaning nobody could infer, and the only
+   * place the product could have explained it — the state where it matches
+   * nothing — said something false instead.
+   *
+   * Authorship wins when both are on: it is the narrower and the less obvious
+   * of the two, so it is the one a reader needs explained.
+   */
+  const filterEmptyNotice = useMemo(() => {
+    const clear = () => {
+      setAgentAuthoredOnly(false)
+      setAssignmentFilter('all')
+    }
+    if (agentAuthoredOnly) {
+      return {
+        title: t('authorship.emptyTitle'),
+        description: t('authorship.emptyDescription'),
+        onClear: clear,
+      }
+    }
+    if (!canCollaborate || assignmentFilter === 'all') return null
+    return {
+      title:
+        assignmentFilter === 'mine' ? t('assignment.emptyMine') : t('assignment.emptyUnassigned'),
+      description: t('assignment.emptyDescription'),
+      onClear: clear,
+    }
+  }, [agentAuthoredOnly, assignmentFilter, canCollaborate, t])
+
   // After a successful re-ingestion the document is back to 'pending'; reflect
   // that locally so the badge flips to "Processing" and the dead-end failure UI
   // clears. Server-side reconciliation resolves the final status on the next read.
@@ -772,6 +806,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               search={search}
               view={view}
               showAssignment={canCollaborate}
+              filterEmptyNotice={filterEmptyNotice}
               renderActions={(file) => (
                 <DocumentActionsMenu
                   document={file}
