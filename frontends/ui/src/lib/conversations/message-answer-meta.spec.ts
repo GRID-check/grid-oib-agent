@@ -30,6 +30,17 @@ describe('sanitizeAnswerMeta', () => {
     expect(sanitizeAnswerMeta({ v: 1 })).toBeNull()
   })
 
+  test('a summary longer than the gate was never a standfirst — dropped whole', () => {
+    const meta = sanitizeAnswerMeta({ v: 1, summary: 'x'.repeat(321), verdict: fixture.verdict })
+    expect(meta?.summary).toBeUndefined()
+    expect(meta?.verdict).toBeDefined()
+    // A summary alone is a valid payload — it is the near-universal field.
+    expect(sanitizeAnswerMeta({ v: 1, summary: 'REI 60 in GK 4.' })).toEqual({
+      v: 1,
+      summary: 'REI 60 in GK 4.',
+    })
+  })
+
   test('a verdict longer than the gate was never a verdict — dropped whole', () => {
     const meta = sanitizeAnswerMeta({
       v: 1,

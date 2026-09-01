@@ -21,20 +21,29 @@ tool-owned cards and the retired `follow_ups`), and four **envelope types**
 `callout`) that stopped being cards anywhere new: a research answer is
 generated as one JSON envelope (```answer_json — see
 `src/aiq_agent/common/answer_envelope.py`) whose optional fields carry the
-verdict, the takeaways and the callout as NATIVE answer anatomy, validated and
-gated platform-side and rendered by the frontend in a fixed layout (verdict
-above the prose, callout and takeaways after it). No generator — `emit_card`,
-the DSML salvage, or the post-hoc deep pass — produces these types as cards
-any more; the union members survive only so stored threads keep rendering, and
-their renderers double as the anatomy's visual vocabulary
-(`features/chat/lib/answer-meta-cards.ts`). On the generation side the
-envelope is REQUESTED from the provider too, not only taught: the shallow
-agent binds `response_format: json_object` (the OpenRouter-safe mode
-`cards/generate.py` established; `strict` json_schema is ignored there) on
-the tool-free forced-synthesis call, with a per-call fallback to a plain
-request — and on tool-bound iterations only behind the
-`envelope_json_mode_with_tools` config flag, because some routed providers
-accept the parameter and silently stop emitting tool calls.
+summary, the verdict, the takeaways and the callout as NATIVE answer anatomy,
+validated and gated platform-side and rendered FLAT by the frontend as answer
+typography (`features/chat/components/AnswerAnatomy.tsx`): the masthead above
+the prose (the earned verdict value plus the near-universal `summary`
+standfirst, which then holds the lede emphasis alone — the first paragraph's
+automatic lede styling is suppressed), the takeaways as its closing block, the
+callout as
+an accent-ruled aside — beside the paragraph the model anchored it to with an
+own-line `[[callout]]` marker in the `answer` prose
+(`answer_envelope.CALLOUT_MARKER`; the backend keeps at most the first
+placeable marker and strips them all when the callout is gated out), or after
+the prose when unanchored. No generator — `emit_card`, the DSML salvage, or
+the post-hoc deep pass — produces these types as cards any more; the union
+members survive only so stored threads keep rendering, and the flat variants
+live on the same components (`flat` prop) so the two renderings cannot drift
+(`features/chat/lib/answer-meta-cards.ts` maps the shapes). On the generation
+side the envelope is REQUESTED from the provider too, not only taught: the
+shallow agent walks an enforcement ladder per call — OpenRouter structured
+outputs (`json_schema`, strict, derived from the same Pydantic models by
+`render_envelope_response_format`), then `json_object`, then a plain request —
+on the tool-free forced-synthesis call, and on tool-bound iterations only
+behind the `envelope_json_mode_with_tools` config flag, because some routed
+providers accept the parameter and silently stop emitting tool calls.
 The families are not decoration: each answers
 "where does a number on this card come from?" differently, and that answer is
 what decides whether the model may emit the card at all, on which surface, and
@@ -45,7 +54,7 @@ answer it has just written.
 
 | `type` | Purpose | Key fields |
 |---|---|---|
-| `summary` **(envelope)** | A short overview / key points. Retired: its role is covered by the lede and the takeaways; the type survives for stored threads | `title`, `content`, `key_points` |
+| `summary` **(envelope)** | A short overview / key points. Retired as a card: the envelope's `summary` field carries the answer-in-brief on basically every reply, rendered as the masthead's standfirst (≤ 320 chars, gated); the card type survives for stored threads | `title`, `content`, `key_points` |
 | `legal_basis` | An OIB/norm legal-basis citation | `law`, `article`, `section`, `summary`, `original_text` |
 | `project_profile_patch` **(interactive)** | A proposed change to the project brief | `title`, `rationale`, `patch[]` — JSON-Patch ops restricted to `/facts`, `/goals`, `/unknowns`, `/assumptions` (the before/after rows are built from the patch and the live profile, never from the model) |
 | `requirement_checklist` | Several pass/fail criteria for one question, each with verdict + own norm reference | `title`, `items[]` (`label`, `status`, `detail`, `reference`), `reference`, `note` |

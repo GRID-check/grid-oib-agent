@@ -57,6 +57,9 @@
  *                      design — the card IS the lede), and the misuse beneath
  *                      it, the card placed after an opening paragraph so the
  *                      lede fires too and the ruling is stated twice.
+ *   • `anatomy`      — the envelope's NATIVE anatomy, flat: verdict masthead
+ *                      above the prose, callout anchored inside it by its
+ *                      `[[callout]]` marker, takeaways closing the answer.
  *
  * Every fixture answer deliberately ends in a written "## Quellen" section, the
  * way a verified backend answer does: it must NOT render as a second source
@@ -84,6 +87,7 @@ import { FollowUpsRail } from '@/features/chat/components/FollowUpsRail'
 import type { ThinkingStep, CitationSource } from '@/features/chat/types'
 import type { GridCard } from '@/shared/cards/schemas'
 import type { MessageStages } from '@/lib/conversations/message-stages'
+import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
 
 const step: ThinkingStep = {
   id: 'kb',
@@ -262,8 +266,10 @@ const AnswerTurn: FC<{
    * component reads it off the message, so a fixture is a message.
    */
   stages?: MessageStages
+  /** The envelope's native anatomy — rendered flat, never as cards. */
+  answerMeta?: AnswerMeta
   children?: ReactNode
-}> = ({ label, question, answer, cards, citations, confidenceReason, messageId, rail, stages, children }) => (
+}> = ({ label, question, answer, cards, citations, confidenceReason, messageId, rail, stages, answerMeta, children }) => (
   <div className="flex flex-col gap-5 rounded-2xl border bg-background p-5">
     <div className="font-mono text-xs text-muted-foreground">{label}</div>
     {children}
@@ -292,6 +298,7 @@ const AnswerTurn: FC<{
         routingDecision="shallow"
         messageId={messageId}
         stages={stages}
+        answerMeta={answerMeta}
       />
       {rail && (
         <div className="w-[680px] max-w-full">
@@ -641,13 +648,79 @@ const takeawaysCard: GridCard = {
   ],
 } as GridCard
 
-const ANSWER_VARIANTS = ['lede-card', 'two-cards', 'follow-ups-rail', 'memory-chip', 'verdict-lede'] as const
+/* --- variant: anatomy ----------------------------------------------------- */
+
+const anatomyQuestion = 'Wie hoch muss das Geländer an der Dachterrasse sein?'
+
+/**
+ * The envelope's native anatomy, end to end: the verdict as the answer's
+ * masthead (flat, closed by one hairline — never a boxed card), the callout
+ * anchored INSIDE the prose by its own-line `[[callout]]` marker, and the
+ * takeaways closing the answer. The prose opens with its own answer sentence
+ * that qualifies the masthead's value instead of repeating it — the
+ * duplication rule the prompt's earned-when carries.
+ */
+const anatomyAnswer = `Für die Dachterrasse gilt die erhöhte Umwehrung, weil die Absturzhöhe über 12 m liegt: gemessen wird von der Oberkante des begehbaren Belags bis zur tiefer liegenden angrenzenden Fläche, hier rund 13,2 m bis zum Gelände [1].
+
+Die Füllung ist getrennt zu beurteilen. Öffnungen dürfen 12 cm nicht überschreiten, und zwischen 20 und 60 cm über dem Belag sind waagrechte Elemente unzulässig, weil sie als Aufstiegshilfe wirken [1].
+
+[[callout]]
+
+Für Wien verlangt § 109 BO zusätzlich die Darstellung der Verankerung im Einreichplan; die Ausführung selbst bleibt Sache der Detailplanung [2].
+
+${STAIR_SOURCES}`
+
+const anatomyMeta: AnswerMeta = {
+  v: 1,
+  summary:
+    'Für die Dachterrasse sind 1,20 m Umwehrungshöhe erforderlich, weil die Absturzhöhe mit rund 13,2 m über der 12-m-Grenze liegt; gemessen wird ab Oberkante des begehbaren Belags.',
+  verdict: {
+    value: '1,20 m',
+    subject: 'Erforderliche Höhe der Umwehrung',
+    reference: { document: 'OIB-Richtlinie 4', section: 'Pkt. 4.1', edition: 'Ausgabe Mai 2023' },
+  },
+  callout: {
+    kind: 'achtung',
+    text: 'Aufkantungen und Pflanztröge am Rand zählen zur Standfläche: die 1,20 m sind ab deren Oberkante zu messen.',
+  },
+  takeaways: [
+    {
+      text: 'Über 12 m Absturzhöhe sind 1,20 m Umwehrungshöhe erforderlich',
+      detail: 'Unter 12 m genügen 1,00 m; die Grenze entscheidet, nicht das Geschoß.',
+    },
+    { text: 'Öffnungen der Füllung höchstens 12 cm' },
+    { text: 'Keine waagrechten Elemente zwischen 20 und 60 cm über dem Belag' },
+  ],
+}
+
+const ANSWER_VARIANTS = [
+  'lede-card',
+  'two-cards',
+  'follow-ups-rail',
+  'memory-chip',
+  'verdict-lede',
+  'anatomy',
+] as const
 type AnswerVariant = (typeof ANSWER_VARIANTS)[number]
 
 const isAnswerVariant = (value: string | null): value is AnswerVariant =>
   ANSWER_VARIANTS.includes(value as AnswerVariant)
 
 function AnswerLayer({ variant }: { variant: AnswerVariant }) {
+  if (variant === 'anatomy') {
+    return (
+      <AnswerTurn
+        label="↓ NATIVE ANATOMY — verdict masthead above the prose, callout anchored by [[callout]], takeaways closing"
+        question={anatomyQuestion}
+        answer={anatomyAnswer}
+        citations={stairCitations}
+        confidenceReason="Absturzhöhe am Modell gemessen, Grenzwert direkt aus OIB-RL 4 belegt"
+        messageId="msg-anatomy"
+        answerMeta={anatomyMeta}
+      />
+    )
+  }
+
   if (variant === 'lede-card') {
     return (
       <AnswerTurn

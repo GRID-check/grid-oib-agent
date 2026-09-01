@@ -23,7 +23,12 @@ import { formatTime } from '@/shared/utils/format-time'
 import { useLayoutStore } from '@/features/layout/store'
 import { GridCardItem, GridCards } from '@/features/grid-cards/components/GridCards'
 import { CardSetProvider } from '@/features/grid-cards/card-set'
-import { remarkCardMarkers, unplacedCardIndices } from '@/features/grid-cards/card-markers'
+import {
+  CALLOUT_SLOT_INDEX,
+  hasPlacedCalloutMarker,
+  remarkCardMarkers,
+  unplacedCardIndices,
+} from '@/features/grid-cards/card-markers'
 import { MarkdownSlotProvider } from '@/shared/components/MarkdownRenderer/slot-context'
 import type { GridCard } from '@/shared/cards/schemas'
 import type { CitationSource } from '../types'
@@ -50,6 +55,7 @@ import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
 import { turnMemoryItems } from '../lib/turn-memory'
 import { answerMetaToAnatomy } from '../lib/answer-meta-cards'
+import { AnatomyBlock, AnatomyMasthead } from './AnswerAnatomy'
 import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
 import { ConfidenceChip } from './ConfidenceChip'
 import { AnswerFeedback } from './AnswerFeedback'
@@ -524,7 +530,10 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     numbers: citationNumbers,
   } = useMemo(() => splitAnswerBody(content), [content])
 
-  const ledeClass = opensWithLede(body, stillArriving) ? LEDE_CLASS : ''
+  // The lede is suppressed when the envelope carries a summary: the masthead's
+  // standfirst holds that emphasis, and a 17px summary over a 17px first
+  // paragraph would be the same statement twice at the same weight.
+  // (`anatomy` is declared below; the class is derived after it.)
   // The markers are linked while the body is PARSED, not before: `[2][3]` — two
   // sources behind one claim, the shape the backend is told to write — is
   // indistinguishable from reference-link syntax in raw text, and used to reach
@@ -534,30 +543,54 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // `[[card:2]]` on a line of its own, and the card is spliced in there rather
   // than stacked above the answer it is supposed to illustrate.
   const cardCount = cards?.length ?? 0
+  // The answer's structured anatomy, rendered FLAT (`AnswerAnatomy.tsx`) as
+  // answer typography: the verdict as the masthead above the prose, the
+  // takeaways closing it, the callout beside the paragraph its `[[callout]]`
+  // marker anchors it to — or after the prose when unanchored. The shape set
+  // feeds every CardSetProvider so cross-card rules (charter §A2) see the
+  // anatomy too, even though it never joins the `cards` array.
+  const anatomy = useMemo(() => answerMetaToAnatomy(answerMeta), [answerMeta])
+  const ledeClass = opensWithLede(body, stillArriving) && !anatomy?.summary ? LEDE_CLASS : ''
   const markerPlugins = useMemo(
     (): PluggableList => [
       [remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix }],
-      [remarkCardMarkers, { count: cardCount }],
+      [remarkCardMarkers, { count: cardCount, callout: Boolean(anatomy?.callout) }],
     ],
-    [citationNumbers, anchorPrefix, cardCount]
+    [citationNumbers, anchorPrefix, cardCount, anatomy]
   )
   // The cards the prose did NOT claim. Read off the same body the renderer
   // parses, because the block below has to be built before that parse happens.
   const fallbackCardIndices = useMemo(() => unplacedCardIndices(body, cardCount), [body, cardCount])
+  // The after-prose anatomy: the callout leaves this block the moment the
+  // prose claims it with a marker — same pre-render reading as the card
+  // fallback above, and for the same reason.
+  const anatomyBelow = useMemo(() => {
+    if (!anatomy) return []
+    if (anatomy.callout && hasPlacedCalloutMarker(body)) {
+      return anatomy.below.filter((card) => card.type !== 'callout')
+    }
+    return anatomy.below
+  }, [anatomy, body])
   // Renders nothing when the index has no card yet — while streaming a marker
   // routinely arrives several frames before the card it names, and a hole is
   // better than a crash or a raw `[[card:2]]`.
-  // The answer's structured anatomy, mapped onto the card visual vocabulary.
-  // Fixed layout: verdict above the prose, callout + takeaways after it. The
-  // combined set feeds every CardSetProvider so cross-card rules (charter §A2)
-  // see the anatomy too, even though it never joins the `cards` array.
-  const anatomy = useMemo(() => answerMetaToAnatomy(answerMeta), [answerMeta])
   const cardSet = useMemo(
     () => [...(cards ?? []), ...(anatomy?.all ?? [])],
     [cards, anatomy]
   )
   const renderCardSlot = useCallback(
     (index: number) => {
+      // The callout's slot: the one anatomy block the prose may anchor.
+      if (index === CALLOUT_SLOT_INDEX) {
+        if (!anatomy?.callout) return null
+        return (
+          <div className="mb-3 block!">
+            <CardSetProvider cards={cardSet}>
+              <AnatomyBlock card={anatomy.callout} />
+            </CardSetProvider>
+          </div>
+        )
+      }
       const card = cards?.[index]
       if (!card) return null
       // `mb-3` is the paragraph rhythm of the markdown body: the card replaced
@@ -726,11 +759,10 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       <DiagramFilingProvider target={diagramFilingTarget}>
       <AnswerCitations documents={documents} anchorPrefix={anchorPrefix}>
       <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
-        {/* The answer's headline value, above the prose — the fixed layout the
-            anatomy contract promises. */}
-        {anatomy?.verdict && (
+        {/* The answer's masthead — verdict and/or summary, flat above the prose. */}
+        {anatomy && (anatomy.verdict || anatomy.summary) && (
           <CardSetProvider cards={cardSet}>
-            <GridCardItem card={anatomy.verdict} index={-1} projectId={projectId} messageId={messageId} />
+            <AnatomyMasthead verdict={anatomy.verdict} summary={anatomy.summary} />
           </CardSetProvider>
         )}
         {/* Response Content rendered as markdown (with streaming caret). While
@@ -760,12 +792,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             column's `gap-2` is 8px and the markdown body's paragraph rhythm is
             12px, so without it an UNPLACED card hugged the prose 4px tighter
             than a placed one — visible the moment an answer carries both. */}
-        {/* The anatomy below the prose: the callout, then the takeaways. */}
-        {!stillArriving && anatomy && anatomy.below.length > 0 && (
+        {/* The anatomy below the prose: the callout (unless its marker placed
+            it inline), then the takeaways. */}
+        {!stillArriving && anatomyBelow.length > 0 && (
           <div className="mt-1 flex flex-col gap-3">
             <CardSetProvider cards={cardSet}>
-              {anatomy.below.map((card, i) => (
-                <GridCardItem key={card.type} card={card} index={-1 - i} projectId={projectId} messageId={messageId} />
+              {anatomyBelow.map((card) => (
+                <AnatomyBlock key={card.type} card={card} />
               ))}
             </CardSetProvider>
           </div>
@@ -914,10 +947,10 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             provenance footer by a single hairline, so the whole thing reads as
             one considered object with sections — not a card floating in a tray. */}
         <div className="flex flex-col gap-2 break-words border-b bg-card px-[22px] pb-[17px] pt-[18px]">
-          {/* The answer's headline value, above the prose. */}
-          {anatomy?.verdict && (
+          {/* The answer's masthead — verdict and/or summary, flat above the prose. */}
+          {anatomy && (anatomy.verdict || anatomy.summary) && (
           <CardSetProvider cards={cardSet}>
-            <GridCardItem card={anatomy.verdict} index={-1} projectId={projectId} messageId={messageId} />
+            <AnatomyMasthead verdict={anatomy.verdict} summary={anatomy.summary} />
           </CardSetProvider>
         )}
         {/* Response Content rendered as markdown (with streaming caret).
@@ -942,12 +975,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               rhythm is 12px, so without it an UNPLACED card hugged the prose 4px
               tighter than a placed one — visible the moment an answer carries
               both, which is what /dev/chat-turn?variant=two-cards shows. */}
-          {/* The anatomy below the prose: the callout, then the takeaways. */}
-          {!stillArriving && anatomy && anatomy.below.length > 0 && (
+          {/* The anatomy below the prose: the callout (unless its marker placed
+              it inline), then the takeaways. */}
+          {!stillArriving && anatomyBelow.length > 0 && (
           <div className="mt-1 flex flex-col gap-3">
             <CardSetProvider cards={cardSet}>
-              {anatomy.below.map((card, i) => (
-                <GridCardItem key={card.type} card={card} index={-1 - i} projectId={projectId} messageId={messageId} />
+              {anatomyBelow.map((card) => (
+                <AnatomyBlock key={card.type} card={card} />
               ))}
             </CardSetProvider>
           </div>

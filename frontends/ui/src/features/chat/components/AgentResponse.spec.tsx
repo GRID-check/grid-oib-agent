@@ -757,6 +757,7 @@ describe('AgentResponse', () => {
     // owns content, the frontend owns placement.
     const answerMeta = {
       v: 1,
+      summary: 'In GK 4 gilt REI 60; maßgeblich ist das Fluchtniveau.',
       verdict: { value: 'REI 60', subject: 'Feuerwiderstand tragender Bauteile' },
       callout: { kind: 'frist' as const, text: 'Binnen sechs Wochen anzuberaumen.' },
       takeaways: [
@@ -765,7 +766,7 @@ describe('AgentResponse', () => {
       ],
     }
 
-    test('renders the verdict above the prose and the rest after it', () => {
+    test('renders the masthead above the prose and the rest after it', () => {
       const { container } = render(
         <AgentResponse content="REI 60 gilt, und maßgeblich ist das Fluchtniveau." answerMeta={answerMeta} />
       )
@@ -773,11 +774,27 @@ describe('AgentResponse', () => {
       expect(text).toContain('REI 60')
       expect(text).toContain('Binnen sechs Wochen anzuberaumen.')
       expect(text).toContain('Maßgeblich ist das Fluchtniveau')
-      // Fixed order: the verdict value appears before the prose, the callout
-      // and takeaways after it.
-      expect(text.indexOf('REI 60')).toBeLessThan(text.indexOf('REI 60 gilt'))
-      expect(text.indexOf('REI 60 gilt')).toBeLessThan(text.indexOf('Binnen sechs Wochen'))
+      // Fixed order: verdict then summary (the masthead) before the prose,
+      // the callout and takeaways after it.
+      expect(text.indexOf('REI 60')).toBeLessThan(text.indexOf('In GK 4 gilt REI 60'))
+      expect(text.indexOf('In GK 4 gilt REI 60')).toBeLessThan(text.indexOf('REI 60 gilt,'))
+      expect(text.indexOf('REI 60 gilt,')).toBeLessThan(text.indexOf('Binnen sechs Wochen'))
       expect(text.indexOf('Binnen sechs Wochen')).toBeLessThan(text.indexOf('Maßgeblich ist das Fluchtniveau'))
+    })
+
+    test('a summary holds the lede emphasis alone — the first paragraph stays body-sized', () => {
+      // Long enough to clear the lede threshold on its own; with a summary in
+      // the masthead the first paragraph must NOT also be enlarged.
+      const longBody = `${'Ein ausreichend langer erster Absatz. '.repeat(20)}\n\nZweiter Absatz.`
+      const { container } = render(<AgentResponse content={longBody} answerMeta={answerMeta} />)
+      expect(container.querySelector('[class*="first-child\\]:text-"]')).toBeNull()
+
+      // Without a summary the lede styling still fires as before.
+      const { verdict, callout, takeaways } = answerMeta
+      const { container: plain } = render(
+        <AgentResponse content={longBody} answerMeta={{ v: 1, verdict, callout, takeaways }} />
+      )
+      expect(plain.querySelector('[class*="first-child\\]:text-"]')).not.toBeNull()
     })
 
     test('an answer without anatomy renders exactly as before', () => {
@@ -790,6 +807,23 @@ describe('AgentResponse', () => {
         <AgentResponse content="REI 60 gilt." answerMeta={answerMeta} isStreaming />
       )
       expect(container.textContent).not.toContain('Binnen sechs Wochen')
+    })
+
+    test('a body that claims the callout with [[callout]] takes it out of the after-prose block', () => {
+      // `MarkdownRenderer` is stubbed here, so the SPLICE itself cannot be
+      // seen (card-markers.spec.tsx proves it against the real parser and
+      // DOM); what this surface owns is the other half of the contract — a
+      // claimed callout must not ALSO render after the prose.
+      const { container } = render(
+        <AgentResponse
+          content={'Erster Absatz.\n\n[[callout]]\n\nZweiter Absatz.'}
+          answerMeta={answerMeta}
+        />
+      )
+      const text = container.textContent ?? ''
+      expect(text).not.toContain('Binnen sechs Wochen')
+      // The takeaways still close the answer.
+      expect(text).toContain('Maßgeblich ist das Fluchtniveau')
     })
   })
 
