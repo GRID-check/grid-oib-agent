@@ -119,11 +119,11 @@ class TestTheModelCanNoLongerEmitOne:
         # rather than store it, or a report would still ship chips inside itself.
         # A good card rides along so a pass cannot come from validate_cards
         # returning nothing at all.
-        good = {"type": "callout", "kind": "frist", "text": "Die Bauverhandlung ist binnen acht Wochen anzuberaumen."}
+        good = {"type": "ifc_model_picker", "title": "Welches Modell offnen?"}
         with caplog.at_level(logging.WARNING):
             kept = validate_cards([STORED_CARD, good])
 
-        assert [card["type"] for card in kept] == ["callout"]
+        assert [card["type"] for card in kept] == ["ifc_model_picker"]
         assert any("follow_ups" in record.getMessage() for record in caplog.records)
 
     def test_the_dsml_salvage_drops_it(self):
@@ -139,8 +139,8 @@ class TestTheModelCanNoLongerEmitOne:
             assert registry.snapshot() == []
             # The same salvage still works for a card that is not retired, so
             # this asserts the refusal and not a broken salvage.
-            _salvage_card(json.dumps({"type": "callout", "kind": "tipp", "text": "Fruh mit der Behorde sprechen."}))
-            assert [card["type"] for card in registry.snapshot()] == ["callout"]
+            _salvage_card(json.dumps({"type": "ifc_model_picker", "title": "Welches Modell offnen?"}))
+            assert [card["type"] for card in registry.snapshot()] == ["ifc_model_picker"]
         finally:
             reset_card_registry(token)
 
@@ -168,4 +168,4 @@ class TestItIsAdvertisedNowhere:
         # `grid-cards` block both render. A shape it still returned would let a
         # skill author put the card back into context by naming it.
         assert render_card_details(["follow_ups"]) == ""
-        assert render_card_details(["callout", "follow_ups"]).count("follow_ups") == 0
+        assert render_card_details(["legal_basis", "follow_ups"]).count("follow_ups") == 0

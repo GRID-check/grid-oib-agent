@@ -65,10 +65,13 @@ class TestValidateCards:
     fail the answer. Cards are a progressive enhancement.
     """
 
-    def test_accepts_valid_summary_dict(self):
+    def test_drops_the_envelope_types_on_every_generation_path(self):
+        # `summary` and its siblings stopped being cards anywhere new: they are
+        # answer-envelope fields, so a generator reaching for one is dropped —
+        # the stored-thread render path (`grid_card_adapter`) still accepts it.
         raw = [{"type": "summary", "title": "Summary title", "content": "Summary content"}]
-        result = validate_cards(raw)
-        assert result == raw
+        assert validate_cards(raw) == []
+        assert grid_card_adapter.validate_python(raw[0]).title == "Summary title"
 
     def test_accepts_valid_legal_basis_dict(self):
         raw = [{"type": "legal_basis", "law": "OIB Richtlinie 1"}]
@@ -85,13 +88,13 @@ class TestValidateCards:
 
     def test_keeps_valid_cards_and_drops_invalid_in_same_batch(self):
         raw = [
-            {"type": "summary", "title": "Good"},
-            {"type": "summary"},  # missing required title -> dropped
+            {"type": "ifc_model_picker", "title": "Good"},
+            {"type": "ifc_model_picker"},  # missing required title -> dropped
             {"type": "legal_basis", "law": "OIB Richtlinie 3"},
         ]
         result = validate_cards(raw)
         assert result == [
-            {"type": "summary", "title": "Good"},
+            {"type": "ifc_model_picker", "title": "Good"},
             {"type": "legal_basis", "law": "OIB Richtlinie 3"},
         ]
 
@@ -428,9 +431,13 @@ class TestAnswerShapeCards:
     def test_render_card_details_covers_each_new_type(self):
         from aiq_agent.cards.catalog import render_card_details
 
-        detail = render_card_details(["verdict_header", "condition_tree", "typed_table", "norm_chain"])
-        for card_type in ("verdict_header", "condition_tree", "typed_table", "norm_chain"):
+        detail = render_card_details(["condition_tree", "typed_table", "norm_chain"])
+        for card_type in ("condition_tree", "typed_table", "norm_chain"):
             assert f'"{card_type}"' in detail
+        # `verdict_header` is an envelope type now: describe_card refuses it on
+        # the answering surface, where the verdict travels in the answer_meta
+        # trailer instead.
+        assert '"verdict_header"' not in render_card_details(["verdict_header"])
         # The nested building blocks are spelled out, not hidden behind a name.
         assert "ConditionBranch = {" in detail
         assert "NormChainLink = {" in detail
@@ -473,8 +480,11 @@ class TestGenericPolishCards:
         assert validate_cards([one, six]) == []
 
     def test_key_takeaways_needs_no_title(self):
+        # Through the stored-thread adapter: no generation path produces this
+        # type any more (it is an answer-envelope field), but stored cards keep
+        # rendering and the shape contract still holds.
         raw = {"type": "key_takeaways", "items": [{"text": "Erster Punkt"}, {"text": "Zweiter Punkt"}]}
-        [card] = validate_cards([raw])
+        card = grid_card_adapter.validate_python(raw).model_dump(exclude_none=True)
         assert "title" not in card
 
     def test_callout_validates_each_kind(self):
@@ -501,12 +511,20 @@ class TestGenericPolishCards:
             card = grid_card_adapter.validate_python(CARD_EXAMPLES[card_type])
             assert card.type == card_type
 
-    def test_render_card_details_spells_out_the_takeaway_block(self):
+    def test_no_card_surface_teaches_the_envelope_shapes(self):
+        from aiq_agent.cards.catalog import render_card_catalog
         from aiq_agent.cards.catalog import render_card_details
 
-        detail = render_card_details(["key_takeaways", "callout"])
-        assert '"key_takeaways"' in detail and '"callout"' in detail
-        assert "KeyTakeaway = {" in detail
+        # Envelope types are not cards anywhere new: describe_card skips them
+        # AND the post-hoc catalog withholds them. Their shapes reach the model
+        # through the answer envelope's own schema instead.
+        assert render_card_details(["key_takeaways", "callout"]) == ""
+        catalog = render_card_catalog()
+        assert '"key_takeaways"' not in catalog and '"callout"' not in catalog
+        from aiq_agent.common.answer_envelope import render_envelope_schema
+
+        schema = render_envelope_schema()
+        assert "takeaways" in schema and "callout" in schema
 
 
 class TestFollowUpsCard:

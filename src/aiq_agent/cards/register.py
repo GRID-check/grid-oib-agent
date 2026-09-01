@@ -27,6 +27,8 @@ from aiq_agent.cards import surface_documents as _surface_documents  # noqa: F40
 # Re-exported so the shape-hint retry loop and tests keep importing them from
 # here; the definitions live in the framing-free catalog module.
 from aiq_agent.cards.catalog import CARD_EXAMPLES as _CARD_EXAMPLES  # noqa: F401
+from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
+from aiq_agent.cards.catalog import ENVELOPE_NOTE
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.catalog import model_facing_card_types
 from aiq_agent.cards.catalog import render_card_details
@@ -54,13 +56,19 @@ place none: the reader scrolls past the drawings to reach the answer they asked 
 
 # The CONTRACT of the tool, and only that: which trigger takes which card, when to emit none, and
 # where a card lands. Every line here is paid on every turn whether or not a card is emitted, so
-# the CRAFT — which of the generic cards actually improves an ordinary answer, and how to tell the
-# three table-shaped cards apart — lives in the `piloti-cards` platform skill instead. That skill
-# is applied on every answering turn anyway, and being a database row it can be edited without a
-# deploy. A new card type earns a trigger line in the shared doctrine; its paragraph belongs in the
-# skill. The doctrine itself moved to `catalog.py` when the post-hoc generator started rendering it
-# too — a trigger table that exists twice is a trigger table that will disagree with itself.
-_CARD_DOCTRINE = render_card_doctrine() + "\n\n" + _PLACEMENT_CONTRACT
+# the CRAFT — which card actually improves an ordinary answer, and how to tell the three
+# table-shaped cards apart — lives in the `<cards>` section of the researcher's system prompt
+# (`shallow_researcher/prompts/researcher.j2`), where the `piloti-cards` platform skill used to
+# carry it before the house skills were folded into the prompts. A new card type earns a trigger
+# line in the shared doctrine; its craft paragraph belongs in that prompt section. The doctrine
+# itself moved to `catalog.py` when the post-hoc generator started rendering it too — a trigger
+# table that exists twice is a trigger table that will disagree with itself.
+#
+# The envelope redirect rides here and not in the shared doctrine: this is the surface where a
+# model that recognised "this answer has a verdict" could reach for a tool call, and the note
+# points it at the answer envelope's field instead. The post-hoc surface produces no envelope
+# cards and has no envelope, so it gets neither triggers nor note.
+_CARD_DOCTRINE = render_card_doctrine() + "\n\n" + ENVELOPE_NOTE + "\n\n" + _PLACEMENT_CONTRACT
 
 
 def _build_tool_description() -> str:
@@ -152,6 +160,16 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
             return (
                 f"Error: card type '{validated['type']}' is system-emitted and cannot be created with "
                 "emit_card. Do not emit this card type."
+            )
+
+        # Envelope shapes are answer-envelope fields; the refusal names the
+        # right channel so a model that correctly recognised "this answer has a
+        # verdict" is redirected rather than merely refused.
+        if validated["type"] in ENVELOPE_CARD_TYPES:
+            logger.warning("emit_card rejected a '%s' card: that type is trailer-materialized", validated["type"])
+            return (
+                f"Error: card type '{validated['type']}' is not emitted as a card. Put its content into "
+                "the matching field of your ```answer_json answer envelope instead (see the answer contract)."
             )
 
         registry = get_card_registry()

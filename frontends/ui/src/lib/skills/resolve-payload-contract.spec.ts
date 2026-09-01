@@ -93,7 +93,7 @@ const STANDARD_ROW: PlatformSkillRow = {
   metadata: {
     'grid-title': 'Piloti-Stimme',
     'grid-hidden': 'true',
-    'grid-cards': 'summary,calculation',
+    'grid-cards': 'legal_basis,calculation',
   },
   published: true,
   delivery: 'standard',
@@ -201,7 +201,7 @@ describe('the resolve payload the backend reads', () => {
     expect(live.get('piloti-voice')?.metadata).toEqual({
       'grid-title': 'Piloti-Stimme',
       'grid-hidden': 'true',
-      'grid-cards': 'summary,calculation',
+      'grid-cards': 'legal_basis,calculation',
     })
   })
 

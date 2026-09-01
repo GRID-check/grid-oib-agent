@@ -23,7 +23,7 @@ CARDS = Skill(
     name="gamma",
     description="Dritter Skill.",
     body="gamma body",
-    metadata={"grid-cards": "comparison_table,summary"},
+    metadata={"grid-cards": "comparison_table,legal_basis"},
     origin="platform",
 )
 TITLED = Skill(
@@ -227,7 +227,7 @@ def test_preferred_cards_are_appended_on_activation_only() -> None:
     assert "## Preferred cards" in body
     # Author order is preserved, and the types are named verbatim so the model
     # can copy them into `type` without translating a prose paraphrase.
-    assert "`comparison_table`, `summary`" in body
+    assert "`comparison_table`, `legal_basis`" in body
     # A preference, not a command — the wording must leave an out.
     assert "not a requirement" in body
     # The whole point of the feature: it costs nothing until activation.
@@ -247,10 +247,10 @@ def test_unknown_and_system_card_types_never_reach_the_model() -> None:
         name="delta",
         description="Vierter Skill.",
         body="delta body",
-        metadata={"grid-cards": "summary,memory_proposal,ganz_erfunden"},
+        metadata={"grid-cards": "legal_basis,memory_proposal,ganz_erfunden"},
     )
     body = _use_skill(SkillRuntime(skills=(skill,))).invoke({"skill_name": "delta"})
-    assert "`summary`" in body
+    assert "`legal_basis`" in body
     assert "memory_proposal" not in body
     assert "ganz_erfunden" not in body
 

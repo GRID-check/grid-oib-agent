@@ -5,7 +5,7 @@ description: >
 metadata:
   grid-catalog: curated
   grid-agents: shallow_researcher,deep_researcher
-  grid-cards: requirement_checklist,condition_tree,legal_basis,callout
+  grid-cards: requirement_checklist,condition_tree,legal_basis
 ---
 
 # Zuerst das Regime, dann die Anforderung
@@ -51,8 +51,8 @@ Eine Erinnerung an „macht die Behörde oft mit“ ist kein Fall.
 Mehrere Anforderungen, jede mit eigenem Urteil → `requirement_checklist`.
 Das Regime gabelt die Antwort → `condition_tree`.
 Die bindende Klausel → `legal_basis`.
-Eine Frist oder ein Vorbehalt, der das nächste Tun ändert → ein `callout`,
-höchstens einer.
+Eine Frist oder ein Vorbehalt, der das nächste Tun ändert → das `callout`-Feld
+der Antwort (`answer_json`-Envelope), höchstens eines.
 
 ## Done
 

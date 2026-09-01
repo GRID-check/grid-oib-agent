@@ -14,8 +14,27 @@ meant to grow.
 ## Current card types
 
 Defined in `src/aiq_agent/cards/models.py` as a discriminated union (`GridCard`)
-— **41 types in four families**: 38 the model may emit, three it may not
-(`SYSTEM_CARD_TYPES`, which holds the tool-owned cards and the retired one).
+— **41 types in four families**: 34 the answering model may emit through
+`emit_card`, three it may not on any surface (`SYSTEM_CARD_TYPES` — the
+tool-owned cards and the retired `follow_ups`), and four **envelope types**
+(`ENVELOPE_CARD_TYPES`: `summary`, `verdict_header`, `key_takeaways`,
+`callout`) that stopped being cards anywhere new: a research answer is
+generated as one JSON envelope (```answer_json — see
+`src/aiq_agent/common/answer_envelope.py`) whose optional fields carry the
+verdict, the takeaways and the callout as NATIVE answer anatomy, validated and
+gated platform-side and rendered by the frontend in a fixed layout (verdict
+above the prose, callout and takeaways after it). No generator — `emit_card`,
+the DSML salvage, or the post-hoc deep pass — produces these types as cards
+any more; the union members survive only so stored threads keep rendering, and
+their renderers double as the anatomy's visual vocabulary
+(`features/chat/lib/answer-meta-cards.ts`). On the generation side the
+envelope is REQUESTED from the provider too, not only taught: the shallow
+agent binds `response_format: json_object` (the OpenRouter-safe mode
+`cards/generate.py` established; `strict` json_schema is ignored there) on
+the tool-free forced-synthesis call, with a per-call fallback to a plain
+request — and on tool-bound iterations only behind the
+`envelope_json_mode_with_tools` config flag, because some routed providers
+accept the parameter and silently stop emitting tool calls.
 The families are not decoration: each answers
 "where does a number on this card come from?" differently, and that answer is
 what decides whether the model may emit the card at all, on which surface, and
@@ -26,17 +45,17 @@ answer it has just written.
 
 | `type` | Purpose | Key fields |
 |---|---|---|
-| `summary` | A short overview / key points | `title`, `content`, `key_points` |
+| `summary` **(envelope)** | A short overview / key points. Retired: its role is covered by the lede and the takeaways; the type survives for stored threads | `title`, `content`, `key_points` |
 | `legal_basis` | An OIB/norm legal-basis citation | `law`, `article`, `section`, `summary`, `original_text` |
 | `project_profile_patch` **(interactive)** | A proposed change to the project brief | `title`, `rationale`, `patch[]` — JSON-Patch ops restricted to `/facts`, `/goals`, `/unknowns`, `/assumptions` (the before/after rows are built from the patch and the live profile, never from the model) |
 | `requirement_checklist` | Several pass/fail criteria for one question, each with verdict + own norm reference | `title`, `items[]` (`label`, `status`, `detail`, `reference`), `reference`, `note` |
 | `comparison_table` | Side-by-side comparison of a small number of options (columns) across criteria (rows) | `title`, `options[]`, `rows[]` (`label`, `values[]`, `highlight_index`), `recommendation`, `reference`, `note` |
-| `verdict_header` | The answer's single headline ruling, set at the top — the value the reader came for | `verdict`, `subject`, `reference`, `confidence`, `confidence_reason` |
+| `verdict_header` **(envelope)** | The answer's single headline ruling, set at the top — the value the reader came for. Fed by the envelope's `verdict` field (gated: a copyable ≤ 60-char VALUE) and rendered above the prose as answer anatomy, never as a card in the array | `verdict`, `subject`, `reference`, `confidence`, `confidence_reason` |
 | `condition_tree` | An answer that forks on one factor (typically the Gebäudeklasse): the question, each branch's condition and outcome, the branch this project sits on marked `active` | `title`, `question`, `branches[]` (`condition`, `outcome`, `active`, `reference`), `reference` |
 | `typed_table` | A tabular answer no purpose-built card covers. Columns are TYPED (`mass`, `norm`, `verdict`, `date`, `text`) so the renderer can align, format and colour them instead of printing five strings | `title`, `columns[]` (`label`, `type`), `rows[]`, `reference`, `note` |
 | `norm_chain` | A chain of norms with what binds and what only interprets: each link carries its `rank` (`bundesgesetz` → `leitfaden`), which is the whole point of the card | `title`, `links[]` (`label`, `rank`, `note`) |
-| `key_takeaways` | „Das Wichtigste" — the 2–5 points the reader must leave with. The generic card for an answer with no dimension and no fork in it; a row with a `detail` expands, a row without one is not a button | `title`, `items[]` (`text`, `detail`) |
-| `callout` | ONE remark that changes what the reader does — a `hinweis`, `achtung`, `frist` or `tipp`. Deliberately small; at most one per answer, because a second puts both back at the weight of the prose around them | `kind`, `text`, `title`, `detail` |
+| `key_takeaways` **(envelope)** | „Das Wichtigste" — the 2–5 points the reader must leave with; a row with a `detail` expands, a row without one is not a button. Fed by the envelope's `takeaways` field, gated on answer length (≥ 600 chars of prose) and 2–5 items, rendered after the prose | `title`, `items[]` (`text`, `detail`) |
+| `callout` **(envelope)** | ONE remark that changes what the reader does — a `hinweis`, `achtung`, `frist` or `tipp`. Fed by the envelope's `callout` field, which holds at most one by shape, rendered after the prose | `kind`, `text`, `title`, `detail` |
 | `follow_ups` **(retired)** | 2–4 next questions, each anchored to something this answer introduced. Clicking one PREFILLS the composer — the user still presses send, and nothing reaches the backend on click. **The model can no longer emit this**: it is a member of `SYSTEM_CARD_TYPES`, and the post-answer `follow_ups` STAGE produces the questions instead, rendered as a rail BELOW the answer (`aiq_agent/stages/follow_ups.py`, `docs/architecture/post-answer-stages.md` §7.10). The type, its Zod schema and `FollowUpsCard.tsx` all stay, so the cards stored on historical threads keep rendering — see *Retiring a card type* below | `title`, `items[]` (`question`, `hint`) |
 | `calculation` | The derivation behind a computed number — the Schrittmaßregel, a GFZ, a Brandlast, a U-value from its resistances. **There is no result field**: the model supplies operands, an operation from a closed set (`sum`, `product`, `quotient`, `percent_of`, `percent_ratio`) and the limit; the renderer computes, propagates the ± band, rounds and judges | `title`, `steps[]` (`label`, `operation`, `operands[]`, `unit`), `limit`, `reference`, `note` |
 | `process_map` | An ordered procedure — Einreichung → Bauverhandlung → Baubewilligung → Fertigstellungsanzeige — with the step this project stands at, and what each step requires and produces revealed on click | `title`, `steps[]` (`label`, `summary`, `actor`, `duration`, `requires[]`, `produces[]`, `reference`), `current_step`, `reference`, `note` |
@@ -313,16 +332,13 @@ the moment to spend context on them — and it saves the activated turn a
 
 That makes `grid-cards` do two things at once, and only the first is obvious: it
 states the author's preference AND it decides which shapes are already in context
-at the moment the model would emit. `piloti-cards` is `delivery: standard`, so
-its list is paid on every answering turn — 1,881 cl100k tokens for the six
-inlined after migration `0062` (`verdict_header`, `condition_tree`, `typed_table`,
-`key_takeaways`, `callout`, `process_map`). `typed_table` and
-`process_map` joined in `0061` for +265 and +693 respectively, because they are the two
-cards the doctrine spends its words redirecting TO and both were a round trip
-away while `condition_tree`'s shape sat already rendered. `0062` took `follow_ups`
-back out for −276 when the card was retired. The ceiling on that
-block is asserted in `test_seeded_platform_skills.py`; widening it is a priced
-decision, not a preference.
+at the moment the model would emit. The `piloti-cards` standard skill used to be
+the heaviest user of this — six shapes inlined on every answering turn — until
+migration `0071` retired it together with `piloti-voice`: the card craft moved
+into the `<cards>` section of the researcher's system prompt, and the rhetorical
+shapes it inlined became `answer_meta` trailer fields. Today the mechanism
+serves the genre skills (e.g. `oib/brandschutz` inlines its five), which pay
+for their shapes only on the turns that activate them.
 
 Taking a retired type OUT of the list is not tidiness. `preferred_cards` filters
 `grid-cards` against `model_facing_card_types()`, so a name left behind is dropped
@@ -391,9 +407,12 @@ framing-free module that already owns `render_card_index` / `render_card_details
 — because there are TWO surfaces that produce cards and only one of them used to
 be taught how to choose.
 
-`register.py` composes `render_card_doctrine()` with the `[[card:N]]` placement
-contract and exports the result as `_CARD_DOCTRINE`, which is what `emit_card`'s
-description carries.
+`register.py` composes `render_card_doctrine()` with the envelope redirect note
+and the `[[card:N]]` placement contract, and exports the result as
+`_CARD_DOCTRINE`, which is what `emit_card`'s description carries. The
+rhetorical triggers left the table with their card types: a model that
+recognises "this answer has a verdict" is pointed at the ```answer_json
+envelope, on every surface.
 
 `cards/prompt.py` composes `render_card_doctrine(include_ifc_triggers=False)`
 for the post-hoc path that derives cards from a finished deep-research report.
@@ -416,12 +435,16 @@ reason is the same each time: they are not true there.
   and withholding a shape are different decisions with different reasons, and
   conflating them would put the wrong reason on the wrong set.
 
-The CRAFT — which of the generic cards actually improves an ordinary answer, and
-how `verdict_header` divides the ruling with the answer's first sentence — is in
-neither. It lives in the `piloti-cards` platform skill, a database row applied on
-every answering turn and editable without a deploy. The post-hoc path cannot
-reach a skill runtime, so it carries the subset of that judgement which is a test
-over a finished text rather than an instruction about how to write one.
+The CRAFT — which card actually improves an ordinary answer, and how the
+verdict divides the ruling with the answer's first sentence — is in neither
+rendering. It lives in the `<cards>` and `<answer_meta>` sections of the
+researcher's system prompt (`shallow_researcher/prompts/researcher.j2`), where
+the retired `piloti-cards` platform skill used to carry it: a forced skill's
+body only reached the model through a `use_skill` call it could skip, and the
+prompt is unconditional. The post-hoc path cannot read a prompt meant for the
+answering agent, so it carries the subset of that judgement which is a test
+over a finished text rather than an instruction about how to write one
+(`_POST_HOC_CRAFT` in `cards/prompt.py`).
 
 A positive trigger that strong needs an **explicit negative default** beside it
 or it produces card spam, so the doctrine states that too: a one-line factual
@@ -460,7 +483,7 @@ again, so the tool loop still terminates where it always did. The counter is
 
 The rule this leaves is the one that was always meant to be in force: how many
 cards an answer carries is a judgement about the answer, decided by the doctrine
-and the `piloti-cards` skill — never a leftover of how much searching the
+and the prompt's card craft — never a leftover of how much searching the
 question happened to need.
 
 ### Which turns may emit a card
@@ -487,13 +510,14 @@ Two things bound it:
   small talk, a formatting or memory request, a shelf listing and an off-topic
   decline get none. The off-topic shape still reads "No tool calls".
 - **The skill gate stays shut.** `register.py` builds a `SkillRuntime` only when
-  `requires_sources or force_skills`, so a meta turn does NOT get the
-  `piloti-cards` body. Opening it would cost ~7,400 cl100k tokens on every
-  greeting (5,239 for the body plus the inlined shapes). What the turn keeps is
-  the always-on doctrine and the L1 index, which ride in `emit_card`'s
-  description regardless — enough to NAME the right card. The shape costs one
-  `describe_card` call, which is why `describe_card` is pinned into
-  `_INTERACTION_TOOL_BASENAMES` rather than surviving by having no data source.
+  `requires_sources or force_skills`, so a meta turn pays for no skill prose at
+  all (the house bodies that once made this gate worth ~7,400 cl100k tokens per
+  greeting are folded into the prompt now, but genre-skill bodies still ride
+  behind it). What the turn keeps is the always-on doctrine and the L1 index,
+  which ride in `emit_card`'s description regardless — enough to NAME the right
+  card. The shape costs one `describe_card` call, which is why `describe_card`
+  is pinned into `_INTERACTION_TOOL_BASENAMES` rather than surviving by having
+  no data source.
 
 ### Every `emit_card` outcome is logged, refusals included
 
@@ -760,12 +784,21 @@ without re-plumbing generation or transport.
    a renderer nobody is asked for, which is a renderer nobody sees; that is
    exactly how fifteen schematic cards sat behind a disclaimer. A trigger line,
    and only a trigger line: the paragraph explaining when the card earns its
-   place belongs in the `piloti-cards` skill. Both halves are asserted against
-   each other, and a token ceiling on the tool description fails if the doctrine
-   drifts back into carrying craft.
+   place belongs in the `<cards>` section of the researcher prompt
+   (`shallow_researcher/prompts/researcher.j2`). A token ceiling on the tool
+   description fails if the doctrine drifts back into carrying craft.
 7. For a **system** card (tool-emitted, never model-emitted): add it to
    `SYSTEM_CARD_TYPES` and register the emitting tool in the agent's `tools:`
    list in the config.
+8. For an **envelope** field (native answer anatomy, never a tool call): add
+   a model, a registry entry and a gate in `common/answer_envelope.py` (the
+   taught schema renders itself from the models), an earned-when line in the
+   prompt's `<answer_envelope>` section, a sanitizer clause in
+   `lib/conversations/message-answer-meta.ts`, and a layout slot in
+   `AgentResponse`. Retire the card type into `ENVELOPE_CARD_TYPES` only when
+   one existed. The bar is high on purpose: an envelope field is paid for in
+   contract complexity on EVERY research answer, so it is for shapes almost
+   every answer could carry, not for domain cards.
 
 ## Card catalog
 

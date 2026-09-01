@@ -61,7 +61,7 @@ class TestConservativeStripping:
 class TestStripLeakedBlock:
     def test_strips_trailing_leaked_invoke_without_closers(self, card_registry):
         answer = "Here is the grounded answer [1]."
-        leaked = _leaked_emit_card('{"type": "summary", "title": "Height check", "content": "12 m limit"}')
+        leaked = _leaked_emit_card('{"type": "ifc_model_picker", "title": "Height check"}')
         result = strip_and_salvage_dsml_tool_calls(answer + "\n\n" + leaked)
         assert result == answer
         assert BAR not in result
@@ -71,7 +71,7 @@ class TestStripLeakedBlock:
             _open("tool_calls")
             + INVOKE_OPEN
             + CARD_PARAM_OPEN
-            + '{"type": "summary", "title": "T", "content": "C"}'
+            + '{"type": "ifc_model_picker", "title": "T"}'
             + _close("parameter")
             + _close("invoke")
             + _close("tool_calls")
@@ -84,15 +84,15 @@ class TestStripLeakedBlock:
 
 class TestCardSalvage:
     def test_salvages_emit_card_into_registry(self, card_registry):
-        leaked = _leaked_emit_card('{"type": "summary", "title": "Egress width", "content": "1.20 m required"}')
+        leaked = _leaked_emit_card('{"type": "ifc_model_picker", "title": "Egress width"}')
         strip_and_salvage_dsml_tool_calls("Answer.\n" + leaked)
         cards = card_registry.snapshot()
         assert len(cards) == 1
-        assert cards[0]["type"] == "summary"
+        assert cards[0]["type"] == "ifc_model_picker"
         assert cards[0]["title"] == "Egress width"
 
     def test_invalid_card_json_is_stripped_but_not_registered(self, card_registry):
-        leaked = _leaked_emit_card('{"type": "summary"}')  # missing required title
+        leaked = _leaked_emit_card('{"type": "ifc_model_picker"}')  # missing required title
         result = strip_and_salvage_dsml_tool_calls("Answer.\n" + leaked)
         assert "Answer." in result
         assert BAR not in result

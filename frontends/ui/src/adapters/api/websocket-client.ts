@@ -9,6 +9,8 @@
 import { backoffWithJitter } from '@/shared/utils/backoff'
 import { trackAuthEvent } from '@/shared/utils/rum'
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
+import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
+import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
 import { getWebSocketUrl } from './config'
 import {
   // NAT protocol types
@@ -70,6 +72,12 @@ export interface ResponseTransparency {
   jobAdmissionRejected?: boolean
   /** Retry hint (seconds) — only alongside jobAdmissionRejected. */
   retryAfterSeconds?: number
+  /**
+   * The answer's structured anatomy (verdict / takeaways / callout), gated
+   * backend-side and sanitized HERE (`sanitizeAnswerMeta`) so everything
+   * downstream — store, persistence, renderer — sees one bounded shape.
+   */
+  answerMeta?: AnswerMeta
 }
 
 /**
@@ -669,6 +677,7 @@ export class NATWebSocketClient {
             skillsHidden: message.skills_hidden,
             jobAdmissionRejected: message.job_admission_rejected,
             retryAfterSeconds: message.retry_after_seconds,
+            answerMeta: sanitizeAnswerMeta(message.answer_meta) ?? undefined,
           }
           this.options.callbacks.onResponse?.(
             content,

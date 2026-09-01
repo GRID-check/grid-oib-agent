@@ -393,14 +393,14 @@ describe('SkillEditorDialog — edit', () => {
     render(
       <SkillEditorDialog
         {...dialogProps}
-        skill={{ ...orgSkill, metadata: { ...orgSkill.metadata, 'grid-cards': 'summary' } }}
+        skill={{ ...orgSkill, metadata: { ...orgSkill.metadata, 'grid-cards': 'condition_tree' } }}
       />,
     )
 
-    expect(screen.getByText('A concise overview of the answer for the user.')).toBeInTheDocument()
+    expect(screen.getByText(/Bedingungsbaum/)).toBeInTheDocument()
 
     fireEvent.click(
-      screen.getByRole('button', { name: 'Remove card type “summary” from the preference' }),
+      screen.getByRole('button', { name: 'Remove card type “condition_tree” from the preference' }),
     )
 
     const saveButton = screen.getByRole('button', { name: 'Save skill' })
@@ -429,7 +429,7 @@ describe('SkillEditorDialog — edit', () => {
           'description: A pasted description that says when to use it.',
           'metadata:',
           '  grid-execution: chat',
-          '  grid-cards: summary',
+          '  grid-cards: condition_tree',
           '---',
           '',
           '# Pasted',
@@ -449,7 +449,7 @@ describe('SkillEditorDialog — edit', () => {
     // DROPS — `grid-agents` was in the row and is gone from the paste.
     expect(screen.getByRole('checkbox', { name: /Chat agent/ })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /Deep research agent/ })).toBeChecked()
-    expect(screen.getByText('A concise overview of the answer for the user.')).toBeInTheDocument()
+    expect(screen.getByText(/Bedingungsbaum/)).toBeInTheDocument()
 
     const saveButton = screen.getByRole('button', { name: 'Save skill' })
     await waitFor(() => expect(saveButton).toBeEnabled())
@@ -458,7 +458,7 @@ describe('SkillEditorDialog — edit', () => {
     await waitFor(() => expect(updateSkillMock).toHaveBeenCalledTimes(1))
     expect(updateSkillMock.mock.calls[0][1].metadata).toEqual({
       'grid-execution': 'chat',
-      'grid-cards': 'summary',
+      'grid-cards': 'condition_tree',
     })
   })
 

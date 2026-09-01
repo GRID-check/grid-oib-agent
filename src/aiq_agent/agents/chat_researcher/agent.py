@@ -138,6 +138,7 @@ def _finalize_shallow_answer(
     skills_activated: list[str] | None = None,
     skills_hidden: list[str] | None = None,
     research_truncated: bool | None = None,
+    answer_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the node update for a successful/insufficient shallow answer.
 
@@ -228,6 +229,9 @@ def _finalize_shallow_answer(
             # Same reason: the shallow turn's truncation is not a fact about the
             # deep report the reader is about to get.
             "research_truncated": None,
+            # And its anatomy goes with it — a verdict on a superseded answer
+            # would decorate the job-submission stub.
+            "answer_meta": None,
         }
 
     return {
@@ -255,6 +259,7 @@ def _finalize_shallow_answer(
         "skills_activated": skills_activated,
         "skills_hidden": skills_hidden,
         "research_truncated": research_truncated,
+        "answer_meta": answer_meta,
     }
 
 
@@ -684,6 +689,12 @@ class ChatResearcherAgent:
             # note is never shown on an answer we cannot prove was cut off.
             research_truncated = True if getattr(result, "research_truncated", None) is True else None
 
+            # The answer's gated structured anatomy. Fail-open like every field
+            # here: anything that is not a dict reads as "no anatomy".
+            answer_meta = getattr(result, "answer_meta", None)
+            if not isinstance(answer_meta, dict) or not answer_meta:
+                answer_meta = None
+
             if final_ai_message:
                 return _finalize_shallow_answer(
                     final_ai_message,
@@ -700,6 +711,7 @@ class ChatResearcherAgent:
                     skills_activated=skills_activated,
                     skills_hidden=skills_hidden,
                     research_truncated=research_truncated,
+                    answer_meta=answer_meta,
                 )
             if new_messages:
                 return _finalize_shallow_answer(
@@ -717,6 +729,7 @@ class ChatResearcherAgent:
                     skills_activated=skills_activated,
                     skills_hidden=skills_hidden,
                     research_truncated=research_truncated,
+                    answer_meta=answer_meta,
                 )
             return {"messages": [], "shallow_result": None}
 

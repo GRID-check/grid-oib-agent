@@ -11,6 +11,7 @@ from aiq_agent.cards.catalog import _CARD_HONESTY
 from aiq_agent.cards.catalog import _CARD_RESTRAINT
 from aiq_agent.cards.catalog import _CARD_TRIGGER_TABLE
 from aiq_agent.cards.catalog import _MODEL_PICKER_NOTE
+from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
 from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.catalog import _interactive_note
@@ -75,12 +76,14 @@ class TestWorkedExamples:
 
 
 class TestModelFacingCardTypes:
-    def test_is_the_union_minus_system_cards(self):
+    def test_is_the_union_minus_system_and_envelope_cards(self):
         # The one answer to "may this card be asked for by name?" — used by the
         # tool description here and by the skills substrate's `grid-cards`
-        # validation, so the two can never disagree about a new card type.
-        assert model_facing_card_types() == set(_CARD_TYPES) - SYSTEM_CARD_TYPES
-        assert model_facing_card_types().isdisjoint(SYSTEM_CARD_TYPES)
+        # validation, so the two can never disagree about a new card type. The
+        # envelope types are out too: on the answering surface they travel in
+        # the answer_meta trailer, never through a tool call.
+        assert model_facing_card_types() == set(_CARD_TYPES) - SYSTEM_CARD_TYPES - ENVELOPE_CARD_TYPES
+        assert model_facing_card_types().isdisjoint(SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES)
 
 
 class TestToolDescription:
@@ -90,7 +93,7 @@ class TestToolDescription:
     def test_lists_every_card_type(self):
         desc = _build_tool_description()
         for card_type in _CARD_TYPES:
-            if card_type in SYSTEM_CARD_TYPES:
+            if card_type in SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES:
                 continue
             assert f'"{card_type}"' in desc
 
@@ -307,9 +310,11 @@ class TestTheDoctrineStaysCalibrated:
         # which is the difference between fixing a miss and raising the rate.
         index = render_card_index()
         assert '"process_map": Emit for' in index
-        assert '"key_takeaways": Emit for' in index
-        assert '"callout": Emit for' in index
         assert '"calculation": Emit for' in index
+        # The rhetorical pair left the tool surface for the answer_meta trailer;
+        # what the index owes the model now is the redirect, not the imperative.
+        assert '"key_takeaways"' not in index
+        assert '"callout"' not in index
         # Added with 0061: `typed_table` is where BOTH the doctrine's
         # "rows that are all true at once" row and `condition_tree`'s own
         # docstring redirect, and its L1 line was pure description — "A generic

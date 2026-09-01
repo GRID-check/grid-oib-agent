@@ -1180,6 +1180,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           // reader said yes.
           cardInteractions={message.cardInteractions}
           stages={message.stages}
+          answerMeta={message.answerMeta}
           answerConfidence={message.answerConfidence}
           answerConfidenceCappedReason={message.answerConfidenceCappedReason}
           answerConfidenceReason={message.answerConfidenceReason}
