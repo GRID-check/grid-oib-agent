@@ -83,6 +83,9 @@ def render_prompt_template(template: str, **kwargs: Any) -> str:
             docs,
             in_scope_shelves=scoped or None,
             focus_shelf=get_listing_shelf(),
+            # Files whose ingestion has not finished. The caller passes them
+            # when it knows; every other caller renders exactly as before.
+            in_flight=kwargs.get("in_flight_documents"),
         )
     try:
         return _compile_template(template).render(**kwargs)

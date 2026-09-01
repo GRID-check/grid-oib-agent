@@ -2090,6 +2090,119 @@ describe('InputArea', () => {
       expect(screen.queryByTestId('upload-destination')).not.toBeInTheDocument()
     })
   })
+  /**
+   * THE FILE IS THE QUESTION, AND IT WAS NOT THERE YET.
+   *
+   * Attaching a plan and asking about it in the same breath is the normal way to
+   * use this product, and it did not work: nothing about a session upload is
+   * inline, so the turn was answered against a collection that was still empty
+   * and the agent answered confidently from everything except the document the
+   * question was about. The only signal was a `title` tooltip on the send button.
+   *
+   * Blocking the send was tried and rejected once, for good reason. Holding is
+   * the third option: the message leaves the composer as if sent, a line says
+   * what it waits for, and it goes when the file is readable.
+   */
+  describe('a message asked while its file is still being read', () => {
+    const composer = () => screen.getByPlaceholderText('Ask Piloti about this project …')
+
+    const withSessionFiles = (files: unknown[]) =>
+      vi.mocked(useFileUpload).mockReturnValue({
+        uploadFiles: mockUploadFiles,
+        deleteFile: mockDeleteFile,
+        retryFile: mockRetryFile,
+        sessionFiles: files,
+        isUploading: false,
+        error: null,
+        clearError: vi.fn(),
+      } as unknown as ReturnType<typeof useFileUpload>)
+
+    const ingesting = [
+      { id: 'file-1', fileName: 'grundriss.pdf', status: 'ingesting', collectionName: 'session-1' },
+    ]
+    const ready = [
+      { id: 'file-1', fileName: 'grundriss.pdf', status: 'success', collectionName: 'session-1' },
+    ]
+
+    test('is held rather than sent, and says so', async () => {
+      const user = userEvent.setup()
+      withSessionFiles(ingesting)
+      render(<InputArea isAuthenticated={true} />)
+
+      await user.click(composer())
+      await user.keyboard('Erfüllt der Grundriss die Fluchtweganforderungen?{Enter}')
+
+      // Not sent — sending now would answer against a collection with nothing in it.
+      expect(mockSendMessage).not.toHaveBeenCalled()
+      // And not silently swallowed: a vanished message with no answer reads as a
+      // dropped send, the one impression a held message must not give.
+      expect(screen.getByTestId('composer-held-for-upload')).toBeInTheDocument()
+    })
+
+    test('goes on its own the moment the file is readable', async () => {
+      const user = userEvent.setup()
+      withSessionFiles(ingesting)
+      const { rerender } = render(<InputArea isAuthenticated={true} />)
+
+      await user.click(composer())
+      await user.keyboard('Wie hoch ist die Attika?{Enter}')
+      expect(mockSendMessage).not.toHaveBeenCalled()
+
+      withSessionFiles(ready)
+      // `InputArea` is `memo`-wrapped, so a rerender with identical props is
+      // skipped entirely and the new mock value is never read. Changing a prop
+      // that does not affect this behaviour is what makes the rerender real.
+      rerender(<InputArea isAuthenticated={true} placeholder={undefined} />)
+
+      await waitFor(() => expect(mockSendMessage).toHaveBeenCalled())
+      expect(String(mockSendMessage.mock.calls[0]?.[0])).toBe('Wie hoch ist die Attika?')
+      expect(screen.queryByTestId('composer-held-for-upload')).not.toBeInTheDocument()
+    })
+
+    test('is not swallowed by an upload that failed', async () => {
+      const user = userEvent.setup()
+      withSessionFiles(ingesting)
+      const { rerender } = render(<InputArea isAuthenticated={true} />)
+
+      await user.click(composer())
+      await user.keyboard('Und ohne die Datei?{Enter}')
+
+      // A failed upload leaves the pending set exactly as a successful one does,
+      // and that is deliberate: the question is still the user's to ask.
+      withSessionFiles([{ ...ingesting[0], status: 'error' }])
+      // See the note above: `memo` skips a rerender with identical props.
+      rerender(<InputArea isAuthenticated={true} placeholder={undefined} />)
+
+      await waitFor(() => expect(mockSendMessage).toHaveBeenCalled())
+    })
+
+    test('offers a way to ask now without waiting', async () => {
+      const user = userEvent.setup()
+      withSessionFiles(ingesting)
+      render(<InputArea isAuthenticated={true} />)
+
+      await user.click(composer())
+      await user.keyboard('Was gilt allgemein?{Enter}')
+
+      await user.click(screen.getByRole('button', { name: /ask now without it/i }))
+
+      await waitFor(() => expect(mockSendMessage).toHaveBeenCalled())
+      expect(String(mockSendMessage.mock.calls[0]?.[0])).toBe('Was gilt allgemein?')
+    })
+
+    test('sends immediately when nothing is in flight', async () => {
+      const user = userEvent.setup()
+      withSessionFiles(ready)
+      render(<InputArea isAuthenticated={true} />)
+
+      await user.click(composer())
+      await user.keyboard('Ganz normale Frage{Enter}')
+
+      await waitFor(() => expect(mockSendMessage).toHaveBeenCalled())
+      expect(screen.queryByTestId('composer-held-for-upload')).not.toBeInTheDocument()
+    })
+  })
+
 })
 
 /**
@@ -2176,3 +2289,5 @@ describe('InputArea — intent to send opens the agent socket', () => {
     expect(mockSendMessage).toHaveBeenCalled()
   })
 })
+
+

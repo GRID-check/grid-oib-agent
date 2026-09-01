@@ -1202,6 +1202,29 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             _load_available_documents(),
             asyncio.to_thread(get_or_create_session_registry, nat_context_conversation_id),
         )
+        # Files still being ingested into a collection this turn can read.
+        #
+        # Read AFTER the gather rather than inside it: it is a small bounded
+        # query against the same summaries database, and putting it in the
+        # gather would make a turn's first byte wait on a fact that only
+        # matters when the answer is about to be wrong.
+        in_flight_documents: list[str] = []
+        try:
+            from aiq_agent.knowledge import ingest_status_store
+
+            scope_names = [
+                entry.collection if hasattr(entry, "collection") else entry
+                for entry in (_scoped_collections or _collection_scope or [])
+            ]
+            if scope_names:
+                pending = await asyncio.to_thread(ingest_status_store.in_flight_files, scope_names)
+                for names in pending.values():
+                    for name in names:
+                        if name not in in_flight_documents:
+                            in_flight_documents.append(name)
+        except Exception:  # noqa: BLE001 - a missing warning must never cost the turn
+            logger.debug("Could not read in-flight ingest jobs", exc_info=True)
+
         # Set session-scoped source registry for citation verification across turns.
         # When no conversation ID is available, get_or_create_session_registry returns a
         # fresh per-request registry to prevent anonymous sessions from sharing state.
@@ -1220,6 +1243,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 data_sources=data_sources,
                 force_skills=force_skills,
                 available_documents=available_documents,
+                in_flight_documents=in_flight_documents or None,
                 collection_scope=_collection_scope,
                 focus_file_name=_focus_file_name,
                 focus_shelf=_focus_shelf,

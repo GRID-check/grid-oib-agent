@@ -511,6 +511,7 @@ class ChatResearcherAgent:
                     data_sources=state.data_sources,
                     user_info=state.user_info,
                     available_documents=state.available_documents,
+                    in_flight_documents=state.in_flight_documents,
                     project_context=state.project_context,
                     platform_lessons=state.platform_lessons,
                     focus_file_name=state.focus_file_name,

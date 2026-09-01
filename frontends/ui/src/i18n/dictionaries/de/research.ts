@@ -268,6 +268,8 @@ export const research: typeof en.research = {
     chatMessageInput: 'Chat-Nachrichteneingabe',
     stopStreaming: 'Antwort stoppen',
     sendWhilePending: 'Dateien werden noch verarbeitet – trotzdem senden?',
+    heldForUpload: 'Wird gesendet, sobald die Datei gelesen ist.',
+    heldForUploadSendNow: 'Jetzt ohne die Datei fragen',
     removeFile: 'Datei entfernen: {name}',
     retryUpload: 'Upload erneut versuchen',
     manageFiles: 'Dateien verwalten',

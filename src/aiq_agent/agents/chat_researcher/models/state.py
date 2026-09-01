@@ -38,6 +38,11 @@ class ChatResearcherState(BaseModel):
         clarifier_result: Log from clarifier agent dialog.
         original_query: The latest user query, preserved for deep research.
         available_documents: User-uploaded documents with summaries for context.
+        in_flight_documents: Filenames whose ingestion has not finished, so they
+            are absent from ``available_documents`` AND unreachable by retrieval.
+            The distinction matters: without it a just-attached plan looks
+            exactly like a file that does not exist, and the answer omits it
+            silently instead of saying it could not be read yet.
         focus_file_name: Filename of the composer's "Asking about <file>" subject.
         focus_shelf: Shelf that focused file sits on (session/project/archiv).
         cards: Structured response cards generated from the final research context.
@@ -59,6 +64,7 @@ class ChatResearcherState(BaseModel):
     clarifier_result: str | None = None
     original_query: str | None = None
     available_documents: list[AvailableDocument] | None = None
+    in_flight_documents: list[str] | None = None
     collection_scope: list[str] | None = None
     # The composer's "Asking about <file>" subject, as stated on the wire
     # (``focus_file_name`` / ``focus_shelf``). Retrieval already reads it from

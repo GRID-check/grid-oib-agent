@@ -31,6 +31,7 @@ import {
   ChevronDown,
   Eye,
   FileText,
+  Loader2,
   Paperclip,
   RotateCw,
   Square,
@@ -483,6 +484,28 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const pendingCount = sessionFiles.filter(
     (f) => f.status === 'uploading' || f.status === 'ingesting'
   ).length
+
+  /**
+   * A message the composer accepted while its file was still being read.
+   *
+   * THE FILE IS THE QUESTION, AND IT WAS NOT THERE YET. Attaching a plan and
+   * asking about it in the same breath is the normal way to use this product,
+   * and it did not work: nothing about a session upload is inline — ingestion
+   * runs asynchronously behind a small worker pool with a per-page vision
+   * budget — so the turn was answered against a collection that was still
+   * empty. The agent is not told a file is in flight either (the per-turn
+   * inventory reads the summaries table, which is written only when the job
+   * finishes), so it answered confidently from everything except the document
+   * the question was about.
+   *
+   * Blocking the send was considered and rejected once already, for good
+   * reason: it makes the composer refuse a person who has something to say.
+   * Holding is the third option. The message leaves the composer exactly as if
+   * it had been sent, a line says what it is waiting for, and it goes the
+   * moment the file is readable — so the common case costs the user nothing
+   * and reads as Piloti being careful rather than as Piloti being slow.
+   */
+  const [heldForUpload, setHeldForUpload] = useState<string | null>(null)
 
   // An upload into this chat IS the thing the next send is about. Without a
   // subject the agent never receives focus_file_name and walks project +
@@ -995,12 +1018,19 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     !disabled &&
     (mentionsLoading || mentionData !== null)
 
-  const handleSubmit = useCallback(async () => {
-    if (!message.trim() || disabled) return
+  /**
+   * @param heldText  A message the composer HELD rather than sent (see
+   *   `heldForUpload`). Passed explicitly because it is no longer in `message`
+   *   by the time the uploads settle, and a state round-trip to put it back
+   *   would send whatever the user had started typing since.
+   */
+  const handleSubmit = useCallback(async (heldText?: string) => {
+    const source = heldText ?? message
+    if (!source.trim() || disabled) return
     // Backstop for a send that never saw a focus event (prefill, deep link). A no-op
     // when focus already declared it.
     noteSendIntent()
-    const currentMessage = message.trim()
+    const currentMessage = source.trim()
     // Capture the session up front — the draft is cleared against THIS id on a
     // successful send, even if the session changes underneath us mid-await.
     const submittingSessionId = currentConversation?.id
@@ -1028,9 +1058,17 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     })
     const sentHumans = sent.humans
 
-    // Files may still be uploading/ingesting — we no longer gate the send behind
-    // a double-submit banner. The send button surfaces a subtle inline hint
-    // (see title below) but the user is always free to send.
+    // A file is still being read, and this message is about it. Hold rather
+    // than send: see `heldForUpload`. `heldText` means this IS the resumed
+    // send, so it must not be held a second time.
+    if (heldText === undefined && pendingCount > 0) {
+      setHeldForUpload(currentMessage)
+      setMessage('')
+      setMentionQuery(null)
+      onStoppedTyping()
+      return
+    }
+
     setMessage('')
     setMentionQuery(null)
     // The draft became a message; the claim has served its purpose and the
@@ -1107,6 +1145,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     message,
     mentions,
     disabled,
+    pendingCount,
     isResponseMode,
     respondToInteraction,
     sendMessage,
@@ -1122,6 +1161,31 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     t,
     tCollab,
   ])
+
+  /**
+   * The held message goes the moment the file is readable — or the moment it is
+   * clear it never will be.
+   *
+   * `pendingCount === 0` covers both: an upload that succeeded and one that
+   * failed leave the pending set the same way. That is deliberate. A message
+   * must not be swallowed by a broken upload; if the file did not make it, the
+   * question is still the user's to ask, and the answer will simply be the one
+   * they would have got before this existed.
+   */
+  useEffect(() => {
+    if (heldForUpload === null || pendingCount > 0) return
+    const text = heldForUpload
+    setHeldForUpload(null)
+    void handleSubmit(text)
+  }, [heldForUpload, pendingCount, handleSubmit])
+
+  /** Give up waiting and ask now, without the file. */
+  const sendHeldNow = useCallback(() => {
+    if (heldForUpload === null) return
+    const text = heldForUpload
+    setHeldForUpload(null)
+    void handleSubmit(text)
+  }, [heldForUpload, handleSubmit])
 
   // Post-research forward action: start a fresh session draft (the real
   // new-session path) so the user can ask follow-ups after a completed report,
@@ -1706,6 +1770,30 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               unusual case, "Piloti is next" would remain something the user has to
               infer from an absence. Borderless on purpose — it is a statement
               standing among buttons, and must not read as one. */}
+              {/* The hold, said out loud. Without it the message simply
+                  vanishes from the composer and nothing arrives — which reads
+                  as a dropped send, the one impression a held message must not
+                  give. The way out is offered beside it: a reader who does not
+                  want to wait for the file can ask now and get the answer they
+                  would have got before this existed. */}
+              {heldForUpload !== null && (
+                <span
+                  className="text-muted-foreground flex items-center gap-1.5 text-xs"
+                  data-testid="composer-held-for-upload"
+                  role="status"
+                >
+                  <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />
+                  {t('inputArea.heldForUpload')}
+                  <button
+                    type="button"
+                    onClick={sendHeldNow}
+                    className="text-foreground font-medium underline-offset-2 hover:underline"
+                  >
+                    {t('inputArea.heldForUploadSendNow')}
+                  </button>
+                </span>
+              )}
+
               {canCollaborate && (
                 <AddresseeIndicator
                   mentions={activeMentions}
@@ -1877,7 +1965,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                         // uses elsewhere to mean provenance.
                         'size-9 rounded-lg shadow-md'
                       )}
-                      onClick={handleSubmit}
+                      onClick={() => handleSubmit()}
                       disabled={!message.trim() || disabled}
                       aria-label={
                         isResponseMode ? t('inputArea.sendResponse') : t('inputArea.sendMessage')

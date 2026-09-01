@@ -471,3 +471,73 @@ class TestTruncationEdgesTheFirstPassMissed:
         # Shelf-less drops are recorded under `None`, a key no shelf lookup hits.
         assert "### Unattributed" in rendered
         assert "weitere Datei(en) ohne angegebenes Regal" in rendered
+
+
+class TestFilesStillBeingRead:
+    """THE ABSENCE OF A FILE IS NOT THE SAME FACT AS ITS NON-EXISTENCE.
+
+    The inventory is built from the summaries table, which is written when an
+    ingestion job COMPLETES. A plan attached moments ago is therefore missing
+    from it in exactly the way it is missing from retrieval — and the model,
+    reading a complete-looking shelf, answered confidently without the one
+    document the question was about. Naming the files in flight is what lets an
+    answer say what it could not see.
+    """
+
+    def test_it_names_a_file_that_is_still_being_read(self):
+        block = render_inventory_block(
+            [_doc("oib-rl_2.pdf", collection="oib_knowledge")],
+            in_scope_shelves=[ScopedCollection("oib_knowledge", Shelf.BASE)],
+            in_flight=["grundriss_eg.pdf"],
+        )
+
+        assert "grundriss_eg.pdf" in block
+        # And says what that MEANS, because a filename alone reads like one more
+        # available document.
+        assert "NOT in the inventory above" in block
+        assert "still being processed" in block
+
+    def test_it_forbids_presenting_an_answer_that_silently_omits_it(self):
+        block = render_inventory_block(
+            [_doc("oib-rl_2.pdf", collection="oib_knowledge")],
+            in_scope_shelves=[ScopedCollection("oib_knowledge", Shelf.BASE)],
+            in_flight=["plan.pdf"],
+        )
+
+        assert "do not present an answer that omits it" in block
+
+    def test_a_bulk_upload_carries_the_shape_and_not_the_list(self):
+        """Same bound as every other block here: hundreds of names would be paid
+        for on every turn and would stop informing the answer past a handful."""
+        block = render_inventory_block(
+            [_doc("oib-rl_2.pdf", collection="oib_knowledge")],
+            in_scope_shelves=[ScopedCollection("oib_knowledge", Shelf.BASE)],
+            in_flight=[f"plan_{i}.pdf" for i in range(40)],
+        )
+
+        assert "plan_0.pdf" in block
+        assert "plan_39.pdf" not in block
+        # The remainder is COUNTED, in the text the model reads — not dropped.
+        assert "35 weitere" in block
+
+    def test_nothing_in_flight_changes_nothing(self):
+        with_none = render_inventory_block(
+            [_doc("oib-rl_2.pdf", collection="oib_knowledge")],
+            in_scope_shelves=[ScopedCollection("oib_knowledge", Shelf.BASE)],
+        )
+        with_empty = render_inventory_block(
+            [_doc("oib-rl_2.pdf", collection="oib_knowledge")],
+            in_scope_shelves=[ScopedCollection("oib_knowledge", Shelf.BASE)],
+            in_flight=[],
+        )
+
+        assert with_none == with_empty
+        assert "still being read" not in with_none.lower()
+
+    def test_a_first_upload_still_gets_a_block(self):
+        """An empty project whose only document is mid-ingest used to render no
+        inventory at all — so the turn carried no hint that anything existed."""
+        block = render_inventory_block([], in_flight=["erste_datei.pdf"])
+
+        assert block != ""
+        assert "erste_datei.pdf" in block

@@ -51,6 +51,11 @@ class ShallowResearchAgentState(BaseModel):
     user_info: dict[str, Any] | None = None
     tools_info: list[dict[str, Any]] | None = None
     available_documents: list[AvailableDocument] | None = None
+    #: Filenames whose ingestion has not finished — absent from
+    #: ``available_documents`` AND unreachable by retrieval. Carried so the
+    #: inventory block can say a file is coming, rather than letting a
+    #: just-attached plan look exactly like a file that does not exist.
+    in_flight_documents: list[str] | None = None
     collection_name: str | None = None
     tool_iterations: int = 0
     # Interaction-tool calls spent this turn (`emit_card`, `describe_card`,
