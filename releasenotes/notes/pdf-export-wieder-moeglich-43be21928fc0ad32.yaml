@@ -1,0 +1,12 @@
+---
+fixes:
+  - >
+    Ein Diagramm wird wieder als PDF abgelegt. Zuletzt landete nur die
+    Bildfassung in der Dateiablage, und das PDF — die Fassung, die einer
+    Einreichung beigelegt wird — fehlte kommentarlos.
+  - >
+    Ein Recherchebericht wird wieder als Dokument abgelegt. Der Bericht war im
+    Chat vollständig zu lesen, blieb aber ohne Hinweis aus der Dateiablage.
+  - >
+    Ein Diagramm mit einer leer gebliebenen Beschriftung wird als Ganzes
+    gezeichnet, statt die Erstellung des PDFs abzubrechen.
