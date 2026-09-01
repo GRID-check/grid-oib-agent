@@ -9,6 +9,13 @@ export const bim: typeof en.bim = {
     structure: 'Struktur',
     quantities: 'Mengen',
     revisions: 'Revisionen',
+    // Im Büroarchiv gibt es kein Projekt – und damit keine Gebäudeklasse und
+    // keine Hauptnutzung, gegen die geprüft werden könnte. Deaktiviert statt
+    // ausgeblendet: Ein fehlender Reiter liest sich, als wäre das Prüfbuch
+    // verschwunden.
+    complianceNeedsProject: 'Nur im Projekt verfügbar',
+    complianceNeedsProjectDescription:
+      'Die Anforderungen werden gegen Gebäudeklasse und Hauptnutzung geprüft, und beides steht in den Projektdaten. Öffnen Sie das Modell in einem Projekt, um das Prüfbuch zu sehen. Struktur, Mengen und Revisionen stehen hier vollständig zur Verfügung.',
   },
   loadFailed: {
     title: 'Modelle konnten nicht geladen werden',

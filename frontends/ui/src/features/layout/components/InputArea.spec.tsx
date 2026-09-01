@@ -61,6 +61,15 @@ const mockStartNewSessionDraft = vi.fn()
 
 const mockSaveDataSourcesToConversation = vi.fn()
 
+/**
+ * The store action that writes the conversation ROW.
+ *
+ * Real in the app, a spy here, because the `@`-in-a-new-window fix is exactly
+ * "call this before the picker asks". A spec that could not see it called would
+ * pass on the broken version — which is what happened to the previous fix.
+ */
+const mockEnsureConversationExists = vi.fn(async () => {})
+
 function mockChatState() {
   return {
     currentConversation: mockCurrentSessionId
@@ -76,6 +85,7 @@ function mockChatState() {
       if (!mockCurrentSessionId) mockCurrentSessionId = 'session-new'
       return mockCurrentSessionId
     }),
+    _ensureConversationExists: mockEnsureConversationExists,
     startNewSessionDraft: mockStartNewSessionDraft,
     setRespondToInteractionFn: vi.fn(),
     setChatSendFn: vi.fn(),
@@ -277,11 +287,19 @@ vi.mock('@/features/collaboration/hooks/use-sharing', () => ({
   // is not cosmetic: a mock that answered regardless of the gate is what let the
   // composer ship a picker that flashed open on `@` in a deployment with
   // collaboration off. The stub has to refuse where the endpoint would.
-  useMentionCandidates: vi.fn((_conversationId: string | null, enabled: boolean) => ({
-    data: enabled ? mockMentionData : null,
-    loading: enabled ? mockMentionsLoading : false,
-    restart: mockRestartMentionCandidates,
-  })),
+  // Honours the CONVERSATION ID too, and that is a ratchet rather than fidelity
+  // for its own sake. The stub used to answer off `enabled` alone, so no spec in
+  // this file could observe a null id — which is precisely the state a new
+  // window is in when someone reaches for `@`, and precisely why a fix that
+  // could not work shipped looking green.
+  useMentionCandidates: vi.fn((conversationId: string | null, enabled: boolean) => {
+    const answering = enabled && conversationId !== null
+    return {
+      data: answering ? mockMentionData : null,
+      loading: answering ? mockMentionsLoading : false,
+      restart: mockRestartMentionCandidates,
+    }
+  }),
   useAwaitingState: vi.fn((_conversationId: string | null, enabled: boolean) => ({
     // A gated org never gets an answer — which is what keeps the composer
     // byte-identical to today with the flag off (spec NF-8).
@@ -1630,6 +1648,56 @@ describe('InputArea', () => {
         await user.keyboard('{Backspace}Frage an @')
 
         expect(mockRestartMentionCandidates).not.toHaveBeenCalled()
+      })
+
+      /**
+       * AND THE RE-ARM ALONE WAS NOT THE FIX.
+       *
+       * Re-arming a ladder whose every rung 404s buys nothing, and in a NEW
+       * WINDOW every rung does: the logo, the new-chat path and `?new` all null
+       * the conversation, typing `@` created only a CLIENT-SIDE session, and the
+       * server row is written by `_appendMessage` at send time. So the picker
+       * asked about a row that did not exist and the hook cleared its data —
+       * which renders no picker at all, not an empty one.
+       *
+       * These two pin the actual mechanism: the row is created on the FIRST `@`
+       * of a window, and it is created before the ladder is re-armed.
+       */
+      test('makes the conversation real on the first @ of a new window', async () => {
+        const user = userEvent.setup()
+        mockCurrentSessionId = null
+        mockMentionData = null
+        mockMentionsLoading = false
+        mockEnsureConversationExists.mockClear()
+        render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
+
+        await user.click(composer())
+        await user.keyboard('@')
+
+        // Not merely a client-side session: the ROW, which is what the
+        // mention-candidates endpoint resolves.
+        expect(mockEnsureConversationExists).toHaveBeenCalled()
+      })
+
+      test('does not pay the round trip on every keystroke, only on the fragment', async () => {
+        const user = userEvent.setup()
+        mockCurrentSessionId = null
+        mockMentionData = null
+        mockMentionsLoading = false
+        render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
+
+        await user.click(composer())
+        // Ordinary typing creates the client-side session, as it always did,
+        // but must not reach the server — only reaching for the picker does.
+        await user.keyboard('Frage')
+        expect(mockEnsureConversationExists).not.toHaveBeenCalled()
+
+        await user.keyboard(' an @')
+        expect(mockEnsureConversationExists).toHaveBeenCalledTimes(1)
+
+        // Six more characters inside the SAME fragment: still one.
+        await user.keyboard('Markus')
+        expect(mockEnsureConversationExists).toHaveBeenCalledTimes(1)
       })
     })
 

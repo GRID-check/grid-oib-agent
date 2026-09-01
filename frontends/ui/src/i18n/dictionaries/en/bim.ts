@@ -7,6 +7,12 @@ export const bim = {
     structure: 'Structure',
     quantities: 'Quantities',
     revisions: 'Revisions',
+    // The Büroarchiv has no project — so no Gebäudeklasse and no Hauptnutzung
+    // to check against. Disabled rather than hidden: a missing tab reads as
+    // the Prüfbuch having been lost.
+    complianceNeedsProject: 'Available inside a project',
+    complianceNeedsProjectDescription:
+      'Requirements are checked against Gebäudeklasse and Hauptnutzung, and both live in the project brief. Open this model inside a project to see the Prüfbuch. Structure, quantities and revisions are fully available here.',
   },
   loadFailed: {
     title: 'Models could not be loaded',

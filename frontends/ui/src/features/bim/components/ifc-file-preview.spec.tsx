@@ -89,8 +89,8 @@ function renderPreview(): void {
 }
 
 /** The same preview on a shelf that has no project — the org-wide Archiv. */
-function renderArchivPreview(): void {
-  render(<IfcFilePreview documentId="doc-1" filename="Haus-A.ifc" />)
+function renderArchivPreview(props: { canOpenWorkspace?: boolean } = {}): void {
+  render(<IfcFilePreview documentId="doc-1" filename="Haus-A.ifc" {...props} />)
 }
 
 afterEach(() => {
@@ -217,10 +217,35 @@ describe('IfcFilePreview', () => {
       expect(screen.queryByTestId('ifc-canvas')).not.toBeInTheDocument()
     })
 
-    it('offers no workspace link, because the workspace is a project surface', async () => {
+    /**
+     * This used to assert the opposite, and the assertion was right about the
+     * code and wrong about the product: the Archiv's preview offered no way out
+     * because the stage required a project, so the same `.ifc` opened as a
+     * full-screen building in Dateien and as a dead-end viewport here.
+     *
+     * The stage takes `projectId: null` now, so the offer is the same on both
+     * surfaces — only the path differs, because the Archiv is not under a
+     * project.
+     */
+    it('offers the workspace on the Archiv’s own route, not a project’s', async () => {
       setWebGpu(true)
       state.documentModel = { data: model({ projectId: null }), isLoading: false, error: null }
       renderArchivPreview()
+
+      await screen.findByTestId('ifc-canvas')
+      const link = screen.getByRole('link')
+      expect(link).toHaveAttribute('href', expect.stringContaining('/app/archiv?'))
+      // The model is named the same way it is named everywhere else, so a view
+      // copied from one surface parses on the other.
+      expect(link.getAttribute('href')).toContain('model=')
+      // And no project id was invented to make the link buildable.
+      expect(link.getAttribute('href')).not.toContain('/projects/')
+    })
+
+    it('offers nothing when the model surfaces are switched off for the org', async () => {
+      setWebGpu(true)
+      state.documentModel = { data: model({ projectId: null }), isLoading: false, error: null }
+      renderArchivPreview({ canOpenWorkspace: false })
 
       await screen.findByTestId('ifc-canvas')
       expect(screen.queryByRole('link')).not.toBeInTheDocument()

@@ -1,6 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import dynamic from 'next/dynamic'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { sourceBase, sourceTint } from '@/lib/ui/source-tint'
 import { AlertCircle, Archive, RotateCcw, X } from 'lucide-react'
@@ -21,10 +23,41 @@ import { CountPill } from '@/components/ui/count-pill'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
+import { inferDocumentKind } from '../document-kind'
+import { ARCHIV_MODEL_PATH } from '@/features/bim/lib/model-link'
+
+/**
+ * The building, full screen — the SAME stage a project's Dateien opens.
+ *
+ * `dynamic` with `ssr: false` for the same reason it is there: a multi-megabyte
+ * WASM geometry kernel and `navigator.gpu` do not belong in the bundle of a
+ * page that is usually opened to look at PDFs.
+ */
+const ModelStage = dynamic(
+  () => import('@/features/bim/components/model-stage').then((module) => module.ModelStage),
+  { ssr: false }
+)
 
 interface ArchivWorkspaceProps {
   /** Whether the viewer may upload/delete (holds `org:archiv:manage`). */
   canManage: boolean
+  /**
+   * Whether an `.ifc` here can reach the model workspace (`ifc-models`).
+   *
+   * The Archiv used to have no answer to this question, because the stage
+   * required a project. It does not any more, so the Archiv gets the same
+   * offer a project's Dateien gets.
+   */
+  showModels?: boolean
+  /**
+   * Whether a click on an `.ifc` opens the preview first (`ifc-preview-first`).
+   *
+   * The flag exists so this can be flipped in production, and it is threaded to
+   * BOTH file surfaces from their pages so it can only ever move them together
+   * — an `.ifc` that behaves one way in a project and another in the Archiv is
+   * the defect this whole change is about.
+   */
+  previewFirst?: boolean
   /** Gates the ingestion-metadata block, mirroring the project Files tab. */
   showMetadataPanel?: boolean
   /**
@@ -61,9 +94,14 @@ interface ArchivListResponse {
 export function ArchivWorkspace({
   canManage,
   showMetadataPanel = true,
+  showModels = false,
+  previewFirst = true,
   trailingActions,
 }: ArchivWorkspaceProps) {
   const t = useTranslations('archiv')
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [files, setFiles] = useState<FileItem[]>([])
   const [collectionName, setCollectionName] = useState<string | undefined>(undefined)
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
@@ -206,6 +244,78 @@ export function ArchivWorkspace({
   }, [isUploading, loadDocuments])
 
   const selectedFile = files.find((f) => f.id === selectedFileId) ?? null
+
+  /**
+   * `?model=` turns the Archiv into the viewer, exactly as it does in a
+   * project's Dateien.
+   *
+   * Same parameter, same `buildModelQuery` encoding, different path — so a view
+   * is shareable from here too, the back button closes it, and the two surfaces
+   * cannot drift into meaning different things by the same link.
+   */
+  const stageModel = showModels ? (searchParams?.get('model')?.trim() ?? null) : null
+  const stageDocument = useMemo(
+    () =>
+      stageModel === null ? null : (files.find((file) => file.filename === stageModel) ?? null),
+    [files, stageModel]
+  )
+
+  const openModel = useCallback(
+    (filename: string) => {
+      const params = new URLSearchParams(searchParams?.toString() ?? '')
+      params.set('model', filename)
+      // `push`, so the back button closes the stage without leaving the Archiv
+      // and discarding the camera, the cut and the selection — the reasoning is
+      // spelled out in `project-file-workspace`, and it has to be the same here.
+      router.push(`${pathname ?? ARCHIV_MODEL_PATH}?${params.toString()}`, { scroll: false })
+    },
+    [pathname, router, searchParams]
+  )
+
+  const closeModel = useCallback(() => {
+    const params = new URLSearchParams(searchParams?.toString() ?? '')
+    // The whole view, not just the model: leaving `element`, `hl` and `storey`
+    // behind would re-open the next model at another building's selection.
+    for (const key of ['model', 'element', 'hl', 'storey', 'tab', 'xray', 'cut']) {
+      params.delete(key)
+    }
+    const query = params.toString()
+    router.replace(query ? `${pathname ?? ARCHIV_MODEL_PATH}?${query}` : (pathname ?? ARCHIV_MODEL_PATH), {
+      scroll: false,
+    })
+  }, [pathname, router, searchParams])
+
+  /**
+   * One click handler, and the same one Dateien uses.
+   *
+   * Preview first by default, with the stage a button away inside it; straight
+   * to the stage when the flag is off. Both surfaces read the same flag from
+   * their pages, so they cannot answer this differently.
+   */
+  const handleSelectFile = useCallback(
+    (id: string | null) => {
+      if (id === null) {
+        setSelectedFileId(null)
+        return
+      }
+      const file = files.find((candidate) => candidate.id === id)
+      if (
+        !previewFirst &&
+        showModels &&
+        file &&
+        inferDocumentKind({
+          filename: file.filename,
+          contentType: file.contentType,
+          tags: file.tags,
+        }) === 'model'
+      ) {
+        openModel(file.filename)
+        return
+      }
+      setSelectedFileId(id)
+    },
+    [files, previewFirst, showModels, openModel]
+  )
 
   const handleReingested = useCallback((fileId: string, status: string) => {
     setFiles((prev) =>
@@ -357,7 +467,7 @@ export function ArchivWorkspace({
             <ArchivLibraryPane
               files={files}
               selectedFileId={selectedFileId}
-              onSelectFile={setSelectedFileId}
+              onSelectFile={handleSelectFile}
               isLoading={isLoading}
               uploadControl={uploadButton}
               renderActions={(file) => (
@@ -386,8 +496,24 @@ export function ArchivWorkspace({
           onRenamed={handleRenamed}
           onDeleted={handleDeleted}
           showMetadataPanel={showMetadataPanel}
+          showModels={showModels}
         />
       </div>
+
+      {/*
+        The model, when the URL names one — the same full-screen stage a
+        project opens, with no project. The Prüfbuch is the one tab that says
+        it needs one; everything else here is a fact about the building.
+      */}
+      {stageModel && stageDocument && (
+        <ModelStage
+          projectId={null}
+          documentId={stageDocument.id}
+          onClose={closeModel}
+          onModelRenamed={handleRenamed}
+          onModelDeleted={handleDeleted}
+        />
+      )}
     </div>
   )
 }

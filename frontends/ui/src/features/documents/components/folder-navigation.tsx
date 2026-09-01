@@ -23,6 +23,7 @@ import { InputGroup, InputGroupAddon } from '@/components/ui/input-group'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Spinner } from '@/components/ui/spinner'
 import { AnimatePresence, motion, motionQuick } from '@/components/motion'
+import { BackControl } from '@/components/shell/back-link'
 import { useTranslations } from '@/i18n'
 import { useLocale } from '@/i18n'
 import { useFolderDropTarget } from '../hooks/use-document-drag'
@@ -91,8 +92,38 @@ export function FolderBreadcrumbRow({
     disabled: !onDropDocument || currentFolderId === null,
   })
 
+  /**
+   * Where "up one level" goes: the parent folder, or the root.
+   *
+   * Null at the root, where there is nothing to go up to.
+   */
+  const parent = currentFolderId === null ? undefined : path[path.length - 2]
+  const parentLabel = parent ? parent.name : t('folders.allFiles')
+
   return (
     <div className="flex shrink-0 items-center justify-between gap-2 border-b bg-card/50 px-4 py-2.5 backdrop-blur-sm">
+      <div className="flex min-w-0 items-center gap-2">
+        {/*
+          Up one level, as its own control rather than as a breadcrumb segment.
+
+          The breadcrumb says where you ARE — it is a map, and reading a map to
+          find the way out is work. Three levels deep the parent is a truncated
+          word in the middle of a scrolling row, which is a 90px target for the
+          single most common thing anyone does in a folder. Named, so it says
+          what it will do before it is pressed.
+
+          The same control the org-wide pages use to leave, deliberately: going
+          up a level and leaving a page are one idea, and drawing them twice is
+          how two lookalikes drift on the first token retune.
+        */}
+        {currentFolderId !== null && (
+          <BackControl
+            label={t('folders.backTo', { name: parentLabel })}
+            onClick={() => onNavigate(parent?.id ?? null)}
+            className="shrink-0 pr-3"
+            testId="folder-back"
+          />
+        )}
       <Breadcrumb aria-label={t('folders.breadcrumb')} className="min-w-0">
         <BreadcrumbList className="flex-nowrap overflow-x-auto">
           <BreadcrumbItem>
@@ -155,6 +186,7 @@ export function FolderBreadcrumbRow({
           </AnimatePresence>
         </BreadcrumbList>
       </Breadcrumb>
+      </div>
       <div className="flex shrink-0 items-center gap-2">
         {children}
         <NewFolderControl currentFolderId={currentFolderId} onCreateFolder={onCreateFolder} />
