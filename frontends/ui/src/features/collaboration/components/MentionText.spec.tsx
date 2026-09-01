@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import { describe, expect, test } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { render, screen } from '@/test-utils'

@@ -19,6 +19,7 @@
  */
 
 import { useEffect } from 'react'
+import type { JSX } from 'react'
 import { BaseKnowledge } from '@/app/app/(shell)/platform/base-knowledge'
 
 const FILES = [

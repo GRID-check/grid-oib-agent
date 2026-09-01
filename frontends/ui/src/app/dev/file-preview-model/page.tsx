@@ -25,6 +25,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'

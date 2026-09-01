@@ -27,6 +27,7 @@
  */
 
 import { Fragment } from 'react'
+import type { JSX } from 'react'
 
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { useHoverPopover } from '@/hooks/use-hover-popover'

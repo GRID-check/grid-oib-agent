@@ -43,6 +43,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { JSX } from 'react'
 import { Download, MessageSquareWarning, RefreshCw, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'

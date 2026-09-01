@@ -1,6 +1,6 @@
 'use client'
 
-import type { ReactNode, Ref } from 'react'
+import type { JSX, ReactNode, Ref } from 'react'
 import { Search, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'

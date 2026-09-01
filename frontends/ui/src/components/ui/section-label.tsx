@@ -1,4 +1,5 @@
 import * as React from 'react'
+import type { JSX } from 'react'
 import type { LucideIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'

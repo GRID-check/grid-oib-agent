@@ -25,6 +25,7 @@
  */
 
 import { useState } from 'react'
+import type { JSX } from 'react'
 import { BookOpen, ChevronDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'

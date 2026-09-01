@@ -22,6 +22,7 @@
  */
 
 import { useMemo, useState } from 'react'
+import type { JSX } from 'react'
 import { FolderOpen, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CountPill } from '@/components/ui/count-pill'

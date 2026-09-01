@@ -14,6 +14,7 @@
  */
 
 import { type ReactNode } from 'react'
+import type { JSX } from 'react'
 import { AlertTriangle, RefreshCw, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'

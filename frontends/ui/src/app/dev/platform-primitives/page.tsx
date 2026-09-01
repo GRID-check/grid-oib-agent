@@ -12,6 +12,7 @@
  */
 
 import { useMemo, useState } from 'react'
+import type { JSX } from 'react'
 import { BookOpenCheck, MoreHorizontal, Trash2, Upload } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'

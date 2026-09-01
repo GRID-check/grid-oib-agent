@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
+import type { JSX } from 'react'
 import { AlertTriangle, Boxes, CheckCircle2, Info, Layers3, Ruler, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'

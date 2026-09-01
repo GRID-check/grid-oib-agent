@@ -13,6 +13,7 @@
  */
 
 import { type ReactNode } from 'react'
+import type { JSX } from 'react'
 import { getGridSession } from '@/lib/auth/session'
 import { runWithTenantSlot } from '@/lib/db/tenant-context'
 import {

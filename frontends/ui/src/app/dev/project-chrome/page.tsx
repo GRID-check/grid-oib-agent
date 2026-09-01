@@ -21,7 +21,7 @@
  * Not linked from anywhere; the `/dev` layout 404s this outside development.
  */
 
-import type { ReactNode } from 'react'
+import type { JSX, ReactNode } from 'react'
 
 import { Plus } from 'lucide-react'
 

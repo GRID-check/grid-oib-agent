@@ -22,6 +22,7 @@
  */
 
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
+import type { JSX } from 'react'
 
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
 import type { PersonPeekPerson } from '../components/PersonPeek'

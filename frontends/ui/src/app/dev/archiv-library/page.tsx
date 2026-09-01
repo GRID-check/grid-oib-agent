@@ -20,6 +20,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { Archive } from 'lucide-react'
 // Imported from the module, not the shell barrel: the barrel also exports the

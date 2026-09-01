@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import type { JSX } from 'react'
 import { z } from 'zod'
 import { useAppForm } from '@/components/form'
 import { Alert, AlertDescription } from '@/components/ui/alert'

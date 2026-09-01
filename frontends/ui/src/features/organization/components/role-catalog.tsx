@@ -38,6 +38,7 @@
  * asserted without inventing them in the real catalog.
  */
 
+import type { JSX } from 'react'
 import { ShieldAlert } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'

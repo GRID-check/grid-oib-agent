@@ -22,6 +22,7 @@
  */
 
 import { useEffect, useRef } from 'react'
+import type { JSX } from 'react'
 
 import { I18nProvider } from '@/i18n'
 import { SkillRawDocumentSection } from '@/features/skills/components/SkillRawDocumentSection'

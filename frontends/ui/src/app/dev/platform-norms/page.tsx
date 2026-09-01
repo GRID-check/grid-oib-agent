@@ -12,6 +12,7 @@
  */
 
 import { useEffect } from 'react'
+import type { JSX } from 'react'
 import { NormRegistry } from '@/features/platform/components/norm-registry'
 
 /** The remaining state building acts — enough rows that the pager appears. */

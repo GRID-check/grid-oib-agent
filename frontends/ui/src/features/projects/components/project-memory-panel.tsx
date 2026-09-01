@@ -1,6 +1,7 @@
 'use client'
 
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import type { JSX } from 'react'
 import { toast } from 'sonner'
 import { AlertCircle, Brain, Check, Pencil, Pin, PinOff, Plus, Trash2 } from 'lucide-react'
 import {

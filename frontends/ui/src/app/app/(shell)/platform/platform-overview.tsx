@@ -16,6 +16,7 @@
  */
 
 import { type FC, useCallback, useEffect, useMemo, useState } from 'react'
+import type { JSX } from 'react'
 import { WorkOsWidgets, UsersManagement } from '@workos-inc/widgets'
 import '@radix-ui/themes/styles.css'
 import {

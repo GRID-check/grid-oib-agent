@@ -21,6 +21,7 @@
  */
 
 import { useMemo } from 'react'
+import type { JSX } from 'react'
 import { SkillEditorDialog, type SkillPersistence } from '@/features/skills/components/skill-editor-dialog'
 import { useTranslations } from '@/i18n'
 import {

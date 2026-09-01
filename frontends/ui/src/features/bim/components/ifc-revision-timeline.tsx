@@ -22,6 +22,7 @@
  * one click away rather than replaced by these numbers.
  */
 
+import type { JSX } from 'react'
 import { GitBranch, GitCompare } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'

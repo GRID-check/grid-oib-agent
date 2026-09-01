@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import type { JSX } from 'react'
 import { Repeat, Sparkles } from 'lucide-react'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'

@@ -30,6 +30,7 @@
  */
 
 import { useEffect, useRef } from 'react'
+import type { JSX } from 'react'
 
 import { I18nProvider } from '@/i18n'
 import { SkillsUsedDisclosure } from '@/features/skills/components/SkillsUsedDisclosure'

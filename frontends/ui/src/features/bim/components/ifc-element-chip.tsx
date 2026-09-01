@@ -17,7 +17,7 @@
 
 import Link from 'next/link'
 import { Box } from 'lucide-react'
-import type { ReactNode } from 'react'
+import type { JSX, ReactNode } from 'react'
 import { useTranslations } from '@/i18n'
 import type { BimElementLink } from '../lib/element-question'
 import { elementLinkHref } from '../lib/element-question'

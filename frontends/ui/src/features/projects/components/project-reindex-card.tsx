@@ -14,6 +14,7 @@
  */
 
 import { useState } from 'react'
+import type { JSX } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'

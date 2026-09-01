@@ -20,6 +20,7 @@
  * only gates, fetches and names its section.
  */
 
+import type { JSX } from 'react'
 import { ShieldAlert } from 'lucide-react'
 
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'

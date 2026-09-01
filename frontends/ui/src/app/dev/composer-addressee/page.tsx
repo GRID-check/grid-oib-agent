@@ -36,6 +36,7 @@
  * evidence should carry regardless of the locale cookie the capture runs with.
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { ArrowUp, AtSign, ChevronDown, Layers, ZoomIn } from 'lucide-react'
 

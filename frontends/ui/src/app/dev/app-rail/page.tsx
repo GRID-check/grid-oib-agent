@@ -33,6 +33,7 @@
  *     was never reviewed at.
  */
 
+import type { JSX } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { AppSidebar } from '@/components/shell/app-sidebar'
 

@@ -14,6 +14,7 @@
  * that answers 403.
  */
 
+import type { JSX } from 'react'
 import { withPageSession } from '@/lib/auth/require-auth'
 import {
   canManageMembers,

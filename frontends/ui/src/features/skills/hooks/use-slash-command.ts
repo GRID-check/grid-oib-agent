@@ -48,7 +48,7 @@ export interface UseSlashCommandResult {
   query: string
   skills: SlashCommandSkill[]
   loading: boolean
-  pickerRef: React.RefObject<SlashCommandPickerHandle>
+  pickerRef: React.RefObject<SlashCommandPickerHandle | null>
   aria: SlashCommandPickerAria
   onAriaChange: (aria: SlashCommandPickerAria) => void
   /** Call from the composer's value-change handler. */

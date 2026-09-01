@@ -8,6 +8,7 @@
  * development.
  */
 
+import type { JSX } from 'react'
 import { PlatformNav } from '@/features/platform/components/platform-nav'
 
 export default function PlatformNavDevPage(): JSX.Element {

@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useRef } from 'react'
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { IfcCompliancePanel } from '@/features/bim/components/ifc-compliance-panel'
 import type { BimRuleResultWithConfirmation } from '@/lib/bim/rules'

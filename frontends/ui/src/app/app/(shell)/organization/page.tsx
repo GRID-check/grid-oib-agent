@@ -15,6 +15,7 @@
  * rather than on a blank page.
  */
 
+import type { JSX } from 'react'
 import { Building2, Globe, Mail, ShieldAlert, Users } from 'lucide-react'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { isOrgAdmin } from '@/lib/authz/organizations'

@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useRef } from 'react'
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { SidebarUserMenu } from '@/components/shell/sidebar-user-menu'
 

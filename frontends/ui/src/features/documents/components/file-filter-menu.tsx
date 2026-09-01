@@ -1,6 +1,6 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import type { JSX, ReactNode } from 'react'
 import { ArrowDownNarrowWide, ArrowUpNarrowWide, SlidersHorizontal } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'

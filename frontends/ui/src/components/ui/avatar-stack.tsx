@@ -27,6 +27,7 @@
  */
 
 import * as React from 'react'
+import type { JSX } from 'react'
 
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback, AvatarImage } from './avatar'

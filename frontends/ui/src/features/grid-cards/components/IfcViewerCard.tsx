@@ -15,6 +15,7 @@
  */
 
 import { useMemo } from 'react'
+import type { JSX } from 'react'
 import Link from 'next/link'
 import { Boxes, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'

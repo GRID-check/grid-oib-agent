@@ -28,6 +28,7 @@
  */
 
 import { useState } from 'react'
+import type { JSX } from 'react'
 import { AtSign } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 

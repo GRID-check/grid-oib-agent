@@ -115,7 +115,7 @@ flowchart TB
 
 | Container | Tech | Responsibility |
 |---|---|---|
-| **frontend** | Next.js 16, React 18, TypeScript | The UI, the BFF (all `/api/*`), and the `server.js` gateway. System of record for `grid_app`. |
+| **frontend** | Next.js 16, React 19, TypeScript | The UI, the BFF (all `/api/*`), and the `server.js` gateway. System of record for `grid_app`. |
 | **aiq-agent** | Python 3.13, FastAPI, NAT, LangGraph, Dask | Stateless AI orchestration; owns the vector store and the job/checkpoint DBs. |
 | **postgres** | PostgreSQL 16 | Three logical DBs: `grid_app` (app state), `aiq_jobs` (jobs/events/summaries), `aiq_checkpoints` (LangGraph state). |
 | **seaweedfs** | SeaweedFS (S3-compatible) | Object storage for OIB PDFs and uploaded documents (`grid-documents` bucket). |
@@ -327,7 +327,7 @@ frontend start). → `docs/database/`.
 
 | Concern | Choice |
 |---|---|
-| Frontend | Next.js 16, React 18, TypeScript, shadcn/ui + Tailwind v4 |
+| Frontend | Next.js 16, React 19, TypeScript, shadcn/ui + Tailwind v4 |
 | BFF / gateway | Next.js app-router API routes + a Node `server.js` WS/HTTP proxy |
 | AI orchestration | NeMo Agent Toolkit (NAT) + LangGraph; Dask for async jobs |
 | LLM | any OpenAI-compatible endpoint (reference boot floor: OpenAI GPT-5.6 Luna via OpenRouter; the served model is an admin decision at runtime) |

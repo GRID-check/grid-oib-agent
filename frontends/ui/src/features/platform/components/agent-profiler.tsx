@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import type { JSX } from 'react'
 import { AlertTriangle, Clock, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'

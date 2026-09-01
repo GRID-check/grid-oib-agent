@@ -19,6 +19,7 @@
  * That is the difference between waiting and watching.
  */
 
+import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
 
 export interface ViewerProgressProps {

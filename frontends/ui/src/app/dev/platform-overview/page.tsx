@@ -10,6 +10,7 @@
  * anywhere and 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { PlatformOverview } from '@/app/app/(shell)/platform/platform-overview'
 
 const NAMES = [

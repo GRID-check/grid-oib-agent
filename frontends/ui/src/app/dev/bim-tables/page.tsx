@@ -15,6 +15,7 @@
  */
 
 import { useState } from 'react'
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import {
   IfcProfileSuggestions,

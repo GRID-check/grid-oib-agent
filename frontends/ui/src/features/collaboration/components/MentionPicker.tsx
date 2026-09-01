@@ -35,6 +35,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import type { JSX } from 'react'
 import { AtSign, Sparkles, UserPlus } from 'lucide-react'
 
 import { PersonAvatar } from '@/components/ui/avatar-stack'

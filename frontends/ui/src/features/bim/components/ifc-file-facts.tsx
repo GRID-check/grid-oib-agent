@@ -28,6 +28,7 @@
  */
 
 import { useMemo } from 'react'
+import type { JSX } from 'react'
 import { Boxes, Layers3, Ruler, ScrollText, Square } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useLocale, useTranslations } from '@/i18n'

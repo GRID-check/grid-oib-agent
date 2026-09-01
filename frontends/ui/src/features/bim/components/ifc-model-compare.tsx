@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
+import type { JSX } from 'react'
 import { ArrowRight, GitCompare } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'

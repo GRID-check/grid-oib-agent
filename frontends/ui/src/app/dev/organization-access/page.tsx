@@ -33,6 +33,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
