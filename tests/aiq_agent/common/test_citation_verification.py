@@ -3064,3 +3064,81 @@ class TestWireCarriesBindingStatus:
         wire = source_entry_to_wire(entry)
         assert wire["binding_status"] == "unbekannt"
         assert "rank" not in wire
+
+
+class TestQuoteWordElision:
+    """A quote that drops or inserts a whole word is a different sentence.
+
+    T2-CIT1 (quote-verification-calibration-2026-07.md): the elision budget is a
+    LENGTH budget calibrated on OCR noise, and a meaning-inverting word can be
+    five characters. Tuning the budget down accuses correct answers, so the
+    matcher asks what it skips: sub-word noise is tolerated, a whole word is
+    not — without consulting any vocabulary.
+    """
+
+    CHUNK = (
+        "Tragende Bauteile muessen nicht brennbar sein, wenn das Gebaeude mehr als "
+        "zwei oberirdische Geschosse hat. Abweichungen sind nur mit Nachweis zulaessig."
+    )
+
+    def _registry(self) -> SourceRegistry:
+        from aiq_agent.common.citation_verification import SourceEntry
+
+        reg = SourceRegistry()
+        reg.add(
+            SourceEntry(
+                citation_key="rl2.pdf, p.4",
+                source_type="knowledge_layer",
+                tool_name="knowledge_search",
+                chunk_text=self.CHUNK,
+            )
+        )
+        return reg
+
+    def test_a_dropped_nicht_is_not_a_verified_quote(self):
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        answer = (
+            "Die Richtlinie sagt: „Tragende Bauteile muessen brennbar sein, wenn das "
+            'Gebaeude mehr als zwei oberirdische Geschosse hat" [1].\n\n## Sources\n[1] rl2.pdf, p.4'
+        )
+        unverified = verify_quoted_spans(answer, self._registry())
+        assert [q.quote for q in unverified] == [
+            "Tragende Bauteile muessen brennbar sein, wenn das Gebaeude mehr als zwei oberirdische Geschosse hat"
+        ]
+
+    def test_an_inserted_nicht_is_not_a_verified_quote_either(self):
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        answer = 'Es gilt: „Abweichungen sind nicht nur mit Nachweis zulaessig" [1].\n\n## Sources\n[1] rl2.pdf, p.4'
+        assert len(verify_quoted_spans(answer, self._registry())) == 1
+
+    def test_the_verbatim_negated_sentence_still_verifies(self):
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        answer = (
+            "Es gilt: „Tragende Bauteile muessen nicht brennbar sein, wenn das Gebaeude "
+            'mehr als zwei oberirdische Geschosse hat" [1].\n\n## Sources\n[1] rl2.pdf, p.4'
+        )
+        assert verify_quoted_spans(answer, self._registry()) == []
+
+    def test_sub_word_noise_is_still_tolerated(self):
+        """The OCR tolerance the calibration doc measured must survive: a lost
+        inflection ending and a swapped character are noise, not an edit."""
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        answer = (
+            "Es gilt: „Tragende Bauteil muessen nicht brennbar sein, wenn das Gebaeude "
+            'mehr als zwei oberirdische Gesch0sse hat" [1].\n\n## Sources\n[1] rl2.pdf, p.4'
+        )
+        assert verify_quoted_spans(answer, self._registry()) == []
+
+    def test_a_dropped_article_is_an_edit_too(self):
+        """No vocabulary decides which words matter; any whole word does."""
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        answer = (
+            "Es gilt: „Tragende Bauteile muessen nicht brennbar sein, wenn Gebaeude "
+            'mehr als zwei oberirdische Geschosse hat" [1].\n\n## Sources\n[1] rl2.pdf, p.4'
+        )
+        assert len(verify_quoted_spans(answer, self._registry())) == 1

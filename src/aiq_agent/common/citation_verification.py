@@ -951,6 +951,19 @@ _KL_SHELF_RE = re.compile(r"^Shelf:\s*(.+)$", re.MULTILINE)
 # `_format_results` (``Dokumentart: <doc_class_key>``). ``Doc-Class:`` is
 # accepted as an alias for robustness.
 _KL_DOC_CLASS_RE = re.compile(r"^(?:Dokumentart|Doc-Class):\s*(.+)$", re.MULTILINE)
+# The Punkt the excerpt belongs to, as the chunker established it
+# (``punkt_chunking.py``, measured 946/946 against the corpus's contents
+# pages) and ``_format_results`` states it. This is the citation form Austrian
+# building law actually uses ("OIB-RL 2, Pkt. 3.5.2"); until it was parsed here
+# the number reached the model as prose and died before the citation the reader
+# sees. Absent for page-fallback chunks and every non-OIB document.
+_KL_PUNKT_RE = re.compile(r"^Punkt:\s*(\S+)\s*$", re.MULTILINE)
+# The retrieval score ``_format_results`` prints, a true cosine similarity since
+# the audit's F6 fix. Parsed from the WHOLE block rather than the header region:
+# the header is defined as everything above this very line. A body could in
+# principle contain the same words, but the header's line precedes it and
+# ``_first`` takes the first match.
+_KL_SCORE_RE = re.compile(r"^Relevance Score:\s*(-?\d+(?:\.\d+)?)\s*$", re.MULTILINE)
 
 # Per-hit block/body markers, mirroring register.py:_format_results layout: each
 # hit is a ``--- Result N ---`` block whose passage body follows the
@@ -2026,6 +2039,34 @@ _QUOTE_WINDOW_PAD_MIN = 4
 # verbatim fixtures net ≤4 elided chars, clause splices net ≥7. TUNABLE.
 _QUOTE_MAX_ELIDED_GAP = 6
 
+# The elision budget above is a LENGTH budget, calibrated on OCR noise, and
+# length is the wrong axis for what a quote can lose: dropping one short word
+# from „Bauteile müssen nicht brennbar sein" turns a prohibition into a
+# permission while staying inside a budget sized for a hyphen or a swapped
+# letter (quote-verification-calibration-2026-07.md, T2-CIT1: elisions of ≤6
+# characters were caught 0% of the time). Tuning the budget down accuses
+# correct answers; the calibration doc says so and is right.
+#
+# So the matcher also asks WHAT it is skipping, structurally: OCR noise is
+# sub-word (a hyphenation remnant, a swapped character, an inflection ending),
+# whereas a skipped or inserted run that contains a whole word is a different
+# sentence, whichever word it is. No vocabulary is consulted — which word
+# changes the meaning is the model's judgement to make when it writes, and the
+# verifier's job is only to refuse to call an edited sentence verbatim.
+# Three letters is the floor at which a run is a word and not an ending.
+_WHOLE_WORD_RE = re.compile(r"(?<![^\W\d_])[^\W\d_]{3,}(?![^\W\d_])")
+
+
+def _skips_a_word(text: str) -> bool:
+    """True when ``text`` (a skipped or inserted run, already casefolded) holds a whole word.
+
+    The run's own edges count as word boundaries: a gap of exactly ``"nicht "``
+    is the whole word, and the character before it belongs to a matched block
+    that is by construction the same in quote and passage.
+    """
+    return bool(text) and _WHOLE_WORD_RE.search(text) is not None
+
+
 # Inline marker appended immediately after a quoted span that could not be
 # verified against any retrieved passage. Fail-open: the sentence is NEVER
 # stripped or altered; only this marker is inserted after the closing quote.
@@ -2269,7 +2310,11 @@ def _quote_coverage(norm_quote: str, norm_chunk: str) -> float:
                 chunk_gap = block.b - prev_b_end
                 quote_gap = block.a - prev_a_end
                 elided += max(0, chunk_gap - quote_gap)
-                if elided > _QUOTE_MAX_ELIDED_GAP:
+                # A gap that skips or inserts a whole word cuts the run whatever
+                # its length: „muss nicht brennbar" quoted as „muss brennbar" is
+                # a different sentence, not a noisy one.
+                edited = _skips_a_word(window[prev_b_end : block.b]) or _skips_a_word(norm_quote[prev_a_end : block.a])
+                if elided > _QUOTE_MAX_ELIDED_GAP or edited:
                     run = 0
                     elided = 0
             run += block.size

@@ -1479,10 +1479,18 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             )
 
             # Merge by cross-collection rank fusion (scores are NOT comparable across
-            # collections) with a per-document diversity cap so cross-cutting questions
-            # span multiple documents. `results` is in `target_collections` order, which
-            # is the channel order the fusion breaks exact ties by.
-            merged = _merge_results(results, query, candidate_k, retriever.backend_name, effective_max_per_document)
+            # collections). `results` is in `target_collections` order, which is the
+            # channel order the fusion breaks exact ties by.
+            #
+            # The per-document diversity cap is NOT applied here. This merge builds the
+            # CANDIDATE pool (`candidate_k`, 60 under the reference config), and a cap
+            # measured against that budget decides nothing: with one collection in scope
+            # the pool is at most `candidate_k` long, the soft fill returns everything,
+            # and the final trim to `top_k` below applied no cap at all -- one PDF could
+            # fill all sixteen answer slots while the tool description promised five.
+            # The cap belongs on the ANSWER budget, after the reranker has had the whole
+            # pool to judge (rag-system-audit-2026-08 F16), so it is applied below.
+            merged = _merge_results(results, query, candidate_k, retriever.backend_name, max_per_document=0)
 
             # Agentic narrowing, then trim to the effective top_k.
             # `file_name=` is a FILTER, not a preference: the agent named a
@@ -1518,7 +1526,13 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 )
                 merged = merged.model_copy(update={"chunks": reranked})
 
-            merged = merged.model_copy(update={"chunks": merged.chunks[:effective_top_k]})
+            # Diversity cap on the ANSWER budget, in whatever order survived reranking
+            # (or the fused order when no reranker is configured). Soft, as the tool
+            # description promises: at most `max_chunks_per_document` per document
+            # where possible, filled back from the deferred ranks when there are not
+            # enough distinct documents. With the cap disabled this is the plain trim.
+            capped = _apply_diversity_cap(merged.chunks, effective_top_k, effective_max_per_document)
+            merged = merged.model_copy(update={"chunks": capped})
 
             # Relevance floor. Without one, top_k is ALWAYS filled: a question this
             # corpus cannot answer still returns sixteen formatted excerpts with page
