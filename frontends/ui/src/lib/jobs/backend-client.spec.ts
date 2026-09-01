@@ -19,6 +19,8 @@ const payload: JobSubmitPayload = {
   data_sources: null,
   collection_scope: ['oib_knowledge', 'proj_abc'],
   project_context: null,
+  project_memory: null,
+  memory_reflection_enabled: false,
   organization_id: 'org-1',
   user_id: 'creator-9',
   project_id: 'proj-1',

@@ -54,6 +54,14 @@ export interface JobSubmitPayload {
   data_sources: string[] | null
   collection_scope: string[] | null
   project_context: string | null
+  /**
+   * The project-memory digest as of fire time. The worker fetches a live one
+   * and keeps this only when that fetch fails, so a run sees what a chat turn
+   * sees instead of the intake profile alone.
+   */
+  project_memory: string | null
+  /** The organization's memory-reflection flag, evaluated here like the WS handshake does. */
+  memory_reflection_enabled: boolean
   organization_id: string
   user_id: string | null
   project_id: string | null

@@ -127,6 +127,17 @@ class SkillSubmitPayload(BaseModel):
         description="Collection scope (base + project + scoped collections); the project collection is derived from it",
     )
     project_context: str | None = Field(None, description="Optional project-context prompt block")
+    project_memory: str | None = Field(
+        None,
+        description=(
+            "The project-memory digest as of fire time; the worker fetches a live one and "
+            "keeps this only when that fetch fails"
+        ),
+    )
+    memory_reflection_enabled: bool = Field(
+        False,
+        description="Whether the worker may run the post-run memory reflection pass (the org's flag, BFF-evaluated)",
+    )
     organization_id: str = Field(..., description="WorkOS organization id owning the run (required)")
     user_id: str | None = Field(None, description="Skill owner's WorkOS user id")
     project_id: str | None = Field(None, description="Project id the skill run is scoped to")
@@ -291,9 +302,13 @@ def add_skill_routes(router: APIRouter) -> None:
                 data_sources=body.data_sources,
                 collection_scope=body.collection_scope,
                 project_context=body.project_context,
+                project_memory=body.project_memory,
                 model_overrides=body.model_overrides,
                 usage_context=usage_context,
                 force_skills=body.skills,
+                # The flag is the BFF's to evaluate (per organization); the
+                # reflection LLM ref is the worker's to resolve from its config.
+                memory_reflection_enabled=body.memory_reflection_enabled,
                 # Explicit, because a scheduled run has no request context to
                 # inherit one from. This is what lets the worker write the
                 # answer into a thread a human can open and continue.

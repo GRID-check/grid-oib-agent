@@ -29,13 +29,14 @@ import { findProjectInOrg } from '@/lib/projects/repository'
 import { getBudgetStatus } from '@/lib/budgets/service'
 import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
+import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
 import { computeCollectionScope } from '@/lib/collection-scope'
 import {
   buildGridRequestContextWireHeaders,
   encodeGridBudgetHeader,
   type GridBudgetSnapshot,
 } from '@/lib/request-context'
-import { isOrgFeatureEnabled, SKILLS_FLAG } from '@/lib/workos/feature-flags'
+import { isMemoryReflectionEnabled, isOrgFeatureEnabled, SKILLS_FLAG } from '@/lib/workos/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Job, JobOutput, JobRun, JobRunStatus, JobRunTrigger } from '@/lib/db/schema'
 import { resolveSelectableSkills, resolveSkillSnapshot } from '@/lib/skills/service'
@@ -359,14 +360,31 @@ export async function fireJob(
   const { organizationId, projectId, createdBy } = job
 
   try {
-    const [budgetSnapshot, modelOverrides, collectionScope, projectContext, bundesland] =
-      await Promise.all([
-        resolveBudgetSnapshot(organizationId, createdBy, projectId),
-        getEffectiveModelOverrides(organizationId).catch(() => null),
-        buildProjectCollectionScope(projectId, organizationId),
-        loadProjectPromptView(projectId, organizationId).catch(() => null),
-        loadProjectBundesland(projectId, organizationId).catch(() => null),
-      ])
+    const firePrompt = buildFirePrompt({ prompt: job.prompt, skill: job.skillSnapshot })
+    const [
+      budgetSnapshot,
+      modelOverrides,
+      collectionScope,
+      projectContext,
+      bundesland,
+      projectMemory,
+      memoryReflectionEnabled,
+    ] = await Promise.all([
+      resolveBudgetSnapshot(organizationId, createdBy, projectId),
+      getEffectiveModelOverrides(organizationId).catch(() => null),
+      buildProjectCollectionScope(projectId, organizationId),
+      loadProjectPromptView(projectId, organizationId).catch(() => null),
+      loadProjectBundesland(projectId, organizationId).catch(() => null),
+      // What the project already knows, ranked against the job's own prompt
+      // the way a chat turn's digest is ranked against its question. Until
+      // now a job saw the intake profile alone: the surfaces closest to "the
+      // agent does the work" were the ones running without memory. Best
+      // effort — memory must never stop a job from firing.
+      buildProjectMemoryDigest(projectId, organizationId, { query: firePrompt }).catch(() => null),
+      // The org's flag, evaluated here exactly as the WS handshake evaluates
+      // it; the worker holds the config and resolves the model itself.
+      isMemoryReflectionEnabled(organizationId).catch(() => false),
+    ])
     const budgetHeader = budgetSnapshot ? encodeGridBudgetHeader(budgetSnapshot) : null
 
     // An `output: 'chat'` run lands in a REAL conversation the team can open
@@ -375,7 +393,7 @@ export async function fireJob(
     const conversationId = await createRunConversation(job)
 
     const payload: JobSubmitPayload = {
-      input: buildFirePrompt({ prompt: job.prompt, skill: job.skillSnapshot }),
+      input: firePrompt,
       // Empty when no skill is attached: the prompt runs alone, which the
       // backend now accepts.
       skills: job.skillSnapshot ? [job.skillSnapshot.name] : [],
@@ -389,6 +407,8 @@ export async function fireJob(
       data_sources: withAlwaysOnKnowledge(job.dataSources ?? null),
       collection_scope: collectionScope,
       project_context: projectContext,
+      project_memory: projectMemory,
+      memory_reflection_enabled: memoryReflectionEnabled,
       organization_id: organizationId,
       user_id: createdBy,
       project_id: projectId,
@@ -407,9 +427,11 @@ export async function fireJob(
         projectId,
         collectionScope,
         projectContext,
+        projectMemory,
         modelOverrides,
         budget: budgetSnapshot,
         bundesland,
+        memoryReflectionEnabled,
       },
       process.env.GRID_INTERNAL_API_TOKEN,
     )
