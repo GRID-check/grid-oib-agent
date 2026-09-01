@@ -63,6 +63,29 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="passage-mark"]',
   },
   {
+    id: 'pdf-text-layer',
+    path: '/dev/pdf-passage?variant=text',
+    description:
+      "The text layer that makes a rendered page behave like a document — painted, because it ships transparent. pdf.js gives us a bitmap; a reader who drags across a bitmap selects nothing, so the page's own words are laid back over their glyphs as positioned runs. This is the shot that says they LINE UP: a layer that has drifted still selects, silently selecting the wrong words.",
+    waitFor: '.pdf-text-layer span',
+  },
+  {
+    id: 'citation-viewer',
+    mobile: true,
+    path: '/dev/pdf-passage?variant=citation',
+    description:
+      'What a clicked citation opens onto, whole: the source chip and the copy actions in the header, the Fundstellen rail beside the document (three passages, the one being read tinted with its source and quoted in full, the retrieved-but-uncited one marked as such), and the cited sentence lit up on the page itself. Mobile turns the rail into a strip of cards above the document.',
+    waitFor: '[data-testid="passage-mark"]',
+  },
+  {
+    id: 'citation-viewer-single',
+    mobile: true,
+    path: '/dev/pdf-passage?variant=single',
+    description:
+      'The same viewer for a document read at ONE page. It used to be a differently shaped dialog — no rail, the passage in a band above the document — so two citations that look identical in the chat opened two different surfaces. One rail, minus the stepper there is nowhere to step with.',
+    waitFor: '[data-testid="passage-mark"]',
+  },
+  {
     id: 'app-rail',
     path: '/dev/app-rail',
     description:

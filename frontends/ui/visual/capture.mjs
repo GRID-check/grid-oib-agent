@@ -62,6 +62,31 @@ const NETWORK_IDLE_MS = Number(process.env.SCREENSHOT_NETWORK_IDLE_MS ?? 5000)
 /** Cap on the best-effort wait for a `waitFor` match to become *visible*. */
 const VISIBLE_MS = Number(process.env.SCREENSHOT_VISIBLE_MS ?? 3000)
 
+/**
+ * Stage pdf.js's runtime assets, the way `dev` and `build` do.
+ *
+ * The harness boots `next dev` DIRECTLY, so it skips the `dev:next` script that
+ * copies pdf.js's worker, cmaps and fonts into `public/pdfjs/` — and that
+ * directory is gitignored, so a clean checkout has none of it. The viewer's
+ * answer to a worker it cannot fetch is to fall back to the browser's own PDF
+ * frame, silently and correctly. Which means every PDF target quietly captured
+ * Chromium's built-in viewer instead of ours: a screenshot that is not of this
+ * product, committed as evidence for it. Cheap when already staged (the copier
+ * skips unchanged files), so it runs unconditionally.
+ */
+async function stagePdfjsAssets() {
+  await new Promise((resolve) => {
+    const child = spawn(process.execPath, [join(UI_ROOT, 'scripts', 'copy-pdfjs-assets.mjs')], {
+      cwd: UI_ROOT,
+      stdio: 'inherit',
+    })
+    // Best effort: a target that needs pdf.js will say so by falling back, and
+    // taking the whole run down over it would strand the targets that do not.
+    child.on('exit', resolve)
+    child.on('error', resolve)
+  })
+}
+
 /** The dev server this process owns, so a Ctrl-C takes it down with us. */
 let activeServer = null
 for (const signal of ['SIGINT', 'SIGTERM']) {
@@ -413,6 +438,7 @@ async function main() {
   }
 
   await mkdir(OUT_DIR, { recursive: true })
+  await stagePdfjsAssets()
 
   let server = null
   let baseUrl = process.env.BASE_URL || (await findRunningServer(targets[0].path))
