@@ -274,6 +274,22 @@ export const documents = pgTable('documents', {
   fileSize: integer('file_size'),
   contentType: text('content_type'),
   /**
+   * Where this file sat before it was uploaded, as the browser reported it —
+   * e.g. `Wohnbau Nord/03_Einreichung/Grundrisse/EG.pdf` (migration 0071).
+   *
+   * Only a folder upload has one; a file chosen through the picker genuinely
+   * does not, and NULL says so rather than a guess derived from the filename.
+   * Written once at upload and never rewritten.
+   *
+   * NOT `folderId` / the materialised folder path (ADR-0049). Those are
+   * Piloti's own filing: navigable, renameable, owned by whoever files the
+   * document HERE. This is a fact about the file's origin, and the two must not
+   * share a column even when they agree — renaming a Piloti folder must not
+   * rewrite history, and re-filing a document must not claim it moved on the
+   * office server.
+   */
+  originPath: text('origin_path'),
+  /**
    * Where ingestion got to: `pending → processing → processed | error`, plus
    * `stored`, which is none of those (migration 0063).
    *

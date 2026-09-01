@@ -573,6 +573,45 @@ export interface UploadDocumentInput {
   projectId: string
   folderId: string | null
   file: File
+  /**
+   * Where the file sat before it was uploaded, when the browser knows — a
+   * folder upload reports `webkitRelativePath`. Absent for a picked file.
+   * Recorded once (migration 0071) and never rewritten; see the schema comment
+   * for why this is not Piloti's own folder path.
+   */
+  originPath?: string | null
+}
+
+/** Longest origin path recorded. Deep office trees exist; unbounded text does not belong in a row. */
+const ORIGIN_PATH_MAX_CHARS = 1024
+
+/**
+ * A browser-reported origin path, made safe to store and to show.
+ *
+ * This string is USER-CONTROLLED — it is whatever the operating system had in
+ * a folder name — and it is rendered back to other people in the same
+ * organization, so it is treated the way every other piece of uploaded text is:
+ * bounded, normalised, and stripped of the characters that would let it
+ * pretend to be something else.
+ *
+ * Backslashes become forward slashes so a Windows tree and a macOS one read
+ * alike. Leading slashes, `.` and `..` segments are dropped: this is a label,
+ * never a path anything resolves, and an absolute or climbing path in a label
+ * is only ever a way to mislead a reader about where a file came from. Control
+ * characters go for the same reason a filename's do.
+ */
+function sanitizeOriginPath(raw: string | null | undefined): string | null {
+  if (typeof raw !== 'string') return null
+  const segments = raw
+    .replace(/\\/g, '/')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment !== '' && segment !== '.' && segment !== '..')
+  if (segments.length === 0) return null
+  const joined = segments.join('/')
+  return joined.slice(0, ORIGIN_PATH_MAX_CHARS) || null
 }
 
 export interface UploadDocumentResult {
@@ -663,6 +702,7 @@ export async function uploadDocument(
   request: Request,
 ): Promise<UploadDocumentResult> {
   const { projectId, folderId, file } = input
+  const originPath = sanitizeOriginPath(input.originPath)
 
   await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
   await assertUploadTypeAllowed(session, file.name)
@@ -781,6 +821,7 @@ export async function uploadDocument(
       collectionName,
       fileSize: file.size,
       contentType: file.type || null,
+      originPath,
       status: 'uploaded',
     })
   }

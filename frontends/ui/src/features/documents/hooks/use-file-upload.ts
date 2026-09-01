@@ -306,6 +306,14 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
               if (folderId) formData.append('folderId', folderId)
             }
             formData.append('file', file)
+            // Where the file sat before it came here. Set by a folder INPUT
+            // (`webkitdirectory`) and stamped onto a dropped tree's files by
+            // `asPathStampedFiles`, so one property covers both ways of
+            // choosing a folder. Absent for a picked file, which genuinely has
+            // no origin path — the server records null rather than a guess.
+            if (file.webkitRelativePath) {
+              formData.append('originPath', file.webkitRelativePath)
+            }
 
             let lastEmitted = 0
             try {

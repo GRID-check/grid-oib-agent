@@ -47,6 +47,13 @@ export interface DocumentListRow {
   authoredBy: DocumentAuthor
   collectionName: string
   folderId: string | null
+  /**
+   * Where the file came from, when a folder upload recorded one (0071).
+   * On the list row because the Files pane shows it in the detail rail without
+   * a second fetch — and because "go back to the original" is the one thing a
+   * reader wants from it, which is a per-file question.
+   */
+  originPath: string | null
   createdAt: Date
   updatedAt: Date
   errorMessage: string | null
@@ -91,6 +98,7 @@ export async function listProjectDocuments(
         authoredBy: documents.authoredBy,
         collectionName: documents.collectionName,
         folderId: documents.folderId,
+        originPath: documents.originPath,
         createdAt: documents.createdAt,
         updatedAt: documents.updatedAt,
         errorMessage: documents.errorMessage,

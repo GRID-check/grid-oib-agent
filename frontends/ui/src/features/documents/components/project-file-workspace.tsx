@@ -89,6 +89,17 @@ export interface FileItem {
   contentType: string | null
   status: string | null
   folderId: string | null
+  /**
+   * Where the file sat before it was uploaded, for a folder upload — e.g.
+   * `Wohnbau Nord/03_Einreichung/EG.pdf`. Null for a picked file, and null for
+   * everything uploaded before this was recorded.
+   *
+   * NOT `folderId`: that is Piloti's own filing, which somebody here chose and
+   * can change. This is a fact about the original, and it is what a person
+   * needs in order to go back and work on that original instead of editing a
+   * downloaded duplicate.
+   */
+  originPath?: string | null
   createdAt: string
   /** Server-persisted reason a document is in `failed` status, if any. */
   errorMessage: string | null
@@ -748,6 +759,8 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             folderId={selectedFolderId}
             onUpload={(files) => uploadFiles(files)}
             isUploading={isUploading}
+            // The durable corpus is where a büro brings a whole project in.
+            allowFolders
           />
         </div>
       </ProjectSectionActions>

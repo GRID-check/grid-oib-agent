@@ -105,6 +105,9 @@ export const files = {
     summaryLess: 'Show less',
     type: 'Type',
     size: 'Size',
+    originPath: 'Came from',
+    originPathCopied: 'Path copied',
+    originPathCopyFailed: "Path couldn't be copied",
     tags: 'Tags',
     noTags: 'No tags',
     tagsSaveError: "Tags couldn't be saved. Please try again.",
@@ -349,6 +352,7 @@ export const files = {
   upload: {
     uploading: 'Uploading…',
     upload: 'Upload',
+    uploadFolder: 'Upload folder',
   },
   errors: {
     validation: {

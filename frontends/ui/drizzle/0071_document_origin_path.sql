@@ -1,0 +1,19 @@
+-- 0071: where a document came from, before it came here.
+--
+-- A bulk upload is somebody dragging a project folder off the office server,
+-- and the thing they lose in the process is WHERE it was. That path is not
+-- decoration: it is how a person finds the original again to keep working on
+-- it, which is the alternative to downloading a duplicate and editing that.
+--
+-- Deliberately NOT `folder_id` / the materialised `folder_path` (ADR-0049).
+-- Those are Piloti's own filing — navigable, renameable, and owned by whoever
+-- files the document here. This is a fact about the file's ORIGIN, recorded
+-- once at upload and never rewritten, so the two cannot be the same column
+-- even when they happen to agree: renaming a Piloti folder must not rewrite
+-- history, and re-filing a document must not claim it moved on the office
+-- server.
+--
+-- Nullable, and null for everything that exists today: a document uploaded one
+-- at a time through the file picker genuinely has no origin path, and inventing
+-- one from the bare filename would be a guess presented as a record.
+ALTER TABLE "documents" ADD COLUMN IF NOT EXISTS "origin_path" text;

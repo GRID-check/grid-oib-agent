@@ -15,6 +15,7 @@ import {
   FileText,
   FileType2,
   FolderOpen,
+  FolderTree,
   HardDrive,
   Layers,
   Maximize2,
@@ -955,6 +956,32 @@ export function FilePreviewPane({
                     {formatBytes(file.fileSize, locale)}
                   </span>
                 </MetaRow>
+                {file.originPath && (
+                  /* WHERE THIS FILE CAME FROM, so the reader can go back to it.
+                     The alternative on offer was download-and-edit, which makes
+                     a duplicate that the office server never hears about and
+                     that diverges from the moment it is saved. A path they can
+                     copy and paste into Explorer or Finder is the whole
+                     feature. Recorded by a folder upload only — a picked file
+                     genuinely has no origin path, and the row is absent rather
+                     than empty. */
+                  <MetaRow label={t('preview.originPath')} icon={FolderTree}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void navigator.clipboard
+                          ?.writeText(file.originPath!)
+                          .then(() => toast.success(t('preview.originPathCopied')))
+                          .catch(() => toast.error(t('preview.originPathCopyFailed')))
+                      }}
+                      title={file.originPath}
+                      className="text-foreground hover:text-foreground/80 min-w-0 truncate text-left font-mono text-xs underline-offset-2 hover:underline"
+                      data-testid="file-origin-path"
+                    >
+                      {file.originPath}
+                    </button>
+                  </MetaRow>
+                )}
                 {showMetadataPanel && (
                   <MetaRow label={t('preview.indexed.updated')} icon={Clock}>
                     <span className="text-foreground text-xs font-medium tabular-nums">

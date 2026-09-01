@@ -151,7 +151,7 @@ describe('ProjectFileWorkspace', () => {
     expect(screen.getByText(/drop files to upload/i)).toBeInTheDocument()
   })
 
-  it('routes a dropped file into the existing upload path (uploadFiles)', () => {
+  it('routes a dropped file into the existing upload path (uploadFiles)', async () => {
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     const dropzone = screen.getByTestId('workspace-dropzone')
     const file = new File(['x'], 'plan.pdf', { type: 'application/pdf' })
@@ -160,13 +160,17 @@ describe('ProjectFileWorkspace', () => {
     fireEvent.dragEnter(dropzone, { dataTransfer })
     fireEvent.drop(dropzone, { dataTransfer })
 
-    expect(mockUploadFiles).toHaveBeenCalledTimes(1)
+    // The drop path resolves a microtask later: a DROPPED FOLDER is invisible
+    // to `dataTransfer.files` and has to be walked through the entries API, so
+    // the handler captures entries synchronously and hands over the files
+    // afterwards. A plain file drop still ends in exactly this call.
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledTimes(1))
     expect(mockUploadFiles).toHaveBeenCalledWith([file])
     // Overlay clears after drop.
     expect(screen.queryByTestId('workspace-drop-overlay')).not.toBeInTheDocument()
   })
 
-  it('flags an unsupported drag but still defers rejection to uploadFiles, like the button', () => {
+  it('flags an unsupported drag but still defers rejection to uploadFiles, like the button', async () => {
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     const dropzone = screen.getByTestId('workspace-dropzone')
     const badFile = new File(['x'], 'photo.png', { type: 'image/png' })
@@ -178,7 +182,7 @@ describe('ProjectFileWorkspace', () => {
 
     fireEvent.drop(dropzone, { dataTransfer })
     // Same contract as the button: files still flow to uploadFiles, which validates.
-    expect(mockUploadFiles).toHaveBeenCalledWith([badFile])
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([badFile]))
   })
 })
 

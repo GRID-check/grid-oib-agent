@@ -106,6 +106,9 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   collectionName: 'proj_abc',
   fileSize: 1024,
   contentType: 'application/pdf',
+  // Null is the honest default: only a folder upload records where a file came
+  // from, and the fixture is a single picked file.
+  originPath: null,
   status: 'completed',
   deletedAt: null,
   createdAt: new Date('2026-01-01T00:00:00Z'),

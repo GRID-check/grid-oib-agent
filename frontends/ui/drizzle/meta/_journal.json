@@ -498,6 +498,13 @@
       "when": 1788480000005,
       "tag": "0070_lesson_effectiveness",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1788566400005,
+      "tag": "0071_document_origin_path",
+      "breakpoints": true
     }
   ]
 }

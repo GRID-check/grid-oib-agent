@@ -152,7 +152,7 @@ describe('useFileDragDrop', () => {
     expect(result.current.isDragging).toBe(false)
   })
 
-  test('calls onDrop with files and resets state', () => {
+  test('calls onDrop with files and resets state', async () => {
     const onDrop = vi.fn()
     const { result } = renderHook(() => useFileDragDrop({ onDrop }))
 
@@ -170,7 +170,11 @@ describe('useFileDragDrop', () => {
     expect(result.current.isDragging).toBe(true)
 
     // Drop
-    act(() => {
+    // The drop path is asynchronous now: a DROPPED FOLDER is invisible to
+    // `dataTransfer.files` and has to be walked through the entries API, so the
+    // handler captures its entries synchronously and resolves the files a
+    // microtask later. The fallback below is unchanged for a plain file drop.
+    await act(async () => {
       result.current.dragHandlers.onDrop(dropEvent)
     })
 
@@ -181,13 +185,17 @@ describe('useFileDragDrop', () => {
     expect(dropEvent.stopPropagation).toHaveBeenCalled()
   })
 
-  test('does not call onDrop with empty files', () => {
+  test('does not call onDrop with empty files', async () => {
     const onDrop = vi.fn()
     const { result } = renderHook(() => useFileDragDrop({ onDrop }))
 
     const dropEvent = createMockDragEvent([])
 
-    act(() => {
+    // The drop path is asynchronous now: a DROPPED FOLDER is invisible to
+    // `dataTransfer.files` and has to be walked through the entries API, so the
+    // handler captures its entries synchronously and resolves the files a
+    // microtask later. The fallback below is unchanged for a plain file drop.
+    await act(async () => {
       result.current.dragHandlers.onDrop(dropEvent)
     })
 
@@ -212,14 +220,18 @@ describe('useFileDragDrop', () => {
     expect(result.current.isDragging).toBe(false)
   })
 
-  test('does not call onDrop when disabled', () => {
+  test('does not call onDrop when disabled', async () => {
     const onDrop = vi.fn()
     const { result } = renderHook(() => useFileDragDrop({ onDrop, disabled: true }))
 
     const file = new File(['content'], 'test.pdf', { type: 'application/pdf' })
     const dropEvent = createMockDragEvent([file])
 
-    act(() => {
+    // The drop path is asynchronous now: a DROPPED FOLDER is invisible to
+    // `dataTransfer.files` and has to be walked through the entries API, so the
+    // handler captures its entries synchronously and resolves the files a
+    // microtask later. The fallback below is unchanged for a plain file drop.
+    await act(async () => {
       result.current.dragHandlers.onDrop(dropEvent)
     })
 
@@ -240,7 +252,7 @@ describe('useFileDragDrop', () => {
     expect(overEvent.stopPropagation).toHaveBeenCalled()
   })
 
-  test('handles multiple files on drop', () => {
+  test('handles multiple files on drop', async () => {
     const onDrop = vi.fn()
     const { result } = renderHook(() => useFileDragDrop({ onDrop }))
 
@@ -251,7 +263,11 @@ describe('useFileDragDrop', () => {
     ]
     const dropEvent = createMockDragEvent(files)
 
-    act(() => {
+    // The drop path is asynchronous now: a DROPPED FOLDER is invisible to
+    // `dataTransfer.files` and has to be walked through the entries API, so the
+    // handler captures its entries synchronously and resolves the files a
+    // microtask later. The fallback below is unchanged for a plain file drop.
+    await act(async () => {
       result.current.dragHandlers.onDrop(dropEvent)
     })
 

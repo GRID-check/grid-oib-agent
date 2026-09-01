@@ -102,6 +102,9 @@ export const files: typeof en.files = {
     summaryLess: 'Weniger anzeigen',
     type: 'Typ',
     size: 'Größe',
+    originPath: 'Herkunft',
+    originPathCopied: 'Pfad kopiert',
+    originPathCopyFailed: 'Pfad konnte nicht kopiert werden',
     tags: 'Schlagwörter',
     noTags: 'Keine Schlagwörter',
     tagsSaveError: 'Schlagwörter konnten nicht gespeichert werden. Bitte erneut versuchen.',
@@ -327,6 +330,7 @@ export const files: typeof en.files = {
   upload: {
     uploading: 'Wird hochgeladen …',
     upload: 'Hochladen',
+    uploadFolder: 'Ordner hochladen',
   },
   errors: {
     validation: {
