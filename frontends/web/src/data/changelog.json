@@ -32,6 +32,37 @@
   },
   "releases": [
     {
+      "id": "2026-09-01",
+      "kind": "date",
+      "version": null,
+      "date": "2026-09-01",
+      "summary": null,
+      "sections": [
+        {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Antworten bringen ihre Kernelemente strukturiert mit: das Urteil steht als kopierbarer Wert groß über der Antwort, die wichtigsten Punkte als Kernaussagen darunter, und höchstens ein Hinweis hebt hervor, was Ihr nächstes Tun ändert. Jedes Element wird geprüft, bevor es erscheint — ein Urteil ist ein Wert, nie ein Absatz.",
+              "de": "Antworten bringen ihre Kernelemente strukturiert mit: das Urteil steht als kopierbarer Wert groß über der Antwort, die wichtigsten Punkte als Kernaussagen darunter, und höchstens ein Hinweis hebt hervor, was Ihr nächstes Tun ändert. Jedes Element wird geprüft, bevor es erscheint — ein Urteil ist ein Wert, nie ein Absatz."
+            }
+          ]
+        },
+        {
+          "key": "improvements",
+          "notes": [
+            {
+              "en": "Der Schreibstil des Assistenten — Antwort zuerst, Vorbehalte zuletzt und einzeln, Zahlen in der Schreibweise der Richtlinie — gilt jetzt ausnahmslos für jede Antwort, auch für die langen Rechercheberichte.",
+              "de": "Der Schreibstil des Assistenten — Antwort zuerst, Vorbehalte zuletzt und einzeln, Zahlen in der Schreibweise der Richtlinie — gilt jetzt ausnahmslos für jede Antwort, auch für die langen Rechercheberichte."
+            },
+            {
+              "en": "Fertige Antworten erscheinen sofort als Ganzes. Der Schreibmaschineneffekt, der eine bereits fertige Antwort Zeichen für Zeichen eingeblendet hat, ist entfernt.",
+              "de": "Fertige Antworten erscheinen sofort als Ganzes. Der Schreibmaschineneffekt, der eine bereits fertige Antwort Zeichen für Zeichen eingeblendet hat, ist entfernt."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-08-28",
       "kind": "date",
       "version": null,
