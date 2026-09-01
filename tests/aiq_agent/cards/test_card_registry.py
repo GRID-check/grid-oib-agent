@@ -76,13 +76,13 @@ class TestEmitCardBody:
         reg.clear()
         token = set_card_registry(reg)
         try:
-            msg = _emit('{"type": "summary", "title": "Answer", "content": "Quick."}')
+            msg = _emit('{"type": "ifc_model_picker", "title": "Answer"}')
         finally:
             reset_card_registry(token)
         assert "will be shown" in msg
         cards = reg.snapshot()
         assert len(cards) == 1
-        assert cards[0]["type"] == "summary"
+        assert cards[0]["type"] == "ifc_model_picker"
 
     def test_invalid_json_registers_nothing(self):
         reg = get_or_create_card_registry("conv-emit-2")
@@ -108,13 +108,13 @@ class TestEmitCardBody:
 
     def test_no_active_registry_does_not_raise(self):
         # No set_card_registry -> get_card_registry() is None
-        msg = _emit('{"type": "summary", "title": "A"}')
+        msg = _emit('{"type": "ifc_model_picker", "title": "A"}')
         assert "no card channel" in msg
 
     @pytest.mark.parametrize(
         "card_json",
         [
-            '{"type": "summary", "title": "Egress widths"}',
+            '{"type": "ifc_model_picker", "title": "Egress widths"}',
             '{"type": "legal_basis", "law": "OIB-Richtlinie 2", "article": "2.1"}',
         ],
     )
@@ -236,11 +236,11 @@ class TestARefusedCardIsVisibleAfterTheTurn:
         reg = get_or_create_card_registry("conv-refusal-4")
         reg.clear()
         with caplog.at_level(logging.INFO, logger="aiq_agent.cards.register"):
-            msg = await self._emit_real(reg, {"type": "summary", "title": "Treppe"})
+            msg = await self._emit_real(reg, {"type": "ifc_model_picker", "title": "Treppe"})
 
         assert not msg.startswith("Error")
         assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any("registered a 'summary' card" in r.getMessage() for r in caplog.records)
+        assert any("registered a 'ifc_model_picker' card" in r.getMessage() for r in caplog.records)
 
 
 class TestEmitCardPlacementMarker:
@@ -269,7 +269,7 @@ class TestEmitCardPlacementMarker:
     async def test_first_card_is_card_one(self):
         reg = get_or_create_card_registry("conv-marker-1")
         reg.clear()
-        msg = await self._emit_real(reg, {"type": "summary", "title": "Treppe"})
+        msg = await self._emit_real(reg, {"type": "ifc_model_picker", "title": "Treppe"})
         assert "[[card:1]]" in msg
         # The agent has to be told what to DO with it, not just handed it.
         assert "line of its own" in msg
@@ -278,8 +278,8 @@ class TestEmitCardPlacementMarker:
     async def test_marker_counts_with_the_registry(self):
         reg = get_or_create_card_registry("conv-marker-2")
         reg.clear()
-        first = await self._emit_real(reg, {"type": "summary", "title": "Eins"})
-        second = await self._emit_real(reg, {"type": "summary", "title": "Zwei"})
+        first = await self._emit_real(reg, {"type": "ifc_model_picker", "title": "Eins"})
+        second = await self._emit_real(reg, {"type": "ifc_model_picker", "title": "Zwei"})
         assert "[[card:1]]" in first
         assert "[[card:2]]" in second
         # The number IS the position in the array the frontend receives; the two
@@ -290,10 +290,10 @@ class TestEmitCardPlacementMarker:
     async def test_a_rejected_card_does_not_consume_a_number(self):
         reg = get_or_create_card_registry("conv-marker-3")
         reg.clear()
-        await self._emit_real(reg, {"type": "summary", "title": "Eins"})
-        rejected = await self._emit_real(reg, {"type": "summary"})
+        await self._emit_real(reg, {"type": "ifc_model_picker", "title": "Eins"})
+        rejected = await self._emit_real(reg, {"type": "ifc_model_picker"})
         assert rejected.startswith("Error")
-        assert "[[card:2]]" in await self._emit_real(reg, {"type": "summary", "title": "Zwei"})
+        assert "[[card:2]]" in await self._emit_real(reg, {"type": "ifc_model_picker", "title": "Zwei"})
 
     def test_doctrine_tells_the_agent_where_to_put_the_marker(self):
         from aiq_agent.cards.register import _CARD_DOCTRINE

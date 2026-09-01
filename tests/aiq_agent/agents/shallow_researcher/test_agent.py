@@ -504,13 +504,17 @@ class TestShallowResearcherAgent:
         # Memory must never be laundered into a legal citation.
         assert "never a source for a legal requirement" in rendered
 
-    def test_research_turn_prompt_keeps_marker_mandate(self, mock_llm_provider, real_tool):
-        """requires_sources=True keeps the marker mandate and omits the suppression note."""
+    def test_research_turn_prompt_keeps_the_envelope_mandate(self, mock_llm_provider, real_tool):
+        """requires_sources=True keeps the envelope contract and omits the suppression note."""
         rendered = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=True)
 
-        assert "<insufficient_answer_marker>" in rendered
-        assert "<confidence_marker>" in rendered
-        assert "End every research answer with exactly ONE confidence marker" in rendered
+        assert "<answer_envelope>" in rendered
+        assert "<control_signals>" in rendered
+        assert "Every reply carries `confidence`" in rendered
+        # The schema the validator enforces is the one the model is taught —
+        # injected by the renderer, never an empty block.
+        assert "answer*: string" in rendered
+        assert "escalate_to_deep" in rendered
         assert "classified as conversational / meta" not in rendered
 
     def test_the_confidence_marker_does_not_depend_on_having_sources(self, mock_llm_provider, real_tool):
@@ -537,14 +541,12 @@ class TestShallowResearcherAgent:
         """
         rendered = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=True)
 
-        # The output contract's step 3 is explicitly independent of steps 1-2.
-        assert "This line does not depend on steps 1 and 2" in rendered
         # Grounding is evidence, not sources alone — a measurement counts.
         assert "the sources you retrieved AND the measurements you took" in rendered
-        assert "or in a measurement you made this turn" in rendered
+        assert "a measurement made this turn" in rendered
         # And WHY it matters, which is what the model was never told.
-        assert "An answer that cites nothing still carries the marker." in rendered
-        assert "with no marker there is no chip" in rendered
+        assert "An answer that cites nothing still carries it" in rendered
+        assert "there is no confidence chip" in rendered
 
     @pytest.mark.asyncio
     async def test_tool_iterations_incremented_on_tool_calls(self, mock_llm_provider, mock_llm, real_tool):

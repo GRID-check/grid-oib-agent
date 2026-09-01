@@ -31,7 +31,7 @@
     "metadata": {
       "grid-title": "Piloti-Stimme",
       "grid-hidden": "true",
-      "grid-cards": "summary,calculation"
+      "grid-cards": "legal_basis,calculation"
     },
     "origin": "platform",
     "standard": true

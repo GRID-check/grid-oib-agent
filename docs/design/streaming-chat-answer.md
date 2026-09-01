@@ -37,7 +37,7 @@ streaming text that gets superseded.
 rendering improvement, **not** a time-to-first-token reduction — the first delta
 is emitted only after the answer is generated, verified, and sanitized.
 
-**And the deltas carry no pace** — see [The reveal is client-side](#the-reveal-is-client-side).
+**And the deltas carry no pace** — see [There is no typewriter](#there-is-no-typewriter).
 
 ## Wire contract
 
@@ -87,37 +87,26 @@ the terminal (`finish_reason="stop"`) content is authoritative; extras are
 copied from the terminal. Deltas are ignored when a terminal is present, so the
 folded content is never doubled.
 
-## The reveal is client-side
+## There is no typewriter
 
 The delta sequence is a SHAPE, not a pace. `_response_to_chunks` cuts a finished
 answer into ~24-character pieces (`_iter_answer_deltas`) and yields them as fast
 as the socket takes them, so they reach `appendAgentResponseDelta` one or two
-animation frames apart: the reader gets a paragraph appearing whole, then
-another, with a caret blinking at the end of an answer that was never being
-written. The wire contract above is unchanged by this — it was never what made
-the answer look written.
+animation frames apart: the answer paints essentially at once, and `isStreaming`
+is a state the turn passes through in a frame or two.
 
-Pacing it on the backend was the other option and it is the worse one: an
-`asyncio.sleep` between chunks holds a worker for the length of the answer, and
-the network re-clumps whatever the sleep spaced out. The text is already in the
-browser by then; only the REVEAL needs a clock, and the browser owns one.
+A client-side typewriter (`use-typed-reveal.ts`) used to pace a character-level
+reveal over that window. It was removed deliberately: the text is finished and
+verified before the first delta leaves the agent, and animating it as if it
+were being written cost real render work (each reveal frame re-parsed the
+answer as markdown) to simulate a latency the system does not have. The full
+text now renders as soon as it arrives; `AgentResponse` treats `isStreaming`
+alone as "still arriving", and nothing that acts on a whole answer (the copy
+actions, the cards no `[[card:N]]` marker claimed) is offered over half of one.
 
-So `features/chat/hooks/use-typed-reveal.ts` holds it, at the render boundary
-and not in the store — the store stays the authoritative full text, which is
-what persistence, export and the copy actions read. `AgentResponse` renders the
-revealed prefix and treats `isStreaming || isTyping` as "still arriving": the
-caret trails the text, the footer stays reserved at its height, and nothing that
-acts on a whole answer (the copy actions, the cards no `[[card:N]]` marker
-claimed) is offered over half of one.
-
-What it will not do: type out an answer that mounted complete (a thread scrolled
-back to), type anything that is not a pure extension of what is on screen (the
-terminal frame replacing the accumulation, a session swap), or run at all under
-`prefers-reduced-motion`. The rate is a deadline rather than a speed — whatever
-is waiting, drained over at most two seconds and never below 220 characters a
-second — so a short answer and a long report finish in about the same time, and
-the effect never becomes a wait. Reveals are capped at ~30/s because each one
-re-parses the answer as markdown.
+Pacing on the backend remains the wrong option for the same reasons it always
+was: an `asyncio.sleep` between chunks holds a worker for the length of the
+answer, and the network re-clumps whatever the sleep spaced out.
 
 ## Tests
 
@@ -128,9 +117,6 @@ re-parses the answer as markdown.
 - Handler: delta frames are IN_PROGRESS and not persisted; terminal frame is the
   finalizing, persist-eligible frame with cards/sources.
 - Frontend: deltas accumulate into one bubble; terminal replaces + attaches
-  cards; single-frame backend still renders one bubble.
-- Reveal (`use-typed-reveal.spec.ts`, driven by a hand-cranked frame clock): an
-  answer that mounted complete is not typed; text arriving after mount lags and
-  catches up; a 6,000-character report finishes in the same budget as a
-  600-character answer; a replacement snaps; a surrogate pair is never cut in
-  half; pacing off shows everything at once.
+  cards; single-frame backend still renders one bubble; the whole-answer
+  affordances (copy, unclaimed cards) wait for `isStreaming` to clear
+  (`AgentResponse.spec.tsx`, "a streaming answer").

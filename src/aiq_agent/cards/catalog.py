@@ -36,7 +36,7 @@ from pydantic_core import PydanticUndefined
 #     must not be able to fabricate it (`memory_proposal` from `remember`,
 #     `document_grid` from `surface_documents`).
 #   * RETIRED — the content moved off the card path entirely and the card only
-#     survives so that stored ones keep rendering. `follow_ups` is the first:
+#     survives so that stored ones keep rendering. `follow_ups` was the first:
 #     the post-answer `follow_ups` STAGE now computes the questions after the
 #     answer is written, gated by deterministic Python rather than by the
 #     model's opinion of its own answer, and delivers them as a
@@ -50,6 +50,28 @@ from pydantic_core import PydanticUndefined
 # (`shared/cards/schemas.ts`) reject every stored `follow_ups` card, so every
 # historical thread would lose its chips and log a warning per card.
 SYSTEM_CARD_TYPES = frozenset({"memory_proposal", "document_grid", "follow_ups"})
+
+# Card types that stopped being cards — the RHETORICAL shapes, the ones almost
+# every answer could carry. A verdict, the takeaways and the single callout are
+# the answer's own anatomy, not exhibits attached beside it, so they left the
+# card system entirely: the shallow answer envelope (```answer_json) carries them as
+# optional fields, validated and gated platform-side
+# (`agents/shallow_researcher/answer_meta.py` — a verdict must be a short
+# VALUE, a takeaway block is earned by length, one callout at most), and they
+# travel on the answer itself, beside ``answer_confidence``, never in the
+# ``cards`` array. `summary` has no trailer field — its role is covered by the
+# lede and the takeaways — and is simply retired.
+#
+# NO generator produces these as cards any more: `emit_card`, the DSML salvage,
+# `describe_card`, a skill's `grid-cards` preference AND the post-hoc batch
+# pass all withhold or refuse them, exactly like SYSTEM_CARD_TYPES. They remain
+# union members only so every card stored on a historical thread keeps parsing
+# and rendering. A separate constant from SYSTEM_CARD_TYPES because the REASON
+# differs and the refusal message must too: a system card has a sanctioned
+# tool that emits it, an envelope shape has a trailer field that replaced it —
+# and the model that correctly recognised "this answer has a verdict" is
+# redirected there rather than merely refused.
+ENVELOPE_CARD_TYPES = frozenset({"summary", "verdict_header", "key_takeaways", "callout"})
 
 # Card types that ASK THE USER TO DECIDE something and act on the answer. They
 # are a different kind of object from the rest of the catalog: a presentational
@@ -162,7 +184,6 @@ The trigger, then the card:
   a chain of norms, one binding, the rest interpreting -> norm_chain
   three or more pass/fail criteria         -> requirement_checklist
   two or more options weighed against each other -> comparison_table
-  the answer's single headline number or ruling, at the top -> verdict_header
   an answer turning on ONE factor whose cases exclude each other, at most one of them the reader's -> condition_tree
   rows that are all true at once (parts of one building, not cases of one project) -> typed_table
   a tabular answer no purpose-built card covers -> typed_table
@@ -173,9 +194,17 @@ The trigger, then the card:
   a path that forks and REJOINS, several Stellen exchanging in order, a Nachweis others depend on -> diagram
   „welche Unterlagen brauche ich" — the list is STATES, not names -> document_checklist
   several Fristen in sequence — the order and what starts each clock is the answer -> deadline_timeline
-  „was passiert, wenn X sich ändert" — what a move COSTS, not which case applies -> change_impact
-  the two to five points the reader must leave with -> key_takeaways
-  one caveat, deadline or tip that changes what the reader DOES -> callout"""
+  „was passiert, wenn X sich ändert" — what a move COSTS, not which case applies -> change_impact"""
+
+# The redirect for the shapes that stopped being cards (ENVELOPE_CARD_TYPES).
+# Appended by `register.py` to the `emit_card` surface, where a model that
+# recognises "this answer has a verdict" must be pointed at the trailer rather
+# than at a tool call the validator would refuse. The post-hoc surface gets
+# neither triggers nor note: it produces no envelope cards and has no trailer.
+ENVELOPE_NOTE = """\
+A verdict, the key takeaways and the single callout are not cards: they are optional fields of
+the ```answer_json answer envelope, and the platform validates, gates and renders them as part
+of the answer itself in a fixed layout."""
 
 # The picker's trigger, not its shape. The shape stays in the catalog on every surface — the card
 # carries a heading and nothing else, so there is no id to invent (which is why it is not, and must
@@ -814,20 +843,20 @@ def _card_type_of(card_cls: type) -> str:
 
 @functools.lru_cache(maxsize=1)
 def model_facing_card_types() -> frozenset[str]:
-    """Every card ``type`` the model may be ASKED to produce.
+    """Every card ``type`` the ANSWERING model may be ASKED to produce.
 
-    The union minus :data:`SYSTEM_CARD_TYPES` — i.e. exactly the set
-    :func:`render_card_catalog` advertises. It is exposed separately because
-    other surfaces need to answer "may a skill/author name this card?" without
-    parsing the rendered catalog text: the skills substrate validates
-    ``grid-cards`` against it (see :mod:`aiq_agent.skills.models`), and the
-    editor's picker derives the same set from the generated Zod schemas. One
-    definition of "advertisable", so a new card type appears everywhere at once
-    and a system card can never be requested by name.
+    The union minus :data:`SYSTEM_CARD_TYPES` and :data:`ENVELOPE_CARD_TYPES`.
+    It is exposed separately because other surfaces need to answer "may a
+    skill/author name this card?" without parsing the rendered catalog text:
+    the skills substrate validates ``grid-cards`` against it (see
+    :mod:`aiq_agent.skills.models`), and the editor's picker derives the same
+    set from the generated Zod schemas. One definition of "advertisable", so a
+    new card type appears everywhere at once and a system or envelope card can
+    never be requested by name.
     """
     from aiq_agent.cards.models import GridCard
 
-    return frozenset(_card_type_of(c) for c in GridCard.__args__) - SYSTEM_CARD_TYPES
+    return frozenset(_card_type_of(c) for c in GridCard.__args__) - SYSTEM_CARD_TYPES - ENVELOPE_CARD_TYPES
 
 
 def _annotation_str(annotation: object, nested: list[type]) -> str:
@@ -1008,10 +1037,15 @@ def render_card_catalog(*, include_model_backed: bool = True) -> str:
             on — its caller has the ``ifc_query`` rows in context. Post-hoc
             generation turns it off, because it has no tool output to copy ids
             from and would have to invent them.
+
+    The envelope types are withheld unconditionally, like the system types: no
+    surface asks a model for them any more (:data:`ENVELOPE_CARD_TYPES`).
     """
     from aiq_agent.cards.models import GridCard
 
-    withheld = SYSTEM_CARD_TYPES if include_model_backed else SYSTEM_CARD_TYPES | MODEL_BACKED_CARD_TYPES
+    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES
+    if not include_model_backed:
+        withheld |= MODEL_BACKED_CARD_TYPES
 
     nested: list[type] = []
     card_lines: list[str] = []
@@ -1192,7 +1226,10 @@ def render_card_doctrine(*, include_ifc_triggers: bool = True) -> str:
             still writing the answer can make. The picker's SHAPE is not
             withheld anywhere, because it names no file and invents nothing.
     """
-    parts = [_CARD_TRIGGER_TABLE + (_MODEL_PICKER_TRIGGER if include_ifc_triggers else "")]
+    table = _CARD_TRIGGER_TABLE
+    if include_ifc_triggers:
+        table += _MODEL_PICKER_TRIGGER
+    parts = [table]
     if include_ifc_triggers:
         parts.append(_MODEL_PICKER_NOTE)
     parts.extend((_CARD_HONESTY, _CARD_RESTRAINT))
@@ -1212,10 +1249,16 @@ def render_card_index(*, include_model_backed: bool = True) -> str:
     ~23 per new type. The reasoning is already written down one module over, on
     ``_preferred_cards_block``: a card description is worth nothing until the
     card is actually in play.
+
+    The envelope types are withheld unconditionally: this index frames the
+    ``emit_card`` tool, and on that surface the rhetorical shapes travel in the
+    ``answer_meta`` trailer (:data:`ENVELOPE_CARD_TYPES`).
     """
     from aiq_agent.cards.models import GridCard
 
-    withheld = SYSTEM_CARD_TYPES if include_model_backed else SYSTEM_CARD_TYPES | MODEL_BACKED_CARD_TYPES
+    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES
+    if not include_model_backed:
+        withheld |= MODEL_BACKED_CARD_TYPES
 
     lines: list[str] = []
     for card_cls in GridCard.__args__:
@@ -1231,14 +1274,18 @@ def render_card_index(*, include_model_backed: bool = True) -> str:
 def render_card_details(card_types: Iterable[str]) -> str:
     """L2: the exact shape, building blocks and worked example for named types.
 
-    Unknown and system types are skipped rather than raising: this is fed from a
-    model-supplied name and from skill metadata, and a stale name must not take
-    down the turn that mentioned it.
+    Unknown, system and envelope types are skipped rather than raising: this is
+    fed from a model-supplied name and from skill metadata, and a stale name
+    must not take down the turn that mentioned it. Envelope types are skipped
+    because every caller is an answering-agent surface (``describe_card``, a
+    skill's ``grid-cards`` preference) — the post-hoc generator renders
+    :func:`render_card_catalog` instead.
     """
     from aiq_agent.cards.models import GridCard
 
     by_type = {_card_type_of(c): c for c in GridCard.__args__}
-    wanted = [t for t in dict.fromkeys(card_types) if t in by_type and t not in SYSTEM_CARD_TYPES]
+    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES
+    wanted = [t for t in dict.fromkeys(card_types) if t in by_type and t not in withheld]
     if not wanted:
         return ""
 

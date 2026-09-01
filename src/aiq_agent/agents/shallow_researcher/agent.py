@@ -32,6 +32,8 @@ from aiq_agent.common import content_to_text
 from aiq_agent.common import get_source_id_for_tool
 from aiq_agent.common import load_prompt
 from aiq_agent.common import render_prompt_template
+from aiq_agent.common.answer_envelope import extract_answer_envelope
+from aiq_agent.common.answer_envelope import gate_answer_meta
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
@@ -805,6 +807,9 @@ class ShallowResearcherAgent:
                     # Skills catalog + forced-skills block (already collated by
                     # the register layer; None renders no section).
                     skills_block=state.skills_block,
+                    # `answer_envelope_schema` is injected by the renderer
+                    # itself (prompt_utils), so no caller can teach an empty
+                    # schema by forgetting a kwarg.
                 )
                 if os.environ.get("DEBUG_PROMPTS"):
                     logger.debug("Rendered system prompt:\n%s", rendered_system_prompt)
@@ -1165,6 +1170,11 @@ class ShallowResearcherAgent:
         escalation_requested: bool | None = None
         answer_confidence_marker: str | None = None
         answer_confidence_marker_reason: str | None = None
+        # The gated answer_meta payload (verdict / takeaways / callout), or None
+        # when the answer carried no trailer or nothing survived the gates. It
+        # travels as structured state like the confidence marker above — a
+        # native field of the answer, never a card.
+        answer_meta_payload: dict[str, Any] | None = None
         # Transparency summary of any citations dropped by verify_citations this
         # turn. Populated in the verification block below; stays None when the
         # registry was empty or nothing was removed, so the field stays absent.
@@ -1201,10 +1211,28 @@ class ShallowResearcherAgent:
                 # card registry) so the markers below and the citation pipeline
                 # operate on clean prose.
                 content = strip_and_salvage_dsml_tool_calls(content)
+                # The answer envelope comes apart FIRST: a research reply is one
+                # ```answer_json object whose `answer` field is the prose, so
+                # until it is split the two tail-anchored marker detectors below
+                # would be reading JSON instead of the answer's final lines.
+                # Gating waits until the prose is final (post-verification).
+                content, answer_meta = extract_answer_envelope(content)
                 content, escalation_requested = detect_and_strip_escalation_marker(content)
                 content, answer_confidence_marker, answer_confidence_marker_reason = detect_and_strip_confidence_marker(
                     content
                 )
+                # The envelope's CONTROL fields are the canonical carriers; the
+                # bracket markers stay understood as the fallback (and are
+                # stripped above regardless, so neither grammar ever reaches
+                # the reader). Escalation is OR-ed — either channel saying
+                # "insufficient" is the model saying it.
+                if answer_meta is not None:
+                    if answer_meta.escalate_to_deep:
+                        escalation_requested = True
+                    if answer_meta.confidence is not None:
+                        answer_confidence_marker = answer_meta.confidence.level
+                        reason = (answer_meta.confidence.reason or "").strip()
+                        answer_confidence_marker_reason = reason[:300] or None
 
                 # Step 1: verify citations against registry
                 if registry.all_sources():
@@ -1360,6 +1388,17 @@ class ShallowResearcherAgent:
                         for entry_id, number in citation_numbers.items()
                     }
 
+                # The structured trailer, gated now that the text is final.
+                # Skipped on an escalating turn: the shallow answer is about to
+                # be superseded by deep research, and a verdict attached to a
+                # discarded answer would decorate the job-submission stub. The
+                # takeaway gate judges the PROSE, not the sources apparatus.
+                if answer_meta is not None and not escalation_requested:
+                    answer_meta_payload = gate_answer_meta(
+                        answer_meta,
+                        prose_chars=len(_prose_without_references(content)),
+                    )
+
                 # Emit verified/sanitized report so the frontend shows the
                 # cleaned version (overwrites the raw draft auto-emitted
                 # during ainvoke).
@@ -1416,6 +1455,10 @@ class ShallowResearcherAgent:
         validated_result["escalation_requested"] = escalation_requested
         validated_result["answer_confidence_marker"] = answer_confidence_marker
         validated_result["answer_confidence_marker_reason"] = answer_confidence_marker_reason
+        # The answer's structured anatomy (verdict / takeaways / callout), gated
+        # above. None when absent, so the wire field stays off rather than
+        # null-spamming a frame the frontend reads on presence.
+        validated_result["answer_meta"] = answer_meta_payload
         # Wire-ready sources for Belegt-durch chips / PDF open (file/page/collection).
         # Emit ONLY the sources the model cited in THIS turn's answer
         # (``relevant_sources``), never the cumulative session registry — a

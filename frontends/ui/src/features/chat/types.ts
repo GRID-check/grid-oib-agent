@@ -8,6 +8,7 @@ import type { GridCard } from '@/shared/cards/schemas'
 import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
+import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
 import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { StageFrame } from './stores/messages-store'
 import type { SourceSignal } from '@/features/layout/lib/source-presets'
@@ -160,6 +161,12 @@ export interface AnswerTransparency {
   skillsActivated?: string[]
   /** The grid-hidden subset of skillsActivated — muted in the disclosure, never dropped. */
   skillsHidden?: string[]
+  /**
+   * The answer's structured anatomy (verdict / takeaways / callout) — native
+   * answer fields, gated backend-side and sanitized at the wire boundary,
+   * rendered in a fixed layout by AgentResponse. Never cards.
+   */
+  answerMeta?: AnswerMeta
 }
 
 /** File card data for file messages */
@@ -441,6 +448,13 @@ export interface ChatMessage {
   skillsActivated?: string[]
   /** The grid-hidden subset of skillsActivated — muted in the disclosure, never dropped. */
   skillsHidden?: string[]
+  /**
+   * The answer's structured anatomy (verdict / takeaways / callout) — native
+   * answer fields of this message, gated backend-side and sanitized on every
+   * write and read (`lib/conversations/message-answer-meta.ts`). Rendered in a
+   * fixed layout: verdict above the prose, callout and takeaways after it.
+   */
+  answerMeta?: AnswerMeta
   /**
    * The WS turn id (`parent_id`) this answer belongs to
    * (`docs/architecture/post-answer-stages.md` §1.6, §4.1).

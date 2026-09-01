@@ -2568,16 +2568,24 @@ def validate_cards(raw: list[dict]) -> list[dict]:
     ``remember``). The model is never told these types exist, so any occurrence
     here is a fabrication — enforce the same invariant ``emit_card`` and the
     DSML salvage already enforce, closing the last emission path.
+
+    Envelope types (``ENVELOPE_CARD_TYPES``) are dropped for the same closing
+    reason: no surface asks a model for them any more — they are answer_meta
+    fields on the shallow contract, and nothing at all on this one — so an
+    occurrence here is a model reaching for a shape its catalog no longer
+    offers.
     """
     import logging
 
+    from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
     from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 
     logger = logging.getLogger(__name__)
     validated: list[dict] = []
+    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES
     for item in raw:
-        if isinstance(item, dict) and item.get("type") in SYSTEM_CARD_TYPES:
-            logger.warning("Dropping model-fabricated system card (type=%s)", item.get("type"))
+        if isinstance(item, dict) and item.get("type") in withheld:
+            logger.warning("Dropping model-fabricated system/envelope card (type=%s)", item.get("type"))
             continue
         try:
             validated.append(grid_card_adapter.validate_python(item).model_dump(exclude_none=True))

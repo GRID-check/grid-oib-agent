@@ -203,16 +203,19 @@ Which means the property has to survive the wire, and it does, in two places:
   run that never agreed to it. `_build_org_skills` reads it off the payload
   (`resolver.py`); nothing else in the backend sets it, and no `SKILL.md` can.
 
-The first standard skill is `piloti-voice`, seeded by
-`0053_piloti_voice_standard_skill.sql`. It is a `platform_skills` row rather
-than a builtin file because a voice is edited far more often than the pipeline
-machinery those files hold, and every edit there is a code review and a deploy.
-It is delivered as a forced skill rather than inlined in the system prompt for
-the same reason skills exist at all: inlined, it would sit in context from the
-first token, shaping tool selection and retrieval judgements it has nothing to do
-with. Forced, its body arrives when the model reaches the instruction that calls
-for it — which for a writing skill is when it starts writing, and the forced
-block's doctrine says so in as many words.
+The first standard skills were `piloti-voice` (seeded by
+`0053_piloti_voice_standard_skill.sql`) and `piloti-cards` — and both are
+**retired** (`0071_retire_piloti_house_skills.sql`): their craft moved into the
+researcher's system prompt (`<stimme>` and `<cards>` in `researcher.j2`) and
+the deep writer's prompt. The trade the delivery tier made for them did not
+hold: a forced skill contributes only its NAME to the prompt, the body travels
+through exactly one path — the `use_skill` closure — and a model that never
+calls it never reads a word, so the house voice was absent from exactly the
+answers that skipped the call, while every turn that did call paid two reserved
+tool iterations and ~7,800 tokens of body. The MECHANISM stays: `delivery:
+'standard'` still forces whatever the platform owner publishes next, and the
+chain is pinned end to end by
+`tests/.../test_standard_skills_reach_the_model.py` over synthetic rows.
 
 Two more need their reasoning stated rather than just their location.
 
@@ -625,7 +628,9 @@ adds the link from a conversation back to the job that produced it, and
 `0050_platform_skill_delivery.sql` adds its `delivery` column and
 `0053_piloti_voice_standard_skill.sql` seeds the first `delivery: standard` row
 (a seed, not a source of truth: `ON CONFLICT DO NOTHING`, so re-running
-migrations cannot revert what the platform owner has since written). Each
+migrations cannot revert what the platform owner has since written) and
+`0071_retire_piloti_house_skills.sql` deletes the two house rows again — guarded
+on the md5 of the body each chain last wrote, so an owner-edited row survives. Each
 tenant table joins the tenant boundary with a `grid_secure_table()` line (ADR-0041) —
 re-emitted by 0043 under the new names, because a rename carries the policy
 along but leaves its stored predicate written against the old table name.

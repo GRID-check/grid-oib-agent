@@ -498,6 +498,13 @@
       "when": 1788480000005,
       "tag": "0070_lesson_effectiveness",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1788480000006,
+      "tag": "0071_retire_piloti_house_skills",
+      "breakpoints": true
     }
   ]
 }

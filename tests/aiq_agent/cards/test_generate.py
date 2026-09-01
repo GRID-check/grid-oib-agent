@@ -12,16 +12,14 @@ from langchain_core.messages import AIMessage
 from aiq_agent.cards.generate import _parse_cards_text
 from aiq_agent.cards.generate import generate_cards
 
-_ONE_CARD_OBJECT = '{"cards": [{"type": "summary", "title": "Überblick", "content": "Kurzfassung."}]}'
+_ONE_CARD_OBJECT = '{"cards": [{"type": "ifc_model_picker", "title": "Überblick"}]}'
 
 
 class TestParseCardsText:
     """The tolerant parser must survive the failure modes a strict json.loads can't."""
 
     def test_object_wrapper(self):
-        assert _parse_cards_text(_ONE_CARD_OBJECT) == [
-            {"type": "summary", "title": "Überblick", "content": "Kurzfassung."}
-        ]
+        assert _parse_cards_text(_ONE_CARD_OBJECT) == [{"type": "ifc_model_picker", "title": "Überblick"}]
 
     def test_bare_array(self):
         assert _parse_cards_text('[{"type": "summary", "title": "T"}]') == [{"type": "summary", "title": "T"}]
@@ -36,7 +34,7 @@ class TestParseCardsText:
         """The reported failure mode: a whole-string json.loads throws on any
         prose around the JSON and loses every card. The salvage path recovers it."""
         text = "Here are the cards you asked for:\n" + _ONE_CARD_OBJECT + "\nHope that helps!"
-        assert _parse_cards_text(text) == [{"type": "summary", "title": "Überblick", "content": "Kurzfassung."}]
+        assert _parse_cards_text(text) == [{"type": "ifc_model_picker", "title": "Überblick"}]
 
     def test_unparseable_returns_none(self):
         assert _parse_cards_text("no json here at all") is None
@@ -81,7 +79,7 @@ class TestGenerateCards:
 
         cards = await generate_cards(llm, "Was ist GK4?", "Ein Gebäude der Klasse 4.")
 
-        assert cards == [{"type": "summary", "title": "Überblick", "content": "Kurzfassung."}]
+        assert cards == [{"type": "ifc_model_picker", "title": "Überblick"}]
         assert len(_BindSpyChatModel.bind_kwargs) == 1
         # json_object mode: widely honored, guarantees valid JSON; shape is taught
         # by the prompt's worked examples, not a (near-unenforced) json_schema body.
@@ -93,7 +91,7 @@ class TestGenerateCards:
 
         cards = await generate_cards(llm, "Was ist GK4?", "Ein Gebäude der Klasse 4.")
 
-        assert cards == [{"type": "summary", "title": "Überblick", "content": "Kurzfassung."}]
+        assert cards == [{"type": "ifc_model_picker", "title": "Überblick"}]
 
     @pytest.mark.asyncio
     async def test_prose_wrapped_response_still_yields_cards(self):
@@ -106,13 +104,13 @@ class TestGenerateCards:
 
         cards = await generate_cards(llm, "Was ist GK4?", "Ein Gebäude der Klasse 4.")
 
-        assert cards == [{"type": "summary", "title": "Überblick", "content": "Kurzfassung."}]
+        assert cards == [{"type": "ifc_model_picker", "title": "Überblick"}]
 
     @pytest.mark.asyncio
     async def test_invalid_cards_dropped_but_valid_kept(self):
         payload = (
             '{"cards": ['
-            '{"type": "summary", "title": "Gut"},'
+            '{"type": "ifc_model_picker", "title": "Gut"},'
             '{"type": "summary"}'  # missing required title → dropped by validate_cards
             "]}"
         )
@@ -121,7 +119,7 @@ class TestGenerateCards:
 
         cards = await generate_cards(llm, "q", "ctx")
 
-        assert cards == [{"type": "summary", "title": "Gut"}]
+        assert cards == [{"type": "ifc_model_picker", "title": "Gut"}]
 
     @pytest.mark.asyncio
     async def test_llm_exception_returns_none(self):
