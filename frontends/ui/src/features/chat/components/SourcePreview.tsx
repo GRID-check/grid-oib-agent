@@ -615,7 +615,9 @@ const LocusRail: FC<{
                   )}
                   <span className="flex-1" />
                   <span className="shrink-0 text-xs font-medium tabular-nums">
-                    {t('answerSources.page', { page: locus.page! })}
+                    {locus.punkt
+                      ? t('answerSources.punktPage', { punkt: locus.punkt, page: locus.page! })
+                      : t('answerSources.page', { page: locus.page! })}
                   </span>
                 </span>
                 {locus.snippet && (

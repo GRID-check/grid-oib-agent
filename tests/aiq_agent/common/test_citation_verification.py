@@ -3142,3 +3142,75 @@ class TestQuoteWordElision:
             'mehr als zwei oberirdische Geschosse hat" [1].\n\n## Sources\n[1] rl2.pdf, p.4'
         )
         assert len(verify_quoted_spans(answer, self._registry())) == 1
+
+
+class TestPunktAndScoreReachTheWire:
+    """The chunker's Punkt and the retrieval score were printed for the model and
+    dropped before the citation the reader sees. Both now ride the entry, fold
+    sensibly under page dedup, and reach the wire."""
+
+    BLOCK = (
+        "--- Result 1 ---\n"
+        "Source: OIB-RL 2 Brandschutz\n"
+        "Collection: oib_knowledge\n"
+        "Shelf: base\n"
+        "Dokumentart: oib_richtlinie\n"
+        "Page: 7\n"
+        "Punkt: 3.5.2\n"
+        "Citation: oib_rl2.pdf, p.7\n"
+        "Content Type: text\n"
+        "Relevance Score: 0.87\n"
+        "\n"
+        "Tragende Bauteile muessen nicht brennbar sein.\n"
+    )
+
+    def test_punkt_and_score_are_parsed_from_a_knowledge_block(self):
+        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+
+        entries = extract_sources_from_tool_result("knowledge_search", self.BLOCK)
+        assert len(entries) == 1
+        assert entries[0].punkt == "3.5.2"
+        assert entries[0].score == 0.87
+
+    def test_a_block_without_a_punkt_line_carries_none(self):
+        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+
+        block = self.BLOCK.replace("Punkt: 3.5.2\n", "")
+        entries = extract_sources_from_tool_result("knowledge_search", block)
+        assert entries[0].punkt is None
+        assert entries[0].score == 0.87
+
+    def test_page_dedup_keeps_the_first_punkt_and_the_best_score(self):
+        from aiq_agent.common.citation_verification import SourceEntry
+
+        registry = SourceRegistry()
+        registry.add(
+            SourceEntry(citation_key="oib_rl2.pdf, p.7", source_type="knowledge_layer", chunk_text="a", score=0.61)
+        )
+        registry.add(
+            SourceEntry(
+                citation_key="oib_rl2.pdf, p.7",
+                source_type="knowledge_layer",
+                chunk_text="b",
+                punkt="3.5.2",
+                score=0.87,
+            )
+        )
+        entries = registry.all_sources()
+        assert len(entries) == 1
+        assert entries[0].punkt == "3.5.2"
+        assert entries[0].score == 0.87
+
+    def test_the_wire_carries_both_and_omits_them_when_absent(self):
+        from aiq_agent.common.citation_verification import SourceEntry
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        with_punkt = SourceEntry(
+            citation_key="oib_rl2.pdf, p.7", source_type="knowledge_layer", punkt="3.5.2", score=0.87
+        )
+        wire = source_entry_to_wire(with_punkt)
+        assert wire["punkt"] == "3.5.2"
+        assert wire["score"] == 0.87
+        bare = SourceEntry(url="https://example.at/x", source_type="web")
+        assert "punkt" not in source_entry_to_wire(bare)
+        assert "score" not in source_entry_to_wire(bare)

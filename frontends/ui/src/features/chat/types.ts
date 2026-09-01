@@ -630,6 +630,10 @@ export interface CitationSource {
   fileName?: string
   /** 1-based page from structured wire. */
   page?: number
+  /** The Punkt within the document ("3.5.2"), the citation form building law uses. */
+  punkt?: string
+  /** Retrieval score (cosine similarity) for this passage, when the wire carried one. */
+  score?: number
   /**
    * Coarse source kind (baurecht | buero | projekt | web) — the canonical
    * taxonomy that drives the chip color family (ADR-0026). Absent on older
@@ -688,6 +692,10 @@ export interface WireCitationSource {
   document_id?: string | null
   file_name?: string | null
   page?: number | null
+  /** The Punkt this passage belongs to ("3.5.2"), when the chunker established one. */
+  punkt?: string | null
+  /** Retrieval score (cosine similarity) the knowledge layer printed for this passage. */
+  score?: number | null
   kind?: string | null
   /** Shelf the chunk came from: `archiv | project | session | base` (ADR-0047). */
   shelf?: string | null
