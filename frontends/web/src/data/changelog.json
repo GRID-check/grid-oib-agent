@@ -42,12 +42,32 @@
           "key": "features",
           "notes": [
             {
+              "en": "Piloti kann Pläne jetzt tatsächlich ansehen. Bisher las der Agent nur die beim Einlesen erzeugten Beschreibungen einer Zeichnung, nie die Zeichnung selbst — das Werkzeug dafür war gebaut, aber mit keinem Agenten verbunden. Bei Fragen, bei denen es darauf ankommt, was auf einem Grundriss oder Schnitt zu sehen ist, öffnet Piloti die Seite jetzt als Bild.",
+              "de": "Piloti kann Pläne jetzt tatsächlich ansehen. Bisher las der Agent nur die beim Einlesen erzeugten Beschreibungen einer Zeichnung, nie die Zeichnung selbst — das Werkzeug dafür war gebaut, aber mit keinem Agenten verbunden. Bei Fragen, bei denen es darauf ankommt, was auf einem Grundriss oder Schnitt zu sehen ist, öffnet Piloti die Seite jetzt als Bild."
+            },
+            {
               "en": "Antworten bringen ihre Kernelemente strukturiert mit: das Urteil steht als kopierbarer Wert groß über der Antwort, die wichtigsten Punkte als Kernaussagen darunter, und höchstens ein Hinweis hebt hervor, was Ihr nächstes Tun ändert. Jedes Element wird geprüft, bevor es erscheint — ein Urteil ist ein Wert, nie ein Absatz.",
               "de": "Antworten bringen ihre Kernelemente strukturiert mit: das Urteil steht als kopierbarer Wert groß über der Antwort, die wichtigsten Punkte als Kernaussagen darunter, und höchstens ein Hinweis hebt hervor, was Ihr nächstes Tun ändert. Jedes Element wird geprüft, bevor es erscheint — ein Urteil ist ein Wert, nie ein Absatz."
             },
             {
+              "en": "Dateien lassen sich jetzt per Drag & Drop in einen Ordner ziehen — auf eine Ordnerkachel, eine Ordnerzeile oder auf „Alle Dateien\" in der Pfadleiste, um sie wieder herauszuholen. Der Zielordner hebt sich hervor, solange Sie darüber sind. „Verschieben\" im Menü der Datei tut weiterhin dasselbe.",
+              "de": "Dateien lassen sich jetzt per Drag & Drop in einen Ordner ziehen — auf eine Ordnerkachel, eine Ordnerzeile oder auf „Alle Dateien\" in der Pfadleiste, um sie wieder herauszuholen. Der Zielordner hebt sich hervor, solange Sie darüber sind. „Verschieben\" im Menü der Datei tut weiterhin dasselbe."
+            },
+            {
+              "en": "Ganze Ordner lassen sich jetzt hochladen — über „Ordner hochladen\" oder indem Sie den Ordner auf die Dateiablage ziehen. Ein gezogener Ordner hat bisher gar nichts bewirkt. Alle Ebenen darunter werden übernommen; was Piloti nicht lesen kann, wird einzeln abgelehnt statt des ganzen Ordners.",
+              "de": "Ganze Ordner lassen sich jetzt hochladen — über „Ordner hochladen\" oder indem Sie den Ordner auf die Dateiablage ziehen. Ein gezogener Ordner hat bisher gar nichts bewirkt. Alle Ebenen darunter werden übernommen; was Piloti nicht lesen kann, wird einzeln abgelehnt statt des ganzen Ordners."
+            },
+            {
+              "en": "Wo eine Datei vorher lag, steht jetzt als „Herkunft\" in der Detailansicht und lässt sich mit einem Klick kopieren. So können Sie am Original auf dem Büroserver weiterarbeiten, statt eine Kopie herunterzuladen.",
+              "de": "Wo eine Datei vorher lag, steht jetzt als „Herkunft\" in der Detailansicht und lässt sich mit einem Klick kopieren. So können Sie am Original auf dem Büroserver weiterarbeiten, statt eine Kopie herunterzuladen."
+            },
+            {
               "en": "Praktisch jede Antwort beginnt jetzt mit einer Zusammenfassung: ein bis zwei Sätze, die das Ergebnis samt entscheidender Einschränkung vorwegnehmen — als Vorspann im Antwortkopf, direkt unter dem Urteil, wenn eines vorliegt.",
               "de": "Praktisch jede Antwort beginnt jetzt mit einer Zusammenfassung: ein bis zwei Sätze, die das Ergebnis samt entscheidender Einschränkung vorwegnehmen — als Vorspann im Antwortkopf, direkt unter dem Urteil, wenn eines vorliegt."
+            },
+            {
+              "en": "Text-, Markdown- und CSV-Dateien lassen sich jetzt direkt in Piloti lesen. Bisher zeigten genau diese Formate dieselbe graue Platzhalterseite wie ein Dateityp, den wir gar nicht öffnen können. Eine Markdown-Checkliste erscheint jetzt als Checkliste, eine CSV-Datei als Tabelle — auch semikolongetrennte Exporte aus einem deutschen Excel.",
+              "de": "Text-, Markdown- und CSV-Dateien lassen sich jetzt direkt in Piloti lesen. Bisher zeigten genau diese Formate dieselbe graue Platzhalterseite wie ein Dateityp, den wir gar nicht öffnen können. Eine Markdown-Checkliste erscheint jetzt als Checkliste, eine CSV-Datei als Tabelle — auch semikolongetrennte Exporte aus einem deutschen Excel."
             }
           ]
         },
@@ -63,6 +83,18 @@
               "de": "Fertige Antworten erscheinen sofort als Ganzes. Der Schreibmaschineneffekt, der eine bereits fertige Antwort Zeichen für Zeichen eingeblendet hat, ist entfernt."
             },
             {
+              "en": "Die Karten im Chat sind ruhiger und besser lesbar. Vergleichs- und Datentabellen standen durchgehend in der kleinsten Schriftgröße, die Piloti kennt; sie stehen jetzt in der normalen Textgröße für Listenzeilen. Spaltenköpfe heben sich durch den Schriftschnitt ab, nicht durch eine weitere Größe.",
+              "de": "Die Karten im Chat sind ruhiger und besser lesbar. Vergleichs- und Datentabellen standen durchgehend in der kleinsten Schriftgröße, die Piloti kennt; sie stehen jetzt in der normalen Textgröße für Listenzeilen. Spaltenköpfe heben sich durch den Schriftschnitt ab, nicht durch eine weitere Größe."
+            },
+            {
+              "en": "Das Eingabefeld im Chat ist wieder ruhig: Der grüne Rahmen beim Tippen und der grüne Senden-Button sind zurück in Grau und Schwarz. Grün steht in Piloti sonst für die Herkunft einer Quelle, und zwei Grüntöne direkt übereinander waren nicht auseinanderzuhalten. Dass eine Nachricht abgeschickt werden kann, zeigt der Button weiterhin — durch den Kontrast, nicht durch Farbe.",
+              "de": "Das Eingabefeld im Chat ist wieder ruhig: Der grüne Rahmen beim Tippen und der grüne Senden-Button sind zurück in Grau und Schwarz. Grün steht in Piloti sonst für die Herkunft einer Quelle, und zwei Grüntöne direkt übereinander waren nicht auseinanderzuhalten. Dass eine Nachricht abgeschickt werden kann, zeigt der Button weiterhin — durch den Kontrast, nicht durch Farbe."
+            },
+            {
+              "en": "Wenn zwei Quellen einander widersprechen, zeigt Piloti den Unterschied jetzt ausdrücklich an, nennt beide mit Fundstelle und sagt, welche Regel den Vorrang entscheidet — oder dass sich der Widerspruch aus den Quellen nicht auflösen lässt. Bisher wurde stillschweigend eine Variante gewählt.",
+              "de": "Wenn zwei Quellen einander widersprechen, zeigt Piloti den Unterschied jetzt ausdrücklich an, nennt beide mit Fundstelle und sagt, welche Regel den Vorrang entscheidet — oder dass sich der Widerspruch aus den Quellen nicht auflösen lässt. Bisher wurde stillschweigend eine Variante gewählt."
+            },
+            {
               "en": "Antworten lesen sich jetzt wie ein Dokument aus einem Guss: das Urteil steht als Kopfzeile direkt über dem Text, die Kernaussagen schließen ihn ab, und Karten sitzen auf einem ruhigen Grund statt in umrandeten Kästen — alles Teil der Antwort, nichts wirkt aufgesetzt.",
               "de": "Antworten lesen sich jetzt wie ein Dokument aus einem Guss: das Urteil steht als Kopfzeile direkt über dem Text, die Kernaussagen schließen ihn ab, und Karten sitzen auf einem ruhigen Grund statt in umrandeten Kästen — alles Teil der Antwort, nichts wirkt aufgesetzt."
             },
@@ -76,17 +108,68 @@
           "key": "fixes",
           "notes": [
             {
-              "en": "Asking about a project file from a shared link no longer fails when the link carried the file's name instead of its identity. The chat used to try to load that name as if it were the file, and the page could not show its status. It now only looks the file up when the link actually names one.",
-              "de": "Asking about a project file from a shared link no longer fails when the link carried the file's name instead of its identity. The chat used to try to load that name as if it were the file, and the page could not show its status. It now only looks the file up when the link actually names one."
-            }
-          ]
-        },
-        {
-          "key": "fixes",
-          "notes": [
+              "en": "Eine Frage zu einer gerade angehängten Datei wurde beantwortet, bevor die Datei gelesen war — die Antwort kam dann aus allem außer dem Dokument, um das es ging. Piloti hält die Frage jetzt kurz zurück und schickt sie ab, sobald die Datei durchsucht werden kann. Im Chat steht, worauf gewartet wird; wer nicht warten will, fragt mit einem Klick sofort.",
+              "de": "Eine Frage zu einer gerade angehängten Datei wurde beantwortet, bevor die Datei gelesen war — die Antwort kam dann aus allem außer dem Dokument, um das es ging. Piloti hält die Frage jetzt kurz zurück und schickt sie ab, sobald die Datei durchsucht werden kann. Im Chat steht, worauf gewartet wird; wer nicht warten will, fragt mit einem Klick sofort."
+            },
+            {
+              "en": "Ist eine Datei noch in Bearbeitung, weiß Piloti das jetzt auch selbst und sagt es in der Antwort, statt eine unvollständige Antwort wie eine vollständige aussehen zu lassen.",
+              "de": "Ist eine Datei noch in Bearbeitung, weiß Piloti das jetzt auch selbst und sagt es in der Antwort, statt eine unvollständige Antwort wie eine vollständige aussehen zu lassen."
+            },
             {
               "en": "Asking about a project file from a shared link no longer fails when the link carried the file's name instead of its identity. The chat used to try to load that name as if it were the file, and the page could not show its status. It now only looks the file up when the link actually names one.",
               "de": "Asking about a project file from a shared link no longer fails when the link carried the file's name instead of its identity. The chat used to try to load that name as if it were the file, and the page could not show its status. It now only looks the file up when the link actually names one."
+            },
+            {
+              "en": "„An dieser Stelle öffnen\" wurde bisher bei jeder Quelle angeboten, auch bei solchen, die Piloti gar nicht anzeigen kann — etwa einem Plan oder einer Word-Datei. Der Klick schloss dann nur das Fenster, sonst geschah nichts. Der Link erscheint jetzt nur noch, wenn sich die Quelle wirklich öffnen lässt; andernfalls steht dort, dass sie sich hier nicht öffnen lässt.",
+              "de": "„An dieser Stelle öffnen\" wurde bisher bei jeder Quelle angeboten, auch bei solchen, die Piloti gar nicht anzeigen kann — etwa einem Plan oder einer Word-Datei. Der Klick schloss dann nur das Fenster, sonst geschah nichts. Der Link erscheint jetzt nur noch, wenn sich die Quelle wirklich öffnen lässt; andernfalls steht dort, dass sie sich hier nicht öffnen lässt."
+            },
+            {
+              "en": "Eine Deep-Research-Anfrage brach ab, wenn intern kurz kein freier Platz für einen Quellenaufruf da war. Die Wartezeit auf unsere eigene Warteschlange galt als „Quelle antwortet nicht\" und beendete den ganzen Lauf — früh im Lauf ohne Zwischenergebnis. Jetzt wird nur dieser eine Aufruf übersprungen, und die Recherche läuft weiter.",
+              "de": "Eine Deep-Research-Anfrage brach ab, wenn intern kurz kein freier Platz für einen Quellenaufruf da war. Die Wartezeit auf unsere eigene Warteschlange galt als „Quelle antwortet nicht\" und beendete den ganzen Lauf — früh im Lauf ohne Zwischenergebnis. Jetzt wird nur dieser eine Aufruf übersprungen, und die Recherche läuft weiter."
+            },
+            {
+              "en": "Eine laufende Recherche, die längere Zeit nichts meldet, wurde von der Verbindung dazwischen für abgestorben gehalten und getrennt — obwohl im Hintergrund alles lief. Die Verbindung wird jetzt regelmäßig wachgehalten.",
+              "de": "Eine laufende Recherche, die längere Zeit nichts meldet, wurde von der Verbindung dazwischen für abgestorben gehalten und getrennt — obwohl im Hintergrund alles lief. Die Verbindung wird jetzt regelmäßig wachgehalten."
+            },
+            {
+              "en": "Wenn ein Filter in der Dateiablage nichts fand, stand dort „Noch keine Dokumente\" — auch in einem Projekt voller Dateien, mit dem Angebot, etwas hochzuladen. Jetzt steht dort, welcher Filter gerade nichts trifft, und daneben der Weg zurück.",
+              "de": "Wenn ein Filter in der Dateiablage nichts fand, stand dort „Noch keine Dokumente\" — auch in einem Projekt voller Dateien, mit dem Angebot, etwas hochzuladen. Jetzt steht dort, welcher Filter gerade nichts trifft, und daneben der Weg zurück."
+            },
+            {
+              "en": "„Von Piloti\" erklärt sich jetzt selbst: Ist der Filter leer, steht dort, welche Dateien das wären — von Piloti abgelegte Rechercheberichte und Diagramme, nicht die von Ihnen hochgeladenen Dokumente.",
+              "de": "„Von Piloti\" erklärt sich jetzt selbst: Ist der Filter leer, steht dort, welche Dateien das wären — von Piloti abgelegte Rechercheberichte und Diagramme, nicht die von Ihnen hochgeladenen Dokumente."
+            },
+            {
+              "en": "Projekt- und Archiv-Uploads waren zusätzlich auf 100 MB pro Vorgang begrenzt — eine echte Einreichung wurde damit komplett abgewiesen, obwohl reichlich Speicher frei war. Dort gilt jetzt nur noch das Speicherkontingent der Organisation.",
+              "de": "Projekt- und Archiv-Uploads waren zusätzlich auf 100 MB pro Vorgang begrenzt — eine echte Einreichung wurde damit komplett abgewiesen, obwohl reichlich Speicher frei war. Dort gilt jetzt nur noch das Speicherkontingent der Organisation."
+            },
+            {
+              "en": "Die Zeile „Ausgeführt\" in der Herleitung wiederholte dasselbe Wort mehrfach — „RIS, RIS, RIS\" oder „OIB-Wissen, OIB-Wissen\". Dahinter standen zwar verschiedene interne Werkzeuge, für die Lesende war es aber dieselbe Art von Arbeit. Jede Art erscheint jetzt einmal.",
+              "de": "Die Zeile „Ausgeführt\" in der Herleitung wiederholte dasselbe Wort mehrfach — „RIS, RIS, RIS\" oder „OIB-Wissen, OIB-Wissen\". Dahinter standen zwar verschiedene interne Werkzeuge, für die Lesende war es aber dieselbe Art von Arbeit. Jede Art erscheint jetzt einmal."
+            },
+            {
+              "en": "Bezog sich eine Frage auf eine bestimmte Datei — ein Plan im Chat, ein Projektdokument in der Vorschau —, wurde das OIB-Wissen aus der Suche genommen. „Erfüllt dieser Grundriss die Fluchtweganforderungen?\" durchsuchte dann den Plan und keine Richtlinie. Das Baurecht bleibt jetzt immer dabei; nur der Chip „Baurecht\" sucht weiterhin ausschließlich dort.",
+              "de": "Bezog sich eine Frage auf eine bestimmte Datei — ein Plan im Chat, ein Projektdokument in der Vorschau —, wurde das OIB-Wissen aus der Suche genommen. „Erfüllt dieser Grundriss die Fluchtweganforderungen?\" durchsuchte dann den Plan und keine Richtlinie. Das Baurecht bleibt jetzt immer dabei; nur der Chip „Baurecht\" sucht weiterhin ausschließlich dort."
+            },
+            {
+              "en": "„@ Kollegin oder Kollegen erwähnen\" blieb wirkungslos, wenn man das @ als Allererstes in einem neuen Chat tippte, noch bevor eine Nachricht abgeschickt war: Die Liste der Personen war dann für diesen Chat dauerhaft leer, bis man die Seite neu lud. Ein erneutes @ fragt die Liste jetzt noch einmal ab.",
+              "de": "„@ Kollegin oder Kollegen erwähnen\" blieb wirkungslos, wenn man das @ als Allererstes in einem neuen Chat tippte, noch bevor eine Nachricht abgeschickt war: Die Liste der Personen war dann für diesen Chat dauerhaft leer, bis man die Seite neu lud. Ein erneutes @ fragt die Liste jetzt noch einmal ab."
+            },
+            {
+              "en": "Wird eine Datei mit demselben Namen erneut hochgeladen — etwa ein korrigierter Plan —, ersetzt sie jetzt die vorhandene, statt eine zweite Kopie anzulegen. Bisher blieb der erste Eintrag in der Liste stehen, ließ sich herunterladen, war aber für Piloti nicht mehr auffindbar, weil seine Textstellen bereits durch die neuen ersetzt worden waren. Der Speicherplatz wurde dabei doppelt berechnet.",
+              "de": "Wird eine Datei mit demselben Namen erneut hochgeladen — etwa ein korrigierter Plan —, ersetzt sie jetzt die vorhandene, statt eine zweite Kopie anzulegen. Bisher blieb der erste Eintrag in der Liste stehen, ließ sich herunterladen, war aber für Piloti nicht mehr auffindbar, weil seine Textstellen bereits durch die neuen ersetzt worden waren. Der Speicherplatz wurde dabei doppelt berechnet."
+            },
+            {
+              "en": "Das Dokument behält seine Identität: Verweise aus Antworten, der Bezug im Chat und die Ablage im Ordner bleiben erhalten.",
+              "de": "Das Dokument behält seine Identität: Verweise aus Antworten, der Bezug im Chat und die Ablage im Ordner bleiben erhalten."
+            },
+            {
+              "en": "Von einer sehr langen Textdatei wird nur der Anfang angezeigt; dass es sich um einen Ausschnitt handelt, steht jetzt unter dem Text. Ohne diesen Hinweis liest sich die letzte sichtbare Zeile wie das Ende des Dokuments.",
+              "de": "Von einer sehr langen Textdatei wird nur der Anfang angezeigt; dass es sich um einen Ausschnitt handelt, steht jetzt unter dem Text. Ohne diesen Hinweis liest sich die letzte sichtbare Zeile wie das Ende des Dokuments."
+            },
+            {
+              "en": "BMP- und TIFF-Bilder meldeten „keine Vorschau verfügbar\", obwohl der Server sie ausgeliefert hätte. Die beiden Listen, die darüber entscheiden, waren auseinandergelaufen.",
+              "de": "BMP- und TIFF-Bilder meldeten „keine Vorschau verfügbar\", obwohl der Server sie ausgeliefert hätte. Die beiden Listen, die darüber entscheiden, waren auseinandergelaufen."
             }
           ]
         }
