@@ -660,7 +660,7 @@ const anatomyQuestion = 'Wie hoch muss das Geländer an der Dachterrasse sein?'
  * that qualifies the masthead's value instead of repeating it — the
  * duplication rule the prompt's earned-when carries.
  */
-const anatomyAnswer = `Für die Dachterrasse gilt die erhöhte Umwehrung, weil die Absturzhöhe über 12 m liegt: gemessen wird von der Oberkante des begehbaren Belags bis zur tiefer liegenden angrenzenden Fläche, hier rund 13,2 m bis zum Gelände [1].
+const anatomyAnswer = `Maßgeblich ist die Absturzhöhe, nicht das Geschoß: gemessen wird von der Oberkante des begehbaren Belags bis zur tiefer liegenden angrenzenden Fläche — hier rund 13,2 m bis zum Gelände, also klar über der 12-m-Grenze [1].
 
 Die Füllung ist getrennt zu beurteilen. Öffnungen dürfen 12 cm nicht überschreiten, und zwischen 20 und 60 cm über dem Belag sind waagrechte Elemente unzulässig, weil sie als Aufstiegshilfe wirken [1].
 
