@@ -1284,18 +1284,21 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               // still signalled by the ring on top of it, never by thickening
               // the outline. Textarea on top, hairline-separated control row
               // below.
-              // The ring is `accent-pop`, not the neutral `ring-ring` every
-              // other focus state in the app uses: this is the app's one
-              // carved-out accent (design doc §"Accent pop"), and typing is
-              // one of the rare moments it should show — a quiet green glow
-              // that says "live" rather than a fact about provenance.
+              // The ring is the neutral `ring-ring`, the same focus state every
+              // other field in the app uses. It was `accent-pop` — a green glow
+              // meant to read as "live" — and the accent was withdrawn: on the
+              // one surface where a colour is on screen for the whole time
+              // somebody is composing, green did not read as liveness so much as
+              // as a status, competing with the provenance greens the answer
+              // below it uses to mean something. See the design doc §"Accent
+              // pop" for what the accent was for and why it is gone.
               // NOT `active:scale-95`: the press response belongs on the controls a
               // reader actually presses (the chips and buttons in the row below), and
               // this div is the card that HOLDS them. With it here, putting the caret
               // in the textarea shrank the whole composer — text, chips and all — on
               // every mousedown, which reads as the surface flinching away from the
               // click rather than as a control acknowledging a press.
-              'bg-card/90 backdrop-blur-md supports-[backdrop-filter]:bg-card/85 focus-within:ring-accent-pop/45 duration-quick relative flex flex-col rounded-xl border border-input px-4 py-2.5 shadow-md transition-[box-shadow,border-color] ease-out focus-within:ring-2',
+              'bg-card/90 backdrop-blur-md supports-[backdrop-filter]:bg-card/85 focus-within:ring-ring/40 duration-quick relative flex flex-col rounded-xl border border-input px-4 py-2.5 shadow-md transition-[box-shadow,border-color] ease-out focus-within:ring-2',
               isDisabledByAuth && 'opacity-60',
               isDragging && isUnsupportedDrag
                 ? 'border-error border-2 border-dashed'
@@ -1837,16 +1840,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     <Button
                       size="icon"
                       className={cn(
-                        'size-9 rounded-lg shadow-md',
-                        // The one moment the accent fills a whole control: a
-                        // message ready to send. Ink otherwise (the Button's
-                        // own `default` variant) — the accent marks READINESS,
-                        // it does not become the button's permanent identity,
-                        // which is what would have made it a second action
-                        // color rather than a one-time cue.
-                        message.trim() &&
-                          !disabled &&
-                          'bg-accent-pop text-accent-pop-foreground shadow-xs hover:bg-accent-pop/90'
+                        // Ink, in both states. The armed button used to fill
+                        // with `accent-pop`, to mark readiness — but the
+                        // disabled/armed pair already reads as readiness
+                        // (the control goes from muted to solid and becomes
+                        // pressable), so the colour was carrying a distinction
+                        // the contrast had already made, in a hue this product
+                        // uses elsewhere to mean provenance.
+                        'size-9 rounded-lg shadow-md'
                       )}
                       onClick={handleSubmit}
                       disabled={!message.trim() || disabled}
