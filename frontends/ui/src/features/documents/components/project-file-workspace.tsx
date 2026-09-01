@@ -34,6 +34,15 @@ interface ProjectFileWorkspaceProps {
   projectName: string
   collectionName: string
   /**
+   * The folder the URL names, as its path segments — empty at the corpus root.
+   *
+   * The level is a ROUTE, not state: `/files/Pläne/EG` is a place, so back
+   * walks up one level, a level can be linked, and a reload lands where the
+   * reader was. Names resolve against the folder listing this component
+   * already loads; `lib/folder-url.ts` carries why names are safe here.
+   */
+  folderPath?: string[]
+  /**
    * Whether the file preview's ingestion-metadata block renders (WorkOS
    * `files-metadata-panel` flag, FB-8). Threaded to FilePreviewPane. Defaults
    * to true so the feature stays visible with flag enforcement off (fail-open).
