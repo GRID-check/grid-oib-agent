@@ -339,6 +339,99 @@ export async function findDocumentAuthoredByRef(
  * and it is enforced the same way the dispatcher is: by reading the row, not by
  * trusting the caller.
  */
+/**
+ * The live document a re-upload of this filename would collide with, if any.
+ *
+ * A RE-UPLOAD USED TO LEAVE A GHOST. `uploadDocument` minted a fresh id and
+ * inserted unconditionally — there is no unique index on (collection, filename)
+ * — while the ingest pipeline's `_replace_previous_versions` deletes chunks by
+ * filename. So the SECOND upload's chunks replaced the FIRST's, and the first
+ * row survived: listed, downloadable, cited by nothing, findable by nothing,
+ * and charged to the organization's quota twice.
+ *
+ * Scoped to one project's collection and to rows that are not soft-deleted. The
+ * comparison is exact, matching `_replace_previous_versions`' own identity rule
+ * ("a NEW name is a new document, even when its content supersedes an old
+ * one") — a looser match here would let this tier and that one disagree about
+ * what the same file is.
+ */
+export async function findLiveDocumentByFilename(
+  organizationId: string,
+  collectionName: string,
+  filename: string,
+): Promise<{
+  id: string
+  storageKey: string
+  storageBucket: string | null
+  fileSize: number | null
+} | null> {
+  const db = getDb()
+  const [row] = await withTenant({ organizationId }, () =>
+    db
+      .select({
+        id: documents.id,
+        storageKey: documents.storageKey,
+        storageBucket: documents.storageBucket,
+        fileSize: documents.fileSize,
+      })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.organizationId, organizationId),
+          eq(documents.collectionName, collectionName),
+          eq(documents.filename, filename),
+          isNull(documents.deletedAt),
+        ),
+      )
+      // Newest wins if history already left more than one — this function is
+      // also how that history stops growing.
+      .orderBy(desc(documents.createdAt))
+      .limit(1),
+  )
+  return row ?? null
+}
+
+/**
+ * Point an existing document row at newly uploaded bytes.
+ *
+ * The id is deliberately kept. It is what every citation, every chat subject
+ * and every folder assignment already references, so replacing the bytes under
+ * a stable id is the difference between "this document was updated" and "a
+ * second document appeared and the first one stopped working".
+ */
+export async function replaceDocumentContents(
+  organizationId: string,
+  documentId: string,
+  next: {
+    storageKey: string
+    storageBucket: string | null
+    fileSize: number
+    contentType: string | null
+    folderId: string | null
+    createdBy: string
+  },
+): Promise<void> {
+  const db = getDb()
+  await withTenant({ organizationId }, () =>
+    db
+      .update(documents)
+      .set({
+        storageKey: next.storageKey,
+        storageBucket: next.storageBucket,
+        fileSize: next.fileSize,
+        contentType: next.contentType,
+        folderId: next.folderId,
+        // The uploader of the CURRENT bytes: "who brought this file in" is a
+        // question about what is there now, and the audit trail keeps both.
+        createdBy: next.createdBy,
+        status: 'uploaded',
+        errorMessage: null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(documents.organizationId, organizationId), eq(documents.id, documentId))),
+  )
+}
+
 export async function findStorageKeyByCollectionAndFilename(
   collectionName: string,
   filename: string,

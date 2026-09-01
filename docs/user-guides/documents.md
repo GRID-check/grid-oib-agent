@@ -87,6 +87,20 @@ Additional limits:
 - **Duplicate filenames** within a session are rejected
 - Files already tracked in the current session are skipped on re-upload
 
+**Re-uploading a file that is already there replaces it.** Dropping a corrected
+plan under the same name into the same project (or the Büroarchiv) points the
+existing document at the new bytes and re-indexes it: the document keeps its
+identity, so citations, chat subjects and folder placement all survive, and the
+organization is charged for one copy rather than two. This is the behaviour the
+ingestion pipeline already had — it replaces a document's passages by filename —
+and the file list now agrees with it. Before, a re-upload left the first entry
+listed and downloadable but findable by nothing, because its passages had been
+replaced by the second one's.
+
+The browser-side duplicate warning above is a convenience and is per-browser: it
+is remembered locally, so it does not appear in a different browser or a private
+window. The replacement rule is enforced on the server and does not depend on it.
+
 ---
 
 ## Upload Progress

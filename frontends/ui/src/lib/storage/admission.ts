@@ -28,7 +28,7 @@ import 'server-only'
 import { DeleteObjectCommand } from '@aws-sdk/client-s3'
 import { s3Client } from '@/lib/s3'
 import type { NewDocument } from '@/lib/db/schema'
-import { admitDocumentWithinQuota } from './service'
+import { admitDocumentWithinQuota, admitReplacementWithinQuota } from './service'
 
 /**
  * Insert the row if the organization has room, and delete the object if it does
@@ -53,6 +53,36 @@ export async function admitOrDiscard(
 ): Promise<void> {
   try {
     await admitDocumentWithinQuota(values)
+  } catch (error) {
+    await discardObject(bucket, storageKey)
+    throw error
+  }
+}
+
+/**
+ * The replace-path twin of {@link admitOrDiscard}.
+ *
+ * Same compensation on refusal, for the same reason: the object is already
+ * written, and the row was not changed, so nothing will ever reference those
+ * bytes again. The difference is which object gets discarded — on refusal the
+ * NEW one, because the old row still points at the old key.
+ */
+export async function admitReplacementOrDiscard(
+  bucket: string,
+  storageKey: string,
+  organizationId: string,
+  documentId: string,
+  next: {
+    storageKey: string
+    storageBucket: string | null
+    fileSize: number
+    contentType: string | null
+    folderId: string | null
+    createdBy: string
+  },
+): Promise<void> {
+  try {
+    await admitReplacementWithinQuota(organizationId, documentId, next)
   } catch (error) {
     await discardObject(bucket, storageKey)
     throw error

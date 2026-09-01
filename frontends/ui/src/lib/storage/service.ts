@@ -22,6 +22,7 @@ import { findOrganization } from '@/lib/organizations/repository'
 import {
   aggregateStorageUsage,
   insertDocumentWithinQuota,
+  replaceDocumentWithinQuota,
   sumStorageBytes,
   type StorageUsageByScope,
 } from './repository'
@@ -173,6 +174,40 @@ export async function admitDocumentWithinQuota(values: NewDocument): Promise<voi
       quotaBytes: quotaBytes ?? 0,
       usedBytes: result.usedBytes,
       requestedBytes: values.fileSize ?? 0,
+    }
+  )
+}
+
+/**
+ * Admit a re-upload that replaces bytes already recorded under a document id.
+ *
+ * The replace-path twin of {@link admitDocumentWithinQuota}. Same refusal, same
+ * error, same hard ceiling under the same lock — the only difference is that
+ * the row being replaced is excluded from the usage it is measured against,
+ * because it is about to stop contributing its old size.
+ */
+export async function admitReplacementWithinQuota(
+  organizationId: string,
+  documentId: string,
+  next: {
+    storageKey: string
+    storageBucket: string | null
+    fileSize: number
+    contentType: string | null
+    folderId: string | null
+    createdBy: string
+  },
+): Promise<void> {
+  const quotaBytes = await getStorageQuotaBytes(organizationId)
+  const result = await replaceDocumentWithinQuota(organizationId, documentId, next, quotaBytes)
+  if (result.ok) return
+
+  throw new InsufficientStorageError(
+    'This organization has no storage space left. Delete documents or ask an administrator to raise the quota.',
+    {
+      quotaBytes: quotaBytes ?? 0,
+      usedBytes: result.usedBytes,
+      requestedBytes: next.fileSize,
     }
   )
 }

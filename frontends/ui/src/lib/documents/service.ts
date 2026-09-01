@@ -34,7 +34,7 @@ import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/signed-image-url'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
-import { admitOrDiscard } from '@/lib/storage/admission'
+import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
 import { FEATURE_FLAGS, isCollaborationEnabled, isFeatureEnabled, isIfcModelsEnabled } from '@/lib/authz/feature-flags'
 import { listResourceAssignments } from '@/lib/assignments/service'
 import { deleteAssignmentsForResource } from '@/lib/assignments/repository'
@@ -53,6 +53,7 @@ import {
   markDocumentProcessing,
   setDocumentDisplayName,
   setDocumentIngestJob,
+  findLiveDocumentByFilename,
   type DocumentListRow,
 } from './repository'
 import { documentDisplayName, validateDocumentName } from './display-name'
@@ -680,8 +681,32 @@ export async function uploadDocument(
   const project = await findProjectInOrg(projectId, session.organizationId)
   if (!project) throw new NotFoundError('Project not found')
 
-  const documentId = crypto.randomUUID()
   const collectionName = project.collectionName
+
+  /*
+   * A RE-UPLOAD REPLACES; IT DOES NOT ACCUMULATE.
+   *
+   * This used to mint a fresh id and insert unconditionally. There is no unique
+   * index on (collection, filename), so a second upload of the same name wrote
+   * a second row and a second stored object charged to the organization's
+   * quota — while the ingest pipeline's `_replace_previous_versions` deletes
+   * chunks BY FILENAME, so the newcomer's chunks replaced the incumbent's. The
+   * first row survived: listed, downloadable, cited by nothing, findable by
+   * nothing. A ghost, and a paid-for one.
+   *
+   * The backend already treats the filename as the document's identity. This
+   * makes the row agree: the SAME id is pointed at the new bytes, so every
+   * citation, chat subject and folder assignment that referenced the document
+   * keeps working, and re-dropping a corrected plan does what a person dropping
+   * it means by the gesture.
+   *
+   * Deliberately not a 409. Refusing the upload would be defensible if the two
+   * files were unrelated, but the pipeline downstream has already decided they
+   * are the same document, and a refusal leaves the reader with the OLD file
+   * and no way to say "no, this one".
+   */
+  const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, file.name)
+  const documentId = superseded?.id ?? crypto.randomUUID()
   const storageKey = buildStorageKey(session.organizationId, projectId, documentId, file.name, folderPath)
 
   // Create the organization's bucket if this is its first upload (ADR-0043).
@@ -707,22 +732,58 @@ export async function uploadDocument(
   // The object is already written, so a refusal has to take it back — the row was
   // not inserted, so nothing else will ever reference those bytes and leaving
   // them would be an orphan that only a bucket-wide sweep could find.
-  await admitOrDiscard(storageBucket, storageKey, {
-    id: documentId,
-    organizationId: session.organizationId,
-    projectId,
-    folderId: folderId ?? null,
-    createdBy: session.userId,
-    filename: file.name,
-    storageKey,
-    // Recorded even when it IS the shared bucket, so only rows predating
-    // migration 0033 rely on the NULL-means-shared convention.
-    storageBucket,
-    collectionName,
-    fileSize: file.size,
-    contentType: file.type || null,
-    status: 'uploaded',
-  })
+  if (superseded) {
+    // The row already exists and is already counted against the quota, so the
+    // charge is the DELTA — see `replaceDocumentWithinQuota`. Charging the full
+    // size against a total that still includes the old one would refuse a
+    // corrected plan for space the correction itself frees.
+    await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
+      storageKey,
+      storageBucket,
+      fileSize: file.size,
+      contentType: file.type || null,
+      folderId: folderId ?? null,
+      createdBy: session.userId,
+    })
+    // The old object, when the new bytes did not land on top of it. They
+    // usually do — the key is derived from the id, which is preserved — but a
+    // re-upload into a DIFFERENT folder builds a different path, and the
+    // superseded object would otherwise be an orphan no sweep short of a
+    // bucket walk could find. Best-effort: the row is already correct, and
+    // failing the request over a leaked object would be the wrong trade.
+    if (superseded.storageKey !== storageKey) {
+      try {
+        await s3Client.send(
+          new DeleteObjectCommand({
+            Bucket: resolveDocumentBucket(superseded.storageBucket),
+            Key: superseded.storageKey,
+          }),
+        )
+      } catch (error) {
+        console.error('[documents] failed to remove the superseded object', {
+          documentId,
+          cause: error instanceof Error ? error.name : 'unknown',
+        })
+      }
+    }
+  } else {
+    await admitOrDiscard(storageBucket, storageKey, {
+      id: documentId,
+      organizationId: session.organizationId,
+      projectId,
+      folderId: folderId ?? null,
+      createdBy: session.userId,
+      filename: file.name,
+      storageKey,
+      // Recorded even when it IS the shared bucket, so only rows predating
+      // migration 0033 rely on the NULL-means-shared convention.
+      storageBucket,
+      collectionName,
+      fileSize: file.size,
+      contentType: file.type || null,
+      status: 'uploaded',
+    })
+  }
 
   const { jobId: ingestJobId, status: ingestStatus } = await dispatchDocument({
     organizationId: session.organizationId,
@@ -746,7 +807,14 @@ export async function uploadDocument(
     targetType: 'document',
     targetId: documentId,
     // Filename is user-controlled — cap it before it reaches the trail.
-    metadata: { projectId, filename: file.name.slice(0, 200), fileSize: file.size },
+    // `replaced` distinguishes a new document from new bytes under an existing
+    // id, which is the one thing the trail could no longer infer from the id.
+    metadata: {
+      projectId,
+      filename: file.name.slice(0, 200),
+      fileSize: file.size,
+      ...(superseded ? { replaced: true } : {}),
+    },
     request,
   })
 

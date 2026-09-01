@@ -2289,5 +2289,3 @@ describe('InputArea — intent to send opens the agent socket', () => {
     expect(mockSendMessage).toHaveBeenCalled()
   })
 })
-
-

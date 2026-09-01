@@ -52,6 +52,7 @@ vi.mock('@/lib/documents/vlm-capability', () => ({
 // recorded; the admission and compensation behaviour has its own spec.
 vi.mock('@/lib/storage/admission', () => ({
   admitOrDiscard: vi.fn().mockResolvedValue(undefined),
+  admitReplacementOrDiscard: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('./repository', () => ({
@@ -59,6 +60,9 @@ vi.mock('./repository', () => ({
   markDocumentIngestFailed: vi.fn().mockResolvedValue(undefined),
   findFolderPathInProject: vi.fn().mockResolvedValue(null),
   findDocumentInOrg: vi.fn(),
+  // Default: no collision, so the upload path is the insert path it has always
+  // been. The replace path is driven per-test.
+  findLiveDocumentByFilename: vi.fn().mockResolvedValue(null),
   listProjectDocuments: vi.fn(),
   deleteProjectDocument: vi.fn().mockResolvedValue(undefined),
   setDocumentDisplayName: vi.fn().mockResolvedValue(undefined),
@@ -71,11 +75,12 @@ vi.mock('./reconcile-status', () => ({
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
-import { admitOrDiscard } from '@/lib/storage/admission'
+import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
 import {
   setDocumentIngestJob,
   markDocumentIngestFailed,
   findDocumentInOrg,
+  findLiveDocumentByFilename,
   findFolderPathInProject,
   listProjectDocuments,
   deleteProjectDocument,
@@ -1525,5 +1530,83 @@ describe('getDocumentTextPreview', () => {
     )
 
     await expect(getDocumentTextPreview(session, 'doc-text')).rejects.toBeInstanceOf(NotFoundError)
+  })
+})
+
+
+describe('re-uploading a filename this collection already holds', () => {
+  /**
+   * A RE-UPLOAD USED TO LEAVE A GHOST.
+   *
+   * `uploadDocument` minted a fresh id and inserted unconditionally — there is
+   * no unique index on (collection, filename) — while the ingest pipeline's
+   * `_replace_previous_versions` deletes chunks BY FILENAME. So the second
+   * upload's chunks replaced the first's and the first row survived: listed,
+   * downloadable, cited by nothing, findable by nothing, and charged to the
+   * organization's quota twice. A ghost, and a paid-for one.
+   */
+  const existing = {
+    id: 'doc-existing',
+    storageKey: 'org/org-1/project/proj-1/doc/doc-existing/plan.pdf',
+    storageBucket: 'test-bucket',
+    fileSize: 900,
+  }
+
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(findProjectInOrg).mockResolvedValue(
+      makeProject({ id: 'proj-1', collectionName: 'proj_abc' }),
+    )
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValue(existing)
+  })
+
+  afterEach(() => {
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValue(null)
+  })
+
+  it('keeps the document id, so nothing that referenced it breaks', async () => {
+    const result = await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+
+    // Every citation, chat subject and folder assignment already points here.
+    expect(result.documentId).toBe('doc-existing')
+  })
+
+  it('replaces the row instead of inserting a second one', async () => {
+    await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+
+    expect(admitOrDiscard).not.toHaveBeenCalled()
+    expect(admitReplacementOrDiscard).toHaveBeenCalled()
+    // The quota is charged the DELTA, under the same lock: the row being
+    // replaced already contributes its old size to the usage this is measured
+    // against, so it is excluded there rather than double-counted here.
+    const call = vi.mocked(admitReplacementOrDiscard).mock.calls.at(-1)
+    expect(call?.[3]).toBe('doc-existing')
+  })
+
+  it('records that these are new bytes rather than a new document', async () => {
+    await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+
+    const event = vi.mocked(recordAuditEvent).mock.calls.at(-1)?.[0]
+    expect(event?.targetId).toBe('doc-existing')
+    expect(event?.metadata).toMatchObject({ replaced: true })
+  })
+
+  it('still inserts when the filename is genuinely new', async () => {
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValue(null)
+
+    const result = await uploadDocument(session, makeInput({ name: 'neu.pdf' }), new Request('http://x'))
+
+    expect(admitOrDiscard).toHaveBeenCalled()
+    expect(result.documentId).not.toBe('doc-existing')
+  })
+
+  it('dispatches the replaced document for ingestion under its own id', async () => {
+    // The chunks have to be rebuilt from the NEW bytes; a replace that skipped
+    // this would leave the old text answering questions about the new file.
+    const result = await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+
+    expect(result.documentId).toBe('doc-existing')
+    const dispatched = mockFetch.mock.calls.some(([url]) => String(url).includes('/v1/ingest'))
+    expect(dispatched).toBe(true)
   })
 })
