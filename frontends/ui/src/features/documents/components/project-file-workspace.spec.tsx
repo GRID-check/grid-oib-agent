@@ -186,6 +186,98 @@ describe('ProjectFileWorkspace', () => {
   })
 })
 
+/**
+ * „Bisher keine Möglichkeit, Dateien per Drag & Drop in Ordner zu verschieben."
+ *
+ * The move itself already existed — `PATCH /api/documents/[id]/folder`, offered
+ * as „Verschieben" in the overflow menu — so what was missing was the gesture
+ * people try first, and whose absence reads as the capability being absent.
+ *
+ * The hazard is that this workspace ALREADY listens for drags: dropping files
+ * from the desktop is how you upload. The two must not be confused, and the
+ * discriminator is a fact the browser guarantees rather than a flag we set —
+ * `dataTransfer.types` contains `Files` only for a drag carrying real files.
+ */
+describe('ProjectFileWorkspace — dragging a file into a folder', () => {
+  const dragTransfer = (documentId: string) => {
+    const store: Record<string, string> = { 'application/x-grid-document-id': documentId }
+    return {
+      types: ['application/x-grid-document-id'],
+      getData: (key: string) => store[key] ?? '',
+      setData: (key: string, value: string) => {
+        store[key] = value
+      },
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    server.use(
+      http.get('/api/projects/:projectId/folders', () =>
+        HttpResponse.json({ folders: [{ id: 'folder-1', name: 'Brandschutz', parentId: null }] })
+      ),
+      http.get('/api/documents', () =>
+        HttpResponse.json({
+          documents: [
+            {
+              id: 'doc-1',
+              filename: 'plan.pdf',
+              displayName: null,
+              fileSize: 1024,
+              contentType: 'application/pdf',
+              status: 'ready',
+              folderId: null,
+              createdAt: '2026-01-01T00:00:00Z',
+              errorMessage: null,
+              summary: null,
+              pageCount: null,
+              chunkCount: null,
+              contentTypes: null,
+              tags: null,
+            },
+          ],
+        })
+      ),
+      http.patch('/api/documents/:id/folder', () => HttpResponse.json({ ok: true }))
+    )
+  })
+
+  it('moves the file through the same endpoint the menu uses', async () => {
+    const patched: Array<{ url: string; body: unknown }> = []
+    server.use(
+      http.patch('/api/documents/:id/folder', async ({ request, params }) => {
+        patched.push({ url: String(params.id), body: await request.json() })
+        return HttpResponse.json({ ok: true })
+      })
+    )
+
+    renderWorkspace(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
+    )
+
+    const folder = await screen.findByTestId('folder-card-folder-1')
+    fireEvent.dragOver(folder, { dataTransfer: dragTransfer('doc-1') })
+    fireEvent.drop(folder, { dataTransfer: dragTransfer('doc-1') })
+
+    await waitFor(() => expect(patched).toHaveLength(1))
+    expect(patched[0]).toMatchObject({ url: 'doc-1', body: { folderId: 'folder-1' } })
+  })
+
+  it('does not raise the upload overlay for a drag that started in the page', async () => {
+    renderWorkspace(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
+    )
+
+    const dropzone = screen.getByTestId('workspace-dropzone')
+    // No `Files` in `types` — this drag carries a document id, not an upload.
+    fireEvent.dragEnter(dropzone, { dataTransfer: dragTransfer('doc-1') })
+
+    expect(screen.queryByTestId('workspace-drop-overlay')).not.toBeInTheDocument()
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+  })
+})
+
 describe('ProjectFileWorkspace — mobile preview overlay', () => {
   beforeEach(() => {
     vi.clearAllMocks()

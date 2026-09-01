@@ -44,6 +44,13 @@ interface FileBrowserPaneProps {
    * to read as a broken or meaningless filter rather than an empty one.
    */
   filterEmptyNotice?: { title: string; description: string; onClear: () => void } | null
+  /**
+   * Move a document into a folder by dragging it there. Absent on a surface
+   * with no folders (the Archiv), which is also what turns the drag OFF: a card
+   * that lifts under the finger where nothing can receive it promises a move
+   * this surface cannot make.
+   */
+  onDropDocumentInFolder?: (documentId: string, folderId: string | null) => void
   /** Upload control rendered inside the first-run empty state. */
   uploadControl?: ReactNode
   /** Dashed upload card rendered as the last tile of the grid (project corpus). */
@@ -92,6 +99,7 @@ export function FileBrowserPane({
   view = 'cards',
   showAssignment = false,
   filterEmptyNotice,
+  onDropDocumentInFolder,
   renderActions,
 }: FileBrowserPaneProps) {
   const t = useTranslations('files')
@@ -255,6 +263,7 @@ export function FileBrowserPane({
           currentFolderId={folderNav.currentFolderId}
           onNavigate={folderNav.onNavigate}
           onCreateFolder={folderNav.onCreateFolder}
+          onDropDocument={onDropDocumentInFolder}
         />
       )}
 
@@ -437,6 +446,7 @@ export function FileBrowserPane({
                     onOpen={folderNav.onNavigate}
                     onRenameFolder={folderNav.onRenameFolder}
                     onDeleteFolder={folderNav.onDeleteFolder}
+                    onDropDocument={onDropDocumentInFolder}
                   />
                 ))}
               </div>
@@ -485,6 +495,7 @@ export function FileBrowserPane({
                       onOpen={folderNav.onNavigate}
                       onRenameFolder={folderNav.onRenameFolder}
                       onDeleteFolder={folderNav.onDeleteFolder}
+                      onDropDocument={onDropDocumentInFolder}
                     />
                   </motion.div>
                 ))}
@@ -502,6 +513,7 @@ export function FileBrowserPane({
                     locale={locale}
                     footerLead={showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined}
                     actions={renderActions?.(file)}
+                    draggable={Boolean(onDropDocumentInFolder)}
                   />
                 </motion.div>
               ))}

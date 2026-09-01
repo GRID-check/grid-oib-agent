@@ -25,6 +25,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { AnimatePresence, motion, motionQuick } from '@/components/motion'
 import { useTranslations } from '@/i18n'
 import { useLocale } from '@/i18n'
+import { useFolderDropTarget } from '../hooks/use-document-drag'
 import { cn } from '@/lib/utils'
 import { TimeAgo } from '@/components/ui/time-ago'
 import { GridTileBody, GridTileFooter, GridTileMedia, GridTileShell } from './grid-tile'
@@ -74,11 +75,21 @@ export function FolderBreadcrumbRow({
   onCreateFolder,
   /** Right-aligned extras (the Archiv has none; Files adds nothing yet). */
   children,
+  onDropDocument,
 }: Pick<FolderNavProps, 'folders' | 'currentFolderId' | 'onNavigate' | 'onCreateFolder'> & {
   children?: ReactNode
+  /** Dropping a document on „Alle Dateien" moves it back to the project root. */
+  onDropDocument?: (documentId: string, folderId: string | null) => void
 }): JSX.Element {
   const t = useTranslations('files')
   const path = useMemo(() => folderPath(folders, currentFolderId), [folders, currentFolderId])
+  // The way OUT of a folder. Without it a file could be dragged deeper and
+  // never back, and the menu would be the only route for half the gesture.
+  const rootDrop = useFolderDropTarget({
+    folderId: null,
+    onDropDocument: onDropDocument ?? (() => {}),
+    disabled: !onDropDocument || currentFolderId === null,
+  })
 
   return (
     <div className="flex shrink-0 items-center justify-between gap-2 border-b bg-card/50 px-4 py-2.5 backdrop-blur-sm">
@@ -92,7 +103,12 @@ export function FolderBreadcrumbRow({
                 <button
                   type="button"
                   onClick={() => onNavigate(null)}
-                  className="hover:text-foreground transition-colors"
+                  className={cn(
+                    'hover:text-foreground transition-colors rounded px-1',
+                    rootDrop.isOver && 'ring-ring bg-accent ring-2'
+                  )}
+                  data-drop-over={rootDrop.isOver ? '' : undefined}
+                  {...rootDrop.dropProps}
                 >
                   {t('folders.allFiles')}
                 </button>
@@ -219,6 +235,11 @@ interface FolderTileProps {
   onOpen: (id: string) => void
   onRenameFolder: FolderNavProps['onRenameFolder']
   onDeleteFolder: FolderNavProps['onDeleteFolder']
+  /**
+   * Move a document into this folder, when the surface supports dragging one
+   * here. Absent on surfaces that do not (the Archiv has no folders at all).
+   */
+  onDropDocument?: (documentId: string, folderId: string | null) => void
 }
 
 /** Shared inline rename field — same in-place contract the tree pane had. */
@@ -338,14 +359,28 @@ export function FolderCard({
   onOpen,
   onRenameFolder,
   onDeleteFolder,
+  onDropDocument,
 }: FolderTileProps): JSX.Element {
   const t = useTranslations('files')
   const { locale } = useLocale()
   const [editing, setEditing] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
+  const drop = useFolderDropTarget({
+    folderId: folder.id,
+    onDropDocument: onDropDocument ?? (() => {}),
+    disabled: !onDropDocument,
+  })
 
   return (
-    <GridTileShell variant="file" interactive className="group" data-testid={`folder-card-${folder.id}`}>
+    <GridTileShell
+      variant="file"
+      interactive
+      // A drag has to say where it will land, or it is a guess with a cursor.
+      className={cn('group', drop.isOver && 'ring-ring bg-accent ring-2')}
+      data-testid={`folder-card-${folder.id}`}
+      data-drop-over={drop.isOver ? '' : undefined}
+      {...drop.dropProps}
+    >
       <div
         className="absolute right-1.5 top-1.5 z-[1] md:opacity-0 md:group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-quick ease-out motion-reduce:transition-none"
         onClick={(e) => e.stopPropagation()}
@@ -410,10 +445,16 @@ export function FolderRow({
   onOpen,
   onRenameFolder,
   onDeleteFolder,
+  onDropDocument,
 }: FolderTileProps): JSX.Element {
   const t = useTranslations('files')
   const { locale } = useLocale()
   const [editing, setEditing] = useState(false)
+  const drop = useFolderDropTarget({
+    folderId: folder.id,
+    onDropDocument: onDropDocument ?? (() => {}),
+    disabled: !onDropDocument,
+  })
 
   if (editing) {
     return (
@@ -440,8 +481,11 @@ export function FolderRow({
       className={cn(
         'group flex w-full items-center gap-2 rounded-lg border border-amber-200/40 bg-amber-50/40 px-3 py-2 text-sm dark:bg-amber-950/10 dark:border-amber-800/20',
         'hover:bg-amber-50 hover:border-amber-200/60 dark:hover:bg-amber-950/20 transition-[background-color,border-color,box-shadow] duration-quick ease-out hover:shadow-sm',
+        drop.isOver && 'ring-ring ring-2',
       )}
       data-testid={`folder-row-${folder.id}`}
+      data-drop-over={drop.isOver ? '' : undefined}
+      {...drop.dropProps}
     >
       <button
         type="button"

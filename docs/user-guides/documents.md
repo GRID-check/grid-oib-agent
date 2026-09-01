@@ -87,6 +87,17 @@ Additional limits:
 - **Duplicate filenames** within a session are rejected
 - Files already tracked in the current session are skipped on re-upload
 
+## Moving a file into a folder
+
+Drag it onto the folder — a card, a row, or „Alle Dateien" in the breadcrumb to
+move it back to the top level. The folder lights up as the target while you are
+over it. „Verschieben" in a file's overflow menu does the same thing and remains
+the way to move a file into a folder you are not currently looking at.
+
+Dragging a file inside Piloti never starts an upload: a drag carrying files from
+your desktop and a drag carrying a document already here are different things to
+the browser, and only the first raises the upload overlay.
+
 ## Uploading a whole folder
 
 A büro onboarding a project moves a directory tree, not a hand-picked list. Two

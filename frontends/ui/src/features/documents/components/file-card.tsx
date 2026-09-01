@@ -9,6 +9,7 @@ import { TimeAgo } from '@/components/ui/time-ago'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
+import { documentDragProps } from '../hooks/use-document-drag'
 import { sourceTint } from '@/lib/ui/source-tint'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
 import { DocumentKindThumbnail } from './document-kind-thumbnail'
@@ -191,6 +192,12 @@ export interface FileCardProps {
    * its own — this card is a `<button>`, so the slot sits beside it.
    */
   actions?: ReactNode
+  /**
+   * Let this card be dragged onto a folder. Off by default: a card that lifts
+   * under the finger where nothing can receive it promises a move the surface
+   * cannot make — the Archiv, for one, has no folders at all.
+   */
+  draggable?: boolean
 }
 
 /**
@@ -216,6 +223,7 @@ export function FileCard({
   hideFooter,
   testId = 'file-card',
   actions,
+  draggable = false,
 }: FileCardProps) {
   const t = useTranslations('files')
   const name = documentDisplayName(file)
@@ -239,6 +247,10 @@ export function FileCard({
         isBusy && 'cursor-progress opacity-70',
         !isSelected && 'hover:border-border/80'
       )}
+      // Dragging is opt-in per surface: the Archiv has no folders to drop into,
+      // and a card that lifts under the finger where nothing can receive it is
+      // an affordance for a capability that is not there.
+      {...(draggable ? documentDragProps(file.id) : {})}
     >
       {actions && (
         <div

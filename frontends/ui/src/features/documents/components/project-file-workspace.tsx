@@ -527,6 +527,49 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, folderId } : f)))
   }, [])
 
+  /**
+   * A file dragged onto a folder.
+   *
+   * The same `PATCH .../folder` the „Verschieben" menu item already used — this
+   * adds the gesture, not the capability, which is why it goes through one
+   * request rather than a second code path that could disagree with the menu
+   * about what a move is.
+   *
+   * The list is updated optimistically and put back on failure: the card
+   * visibly leaves the level under the finger, so leaving it there until a
+   * round trip returns would make a successful move look broken and a failed
+   * one look successful.
+   */
+  const handleDropInFolder = useCallback(
+    async (documentId: string, folderId: string | null) => {
+      const file = files.find((candidate) => candidate.id === documentId)
+      if (!file || (file.folderId ?? null) === folderId) return
+      const previousFolderId = file.folderId ?? null
+      const folderName = folderId
+        ? (folders.find((folder) => folder.id === folderId)?.name ?? '')
+        : t('folders.allFiles')
+
+      setFiles((prev) => prev.map((f) => (f.id === documentId ? { ...f, folderId } : f)))
+      try {
+        const res = await fetch(`/api/documents/${documentId}/folder`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folderId }),
+        })
+        if (!res.ok) throw new Error(`Move failed (${res.status})`)
+        toast.success(
+          t('actions.moved', { name: documentDisplayName(file), folder: folderName })
+        )
+      } catch {
+        setFiles((prev) =>
+          prev.map((f) => (f.id === documentId ? { ...f, folderId: previousFolderId } : f))
+        )
+        toast.error(t('actions.moveError'))
+      }
+    },
+    [files, folders, t]
+  )
+
   const handleSelectFile = useCallback(
     (id: string | null) => {
       if (id === null) {
@@ -820,6 +863,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               view={view}
               showAssignment={canCollaborate}
               filterEmptyNotice={filterEmptyNotice}
+              onDropDocumentInFolder={handleDropInFolder}
               renderActions={(file) => (
                 <DocumentActionsMenu
                   document={file}
