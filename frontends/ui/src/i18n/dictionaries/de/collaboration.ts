@@ -242,6 +242,16 @@ export const collaboration: typeof en.collaboration = {
         title: '{actor} hat Ihnen {subject} zugewiesen',
         body: 'Sie sind für diese Datei verantwortlich.',
       },
+      // Ein Hintergrundauftrag ist zu Ende. {subject} ist der Name des Auftrags.
+      // Kein {actor}: die Arbeit hat Piloti getan, nicht eine Person.
+      jobCompleted: {
+        title: '„{subject}" ist fertig',
+        body: 'Piloti hat den Auftrag ausgeführt. Das Ergebnis liegt im Projekt unter Automatisierung.',
+      },
+      jobFailed: {
+        title: '„{subject}" ist fehlgeschlagen',
+        body: 'Der Auftrag konnte nicht abgeschlossen werden. Die Laufhistorie im Projekt nennt den Grund.',
+      },
       unknown: {
         title: 'Es gab Aktivität',
         body: 'in {subject}',

@@ -48,6 +48,10 @@ vi.mock('@/lib/workos/feature-flags', () => ({
   SKILLS_FLAG: 'skills',
 }))
 
+vi.mock('@/lib/inbox/service', () => ({
+  emitInboxItems: vi.fn(async () => 1),
+}))
+
 vi.mock('@/lib/projects/memory-service', () => ({
   buildProjectMemoryDigest: vi.fn(async () => 'PROJECT_MEMORY v1\n- Atrium ist OIB 2.3'),
 }))
@@ -85,6 +89,7 @@ import { resolveSelectableSkills, resolveSkillSnapshot } from '@/lib/skills/serv
 import { insertConversation } from '@/lib/conversations/repository'
 import * as repository from './repository'
 import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
+import { emitInboxItems } from '@/lib/inbox/service'
 import { buildGridRequestContextWireHeaders } from '@/lib/request-context'
 import { submitJob, JobSubmitSkippedError, JobSubmitError } from './backend-client'
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
@@ -94,6 +99,7 @@ import {
   buildFirePrompt,
   createJob,
   fireJob,
+  recordJobOutcome,
   fireScheduledJob,
   getJob,
   listAttachableSkills,
@@ -543,5 +549,57 @@ describe('getJob / listJobs', () => {
     const { jobs } = await listJobs(session, 'proj-1')
     expect(jobs).toHaveLength(1)
     expect(repository.listJobsInProject).toHaveBeenCalledWith('proj-1', 'org_1')
+  })
+})
+
+describe('recordJobOutcome', () => {
+  const run = {
+    id: 'run-1',
+    scheduleId: 'job-1',
+    projectId: 'proj-1',
+    organizationId: 'org_1',
+    jobId: 'backend-job-1',
+    trigger: 'schedule',
+    status: 'submitted',
+    detail: null,
+    conversationId: 'conv-1',
+    skillSnapshot: {},
+    triggeredBy: 'scheduler',
+    createdAt: new Date('2026-09-01T03:00:00Z'),
+  } as unknown as JobRun
+
+  it('tells the creator of the job, one row per run, with nobody as the actor', async () => {
+    vi.mocked(repository.findJobById).mockResolvedValueOnce(makeJob({ id: 'job-1', name: 'Wochenbericht' }))
+    const result = await recordJobOutcome(run, { status: 'success' })
+    expect(result).toEqual({ notified: true })
+    const [emissions] = vi.mocked(emitInboxItems).mock.calls[0]
+    expect(emissions).toHaveLength(1)
+    expect(emissions[0]).toMatchObject({
+      organizationId: 'org_1',
+      recipientUserId: 'owner_9',
+      type: 'job.completed',
+      resourceType: 'project',
+      resourceId: 'proj-1',
+      anchorId: 'backend-job-1',
+      // Piloti did the work; and the emitter drops a row whose actor is its
+      // recipient, which a manual "Run now" would otherwise be.
+      actorUserId: null,
+      groupKey: 'job.completed:project:proj-1:backend-job-1',
+    })
+    expect(emissions[0].payload).toMatchObject({ subject: 'Wochenbericht', status: 'success', conversationId: 'conv-1' })
+  })
+
+  it('reports a failure as job.failed with the worker\'s error', async () => {
+    vi.mocked(repository.findJobById).mockResolvedValueOnce(makeJob({ id: 'job-1' }))
+    await recordJobOutcome(run, { status: 'failure', error: 'Budget exhausted' })
+    const [emissions] = vi.mocked(emitInboxItems).mock.calls[0]
+    expect(emissions[0].type).toBe('job.failed')
+    expect(emissions[0].payload).toMatchObject({ status: 'failure', error: 'Budget exhausted' })
+  })
+
+  it('notifies nobody when the run belongs to a job of another tenant', async () => {
+    vi.mocked(repository.findJobById).mockResolvedValueOnce(makeJob({ id: 'job-1', organizationId: 'org-2' }))
+    expect(await recordJobOutcome(run, { status: 'success' })).toEqual({ notified: false })
+    expect(emitInboxItems).not.toHaveBeenCalled()
   })
 })

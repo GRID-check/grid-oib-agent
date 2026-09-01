@@ -60,6 +60,15 @@ export const INBOX_ITEM_TYPES = [
   'storage.quota_warning',
   /** Informational: you were named responsible for a resource (ADR-0047). */
   'document.assigned_to_you',
+  /**
+   * A background run the reader asked for has ended (ADR-0035 named "a failed
+   * workflow run" as the type the frame was built to carry). Operational, not
+   * collaboration: nobody is waiting on the reader, but work was done on their
+   * behalf while they were away, and until these existed a 03:00 run produced
+   * a report that nobody was told about.
+   */
+  'job.completed',
+  'job.failed',
 ] as const
 export type InboxItemType = (typeof INBOX_ITEM_TYPES)[number]
 
@@ -79,7 +88,7 @@ export type InboxItemType = (typeof INBOX_ITEM_TYPES)[number]
  * and an access resolver. That registry — not a cast, and not a branch inside
  * the read path — is what lets an org-scoped item exist.
  */
-export const INBOX_TARGET_TYPES = [...SHAREABLE_RESOURCE_TYPES, 'organization'] as const
+export const INBOX_TARGET_TYPES = [...SHAREABLE_RESOURCE_TYPES, 'organization', 'project'] as const
 export type InboxTargetType = (typeof INBOX_TARGET_TYPES)[number]
 
 export const inboxItems = pgTable(

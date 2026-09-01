@@ -34,6 +34,7 @@ from .conversation_output import write_job_notice
 from .conversation_output import write_job_turn
 from .event_store import BatchingEventStore
 from .event_store import EventStore
+from .outcome_notify import notify_job_outcome
 from .phase_events import PHASE_DONE
 from .phase_events import PhaseProgressCallback
 from .phase_events import emit_phase_event
@@ -1132,7 +1133,9 @@ async def run_agent_job(
                     # Sticky terminal statuses: never flip a job the reaper or
                     # cancel route already finalized (FAILURE/INTERRUPTED) back
                     # to SUCCESS.
-                    await _update_status_if_not_terminal(job_store, job_id, JobStatus.SUCCESS, output=output)
+                    finalized = await _update_status_if_not_terminal(
+                        job_store, job_id, JobStatus.SUCCESS, output=output
+                    )
                     # A job with `output: 'chat'` was given a conversation when
                     # it fired; this is what puts the run INTO it, so somebody
                     # can open the thread and keep typing. Best-effort by
@@ -1156,6 +1159,11 @@ async def run_agent_job(
                         # is supposed to mean.
                         transparency=transparency,
                     )
+                    # Tell the job's creator. Only when THIS run wrote the
+                    # terminal status: a job the reaper already finalized was
+                    # reported by nobody, and will not be reported twice here.
+                    if finalized:
+                        await notify_job_outcome(job_id=job_id, usage_context=usage_context, status="success")
                     logger.info(
                         "Job %s completed (report: %d chars, cards: %d)",
                         job_id,
@@ -1171,11 +1179,13 @@ async def run_agent_job(
                 # or SUCCESS either — only mark still-active jobs INTERRUPTED.
                 # The "cancelled by user" error string is exact: the UI
                 # string-matches on it.
-                await _update_status_if_not_terminal(
+                finalized = await _update_status_if_not_terminal(
                     job_store, job_id, JobStatus.INTERRUPTED, error="cancelled by user"
                 )
             except (ConnectionError, TimeoutError, RuntimeError):
-                pass
+                finalized = False
+        else:
+            finalized = False
 
         await write_job_notice(
             conversation_id=parent_conversation_id,
@@ -1183,6 +1193,8 @@ async def run_agent_job(
             usage_context=usage_context,
             notice=INTERRUPTED_NOTICE,
         )
+        if finalized:
+            await notify_job_outcome(job_id=job_id, usage_context=usage_context, status="interrupted")
 
         if event_store is None:
             event_store = BatchingEventStore(EventStore(db_url, job_id))
@@ -1201,10 +1213,11 @@ async def run_agent_job(
         # sanitized, user-safe message is persisted and streamed to clients.
         logger.exception("Job %s failed: %s", job_id, type(e).__name__)
         safe_error = sanitize_job_error(e)
+        finalized = False
         if job_store:
             # Sticky terminal statuses: don't clobber an INTERRUPTED/FAILURE
             # verdict written by the cancel route or the ghost-job reaper.
-            await _update_status_if_not_terminal(job_store, job_id, JobStatus.FAILURE, error=safe_error)
+            finalized = await _update_status_if_not_terminal(job_store, job_id, JobStatus.FAILURE, error=safe_error)
         # The conversation was created when the job FIRED, before the outcome
         # was known. Left alone, a failed run leaves a thread somebody opens to
         # find completely empty, which reads as a broken product rather than a
@@ -1215,6 +1228,8 @@ async def run_agent_job(
             usage_context=usage_context,
             notice=FAILURE_NOTICE,
         )
+        if finalized:
+            await notify_job_outcome(job_id=job_id, usage_context=usage_context, status="failure", error=safe_error)
 
         if event_store is None:
             event_store = BatchingEventStore(EventStore(db_url, job_id))

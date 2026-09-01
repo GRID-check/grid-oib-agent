@@ -80,10 +80,16 @@ const ALL_TYPES = [
   'conversation.activity',
   'storage.quota_warning',
   'document.assigned_to_you',
+  'job.completed',
+  'job.failed',
 ] as const satisfies readonly InboxItemType[]
 
 /** What a tenant WITHOUT collaboration may see: the operational types only. */
-const OPERATIONAL_TYPES = ['storage.quota_warning'] as const satisfies readonly InboxItemType[]
+const OPERATIONAL_TYPES = [
+  'storage.quota_warning',
+  'job.completed',
+  'job.failed',
+] as const satisfies readonly InboxItemType[]
 
 const at = new Date('2026-07-29T10:00:00.000Z')
 

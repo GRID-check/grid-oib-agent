@@ -395,6 +395,14 @@ export const collaboration = {
         title: '{actor} assigned {subject} to you',
         body: 'You are responsible for this file.',
       },
+      jobCompleted: {
+        title: '"{subject}" is done',
+        body: 'Piloti ran the job. The result is in the project under Automation.',
+      },
+      jobFailed: {
+        title: '"{subject}" failed',
+        body: 'The job could not be completed. The run history in the project names the reason.',
+      },
       unknown: {
         title: 'Something happened',
         body: 'in {subject}',

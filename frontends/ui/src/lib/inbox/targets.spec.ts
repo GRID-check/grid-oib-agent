@@ -16,8 +16,10 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/sharing/access', () => ({ resolveResourceAccess: vi.fn() }))
 vi.mock('@/lib/sharing/registry', () => ({ describeResource: vi.fn() }))
+vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
 
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { requireProjectAccess } from '@/lib/authz/projects'
 import { resolveResourceAccess } from '@/lib/sharing/access'
 import { describeResource } from '@/lib/sharing/registry'
 import { INBOX_TARGET_REGISTRY, findInboxTarget } from './targets'
@@ -129,5 +131,24 @@ describe('the conversation target', () => {
 
     // `role: null` is "exists, but you have no access" — as unreachable as a 404.
     expect(await conversationTarget.resolve(makeSession(), 'conv_1')).toBeNull()
+  })
+})
+
+describe('the project target', () => {
+  const projectTarget = INBOX_TARGET_REGISTRY.project
+
+  it('lands a run outcome on the project automation page when the reader may view the project', async () => {
+    vi.mocked(requireProjectAccess).mockResolvedValueOnce({ role: 'project-viewer' })
+    const access = await projectTarget.resolve(makeSession(), 'proj_1')
+    expect(access).not.toBeNull()
+    expect(access!.deepLink({ itemType: 'job.completed', anchorId: 'backend-job-1' })).toBe(
+      '/app/projects/proj_1/automation?tab=jobs',
+    )
+    expect(requireProjectAccess).toHaveBeenCalledWith(expect.objectContaining({ userId: 'user_1' }), 'proj_1', 'project:view')
+  })
+
+  it('redacts the row, rather than throwing, for a project the reader can no longer open', async () => {
+    vi.mocked(requireProjectAccess).mockRejectedValueOnce(new Error('forbidden'))
+    await expect(projectTarget.resolve(makeSession(), 'proj_gone')).resolves.toBeNull()
   })
 })

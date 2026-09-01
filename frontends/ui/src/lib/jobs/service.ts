@@ -38,7 +38,9 @@ import {
 } from '@/lib/request-context'
 import { isMemoryReflectionEnabled, isOrgFeatureEnabled, SKILLS_FLAG } from '@/lib/workos/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import type { Job, JobOutput, JobRun, JobRunStatus, JobRunTrigger } from '@/lib/db/schema'
+import type { InboxItemType, Job, JobOutput, JobRun, JobRunStatus, JobRunTrigger } from '@/lib/db/schema'
+import { inboxGroupKey } from '@/lib/inbox/registry'
+import { emitInboxItems } from '@/lib/inbox/service'
 import { resolveSelectableSkills, resolveSkillSnapshot } from '@/lib/skills/service'
 import { snapshotOf, type SkillSnapshot } from '@/lib/skills/types'
 import { nextOccurrence, validateCron, minIntervalMinutesFromEnv } from './schedule'
@@ -564,6 +566,67 @@ async function recordJobRun(
 /** Internal (scheduler) fire: load a job by id WITHOUT an org filter. */
 export async function loadJobForFire(jobId: string): Promise<Job | null> {
   return repository.findJobById(jobId)
+}
+
+/** How a background run ended, as the worker reports it. */
+export type JobOutcomeStatus = 'success' | 'failure' | 'interrupted'
+
+export interface JobOutcome {
+  status: JobOutcomeStatus
+  /** The sanitized, user-safe error the worker persisted, when it failed. */
+  error?: string | null
+}
+
+/**
+ * The run the worker is reporting on, located by the backend job id — the one
+ * id a worker holds. Runs under platform access because no tenant is known
+ * until the row is found; everything after is that run's tenant's work.
+ */
+export async function loadJobRunForOutcome(backendJobId: string): Promise<JobRun | null> {
+  return repository.findJobRunByBackendJobId(backendJobId)
+}
+
+/**
+ * Tell the person who created the job that its run has ended.
+ *
+ * Until this existed a scheduled run produced a report, filed nothing anyone
+ * was told about, and expired with the job store 24 hours later. The inbox
+ * frame (ADR-0035) was built with exactly this type in mind and no emitter ever
+ * spent the registry entry. One row per run (anchored on the backend job id),
+ * to the job's creator, and never to the scheduler: `actorUserId` is null
+ * because the work was Piloti's, and because `emitInboxItems` drops a row
+ * whose actor is its recipient — which a manual "Run now" would otherwise be.
+ *
+ * Idempotent: the unique `(recipient, group_key)` upsert folds a retried report
+ * into the existing row, so a worker that notifies twice cannot notify twice.
+ */
+export async function recordJobOutcome(run: JobRun, outcome: JobOutcome): Promise<{ notified: boolean }> {
+  const job = await repository.findJobById(run.scheduleId)
+  if (!job || job.organizationId !== run.organizationId) return { notified: false }
+  if (!run.jobId) return { notified: false }
+
+  const type: InboxItemType = outcome.status === 'success' ? 'job.completed' : 'job.failed'
+  const emitted = await emitInboxItems([
+    {
+      organizationId: run.organizationId,
+      recipientUserId: job.createdBy,
+      type,
+      resourceType: 'project',
+      resourceId: run.projectId,
+      anchorId: run.jobId,
+      actorUserId: null,
+      groupKey: inboxGroupKey(type, 'project', run.projectId, run.jobId),
+      payload: {
+        subject: job.name,
+        status: outcome.status,
+        error: outcome.error ?? null,
+        jobId: job.id,
+        runId: run.id,
+        conversationId: run.conversationId,
+      },
+    },
+  ])
+  return { notified: emitted > 0 }
 }
 
 /**
