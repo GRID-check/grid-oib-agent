@@ -9,6 +9,7 @@ import {
   isAgentAuthoredDocumentsEnabled,
   isFeatureEnabled,
   isIfcModelsEnabled,
+  isIfcPreviewFirstEnabled,
   isSkillsEnabled,
   requireFeature,
   requireSkillsEnabled,
@@ -136,6 +137,76 @@ describe('ifc-models — default ON, with its own off switch', () => {
     expect(isIfcModelsEnabled({ featureFlags: [] })).toBe(false)
     // A token minted before the flag existed must not inherit the env default.
     expect(isIfcModelsEnabled({ featureFlags: null })).toBe(false)
+  })
+})
+
+/**
+ * The flag that decides what a click on an `.ifc` DOES, once the model surfaces
+ * exist at all.
+ *
+ * It is separate from `ifc-models` because it answers a different question, and
+ * it has its own env switch for the same reason that one does: this is an
+ * interaction change on a surface people already use, so a deployment has to be
+ * able to put it back without switching flag enforcement on for every other
+ * feature at the same time.
+ *
+ * Fail-open lands on preview-first because that is the safer of the two to be
+ * wrong about — a reader who wanted the stage is one button from it, while a
+ * reader thrown into a full-screen viewport has lost the preview entirely.
+ */
+describe('ifc-preview-first — what a click does, not whether the feature exists', () => {
+  afterEach(() => {
+    delete process.env.GRID_ENFORCE_FEATURE_FLAGS
+    delete process.env.GRID_IFC_PREVIEW_FIRST
+  })
+
+  it('registry carries the ifc-preview-first slug', () => {
+    expect(FEATURE_FLAGS.ifcPreviewFirst).toBe('ifc-preview-first')
+  })
+
+  it('is a DIFFERENT flag from ifc-models, because it answers a different question', () => {
+    // One decides whether the model surfaces exist for this tenant; the other
+    // decides what a click does when they do. Collapsing them would mean a
+    // deployment could not have the viewer and the preview at once.
+    expect(FEATURE_FLAGS.ifcPreviewFirst).not.toBe(FEATURE_FLAGS.ifcModels)
+  })
+
+  it('unenforced and unset: preview first', () => {
+    expect(isIfcPreviewFirstEnabled({ featureFlags: null })).toBe(true)
+    expect(isIfcPreviewFirstEnabled({ featureFlags: [] })).toBe(true)
+  })
+
+  it('unenforced: an explicit falsey value restores the direct jump', () => {
+    for (const value of ['false', 'FALSE', ' false ', '0', 'no', 'off']) {
+      process.env.GRID_IFC_PREVIEW_FIRST = value
+      expect(isIfcPreviewFirstEnabled({ featureFlags: null }), `value ${JSON.stringify(value)}`).toBe(
+        false
+      )
+    }
+  })
+
+  it('unenforced: anything else leaves preview-first on', () => {
+    for (const value of ['', 'true', 'TRUE', '1', 'yes']) {
+      process.env.GRID_IFC_PREVIEW_FIRST = value
+      expect(isIfcPreviewFirstEnabled({ featureFlags: null }), `value ${JSON.stringify(value)}`).toBe(
+        true
+      )
+    }
+  })
+
+  it('enforced: the per-org WorkOS claim decides and the env var is ignored', () => {
+    process.env.GRID_ENFORCE_FEATURE_FLAGS = 'true'
+    process.env.GRID_IFC_PREVIEW_FIRST = 'true'
+    expect(isIfcPreviewFirstEnabled({ featureFlags: [FEATURE_FLAGS.ifcPreviewFirst] })).toBe(true)
+    expect(isIfcPreviewFirstEnabled({ featureFlags: [] })).toBe(false)
+    // A token minted before the flag existed must not inherit the env default.
+    expect(isIfcPreviewFirstEnabled({ featureFlags: null })).toBe(false)
+  })
+
+  it('does not read the ifc-models claim, which would couple the two', () => {
+    process.env.GRID_ENFORCE_FEATURE_FLAGS = 'true'
+    expect(isIfcPreviewFirstEnabled({ featureFlags: [FEATURE_FLAGS.ifcModels] })).toBe(false)
+    expect(isIfcModelsEnabled({ featureFlags: [FEATURE_FLAGS.ifcPreviewFirst] })).toBe(false)
   })
 })
 
