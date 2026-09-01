@@ -42,11 +42,13 @@
 
 import {
   parseStepEventPayloads,
+  renderTurnEventKey,
   stepEventLiveText,
   unescapeStepPayload,
   type StepEventPayload,
   type StepEventTranslator,
 } from '@/adapters/api/step-event-schemas'
+import type { StoredTurnEvent } from '../types'
 import {
   isSkillSelectionStepName,
   isSkillStepName,
@@ -78,6 +80,31 @@ export interface TurnEventStep {
   functionName: string
   content?: string
   rawPayload?: string
+  /** The hoisted event, when the payload has already been pruned away. */
+  turnEvent?: StoredTurnEvent
+}
+
+/**
+ * The event a status step should keep once its payload is gone: the newest
+ * payload in the step that carries a live key. A slot re-emitted within one
+ * turn appends payloads oldest-first, and the live line reads them newest-first,
+ * so this is the same choice `turnEventLiveText` makes — persisted.
+ *
+ * Only `key` and `values` survive: the values are proper nouns, dictionary ids
+ * and the reader's own words echoed back, never prose the backend wrote, so
+ * they are safe to keep and cheap (the backend caps the query at 32 chars).
+ */
+export const turnEventOf = (step: TurnEventStep): StoredTurnEvent | undefined => {
+  if (!isStatusStepName(step.functionName || '')) return undefined
+  const payloads = parseStepEventPayloads(stepEventPayload(step))
+  for (let i = payloads.length - 1; i >= 0; i -= 1) {
+    const payload = payloads[i]
+    if (payload.channel === 'technical') continue
+    const key = payload.key?.trim()
+    if (!key) continue
+    return payload.values ? { key, values: payload.values } : { key }
+  }
+  return step.turnEvent
 }
 
 /**
@@ -127,6 +154,8 @@ export const turnEventLiveText = (
     const text = stepEventLiveText(payloads[i], t)
     if (text) return text
   }
+  // A stored step: the payload was pruned, the hoisted event was kept.
+  if (step.turnEvent) return renderTurnEventKey(step.turnEvent.key, step.turnEvent.values, t)
   return null
 }
 

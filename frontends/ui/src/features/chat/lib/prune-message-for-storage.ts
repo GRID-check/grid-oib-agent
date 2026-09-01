@@ -7,6 +7,7 @@
 
 import type { ChatMessage } from '../types'
 import { extractTraceLanesFromPayload } from './trace-lanes'
+import { turnEventOf } from './turn-events'
 
 /**
  * Cap string content to prevent excessively large values.
@@ -44,6 +45,11 @@ export const stripThinkingStepsForStorage = (
           : payload.trim()
             ? extractTraceLanesFromPayload(payload)
             : undefined
+      // What the turn asked, kept the same way the lanes are: read off the
+      // payload here, before it is dropped. This is the record of "what was
+      // searched" that a reload, a colleague or a second device gets — the
+      // server mirror (ADR-0037) inherits whatever this keeps.
+      const turnEvent = turnEventOf(step)
       return {
         id: step.id,
         userMessageId: step.userMessageId,
@@ -56,6 +62,7 @@ export const stripThinkingStepsForStorage = (
         isTopLevel: step.isTopLevel,
         category: step.category,
         ...(derived && derived.length > 0 ? { traceLanes: derived } : {}),
+        ...(turnEvent ? { turnEvent } : {}),
       }
     })
 }

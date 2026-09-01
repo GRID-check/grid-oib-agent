@@ -42,6 +42,12 @@ export interface StoredThinkingStep {
   isTopLevel?: boolean
   /** The sources fan-out, which is the part of a step a reader actually reads. */
   traceLanes?: unknown[]
+  /**
+   * The turn event's key and values (what was searched, in which corpus). Bounded
+   * here because the values are a client-supplied record: a handful of short
+   * strings, never a payload.
+   */
+  turnEvent?: { key: string; values?: Record<string, string> }
 }
 
 /**
@@ -142,6 +148,11 @@ const MAX_REASON_CHARS = 600
 const MAX_REMOVED_REASONS = 20
 const MAX_REMOVED_REASON_CHARS = 120
 const MAX_TRACE_LANES = 40
+/** A turn event is one dotted key and a few short interpolation values. */
+const MAX_TURN_EVENT_KEY_CHARS = 64
+const MAX_TURN_EVENT_VALUES = 8
+const MAX_TURN_EVENT_VALUE_KEY_CHARS = 32
+const MAX_TURN_EVENT_VALUE_CHARS = 64
 
 const CONFIDENCES = ['low', 'medium', 'high'] as const
 export const CAPPED_REASONS = [
@@ -191,7 +202,24 @@ function sanitizeStep(input: unknown): StoredThinkingStep | null {
     ...(Array.isArray(input.traceLanes) && input.traceLanes.length > 0
       ? { traceLanes: input.traceLanes.slice(0, MAX_TRACE_LANES) }
       : {}),
+    ...sanitizeTurnEvent(input.turnEvent),
   }
+}
+
+/** The hoisted turn event, whitelisted and capped like everything else here. */
+function sanitizeTurnEvent(input: unknown): { turnEvent?: StoredThinkingStep['turnEvent'] } {
+  if (!isRecord(input)) return {}
+  const key = cap(input.key, MAX_TURN_EVENT_KEY_CHARS)
+  if (!key) return {}
+  const values: Record<string, string> = {}
+  if (isRecord(input.values)) {
+    for (const [name, value] of Object.entries(input.values).slice(0, MAX_TURN_EVENT_VALUES)) {
+      const safeName = cap(name, MAX_TURN_EVENT_VALUE_KEY_CHARS)
+      const safeValue = cap(value, MAX_TURN_EVENT_VALUE_CHARS)
+      if (safeName && safeValue !== undefined) values[safeName] = safeValue
+    }
+  }
+  return { turnEvent: Object.keys(values).length > 0 ? { key, values } : { key } }
 }
 
 /**

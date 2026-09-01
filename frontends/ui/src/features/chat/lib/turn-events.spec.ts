@@ -32,6 +32,7 @@ import {
   researchTruncation,
   stepEventPayload,
   turnEventLiveText,
+  turnEventOf,
 } from './turn-events'
 
 const tDe = createTranslator(de, 'chat')
@@ -460,5 +461,27 @@ describe('answerDegradations — an answer weaker than it looks', () => {
   test('the record only counts when it says the answer degraded', () => {
     expect(answerDegradations([degraded({ reasons: ['no_report_file'] })])).toEqual([])
     expect(answerDegradations([degraded({ degraded: true })])).toEqual([])
+  })
+})
+
+describe('a stored step renders from its hoisted event', () => {
+  test('the words come back after the payload is gone', () => {
+    const live = status('retrieval:0', 'status.retrieval.withQuery', {
+      corpus: 'knowledge',
+      query: 'Fluchtweglänge GK4',
+    })
+    const hoisted = turnEventOf(live)
+    expect(hoisted).toEqual({
+      key: 'status.retrieval.withQuery',
+      values: { corpus: 'knowledge', query: 'Fluchtweglänge GK4' },
+    })
+    const stored = { functionName: live.functionName, content: '', turnEvent: hoisted }
+    expect(turnEventLiveText(stored, tDe)).toBe('Sucht im OIB-Wissen: „Fluchtweglänge GK4“')
+  })
+
+  test('a live payload still wins over a stale hoisted event', () => {
+    const live = status('retrieval:0', 'status.retrieval.plain', { corpus: 'ris' })
+    const withStale = { ...live, turnEvent: { key: 'status.retrieval.withQuery', values: { corpus: 'knowledge', query: 'alt' } } }
+    expect(turnEventLiveText(withStale, tDe)).toBe('Sucht im RIS …')
   })
 })

@@ -217,3 +217,39 @@ describe('why the run stopped, and what it cost', () => {
     expect(sanitizeProvenance({ degradedReasons: 'no_report_file' })).toBeNull()
   })
 })
+
+describe('the turn event on a stored step', () => {
+  it('keeps the key and its values, bounded', () => {
+    const result = sanitizeProvenance({
+      thinkingSteps: [
+        step({
+          turnEvent: {
+            key: 'status.retrieval.withQuery',
+            values: { corpus: 'knowledge', query: 'Fluchtweglänge GK4' },
+          },
+        }),
+      ],
+    })
+    expect(result!.thinkingSteps![0].turnEvent).toEqual({
+      key: 'status.retrieval.withQuery',
+      values: { corpus: 'knowledge', query: 'Fluchtweglänge GK4' },
+    })
+  })
+
+  it('caps every string and the number of values, and drops a keyless event', () => {
+    const values = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`k${i}`, 'v'.repeat(500)]))
+    const result = sanitizeProvenance({
+      thinkingSteps: [
+        step({ turnEvent: { key: 'x'.repeat(500), values } }),
+        step({ id: 's2', turnEvent: { values: { query: 'no key' } } }),
+        step({ id: 's3', turnEvent: 'not an object' }),
+      ],
+    })
+    const [first, second, third] = result!.thinkingSteps!
+    expect(first.turnEvent!.key).toHaveLength(64)
+    expect(Object.keys(first.turnEvent!.values!)).toHaveLength(8)
+    expect(first.turnEvent!.values!.k0).toHaveLength(64)
+    expect(second).not.toHaveProperty('turnEvent')
+    expect(third).not.toHaveProperty('turnEvent')
+  })
+})

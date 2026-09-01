@@ -541,6 +541,21 @@ export interface ThinkingStep {
    * stripping on localStorage prune so the sources fan-out remains after reload.
    */
   traceLanes?: ThinkingTraceLane[]
+  /**
+   * The turn event this step carried, hoisted: the stable key (`status.retrieval.withQuery`)
+   * and its interpolation values (the corpus, the query the model actually sent).
+   * The live line reads these out of `content`, which the storage prune blanks —
+   * so until this existed a reloaded thread, a colleague, or a second device had
+   * no record of what was searched. Same discipline as `traceLanes`: derived
+   * before the payload is dropped, newest renderable event of the slot wins.
+   */
+  turnEvent?: StoredTurnEvent
+}
+
+/** The one thing of a turn event worth keeping past the turn. */
+export interface StoredTurnEvent {
+  key: string
+  values?: Record<string, string>
 }
 
 /** Conversation/Session */
