@@ -115,6 +115,14 @@
               "de": "Das Eingabefeld im Chat ist wieder ruhig: Der grüne Rahmen beim Tippen und der grüne Senden-Button sind zurück in Grau und Schwarz. Grün steht in Piloti sonst für die Herkunft einer Quelle, und zwei Grüntöne direkt übereinander waren nicht auseinanderzuhalten. Dass eine Nachricht abgeschickt werden kann, zeigt der Button weiterhin — durch den Kontrast, nicht durch Farbe."
             },
             {
+              "en": "The header of the file preview is quiet now: the document's name, what kind of document it is, and the four controls that act on the file — herunterladen, umbenennen oder löschen, größer öffnen, schließen. Who created it, who is responsible and „Piloti dazu fragen\" moved into the panel beside it, above the summary that tells you whether asking is worth it.",
+              "de": "The header of the file preview is quiet now: the document's name, what kind of document it is, and the four controls that act on the file — herunterladen, umbenennen oder löschen, größer öffnen, schließen. Who created it, who is responsible and „Piloti dazu fragen\" moved into the panel beside it, above the summary that tells you whether asking is worth it."
+            },
+            {
+              "en": "„Zitierbar\" no longer appears on every file. A status shows only when it changes what you can do next — a document still being read, one that failed, or a report Piloti wrote and deliberately never indexed.",
+              "de": "„Zitierbar\" no longer appears on every file. A status shows only when it changes what you can do next — a document still being read, one that failed, or a report Piloti wrote and deliberately never indexed."
+            },
+            {
               "en": "Wenn zwei Quellen einander widersprechen, zeigt Piloti den Unterschied jetzt ausdrücklich an, nennt beide mit Fundstelle und sagt, welche Regel den Vorrang entscheidet — oder dass sich der Widerspruch aus den Quellen nicht auflösen lässt. Bisher wurde stillschweigend eine Variante gewählt.",
               "de": "Wenn zwei Quellen einander widersprechen, zeigt Piloti den Unterschied jetzt ausdrücklich an, nennt beide mit Fundstelle und sagt, welche Regel den Vorrang entscheidet — oder dass sich der Widerspruch aus den Quellen nicht auflösen lässt. Bisher wurde stillschweigend eine Variante gewählt."
             },
@@ -162,6 +170,10 @@
             {
               "en": "Das Erwähnen einer Kollegin mit \"@\" funktioniert jetzt auch im ersten Moment eines neuen Chatfensters. Bisher fragte die Auswahlliste nach einer Unterhaltung, die es auf dem Server noch gar nicht gab, und blieb danach für den Rest des Threads leer — es erschien überhaupt keine Liste.",
               "de": "Das Erwähnen einer Kollegin mit \"@\" funktioniert jetzt auch im ersten Moment eines neuen Chatfensters. Bisher fragte die Auswahlliste nach einer Unterhaltung, die es auf dem Server noch gar nicht gab, und blieb danach für den Rest des Threads leer — es erschien überhaupt keine Liste."
+            },
+            {
+              "en": "A Markdown note or a spreadsheet whose name contains „Plan\" — „Projektplan.md\", „Zeitplan.csv\" — no longer shows a floor plan on its card. The format decides the thumbnail, so a note looks like a note and a table like a table. Real drawings are unchanged.",
+              "de": "A Markdown note or a spreadsheet whose name contains „Plan\" — „Projektplan.md\", „Zeitplan.csv\" — no longer shows a floor plan on its card. The format decides the thumbnail, so a note looks like a note and a table like a table. Real drawings are unchanged."
             },
             {
               "en": "Wenn ein Filter in der Dateiablage nichts fand, stand dort „Noch keine Dokumente\" — auch in einem Projekt voller Dateien, mit dem Angebot, etwas hochzuladen. Jetzt steht dort, welcher Filter gerade nichts trifft, und daneben der Weg zurück.",
