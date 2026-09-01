@@ -56,6 +56,21 @@ export const fakeTextRun = (str: string, baseline: number, width: number): FakeT
  */
 export const fakePdfjsRuntime = (state: FakePdfState) => ({
   documentParameters: (url: string) => ({ url }),
+  /**
+   * Stand-in for the real text layer: one span per run, which is the part of it
+   * a spec can meaningfully assert — that the page's words reach the DOM at all,
+   * rather than living only on the canvas. Their pdf.js geometry is not
+   * reproduced here; jsdom lays nothing out, so there would be nothing to read
+   * back off it.
+   */
+  renderTextLayer: async (page: { textItems?: FakeTextItem[] }, container: HTMLElement) => {
+    for (const item of page.textItems ?? []) {
+      const span = document.createElement('span')
+      span.textContent = item.str
+      container.append(span)
+    }
+    return { destroy: () => container.replaceChildren() }
+  },
   loadPdfjs: async () => {
     if (state.fail) throw new Error('worker unavailable')
     return {
@@ -74,6 +89,9 @@ export const fakePdfjsRuntime = (state: FakePdfState) => ({
               cleanup: () => {},
               getTextContent: () =>
                 Promise.resolve({ items: state.pages[number - 1]?.items ?? [] }),
+              // Not a pdf.js field: how `renderTextLayer` above knows which
+              // page it was handed, since it never touches a real stream.
+              textItems: state.pages[number - 1]?.items ?? [],
             }),
         }),
         destroy: () => {

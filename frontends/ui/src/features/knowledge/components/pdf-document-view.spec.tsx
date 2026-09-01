@@ -171,6 +171,82 @@ describe('PdfDocumentView', () => {
     expect(scrollTo).toHaveBeenCalled()
   })
 
+  /**
+   * The reason the viewer draws its own pages is not only the highlight: a
+   * canvas is a picture of a document, and a reader who tries to select a
+   * sentence out of a picture gets nothing, silently. The text layer is what
+   * makes the rendered page behave like the document it is showing.
+   */
+  it('puts the page\'s own text over the bitmap, where it can be selected', async () => {
+    state.pages = [{ items: [run('Die Frist betraegt vier Wochen', 700, 180)] }]
+    render(<PdfDocumentView src="/api/doc.pdf" title="doc.pdf" />)
+
+    const layer = await screen.findByTestId('pdf-text-layer')
+    expect(layer.textContent).toContain('Die Frist betraegt vier Wochen')
+  })
+
+  it('re-scales the text layer with the zoom instead of rebuilding it', async () => {
+    state.pages = [{ items: [run('Die Frist betraegt vier Wochen', 700, 180)] }]
+    render(<PdfDocumentView src="/api/doc.pdf" title="doc.pdf" />)
+    const layer = await screen.findByTestId('pdf-text-layer')
+    await waitFor(() => expect(layer.style.getPropertyValue('--total-scale-factor')).toBe('1'))
+
+    fireEvent.click(screen.getByLabelText('Zoom in'))
+
+    // The runs are positioned in page units and sized off this variable, so the
+    // zoom is one number — and the same nodes, so a live selection survives it.
+    await waitFor(() => expect(layer.style.getPropertyValue('--total-scale-factor')).toBe('1.25'))
+    expect(screen.getByTestId('pdf-text-layer')).toBe(layer)
+  })
+
+  /**
+   * The page number comes from retrieval, which counts sheets. A Bescheid with a
+   * cover sheet numbers its own pages one lower, and before the search widened,
+   * that one-off cost the reader the whole feature in silence: the viewer opened
+   * at the wrong page with nothing marked, indistinguishable from a passage that
+   * could not be found at all.
+   */
+  it('looks one page either side when the cited page does not hold the passage', async () => {
+    state.pages = [
+      { items: [run('Vorbemerkungen zum Verfahren', 740, 160)] },
+      { items: [run('Inhaltsverzeichnis', 740, 100)] },
+      { items: [run('Die Frist betraegt vier Wochen', 700, 180)] },
+    ]
+    render(
+      <PdfDocumentView
+        src="/api/doc.pdf"
+        title="doc.pdf"
+        page={2}
+        highlight="Die Frist betraegt vier Wochen"
+      />,
+    )
+
+    const mark = await screen.findByTestId('passage-mark')
+    expect(mark.closest('[data-page]')?.getAttribute('data-page')).toBe('3')
+  })
+
+  it('does not wander further than that', async () => {
+    state.pages = [
+      { items: [run('Vorbemerkungen zum Verfahren', 740, 160)] },
+      { items: [run('Inhaltsverzeichnis', 740, 100)] },
+      { items: [run('Zwischenblatt', 740, 90)] },
+      { items: [run('Die Frist betraegt vier Wochen', 700, 180)] },
+    ]
+    render(
+      <PdfDocumentView
+        src="/api/doc.pdf"
+        title="doc.pdf"
+        page={1}
+        highlight="Die Frist betraegt vier Wochen"
+      />,
+    )
+    await waitFor(() => expect(document.querySelectorAll('[data-page]')).toHaveLength(4))
+
+    // Three pages out is not a numbering offset, it is a different passage that
+    // happens to read alike — and pointing at it would be a confident lie.
+    await waitFor(() => expect(screen.queryByTestId('passage-mark')).toBeNull())
+  })
+
   it('releases the document when the viewer goes away', async () => {
     state.pages = [{ items: [] }]
     const { unmount } = render(<PdfDocumentView src="/api/doc.pdf" title="doc.pdf" />)
