@@ -1,0 +1,22 @@
+---
+improvements:
+  - >
+    Im Quellendokument lässt sich jetzt Text markieren und kopieren. Bisher war
+    die geöffnete Seite nur ein Bild: Die Maus konnte nichts auswählen, und auch
+    die Suche des Browsers fand darin nichts.
+  - >
+    Die Liste der Fundstellen steht jetzt immer neben dem Dokument, auch wenn
+    eine Quelle nur an einer Stelle gelesen wurde. Sie sagt beim Lesen weiter
+    oben oder unten im Dokument, welche Passage gerade geprüft wird, und zeigt
+    die aktuelle Fundstelle vollständig — der Kasten über dem Dokument entfällt
+    dafür, das Dokument wird entsprechend größer dargestellt.
+fixes:
+  - >
+    Stimmt die Seitenzahl einer Fundstelle nicht mit der Seite im PDF überein —
+    üblich bei Dokumenten mit Deckblatt —, wird die zitierte Stelle jetzt auch
+    auf der Seite davor und danach gesucht statt gar nicht markiert.
+  - >
+    Am Telefon sprang das geöffnete Zitat über die markierte Stelle hinaus, so
+    dass die Passage oberhalb des sichtbaren Bereichs lag und die Seite leer
+    wirkte. Außerdem verdrängten die Kopieren-Schaltflächen im Kopf des
+    Dokumentfensters den Dokumentnamen. Beides ist behoben.
