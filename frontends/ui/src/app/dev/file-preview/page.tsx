@@ -69,6 +69,11 @@ const FIXTURE: FileItem = {
     'Nutzungssicherheit/Barrierefreiheit',
     'Schallschutz',
   ],
+  // Somebody is on the hook for this document. `Unvergeben` is the other state
+  // and the generated fixture below keeps it, so one run photographs both.
+  assignees: [
+    { userId: 'u-1', name: 'Miriam Hofer', email: 'm.hofer@example.at', profilePictureUrl: null },
+  ],
 }
 
 /**
@@ -399,6 +404,10 @@ export default function FilePreviewDevPage({
       projectId="proj-demo"
       projectName="Wohnbau Nord — Linz"
       canManage
+      // The rail's identity block holds „Verantwortlich" — the faces plus the
+      // Zuweisen popover — and it renders only for a collaborating viewer, so
+      // without this the one shot of the pane never photographed the row.
+      canCollaborate
       // Keep the modal open for the screenshot (fixture state is constant).
       onClose={() => {}}
     />

@@ -13,7 +13,6 @@ import {
   Download,
   FileCode2,
   FileText,
-  FileType2,
   FolderOpen,
   FolderTree,
   HardDrive,
@@ -26,6 +25,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SectionLabel } from '@/components/ui/section-label'
 import { DOCUMENT_TYPE_TAGS, DISCIPLINE_TAGS, MAX_TAGS } from '@/lib/documents/tag-vocabulary'
@@ -35,6 +35,8 @@ import { formatAbsoluteTime, formatBytes } from '@/lib/format'
 import { isOptimizerEligible } from '@/lib/images/optimizable'
 import { cn } from '@/lib/utils'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
+import type { DocumentKind } from '../document-kind'
+import { DocumentKindThumbnail } from './document-kind-thumbnail'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { DocumentActionsMenu, useDocumentActions, type DocumentScope } from './document-actions'
 import {
@@ -242,12 +244,12 @@ export function FilePreviewPane({
    * `IfcFilePreview` removed that prerequisite; the surfaces that have a
    * project still use it, and the ones that do not now work.
    */
-  const isModel =
-    inferDocumentKind({
-      filename: file.filename,
-      contentType: file.contentType,
-      tags: file.tags,
-    }) === 'model'
+  const kind = inferDocumentKind({
+    filename: file.filename,
+    contentType: file.contentType,
+    tags: file.tags,
+  })
+  const isModel = kind === 'model'
   const canPreview = PREVIEW_TYPES.includes(file.contentType ?? '')
   /**
    * Text, Markdown and CSV are previewable too, by a different route: the pane
@@ -410,27 +412,30 @@ export function FilePreviewPane({
 
   return (
     <div className="@container bg-card flex h-full min-h-0 flex-col">
-      {/* Peek chrome lives on the host — this header is the modal/expanded one.
+      {/* Peek chrome lives on the host — this header is the modal/expanded one,
+          and it is deliberately the SAME six elements on every document.
 
-          The row WRAPS, because on a phone it cannot hold both a filename and
-          five controls. Every action carries `shrink-0` (correctly — an
-          80px-wide „Herunterladen" is not a control), so the title block was
-          the only thing able to give, and with `min-w-0` it gave everything:
-          the name rendered as „f.", the „Von Piloti erstellt" byline as „C",
-          and the status badge collided with the Ask button. A floor on the
-          title block turns that into a wrap — one row on any container wide
-          enough, name over actions on one that is not. 11rem is about twenty
-          characters of the 14px name, enough that truncation is reading a
-          filename rather than guessing at one.
+          It used to be the surface's noticeboard: the name, the byline, the
+          type · status line, the assignment faces with their popover, "Piloti
+          dazu fragen", "Kollegin fragen", Herunterladen, the actions menu,
+          expand and close. Ten things, five of them conditional, in a row that
+          had to WRAP on anything narrower than a laptop — so the chrome
+          reflowed into two or three lines as you moved between files, and the
+          controls that were always there moved to make room for the ones that
+          were not. A header that changes shape per document cannot be learned;
+          the reader re-reads it every time.
 
-          The basis is the row minus the extension chip, so the break is
-          DETERMINISTIC: the name and the chip take the first row and every
-          action wraps together onto the second. Left to `flex-1` alone the
-          break fell wherever the remaining width happened to run out, which put
-          „Ask Piloti" beside the name and the other four beneath it — an action
-          row split across two lines for no reason a reader could see. */}
+          What is left is what acts on THIS FILE AS A FILE — download it, rename
+          or delete it, enlarge it, close it — beside the document's identity:
+          its name, and under it the two chips that say WHICH document this is,
+          status and category. Every one of those is unconditional (or as good
+          as: the menu goes with `canManage`, expand with a previewable format),
+          so the shape is the same at every width and the icons never move.
+          Everything that DESCRIBES what Piloti made of the document, and
+          everything that acts on it, moved to the rail — see the identity block
+          there. */}
       {!peeking && (
-        <div className="@md:flex-nowrap @md:gap-x-3 @md:px-5 flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-2 border-b px-3.5 pb-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] sm:pt-3.5">
+        <div className="@md:gap-x-3 @md:px-5 flex shrink-0 items-start gap-x-2 border-b px-3.5 pb-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] sm:pt-3.5">
           <span
             className="flex size-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold uppercase leading-none"
             style={extChipTint(ext)}
@@ -438,91 +443,44 @@ export function FilePreviewPane({
           >
             {ext || <Icon className="size-4" />}
           </span>
-          <div className="@md:min-w-0 @md:basis-0 min-w-[11rem] flex-1 basis-[calc(100%-3.25rem)]">
-            {/* The name the document was GIVEN, if it was given one. `title`
-              carries it in full for the truncated case — and the file's own
-              name underneath it, which is the answer to "which file is this
-              actually" for anyone who renamed it. */}
+          {/* The name the document was GIVEN, if it was given one. `title`
+            carries it in full for the truncated case — and the file's own name
+            underneath it, which is the answer to "which file is this actually"
+            for anyone who renamed it. */}
+          <div className="min-w-0 flex-1">
             <h3
               className="text-foreground truncate text-sm font-semibold leading-tight tracking-[-0.01em]"
               title={actions.isRenamed ? `${actions.name}\n${file.filename}` : actions.name}
             >
               {actions.name}
             </h3>
-            {/* The byline, under the name and ABOVE the type · status line, which
-              keeps it clear of the assignment row further down: provenance and
-              responsibility are two answers that must never be read as one. */}
-            <AuthorshipLine authoredBy={file.authoredBy} className="mt-0.5" />
-            {/* Type AND status on one line. The status badge used to live only in
-              the metadata column, below the fold on a narrow panel — so the one
-              question a reader has on opening a file ("is this actually indexed,
-              or am I looking at a document the agent cannot see?") was answered
-              further away than the answer to "what format is it". A document in
-              `failed` is the case that matters, and it must not require a
-              scroll. */}
+            {/* The subheading: what kind of document this is, and — only when
+              it matters — that Piloti cannot quote it.
+
+              „Zitierbar" is the case for almost every document in the library,
+              so a green badge saying so was a chip that appeared on everything
+              and therefore distinguished nothing; a reader scanning the header
+              learned only that the app has badges. The states worth a chip are
+              the ones that change what the reader can do next: „Wird
+              verarbeitet", „Fehlgeschlagen", and „Abgelegt" for a report Piloti
+              wrote and deliberately never indexed. In all three the Ask button
+              in the rail is grey, and this chip is why. Citable stays silent,
+              and the ordinary case has an ordinary header.
+
+              Neither chip is restated in the rail: the Status row and the
+              Document type row are gone from Properties, because the same fact
+              stated twice on one surface reads as two facts. */}
             <div className="mt-1 flex min-w-0 items-center gap-1.5">
-              <p className="text-muted-foreground truncate text-xs">
-                {ext || file.contentType || t('preview.unknownType')}
-              </p>
-              <span className="text-muted-foreground/40" aria-hidden>
-                ·
-              </span>
-              <DocumentStatusBadge status={file.status} className="shrink-0" />
+              {!isCitable(file) && (
+                <DocumentStatusBadge status={file.status} className="shrink-0" />
+              )}
+              {showMetadataPanel && detectedType && (
+                <Badge variant="secondary" className="min-w-0 font-normal">
+                  <span className="truncate">{detectedType}</span>
+                </Badge>
+              )}
             </div>
-            {canCollaborate && (
-              <div className="mt-1.5 flex min-w-0 items-center gap-1">
-                <AssignmentFaces assignees={file.assignees} />
-                <AssignPopover
-                  documentId={file.id}
-                  assignees={file.assignees ?? []}
-                  onChanged={(next) => onAssigneesChanged?.(next)}
-                />
-              </div>
-            )}
           </div>
-          {projectId && isCitable(file) && !inChat && (
-            <Button
-              type="button"
-              size="sm"
-              className="h-8 shrink-0"
-              onClick={() =>
-                askAboutFile({
-                  projectId,
-                  file,
-                  navigate: (href) => router.push(href),
-                })
-              }
-            >
-              {t('assignment.ask')}
-            </Button>
-          )}
-          {projectId && canCollaborate && isCitable(file) && (
-            <AskColleagueButton projectId={projectId} file={file} documentId={file.id} />
-          )}
-          {/* Disabled rather than hidden, the way this surface already treats a
-            document that is still being read — but the HINT has to tell the
-            truth. „Sobald die Datei zitierbar ist" promises a wait; a report
-            Piloti wrote was deliberately never indexed, so there is nothing to
-            wait for, and the hint says why instead. No `Piloti dazu fragen`
-            affordance appears in any other form here: that is the design, not
-            a gap. */}
-          {projectId && !isCitable(file) && !isFailedStatus(file.status) && (
-            // The reason sits on a WRAPPER, not on the button. A disabled
-            // `<button>` dispatches no pointer events in Chrome or Safari, so a
-            // `title` on it is a tooltip that can never open — the one sentence
-            // explaining why Ask is off was unreachable for every reader. The
-            // span is not disabled and does receive hover, so the explanation
-            // exists again; `aria-describedby` gives it to the reader who is not
-            // hovering anything.
-            <span title={askDisabledReason} className="shrink-0">
-              <Button size="sm" className="h-8 shrink-0" disabled aria-describedby={askReasonId}>
-                {t('assignment.ask')}
-              </Button>
-              <span id={askReasonId} className="sr-only">
-                {askDisabledReason}
-              </span>
-            </span>
-          )}
           <Button
             type="button"
             variant="outline"
@@ -762,6 +720,7 @@ export function FilePreviewPane({
             )
           ) : (
             <PageMock
+              kind={kind}
               caption={
                 previewGone
                   ? t('preview.gone')
@@ -870,6 +829,93 @@ export function FilePreviewPane({
             travel: its presence is the signal, not decoration. */}
         {!peeking && (
           <div className="scroll-fade-bottom bg-surface-sunken @2xl:w-[280px] @2xl:shrink-0 @2xl:min-h-0 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:border-l @2xl:border-t-0 @2xl:pb-4 flex w-full flex-col border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            {/* WHO OWNS THIS DOCUMENT, AND WHAT YOU CAN ASK OF IT.
+
+              The byline, who is responsible and „Piloti dazu fragen" all used
+              to sit in the chrome above the document, where they made the row
+              wrap and where each was conditional. None of them acts on the
+              FILE: they say where the document came from, who is on the hook
+              for it, and what the agent can do with it — which is the rail's
+              whole subject. The Ask button in particular belongs next to the
+              summary that tells the reader whether asking is worth it.
+
+              It leads the rail, above the model facts and the summary, so
+              „Verantwortlich" and Ask never need a scroll. In the split layout
+              (@2xl+) it is level with the top of the document; stacked, it is
+              the first thing under the preview. */}
+            <div className="mb-4 space-y-3 border-b pb-4">
+              {/* Provenance, not status: the badge is up in the header with
+                the name. „Von Piloti erstellt" leads the rail instead, because
+                for the one document where it appears it is the reason the Ask
+                button below is grey. */}
+              <AuthorshipLine authoredBy={file.authoredBy} />
+              {/* Responsibility, as one more label/value row so it reads with
+                the facts below rather than as chrome. Never merged with the
+                byline above: provenance and responsibility are two answers, and
+                the design forbids reading them as one. */}
+              {canCollaborate && (
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <span className="text-muted-foreground shrink-0 text-xs">
+                    {t('assignment.responsible')}
+                  </span>
+                  <div className="flex min-w-0 items-center gap-1">
+                    <AssignmentFaces assignees={file.assignees} />
+                    <AssignPopover
+                      documentId={file.id}
+                      assignees={file.assignees ?? []}
+                      onChanged={(next) => onAssigneesChanged?.(next)}
+                    />
+                  </div>
+                </div>
+              )}
+              {/* Full width, stacked, in the rail's own column. In the header
+                these were two 90px pills competing with four icon controls for
+                the same row; here they are the block's conclusion, and the
+                reader has just been told whether the document is citable. */}
+              {projectId && isCitable(file) && !inChat && (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-8 w-full"
+                  onClick={() =>
+                    askAboutFile({
+                      projectId,
+                      file,
+                      navigate: (href) => router.push(href),
+                    })
+                  }
+                >
+                  {t('assignment.ask')}
+                </Button>
+              )}
+              {projectId && canCollaborate && isCitable(file) && (
+                <AskColleagueButton projectId={projectId} file={file} documentId={file.id} />
+              )}
+              {/* Disabled rather than hidden, the way this surface already treats
+                a document that is still being read — but the HINT has to tell
+                the truth. „Sobald die Datei zitierbar ist" promises a wait; a
+                report Piloti wrote was deliberately never indexed, so there is
+                nothing to wait for, and the hint says why instead. No `Piloti
+                dazu fragen` affordance appears in any other form here: that is
+                the design, not a gap. */}
+              {projectId && !isCitable(file) && !isFailedStatus(file.status) && (
+                // The reason sits on a WRAPPER, not on the button. A disabled
+                // `<button>` dispatches no pointer events in Chrome or Safari, so
+                // a `title` on it is a tooltip that can never open — the one
+                // sentence explaining why Ask is off was unreachable for every
+                // reader. The span is not disabled and does receive hover, so the
+                // explanation exists again; `aria-describedby` gives it to the
+                // reader who is not hovering anything.
+                <span title={askDisabledReason} className="block">
+                  <Button size="sm" className="h-8 w-full" disabled aria-describedby={askReasonId}>
+                    {t('assignment.ask')}
+                  </Button>
+                  <span id={askReasonId} className="sr-only">
+                    {askDisabledReason}
+                  </span>
+                </span>
+              )}
+            </div>
             {/* The building's own numbers lead the rail: they are what the file
               IS. Ungated by the metadata flag, which covers what INGESTION
               derived — these come out of the IFC itself. Renders nothing until
@@ -909,11 +955,10 @@ export function FilePreviewPane({
                 {t('preview.properties')}
               </SectionLabel>
               <div className="space-y-2">
-                {showMetadataPanel && detectedType && (
-                  <MetaRow label={t('preview.indexed.documentType')} icon={FileType2}>
-                    <span className="text-foreground text-xs font-medium">{detectedType}</span>
-                  </MetaRow>
-                )}
+                {/* No document-type row, and no status row: both are chips
+                  under the name in the header, where they answer "which
+                  document is this" beside the document's own name. Stated here
+                  as well they would read as two more facts. */}
                 {showMetadataPanel && projectName && (
                   <MetaRow label={t('preview.indexed.project')} icon={FolderOpen}>
                     <span className="text-foreground truncate text-xs font-medium">
@@ -944,8 +989,9 @@ export function FilePreviewPane({
                     </span>
                   </MetaRow>
                 )}
-                {/* No status row: the header badge already answers it, and the
-                  same fact stated twice on one surface reads as two facts. */}
+                {/* No status row: the badge at the top of this rail already
+                  answers it, and the same fact stated twice on one surface
+                  reads as two facts. */}
                 <MetaRow label={t('preview.type')} icon={FileCode2}>
                   <span className="text-foreground truncate font-mono text-xs">
                     {file.contentType ?? t('preview.unknownType')}
@@ -1465,10 +1511,21 @@ function PageMock({
   caption,
   action,
   skeleton,
+  kind,
 }: {
   caption?: string
   action?: ReactNode
   skeleton?: boolean
+  /**
+   * What the file IS, when there is no preview to show. The empty state used
+   * to be a dashed box with a sentence in it — the same box for a contract, a
+   * spreadsheet and a DWG floor plan — so the surface that exists to show a
+   * document showed nothing about it at all. The card in the grid behind this
+   * modal already draws the document's kind; borrowing that sketch means the
+   * reader recognises the file they clicked, and the two surfaces speak one
+   * visual language instead of two.
+   */
+  kind?: DocumentKind
 }) {
   return (
     <div className="bg-background h-fit min-h-[320px] w-full max-w-[520px] rounded-lg border p-7 shadow-lg">
@@ -1486,6 +1543,11 @@ function PageMock({
         <div className={cn('h-[6px] w-12 rounded-sm', skeleton ? 'bg-muted/70' : 'bg-muted/40')} />
       </div>
       <div className="mt-3.5 flex h-[260px] flex-col items-center justify-center gap-3 rounded border border-dashed px-6 text-center">
+        {/* Faint, and never while loading: a skeleton claims content is coming,
+            and a line drawing is not that claim. */}
+        {!skeleton && kind && (
+          <DocumentKindThumbnail kind={kind} className="text-muted-foreground/45 h-16 w-24" />
+        )}
         {!skeleton && caption && (
           <p className="text-muted-foreground max-w-[80%] text-balance text-xs leading-relaxed">
             {caption}
@@ -1522,7 +1584,6 @@ function AskColleagueButton({
       documentId={documentId}
       assignees={file.assignees ?? []}
       pickOnly
-      triggerLabel={t('assignment.askColleague')}
       onPick={(person) => {
         const name = person.name || person.email || t('assignment.to')
         askAboutFile({
@@ -1534,6 +1595,14 @@ function AskColleagueButton({
         })
       }}
       onChanged={() => undefined}
+      // Full width in the rail, beside „Piloti dazu fragen", rather than the
+      // ghost pill the popover draws for the Files list. The two Ask affordances
+      // are one pair and have to read as one.
+      trigger={
+        <Button type="button" variant="outline" size="sm" className="h-8 w-full">
+          {t('assignment.askColleague')}
+        </Button>
+      }
     />
   )
 }

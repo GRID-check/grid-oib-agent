@@ -1,0 +1,19 @@
+---
+improvements:
+  - >
+    The header of the file preview is quiet now: the document's name, what kind
+    of document it is, and the four controls that act on the file —
+    herunterladen, umbenennen oder löschen, größer öffnen, schließen. Who
+    created it, who is responsible and „Piloti dazu fragen" moved into the
+    panel beside it, above the summary that tells you whether asking is worth
+    it.
+  - >
+    „Zitierbar" no longer appears on every file. A status shows only when it
+    changes what you can do next — a document still being read, one that
+    failed, or a report Piloti wrote and deliberately never indexed.
+fixes:
+  - >
+    A Markdown note or a spreadsheet whose name contains „Plan" —
+    „Projektplan.md", „Zeitplan.csv" — no longer shows a floor plan on its
+    card. The format decides the thumbnail, so a note looks like a note and a
+    table like a table. Real drawings are unchanged.

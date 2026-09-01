@@ -111,6 +111,22 @@ const FILES: FileItem[] = [
     contentType: 'image/jpeg',
     fileSize: 5_300_000,
   }),
+  // FORMAT BEATS THE NAME. „plan" matches anywhere in a filename, so these two
+  // used to draw a floor-plan card — outer walls, partitions and a door swing —
+  // over a Markdown note and a table. `Statik_Positionsplan.pdf` above is the
+  // control: it is a PDF, it really can be a drawing, and it still reads as one.
+  makeFile('p8', 'Projektplan_Sanierung.md', 'Ablauf der Sanierung in Phasen, mit offenen Punkten je Gewerk.', {
+    contentType: 'text/markdown',
+    fileSize: 31_000,
+    pageCount: null,
+    contentTypes: ['text'],
+  }),
+  makeFile('p9', 'Zeitplan_Gewerke.csv', 'Gewerke mit Start- und Endterminen je Bauabschnitt.', {
+    contentType: 'text/csv',
+    fileSize: 18_000,
+    pageCount: null,
+    contentTypes: ['table'],
+  }),
 ]
 
 /**
