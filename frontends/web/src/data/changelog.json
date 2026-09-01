@@ -50,6 +50,14 @@
               "de": "Antworten bringen ihre Kernelemente strukturiert mit: das Urteil steht als kopierbarer Wert groß über der Antwort, die wichtigsten Punkte als Kernaussagen darunter, und höchstens ein Hinweis hebt hervor, was Ihr nächstes Tun ändert. Jedes Element wird geprüft, bevor es erscheint — ein Urteil ist ein Wert, nie ein Absatz."
             },
             {
+              "en": "Die Dateien-Kopfzeile hat jetzt ein Filtermenü statt einer offenen Filterleiste, und es kann mehr als vorher: filtern nach Zuständigkeit, Herkunft, Status und Dateityp, plus die Sortierung. Eine Zahl am Button sagt, wie viele Filter gerade aktiv sind.",
+              "de": "Die Dateien-Kopfzeile hat jetzt ein Filtermenü statt einer offenen Filterleiste, und es kann mehr als vorher: filtern nach Zuständigkeit, Herkunft, Status und Dateityp, plus die Sortierung. Eine Zahl am Button sagt, wie viele Filter gerade aktiv sind."
+            },
+            {
+              "en": "Die Sortierung gilt jetzt für beide Ansichten. Bisher gehörte sie der Listenansicht allein, sodass ein Wechsel auf Kacheln die gewählte Reihenfolge verwarf und \"was ist das Neueste\" nur in einer der beiden Ansichten zu beantworten war.",
+              "de": "Die Sortierung gilt jetzt für beide Ansichten. Bisher gehörte sie der Listenansicht allein, sodass ein Wechsel auf Kacheln die gewählte Reihenfolge verwarf und \"was ist das Neueste\" nur in einer der beiden Ansichten zu beantworten war."
+            },
+            {
               "en": "Dateien lassen sich jetzt per Drag & Drop in einen Ordner ziehen — auf eine Ordnerkachel, eine Ordnerzeile oder auf „Alle Dateien\" in der Pfadleiste, um sie wieder herauszuholen. Der Zielordner hebt sich hervor, solange Sie darüber sind. „Verschieben\" im Menü der Datei tut weiterhin dasselbe.",
               "de": "Dateien lassen sich jetzt per Drag & Drop in einen Ordner ziehen — auf eine Ordnerkachel, eine Ordnerzeile oder auf „Alle Dateien\" in der Pfadleiste, um sie wieder herauszuholen. Der Zielordner hebt sich hervor, solange Sie darüber sind. „Verschieben\" im Menü der Datei tut weiterhin dasselbe."
             },
@@ -62,8 +70,24 @@
               "de": "Wo eine Datei vorher lag, steht jetzt als „Herkunft\" in der Detailansicht und lässt sich mit einem Klick kopieren. So können Sie am Original auf dem Büroserver weiterarbeiten, statt eine Kopie herunterzuladen."
             },
             {
+              "en": "Eine IFC-Datei verhält sich jetzt überall gleich. Ein Klick öffnet die Vorschau mit dem Gebäude darin, und darunter führt eine Schaltfläche in den Modellbereich. Bisher sprang ein Klick in den Projektdateien direkt in die Vollbildansicht, während dieselbe Datei im Büroarchiv eine Vorschau ohne Ausgang zeigte.",
+              "de": "Eine IFC-Datei verhält sich jetzt überall gleich. Ein Klick öffnet die Vorschau mit dem Gebäude darin, und darunter führt eine Schaltfläche in den Modellbereich. Bisher sprang ein Klick in den Projektdateien direkt in die Vollbildansicht, während dieselbe Datei im Büroarchiv eine Vorschau ohne Ausgang zeigte."
+            },
+            {
+              "en": "Der Modellbereich ist jetzt auch aus dem Büroarchiv erreichbar. Struktur, Mengen und Revisionen stehen dort vollständig zur Verfügung; das Prüfbuch braucht weiterhin ein Projekt, weil es gegen Gebäudeklasse und Hauptnutzung prüft, und sagt das an Ort und Stelle.",
+              "de": "Der Modellbereich ist jetzt auch aus dem Büroarchiv erreichbar. Struktur, Mengen und Revisionen stehen dort vollständig zur Verfügung; das Prüfbuch braucht weiterhin ein Projekt, weil es gegen Gebäudeklasse und Hauptnutzung prüft, und sagt das an Ort und Stelle."
+            },
+            {
               "en": "Praktisch jede Antwort beginnt jetzt mit einer Zusammenfassung: ein bis zwei Sätze, die das Ergebnis samt entscheidender Einschränkung vorwegnehmen — als Vorspann im Antwortkopf, direkt unter dem Urteil, wenn eines vorliegt.",
               "de": "Praktisch jede Antwort beginnt jetzt mit einer Zusammenfassung: ein bis zwei Sätze, die das Ergebnis samt entscheidender Einschränkung vorwegnehmen — als Vorspann im Antwortkopf, direkt unter dem Urteil, wenn eines vorliegt."
+            },
+            {
+              "en": "Ordner in den Projektdateien haben jetzt eine eigene Adresse. Der Zurück-Button geht damit eine Ebene nach oben statt aus den Dateien heraus, ein Neuladen bleibt im geöffneten Ordner, und ein Ordner lässt sich per Link weitergeben.",
+              "de": "Ordner in den Projektdateien haben jetzt eine eigene Adresse. Der Zurück-Button geht damit eine Ebene nach oben statt aus den Dateien heraus, ein Neuladen bleibt im geöffneten Ordner, und ein Ordner lässt sich per Link weitergeben."
+            },
+            {
+              "en": "Über der Ordneransicht steht jetzt ein benannter Weg nach oben — \"Zurück zu Planung\" — statt nur der Brotkrumenleiste, die sagt, wo man ist.",
+              "de": "Über der Ordneransicht steht jetzt ein benannter Weg nach oben — \"Zurück zu Planung\" — statt nur der Brotkrumenleiste, die sagt, wo man ist."
             },
             {
               "en": "Text-, Markdown- und CSV-Dateien lassen sich jetzt direkt in Piloti lesen. Bisher zeigten genau diese Formate dieselbe graue Platzhalterseite wie ein Dateityp, den wir gar nicht öffnen können. Eine Markdown-Checkliste erscheint jetzt als Checkliste, eine CSV-Datei als Tabelle — auch semikolongetrennte Exporte aus einem deutschen Excel.",
@@ -124,12 +148,20 @@
               "de": "„An dieser Stelle öffnen\" wurde bisher bei jeder Quelle angeboten, auch bei solchen, die Piloti gar nicht anzeigen kann — etwa einem Plan oder einer Word-Datei. Der Klick schloss dann nur das Fenster, sonst geschah nichts. Der Link erscheint jetzt nur noch, wenn sich die Quelle wirklich öffnen lässt; andernfalls steht dort, dass sie sich hier nicht öffnen lässt."
             },
             {
+              "en": "Die Beschreibung unter \"Dateien\" wird nicht mehr zu einer schmalen Spalte aus ein bis zwei Wörtern zusammengedrückt. Die Bedienelemente daneben haben sich ihre volle Breite genommen und den Rest der Überschrift überlassen; jetzt hat der Titelbereich eine Mindestbreite und die Bedienelemente umbrechen stattdessen in eine zweite Zeile.",
+              "de": "Die Beschreibung unter \"Dateien\" wird nicht mehr zu einer schmalen Spalte aus ein bis zwei Wörtern zusammengedrückt. Die Bedienelemente daneben haben sich ihre volle Breite genommen und den Rest der Überschrift überlassen; jetzt hat der Titelbereich eine Mindestbreite und die Bedienelemente umbrechen stattdessen in eine zweite Zeile."
+            },
+            {
               "en": "Eine Deep-Research-Anfrage brach ab, wenn intern kurz kein freier Platz für einen Quellenaufruf da war. Die Wartezeit auf unsere eigene Warteschlange galt als „Quelle antwortet nicht\" und beendete den ganzen Lauf — früh im Lauf ohne Zwischenergebnis. Jetzt wird nur dieser eine Aufruf übersprungen, und die Recherche läuft weiter.",
               "de": "Eine Deep-Research-Anfrage brach ab, wenn intern kurz kein freier Platz für einen Quellenaufruf da war. Die Wartezeit auf unsere eigene Warteschlange galt als „Quelle antwortet nicht\" und beendete den ganzen Lauf — früh im Lauf ohne Zwischenergebnis. Jetzt wird nur dieser eine Aufruf übersprungen, und die Recherche läuft weiter."
             },
             {
               "en": "Eine laufende Recherche, die längere Zeit nichts meldet, wurde von der Verbindung dazwischen für abgestorben gehalten und getrennt — obwohl im Hintergrund alles lief. Die Verbindung wird jetzt regelmäßig wachgehalten.",
               "de": "Eine laufende Recherche, die längere Zeit nichts meldet, wurde von der Verbindung dazwischen für abgestorben gehalten und getrennt — obwohl im Hintergrund alles lief. Die Verbindung wird jetzt regelmäßig wachgehalten."
+            },
+            {
+              "en": "Das Erwähnen einer Kollegin mit \"@\" funktioniert jetzt auch im ersten Moment eines neuen Chatfensters. Bisher fragte die Auswahlliste nach einer Unterhaltung, die es auf dem Server noch gar nicht gab, und blieb danach für den Rest des Threads leer — es erschien überhaupt keine Liste.",
+              "de": "Das Erwähnen einer Kollegin mit \"@\" funktioniert jetzt auch im ersten Moment eines neuen Chatfensters. Bisher fragte die Auswahlliste nach einer Unterhaltung, die es auf dem Server noch gar nicht gab, und blieb danach für den Rest des Threads leer — es erschien überhaupt keine Liste."
             },
             {
               "en": "Wenn ein Filter in der Dateiablage nichts fand, stand dort „Noch keine Dokumente\" — auch in einem Projekt voller Dateien, mit dem Angebot, etwas hochzuladen. Jetzt steht dort, welcher Filter gerade nichts trifft, und daneben der Weg zurück.",
