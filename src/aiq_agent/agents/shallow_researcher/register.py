@@ -86,6 +86,16 @@ class ShallowResearchAgentConfig(FunctionBaseConfig, name="shallow_research_agen
             "workflow build rather than silently sending the schemas anyway."
         ),
     )
+    envelope_json_mode_with_tools: bool = Field(
+        default=False,
+        description=(
+            "Whether provider JSON mode (`response_format: json_object`) for the answer envelope is "
+            "ALSO bound on tool-bound research iterations, not only on the tool-free forced-synthesis "
+            "call (default OFF). Some OpenRouter-routed providers accept the parameter and then stop "
+            "emitting tool calls — a silent degradation the per-call fallback cannot see — so turning "
+            "this on is a per-deployment decision made against a provider known to honor both."
+        ),
+    )
 
 
 @register_function(config_type=ShallowResearchAgentConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
@@ -141,6 +151,7 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
         callbacks=callbacks,
         tool_search=config.tool_search,
         deferred_tool_loading=config.deferred_tool_loading,
+        envelope_json_mode_with_tools=config.envelope_json_mode_with_tools,
     )
 
     async def _run(state: ShallowResearchAgentState) -> ShallowResearchAgentState:
@@ -241,6 +252,7 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
                     # would silently stop applying on exactly the requests that
                     # select sources or activate a skill.
                     deferred_tool_loading=config.deferred_tool_loading,
+                    envelope_json_mode_with_tools=config.envelope_json_mode_with_tools,
                 )
 
             if all_mapped_tools_filtered_out(tools, selected_tools, data_sources):

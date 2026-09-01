@@ -331,6 +331,187 @@ class TestShallowResearcherAgent:
         assert "[CONFIDENCE" not in final_content
         assert result.answer_confidence_marker == "high"
 
+    # ------------------------------------------------------------------
+    # The answer envelope, END TO END: a scripted ```answer_json reply goes
+    # into the real run() and the structured state comes out the other side —
+    # extraction, control-field consumption (confidence, escalation), the
+    # deterministic gates and the versioned answer_meta wire payload. The
+    # parser has its own unit suite (test_answer_envelope.py); these tests
+    # exist so a wiring regression anywhere along that chain fails HERE.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _envelope_reply(*, fenced: bool = True, **overrides):
+        """One contract-shaped envelope reply, long enough to earn takeaways."""
+        import json as _json
+
+        prose = (
+            "Die erforderliche Geländerhöhe für die Terrasse beträgt 100 cm, weil die "
+            "Absturzhöhe unter 12 m liegt [1]. "
+            + "Die Höhe wird vom fertigen Fußboden bis zur Oberkante der Umwehrung gemessen. "
+            * 10
+        )
+        envelope = {
+            "answer": prose + "\n\n## References\n- [1] https://example.com",
+            "verdict": {
+                "value": "100 cm",
+                "subject": "Erforderliche Geländerhöhe",
+                "reference": {"document": "OIB-Richtlinie 4", "section": "Punkt 2.1.1"},
+            },
+            "takeaways": [
+                {"text": "Unter 12 m Absturzhöhe genügen 100 cm."},
+                {"text": "Gemessen wird ab fertigem Fußboden.", "detail": "Aufkantungen zählen mit."},
+            ],
+            "callout": {"kind": "achtung", "text": "Ab 12 m Absturzhöhe sind 110 cm erforderlich."},
+            "confidence": {"level": "medium", "reason": "eine Fundstelle, nicht am Projekt gemessen"},
+        }
+        envelope.update(overrides)
+        body = _json.dumps(envelope, ensure_ascii=False)
+        return f"```answer_json\n{body}\n```" if fenced else body
+
+    @pytest.mark.asyncio
+    async def test_run_consumes_a_full_answer_envelope(self, mock_llm_provider, mock_llm, real_tool):
+        """Envelope in → prose out, confidence consumed, anatomy gated onto state."""
+        from langchain_core.callbacks import BaseCallbackHandler
+
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._envelope_reply()))
+
+        class _EmitCallback(BaseCallbackHandler):
+            def __init__(self):
+                self.reports = []
+
+            def emit_final_report(self, content):
+                self.reports.append(content)
+
+        emit_callback = _EmitCallback()
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], callbacks=[emit_callback])
+
+        result = await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Geländerhöhe Terrasse?")]))
+
+        # The reader gets the PROSE — the envelope apparatus never reaches them.
+        final_content = result.messages[-1].content
+        assert "Die erforderliche Geländerhöhe für die Terrasse beträgt 100 cm" in final_content
+        assert "```" not in final_content
+        assert '"verdict"' not in final_content
+        emitted = emit_callback.reports[-1]
+        assert "```" not in emitted
+        assert '"confidence"' not in emitted
+
+        # The envelope's control fields were consumed, not just stripped.
+        assert result.escalation_requested is False
+        assert result.answer_confidence_marker == "medium"
+        assert result.answer_confidence_marker_reason == "eine Fundstelle, nicht am Projekt gemessen"
+
+        # The anatomy survived the gates and rides state as the versioned payload.
+        assert result.answer_meta is not None
+        assert result.answer_meta["v"] == 1
+        assert result.answer_meta["verdict"]["value"] == "100 cm"
+        assert result.answer_meta["verdict"]["reference"]["document"] == "OIB-Richtlinie 4"
+        assert len(result.answer_meta["takeaways"]) == 2
+        assert result.answer_meta["callout"]["kind"] == "achtung"
+
+    @pytest.mark.asyncio
+    async def test_run_accepts_the_bare_object_json_mode_produces(self, mock_llm_provider, mock_llm, real_tool):
+        """Provider JSON mode emits an UNFENCED object; the chain must not care."""
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._envelope_reply(fenced=False)))
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+
+        result = await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")]))
+
+        final_content = result.messages[-1].content
+        assert "Die erforderliche Geländerhöhe für die Terrasse beträgt 100 cm" in final_content
+        assert not final_content.strip().startswith("{")
+        assert result.answer_confidence_marker == "medium"
+        assert result.answer_meta is not None and result.answer_meta["verdict"]["value"] == "100 cm"
+
+    @pytest.mark.asyncio
+    async def test_run_envelope_escalation_discards_the_anatomy(self, mock_llm_provider, mock_llm, real_tool):
+        """`escalate_to_deep: true` sets the signal and drops the decoration."""
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._envelope_reply(escalate_to_deep=True)))
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+
+        result = await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")]))
+
+        # A shallow answer about to be superseded by deep research must not
+        # ship a verdict for the discarded text.
+        assert result.escalation_requested is True
+        assert result.answer_meta is None
+        assert result.answer_confidence_marker == "medium"
+
+    # ------------------------------------------------------------------
+    # Provider JSON mode for the envelope (`response_format: json_object`),
+    # the OpenRouter-safe variant `cards/generate.py` established. Bound on
+    # the tool-free forced-synthesis call; tool-bound iterations only by
+    # explicit opt-in (`envelope_json_mode_with_tools`).
+    # ------------------------------------------------------------------
+
+    def _bindable(self, mock_llm, reply):
+        """Configure `mock_llm.bind(...)` to return a working bound double."""
+        bound = MagicMock()
+        bound.ainvoke = AsyncMock(return_value=AIMessage(content=reply))
+        mock_llm.bind = MagicMock(return_value=bound)
+        return bound
+
+    @pytest.mark.asyncio
+    async def test_forced_synthesis_binds_json_mode_on_research_turns(self, mock_llm_provider, mock_llm, real_tool):
+        """Budget exhausted on a research turn → the synthesis call requests JSON."""
+        bound = self._bindable(mock_llm, self._envelope_reply(fenced=False))
+        # Ceiling 0: the very first agent_node call is forced synthesis.
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], max_tool_iterations=0)
+
+        result = await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")]))
+
+        mock_llm.bind.assert_called_once_with(response_format={"type": "json_object"})
+        bound.ainvoke.assert_awaited_once()
+        # The JSON-mode response flowed through the same extraction chain.
+        assert result.answer_confidence_marker == "medium"
+        assert "```" not in result.messages[-1].content
+
+    @pytest.mark.asyncio
+    async def test_forced_synthesis_on_a_meta_turn_stays_plain(self, mock_llm_provider, mock_llm, real_tool):
+        """Meta turns answer in prose — no envelope contract, no JSON mode."""
+        mock_llm.bind = MagicMock()
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content="Gerne!"))
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], max_tool_iterations=0)
+
+        await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Hallo!")], requires_sources=False))
+
+        mock_llm.bind.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_json_mode_falls_back_to_a_plain_call(self, mock_llm_provider, mock_llm, real_tool):
+        """A provider that rejects response_format degrades to prose, never fails."""
+        bound = self._bindable(mock_llm, "")
+        bound.ainvoke = AsyncMock(side_effect=RuntimeError("response_format not supported"))
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._envelope_reply()))
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], max_tool_iterations=0)
+
+        result = await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")]))
+
+        mock_llm.bind.assert_called_once_with(response_format={"type": "json_object"})
+        mock_llm.ainvoke.assert_awaited()
+        assert result.answer_confidence_marker == "medium"
+
+    @pytest.mark.asyncio
+    async def test_tool_bound_iterations_bind_json_mode_only_by_opt_in(self, mock_llm_provider, mock_llm, real_tool):
+        """Default OFF on tool-bound calls (silent tool-suppression risk); flag turns it on."""
+        mock_llm.bind = MagicMock()
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._envelope_reply()))
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+
+        await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")]))
+        mock_llm.bind.assert_not_called()
+
+        bound = self._bindable(mock_llm, self._envelope_reply())
+        opted_in = ShallowResearcherAgent(
+            llm_provider=mock_llm_provider, tools=[real_tool], envelope_json_mode_with_tools=True
+        )
+        result = await opted_in.run(ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")]))
+
+        mock_llm.bind.assert_called_once_with(response_format={"type": "json_object"})
+        bound.ainvoke.assert_awaited_once()
+        assert result.answer_confidence_marker == "medium"
+
     @pytest.mark.asyncio
     async def test_run_with_user_info(self, mock_llm_provider, mock_llm, real_tool):
         """Test run() with user info in state."""

@@ -151,6 +151,19 @@ _RESEARCH_ONLY_BASENAMES = frozenset({"surface_documents", "ifc_query", "ifc_mea
 # worker costs memory forever.
 _MAX_CACHED_BINDINGS = 32
 
+# Provider JSON mode for the ```answer_json envelope, same verdict as
+# `cards/generate.py::_CARDS_RESPONSE_FORMAT`: the envelope schema is
+# optional-heavy, so `strict` json_schema is refused or silently ignored on
+# the OpenRouter-routed providers this fleet runs on, while `json_object` is
+# widely honored and guarantees exactly what the tolerant extractor needs —
+# syntactic validity (its bare-object tier catches the unfenced output JSON
+# mode produces). The SHAPE is taught by the rendered schema in the prompt;
+# `gate_answer_meta` stays the enforcement. Bound per-call with a fallback
+# (see `_ainvoke_with_envelope_json_mode`), never construction-time: a
+# provider that rejects the parameter must degrade to prose, not to a failed
+# turn.
+_ENVELOPE_RESPONSE_FORMAT: dict[str, Any] = {"type": "json_object"}
+
 
 def _count_interaction_calls(tool_calls: Iterable[Any]) -> int:
     """How many of a round's tool calls are the answer's own output channel.
@@ -422,6 +435,7 @@ class ShallowResearcherAgent:
         callbacks: list[Any] | None = None,
         tool_search: ToolSearchSettings | None = None,
         deferred_tool_loading: DeferredToolLoadingSettings | None = None,
+        envelope_json_mode_with_tools: bool = False,
     ) -> None:
         """
         Initialize the shallow researcher agent.
@@ -448,6 +462,16 @@ class ShallowResearcherAgent:
                 disabled settings object) leaves every path below exactly as it
                 was: the full binding, the full prompt tool list, the full
                 ToolNode.
+            envelope_json_mode_with_tools: Whether provider JSON mode
+                (``response_format: json_object``) is ALSO bound on the
+                tool-bound research iterations, not only on the tool-free
+                forced-synthesis call. Default False, deliberately: some
+                OpenRouter-routed providers accept the parameter and then stop
+                emitting tool calls — a silent degradation the per-call
+                fallback cannot see, the exact failure class
+                ``verify_deferred_tool_loading`` exists for. The envelope
+                extractor is fail-open either way, so JSON mode is a guarantee
+                of syntactic validity, never the enforcement.
             deferred_tool_loading: Optional OpenRouter server-side tool search.
                 None (or disabled) binds tool schemas the way it always has.
                 Orthogonal to ``tool_search``: that one decides WHICH tools are
@@ -464,6 +488,7 @@ class ShallowResearcherAgent:
         self.deferred_tool_loading = (
             deferred_tool_loading if (deferred_tool_loading is not None and deferred_tool_loading.enabled) else None
         )
+        self.envelope_json_mode_with_tools = envelope_json_mode_with_tools
 
         # Load prompts
         self.system_prompt = system_prompt or self._load_system_prompt()
@@ -540,6 +565,32 @@ class ShallowResearcherAgent:
     def _get_llm(self) -> BaseChatModel:
         """Get the LLM for shallow research."""
         return self.llm_provider.get(LLMRole.RESEARCHER)
+
+    async def _ainvoke_with_envelope_json_mode(self, llm: Any, messages: list[Any]) -> Any:
+        """Invoke ``llm`` with provider JSON mode bound, falling back to a plain call.
+
+        The ``cards/generate.py::_ainvoke_card_llm`` idiom: bind
+        ``response_format`` per-call so an OpenAI-compatible provider guarantees
+        syntactically valid JSON for the answer envelope, and retry without it
+        when the provider rejects the parameter — the fail-open extractor then
+        handles fenced/prose output as before. Accepts both the bare researcher
+        LLM and a tool-bound RunnableBinding (``bind`` merges kwargs on either).
+
+        The fallback catches the LOUD failure only. OpenRouter's other mode —
+        accepting the parameter and silently degrading (dropping tool calls, or
+        routing to a provider that ignores it) — is invisible here by nature,
+        which is why JSON mode defaults to the tool-FREE forced-synthesis call
+        and rides tool-bound iterations only behind
+        ``envelope_json_mode_with_tools``.
+        """
+        try:
+            return await llm.bind(response_format=_ENVELOPE_RESPONSE_FORMAT).ainvoke(messages)
+        except Exception as e:
+            logger.warning(
+                "Envelope JSON mode failed (%s); retrying without response_format",
+                str(e).split("\n")[0],
+            )
+        return await llm.ainvoke(messages)
 
     def _bind_research_tools(self, tools: Sequence[BaseTool]) -> Any:
         """Bind a RESEARCH-turn tool set, deferring the schemas when configured.
@@ -861,13 +912,22 @@ class ShallowResearcherAgent:
                     synthesis_anchor = HumanMessage(
                         content=(
                             "You have exhausted your research budget. Synthesize the final answer now "
+                            "as your ```answer_json envelope object, "
                             "using the citations [1], [2] and the '## References' format. "
                             "Do not attempt any further tool calls."
                         )
                     )
 
                     full_messages = [system_message] + processed_history + [synthesis_anchor]
-                    response = await self._get_llm().ainvoke(full_messages)
+                    # Forced synthesis is the tool-FREE call, so provider JSON
+                    # mode is safe here unconditionally on research turns: there
+                    # is no tool call left to suppress, and the envelope is due.
+                    # Meta turns answer in prose (no envelope contract), so they
+                    # keep the plain call.
+                    if state.requires_sources:
+                        response = await self._ainvoke_with_envelope_json_mode(self._get_llm(), full_messages)
+                    else:
+                        response = await self._get_llm().ainvoke(full_messages)
                     return {
                         "messages": [response],
                         "tool_iterations": iterations,
@@ -879,7 +939,14 @@ class ShallowResearcherAgent:
                     }
 
                 full_messages = [system_message] + processed_history
-                response = await active_llm_with_tools.ainvoke(full_messages)
+                # Tool-bound iterations get JSON mode only by explicit opt-in:
+                # the constructor docstring carries the silent-tool-suppression
+                # argument for the default. Even opted in, meta turns stay
+                # plain — their reply is prose, not an envelope.
+                if self.envelope_json_mode_with_tools and state.requires_sources:
+                    response = await self._ainvoke_with_envelope_json_mode(active_llm_with_tools, full_messages)
+                else:
+                    response = await active_llm_with_tools.ainvoke(full_messages)
 
                 new_iterations = iterations
                 new_interaction_iterations = interaction_iterations

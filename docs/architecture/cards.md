@@ -27,7 +27,14 @@ above the prose, callout and takeaways after it). No generator — `emit_card`,
 the DSML salvage, or the post-hoc deep pass — produces these types as cards
 any more; the union members survive only so stored threads keep rendering, and
 their renderers double as the anatomy's visual vocabulary
-(`features/chat/lib/answer-meta-cards.ts`).
+(`features/chat/lib/answer-meta-cards.ts`). On the generation side the
+envelope is REQUESTED from the provider too, not only taught: the shallow
+agent binds `response_format: json_object` (the OpenRouter-safe mode
+`cards/generate.py` established; `strict` json_schema is ignored there) on
+the tool-free forced-synthesis call, with a per-call fallback to a plain
+request — and on tool-bound iterations only behind the
+`envelope_json_mode_with_tools` config flag, because some routed providers
+accept the parameter and silently stop emitting tool calls.
 The families are not decoration: each answers
 "where does a number on this card come from?" differently, and that answer is
 what decides whether the model may emit the card at all, on which surface, and
