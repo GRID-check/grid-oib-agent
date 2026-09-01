@@ -25,6 +25,7 @@ import { de, en } from '@/i18n/dictionaries'
 import { createTranslator, getByPath } from '@/i18n/translate'
 import { TURN_EVENT_KEYS } from '@/adapters/api/step-event-schemas'
 import {
+  deriveSearchTrail,
   answerDegradations,
   deepResearchCutoff,
   isStatusStepName,
@@ -460,5 +461,93 @@ describe('answerDegradations — an answer weaker than it looks', () => {
   test('the record only counts when it says the answer degraded', () => {
     expect(answerDegradations([degraded({ reasons: ['no_report_file'] })])).toEqual([])
     expect(answerDegradations([degraded({ degraded: true })])).toEqual([])
+  })
+})
+
+
+describe('deriveSearchTrail — what the turn actually searched for', () => {
+  /**
+   * THE QUERY WAS ALREADY ON THE WIRE AND WAS BEING THROWN AWAY.
+   *
+   * The live line renders each retrieval beautifully — „Sucht OIB-Wissen:
+   * ‚Fluchtweglänge GK4'" — and then the answer lands, the header says
+   * „Fertig", and every one of those sentences is gone. The finished Herleitung
+   * kept a row of bare tool nouns as the entire record of the search, which is
+   * what „wiederholt nur die Anfrage des Users" is really about: it does not
+   * repeat the question, it says less than the question.
+   */
+  test('keeps every retrieval, in the order it happened', () => {
+    const trail = deriveSearchTrail([
+      status('retrieval:0', 'status.retrieval.withQuery', {
+        corpus: 'knowledge',
+        query: 'Fluchtweglänge GK4',
+      }),
+      status('retrieval:1', 'status.retrieval.withQuery', {
+        corpus: 'ris',
+        query: 'OÖ BauO § 42',
+      }),
+    ])
+
+    expect(trail.map((entry) => entry.values?.query)).toEqual([
+      'Fluchtweglänge GK4',
+      'OÖ BauO § 42',
+    ])
+  })
+
+  test('keeps key and values, never a rendered sentence', () => {
+    // A sentence has a language, and the reader picked theirs — a conversation
+    // reopened in English must read in English.
+    const [entry] = deriveSearchTrail([
+      status('retrieval:0', 'status.retrieval.plain', { corpus: 'knowledge' }),
+    ])
+
+    expect(entry).toEqual({
+      key: 'status.retrieval.plain',
+      values: { corpus: 'knowledge' },
+    })
+  })
+
+  test('counts one search once, however often its status was announced', () => {
+    const step = status('retrieval:0', 'status.retrieval.withQuery', {
+      corpus: 'knowledge',
+      query: 'Attikahöhe',
+    })
+
+    expect(deriveSearchTrail([step, step])).toHaveLength(1)
+  })
+
+  test('ignores everything that is not a retrieval', () => {
+    expect(
+      deriveSearchTrail([
+        status('routing', 'status.routing.shallow'),
+        status('citations', 'status.citations.verifying'),
+      ])
+    ).toEqual([])
+  })
+
+  test('never surfaces a technical-channel payload', () => {
+    const step = event('status:retrieval:0', {
+      kind: 'status',
+      channel: 'technical',
+      slot: 'retrieval:0',
+      key: 'status.retrieval.withQuery',
+      values: { corpus: 'knowledge', query: 'internals' },
+    })
+
+    expect(deriveSearchTrail([step])).toEqual([])
+  })
+
+  test('reads a pruned step from its stored trail, not from a payload it no longer has', () => {
+    // Storage strips `content` and `rawPayload`; without the derived field the
+    // Herleitung of a reopened conversation loses exactly this.
+    const pruned = {
+      functionName: 'status:retrieval:0',
+      content: '',
+      searchTrail: [
+        { key: 'status.retrieval.withQuery', values: { corpus: 'knowledge', query: 'Attika' } },
+      ],
+    }
+
+    expect(deriveSearchTrail([pruned])).toEqual(pruned.searchTrail)
   })
 })

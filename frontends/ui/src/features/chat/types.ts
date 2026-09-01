@@ -527,6 +527,16 @@ export interface ThinkingStep {
    * stripping on localStorage prune so the sources fan-out remains after reload.
    */
   traceLanes?: ThinkingTraceLane[]
+  /**
+   * What this step SEARCHED FOR, as the key and values the backend stated —
+   * never a rendered sentence, because a sentence has a language and the reader
+   * picked theirs.
+   *
+   * Derived at prune time for the same reason `traceLanes` is: the payload it
+   * comes from is stripped for storage, so without this the Herleitung of a
+   * reopened conversation loses the one fact that made it worth opening.
+   */
+  searchTrail?: Array<{ key: string; values?: Record<string, string> }>
 }
 
 /** Conversation/Session */

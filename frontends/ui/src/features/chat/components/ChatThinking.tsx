@@ -22,6 +22,8 @@ import type { ThinkingStep, CitationSource } from '../types'
 import { deriveTraceLanes } from '../lib/trace-lanes'
 import { buildCitationModel } from '../lib/citations'
 import { deriveLiveActivity } from '../lib/live-activity'
+import { deriveSearchTrail } from '../lib/turn-events'
+import { renderTurnEventKey } from '@/adapters/api/step-event-schemas'
 import { deriveExecutedSteps } from '../lib/executed-steps'
 import { isSkillStepName, isUseSkillStepName } from '@/features/skills/lib/skill-activity'
 import { useElapsedSeconds, formatElapsed } from '../hooks/use-elapsed-seconds'
@@ -158,6 +160,26 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
     if (isThinking) return derived
     return derived.filter((s) => !isSkillStepName(s.key) && !isUseSkillStepName(s.key))
   }, [steps, t, isThinking])
+
+  /**
+   * WHAT THE TURN SEARCHED FOR, which the panel used to throw away.
+   *
+   * The backend states every retrieval as a key plus values — the corpus and
+   * the actual query — and the live line renders it („Sucht OIB-Wissen:
+   * ‚Fluchtweglänge GK4'"). Then the answer lands, the header says „Fertig",
+   * and all of it is gone: the finished Herleitung kept a row of bare tool
+   * nouns as the entire record of the search. That is the complaint that the
+   * derivation „nur die Anfrage wiederholt" is really about — it does not
+   * repeat the question, it says less than the question.
+   *
+   * Phrased here rather than stored as a sentence, so a conversation reopened
+   * in another language reads in that one.
+   */
+  const searchTrail = useMemo(() => {
+    return deriveSearchTrail(steps)
+      .map((entry) => renderTurnEventKey(entry.key, entry.values, t))
+      .filter((line): line is string => Boolean(line))
+  }, [steps, t])
 
   // Availability alone must never conjure a Herleitung: `enabledDataSources` is
   // non-empty on essentially every turn, so including it here made the panel
@@ -322,6 +344,19 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
 
               {/* Executed steps — what actually ran, as compact chips. Only
                   shown when the Herleitung is expanded. */}
+              {searchTrail.length > 0 && (
+                <div className="flex flex-col gap-1.5 px-4 pb-1 pt-3">
+                  <SectionLabel>{t('thinking.searched')}</SectionLabel>
+                  <ul className="flex flex-col gap-1" data-testid="herleitung-search-trail">
+                    {searchTrail.map((line) => (
+                      <li key={line} className="text-muted-foreground text-xs leading-relaxed">
+                        {line}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {executedSteps.length > 0 && (
                 <div className="flex flex-col gap-2 px-4 pb-4 pt-3">
                   <SectionLabel>{t('thinking.executedSteps')}</SectionLabel>

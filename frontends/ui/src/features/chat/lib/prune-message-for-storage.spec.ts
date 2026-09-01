@@ -416,3 +416,73 @@ Citation: OIB-RL_2_Brandschutz.pdf, p.12
     })
   })
 })
+
+describe('the search trail survives storage', () => {
+  /**
+   * `content` and `rawPayload` are stripped here, and the retrieval queries
+   * live in them — so without deriving the trail first, reopening a
+   * conversation lost the one part of the Herleitung that says anything
+   * specific. The row of tool nouns survived; „Sucht OIB-Wissen:
+   * ‚Fluchtweglänge GK4'" did not.
+   */
+  test('derives what was searched for before dropping the payload it came from', () => {
+    const message = {
+      id: 'm1',
+      role: 'assistant',
+      content: 'Antwort',
+      timestamp: new Date('2026-01-01T00:00:00Z'),
+      thinkingSteps: [
+        {
+          id: 's1',
+          userMessageId: 'u1',
+          category: 'tools',
+          functionName: 'status:retrieval:0',
+          displayName: 'status:retrieval:0',
+          content: JSON.stringify({
+            kind: 'status',
+            channel: 'live',
+            slot: 'retrieval:0',
+            key: 'status.retrieval.withQuery',
+            values: { corpus: 'knowledge', query: 'Fluchtweglänge GK4' },
+          }),
+          timestamp: new Date('2026-01-01T00:00:00Z'),
+          isComplete: true,
+        },
+      ],
+    } as unknown as ChatMessage
+
+    const pruned = pruneMessageForStorage(message)
+    const step = pruned.thinkingSteps?.[0]
+
+    // The payload is gone, as it always was...
+    expect(step?.content).toBe('')
+    // ...and the fact it carried is not.
+    expect(step?.searchTrail).toEqual([
+      { key: 'status.retrieval.withQuery', values: { corpus: 'knowledge', query: 'Fluchtweglänge GK4' } },
+    ])
+  })
+
+  test('adds nothing to a step that searched for nothing', () => {
+    const message = {
+      id: 'm1',
+      role: 'assistant',
+      content: 'Antwort',
+      timestamp: new Date('2026-01-01T00:00:00Z'),
+      thinkingSteps: [
+        {
+          id: 's1',
+          userMessageId: 'u1',
+          category: 'tools',
+          functionName: 'intent_classifier',
+          displayName: 'intent_classifier',
+          content: 'irrelevant',
+          timestamp: new Date('2026-01-01T00:00:00Z'),
+          isComplete: true,
+        },
+      ],
+    } as unknown as ChatMessage
+
+    expect(pruneMessageForStorage(message).thinkingSteps?.[0]?.searchTrail).toBeUndefined()
+  })
+})
+
