@@ -12,6 +12,17 @@
 > does not re-derive it. Every claim below carries a `file:line`; where a
 > claim is a judgement it says so.
 >
+> **Read next.** This document takes the current design as the baseline and
+> refines it. [`compliance-derivation-graph.md`](compliance-derivation-graph.md)
+> questions the baseline and reshapes Loops C and D below around a compiled
+> requirement catalog, a project fact ledger and a materialised derivation
+> graph. Loop A is the precondition for both.
+>
+> **UI scope.** A separate workstream owns the UI. The UI rows in Loop B are
+> listed because they close a loop the backend already half-closed; they are
+> that workstream's to shape, and only the Herleitung's structure (a derivation
+> tree, not a search fan-out) is an architectural requirement.
+>
 > **Companions.** [`system-overview.md`](../architecture/system-overview.md)
 > for what exists, [`rag-system-audit-2026-08.md`](../architecture/rag-system-audit-2026-08.md)
 > and [`memory-system-audit-2026-07.md`](../architecture/memory-system-audit-2026-07.md)
