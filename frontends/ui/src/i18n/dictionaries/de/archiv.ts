@@ -39,6 +39,12 @@ export const archiv = {
       siteplan: 'Lageplan',
       notice: 'Bescheid',
       photo: 'Foto',
+      // `model` fehlte, obwohl `inferDocumentKind` es für jede `.ifc` liefert —
+      // die Karte zeigte den rohen Schlüssel. Ein Gebäude ist kein Dokument,
+      // und die Bezeichnung sagt das.
+      model: 'Gebäudemodell',
+      sheet: 'Tabelle',
+      text: 'Notiz',
       document: 'Dokument',
     },
   },

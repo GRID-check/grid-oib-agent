@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FilePreviewPane } from './file-preview-pane'
 
@@ -51,6 +51,72 @@ describe('FilePreviewPane', () => {
     render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
     expect(screen.getByText('plan.pdf')).toBeDefined()
     expect(screen.getByText(/1 MB/i)).toBeDefined()
+  })
+
+  /**
+   * The header is the same shape on every document, so it can be learned: the
+   * name, two chips that say which document it is, and the four controls that
+   * act on the file. Before this, ten things fought for one row and five were
+   * conditional, so the chrome reflowed as the reader moved between files.
+   */
+  it('keeps what acts on the file in the header, and what Piloti made of it in the rail', () => {
+    render(
+      <FilePreviewPane
+        file={{ ...mockFile, tags: ['Grundriss'] }}
+        projectId="proj-1"
+        canCollaborate
+        onClose={() => undefined}
+      />
+    )
+
+    const header = screen.getByRole('heading', { name: 'plan.pdf' }).parentElement?.parentElement
+    expect(header).not.toBeNull()
+    const chrome = within(header!)
+
+    // Act on the file.
+    expect(chrome.getByRole('button', { name: 'Download' })).toBeInTheDocument()
+    expect(chrome.getByTestId('document-actions-trigger')).toBeInTheDocument()
+    expect(chrome.getByRole('button', { name: 'Close preview' })).toBeInTheDocument()
+    // Which document it is — the category, as a chip under the name. No
+    // „Citable" chip: this document is citable like almost every other, and a
+    // badge that appears on everything distinguishes nothing.
+    expect(chrome.getByText('Grundriss')).toBeInTheDocument()
+    expect(screen.queryByText('Citable')).toBeNull()
+
+    // What Piloti made of it, and who owns it — the rail's, not the chrome's.
+    expect(chrome.queryByRole('button', { name: 'Ask Piloti' })).toBeNull()
+    expect(chrome.queryByRole('button', { name: 'Ask a colleague' })).toBeNull()
+    expect(chrome.queryByText('Responsible')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Ask Piloti' })).toBeInTheDocument()
+    expect(screen.getByText('Responsible')).toBeInTheDocument()
+  })
+
+  /**
+   * Both chips used to be rows in the rail as well. The same fact stated twice
+   * on one surface reads as two facts, so the rows went when the chips came.
+   */
+  /**
+   * The status chip earns its place only when the answer is not the default.
+   * „Zitierbar" is true of almost every document, so a badge saying so
+   * appeared on everything and therefore distinguished nothing; the states
+   * that change what the reader can do next are the ones worth a chip, and
+   * each of them is the reason the rail's Ask button is grey.
+   */
+  it('shows the status chip only when Piloti cannot quote the document', () => {
+    const { unmount } = render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
+    expect(screen.queryByText('Citable')).toBeNull()
+    unmount()
+
+    render(<FilePreviewPane file={{ ...mockFile, status: 'processing' }} projectId="proj-1" />)
+    expect(screen.getAllByText('Processing')).toHaveLength(1)
+  })
+
+  it('states the status and the category once each', () => {
+    render(<FilePreviewPane file={{ ...mockFile, status: 'failed', tags: ['Grundriss'] }} projectId="proj-1" />)
+
+    expect(screen.getAllByText('Failed')).toHaveLength(1)
+    expect(screen.queryByText('Status')).toBeNull()
+    expect(screen.queryByText('Document type')).toBeNull()
   })
 
   it('offers an expand affordance for a PDF once its preview URL has loaded', async () => {
@@ -402,7 +468,7 @@ describe('FilePreviewPane', () => {
       expect(screen.getByText('Updated')).toBeDefined()
     })
 
-    it('shows the detected document type and project rows only from real metadata', () => {
+    it('shows the project row and the detected category only from real metadata', () => {
       render(
         <FilePreviewPane
           file={{ ...mockFile, tags: ['Grundriss', 'Brandschutz'] }}
@@ -410,16 +476,17 @@ describe('FilePreviewPane', () => {
           projectName="Stadthaus Linz"
         />
       )
-      expect(screen.getByText('Document type')).toBeDefined()
-      // 'Grundriss' appears both as the Type value and as a tag chip.
-      expect(screen.getAllByText('Grundriss').length).toBeGreaterThanOrEqual(2)
+      // The detected type is a chip beside the name now, not a rail row —
+      // 'Grundriss' appears there and as a tag chip, and nowhere else.
+      expect(screen.queryByText('Document type')).toBeNull()
+      expect(screen.getAllByText('Grundriss')).toHaveLength(2)
       expect(screen.getByText('Project')).toBeDefined()
       expect(screen.getByText('Stadthaus Linz')).toBeDefined()
     })
 
-    it('omits the document-type and project rows without the metadata', () => {
+    it('omits the project row and the category chip without the metadata', () => {
       render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
-      expect(screen.queryByText('Document type')).toBeNull()
+      expect(screen.queryByText('Grundriss')).toBeNull()
       expect(screen.queryByText('Project')).toBeNull()
       expect(screen.queryByText('Pages')).toBeNull()
       expect(screen.queryByText('Passages')).toBeNull()
@@ -446,11 +513,13 @@ describe('FilePreviewPane', () => {
       expect(screen.queryByText('Passages')).toBeNull()
       expect(screen.queryByText('Contents')).toBeNull()
       // …but the ungated rows stay. Status is no longer one of them: it moved
-      // to the header beside the filename, because "is this actually indexed"
-      // is the first question on opening a file and it used to sit below the
-      // fold in a column the flag can hide entirely. Assert it is still
-      // ANSWERED, just not from a row.
-      expect(screen.getByText('Citable')).toBeDefined()
+      // to the header beside the filename, because "can Piloti quote this" is
+      // the first question on opening a file and it used to sit below the fold
+      // in a column the flag can hide entirely. It is answered there by a chip
+      // that appears only when the answer is NO — which for this citable
+      // fixture means nothing at all, on either surface.
+      expect(screen.queryByText('Citable')).toBeNull()
+      expect(screen.queryByText('Status')).toBeNull()
       expect(screen.queryByText('Status')).toBeNull()
       expect(screen.getByText('Type')).toBeDefined()
       expect(screen.getByText('Size')).toBeDefined()
@@ -881,17 +950,19 @@ describe('FilePreviewPane — a report Piloti wrote', () => {
     authoredBy: 'agent' as const,
   }
 
-  it('carries the byline above the type line, clear of the assignment row', () => {
+  it('leads the rail with the byline, clear of the assignment row', () => {
     render(<FilePreviewPane file={generated} projectId="proj-1" canCollaborate />)
 
     const byline = screen.getByText('Created by Piloti')
     expect(byline.tagName).toBe('P')
     // Provenance and responsibility are two answers, and the design forbids
-    // reading them as one: the byline sits under the NAME, with the type ·
-    // status line between it and the faces.
+    // reading them as one: the byline is its own line above „Verantwortlich".
     const identity = byline.parentElement
-    expect(identity?.querySelector('h3')?.textContent).toBe('Tiefenrecherche_Brandschutz.pdf')
-    expect(byline.nextElementSibling?.textContent).toMatch(/PDF/)
+    expect(identity?.firstElementChild).toBe(byline)
+    expect(identity?.textContent).toMatch(/Responsible/)
+    // The status is the header's, beside the name — never restated here.
+    expect(within(identity!).queryByText('Filed')).toBeNull()
+    expect(screen.getAllByText('Filed')).toHaveLength(1)
   })
 
   it('drops the „Von Piloti indexiert" section, which would be a false claim', () => {

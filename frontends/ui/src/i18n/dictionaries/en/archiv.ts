@@ -40,6 +40,12 @@ export const archiv = {
       siteplan: 'Site plan',
       notice: 'Notice',
       photo: 'Photo',
+      // `model` was missing while `inferDocumentKind` had been returning it for
+      // every `.ifc` — the card printed the raw key. A building is not a
+      // document, and the label says so.
+      model: 'Building model',
+      sheet: 'Spreadsheet',
+      text: 'Notes',
       document: 'Document',
     },
   },

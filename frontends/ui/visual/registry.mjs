@@ -346,7 +346,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/file-preview',
     description:
-      'File-preview modal (real FilePreviewDialog, backend-free) with rich metadata — desktop split (both columns scroll) vs. mobile full-screen sheet (preview capped, all metadata reachable).',
+      'File-preview modal (real FilePreviewDialog, backend-free) with rich metadata — desktop split (both columns scroll) vs. mobile full-screen sheet (preview capped, all metadata reachable). What this pins is the SPLIT between the two halves of the chrome. The header is the file name plus the four controls that act on the file — Herunterladen, the actions menu, expand, close — and it is the same on every document, so it can be learned; it used to carry ten things, five of them conditional, in a row that wrapped on anything narrower than a laptop, so the chrome reflowed as the reader moved between files. Under the name sit the two subheading chips that say WHICH document this is: the ingestion-detected category, and a status chip that appears ONLY when Piloti cannot quote the document — „Zitierbar" is true of almost everything in the library, so a badge saying so appeared on every file and distinguished none of them, and this shot is the ordinary case where it is silent (`file-preview-authored` is the one where it speaks). Everything that describes what Piloti made of the document leads the rail instead: „Von Piloti erstellt", „Verantwortlich" with the faces and the Zuweisen popover, then „Piloti dazu fragen" and „Kollegin fragen" full-width, directly above the summary that says whether asking is worth it.',
     waitFor: '[role="dialog"]',
   },
   {
@@ -354,7 +354,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/file-preview?authored=agent',
     description:
-      'The same modal holding a document PILOTI wrote. Compare it with `file-preview`: same dialog, same shim, the only variable is the file. „Von Piloti erstellt" sits under the name; „Piloti dazu fragen" is GREY, and its hint says there is nothing to wait for rather than „Sobald die Datei zitierbar ist" — a machine-authored document is deliberately never dispatched to /v1/ingest, so „not citable YET" would be a lie with no yet in it. The „Von Piloti indexiert" rail is absent for the same reason, and with it the summary, the chunk count, the tags and the content types: those are ingestion output, and no ingestion ran. What this pins is that the pane never claims an ingestion that did not happen — the failure it would otherwise photograph is a report presented as ordinary Projektwissen, which is exactly what the whole authorship column exists to prevent.',
+      'The same modal holding a document PILOTI wrote. Compare it with `file-preview`: same dialog, same shim, the only variable is the file. „Abgelegt" is the one case where the status chip in the header speaks — the chip appears only when Piloti cannot quote the document — and „Von Piloti erstellt" leads the rail as the reason; „Piloti dazu fragen" is GREY, and its hint says there is nothing to wait for rather than „Sobald die Datei zitierbar ist" — a machine-authored document is deliberately never dispatched to /v1/ingest, so „not citable YET" would be a lie with no yet in it. The „Von Piloti indexiert" rail is absent for the same reason, and with it the summary, the chunk count, the tags and the content types: those are ingestion output, and no ingestion ran. What this pins is that the pane never claims an ingestion that did not happen — the failure it would otherwise photograph is a report presented as ordinary Projektwissen, which is exactly what the whole authorship column exists to prevent.',
     waitFor: '[role="dialog"]',
   },
   {
@@ -434,7 +434,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/file-browser',
     description:
-      'Files browser with the Finder-style folder drill-down — the breadcrumb path row ("All Files"), folder cards with item counts beside the file cards, the New-folder control, and the content column capped and centred now that the tree band is gone.',
+      'Files browser with the Finder-style folder drill-down — the breadcrumb path row ("All Files"), folder cards with item counts beside the file cards, the New-folder control, and the content column capped and centred now that the tree band is gone. It also pins that FORMAT beats the filename in the thumbnail: `Projektplan_Sanierung.md` draws a note and `Zeitplan_Gewerke.csv` a table, although the heuristic matches „plan" anywhere in a name and drew both as floor plans — walls and a door swing over prose. `Statik_Positionsplan.pdf` is the control: a PDF really can be a drawing, and it still reads as one.',
     waitFor: '[data-testid="file-card"]',
   },
   {

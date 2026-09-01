@@ -1,7 +1,8 @@
 /**
  * Skeleton thumbnails for the Files card grid — small stroke-based line
  * drawings, one per inferred {@link DocumentKind} (floor plan, section, site
- * plan, notice, photo, generic document). Plain inline SVG drawing with
+ * plan, notice, photo, model, spreadsheet, notes, generic document). Plain
+ * inline SVG drawing with
  * `currentColor` so the ink follows the surrounding text token; the subtle
  * fills use opacity, never a literal color. Purely decorative (`aria-hidden`):
  * the owning card carries the accessible name (filename).
@@ -148,6 +149,47 @@ function ModelSketch(props: SvgProps) {
   )
 }
 
+/**
+ * Spreadsheet / CSV: a ruled table with its header band.
+ *
+ * A `.csv` used to draw the generic document — six paragraph bars, which is a
+ * picture of prose over a file that has no prose in it — or, if it happened to
+ * be called `Zeitplan.csv`, a floor plan. A grid is the one shape that says
+ * "rows and columns" at 24px.
+ */
+function SheetSketch(props: SvgProps) {
+  return (
+    <Frame {...props}>
+      <rect x={30} y={14} width={60} height={52} rx={1} />
+      {/* The header row is what makes a grid a TABLE rather than graph paper. */}
+      <path d="M30 26h60" />
+      <path d="M50 14v52M70 14v52" strokeOpacity={0.45} />
+      <path d="M30 40h60M30 53h60" strokeOpacity={0.45} />
+    </Frame>
+  )
+}
+
+/**
+ * Notes / Markdown: a page with a heading and a bulleted list.
+ *
+ * Distinct from {@link DocumentSketch}, which is justified paragraph rules — a
+ * formal document, the shape of a Gutachten or a contract. A `.md` is somebody
+ * writing things down, and the bullets are what says so.
+ */
+function TextSketch(props: SvgProps) {
+  return (
+    <Frame {...props}>
+      <path d="M38 10h32l14 14v46H38z" />
+      <path d="M70 10v14h14" />
+      <path d="M46 33h18" strokeWidth={2.5} />
+      <circle cx={47.5} cy={44} r={1.3} fill="currentColor" stroke="none" fillOpacity={0.6} />
+      <circle cx={47.5} cy={52} r={1.3} fill="currentColor" stroke="none" fillOpacity={0.6} />
+      <circle cx={47.5} cy={60} r={1.3} fill="currentColor" stroke="none" fillOpacity={0.6} />
+      <path d="M53 44h21M53 52h21M53 60h14" strokeOpacity={0.5} />
+    </Frame>
+  )
+}
+
 const SKETCHES: Record<DocumentKind, (props: SvgProps) => JSX.Element> = {
   floorplan: FloorPlanSketch,
   section: SectionSketch,
@@ -155,6 +197,8 @@ const SKETCHES: Record<DocumentKind, (props: SvgProps) => JSX.Element> = {
   notice: NoticeSketch,
   photo: PhotoSketch,
   model: ModelSketch,
+  sheet: SheetSketch,
+  text: TextSketch,
   document: DocumentSketch,
 }
 
@@ -291,6 +335,43 @@ function ModelFill() {
   )
 }
 
+/**
+ * Spreadsheet, full-bleed: a ruled table under a filled header band.
+ *
+ * Drawn rather than composed from bars, because the thing that has to read at
+ * a glance is the GRID — columns crossing rows. The header band is also what
+ * separates it from the floor plan two cards over, which is likewise a
+ * rectangle with lines in it.
+ */
+function SheetFill() {
+  return (
+    <FillSvg>
+      <rect x={2} y={2} width={196} height={92} strokeWidth={1.6} strokeOpacity={0.85} />
+      <rect x={2} y={2} width={196} height={24} fill="currentColor" fillOpacity={0.16} stroke="none" />
+      <path d="M2 26h196" strokeWidth={1.8} strokeOpacity={0.85} />
+      <path d="M2 49h196M2 72h196" strokeWidth={1.2} strokeOpacity={0.3} />
+      <path d="M62 2v92M118 2v92M160 2v92" strokeWidth={1.2} strokeOpacity={0.3} />
+    </FillSvg>
+  )
+}
+
+/** Notes / Markdown: a heading, two lines of prose, then a bulleted list. */
+function TextFill() {
+  return (
+    <div className="absolute inset-0 flex flex-col gap-[6px] px-[18px] py-[15px]">
+      <div className="h-[7px] w-[46%] rounded-sm bg-current opacity-45" />
+      <div className="h-[4px] w-full rounded-sm bg-current opacity-20" />
+      <div className="mb-[3px] h-[4px] w-[78%] rounded-sm bg-current opacity-20" />
+      {[86, 94, 62].map((w, i) => (
+        <div key={i} className="flex items-center gap-[7px]">
+          <span className="size-[4px] shrink-0 rounded-full bg-current opacity-35" />
+          <span className="h-[4px] rounded-sm bg-current opacity-20" style={{ width: `${w}%` }} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 const FILLS: Record<DocumentKind, () => JSX.Element> = {
   floorplan: FloorPlanFill,
   section: SectionFill,
@@ -301,6 +382,8 @@ const FILLS: Record<DocumentKind, () => JSX.Element> = {
   // reached for `variant="fill"`.
   photo: DocumentFill,
   model: ModelFill,
+  sheet: SheetFill,
+  text: TextFill,
   document: DocumentFill,
 }
 
@@ -312,6 +395,8 @@ const FILL_PADDED: Record<DocumentKind, boolean> = {
   notice: false,
   photo: false,
   model: true,
+  sheet: true,
+  text: false,
   document: false,
 }
 

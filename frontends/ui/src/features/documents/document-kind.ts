@@ -2,13 +2,14 @@
  * Content-aware document-kind inference for the Files card grid (WS-4).
  *
  * Pure helpers — no React, no I/O — that map a document's real metadata onto
- * one of six visual kinds used to pick a skeleton thumbnail:
- * floor plan (Grundriss), section (Schnitt), site plan (Lageplan), official
- * notice (Bescheid), photo, or generic text document.
+ * one visual kind used to pick a skeleton thumbnail: floor plan (Grundriss),
+ * section (Schnitt), site plan (Lageplan), official notice (Bescheid), photo,
+ * building model, spreadsheet, notes/Markdown, or generic document.
  *
  * Inference order (most trustworthy signal first):
- *   0. File extension for formats that ARE their kind (an `.ifc` is a building
- *      model whatever it is named and whatever tags it carries).
+ *   0. FORMAT, for formats that ARE their kind — an `.ifc` is a building model,
+ *      a `.csv` is a table and a `.md` is a written note, whatever they are
+ *      named and whatever tags they carry.
  *   1. Controlled ingestion tags (backend-classified, user-correctable).
  *   2. Content type (any `image/*` is a photo).
  *   3. Filename heuristics (German building-domain terms + image extensions).
@@ -22,6 +23,8 @@ export type DocumentKind =
   | 'notice'
   | 'photo'
   | 'model'
+  | 'sheet'
+  | 'text'
   | 'document'
 
 /**
@@ -44,6 +47,25 @@ const TAG_KIND: Record<string, DocumentKind> = {
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|heic|heif|tiff?|bmp|svg)$/
 const IFC_EXT = /\.(ifc|ifczip)$/
 
+/**
+ * Formats whose BYTES settle the question, so no name and no tag can overrule
+ * them. Nothing in a `.md` or a `.csv` can be a drawing, and the filename
+ * heuristics below are happy to claim otherwise: `plan` matches anywhere in a
+ * name, so `Projektplan.md`, `Zeitplan.csv` and `Sanierungsplanung.txt` all
+ * drew a floor-plan card — walls and a door swing over a file that is prose.
+ * Same shape as the `.ifc` rule, and for the same reason.
+ */
+const SHEET_EXT = /\.(csv|tsv|xlsx?|xlsm|ods|numbers)$/
+const TEXT_EXT = /\.(md|markdown|mdx|txt|log|rst|adoc)$/
+const SHEET_TYPES = [
+  'text/csv',
+  'text/tab-separated-values',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.oasis.opendocument.spreadsheet',
+]
+const TEXT_TYPES = ['text/markdown', 'text/x-markdown', 'text/plain']
+
 export interface DocumentKindInput {
   filename: string
   contentType?: string | null
@@ -51,11 +73,19 @@ export interface DocumentKindInput {
 }
 
 export function inferDocumentKind({ filename, contentType, tags }: DocumentKindInput): DocumentKind {
-  // 0. An IFC file is a 3D building model by format, not by naming. This runs
+  const lowerName = filename.toLowerCase()
+  const lowerType = (contentType ?? '').toLowerCase()
+
+  // 0. FORMAT FIRST, for the formats that are their own answer. This runs
   //    BEFORE the tag rules because a model called "Grundriss EG.ifc" is still a
   //    model — it opens in the viewer, not in a page preview — and before the
-  //    filename heuristics, which would otherwise read that name as a floor plan.
-  if (IFC_EXT.test(filename.toLowerCase())) return 'model'
+  //    filename heuristics, which would otherwise read that name as a floor
+  //    plan. A spreadsheet and a Markdown note are the same case: the bytes
+  //    cannot be a drawing, so neither a name nor a mis-fired ingestion tag may
+  //    say they are.
+  if (IFC_EXT.test(lowerName)) return 'model'
+  if (SHEET_EXT.test(lowerName) || SHEET_TYPES.includes(lowerType)) return 'sheet'
+  if (TEXT_EXT.test(lowerName) || TEXT_TYPES.includes(lowerType)) return 'text'
 
   // 1. Ingestion tags are authoritative when present.
   for (const tag of tags ?? []) {
@@ -64,11 +94,11 @@ export function inferDocumentKind({ filename, contentType, tags }: DocumentKindI
   }
 
   // 2. MIME type: any raster/vector image is a photo.
-  if ((contentType ?? '').toLowerCase().startsWith('image/')) return 'photo'
+  if (lowerType.startsWith('image/')) return 'photo'
 
   // 3. Filename heuristics. Site-plan terms are matched before the generic
   //    "plan" pattern so "Lageplan"/"site-plan" never reads as a floor plan.
-  const name = filename.toLowerCase()
+  const name = lowerName
   if (/lageplan|bebauungsplan|fl(ä|ae)chenwidmung|site.?plan/.test(name)) return 'siteplan'
   if (/schnitt|ansicht/.test(name)) return 'section'
   if (/grundriss|grundriß|floor.?plan|plan/.test(name)) return 'floorplan'
