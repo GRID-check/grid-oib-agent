@@ -1157,8 +1157,10 @@ def test_the_answer_envelope_replaces_the_envelope_cards():
     assert "`verdict`" in section and "60 characters" in section
     assert "`takeaways`" in section and "2 to 5" in section
     assert "`callout`" in section and "at most ONE" in section
-    # The model owns content, never placement — and honesty outranks a field.
-    assert "FIXED layout" in section
+    # The model owns content; placement is the platform's, with ONE granted
+    # freedom — anchoring the callout via its marker. Honesty outranks a field.
+    assert "masthead" in section
+    assert "[[callout]]" in section
     assert "invented value here is worse than none" in section
     # The schema is injected by the renderer from the validating models.
     assert "{{ answer_envelope_schema }}" in section

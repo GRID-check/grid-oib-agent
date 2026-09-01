@@ -61,7 +61,11 @@ import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from types import UnionType
 from typing import Literal
+from typing import Union
+from typing import get_args
+from typing import get_origin
 
 from pydantic import BaseModel
 from pydantic import Field
@@ -89,6 +93,28 @@ _ANSWER_JSON_FENCE_RE = re.compile(rf"```{ENVELOPE_FENCE}[ \t]*\n(.*?)\n?```", r
 #: a sentence pressed into a header. 60 chars fits „Nicht geregelt (Wiener
 #: BauO)" with room and refuses a paragraph.
 VERDICT_VALUE_MAX_CHARS = 60
+
+#: A summary is the whole answer in ONE to TWO sentences — the standfirst the
+#: reader gets before the prose. Unlike the verdict it is expected on
+#: basically every research reply (a ruling is earned, a summary is owed).
+#: Above this it is a paragraph wearing a summary's name, and it is dropped
+#: whole — the prose's own lede then does the job, so nothing is lost.
+SUMMARY_MAX_CHARS = 320
+
+#: The callout's PLACEMENT marker. The one anatomy field whose right place the
+#: model knows better than a fixed layout does: a Landesabweichung belongs
+#: beside the paragraph it qualifies, not three screens under it. The model
+#: writes this token alone on a line of the `answer` prose and the frontend
+#: draws the callout there (same grammar as the `[[card:N]]` markers, same
+#: own-line contract); without a marker the callout keeps its fixed after-prose
+#: slot. Verdict and takeaways stay fixed — a masthead that moves is not a
+#: masthead.
+CALLOUT_MARKER = "[[callout]]"
+
+#: A marker alone on its line (up to 3 spaces of indent, as the frontend's
+#: line-based reading allows) — the only form the frontend will place.
+_CALLOUT_LINE_RE = re.compile(r"^ {0,3}\[\[callout\]\][ \t]*$")
+_CALLOUT_INLINE_RE = re.compile(r"\[\[callout\]\]")
 
 #: A takeaway block is earned by length: below this the prose IS the takeaway.
 #: Mirrors the frontend's lede threshold (LEDE_MIN_CHARS in AgentResponse.tsx)
@@ -159,6 +185,10 @@ class AnswerMeta(_EnvelopeModel):
     travels as ``answer_confidence`` exactly as it always has).
     """
 
+    summary: str | None = Field(
+        default=None,
+        description="the whole answer in 1-2 sentences: outcome plus the decisive qualifier, in the answer's language",
+    )
     verdict: AnswerMetaVerdict | None = None
     takeaways: list[AnswerMetaTakeaway] | None = None
     callout: AnswerMetaCallout | None = None
@@ -171,7 +201,8 @@ class AnswerMeta(_EnvelopeModel):
     @property
     def empty(self) -> bool:
         return (
-            self.verdict is None
+            self.summary is None
+            and self.verdict is None
             and not self.takeaways
             and self.callout is None
             and self.confidence is None
@@ -189,6 +220,22 @@ class GateContext:
     """Everything a gate may judge an answer by. Extend here, not per gate."""
 
     prose_chars: int
+
+
+def _gate_summary(meta: AnswerMeta, ctx: GateContext) -> str | None:
+    if meta.summary is None:
+        return None
+    summary = meta.summary.strip()
+    if not summary:
+        return None
+    if len(summary) > SUMMARY_MAX_CHARS:
+        logger.info(
+            "answer_meta summary gated out: %d chars exceeds %d — a paragraph, not a standfirst",
+            len(summary),
+            SUMMARY_MAX_CHARS,
+        )
+        return None
+    return summary
 
 
 def _gate_verdict(meta: AnswerMeta, ctx: GateContext) -> dict | None:
@@ -251,6 +298,7 @@ class AnatomyField:
 
 
 ANATOMY_FIELDS: tuple[AnatomyField, ...] = (
+    AnatomyField("summary", _gate_summary),
     AnatomyField("verdict", _gate_verdict),
     AnatomyField("callout", _gate_callout),
     AnatomyField("takeaways", _gate_takeaways),
@@ -387,6 +435,38 @@ def gate_answer_meta(meta: AnswerMeta, *, prose_chars: int) -> dict | None:
     return {"v": ENVELOPE_VERSION, **payload}
 
 
+def resolve_callout_marker(prose: str, *, has_callout: bool) -> str:
+    """Leave at most one placeable ``[[callout]]`` in ``prose``, or none.
+
+    Runs after gating, on the final answer text. Two invariants, mirroring the
+    card-marker contract on the frontend:
+
+    - The reader never meets a marker with nothing behind it: when the callout
+      was gated out (or the envelope carried none), every occurrence is
+      stripped — the own-line form with its whole line, the mid-sentence form
+      in place.
+    - One callout, one slot: when the callout survived, the FIRST own-line
+      marker stays and every later or mid-sentence occurrence goes. The
+      frontend would place a slot per marker, and a warning drawn twice reads
+      as two warnings.
+    """
+    if CALLOUT_MARKER not in prose:
+        return prose
+
+    kept = False
+    lines: list[str] = []
+    for line in prose.split("\n"):
+        if _CALLOUT_LINE_RE.match(line):
+            if has_callout and not kept:
+                kept = True
+                lines.append(line)
+            # A dropped marker takes its whole line: a blank paragraph where
+            # the warning would have been reads as a rendering fault.
+            continue
+        lines.append(_CALLOUT_INLINE_RE.sub("", line))
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # The schema the model sees, rendered from the models above.
 # ---------------------------------------------------------------------------
@@ -418,6 +498,93 @@ def _shape(model_cls: type[BaseModel]) -> str:
     return "{ " + ", ".join(parts) + " }"
 
 
+def _strict_property(annotation: object, *, required: bool) -> dict:
+    """One field's strict-mode JSON schema, derived from its annotation.
+
+    Strict structured outputs (OpenRouter/OpenAI ``json_schema`` with
+    ``strict: true``) require EVERY key present and ``additionalProperties:
+    false`` — optionality is expressed as a nullable type, not an absent key.
+    The envelope models already accept explicit ``null`` everywhere a field is
+    optional (``X | None`` throughout), so an enforced reply parses through
+    the same validator as a fenced one.
+
+    Raises on an annotation shape no envelope field has, deliberately: a new
+    field whose type this walker cannot express must fail the test suite at
+    the registry, not ship a silently wrong schema to the provider.
+    """
+    origin = get_origin(annotation)
+    if origin is Union or origin is UnionType:
+        members = [a for a in get_args(annotation) if a is not type(None)]
+        nullable = len(members) < len(get_args(annotation)) or not required
+        core: object = members[0]
+    else:
+        nullable = not required
+        core = annotation
+
+    schema: dict
+    if core is str:
+        schema = {"type": "string"}
+    elif core is bool:
+        schema = {"type": "boolean"}
+    elif get_origin(core) is Literal:
+        schema = {"type": "string", "enum": list(get_args(core))}
+    elif isinstance(core, type) and issubclass(core, BaseModel):
+        schema = _strict_object(core)
+    elif get_origin(core) is list:
+        (item,) = get_args(core)
+        schema = {"type": "array", "items": _strict_object(item)}
+    else:
+        raise TypeError(f"envelope field type {annotation!r} has no strict-schema rendering")
+
+    if not nullable:
+        return schema
+    if isinstance(schema.get("type"), str) and schema["type"] != "object" and "enum" not in schema:
+        return {**schema, "type": [schema["type"], "null"]}
+    return {"anyOf": [schema, {"type": "null"}]}
+
+
+def _strict_object(model_cls: type[BaseModel]) -> dict:
+    """A model as a strict-mode object schema: all keys required, closed."""
+    properties: dict[str, dict] = {}
+    for name, info in model_cls.model_fields.items():
+        prop = _strict_property(info.annotation, required=info.is_required())
+        if info.description:
+            prop = {**prop, "description": info.description}
+        properties[name] = prop
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(properties),
+        "additionalProperties": False,
+    }
+
+
+def render_envelope_response_format() -> dict:
+    """The provider-enforced shape of a research reply, for ``response_format``.
+
+    OpenRouter structured outputs (``type: json_schema``, ``strict: true``):
+    on a supporting provider the reply IS one schema-valid JSON object — no
+    fence, no prose around it — which the extractor's bare-object tier already
+    accepts. Derived from the same Pydantic models as the validator and the
+    prompt schema, so the three cannot drift. The deterministic gates stay the
+    editorial enforcement (a schema cannot know the answer is too short to
+    earn takeaways); this only guarantees the syntax and the shape.
+    """
+    schema = _strict_object(AnswerMeta)
+    schema["properties"] = {
+        "answer": {
+            "type": "string",
+            "description": "the full written answer: markdown prose with [N] citations and the sources section",
+        },
+        **schema["properties"],
+    }
+    schema["required"] = list(schema["properties"])
+    return {
+        "type": "json_schema",
+        "json_schema": {"name": "answer_envelope", "strict": True, "schema": schema},
+    }
+
+
 def render_envelope_schema() -> str:
     """The envelope's field spec for the system prompt, derived from the models.
 
@@ -437,6 +604,10 @@ def render_envelope_schema() -> str:
         "callout": AnswerMetaCallout,
     }
     for field in ANATOMY_FIELDS:
+        if field.name == "summary":
+            description = AnswerMeta.model_fields["summary"].description
+            lines.append(f"summary: string ({description})")
+            continue
         if field.name == "takeaways":
             lines.append(f"takeaways: [{_shape(AnswerMetaTakeaway)}] (2-{TAKEAWAYS_MAX_ITEMS} items)")
             continue

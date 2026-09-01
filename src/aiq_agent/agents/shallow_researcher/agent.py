@@ -34,6 +34,8 @@ from aiq_agent.common import load_prompt
 from aiq_agent.common import render_prompt_template
 from aiq_agent.common.answer_envelope import extract_answer_envelope
 from aiq_agent.common.answer_envelope import gate_answer_meta
+from aiq_agent.common.answer_envelope import render_envelope_response_format
+from aiq_agent.common.answer_envelope import resolve_callout_marker
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
@@ -151,18 +153,25 @@ _RESEARCH_ONLY_BASENAMES = frozenset({"surface_documents", "ifc_query", "ifc_mea
 # worker costs memory forever.
 _MAX_CACHED_BINDINGS = 32
 
-# Provider JSON mode for the ```answer_json envelope, same verdict as
-# `cards/generate.py::_CARDS_RESPONSE_FORMAT`: the envelope schema is
-# optional-heavy, so `strict` json_schema is refused or silently ignored on
-# the OpenRouter-routed providers this fleet runs on, while `json_object` is
-# widely honored and guarantees exactly what the tolerant extractor needs —
-# syntactic validity (its bare-object tier catches the unfenced output JSON
-# mode produces). The SHAPE is taught by the rendered schema in the prompt;
-# `gate_answer_meta` stays the enforcement. Bound per-call with a fallback
-# (see `_ainvoke_with_envelope_json_mode`), never construction-time: a
-# provider that rejects the parameter must degrade to prose, not to a failed
-# turn.
-_ENVELOPE_RESPONSE_FORMAT: dict[str, Any] = {"type": "json_object"}
+# Provider enforcement for the ```answer_json envelope, strongest first:
+#
+# 1. OpenRouter STRUCTURED OUTPUTS (`json_schema`, strict) — the reply is one
+#    schema-valid JSON object, derived from the same Pydantic models as the
+#    validator (`render_envelope_response_format`). The envelope is a small,
+#    flat schema, so strict mode is expressible — unlike the 20-way card
+#    union that pushed `cards/generate.py` down to `json_object`.
+# 2. `json_object` — syntactic validity only, widely honored.
+# 3. A plain call — the fenced contract taught in the prompt, parsed by the
+#    fail-open extractor.
+#
+# Each step is bound per-call with a fallback to the next (see
+# `_ainvoke_with_envelope_json_mode`), never construction-time: a provider
+# that rejects a parameter must degrade to the next rung, not to a failed
+# turn. The deterministic gates stay the editorial enforcement either way.
+_ENVELOPE_RESPONSE_FORMATS: tuple[dict[str, Any], ...] = (
+    render_envelope_response_format(),
+    {"type": "json_object"},
+)
 
 
 def _count_interaction_calls(tool_calls: Iterable[Any]) -> int:
@@ -567,29 +576,32 @@ class ShallowResearcherAgent:
         return self.llm_provider.get(LLMRole.RESEARCHER)
 
     async def _ainvoke_with_envelope_json_mode(self, llm: Any, messages: list[Any]) -> Any:
-        """Invoke ``llm`` with provider JSON mode bound, falling back to a plain call.
+        """Invoke ``llm`` down the envelope-enforcement ladder, strongest first.
 
-        The ``cards/generate.py::_ainvoke_card_llm`` idiom: bind
-        ``response_format`` per-call so an OpenAI-compatible provider guarantees
-        syntactically valid JSON for the answer envelope, and retry without it
-        when the provider rejects the parameter — the fail-open extractor then
-        handles fenced/prose output as before. Accepts both the bare researcher
-        LLM and a tool-bound RunnableBinding (``bind`` merges kwargs on either).
+        The ``cards/generate.py::_ainvoke_card_llm`` idiom, extended to a
+        chain: strict ``json_schema`` (OpenRouter structured outputs — the
+        reply IS the envelope), then ``json_object`` (syntactic validity),
+        then a plain call (the fenced contract, parsed by the fail-open
+        extractor). Each rung is bound per-call and a provider that rejects it
+        drops to the next. Accepts both the bare researcher LLM and a
+        tool-bound RunnableBinding (``bind`` merges kwargs on either).
 
         The fallback catches the LOUD failure only. OpenRouter's other mode —
         accepting the parameter and silently degrading (dropping tool calls, or
         routing to a provider that ignores it) — is invisible here by nature,
-        which is why JSON mode defaults to the tool-FREE forced-synthesis call
-        and rides tool-bound iterations only behind
+        which is why enforcement defaults to the tool-FREE forced-synthesis
+        call and rides tool-bound iterations only behind
         ``envelope_json_mode_with_tools``.
         """
-        try:
-            return await llm.bind(response_format=_ENVELOPE_RESPONSE_FORMAT).ainvoke(messages)
-        except Exception as e:
-            logger.warning(
-                "Envelope JSON mode failed (%s); retrying without response_format",
-                str(e).split("\n")[0],
-            )
+        for response_format in _ENVELOPE_RESPONSE_FORMATS:
+            try:
+                return await llm.bind(response_format=response_format).ainvoke(messages)
+            except Exception as e:
+                logger.warning(
+                    "Envelope response_format %s failed (%s); falling back",
+                    response_format.get("type"),
+                    str(e).split("\n")[0],
+                )
         return await llm.ainvoke(messages)
 
     def _bind_research_tools(self, tools: Sequence[BaseTool]) -> Any:
@@ -1465,6 +1477,16 @@ class ShallowResearcherAgent:
                         answer_meta,
                         prose_chars=len(_prose_without_references(content)),
                     )
+
+                # The callout's placement marker, resolved against what the
+                # gates decided: at most the first own-line `[[callout]]` stays
+                # (the frontend draws the callout there), and every marker is
+                # stripped when no callout survived — the reader must never
+                # meet a marker with nothing behind it.
+                content = resolve_callout_marker(
+                    content,
+                    has_callout=bool(answer_meta_payload and "callout" in answer_meta_payload),
+                )
 
                 # Emit verified/sanitized report so the frontend shows the
                 # cleaned version (overwrites the raw draft auto-emitted
