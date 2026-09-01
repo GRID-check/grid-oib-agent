@@ -44,6 +44,10 @@
             {
               "en": "Antworten bringen ihre Kernelemente strukturiert mit: das Urteil steht als kopierbarer Wert groß über der Antwort, die wichtigsten Punkte als Kernaussagen darunter, und höchstens ein Hinweis hebt hervor, was Ihr nächstes Tun ändert. Jedes Element wird geprüft, bevor es erscheint — ein Urteil ist ein Wert, nie ein Absatz.",
               "de": "Antworten bringen ihre Kernelemente strukturiert mit: das Urteil steht als kopierbarer Wert groß über der Antwort, die wichtigsten Punkte als Kernaussagen darunter, und höchstens ein Hinweis hebt hervor, was Ihr nächstes Tun ändert. Jedes Element wird geprüft, bevor es erscheint — ein Urteil ist ein Wert, nie ein Absatz."
+            },
+            {
+              "en": "Praktisch jede Antwort beginnt jetzt mit einer Zusammenfassung: ein bis zwei Sätze, die das Ergebnis samt entscheidender Einschränkung vorwegnehmen — als Vorspann im Antwortkopf, direkt unter dem Urteil, wenn eines vorliegt.",
+              "de": "Praktisch jede Antwort beginnt jetzt mit einer Zusammenfassung: ein bis zwei Sätze, die das Ergebnis samt entscheidender Einschränkung vorwegnehmen — als Vorspann im Antwortkopf, direkt unter dem Urteil, wenn eines vorliegt."
             }
           ]
         },
@@ -57,6 +61,23 @@
             {
               "en": "Fertige Antworten erscheinen sofort als Ganzes. Der Schreibmaschineneffekt, der eine bereits fertige Antwort Zeichen für Zeichen eingeblendet hat, ist entfernt.",
               "de": "Fertige Antworten erscheinen sofort als Ganzes. Der Schreibmaschineneffekt, der eine bereits fertige Antwort Zeichen für Zeichen eingeblendet hat, ist entfernt."
+            },
+            {
+              "en": "Antworten lesen sich jetzt wie ein Dokument aus einem Guss: das Urteil steht als Kopfzeile direkt über dem Text, die Kernaussagen schließen ihn ab, und Karten sitzen auf einem ruhigen Grund statt in umrandeten Kästen — alles Teil der Antwort, nichts wirkt aufgesetzt.",
+              "de": "Antworten lesen sich jetzt wie ein Dokument aus einem Guss: das Urteil steht als Kopfzeile direkt über dem Text, die Kernaussagen schließen ihn ab, und Karten sitzen auf einem ruhigen Grund statt in umrandeten Kästen — alles Teil der Antwort, nichts wirkt aufgesetzt."
+            },
+            {
+              "en": "Ein Hinweis erscheint dort, wo er hingehört: der Assistent verankert ihn beim Absatz, den er betrifft, statt ihn ans Ende der Antwort zu hängen.",
+              "de": "Ein Hinweis erscheint dort, wo er hingehört: der Assistent verankert ihn beim Absatz, den er betrifft, statt ihn ans Ende der Antwort zu hängen."
+            }
+          ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Asking about a project file from a shared link no longer fails when the link carried the file's name instead of its identity. The chat used to try to load that name as if it were the file, and the page could not show its status. It now only looks the file up when the link actually names one.",
+              "de": "Asking about a project file from a shared link no longer fails when the link carried the file's name instead of its identity. The chat used to try to load that name as if it were the file, and the page could not show its status. It now only looks the file up when the link actually names one."
             }
           ]
         },
