@@ -267,6 +267,38 @@ vulnerabilities:
 
       Drop as soon as a collector-contrib image ships x/mod >= 0.40.0.
 
+  # ── golang.org/x/crypto/ssh inside otelcol-contrib (ADR-0029) ─────────────
+  #
+  # Separate from the Go stdlib block (a toolchain rebuild does not clear it)
+  # and from the x/mod pair (different package, different call path). Same
+  # image, same reachability posture.
+
+  - id: CVE-2026-56854
+    expired_at: 2026-10-01
+    statement: |
+      golang.org/x/crypto/ssh 0.54.0 — an SSH SERVER using certificate
+      authentication could fail to enforce source-address critical options,
+      an authentication bypass for connections that should have been
+      refused by origin. Fixed in 0.55.0, which no published
+      collector-contrib tag ships yet (the pin is 0.157.0; trivy reads
+      v0.54.0 out of its build info), so no digest bump can currently
+      clear it.
+
+      Not exploitable here, structurally: the collector runs NO SSH
+      server. Its listeners are the OTLP receivers in
+      deploy/pulumi/src/platform/otel-collector.ts and nothing else —
+      x/crypto/ssh rides in via contrib components (the sshcheck
+      receiver, an SSH CLIENT) that our collector.yaml never enables. A
+      server-side certificate-auth bypass needs a server accepting SSH
+      connections, and this deployment has no such surface; the pod is
+      cluster-internal behind a NetworkPolicy besides.
+
+      Drop as soon as a collector-contrib image ships
+      golang.org/x/crypto >= 0.55.0 — re-verify with
+      `go version -m otelcol-contrib` on the candidate image rather than
+      assuming a tag bump carries it, exactly as the x/mod entries above
+      had to.
+
   # ── Langfuse web/worker images (ADR-0044) ─────────────────────────────────
   #
   # All seven are npm dependencies bundled INSIDE ghcr.io/langfuse/langfuse, not
