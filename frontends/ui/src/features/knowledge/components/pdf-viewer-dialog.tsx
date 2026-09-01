@@ -74,6 +74,14 @@ export interface PdfViewerDialogProps {
    */
   headerChip?: ReactNode
   /**
+   * Optional controls for the document on show — the copy actions. Separate
+   * from `headerChip` because the two behave differently when the row runs out
+   * of width: the chip says WHAT this is and stays with the title, the actions
+   * wrap to a line of their own. Passed together, they crowded the title out of
+   * a phone header entirely and then collided with the close button.
+   */
+  headerActions?: ReactNode
+  /**
    * Optional content rendered between the header and the document frame
    * (WS-9: the tinted "Fundstelle"/cited-passage box). Purely additive.
    */
@@ -87,7 +95,7 @@ export interface PdfViewerDialogProps {
   aside?: ReactNode
 }
 
-export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src: srcOverride, isImage, imageUnoptimized = true, highlight, highlightColor, headerChip, children, aside }: PdfViewerDialogProps) {
+export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src: srcOverride, isImage, imageUnoptimized = true, highlight, highlightColor, headerChip, headerActions, children, aside }: PdfViewerDialogProps) {
   const t = useTranslations('knowledge')
   const baseSrc = srcOverride ?? `/api/knowledge-base/documents/${encodeURIComponent(fileName)}`
   // The fragment is for the "open in new tab" link and the image branch, which
@@ -109,9 +117,15 @@ export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src
       */}
       <DialogContent className="flex h-[90dvh] w-[95vw] max-w-[95vw] sm:max-w-[95vw] flex-col gap-3 p-4 sm:p-5">
         <DialogHeader className="shrink-0 pr-8 text-left">
-          <DialogTitle className="flex items-center gap-2 text-base">
+          {/* `flex-wrap`: the chip and the title hold the first line, the
+              actions drop to a second one when the row cannot hold them all.
+              Unwrapped, a phone header was chip + two copy buttons and nothing
+              else — the document's own name never rendered, and the row ran
+              under the close button. */}
+          <DialogTitle className="flex flex-wrap items-center gap-2 text-base">
             {headerChip}
-            <span className="min-w-0 truncate">{title ?? fileName}</span>
+            <span className="min-w-0 flex-1 truncate">{title ?? fileName}</span>
+            {headerActions}
           </DialogTitle>
           <DialogDescription className="flex items-center gap-3 text-xs">
             {t('viewer.description')}

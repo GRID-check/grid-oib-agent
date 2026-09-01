@@ -430,17 +430,26 @@ describe('a document read at several pages', () => {
     expect(current()).toBe(1)
   })
 
-  test('a document read at ONE page shows no rail — there is nowhere else to go', async () => {
+  /**
+   * A single Fundstelle gets the rail too. It used to be withheld — one entry is
+   * nowhere to navigate — which left two citations that look identical from the
+   * chat opening two differently shaped dialogs, and left the reader deep in a
+   * long document with nothing on screen saying which passage they came to
+   * check. The rail is that answer, and it is worth a column whether the
+   * document was read once or four times.
+   */
+  test('a document read at ONE page still gets the rail, without a stepper', async () => {
     const user = userEvent.setup()
     const [document] = buildCitationModel({
       citations: [
         citation({
-          content: '[KB] Brandschutzkonzept.pdf, p.3',
+          content: '[KB] Brandschutzkonzept.pdf, p.3\nFluchtwege sind freizuhalten.',
           citationKey: 'Brandschutzkonzept.pdf, p.3',
           fileName: 'Brandschutzkonzept.pdf',
           collection: 'proj_1',
           kind: 'projekt',
           page: 3,
+          number: 1,
           isCited: true,
         }),
       ],
@@ -452,6 +461,28 @@ describe('a document read at several pages', () => {
     )
 
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).queryByRole('navigation', { name: /passages/i })).toBeNull()
+    const rail = within(dialog).getByRole('navigation', { name: /passages in this document/i })
+    expect(within(rail).getAllByRole('listitem').map((entry) => entry.textContent)).toEqual([
+      '[1]p. 3Fluchtwege sind freizuhalten.',
+    ])
+    // The one entry is the one being read, so it is marked as such.
+    expect(within(rail).getByRole('button')).toHaveAttribute('aria-current', 'true')
+    // Nowhere to step to: the controls for it would be dead affordances.
+    expect(within(rail).queryByRole('button', { name: 'Next passage' })).toBeNull()
+    expect(within(rail).queryByRole('button', { name: 'Previous passage' })).toBeNull()
+  })
+
+  /**
+   * The rail carries the passage, so the band above the document that used to
+   * carry it is the same words twice — and the second copy is paid for in the
+   * height the document is rendered at.
+   */
+  test('the cited passage is shown once, in the rail', async () => {
+    const user = userEvent.setup()
+    const rail = await openRail(user)
+    const dialog = screen.getByRole('dialog')
+
+    expect(within(rail).getByText('Fluchtwege sind freizuhalten.')).toBeTruthy()
+    expect(within(dialog).queryByText('Cited passage')).toBeNull()
   })
 })
