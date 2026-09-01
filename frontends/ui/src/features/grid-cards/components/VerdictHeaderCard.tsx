@@ -33,6 +33,7 @@ import { useTranslations, type Translator } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { NormRefFooter } from '../schematics/kit'
 import type { NormReferenceData } from '../schematics/types'
+import { CARD_SHELL } from './card-chrome'
 
 type Confidence = 'low' | 'medium' | 'high'
 
@@ -42,6 +43,15 @@ interface VerdictHeaderCardProps {
   reference?: NormReferenceData | null
   confidence?: Confidence | null
   confidence_reason?: string | null
+  /**
+   * Render as the answer's MASTHEAD instead of a framed card: no ground, no
+   * frame — eyebrow, figure and reference sit directly on the answer surface,
+   * closed by one hairline that hands over to the prose. This is how the
+   * envelope's native `verdict` field renders (the anatomy is part of the
+   * answer, never an object on it); the framed default remains for stored
+   * threads whose verdict arrived as a card.
+   */
+  flat?: boolean
 }
 
 /**
@@ -73,13 +83,14 @@ export const VerdictHeaderCard: FC<VerdictHeaderCardProps> = ({
   reference,
   confidence,
   confidence_reason,
+  flat = false,
 }) => {
   const t = useTranslations('chat')
   const conf = confidence ? CONFIDENCE[confidence] : null
   const text = verdict ?? ''
 
-  return (
-    <Card className="gap-2.5 border-l-2 border-l-primary/40 p-5 shadow-xs">
+  const body = (
+    <>
       <SectionLabel icon={Gavel}>{subject}</SectionLabel>
 
       {/* `hyphens-auto break-words` is not belt-and-braces, it is the phone.
@@ -131,7 +142,16 @@ export const VerdictHeaderCard: FC<VerdictHeaderCardProps> = ({
         <p className="card-caption max-w-prose text-muted-foreground">{confidence_reason}</p>
       )}
 
-      <NormRefFooter reference={reference} />
-    </Card>
+      <NormRefFooter reference={reference} bare={flat} />
+    </>
   )
+
+  if (flat) {
+    // No chrome at all: the masthead wrapper (`AnswerAnatomy.tsx`) owns the
+    // one hairline that closes the header over the prose — drawn there, not
+    // here, so a masthead of verdict + summary carries exactly one rule.
+    return <div className="flex flex-col gap-2.5">{body}</div>
+  }
+
+  return <Card className={cn(CARD_SHELL, 'gap-2.5 border-l-2 border-l-primary/40 p-5')}>{body}</Card>
 }

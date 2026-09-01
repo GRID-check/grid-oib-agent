@@ -14,10 +14,13 @@ import json
 
 from aiq_agent.agents.shallow_researcher.markers import detect_and_strip_confidence_marker
 from aiq_agent.common.answer_envelope import ENVELOPE_VERSION
+from aiq_agent.common.answer_envelope import SUMMARY_MAX_CHARS
 from aiq_agent.common.answer_envelope import AnswerMeta
 from aiq_agent.common.answer_envelope import extract_answer_envelope
 from aiq_agent.common.answer_envelope import gate_answer_meta
+from aiq_agent.common.answer_envelope import render_envelope_response_format
 from aiq_agent.common.answer_envelope import render_envelope_schema
+from aiq_agent.common.answer_envelope import resolve_callout_marker
 
 
 def _fenced(payload: dict) -> str:
@@ -239,9 +242,112 @@ class TestWireCrossing:
         envelope = {
             "answer": "irrelevant here",
             "confidence": {"level": "high", "reason": "OIB-RL 2 direkt belegt"},
+            "summary": fixture["summary"],
             "verdict": fixture["verdict"],
             "callout": fixture["callout"],
             "takeaways": fixture["takeaways"],
         }
         payload = gate_answer_meta(AnswerMeta.model_validate(envelope), prose_chars=1_200)
         assert payload == fixture
+
+
+class TestStrictResponseFormat:
+    """The provider-enforced schema, derived from the same models as the gates."""
+
+    def test_the_wrapper_is_openrouter_structured_outputs(self):
+        fmt = render_envelope_response_format()
+        assert fmt["type"] == "json_schema"
+        assert fmt["json_schema"]["name"] == "answer_envelope"
+        assert fmt["json_schema"]["strict"] is True
+
+    def test_strict_mode_invariants_hold_everywhere(self):
+        """Every object is closed and requires every key — strict's contract."""
+
+        def walk(schema: dict) -> None:
+            if schema.get("type") == "object":
+                assert schema["additionalProperties"] is False
+                assert schema["required"] == list(schema["properties"])
+                for prop in schema["properties"].values():
+                    walk(prop)
+            for member in schema.get("anyOf", []):
+                walk(member)
+            if "items" in schema:
+                walk(schema["items"])
+
+        walk(render_envelope_response_format()["json_schema"]["schema"])
+
+    def test_answer_leads_and_the_enums_survive(self):
+        schema = render_envelope_response_format()["json_schema"]["schema"]
+        assert next(iter(schema["properties"])) == "answer"
+        assert schema["properties"]["answer"]["type"] == "string"
+        callout = schema["properties"]["callout"]["anyOf"][0]
+        assert callout["properties"]["kind"]["enum"] == ["hinweis", "achtung", "frist", "tipp"]
+        confidence = schema["properties"]["confidence"]["anyOf"][0]
+        assert confidence["properties"]["level"]["enum"] == ["low", "medium", "high"]
+
+    def test_an_enforced_reply_parses_through_the_same_validator(self):
+        """Strict mode spells absence as null; extraction must not care."""
+        reply = json.dumps(
+            {
+                "answer": "Die Antwort [1].",
+                "confidence": {"level": "medium", "reason": None},
+                "escalate_to_deep": None,
+                "verdict": {"value": "REI 60", "subject": "Feuerwiderstand", "reference": None},
+                "callout": None,
+                "takeaways": None,
+            }
+        )
+        prose, meta = extract_answer_envelope(reply)
+        assert prose == "Die Antwort [1]."
+        assert meta is not None
+        assert meta.confidence is not None and meta.confidence.level == "medium"
+        assert meta.verdict is not None and meta.verdict.value == "REI 60"
+        assert meta.callout is None and meta.takeaways is None
+
+
+class TestCalloutMarker:
+    """`[[callout]]` placement: at most one placeable marker, or none."""
+
+    def test_no_marker_passes_through_untouched(self):
+        prose = "Absatz eins.\n\nAbsatz zwei."
+        assert resolve_callout_marker(prose, has_callout=True) == prose
+
+    def test_the_first_own_line_marker_stays_and_the_rest_go(self):
+        prose = "Absatz eins.\n\n[[callout]]\n\nAbsatz zwei.\n\n[[callout]]\n\nEnde."
+        resolved = resolve_callout_marker(prose, has_callout=True)
+        assert resolved.count("[[callout]]") == 1
+        assert resolved.index("[[callout]]") < resolved.index("Absatz zwei.")
+
+    def test_every_marker_goes_when_no_callout_survived(self):
+        prose = "Absatz eins.\n\n[[callout]]\n\nAbsatz zwei mit [[callout]] mitten im Satz."
+        resolved = resolve_callout_marker(prose, has_callout=False)
+        assert "[[callout]]" not in resolved
+        # The own-line marker took its whole line; the inline one left the
+        # sentence intact.
+        assert "Absatz zwei mit  mitten im Satz." in resolved
+
+    def test_a_mid_sentence_marker_never_counts_as_placed(self):
+        prose = "Ein Satz mit [[callout]] darin.\n\n[[callout]]"
+        resolved = resolve_callout_marker(prose, has_callout=True)
+        # The own-line one is the kept one, even though the inline one came first.
+        assert resolved == "Ein Satz mit  darin.\n\n[[callout]]"
+
+
+class TestSummaryGate:
+    """The near-universal field: owed on every reply, still gated."""
+
+    def test_a_standfirst_survives(self):
+        meta = AnswerMeta.model_validate({"summary": "  REI 60 in GK 4; im Keller REI 90.  "})
+        payload = gate_answer_meta(meta, prose_chars=100)
+        assert payload == {"v": ENVELOPE_VERSION, "summary": "REI 60 in GK 4; im Keller REI 90."}
+
+    def test_a_paragraph_in_disguise_is_dropped_whole(self):
+        meta = AnswerMeta.model_validate({"summary": "x" * (SUMMARY_MAX_CHARS + 1), "verdict": _VERDICT})
+        payload = gate_answer_meta(meta, prose_chars=100)
+        assert payload is not None
+        assert "summary" not in payload and payload["verdict"]["value"] == "REI 60"
+
+    def test_blank_is_absent_not_empty(self):
+        meta = AnswerMeta.model_validate({"summary": "   ", "verdict": _VERDICT})
+        payload = gate_answer_meta(meta, prose_chars=100)
+        assert payload is not None and "summary" not in payload

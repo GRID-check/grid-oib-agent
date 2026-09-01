@@ -34,12 +34,22 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { useTranslations, type Translator } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { CalloutKind } from '../schematics/types'
+import { CARD_SHELL } from './card-chrome'
 
 interface CalloutCardProps {
   kind: CalloutKind
   text: string
   title?: string | null
   detail?: string | null
+  /**
+   * Render as an ASIDE in the answer's own flow: the accent edge, the icon
+   * well and the kind word stay (they are the identity), the frame and the
+   * ground go. This is how the envelope's native `callout` field renders —
+   * beside the paragraph its `[[callout]]` marker anchors it to, or after the
+   * prose — an emphasized remark IN the answer, not a box ON it. The framed
+   * default remains for stored threads whose callout arrived as a card.
+   */
+  flat?: boolean
 }
 
 interface CalloutTone {
@@ -85,7 +95,7 @@ const TONES: Record<CalloutKind, CalloutTone> = {
   },
 }
 
-export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail }) => {
+export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail, flat = false }) => {
   const t = useTranslations('chat')
   const [open, setOpen] = useState(false)
   // `?? TONES.hinweis`, because `kind` arrives through a `z.any()`-typed union
@@ -94,14 +104,8 @@ export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail })
   const tone = TONES[kind] ?? TONES.hinweis
   const Icon = tone.icon
 
-  return (
-    <Card className="relative max-w-[46ch] gap-0 overflow-hidden py-3.5 pl-5 pr-4 shadow-xs">
-      {/* The accent edge rides the card's own left border rather than being a
-          border-left of its own: `overflow-hidden` clips it to the radius, so
-          the tone reads at full strength without rounding the corner twice. */}
-      <span aria-hidden="true" className={cn('absolute inset-y-0 left-0 w-[3px]', tone.edge)} />
-
-      <div className="flex items-start gap-3">
+  const body = (
+    <div className="flex items-start gap-3">
         <span
           aria-hidden="true"
           className={cn('mt-px flex size-7 shrink-0 items-center justify-center rounded-md', tone.well, tone.ink)}
@@ -158,6 +162,27 @@ export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail })
           )}
         </div>
       </div>
+  )
+
+  if (flat) {
+    return (
+      // The edge alone carries the tone — inset from the block's ends and
+      // rounded, so it reads as an emphasis rule beside the remark rather
+      // than as the border of a missing box.
+      <div className="relative max-w-[46ch] py-1 pl-5 pr-1">
+        <span aria-hidden="true" className={cn('absolute inset-y-1 left-0 w-[3px] rounded-full', tone.edge)} />
+        {body}
+      </div>
+    )
+  }
+
+  return (
+    <Card className={cn(CARD_SHELL, 'relative max-w-[46ch] gap-0 overflow-hidden py-3.5 pl-5 pr-4')}>
+      {/* The accent edge rides the card's own left border rather than being a
+          border-left of its own: `overflow-hidden` clips it to the radius, so
+          the tone reads at full strength without rounding the corner twice. */}
+      <span aria-hidden="true" className={cn('absolute inset-y-0 left-0 w-[3px]', tone.edge)} />
+      {body}
     </Card>
   )
 }

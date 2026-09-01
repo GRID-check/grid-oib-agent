@@ -16,6 +16,7 @@ from aiq_agent.agents.shallow_researcher.agent import _count_interaction_calls
 from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
+from aiq_agent.common.answer_envelope import render_envelope_response_format
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
@@ -364,6 +365,7 @@ class TestShallowResearcherAgent:
             ],
             "callout": {"kind": "achtung", "text": "Ab 12 m Absturzhöhe sind 110 cm erforderlich."},
             "confidence": {"level": "medium", "reason": "eine Fundstelle, nicht am Projekt gemessen"},
+            "summary": "Unter 12 m Absturzhöhe genügen 100 cm, gemessen ab fertigem Fußboden.",
         }
         envelope.update(overrides)
         body = _json.dumps(envelope, ensure_ascii=False)
@@ -406,6 +408,7 @@ class TestShallowResearcherAgent:
         assert result.answer_meta is not None
         assert result.answer_meta["v"] == 1
         assert result.answer_meta["verdict"]["value"] == "100 cm"
+        assert result.answer_meta["summary"].startswith("Unter 12 m Absturzhöhe")
         assert result.answer_meta["verdict"]["reference"]["document"] == "OIB-Richtlinie 4"
         assert len(result.answer_meta["takeaways"]) == 2
         assert result.answer_meta["callout"]["kind"] == "achtung"
@@ -423,6 +426,35 @@ class TestShallowResearcherAgent:
         assert not final_content.strip().startswith("{")
         assert result.answer_confidence_marker == "medium"
         assert result.answer_meta is not None and result.answer_meta["verdict"]["value"] == "100 cm"
+
+    @pytest.mark.asyncio
+    async def test_run_keeps_one_placed_callout_marker(self, mock_llm_provider, mock_llm, real_tool):
+        """A surviving callout keeps its FIRST own-line `[[callout]]`, and only that."""
+        prose = (
+            "Die erforderliche Geländerhöhe beträgt 100 cm [1].\n\n"
+            "[[callout]]\n\n"
+            "Weitere Erläuterung.\n\n[[callout]]\n\n"
+            "## References\n- [1] https://example.com"
+        )
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._envelope_reply(answer=prose)))
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+
+        result = await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")]))
+
+        final_content = result.messages[-1].content
+        assert final_content.count("[[callout]]") == 1
+        assert result.answer_meta is not None and result.answer_meta["callout"]["kind"] == "achtung"
+
+    @pytest.mark.asyncio
+    async def test_run_strips_the_marker_when_no_callout_survived(self, mock_llm_provider, mock_llm, real_tool):
+        """A marker with nothing behind it must never reach the reader."""
+        prose = "Die Antwort [1].\n\n[[callout]]\n\nMehr Text.\n\n## References\n- [1] https://example.com"
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._envelope_reply(answer=prose, callout=None)))
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+
+        result = await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")]))
+
+        assert "[[callout]]" not in result.messages[-1].content
 
     @pytest.mark.asyncio
     async def test_run_envelope_escalation_discards_the_anatomy(self, mock_llm_provider, mock_llm, real_tool):
@@ -461,7 +493,9 @@ class TestShallowResearcherAgent:
 
         result = await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")]))
 
-        mock_llm.bind.assert_called_once_with(response_format={"type": "json_object"})
+        # The strongest rung binds first: strict structured outputs, derived
+        # from the envelope models themselves.
+        mock_llm.bind.assert_called_once_with(response_format=render_envelope_response_format())
         bound.ainvoke.assert_awaited_once()
         # The JSON-mode response flowed through the same extraction chain.
         assert result.answer_confidence_marker == "medium"
@@ -488,7 +522,10 @@ class TestShallowResearcherAgent:
 
         result = await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")]))
 
-        mock_llm.bind.assert_called_once_with(response_format={"type": "json_object"})
+        # The whole ladder was tried in order — json_schema, then json_object —
+        # before the plain call answered.
+        formats = [call.kwargs["response_format"]["type"] for call in mock_llm.bind.call_args_list]
+        assert formats == ["json_schema", "json_object"]
         mock_llm.ainvoke.assert_awaited()
         assert result.answer_confidence_marker == "medium"
 
@@ -508,7 +545,7 @@ class TestShallowResearcherAgent:
         )
         result = await opted_in.run(ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")]))
 
-        mock_llm.bind.assert_called_once_with(response_format={"type": "json_object"})
+        mock_llm.bind.assert_called_once_with(response_format=render_envelope_response_format())
         bound.ainvoke.assert_awaited_once()
         assert result.answer_confidence_marker == "medium"
 

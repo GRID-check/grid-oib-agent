@@ -28,6 +28,8 @@ export const ANSWER_META_VERSION = 1
 
 /** Mirrors `VERDICT_VALUE_MAX_CHARS` — a verdict is a VALUE, not a sentence. */
 export const VERDICT_VALUE_MAX_CHARS = 60
+/** Mirrors `SUMMARY_MAX_CHARS` — a standfirst, not a paragraph. Gate, not cap. */
+export const SUMMARY_MAX_CHARS = 320
 const MAX_SUBJECT_CHARS = 200
 const MAX_TAKEAWAYS = 5
 const MAX_TEXT_CHARS = 300
@@ -69,6 +71,8 @@ export interface AnswerMetaCallout {
  */
 export interface AnswerMeta {
   v: number
+  /** The whole answer in 1–2 sentences — the standfirst above the prose. */
+  summary?: string
   verdict?: AnswerMetaVerdict
   takeaways?: AnswerMetaTakeaway[]
   callout?: AnswerMetaCallout
@@ -148,13 +152,18 @@ function sanitizeCallout(input: unknown): AnswerMetaCallout | undefined {
 export function sanitizeAnswerMeta(input: unknown): AnswerMeta | null {
   if (!isRecord(input)) return null
 
+  // Like the verdict, the summary's bound is the backend's GATE: over the
+  // limit it was never a standfirst, so it is dropped whole, not truncated.
+  const rawSummary = typeof input.summary === 'string' ? input.summary.trim() : ''
+  const summary = rawSummary && rawSummary.length <= SUMMARY_MAX_CHARS ? rawSummary : undefined
   const verdict = sanitizeVerdict(input.verdict)
   const takeaways = sanitizeTakeaways(input.takeaways)
   const callout = sanitizeCallout(input.callout)
-  if (!verdict && !takeaways && !callout) return null
+  if (!summary && !verdict && !takeaways && !callout) return null
 
   const version = typeof input.v === 'number' && Number.isFinite(input.v) ? input.v : ANSWER_META_VERSION
   const meta: AnswerMeta = { v: version }
+  if (summary) meta.summary = summary
   if (verdict) meta.verdict = verdict
   if (takeaways) meta.takeaways = takeaways
   if (callout) meta.callout = callout

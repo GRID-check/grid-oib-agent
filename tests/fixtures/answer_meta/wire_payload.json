@@ -1,5 +1,6 @@
 {
   "v": 1,
+  "summary": "Tragende Bauteile in GK 4 sind in REI 60 auszuführen; in Kellergeschossen gilt REI 90.",
   "verdict": {
     "value": "REI 60",
     "subject": "Feuerwiderstand tragender Bauteile",

@@ -4,6 +4,16 @@
 
 **Purpose.** The product owner's brief: *"really also make each of the cards truly unique and look absolutely stunning here."* Not "same box, different accent colour and icon" — that is what exists and it is the complaint. This charter's job is the tension in that instruction: **maximum per-card distinctiveness inside one coherent system.**
 
+> **Superseding brief (2026-09).** The owner sharpened the instruction: a card
+> must **read as part of the answer, never as its own object** — "cards" is the
+> schema's word, not the pixels' — and the answer's native anatomy (verdict,
+> takeaways, callout from the ```answer_json envelope) is not a card at all but
+> answer typography. Distinctiveness therefore comes from each card's §A5 mark
+> and its typography, **never from its frame**: the framed register became a
+> quiet ground (§A1), and the anatomy renders flat
+> (`features/chat/components/AnswerAnatomy.tsx`). Where an older line below
+> reads as praise for borders or shadows, this brief wins.
+
 **Audience.** Implementation agents work from this file as their contract. Every claim about the current state carries a `file:line` so it stays checkable.
 
 ---
@@ -113,9 +123,9 @@ Two content cards is a turn's budget, one is usual, three is too many (catalog.p
 
 Collapse the five chromes to one component with three declared registers. A register is a property of the card's **job**, never of taste.
 
-- **Framed** — `rounded-lg border bg-card p-5 shadow-xs`. The card is an object separable from the prose: it can be cropped and pasted into an Einreichung and still make sense. Default.
-- **Flat** — no border, no ground, sits directly on the answer surface. Only for blocks that are *part of the answer body*: `summary`, `requirement_checklist`, and (newly) `follow_ups`.
-- **Accented** — Framed plus a 2px left edge in a role colour. Means "this card makes a claim you may act on." Exactly three: `legal_basis` (source-law), `verdict_header` (ink), the two proposals (lifecycle).
+- **Framed** — `rounded-lg p-5` on a **quiet ground**: `bg-muted/40`, no border, no shadow (`CARD_SHELL` in `components/card-chrome.ts`, the one place the framedness is decided). The card is an object separable from the prose — it can be cropped and pasted into an Einreichung — but it sits in the answer the way a figure sits in a book: grouped by its ground, not fenced off. The border-and-shadow silhouette this register used to carry is retired under the superseding brief above. Default.
+- **Flat** — no ground at all, sits directly on the answer surface. For blocks that are *part of the answer body*: `summary`, `requirement_checklist`, `follow_ups` — and the whole envelope anatomy (the masthead of verdict value plus the near-universal `summary` standfirst, closed by one hairline; the takeaways as the closing block; the callout as an accent-ruled aside anchored by its `[[callout]]` marker), which always renders flat via `AnswerAnatomy.tsx`.
+- **Accented** — Framed plus a 2px left edge in a role colour. Means "this card makes a claim you may act on." Exactly three: `legal_basis` (source-law), `verdict_header` *as a stored card* (ink), the two proposals (lifecycle).
 
 **A fourth register is forbidden.** A new card picks one of these or it does not ship.
 
