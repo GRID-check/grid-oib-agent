@@ -14,6 +14,7 @@ import { AnimatePresence, motion, motionEntrance, motionQuick } from '@/componen
 import { FileCard } from './file-card'
 import { FileGrid, FileCardSkeleton } from './file-grid'
 import { FileListSkeleton, FileListView } from './file-list-view'
+import { DEFAULT_FILE_SORT, sortFiles, type FileSort } from '../lib/file-sort'
 import { FolderBreadcrumbRow, FolderCard, FolderRow } from './folder-navigation'
 import { AssignmentFaces } from './assignment-faces'
 
@@ -30,7 +31,19 @@ export interface FolderNavigation {
 
 interface FileBrowserPaneProps {
   /** The CURRENT LEVEL's files (the caller applies the folder filter). */
-  files: FileItem[]
+  files: readonly FileItem[]
+  /**
+   * The order both views draw in, owned by the caller.
+   *
+   * The detail view used to hold this privately, so the card grid had no order
+   * at all and switching views discarded the one you had chosen. The pane
+   * orders what it hands to the cards and passes the same state to the list, so
+   * the list's column headers and the header's filter menu write to one place.
+   *
+   * Omitted by fixtures, which then get the default (newest first).
+   */
+  sort?: FileSort
+  onSortChange?: (next: FileSort) => void
   selectedFileId: string | null
   onSelectFile: (id: string | null) => void
   isLoading: boolean
@@ -66,7 +79,7 @@ interface FileBrowserPaneProps {
    * filter: a search escapes the current folder, so a document two levels down
    * is findable from the root. Defaults to `files`.
    */
-  searchFiles?: FileItem[]
+  searchFiles?: readonly FileItem[]
   /**
    * The query and semantic mode, owned by the caller — see {@link FileSearch}.
    * The pane filters and renders results; it does not draw the field, because
@@ -101,27 +114,38 @@ export function FileBrowserPane({
   filterEmptyNotice,
   onDropDocumentInFolder,
   renderActions,
+  sort = DEFAULT_FILE_SORT,
+  onSortChange,
 }: FileBrowserPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
   const { query, semantic } = search
+
+  // The level, ordered. The list view re-applies the identical sort to the rows
+  // it is handed — a no-op, and cheaper than teaching every branch below which
+  // of the two views it is about to render into.
+  const orderedFiles = useMemo(() => sortFiles(files, sort, locale), [files, sort, locale])
 
   // Client-side filter: name, plus AI tags and summary when the backend
   // generated them. A typed query escapes the current folder (the query is the
   // context), so it runs over the corpus, not the level.
   const filteredFiles = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return files
+    if (!q) return orderedFiles
     // Both names, deliberately: somebody who renamed a document looks for what
     // they called it, and somebody who uploaded it looks for the file they sent.
-    return (searchFiles ?? files).filter(
-      (f) =>
-        documentDisplayName(f).toLowerCase().includes(q) ||
-        f.filename.toLowerCase().includes(q) ||
-        (f.summary ?? '').toLowerCase().includes(q) ||
-        (f.tags ?? []).some((tag) => tag.toLowerCase().includes(q))
+    return sortFiles(
+      (searchFiles ?? files).filter(
+        (f) =>
+          documentDisplayName(f).toLowerCase().includes(q) ||
+          f.filename.toLowerCase().includes(q) ||
+          (f.summary ?? '').toLowerCase().includes(q) ||
+          (f.tags ?? []).some((tag) => tag.toLowerCase().includes(q))
+      ),
+      sort,
+      locale
     )
-  }, [files, searchFiles, query])
+  }, [orderedFiles, files, searchFiles, query, sort, locale])
 
   const currentFolderId = folderNav?.currentFolderId ?? null
 
@@ -388,6 +412,8 @@ export function FileBrowserPane({
               selectedFileId={selectedFileId}
               onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
               renderActions={renderActions}
+              sort={sort}
+              onSortChange={onSortChange}
             />
           </div>
         ) : (
@@ -451,12 +477,14 @@ export function FileBrowserPane({
                 ))}
               </div>
             )}
-            {files.length > 0 && (
+            {orderedFiles.length > 0 && (
               <FileListView
-                files={files}
+                files={orderedFiles}
                 selectedFileId={selectedFileId}
                 onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
                 renderActions={renderActions}
+                sort={sort}
+                onSortChange={onSortChange}
               />
             )}
           </motion.div>
@@ -499,7 +527,7 @@ export function FileBrowserPane({
                     />
                   </motion.div>
                 ))}
-              {files.map((file, idx) => (
+              {orderedFiles.map((file, idx) => (
                 <motion.div
                   key={file.id}
                   initial={{ opacity: 0, y: 10 }}

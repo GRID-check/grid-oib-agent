@@ -266,6 +266,9 @@ export const files = {
     newFolderName: 'New folder name',
     creating: 'Creating folder…',
     allFiles: 'All Files',
+    // The way up, named. The breadcrumb says where you ARE, which is a map,
+    // and three levels deep the parent is a truncated word mid-row.
+    backTo: 'Back to {name}',
     newFolder: 'New folder',
     items: '{count} item(s)',
     openFolder: 'Open folder “{name}”',
@@ -353,6 +356,7 @@ export const files = {
     uploading: 'Uploading…',
     upload: 'Upload',
     uploadFolder: 'Upload folder',
+    uploadFiles: 'Choose files',
   },
   errors: {
     validation: {
@@ -383,6 +387,46 @@ export const files = {
    * rendered as responsibility. A generated report is an ordinary UNASSIGNED
    * file, so the footer still says `Unassigned` beside this line.
    */
+  /**
+   * The Files header's filter/sort menu.
+   *
+   * Replaces the open filter strip: the header already carried a view switch, a
+   * search field and an upload button, and had no room left for the filters
+   * people asked for. The count on the button is the price of hiding them — a
+   * filter nobody can see is worse than a crowded strip.
+   */
+  filters: {
+    label: 'Filter',
+    labelActive: 'Filters ({count} active)',
+    reset: 'Reset filters',
+    // What the reader is missing when type or status emptied the level: the
+    // fact that a filter, and not an empty folder, is the reason.
+    emptyTitle: 'No file matches these filters',
+    emptyDescription:
+      'This folder holds documents, but none matches the current selection. Reset the filters to see everything again.',
+    sortLabel: 'Sort',
+    ascending: 'Ascending',
+    descending: 'Descending',
+    statusLabel: 'Status',
+    // The three questions actually asked, not the ten pipeline states that
+    // differ only in which stage reported them.
+    status: {
+      failed: 'Failed',
+      processing: 'In progress',
+      ready: 'Citable',
+    },
+    originLabel: 'Origin',
+    kindLabel: 'File type',
+    kind: {
+      floorplan: 'Floor plan',
+      section: 'Section / elevation',
+      siteplan: 'Site plan',
+      notice: 'Official notice',
+      photo: 'Photo',
+      model: '3D model (IFC)',
+      document: 'Document',
+    },
+  },
   authorship: {
     byPiloti: 'Created by Piloti',
     /** Filter chip beside All · Mine · Unassigned. */

@@ -31,7 +31,9 @@ import { notFound } from 'next/navigation'
 import { I18nProvider } from '@/i18n'
 import { FileBrowserPane } from '@/features/documents/components/file-browser-pane'
 import { useFileSearch } from '@/features/documents/hooks/use-file-search'
-import { FileFilterStrip } from '@/features/documents/components/file-filter-strip'
+import { FileFilterMenu } from '@/features/documents/components/file-filter-menu'
+import { NO_FILE_FILTERS } from '@/features/documents/lib/file-filters'
+import { DEFAULT_FILE_SORT } from '@/features/documents/lib/file-sort'
 import { FilePreviewPane } from '@/features/documents/components/file-preview-pane'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
 
@@ -153,23 +155,25 @@ function AgentAuthoredFixtures(): JSX.Element {
         </p>
       </div>
 
-      {/* 1 — the strip, at rest and with both filters engaged. */}
+      {/* 1 — the filter menu, at rest and with two filters engaged. The strip
+             this replaced showed its state by looking pressed; the button shows
+             it as a count, so the shot has to carry both. */}
       <section className="space-y-3">
-        <h2 className="text-sm font-medium text-muted-foreground">Filterleiste</h2>
-        <div className="flex flex-col gap-3 rounded-xl border p-4">
-          <FileFilterStrip
+        <h2 className="text-sm font-medium text-muted-foreground">Filtermenü</h2>
+        <div className="flex flex-wrap items-start gap-3 rounded-xl border p-4">
+          <FileFilterMenu
             canCollaborate
-            assignmentFilter="all"
-            onAssignmentFilterChange={() => {}}
-            agentAuthoredOnly={false}
-            onAgentAuthoredOnlyChange={() => {}}
+            filters={NO_FILE_FILTERS}
+            onFiltersChange={() => {}}
+            sort={DEFAULT_FILE_SORT}
+            onSortChange={() => {}}
           />
-          <FileFilterStrip
+          <FileFilterMenu
             canCollaborate
-            assignmentFilter="unassigned"
-            onAssignmentFilterChange={() => {}}
-            agentAuthoredOnly
-            onAgentAuthoredOnlyChange={() => {}}
+            filters={{ ...NO_FILE_FILTERS, assignment: 'unassigned', agentAuthoredOnly: true }}
+            onFiltersChange={() => {}}
+            sort={DEFAULT_FILE_SORT}
+            onSortChange={() => {}}
           />
         </div>
       </section>

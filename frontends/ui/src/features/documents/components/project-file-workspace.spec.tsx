@@ -757,13 +757,43 @@ describe('ProjectFileWorkspace — an .ifc opens as a building', () => {
     )
   })
 
-  it('puts the model in the URL rather than opening the file preview', async () => {
+  /**
+   * This used to assert the opposite — a click went straight to the stage —
+   * and that is what made the model the ONE file type with no preview, and
+   * what made the same `.ifc` behave differently here and in the Archiv, which
+   * had no stage to jump to.
+   */
+  it('opens the preview first, like every other file', async () => {
     renderWorkspace(
       <ProjectFileWorkspace
         projectId="proj-1"
         projectName="Test"
         collectionName="test-coll"
         showModels
+      />
+    )
+    fireEvent.click(await findFileButton(/Haus-A\.ifc/i))
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    // And the stage is NOT entered behind the reader's back.
+    expect(
+      routerPush.mock.calls.some((call) => String(call[0]).includes('model=Haus-A.ifc'))
+    ).toBe(false)
+  })
+
+  /**
+   * The flag exists so this can be flipped in production without a deploy, and
+   * the Archiv reads the same one — an `.ifc` that behaves one way in a project
+   * and another in the Archiv is the defect the whole change is about.
+   */
+  it('goes straight to the stage when preview-first is switched off', async () => {
+    renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        showModels
+        previewFirst={false}
       />
     )
     fireEvent.click(await findFileButton(/Haus-A\.ifc/i))
@@ -835,7 +865,11 @@ describe('ProjectFileWorkspace — the Von Piloti filter', () => {
     await waitFor(() => expect(searches.length).toBeGreaterThan(0))
     expect(searches[0]).not.toContain('authoredBy')
 
-    await userEvent.click(screen.getByTestId('filter-agent-authored'))
+    // „Von Piloti" is inside the filter menu now, not an open chip in the
+    // header. The rule it tests is unchanged: the filter is a QUERY, not a
+    // client-side pass over rows already fetched.
+    await userEvent.click(screen.getByTestId('file-filter-menu-trigger'))
+    await userEvent.click(await screen.findByLabelText('By Piloti'))
 
     await waitFor(() => expect(searches.at(-1)).toContain('authoredBy=agent'))
     expect(searches.at(-1)).toContain('projectId=proj-1')
@@ -854,13 +888,103 @@ describe('ProjectFileWorkspace — the Von Piloti filter', () => {
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     await waitFor(() => expect(searches.length).toBeGreaterThan(0))
 
-    const chip = screen.getByTestId('filter-agent-authored')
-    await userEvent.click(chip)
+    await userEvent.click(screen.getByTestId('file-filter-menu-trigger'))
+    const check = await screen.findByLabelText('By Piloti')
+    await userEvent.click(check)
     await waitFor(() => expect(searches.at(-1)).toContain('authoredBy=agent'))
-    await userEvent.click(chip)
+    await userEvent.click(check)
 
     // Unfiltered is not the same as `authoredBy=user`: the default listing is
     // the whole project's estate, both hands.
     await waitFor(() => expect(searches.at(-1)).not.toContain('authoredBy'))
+  })
+})
+
+/**
+ * THE FOLDER IS PART OF THE ADDRESS.
+ *
+ * It was `useState`, which made the folder tree the one part of this page the
+ * browser did not know about: three folders deep, back left Dateien entirely
+ * instead of going up one level, a reload dropped the reader at the root, and a
+ * folder could not be sent to a colleague at all. Every other view on this page
+ * — which model, which storey, which element — has lived in the URL for exactly
+ * those reasons.
+ */
+describe('ProjectFileWorkspace — folders are addressable', () => {
+  const FOLDERS = [
+    { id: 'f-1', name: 'Planung', parentId: null },
+    { id: 'f-2', name: 'Statik', parentId: 'f-1' },
+  ]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    resetPreviewStore()
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: FOLDERS })),
+      http.get('/api/documents', () =>
+        HttpResponse.json({
+          documents: [
+            {
+              id: 'doc-in-folder',
+              filename: 'Statikbericht.pdf',
+              fileSize: 2048,
+              contentType: 'application/pdf',
+              status: 'ready',
+              folderId: 'f-2',
+              createdAt: '2026-01-02T00:00:00Z',
+              errorMessage: null,
+            },
+          ],
+        })
+      )
+    )
+  })
+
+  const render = () =>
+    renderWorkspace(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
+    )
+
+  it('opening a folder PUSHES it into the URL, so back means "up one level"', async () => {
+    render()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open folder “Planung”' }))
+
+    const href = String(routerPush.mock.calls.at(-1)?.[0])
+    expect(new URLSearchParams(href.split('?')[1]).get('folder')).toBe('f-1')
+    // `push`, not `replace`. With `replace` there is no history entry, and back
+    // leaves the page instead of leaving the folder — which is the defect.
+    expect(routerReplace).not.toHaveBeenCalled()
+  })
+
+  it('reads the level back out of the URL, so a pasted link opens that folder', async () => {
+    searchParams = new URLSearchParams('folder=f-2')
+    render()
+
+    // The document filed in `f-2` — not visible at the root, where this page
+    // used to land whatever the link said.
+    expect(await screen.findByText(/Statikbericht/)).toBeInTheDocument()
+  })
+
+  it('offers a named way up, not just a breadcrumb to aim at', async () => {
+    searchParams = new URLSearchParams('folder=f-2')
+    render()
+
+    // Named, so it says where it goes before it is pressed. The breadcrumb says
+    // where you ARE, and reading a map to find the exit is work — three levels
+    // deep the parent is a truncated word in a scrolling row.
+    const back = await screen.findByTestId('folder-back')
+    expect(back).toHaveTextContent('Planung')
+
+    fireEvent.click(back)
+    const href = String(routerPush.mock.calls.at(-1)?.[0])
+    expect(new URLSearchParams(href.split('?')[1]).get('folder')).toBe('f-1')
+  })
+
+  it('leaves the root with no way up, because there is nowhere to go', async () => {
+    render()
+    await screen.findByRole('button', { name: 'Open folder “Planung”' })
+    expect(screen.queryByTestId('folder-back')).not.toBeInTheDocument()
   })
 })

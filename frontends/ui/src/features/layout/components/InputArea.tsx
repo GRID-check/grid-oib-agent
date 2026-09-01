@@ -387,6 +387,16 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // Get current conversation for filtering files and ensureSession for auto-creation
   const currentConversation = useChatStore((state) => state.currentConversation)
   const ensureSession = useChatStore((state) => state.ensureSession)
+  /**
+   * Create the conversation ROW, not just the client-side session.
+   *
+   * `ensureSession` mints a client id and puts a session in the store; the
+   * server row is written by `_appendMessage` at send time. That is fine for
+   * everything except the mention picker, which asks the server about a
+   * conversation the server has never heard of — see the block above
+   * `mentionRetryRef` for why that 404 was terminal.
+   */
+  const ensureConversationExists = useChatStore((state) => state._ensureConversationExists)
   // The real "new session" action — the same one the logo / new-session path in
   // MainLayout uses (startNewSessionDraft). Wired to the post-research
   // "Neue Sitzung starten" button so the completed-report dead-end becomes a
@@ -810,8 +820,29 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
    * the mention trigger a function of how fast someone types.
    */
   const mentionRetryRef = useRef<(() => void) | null>(null)
-  mentionRetryRef.current =
-    mentionRequested && mentionData === null && !mentionsLoading ? restartMentionCandidates : null
+  // `mentionRequested` is NOT part of this condition, and that omission is half
+  // the fix. It latches true only in `syncMentionQuery`'s own edge branch, i.e.
+  // in the same event that reads this ref — so on the FIRST `@` of a window it
+  // was still false from the previous render, the ref was null, and the re-arm
+  // could not fire on the one interaction that needed it. It could only ever
+  // help from the second fragment onward.
+  mentionRetryRef.current = mentionData === null && !mentionsLoading ? restartMentionCandidates : null
+  /**
+   * Make the conversation real before the picker asks about it.
+   *
+   * Held in a ref for the same reason the retry is: `syncMentionQuery` runs on
+   * every keystroke and every caret move, and a changing dependency there would
+   * make the mention trigger a function of how fast someone types.
+   */
+  const ensureConversationRef = useRef<() => void>(() => {})
+  ensureConversationRef.current = () => {
+    // `ensureSession` writes to the store synchronously, so the id
+    // `_ensureConversationExists` then reads is the one just minted.
+    // `ensureServerConversation` is idempotent and shares one in-flight promise
+    // per id, so the send path pays nothing extra for this.
+    ensureSession()
+    void ensureConversationExists()
+  }
   /** Whether the caret was already inside an `@…` fragment on the last sync. */
   const mentionFragmentOpenRef = useRef(false)
 
@@ -827,7 +858,25 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     if (range) {
       // Only on the EDGE — the keystroke that opens a fragment. Asking again on
       // every character of `@Mar…` would be a fetch per keystroke.
-      if (!mentionFragmentOpenRef.current) mentionRetryRef.current?.()
+      if (!mentionFragmentOpenRef.current) {
+        // The row FIRST, then the retry.
+        //
+        // In a new window there is no conversation: the logo, the new-chat path
+        // and `?new` all null it, and typing `@` only ever created a
+        // CLIENT-SIDE session. So the picker asked
+        // `/api/conversations/<clientId>/mention-candidates` about a row that
+        // does not exist, got 404 through every rung of the retry ladder, and
+        // the hook cleared its data — which renders NO picker at all, not an
+        // empty one. Re-arming that ladder against the same missing row could
+        // only 404 again, which is why the previous fix did not help here.
+        //
+        // Scoped to this edge rather than to every first keystroke, so only
+        // readers who actually reached for the picker pay the round trip.
+        // `deleteConversation` already removes the server row, so an abandoned
+        // draft cleans up.
+        ensureConversationRef.current()
+        mentionRetryRef.current?.()
+      }
       mentionFragmentOpenRef.current = true
       setMentionRequested(true)
       return

@@ -89,7 +89,8 @@ export interface IfcCompliancePanelProps {
   confirmationsFailed?: boolean
   onRetryFacts?: () => void
   /** Opens the chat so the user can supply what the brief lacks. */
-  askHref: string
+  /** Where "Angaben ergänzen" asks; `null` where there is no project chat. */
+  askHref: string | null
   /**
    * Record a human verdict on a rule the catalogue could not settle.
    *
@@ -282,9 +283,11 @@ export function IfcCompliancePanel({
             {t('compliance.missingFacts', {
               facts: missingFacts.map((key) => t(`compliance.factName.${key}`)).join(', '),
             })}{' '}
-            <Link href={askHref} className="underline underline-offset-2">
-              {t('compliance.setFacts')}
-            </Link>
+            {askHref && (
+              <Link href={askHref} className="underline underline-offset-2">
+                {t('compliance.setFacts')}
+              </Link>
+            )}
           </span>
         </p>
       )}

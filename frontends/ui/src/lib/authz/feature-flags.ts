@@ -97,6 +97,28 @@ export const FEATURE_FLAGS = {
    */
   ifcModels: 'ifc-models',
   /**
+   * Whether a click on an `.ifc` opens the FILE PREVIEW first, or goes straight
+   * to the full-screen model stage.
+   *
+   * Separate from `ifcModels`, which answers whether the model surfaces exist
+   * at all. This one answers what a click does when they do — and it exists
+   * because that answer used to be decided per surface rather than per product:
+   * Dateien intercepted the click and jumped to the stage, while the Archiv
+   * showed a preview it offered no way out of. Same file, two behaviours,
+   * depending on where you clicked it.
+   *
+   * ON (the default) — preview first, everywhere, with the stage one button
+   * away. An `.ifc` is then a file like every other file, and the analytical
+   * surface is something you choose rather than something you land in.
+   *
+   * OFF — the stage opens directly, everywhere, including the Archiv, which
+   * could not do it before the stage stopped requiring a project.
+   *
+   * The point of the flag is that "everywhere" holds either way: it moves both
+   * surfaces together or neither.
+   */
+  ifcPreviewFirst: 'ifc-preview-first',
+  /**
    * Agent-authored documents: a finished deep-research report and a drawn
    * diagram filed into a project as `documents` rows
    * (`lib/documents/generated.ts`, ADR-0047's 2026-08-20 addenda).
@@ -218,6 +240,28 @@ export function isIfcModelsEnabled(session: Pick<GridSession, 'featureFlags'>): 
  */
 export function ifcModelsEnvEnabled(): boolean {
   const raw = (process.env.GRID_IFC_MODELS_ENABLED ?? '').trim().toLowerCase()
+  return raw === '' || !['false', '0', 'no', 'off'].includes(raw)
+}
+
+/**
+ * Gate for preview-first `.ifc` handling. With WorkOS flag enforcement it
+ * follows the per-org `ifc-preview-first` flag; without enforcement it follows
+ * `GRID_IFC_PREVIEW_FIRST`, which **defaults to true**.
+ *
+ * Its own env switch, the same shape as `isIfcModelsEnabled`, and for the same
+ * reason: this is an interaction change on a surface people already use, so a
+ * deployment has to be able to put it back without switching flag enforcement
+ * on for every other feature at the same time.
+ *
+ * Fail-open lands on preview-first because that is the safer of the two to be
+ * wrong about — a reader who wanted the stage is one button from it, while a
+ * reader thrown into a full-screen viewport has lost the preview entirely.
+ */
+export function isIfcPreviewFirstEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
+  if (enforcementOn()) {
+    return isFeatureEnabled(session, FEATURE_FLAGS.ifcPreviewFirst)
+  }
+  const raw = (process.env.GRID_IFC_PREVIEW_FIRST ?? '').trim().toLowerCase()
   return raw === '' || !['false', '0', 'no', 'off'].includes(raw)
 }
 

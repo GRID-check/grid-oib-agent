@@ -1,8 +1,14 @@
 'use client'
 
 import { useRef } from 'react'
-import { FolderUp, Upload } from 'lucide-react'
+import { ChevronDown, FolderUp, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 import { useAppConfig } from '@/shared/context'
@@ -135,38 +141,67 @@ export function ProjectUppyUpload({
     )
   }
 
+  const trigger = (
+    <Button
+      type="button"
+      onClick={allowFolders ? undefined : () => inputRef.current?.click()}
+      disabled={isUploading}
+      size={size}
+      variant={variant}
+      className="gap-2"
+    >
+      {isUploading ? <Spinner size="sm" /> : <Upload className="size-4" aria-hidden />}
+      {isUploading ? t('upload.uploading') : buttonLabel}
+      {allowFolders && <ChevronDown className="size-3.5 opacity-70" aria-hidden />}
+    </Button>
+  )
+
+  if (!allowFolders) {
+    return (
+      <>
+        {input}
+        {trigger}
+      </>
+    )
+  }
+
+  // ONE CONTROL, TWO SOURCES.
+  //
+  // Folder upload first shipped as a second button beside this one, and it cost
+  // more than it looked: the action row is in a header that shares its width
+  // with the section's description, so an extra full-width button squeezed that
+  // text into a four-word column. A second button also overstated the feature —
+  // picking a folder is the occasional onboarding move, not a peer of the
+  // everyday one.
+  //
+  // It cannot be folded into the same INPUT (one carrying `webkitdirectory` can
+  // only choose folders), so the split lives in a menu instead of in the
+  // toolbar: same single affordance, and the choice appears only for the reader
+  // who wants it.
   return (
     <>
       {input}
-      <Button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        disabled={isUploading}
-        size={size}
-        variant={variant}
-        className="gap-2"
-      >
-        {isUploading ? <Spinner size="sm" /> : <Upload className="size-4" aria-hidden />}
-        {isUploading ? t('upload.uploading') : buttonLabel}
-      </Button>
-      {allowFolders && (
-        // Beside the file button, not instead of it: an input carrying
-        // `webkitdirectory` can only choose folders, so one control cannot be
-        // both. Quiet by default — picking a folder is the occasional
-        // onboarding move, not the everyday one.
-        <Button
-          type="button"
-          onClick={() => folderInputRef.current?.click()}
-          disabled={isUploading}
-          size={size}
-          variant="ghost"
-          className="gap-2"
-          data-testid="project-upload-folder-trigger"
-        >
-          <FolderUp className="size-4" aria-hidden />
-          {t('upload.uploadFolder')}
-        </Button>
-      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild data-testid="project-upload-trigger">
+          {trigger}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuItem
+            onSelect={() => inputRef.current?.click()}
+            data-testid="project-upload-files-item"
+          >
+            <Upload className="size-4" aria-hidden />
+            {t('upload.uploadFiles')}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => folderInputRef.current?.click()}
+            data-testid="project-upload-folder-item"
+          >
+            <FolderUp className="size-4" aria-hidden />
+            {t('upload.uploadFolder')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </>
   )
 }

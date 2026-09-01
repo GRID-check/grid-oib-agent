@@ -147,9 +147,24 @@ export function buildModelQuery(view: BimModelView): string {
  */
 export const MODEL_VIEW_SEGMENT = 'files'
 
+/**
+ * The Archiv's counterpart route.
+ *
+ * The org-wide Archiv is not under a project, so it cannot use the path above —
+ * and it needs the same view state in the same query string, because the whole
+ * point is that an `.ifc` behaves identically wherever it is opened. Same
+ * `buildModelQuery`, so a view copied from one surface parses on the other.
+ */
+export const ARCHIV_MODEL_PATH = '/app/archiv'
+
 /** Absolute in-app href for a model view. */
 export function buildModelHref(projectId: string, view: BimModelView = {}): string {
   return `/app/projects/${projectId}/${MODEL_VIEW_SEGMENT}${buildModelQuery(view)}`
+}
+
+/** The same view, opened from the Archiv, where there is no project to name. */
+export function buildArchivModelHref(view: BimModelView = {}): string {
+  return `${ARCHIV_MODEL_PATH}${buildModelQuery(view)}`
 }
 
 /**

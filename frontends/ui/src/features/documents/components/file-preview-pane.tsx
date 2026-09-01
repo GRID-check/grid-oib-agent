@@ -85,6 +85,14 @@ interface FilePreviewPaneProps {
    * gated — they predate the feature.
    */
   showMetadataPanel?: boolean
+  /**
+   * Whether an `.ifc` preview offers the model workspace (`ifc-models`).
+   *
+   * Defaults to true, fail-open like `showMetadataPanel`: a link that does not
+   * render is a feature nobody can find, and the workspace refuses on its own
+   * if the flag is really off.
+   */
+  showModels?: boolean
   /** Which corpus the document belongs to — decides the file operations' route. */
   scope?: DocumentScope
   /** The document was renamed from the header menu. */
@@ -171,6 +179,7 @@ export function FilePreviewPane({
   onRenamed,
   onDeleted,
   showMetadataPanel = true,
+  showModels = true,
   canCollaborate = false,
   presentation = 'modal',
   onAssigneesChanged,
@@ -652,6 +661,7 @@ export function FilePreviewPane({
               documentId={file.id}
               filename={file.filename}
               projectId={projectId}
+              canOpenWorkspace={showModels}
               className="size-full"
             />
           ) : isTextual && isLoading ? (

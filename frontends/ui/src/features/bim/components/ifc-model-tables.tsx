@@ -529,7 +529,12 @@ export interface IfcProfileSuggestionsProps {
   /** Re-runs the query behind this panel — see `PanelError`. */
   onRetry?: () => void
   /** Opens the chat with a question that asks the agent to apply these. */
-  askHref: string
+  /**
+   * Where "übernehmen" asks the question, or `null` when there is no project
+   * to ask it in (the Archiv). The suggestions are still worth reading — they
+   * are facts about the model — so the panel stays and only the button goes.
+   */
+  askHref: string | null
 }
 
 const CONFIDENCE_VARIANT: Record<BimProfileSuggestion['confidence'], 'success' | 'warning' | 'secondary'> =
@@ -586,9 +591,13 @@ export function IfcProfileSuggestions({
             every other agent-proposed brief change uses (ADR-0030), rather than
             being written by a button that looks like a checkbox.
           */}
-          <Button asChild size="sm" variant="secondary">
-            <a href={askHref}>{t('profile.ask')}</a>
-          </Button>
+          {/* Omitted rather than disabled where there is no conversation to ask
+              in: a button that cannot go anywhere is not an affordance. */}
+          {askHref && (
+            <Button asChild size="sm" variant="secondary">
+              <a href={askHref}>{t('profile.ask')}</a>
+            </Button>
+          )}
         </>
       )}
     </section>

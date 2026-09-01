@@ -317,6 +317,7 @@ export function FilePreviewHost({
           scope={context.scope}
           canCollaborate={context.canCollaborate}
           showMetadataPanel={panePresentation === 'peek' ? false : context.showMetadataPanel}
+          showModels={context.showModels}
           presentation={panePresentation}
           onClose={overlay ? (mode === 'expanded' ? peek : close) : hide}
           onRenamed={(fileId, displayName) => {

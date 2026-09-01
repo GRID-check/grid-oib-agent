@@ -243,6 +243,10 @@ export const files: typeof en.files = {
     newFolderName: 'Name des neuen Ordners',
     creating: 'Ordner wird erstellt …',
     allFiles: 'Alle Dateien',
+    // Der Weg nach oben, benannt – die Brotkrumenleiste sagt, WO man ist, und
+    // das ist eine Karte. Drei Ebenen tief ist der übergeordnete Ordner ein
+    // abgeschnittenes Wort mitten in einer scrollenden Zeile.
+    backTo: 'Zurück zu {name}',
     newFolder: 'Neuer Ordner',
     items: '{count} Element(e)',
     openFolder: 'Ordner „{name}“ öffnen',
@@ -331,6 +335,7 @@ export const files: typeof en.files = {
     uploading: 'Wird hochgeladen …',
     upload: 'Hochladen',
     uploadFolder: 'Ordner hochladen',
+    uploadFiles: 'Dateien auswählen',
   },
   errors: {
     validation: {
@@ -355,6 +360,47 @@ export const files: typeof en.files = {
       'Bilder können hier nicht hochgeladen werden: In dieser Umgebung ist keine Bilderkennung eingerichtet.',
     fileSingular: 'Datei',
     filePlural: 'Dateien',
+  },
+  /**
+   * Das Filter-/Sortiermenü der Dateien-Kopfzeile.
+   *
+   * Ersetzt die offene Filterleiste: Die Kopfzeile trug bereits Ansichtsumschalter,
+   * Suchfeld und Upload-Button und hatte keinen Platz mehr für weitere Filter. Die
+   * Zahl am Button ist der Preis dafür – ein verborgener Filter, den niemand sieht,
+   * ist schlimmer als eine volle Leiste.
+   */
+  filters: {
+    label: 'Filter',
+    labelActive: 'Filter ({count} aktiv)',
+    reset: 'Filter zurücksetzen',
+    // Was der Leserin fehlt, wenn Typ oder Status die Ebene geleert haben: die
+    // Tatsache, dass ein Filter und nicht ein leerer Ordner der Grund ist.
+    emptyTitle: 'Keine Datei passt zu diesen Filtern',
+    emptyDescription:
+      'In diesem Ordner liegen Dokumente, aber keines entspricht der aktuellen Auswahl. Setzen Sie die Filter zurück, um wieder alles zu sehen.',
+    sortLabel: 'Sortierung',
+    ascending: 'Aufsteigend',
+    descending: 'Absteigend',
+    statusLabel: 'Status',
+    // Die drei Fragen, die tatsächlich gestellt werden – nicht die zehn
+    // Pipeline-Zustände, die sich nur darin unterscheiden, welche Stufe sie
+    // gemeldet hat.
+    status: {
+      failed: 'Fehlgeschlagen',
+      processing: 'In Arbeit',
+      ready: 'Zitierfähig',
+    },
+    originLabel: 'Herkunft',
+    kindLabel: 'Dateityp',
+    kind: {
+      floorplan: 'Grundriss',
+      section: 'Schnitt / Ansicht',
+      siteplan: 'Lageplan',
+      notice: 'Bescheid',
+      photo: 'Foto',
+      model: '3D-Modell (IFC)',
+      document: 'Dokument',
+    },
   },
   // Herkunft – wer die Datei geschrieben hat. Bewusst eine eigene Gruppe und
   // NICHT Teil von `assignment`: Ein Gesicht sagt, wer verantwortlich ist,
