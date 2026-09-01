@@ -59,6 +59,15 @@
               "de": "Fertige Antworten erscheinen sofort als Ganzes. Der Schreibmaschineneffekt, der eine bereits fertige Antwort Zeichen für Zeichen eingeblendet hat, ist entfernt."
             }
           ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Asking about a project file from a shared link no longer fails when the link carried the file's name instead of its identity. The chat used to try to load that name as if it were the file, and the page could not show its status. It now only looks the file up when the link actually names one.",
+              "de": "Asking about a project file from a shared link no longer fails when the link carried the file's name instead of its identity. The chat used to try to load that name as if it were the file, and the page could not show its status. It now only looks the file up when the link actually names one."
+            }
+          ]
         }
       ]
     },
