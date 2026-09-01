@@ -8,6 +8,7 @@ import { useChatStore, useLoadJobData, useDeepResearchTitle } from '@/features/c
 import type { ResearchPanelTab } from '@/features/layout/types'
 import { newChatDropsFilePreview } from '@/features/documents/lib/ask-arrival'
 import { fileItemFromStatus } from '@/features/documents/lib/document-question'
+import { isUuid } from '@/lib/ids'
 import { useCitationPeek } from '@/features/documents/hooks/use-citation-peek'
 import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 
@@ -131,7 +132,7 @@ const ProjectChatContent = ({
     setComposerPrefill(
       askPrefill ?? '',
       undefined,
-      docPrefill
+      docPrefill && isUuid(docPrefill)
         ? {
             resourceType: 'document',
             resourceId: docPrefill,
@@ -160,7 +161,9 @@ const ProjectChatContent = ({
   useCitationPeek({ projectId, projectName, canCollaborate })
 
   useEffect(() => {
-    if (!subjectId) return
+    // `?doc=` is a documents.id. A filename here used to hit
+    // GET /api/documents/<filename>/status and 500 (#572).
+    if (!subjectId || !isUuid(subjectId)) return
     const preview = useFilePreviewStore.getState()
     if (preview.file?.id === subjectId) {
       preview.peek()
