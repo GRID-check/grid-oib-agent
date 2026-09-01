@@ -759,6 +759,91 @@ body {
   animation: grid-passage-ping 1.15s cubic-bezier(0.16, 1, 0.3, 1) 2 both;
 }
 
+/* =============================================================================
+   PDF text layer — the page's own words, over the picture of them
+
+   pdf.js hands us a page as a bitmap. A bitmap is where a reader's every
+   instinct about a document dies quietly: the drag selects nothing, the copy
+   copies nothing, the browser's find finds nothing. So the viewer lays the
+   page's text back over its own glyphs as transparent, positioned runs, and
+   these rules are what make that layer behave — lifted from pdf.js's own
+   `web/pdf_viewer.css`, trimmed to the parts the core `TextLayer` writes.
+
+   Read it with `renderTextLayer` in `lib/pdfjs-runtime.ts`: every run is placed
+   as a PERCENTAGE of the page box and sized from `--font-height` (page units,
+   written per run by pdf.js) times `--total-scale-factor` (the viewer's zoom,
+   written per page by React). That is why zooming does not rebuild the layer,
+   and why the reader keeps their selection across it.
+
+   `color-scheme: only light` because what this layer sits on is the rendered
+   PAGE, which is paper-white whatever the app around it is wearing — a UA that
+   inverted the selection colour here would be inverting it against paper.
+   ============================================================================= */
+.pdf-text-layer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  text-align: initial;
+  line-height: 1;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  color-scheme: only light;
+  /* The box pdf.js writes is `round(down, --total-scale-factor * Npx,
+     --scale-round-*)`, so without these the width declaration is invalid and
+     the layer falls back to the container's inset — which is the same box only
+     as long as nothing rounds. */
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor, 1) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.pdf-text-layer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+
+/* `markedContent` is a structural wrapper pdf.js emits around tagged runs; it
+   must not become a box of its own, or every run inside it is positioned
+   against the wrapper instead of the page. */
+.pdf-text-layer > :not(.markedContent),
+.pdf-text-layer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.pdf-text-layer .markedContent {
+  display: contents;
+}
+
+/* An image run is not text — selecting it would put a run of substitute
+   characters in the reader's clipboard. */
+.pdf-text-layer span[role='img'] {
+  user-select: none;
+  cursor: default;
+}
+
+/* The glyphs are the canvas's; the selection is this layer's. Keeping the text
+   transparent while the band is painted is what makes a selection look like it
+   is over the rendered page rather than over a second copy of it. */
+.pdf-text-layer ::selection {
+  background: color-mix(in srgb, AccentColor, transparent 55%);
+  color: transparent;
+}
+
 @utility min-h-dvh {
   min-height: 100dvh;
 }

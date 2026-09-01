@@ -40,7 +40,12 @@ import { ButtonGroup } from '@/components/ui/button-group'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
-import { documentParameters, loadPdfjs } from '../lib/pdfjs-runtime'
+import {
+  documentParameters,
+  loadPdfjs,
+  renderTextLayer,
+  type TextLayerHandle,
+} from '../lib/pdfjs-runtime'
 import { pageTextChunks } from '../lib/pdf-text-chunks'
 import { locatePassage, passageBounds, type HighlightRect } from '../lib/passage-highlight'
 
@@ -99,6 +104,9 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
   const [frameWidth, setFrameWidth] = useState(0)
   const [zoomStep, setZoomStep] = useState(ZOOM_STEPS.indexOf(1))
   const [hit, setHit] = useState<PassageHit | null>(null)
+  // How far either side of the cited page the passage is still looked for. See
+  // `handleMiss`: it stays at 0 until the cited page itself comes up empty.
+  const [radius, setRadius] = useState(0)
   // Page 1's shape, used to reserve room for pages that have not rasterised.
   const [defaultAspect, setDefaultAspect] = useState<number | null>(null)
   // Bumped to replay the arrival animation — a CSS animation only runs on
@@ -106,6 +114,9 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
   const [ping, setPing] = useState(0)
 
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  // Whether THIS question has already been answered, read synchronously so two
+  // pages reporting a hit in the same tick cannot both act on it.
+  const foundRef = useRef(false)
   const pageRefs = useRef(new Map<number, HTMLDivElement>())
   // The scale each page last rendered at, so a rectangle in page coordinates
   // can be turned into a scroll offset at the CURRENT zoom rather than the one
@@ -165,7 +176,9 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
   // previous passage from staying lit on a page the reader has left, and lets
   // the "open at page" fallback run again for the new target.
   useEffect(() => {
+    foundRef.current = false
     setHit(null)
+    setRadius(0)
   }, [page, highlight])
 
   useEffect(() => {
@@ -209,7 +222,20 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
     const bounds = passageBounds(target.rects)
     if (!frame || !pageNode || !bounds) return
     const scale = pageScales.current.get(target.page) ?? 1
-    const top = pageNode.offsetTop + bounds.y * scale - frame.clientHeight * PASSAGE_SCROLL_OFFSET
+    // Measured against the FRAME, not read off `offsetTop`. `offsetTop` counts
+    // from the nearest POSITIONED ancestor, and this scroller sets no position
+    // — so the number included the dialog's header, and on a phone the whole
+    // Fundstellen rail stacked above the document as well. The viewer then
+    // scrolled that much too far and left the passage it had just found off the
+    // top of the frame: the reader clicked a citation and arrived at blank
+    // paper. Rects plus the current `scrollTop` are the same measurement no
+    // matter what is above the frame, and stay correct mid-animation because
+    // both are read in the same instant. (`visual/screenshots/
+    // citation-viewer.mobile.*` is the evidence; jsdom lays nothing out, so no
+    // unit test can hold this.)
+    const pageTop =
+      pageNode.getBoundingClientRect().top - frame.getBoundingClientRect().top + frame.scrollTop
+    const top = pageTop + bounds.y * scale - frame.clientHeight * PASSAGE_SCROLL_OFFSET
     frame.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' })
   }, [])
 
@@ -222,12 +248,44 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
     [scrollToPassage],
   )
 
+  /**
+   * Take the FIRST passage offered for this question, and only the first.
+   *
+   * Two pages can answer: the cited one and, once it has come up empty, its
+   * neighbours. And one page can answer twice — a page that scrolls out of the
+   * render band and back re-reads its text layer. Without this guard the second
+   * answer scrolls and re-pulses, which means a reader who deliberately paged
+   * away is dragged back to the citation for having scrolled too far.
+   */
   const handlePassage = useCallback(
     (found: PassageHit) => {
+      if (foundRef.current) return
+      foundRef.current = true
       setHit(found)
       revealPassage(found)
     },
     [revealPassage],
+  )
+
+  /**
+   * Widen the search by one page when the cited page has no such passage.
+   *
+   * The page number is somebody else's arithmetic: retrieval counts sheets, and
+   * a document whose own numbering starts after a cover page — which is most of
+   * them — is off by one against it. That mismatch used to cost the reader the
+   * entire feature, silently: the viewer opened at the wrong page with nothing
+   * marked, indistinguishable from a passage that could not be found at all.
+   *
+   * One page either side, and no further. The matchers are strict enough that a
+   * neighbour either holds the quoted sentence or holds nothing, so looking next
+   * door cannot invent a hit — but three pages out is no longer an off-by-one,
+   * it is a different passage that happens to read alike.
+   */
+  const handleMiss = useCallback(
+    (missed: number) => {
+      if (page && missed === page) setRadius((current) => Math.max(current, 1))
+    },
+    [page],
   )
 
   /**
@@ -351,11 +409,12 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
                 pageNumber={number}
                 targetWidth={targetWidth}
                 defaultAspect={defaultAspect}
-                highlight={number === page ? highlight : null}
+                highlight={page && Math.abs(number - page) <= radius ? highlight : null}
                 highlightColor={highlightColor}
                 marks={hit?.page === number ? hit.rects : null}
                 ping={ping}
                 onPassage={handlePassage}
+                onMiss={handleMiss}
                 onScale={registerScale}
                 registerRef={registerPage}
               />
@@ -377,6 +436,8 @@ interface PdfPageCanvasProps {
   marks: HighlightRect[] | null
   ping: number
   onPassage: (hit: PassageHit) => void
+  /** This page read its text and the passage is not on it. */
+  onMiss: (page: number) => void
   onScale: (page: number, scale: number) => void
   registerRef: (page: number, node: HTMLDivElement | null) => void
 }
@@ -395,11 +456,13 @@ const PdfPageCanvas: FC<PdfPageCanvasProps> = ({
   marks,
   ping,
   onPassage,
+  onMiss,
   onScale,
   registerRef,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const textLayerRef = useRef<HTMLDivElement | null>(null)
   const [near, setNear] = useState(false)
   // The page proxy currently held open, so eviction can release its caches.
   const openedPage = useRef<PDFPageProxy | null>(null)
@@ -526,7 +589,11 @@ const PdfPageCanvas: FC<PdfPageCanvasProps> = ({
           : [],
       )
       const match = locatePassage(pageTextChunks(items, base.transform), highlight)
-      if (match && !cancelled) onPassage({ page: pageNumber, rects: match.rects })
+      if (cancelled) return
+      if (match) onPassage({ page: pageNumber, rects: match.rects })
+      // Saying "not here" is what lets the viewer look next door. A page that
+      // stayed silent is indistinguishable from one still reading its text.
+      else onMiss(pageNumber)
     }
 
     // A page with no readable text layer — a scan — is a supported outcome, not
@@ -539,7 +606,43 @@ const PdfPageCanvas: FC<PdfPageCanvasProps> = ({
     return () => {
       cancelled = true
     }
-  }, [doc, pageNumber, near, highlight, onPassage])
+  }, [doc, pageNumber, near, highlight, onPassage, onMiss])
+
+  /**
+   * Lay the page's own text over the bitmap while the page is in the band.
+   *
+   * Keyed on neither zoom nor the passage: pdf.js positions every run as a
+   * percentage of the page box and sizes it from `--total-scale-factor`, so
+   * zooming is a CSS variable rather than a re-read, and the selection the
+   * reader had survives it.
+   */
+  useEffect(() => {
+    const container = textLayerRef.current
+    if (!near || !container) return
+    let cancelled = false
+    let layer: TextLayerHandle | null = null
+
+    const run = async (): Promise<void> => {
+      const pdfPage = await doc.getPage(pageNumber)
+      if (cancelled) return
+      layer = await renderTextLayer(pdfPage, container)
+      // Torn down mid-render: the handle arrived after the cleanup ran, so it
+      // is this branch's job to release it or the runs stay over the canvas.
+      if (cancelled) layer.destroy()
+    }
+
+    // A page whose text cannot be laid out still renders and can still be read;
+    // only selecting on it is lost, and taking the viewer down would lose both.
+    void run().catch((error: unknown) => {
+      if (process.env.NODE_ENV === 'development') {
+        console.debug(`[pdf] page ${pageNumber} text layer failed`, error)
+      }
+    })
+    return () => {
+      cancelled = true
+      layer?.destroy()
+    }
+  }, [doc, pageNumber, near])
 
   // Its own measured shape once it has rendered; page 1's until then.
   const effectiveAspect = aspect ?? defaultAspect
@@ -556,6 +659,18 @@ const PdfPageCanvas: FC<PdfPageCanvasProps> = ({
       style={{ width: targetWidth || undefined, height }}
     >
       <canvas ref={canvasRef} className="block h-full w-full" />
+      {/* The page's text, transparent and positioned over its own glyphs. It
+          carries no pixels — its whole job is that a drag selects the sentence,
+          Cmd-C copies it and the browser's find lands on it, which a canvas
+          alone silently refuses. `--total-scale-factor` is the zoom: pdf.js
+          writes the runs in page units and multiplies by this, so the layer
+          re-scales without being rebuilt. */}
+      <div
+        ref={textLayerRef}
+        data-testid="pdf-text-layer"
+        className="pdf-text-layer"
+        style={{ ['--total-scale-factor' as string]: scale } as CSSProperties}
+      />
       {marks?.map((rect, index) => (
         <span
           // Remounting on each ping is what replays the arrival animation.
