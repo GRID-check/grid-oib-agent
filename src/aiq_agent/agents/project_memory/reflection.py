@@ -44,6 +44,7 @@ from aiq_agent.common.llm_factory import strict_json_response_format
 from aiq_agent.knowledge.project_memory import VALID_CONFIDENCES
 from aiq_agent.knowledge.project_memory import VALID_KINDS
 from aiq_agent.knowledge.project_memory import insert_memory_item
+from aiq_agent.knowledge.project_memory import looks_like_personal_data
 
 logger = logging.getLogger(__name__)
 
@@ -220,22 +221,15 @@ def _content_in_digest(content: str, memory_digest: str | None) -> bool:
 # be project facts ("uses steel frame construction"), never data about a
 # specific person, so a hit here drops the whole finding rather than trying
 # to redact just the matched span.
-_PII_PATTERNS = (
-    re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"),  # email address
-    re.compile(r"(?<!\d)(?:\+?\d[\d ()/-]{7,}\d)(?!\d)"),  # phone/fax-shaped digit run
-    re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b"),  # IBAN
-    re.compile(r"\b\d{3}-?\d{2}-?\d{4}\b"),  # SSN-shaped
-    re.compile(
-        r"\b(?:password|passwort|api[_ -]?key|secret|token|bearer|"
-        r"sozialversicherungsnummer|steuernummer|personalausweis)\b",
-        re.IGNORECASE,
-    ),
-)
-
-
 def _looks_like_pii(content: str) -> bool:
-    """Whether a finding's text matches a coarse PII/secret shape (audit S4)."""
-    return any(pattern.search(content) for pattern in _PII_PATTERNS)
+    """Whether a finding's text matches a coarse PII/secret shape (audit S4).
+
+    The shapes live on the write path both memory writers share
+    (``knowledge.project_memory.looks_like_personal_data``); this stage still
+    screens its own batch first so a dropped finding never counts against the
+    per-pass cap.
+    """
+    return looks_like_personal_data(content)
 
 
 def _sanitize_findings(

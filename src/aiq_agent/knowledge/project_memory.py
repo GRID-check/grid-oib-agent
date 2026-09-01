@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -145,6 +146,42 @@ def fetch_memory_digest(
     return digest if isinstance(digest, str) and digest.strip() else None
 
 
+# A memory row is durable, tenant-wide within its scope, and read into every
+# later prompt, so a finding that carries a person's contact details or a
+# secret must not be written by EITHER writer. This guard used to live only in
+# the reflection stage; the in-turn ``remember`` tool wrote whatever the model
+# handed it. It sits here now, on the one path both writers share.
+#
+# Shapes, not meanings: an email address, a run of digits long enough to be a
+# number to call, an IBAN, an SSN-shaped triple, and the handful of secret
+# words a leaked credential travels with. And one carve-out that the phone
+# pattern needs: a date is a run of digits with separators too, and a permit
+# deadline written 12/03/2027 was being dropped as a phone number — precisely
+# the class of fact a project memory exists to carry.
+_DATE_SHAPE_RE = re.compile(r"(?<!\d)(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{4}-\d{2}-\d{2})(?!\d)")
+_PERSONAL_DATA_PATTERNS = (
+    re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"),  # email address
+    re.compile(r"(?<!\d)(?:\+?\d[\d ()/-]{7,}\d)(?!\d)"),  # phone/fax-shaped digit run
+    re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b"),  # IBAN
+    re.compile(r"\b\d{3}-?\d{2}-?\d{4}\b"),  # SSN-shaped
+    re.compile(
+        r"\b(?:password|passwort|api[_ -]?key|secret|token|bearer|"
+        r"sozialversicherungsnummer|steuernummer|personalausweis)\b",
+        re.IGNORECASE,
+    ),
+)
+
+
+def looks_like_personal_data(content: str) -> bool:
+    """Whether a memory finding matches a coarse personal-data or secret shape.
+
+    A denylist of shapes, not a privacy guarantee (audit S4). Dates are blanked
+    before the digit-run pattern looks, so a deadline survives.
+    """
+    scrubbed = _DATE_SHAPE_RE.sub(" ", content or "")
+    return any(pattern.search(scrubbed) for pattern in _PERSONAL_DATA_PATTERNS)
+
+
 def insert_memory_item(
     *,
     scope: str,
@@ -185,6 +222,11 @@ def insert_memory_item(
         raise ValueError(f"Invalid confidence '{confidence}'. Must be one of: {sorted(VALID_CONFIDENCES)}")
     if provenance_type not in VALID_PROVENANCES:
         provenance_type = "agent"
+    if looks_like_personal_data(content):
+        # Not recorded, and not an error: the caller is told nothing was
+        # written, the same way it is for an unknown project.
+        logger.info("Memory item not recorded: content matches a personal-data shape (scope=%s)", scope)
+        return None
 
     token = os.environ.get("GRID_INTERNAL_API_TOKEN")
     if not token:
