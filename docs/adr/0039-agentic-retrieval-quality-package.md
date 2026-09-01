@@ -181,6 +181,20 @@ All changes ship with unit tests under `tests/knowledge_layer_tests/`
 - `view_knowledge_image` covers the LlamaIndex ingest backend; the
   `foundational_rag` backend's page-render track is a known follow-up (see
   deep-dive §6 scope note).
+- **`view_knowledge_image` shipped unbound, and stayed that way (2026-09
+  correction).** Everything above describes it accurately — it was built,
+  registered, ADR'd here and documented as default-on — but it was declared in
+  no config's `functions:` block and listed in no agent's `tools:`, so NAT
+  could never bind it. `git log -S view_knowledge_image -- configs/` was empty:
+  it had never been wired at all, from the day it was written. The model read
+  VLM captions OF drawings and never a drawing, which surfaced a year later as
+  the pilot report "der Agent bezieht die visuellen Planunterlagen kaum ein"
+  — a retrieval complaint whose cause was neither retrieval nor the tool.
+  Wired into both researchers, and `tests/aiq_agent/test_config_tool_wiring.py`
+  now reads the shipped config as data so no registered tool an agent is meant
+  to have can go unbound again. **The lesson generalises past this tool:** a
+  NAT function is only reachable through two YAML lines, and nothing in the
+  build, the type checker or any behavioural test objects to their absence.
 - The precision event is emitted best-effort; dashboard aggregation and
   per-org precision metrics are follow-ups on the platform side.
 - Hybrid retrieval currently fuses per collection; cross-collection fusion was

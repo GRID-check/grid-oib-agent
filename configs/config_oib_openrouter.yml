@@ -459,6 +459,22 @@ functions:
     _type: ris_catalog_lookup
     max_matches: 8
 
+  # LET THE MODEL SEE A PLAN, NOT ONLY ITS CAPTION.
+  #
+  # Built, registered and documented as default-on since it was written, and
+  # declared in no config until 2026-09 — `git log -S view_knowledge_image --
+  # configs/` was empty, so it had never been bound to an agent at all. NAT can
+  # only bind a function that appears under `functions:`, so the tool existed
+  # and could not be called: retrieval returned VLM captions OF drawings and
+  # the model never saw a drawing. That is the honest half of "der Agent
+  # bezieht die visuellen Planunterlagen kaum ein" — the chunks are in the
+  # index and reachable, the picture was not.
+  #
+  # It fails closed on its own: no vision key, or `AIQ_VIEW_IMAGES_ENABLED`
+  # off, and it returns a sentence saying so rather than an image.
+  view_knowledge_image:
+    _type: view_knowledge_image
+
   knowledge_search:
     _type: knowledge_retrieval
     backend: llamaindex
@@ -614,6 +630,7 @@ functions:
     tools:
       - web_search_tool
       - knowledge_search
+      - view_knowledge_image
       - ris_search_tool
       - ris_fetch_tool
       - ris_catalog_lookup_tool
@@ -824,6 +841,7 @@ functions:
     # data_source_registry inheritance in the async job-worker build path.
     tools:
       - knowledge_search
+      - view_knowledge_image
       - ris_search_tool
       - ris_fetch_tool
       - ris_catalog_lookup_tool
