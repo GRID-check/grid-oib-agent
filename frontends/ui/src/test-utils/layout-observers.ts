@@ -17,8 +17,12 @@
 export interface LayoutObserverOptions {
   /** Width every observed element reports. */
   frameWidth?: number
-  /** Whether observed elements report as on screen. */
-  intersecting?: boolean
+  /**
+   * Whether observed elements report as on screen — one answer for all of them,
+   * or a predicate, for a test that needs a PARTICULAR element in view (which
+   * page the reader is on, say; with one flat answer every page claims to be).
+   */
+  intersecting?: boolean | ((target: Element) => boolean)
 }
 
 const DEFAULT_FRAME_WIDTH = 1024
@@ -48,9 +52,21 @@ export const installLayoutObservers = ({
 
   class ImmediateIntersectionObserver {
     constructor(private readonly callback: IntersectionObserverCallback) {}
-    observe(): void {
+    // The entry carries its `target`, which the real API always does and a
+    // caller is entitled to read: an observer over MANY elements answers "which
+    // one" with nothing else. Omitting it made every such callback throw inside
+    // `observe()` — that is, inside a React effect, which poisons the whole
+    // renderer and fails the rest of the file with `Should not already be
+    // working` rather than anything naming the cause.
+    observe(target: Element): void {
       this.callback(
-        [{ isIntersecting: intersecting } as unknown as IntersectionObserverEntry],
+        [
+          {
+            isIntersecting:
+              typeof intersecting === 'function' ? intersecting(target) : intersecting,
+            target,
+          } as unknown as IntersectionObserverEntry,
+        ],
         this as unknown as IntersectionObserver,
       )
     }

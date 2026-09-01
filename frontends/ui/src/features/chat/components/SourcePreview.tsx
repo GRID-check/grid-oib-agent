@@ -42,6 +42,7 @@ import { useChatStore } from '../store'
 import { useHoverPopover } from '@/hooks/use-hover-popover'
 import { CitationPeek } from './CitationPeek'
 import { CopySourceCitationButton } from './CopyCitation'
+import { toQuoteList } from '../lib/source-citation'
 import { CopyCitationLinkButton } from './CopyCitationLink'
 import {
   buildCitationModel,
@@ -575,6 +576,16 @@ const LocusRail: FC<{
             <li key={locus.key} className="w-52 shrink-0 md:w-full">
               <button
                 type="button"
+                // Follow the reading position. Stepping through a document read
+                // at nine places used to walk the mark off the bottom of the
+                // rail: the entry was current and out of sight, so the one
+                // control that says WHERE YOU ARE stopped saying it exactly when
+                // the list got long enough to need it. `nearest` scrolls only
+                // when it has to, and covers the sideways strip on a phone as
+                // well as the column beside the document.
+                ref={(node) => {
+                  if (isActive) node?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+                }}
                 onClick={() => onSelect(locus)}
                 aria-current={isActive ? 'true' : undefined}
                 className={cn(
@@ -707,6 +718,25 @@ export const CitationDocumentDialog: FC<{
       // tint, the same one the chip that opened the dialog wore.
       highlight={passage}
       highlightColor={`var(--source-${headerSignal})`}
+      // What the reader's OWN selection becomes on the clipboard. The viewer
+      // knows the words and the page; only this side knows the document they
+      // belong to, so the citation is built here — in the same Zitiertext form
+      // the answer's own "copy citation" produces, because a quotation pasted
+      // from the source and one pasted from the chat must not arrive in the
+      // reader's Stellungnahme looking like two different conventions.
+      quoteFormat={
+        citation &&
+        (({ text, page: quotedPage }) =>
+          toQuoteList(
+            [
+              {
+                document: citation.document,
+                locus: { key: 'selection', page: quotedPage, snippet: text, isCited: true },
+              },
+            ],
+            new Date()
+          ))
+      }
       headerChip={
         <SourceSignalChip signal={headerSignal}>
           {t(

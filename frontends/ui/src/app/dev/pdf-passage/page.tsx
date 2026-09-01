@@ -22,11 +22,16 @@
  *   `citation` the whole dialog: header, Fundstellen rail, document, mark.
  *   `single`   the same dialog for a document read at ONE page, which is a
  *              rail too. It used to be a differently shaped dialog.
+ *   `quote`    the dialog with a passage the READER selected, and the offer
+ *              that turns it into a citation. Driven by selecting a range and
+ *              releasing the pointer — the same path a drag takes — because a
+ *              screenshot of a resting page cannot show an affordance that
+ *              only exists while something is selected.
  *
  * Not linked from anywhere and 404s outside development.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type FC } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { PdfDocumentView } from '@/features/knowledge/components/pdf-document-view'
 import { CitationDocumentDialog } from '@/features/chat/components/SourcePreview'
@@ -203,6 +208,44 @@ const READ_AT_THREE = [
 
 const READ_AT_ONE = [locus(1, CITED_PASSAGE, 1)]
 
+/**
+ * Select a sentence on the open page, the way a reader's drag would.
+ *
+ * The harness captures a page at rest, and the quote offer exists only while a
+ * selection does — so without this the one affordance the text layer was built
+ * for would appear in no committed screenshot. It waits for the run to be in the
+ * DOM rather than sleeping: how long pdf.js takes to lay out a page depends on
+ * whether this route was compiled already, and a fixed delay silently captures
+ * the wrong frame when it loses that race.
+ */
+const SelectOnLoad: FC<{ contains: string }> = ({ contains }) => {
+  useEffect(() => {
+    let attempts = 0
+    let timer = 0
+    const tick = (): void => {
+      const run = [...document.querySelectorAll('.pdf-text-layer span')].find((span) =>
+        span.textContent?.includes(contains)
+      )
+      const frame = document.querySelector('[data-testid="pdf-scroll"]')
+      if (run && frame) {
+        const range = document.createRange()
+        range.selectNodeContents(run)
+        const selection = window.getSelection()
+        selection?.removeAllRanges()
+        selection?.addRange(range)
+        frame.dispatchEvent(new Event('pointerup', { bubbles: true }))
+        return
+      }
+      if (attempts++ > 80) return
+      timer = window.setTimeout(tick, 50)
+    }
+    tick()
+    return () => window.clearTimeout(timer)
+  }, [contains])
+
+  return null
+}
+
 /** The real dialog, mounted open, over the fixture document. */
 const DialogPreview = ({ sources, src }: { sources: CitationSource[]; src: string }) => {
   const [document] = buildCitationModel({ citations: sources })
@@ -237,9 +280,17 @@ export default function PdfPassagePreviewPage() {
     return () => URL.revokeObjectURL(url)
   }, [])
 
-  if (variant === 'citation' || variant === 'single') {
+  if (variant === 'citation' || variant === 'single' || variant === 'quote') {
     return (
       <div className="min-h-dvh bg-background p-6">
+        {/* The mark at REST. These three shots are about the dialog, not about
+            the arrival pulse — which has its own frozen pane in the default
+            variant — and an animation still running makes the capture depend on
+            when the harness got there: the light and dark shots come off one
+            page load, so they landed on different frames of the same swell and
+            every re-capture produced a different pair. */}
+        <style>{`.animate-passage-ping { animation: none; }`}</style>
+        {variant === 'quote' && <SelectOnLoad contains="Standsicherheit" />}
         {src && (
           <DialogPreview
             sources={variant === 'single' ? READ_AT_ONE : READ_AT_THREE}

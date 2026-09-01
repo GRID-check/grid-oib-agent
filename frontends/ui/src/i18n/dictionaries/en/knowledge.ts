@@ -58,7 +58,12 @@ export const knowledge = {
     openInTab: 'Open in new tab',
     loading: 'Loading document…',
     pageCount: '{count, plural, one {# page} other {# pages}}',
+    pagePosition: 'Page {page} of {count}',
     toPassage: 'Go to passage',
+    passageNotFound: 'Passage not found in the document',
+    copyQuote: 'Copy as citation',
+    quoteCopied: 'Citation copied',
+    copyFailed: 'Could not copy',
     zoomIn: 'Zoom in',
     zoomOut: 'Zoom out',
     highlightUnavailable:

@@ -78,6 +78,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="passage-mark"]',
   },
   {
+    id: 'citation-quote',
+    path: '/dev/pdf-passage?variant=quote',
+    description:
+      "What the reader does with a passage they found themselves: selecting text in the source offers to copy it AS A CITATION — the quotation plus the document and the page, the form a Stellungnahme quotes in. The browser can copy the words; only the viewer knows where they came from. Shown here mid-selection, which is the only state the affordance exists in.",
+    waitFor: '[data-testid="pdf-quote-bar"]',
+  },
+  {
     id: 'citation-viewer-single',
     mobile: true,
     path: '/dev/pdf-passage?variant=single',

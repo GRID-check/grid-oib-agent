@@ -60,7 +60,12 @@ export const knowledge: typeof en.knowledge = {
     openInTab: 'In neuem Tab öffnen',
     loading: 'Dokument wird geladen…',
     pageCount: '{count, plural, one {# Seite} other {# Seiten}}',
+    pagePosition: 'Seite {page} von {count}',
     toPassage: 'Zur Fundstelle',
+    passageNotFound: 'Fundstelle im Dokument nicht gefunden',
+    copyQuote: 'Als Zitat kopieren',
+    quoteCopied: 'Zitat kopiert',
+    copyFailed: 'Kopieren nicht möglich',
     zoomIn: 'Vergrößern',
     zoomOut: 'Verkleinern',
     highlightUnavailable:
