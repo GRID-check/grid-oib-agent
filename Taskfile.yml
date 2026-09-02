@@ -338,6 +338,16 @@ tasks:
       # not a red build while a real regression is.
       - '{{.PY}} -m oib_retrieval_eval.runner --structure-only --fail-below {{.RETRIEVAL_GATE_PCT | default "95"}}'
 
+  be:eval:turn-shapes:
+    desc: ADR-0052 turn-shape eval against the live shallow model (needs OPENROUTER_API_KEY; skips without it)
+    cmds:
+      # The two behaviours ADR-0052 moved from the router into the prompt — a
+      # greeting does not search, a commissioned report escalates before it
+      # retrieves — plus a control question that must still search. Real
+      # prompt, real model, stub tools that record the trace. `-rs` prints the
+      # skip reason, so a run without the key says so instead of going green.
+      - '{{.PY}} -X faulthandler -m pytest tests/benchmarks/test_turn_shapes_live.py -q -rs'
+
   be:test:ci:
     desc: Backend core suite with the coverage gate CI enforces
     cmds:

@@ -1,0 +1,60 @@
+name: Turn shapes (live model)
+
+# Weekly + on-demand eval of the two behaviours ADR-0052 moved from code into
+# the shallow researcher's prompt: a greeting answers without searching, and a
+# commissioned report escalates to deep research before retrieving. Plus a
+# control question that must still search. Real prompt, real model through
+# OpenRouter, stub tools recording the trace:
+# tests/benchmarks/test_turn_shapes_live.py.
+#
+# REQUIRES the repository secret `OPENROUTER_API_KEY` (the same one
+# release-notes.yml translates with). The test file skips itself without the
+# key, which is right for a developer's machine and wrong for a scheduled
+# gate — a run that skips forever reports success by not running — so the
+# job fails fast when the secret is absent.
+#
+# Deliberately NOT triggered by pull_request: it spends model tokens, its
+# verdict is a property of the model as much as of the diff, and a red here
+# means "the prompt no longer holds the model", which is a drift signal to act
+# on (ADR-0052, More Information), not a merge gate.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * 2" # Tuesdays 05:00 UTC — off Security's Monday and WorkOS drift's Thursday slots
+
+permissions:
+  contents: read
+
+concurrency:
+  group: turn-shapes-live-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  turn-shapes:
+    name: ADR-0052 turn shapes against the live shallow model
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.13"
+      - uses: ./.github/actions/setup-task
+      - name: Require the model key
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::error::OPENROUTER_API_KEY is not set; the turn-shape eval would skip, not run. See the header of this workflow."
+            exit 1
+          fi
+      - name: Turn-shape eval
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # The boot floor the test reads from configs/config_oib_openrouter.yml
+          # can be moved for one run from the repository variables without a
+          # commit; unset resolves to the config's own default.
+          GRID_DEFAULT_MODEL: ${{ vars.GRID_DEFAULT_MODEL }}
+        run: task be:eval:turn-shapes

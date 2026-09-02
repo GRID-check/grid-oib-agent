@@ -100,6 +100,12 @@ addopts = "--import-mode=importlib"
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
+markers = [
+  # Calls a real model through OpenRouter. Each such test skips itself without
+  # OPENROUTER_API_KEY, which is how the default run and every PR job stay
+  # model-free; `.github/workflows/turn-shapes-live.yml` runs them with the key.
+  "live: needs a real model behind OPENROUTER_API_KEY; skipped without it",
+]
 
 
 [tool.ruff]
