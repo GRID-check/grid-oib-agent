@@ -9,6 +9,7 @@ import {
   foreignKey,
   index,
   unique,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { projects } from './projects'
@@ -348,6 +349,19 @@ export const documents = pgTable('documents', {
   collectionIdx: index('documents_collection_idx').on(table.collectionName),
   statusIdx: index('documents_status_idx').on(table.status),
   orgScopeIdx: index('documents_org_scope_idx').on(table.organizationId, table.scope),
+  /**
+   * One live human-uploaded document per filename in a collection (migration
+   * 0074). The ingest pipeline replaces passages by filename, so a second row
+   * under one name is a ghost; `findLiveDocumentByFilename` is the probe that
+   * makes the upload paths replace instead, and this is that probe's WHERE
+   * clause as a constraint, for the concurrent first upload the probe misses.
+   * Partial on `authored_by = 'user'`: a machine-authored row carries a
+   * model-chosen name and owns no chunks, and must coexist with a person's
+   * file of the same name.
+   */
+  liveNamePerCollectionUidx: uniqueIndex('uniq_documents_live_name_per_collection')
+    .on(table.organizationId, table.collectionName, table.filename)
+    .where(sql`${table.authoredBy} = 'user' AND ${table.deletedAt} IS NULL`),
   /**
    * A document's folder must belong to the document's own project (migration
    * 0030). The project is pinned to the tenant by its row-level-security

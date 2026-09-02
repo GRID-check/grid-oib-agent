@@ -44,3 +44,10 @@ fixes:
     Ein Datum in einer Projektnotiz, etwa eine Einreichfrist, wird nicht mehr
     als Telefonnummer verwechselt und verworfen. Kontaktdaten und Zugangsdaten
     werden weiterhin von beiden Wegen ins Gedächtnis ferngehalten.
+  - >
+    Eine Datei, die ein zweites Mal unter demselben Namen in eine Unterhaltung
+    gezogen wird, ersetzt jetzt die erste, so wie es im Projekt und im
+    Büroarchiv schon der Fall war. Bisher blieb der erste Eintrag sichtbar und
+    herunterladbar, war aber für Piloti nicht mehr auffindbar und wurde doppelt
+    auf den Speicherplatz angerechnet. Vorschaubild und Gebäudemodell der
+    alten Version werden beim Ersetzen mit entfernt.

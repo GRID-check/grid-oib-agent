@@ -37,11 +37,12 @@ import {
   dispatchDocument,
 } from '@/lib/documents/service'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
-import { admitOrDiscard } from '@/lib/storage/admission'
+import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
-import type { DocumentListRow } from '@/lib/documents/repository'
+import { findLiveDocumentByFilename, type DocumentListRow } from '@/lib/documents/repository'
+import { deleteDocumentObjects, discardSupersededObjects } from '@/lib/documents/object-cleanup'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { deleteDocumentObjects, purgeCollectionChunks } from './cleanup'
+import { purgeCollectionChunks } from './cleanup'
 import { collectionFileRef } from '@/lib/documents/collection-file-ref'
 import {
   deleteSessionDocument as deleteSessionDocumentRow,
@@ -134,8 +135,15 @@ export async function uploadSessionDocument(
   // the tenant's bucket, so it must not be the way around the quota (ADR-0042).
   await assertWithinStorageQuota(session.organizationId, file.size)
 
-  const documentId = crypto.randomUUID()
   const collectionName = sessionCollectionName(conversationId)
+  // Same replace-on-re-upload rule as the project and Archiv paths, through the
+  // same helpers — see `uploadDocument`. A chat attachment is the same table
+  // with `scope = 'session'`, and the ingest pipeline replaces chunks by
+  // filename regardless of shelf, so dropping a corrected file into a chat a
+  // second time left the same paid-for ghost here: the first row listed and
+  // downloadable, its passages already replaced by the second's.
+  const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, file.name)
+  const documentId = superseded?.id ?? crypto.randomUUID()
   const storageKey = buildSessionStorageKey(session.organizationId, conversationId, documentId, file.name)
 
   // Same provisioning step as the other shelves (ADR-0043): a session
@@ -173,25 +181,41 @@ export async function uploadSessionDocument(
 
   // Same hard ceiling and the same compensating delete on refusal as the
   // project and Archiv paths (ADR-0042).
-  await admitOrDiscard(storageBucket, storageKey, {
-    id: documentId,
-    organizationId: session.organizationId,
-    // NULL, following the Archiv precedent: the shelf IS the conversation, and
-    // a project id here would put the row inside a project's estate while it is
-    // readable only by the people in one chat.
-    projectId: null,
-    scope: 'session',
-    conversationId,
-    folderId: null,
-    createdBy: session.userId,
-    filename: file.name,
-    storageKey,
-    storageBucket,
-    collectionName,
-    fileSize: file.size,
-    contentType: file.type || null,
-    status: 'uploaded',
-  })
+  if (superseded) {
+    // The row is already counted against the quota, so the charge is the delta.
+    await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
+      storageKey,
+      storageBucket,
+      fileSize: file.size,
+      contentType: file.type || null,
+      folderId: null,
+      createdBy: session.userId,
+    })
+    // The key is a pure function of the id here, so the new bytes land on the
+    // old ones; what is stale is the thumbnail and the parsed building beside
+    // them. Best-effort: the row is already correct.
+    await discardSupersededObjects(superseded, storageKey, 'session-documents')
+  } else {
+    await admitOrDiscard(storageBucket, storageKey, {
+      id: documentId,
+      organizationId: session.organizationId,
+      // NULL, following the Archiv precedent: the shelf IS the conversation, and
+      // a project id here would put the row inside a project's estate while it
+      // is readable only by the people in one chat.
+      projectId: null,
+      scope: 'session',
+      conversationId,
+      folderId: null,
+      createdBy: session.userId,
+      filename: file.name,
+      storageKey,
+      storageBucket,
+      collectionName,
+      fileSize: file.size,
+      contentType: file.type || null,
+      status: 'uploaded',
+    })
+  }
 
   // The whole point of Phase 2: a session upload now reaches the SAME dispatcher
   // the other shelves use, so an IFC dropped into a chat is parsed into a
@@ -213,7 +237,12 @@ export async function uploadSessionDocument(
     action: 'session.document.uploaded',
     targetType: 'document',
     targetId: documentId,
-    metadata: { conversationId, filename: file.name.slice(0, 200), fileSize: file.size },
+    metadata: {
+      conversationId,
+      filename: file.name.slice(0, 200),
+      fileSize: file.size,
+      ...(superseded ? { replaced: true } : {}),
+    },
     request,
   })
 

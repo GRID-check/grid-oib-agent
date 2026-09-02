@@ -51,7 +51,8 @@ vi.mock('./repository', () => ({
 }))
 
 import type { Document } from '@/lib/db/schema'
-import { deleteDocumentObjects, purgeCollectionChunks, purgeSessionDocuments } from './cleanup'
+import { deleteDocumentObjects } from '@/lib/documents/object-cleanup'
+import { purgeCollectionChunks, purgeSessionDocuments } from './cleanup'
 import { collectionFileRef } from '@/lib/documents/collection-file-ref'
 
 const CONVERSATION_ID = 's_11111111-2222-3333-4444-555555555555'

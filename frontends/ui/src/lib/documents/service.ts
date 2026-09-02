@@ -58,6 +58,7 @@ import {
 } from './repository'
 import { documentDisplayName, validateDocumentName } from './display-name'
 import { deleteBimDerivedObjects, runBimExtraction } from '@/lib/bim/service'
+import { discardSupersededObjects } from './object-cleanup'
 import { isIfcFilename } from '@/lib/bim/types'
 
 const PREVIEW_CONTENT_TYPES = [
@@ -785,27 +786,12 @@ export async function uploadDocument(
       folderId: folderId ?? null,
       createdBy: session.userId,
     })
-    // The old object, when the new bytes did not land on top of it. They
-    // usually do — the key is derived from the id, which is preserved — but a
-    // re-upload into a DIFFERENT folder builds a different path, and the
-    // superseded object would otherwise be an orphan no sweep short of a
-    // bucket walk could find. Best-effort: the row is already correct, and
-    // failing the request over a leaked object would be the wrong trade.
-    if (superseded.storageKey !== storageKey) {
-      try {
-        await s3Client.send(
-          new DeleteObjectCommand({
-            Bucket: resolveDocumentBucket(superseded.storageBucket),
-            Key: superseded.storageKey,
-          }),
-        )
-      } catch (error) {
-        console.error('[documents] failed to remove the superseded object', {
-          documentId,
-          cause: error instanceof Error ? error.name : 'unknown',
-        })
-      }
-    }
+    // The old object when the new bytes did not land on top of it (a re-upload
+    // into a DIFFERENT folder builds a different path), and the old thumbnail
+    // and `_bim/` derivatives either way — they describe the bytes that were
+    // just replaced. Best-effort: the row is already correct, and failing the
+    // request over a leaked object would be the wrong trade.
+    await discardSupersededObjects(superseded, storageKey, 'documents')
   } else {
     await admitOrDiscard(storageBucket, storageKey, {
       id: documentId,

@@ -172,12 +172,15 @@ everything, and two hidden blockers will decide the shape of the work:
 - **Duplicate detection is client-side and localStorage-backed.** It vanishes
   in a new browser or an incognito window. Any delta feature must be
   server-side or it is theatre.
-- **Re-upload is a live defect, not just a missing feature.** There is no
-  content hash and no unique constraint on `(collection, filename)`. A second
-  upload creates a second row and a second stored object charged to quota,
-  while the ingest pipeline deletes the *first* row's chunks — leaving a
-  downloadable, unsearchable ghost. This is worth fixing before versioning is
-  designed on top of it.
+- **Re-upload was a live defect, and is fixed.** A second upload of one name
+  used to create a second row and a second stored object charged to quota,
+  while the ingest pipeline deleted the *first* row's chunks — a downloadable,
+  unsearchable ghost. All three shelves now replace the existing row
+  (`findLiveDocumentByFilename` + `admitReplacementOrDiscard`), and migration
+  0074 makes one live human-uploaded document per `(organization, collection,
+  filename)` a unique index, so the concurrent case cannot recreate it. There
+  is still no content hash; versioning can be designed on top of a stable id
+  now.
 - **The four delta outcomes already exist** — new / changed / unchanged /
   disappeared, with a sha256 registry — for the OIB base corpus (`OibFileState`,
   `oib_sync.py`). Generalising a proven algorithm to a second corpus is not new

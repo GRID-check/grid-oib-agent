@@ -43,6 +43,7 @@ import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
 import { findLiveDocumentByFilename } from '@/lib/documents/repository'
+import { discardSupersededObjects } from '@/lib/documents/object-cleanup'
 import type { DocumentListRow } from '@/lib/documents/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { archivCollectionName } from './collection'
@@ -159,23 +160,9 @@ export async function uploadArchivDocument(
       createdBy: session.userId,
     })
     // The Archiv is flat, so the key is a pure function of the id and the new
-    // bytes land on the old ones. Kept as a guard rather than an assumption:
-    // if the key rule ever gains a component, the orphan appears silently.
-    if (superseded.storageKey !== storageKey) {
-      try {
-        await s3Client.send(
-          new DeleteObjectCommand({
-            Bucket: resolveDocumentBucket(superseded.storageBucket),
-            Key: superseded.storageKey,
-          }),
-        )
-      } catch (error) {
-        console.error('[archiv] failed to remove the superseded object', {
-          documentId,
-          cause: error instanceof Error ? error.name : 'unknown',
-        })
-      }
-    }
+    // bytes land on the old ones; the helper still guards the key, and removes
+    // the stale thumbnail and `_bim/` derivatives either way.
+    await discardSupersededObjects(superseded, storageKey, 'archiv')
   } else {
     await admitOrDiscard(storageBucket, storageKey, {
       id: documentId,
