@@ -11,7 +11,7 @@
  */
 
 import 'server-only'
-import { and, count, desc, eq, inArray, isNull, ne } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, ne } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
 import {
@@ -134,7 +134,7 @@ export async function findDocumentTenancy(
   documentId: string,
 ): Promise<Pick<
   Document,
-  'organizationId' | 'projectId' | 'visibility' | 'createdBy' | 'deletedAt' | 'filename' | 'displayName'
+  'organizationId' | 'projectId' | 'visibility' | 'createdBy' | 'filename' | 'displayName'
 > | null> {
   const db = getDb()
   const [row] = await db
@@ -143,7 +143,6 @@ export async function findDocumentTenancy(
       projectId: documents.projectId,
       visibility: documents.visibility,
       createdBy: documents.createdBy,
-      deletedAt: documents.deletedAt,
       filename: documents.filename,
       displayName: documents.displayName,
     })
@@ -358,8 +357,7 @@ export async function findDocumentAuthoredByRef(
  * and charged to the organization's quota twice.
  *
  * Scoped to one collection — a project's, the Archiv's or a conversation's,
- * all three shelves replace the same way — and to rows that are not
- * soft-deleted. The comparison is exact, matching `_replace_previous_versions`'
+ * all three shelves replace the same way. The comparison is exact, matching `_replace_previous_versions`'
  * own identity rule ("a NEW name is a new document, even when its content
  * supersedes an old one") — a looser match here would let this tier and that
  * one disagree about what the same file is.
@@ -370,8 +368,9 @@ export async function findDocumentAuthoredByRef(
  * agent's row at their bytes would leave a human file wearing the agent's
  * authorship. The two coexist; only human uploads replace human uploads.
  *
- * `uniq_documents_live_name_per_collection` (migration 0074) is this probe's
- * WHERE clause as a constraint, so a concurrent first upload of one name cannot
+ * `uniq_documents_live_name_per_collection` (migration 0074, restated by 0077
+ * without the never-written `deleted_at`) is this probe's WHERE clause as a
+ * constraint, so a concurrent first upload of one name cannot
  * slip past it and recreate the ghost this exists to stop.
  */
 export async function findLiveDocumentByFilename(
@@ -400,7 +399,6 @@ export async function findLiveDocumentByFilename(
           eq(documents.collectionName, collectionName),
           eq(documents.filename, filename),
           eq(documents.authoredBy, 'user'),
-          isNull(documents.deletedAt),
         ),
       )
       // Newest wins if history already left more than one — this function is
@@ -477,7 +475,6 @@ export async function findStorageKeyByCollectionAndFilename(
           and(
             eq(documents.collectionName, collectionName),
             eq(documents.filename, filename),
-            isNull(documents.deletedAt),
             // See the note above: this is a byte-serving path reachable with
             // model-supplied arguments. A machine-authored row must not resolve.
             eq(documents.authoredBy, 'user'),

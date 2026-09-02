@@ -46,7 +46,7 @@ New table `deletion_queue` — simultaneously tombstone, work queue, and survivi
 
 Rationale for a central table (vs per-table columns only): organizations have **no DB row** in grid_app (ADR-0007 — they live in WorkOS), so there is nothing to put a `deleted_at` column on. The queue also gives one audit trail and one poller for all entity types.
 
-Entities that do have rows additionally get a `deleted_at timestamptz` column (`projects`, `documents`, `conversations`) used **only** for query filtering — the reaper never scans entity tables.
+Entities that do have rows additionally get a `deleted_at timestamptz` column (`projects`, `conversations`) used **only** for query filtering — the reaper never scans entity tables. `documents` had one too (migration 0009) but never soft-deleted — every document delete is a hard DELETE — and migration 0077 dropped the column, because a filter over a column nothing writes hides rows the day something does.
 
 ### Legal holds (grid_app Postgres)
 
@@ -60,7 +60,7 @@ API: `POST /api/holds` and `POST /api/holds/[id]/release` (org owner + internal 
 
 ### Query filtering
 
-All list/get queries for projects, documents, and conversations gain `WHERE deleted_at IS NULL`, via a small shared helper (e.g. `notDeleted(table)`) so the filter cannot be forgotten. Soft-deleted projects 404 on their routes. Documents and conversations inside a soft-deleted project are hidden transitively via the project check.
+All list/get queries for projects and conversations gain `WHERE deleted_at IS NULL`, via a small shared helper (e.g. `notDeleted(table)`) so the filter cannot be forgotten. Soft-deleted projects 404 on their routes. Documents and conversations inside a soft-deleted project are hidden transitively via the project check; documents themselves are hard-deleted and carry no such filter (0077).
 
 ### Per-entity policy
 
@@ -158,7 +158,7 @@ Python-side steps (Chroma collection + summaries, `aiq_jobs` rows, LangGraph che
 ### Migrations (grid_app)
 
 1. `deletion_queue` table.
-2. `deleted_at` on `projects`, `documents`, `conversations`.
+2. `deleted_at` on `projects`, `documents`, `conversations` (the `documents` one was never written and is dropped again by 0077).
 3. `conversations.project_id` FK: `ON DELETE SET NULL` → `ON DELETE CASCADE` (belt-and-braces behind the purger's explicit delete).
 4. `documents.folder_id` → `project_folders.id`: add `ON DELETE CASCADE` (currently no action; multi-path cascade from project delete is fragile without it).
 

@@ -516,7 +516,7 @@ metadata dump and the object copy lands in neither.
    ```shell
    # Source: every bucket the ledger records, not just grid-documents.
    for b in $(psql -At -d grid_app -c \
-     "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents WHERE deleted_at IS NULL"); do
+     "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents"); do
      aws --endpoint-url http://seaweedfs:8333 s3api list-objects-v2 --bucket "$b" \
        --query 'Contents[].[Key,Size]' --output text | sed "s|^|$b/|"
    done | sort > /tmp/source.inventory
@@ -604,7 +604,7 @@ metadata dump and the object copy lands in neither.
 
    ```shell
    BUCKETS=$(psql -At -d grid_app -c \
-     "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents WHERE deleted_at IS NULL")
+     "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents")
 
    for b in $BUCKETS; do
      aws --endpoint-url http://seaweedfs:8333 s3api list-objects-v2 --bucket "$b" \
@@ -868,7 +868,7 @@ schema.
      about before declaring the restore done:
      ```shell
      psql -At -d grid_app -c \
-       "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents WHERE deleted_at IS NULL" \
+       "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents" \
        | sort > /tmp/ledger.buckets
      comm -23 /tmp/ledger.buckets <(echo "$BUCKETS")
      ```

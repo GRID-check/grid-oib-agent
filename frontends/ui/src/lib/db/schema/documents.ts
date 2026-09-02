@@ -325,7 +325,11 @@ export const documents = pgTable('documents', {
    * adds no DDL for this value.
    */
   status: text('status').notNull().default('pending'),
-  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  // No `deletedAt`: documents have no soft delete. Every delete is a hard
+  // DELETE, and the column 0009 added was never written by anything, so 0077
+  // dropped it — a read-only predicate over a dead column would have hidden
+  // rows the day something wrote it. `projects` and `conversations` keep
+  // theirs and use them.
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   errorMessage: text('error_message'),
@@ -350,18 +354,19 @@ export const documents = pgTable('documents', {
   statusIdx: index('documents_status_idx').on(table.status),
   orgScopeIdx: index('documents_org_scope_idx').on(table.organizationId, table.scope),
   /**
-   * One live human-uploaded document per filename in a collection (migration
-   * 0074). The ingest pipeline replaces passages by filename, so a second row
-   * under one name is a ghost; `findLiveDocumentByFilename` is the probe that
-   * makes the upload paths replace instead, and this is that probe's WHERE
-   * clause as a constraint, for the concurrent first upload the probe misses.
-   * Partial on `authored_by = 'user'`: a machine-authored row carries a
-   * model-chosen name and owns no chunks, and must coexist with a person's
-   * file of the same name.
+   * One human-uploaded document per filename in a collection (migration 0074,
+   * restated by 0077). The ingest pipeline replaces passages by filename, so a
+   * second row under one name is a ghost; `findLiveDocumentByFilename` is the
+   * probe that makes the upload paths replace instead, and this is that
+   * probe's WHERE clause as a constraint, for the concurrent first upload the
+   * probe misses. Partial on `authored_by = 'user'`: a machine-authored row
+   * carries a model-chosen name and owns no chunks, and must coexist with a
+   * person's file of the same name. "Live" means "exists": there is no soft
+   * delete on this table (0077 dropped the `deleted_at IS NULL` half).
    */
   liveNamePerCollectionUidx: uniqueIndex('uniq_documents_live_name_per_collection')
     .on(table.organizationId, table.collectionName, table.filename)
-    .where(sql`${table.authoredBy} = 'user' AND ${table.deletedAt} IS NULL`),
+    .where(sql`${table.authoredBy} = 'user'`),
   /**
    * A document's folder must belong to the document's own project (migration
    * 0030). The project is pinned to the tenant by its row-level-security
