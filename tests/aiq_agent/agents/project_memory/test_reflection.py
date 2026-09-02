@@ -446,7 +446,7 @@ class TestMemoryReflectionAsAStage:
             project_id="proj-1",
             query="q",
             answer="a",
-            intent="research",
+            routing_decision="shallow",
             enabled_stages=frozenset({"memory_reflection"}),
         )
         return dataclasses.replace(base, **overrides)

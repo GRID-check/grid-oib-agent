@@ -23,7 +23,7 @@
 ## The three layers
 
 Resolution is **per agent group**, so the layers mix: an org that pinned only
-`deep_research` still follows the platform default for `intent`.
+`deep_research` still follows the platform default for `clarifier`.
 
 | Layer | Where it lives | Who writes it | Scope |
 |---|---|---|---|
@@ -151,7 +151,6 @@ capability requirements) mirrored by `AgentGroup` in
 
 | Group id | Covers (config LLMs) | Requirements (catalog) |
 |---|---|---|
-| `intent` | `intent_llm` | text input, ≥16k context |
 | `clarifier` | `clarifier_llm` (agent + planner) | `tools`, ≥32k |
 | `shallow_research` | `shallow_llm` | `tools`, ≥64k |
 | `deep_research` | `deep_orchestrator_llm`, `deep_planner_llm`, `deep_researcher_llm` (+ writer) | `tools`, ≥128k |
@@ -287,7 +286,7 @@ server.js  ──  x-grid-model-overrides: base64url(JSON)  ──▶  aiq backe
                                      │
  sync turn: each agent register's _run:
    provider.with_model_overrides(...)  → derived LLMProvider (model_copy per group)
-   directly-held LLMs (intent invoke, clarifier planner, reflection schedule)
+   directly-held LLMs (clarifier planner, reflection schedule)
    wrapped via apply_model_override(llm, group)
                                      │
  async deep research: submit_agent_job auto-captures the map → Dask runner

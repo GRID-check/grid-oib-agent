@@ -245,8 +245,8 @@ export interface AgentResponseProps {
    */
   isStreaming?: boolean
   /**
-   * Which path the turn took after intent classification (WP-A transparency
-   * extra). `'meta'` marks a conversational / clarifying reply (greetings,
+   * Which path the turn turned out to take, observed after the answer (WP-A
+   * transparency extra). `'meta'` marks a conversational / clarifying reply (greetings,
    * capability questions, Rückfragen) — rendered with a quiet neutral "Hinweis"
    * role tab so it reads clearly apart from a substantive Baurecht answer
    * (`'shallow'`/`'deep'`, the ink "Ergebnis" tab). Absent/`'error'` fall back

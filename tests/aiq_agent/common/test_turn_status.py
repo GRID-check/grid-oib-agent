@@ -103,40 +103,6 @@ class TestDocumentsLoading:
         assert steps == []
 
 
-class TestRouting:
-    def test_the_live_line_carries_the_DECISION_not_the_prose(self, steps) -> None:
-        """The classifier's reason is a free-text sentence; it is never the line.
-
-        It still travels, as its own field, for the secondary "why this route?"
-        row that quotes the model and says so. What it must never do is get
-        interpolated into the running one-liner, which is how a German clause
-        reached an English reader.
-        """
-        turn_status.emit_routing(intent="research", depth="deep", reason="Mehrere Teilfragen.")
-        payload = _live(steps)[0]
-        assert payload["key"] == "status.routing.deep"
-        assert payload["values"] == {}
-        assert payload["intent"] == "research"
-        assert payload["depth"] == "deep"
-        assert payload["reason"] == "Mehrere Teilfragen."
-
-    def test_a_meta_turn_says_no_research_is_needed(self, steps) -> None:
-        turn_status.emit_routing(intent="meta", depth=None, reason=None)
-        assert _live(steps)[0]["key"] == "status.routing.meta"
-
-    def test_out_of_scope_is_its_own_decision(self, steps) -> None:
-        turn_status.emit_routing(intent="out_of_scope", depth=None, reason=None)
-        assert _live(steps)[0]["key"] == "status.routing.outOfScope"
-
-    def test_an_unknown_decision_degrades_to_the_common_one(self, steps) -> None:
-        turn_status.emit_routing(intent="research", depth="sideways", reason=None)
-        assert _live(steps)[0]["key"] == "status.routing.shallow"
-
-    def test_the_reason_never_outgrows_its_field(self, steps) -> None:
-        turn_status.emit_routing(intent="research", depth="shallow", reason="Grund " * 40)
-        assert len(_live(steps)[0]["reason"]) <= turn_status.MAX_REASON_CHARS
-
-
 class TestRetrieval:
     def test_it_names_the_corpus_by_ID_and_quotes_the_question(self, steps) -> None:
         turn_status.emit_retrieval(
@@ -225,13 +191,12 @@ class TestEscalation:
 class TestChannels:
     def test_every_status_here_is_addressed_to_the_reader(self, steps) -> None:
         turn_status.emit_documents_loading(["project"])
-        turn_status.emit_routing(intent="research", depth="shallow", reason="Eine Fachfrage.")
         turn_status.emit_retrieval([{"name": "knowledge_search_tool", "args": {"query": "q"}}], round_index=0)
         turn_status.emit_citation_check(source_count=3)
         turn_status.emit_escalation(None)
 
         payloads = _live(steps)
-        assert len(payloads) == 5
+        assert len(payloads) == 4
         for payload in payloads:
             assert payload["kind"] == "status"
             assert payload["channel"] == turn_status.CHANNEL_LIVE
@@ -283,10 +248,6 @@ def _every_live_payload(steps) -> list[dict]:
     turn_status.emit_documents_loading(["session"])
     turn_status.emit_documents_loading(["archiv", "project"])
     turn_status.emit_documents_waiting(file_count=1)
-    turn_status.emit_routing(intent="meta", depth=None, reason=None)
-    turn_status.emit_routing(intent="out_of_scope", depth=None, reason=None)
-    turn_status.emit_routing(intent="research", depth="shallow", reason="Eine einzelne Fachfrage.")
-    turn_status.emit_routing(intent="research", depth="deep", reason="Mehrere Teilfragen.")
     turn_status.emit_retrieval(
         [
             {"name": "knowledge_search_tool", "args": {"query": "Fluchtweglänge GK4"}},

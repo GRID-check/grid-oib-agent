@@ -319,10 +319,9 @@ export const NATSystemResponseMessageSchema = z.object({
   // These ride the same terminal-chunk "extras lift" as answer_confidence /
   // sources / deep_research_job_id.
 
-  // Which path the turn took after intent classification.
+  // Which path the turn turned out to take, observed after the answer: `meta`
+  // is a direct reply with no source consulted and no self-assessment.
   routing_decision: z.enum(['meta', 'shallow', 'deep', 'error']).optional().catch(undefined),
-  // Human-readable "why" for the routing decision (verbatim from the classifier).
-  routing_reason: z.string().optional().catch(undefined),
   // Present only when a shallow→deep escalation happened this turn.
   escalation_reason: z.string().optional().catch(undefined),
   // Present only when the self-reported confidence was downgraded. Five causes:

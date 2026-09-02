@@ -162,8 +162,8 @@ def test_a_standard_platform_skill_reaches_the_writer_as_a_requirement_and_a_bod
     assert "## Available skills" in prompt
     assert "- `piloti-voice`:" in prompt
     # Standard delivery is what makes it policy rather than an offer.
-    assert "## Active skills (required for this turn)" in prompt
-    assert "- `piloti-voice`" in prompt.split("## Active skills (required for this turn)")[1]
+    assert "## Active skills (apply to every answer with subject matter)" in prompt
+    assert "- `piloti-voice`" in prompt.split("## Active skills (apply to every answer with subject matter)")[1]
     # The preflight has to tell the writer which of the two channels loads it.
     assert "use_skill" in prompt
 

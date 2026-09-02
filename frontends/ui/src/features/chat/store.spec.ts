@@ -1318,8 +1318,8 @@ describe('useChatStore', () => {
 
       const stepId = useChatStore.getState().addThinkingStep({
         category: 'agents',
-        functionName: 'intent_classifier',
-        displayName: 'Intent Classifier',
+        functionName: 'shallow_research_agent',
+        displayName: 'Shallow Research Agent',
         content: 'Initial thought',
         isComplete: false,
       })
@@ -1328,8 +1328,8 @@ describe('useChatStore', () => {
       const steps = useChatStore.getState().thinkingSteps
       expect(steps).toHaveLength(1)
       expect(steps[0].category).toBe('agents')
-      expect(steps[0].functionName).toBe('intent_classifier')
-      expect(steps[0].displayName).toBe('Intent Classifier')
+      expect(steps[0].functionName).toBe('shallow_research_agent')
+      expect(steps[0].displayName).toBe('Shallow Research Agent')
       expect(steps[0].content).toBe('Initial thought')
       expect(steps[0].isComplete).toBe(false)
       expect(steps[0].userMessageId).toBe(userMessageId)
@@ -1436,16 +1436,16 @@ describe('useChatStore', () => {
 
       useChatStore.getState().addThinkingStep({
         category: 'agents',
-        functionName: 'intent_classifier',
-        displayName: 'Intent Classifier',
-        content: 'Classifying...',
+        functionName: 'shallow_research_agent',
+        displayName: 'Shallow Research Agent',
+        content: 'Reading...',
         isComplete: false,
       })
 
-      const found = useChatStore.getState().findThinkingStepByFunctionName('intent_classifier')
+      const found = useChatStore.getState().findThinkingStepByFunctionName('shallow_research_agent')
 
       expect(found).toBeDefined()
-      expect(found?.functionName).toBe('intent_classifier')
+      expect(found?.functionName).toBe('shallow_research_agent')
     })
 
     test('findThinkingStepByFunctionName returns undefined for non-existent step', () => {

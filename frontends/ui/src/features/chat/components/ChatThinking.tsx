@@ -71,10 +71,6 @@ export interface ChatThinkingProps {
   choicePrompt?: ChoicePrompt
   /** Respond to the HITL choice prompt. */
   onChoiceRespond?: (promptId: string, choice: string) => void
-  /** Routing path this turn took after intent classification (framing node). */
-  routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
-  /** Verbatim classifier "why" for the routing decision (framing node). */
-  routingReason?: string
   /** Set when this turn escalated shallow→deep — framing-node narration. */
   escalationReason?: string
   /** Render the Herleitung expanded on first mount (e.g. the current turn). */
@@ -103,8 +99,6 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   citations,
   choicePrompt,
   onChoiceRespond,
-  routingDecision,
-  routingReason,
   escalationReason,
   defaultOpen = false,
   autoOpen,
@@ -168,7 +162,6 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
     Boolean(answerConfidence) ||
     (citations?.length ?? 0) > 0 ||
     Boolean(choicePrompt) ||
-    Boolean(routingDecision && routingReason?.trim()) ||
     Boolean(escalationReason?.trim()) ||
     userQuestion.trim().length > 0
 
@@ -313,8 +306,6 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                   citations={citations}
                   choicePrompt={choicePrompt}
                   onChoiceRespond={onChoiceRespond}
-                  routingDecision={routingDecision}
-                  routingReason={routingReason}
                   escalationReason={escalationReason}
                   live={isThinking}
                 />

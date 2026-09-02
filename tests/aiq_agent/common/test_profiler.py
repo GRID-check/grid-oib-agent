@@ -22,7 +22,7 @@ class TestAgentProfilerSpans:
 
     def test_start_end_span_records_duration_and_status(self):
         profiler = self._profiler()
-        span_id = profiler.start_span("node", "intent_classifier")
+        span_id = profiler.start_span("node", "shallow_research")
         profiler.end_span(span_id, status="ok")
         assert profiler.spans_recorded == 1
 
@@ -31,7 +31,7 @@ class TestAgentProfilerSpans:
         root_id = profiler.start_span("turn", "chat_researcher")
         token = current_span_var.set(root_id)
         try:
-            child_id = profiler.start_span("node", "intent_classifier")
+            child_id = profiler.start_span("node", "shallow_research")
         finally:
             current_span_var.reset(token)
         profiler.end_span(child_id, status="ok")

@@ -347,18 +347,6 @@ def get_listing_shelf() -> Shelf | None:
     return _listing_shelf.get()
 
 
-def listing_intent_override(query: str) -> str | None:
-    """``"meta"`` when *query* is a shelf-listing question; otherwise ``None``.
-
-    The intent classifier's tie-break prefers research. A listing question is
-    Bürowissen, so that tie-break turns "welche Dateien hast du im Büroarchiv"
-    into a search. This override is the cause-level gate: if the query names a
-    shelf as a catalogue question, the turn is meta regardless of what the
-    classifier model said.
-    """
-    return "meta" if shelf_hint_from_query(query) is not None else None
-
-
 def _parse_scope_shelves(values: Sequence[Any] | None) -> list[Shelf]:
     if not values:
         return []
@@ -413,10 +401,9 @@ def _folded_base_lines(count: int) -> list[str]:
     model can cite a document by name, and they are what the model cannot
     reconstruct from anywhere else.
 
-    A listing question about THIS shelf ("welche OIB-Richtlinien hast du") is
-    routed to ``intent="meta"``, which binds no search tools — so that turn has
-    no retrieval to fall back on, and ``focus_shelf`` prints the full list. The
-    fold applies to every other turn.
+    A listing question about THIS shelf ("welche OIB-Richtlinien hast du")
+    names it (``shelf_hint_from_query`` → ``set_listing_shelf``), and then
+    ``focus_shelf`` prints the full list. The fold applies to every other turn.
     """
     n = f"{count} Datei" if count == 1 else f"{count} Dateien"
     return [

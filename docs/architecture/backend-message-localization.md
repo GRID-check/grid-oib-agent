@@ -4,7 +4,7 @@ Status: Proposed — flagged for a human/product decision
 Date: 2026-07-10
 Scope: Localizing the handful of fixed English strings the Python backend
 sends to users as chat bubbles (budget-exhausted, job-cap, "No response
-generated.", intent-classifier fallbacks).
+generated.").
 
 ## Problem
 
@@ -19,7 +19,6 @@ strings are emitted verbatim by backend code and are always English:
 | Budget exhausted (`BudgetExceededError` default message) | `src/aiq_agent/common/cost_tracking.py` (~L82-88), sent via `src/aiq_agent/agents/chat_researcher/register.py` (~L606-610) |
 | Job-cap / admission messages (`JobAdmissionError`) | `frontends/aiq_api/src/aiq_api/jobs/submit.py` (~L61-89) |
 | "No response generated." | `src/aiq_agent/agents/chat_researcher/register.py` (~L633) |
-| Intent-classifier fallbacks (LLM unavailable / timeout / temporary error) | `src/aiq_agent/agents/chat_researcher/nodes/intent_classifier.py` (~L42-46, ~L187) |
 
 These reach the user directly, without passing through any LLM, so no prompt
 change can localize them.

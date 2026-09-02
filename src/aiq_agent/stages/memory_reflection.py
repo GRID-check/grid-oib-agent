@@ -52,9 +52,10 @@ REFLECTION_NON_ANSWERS = (
     "I searched the available sources but couldn't retrieve anything usable",
 )
 
-#: Intents with nothing durable to record: reflecting on them only risks
+#: Paths with nothing durable to record: a direct reply (greeting, shelf
+#: listing, off-topic decline) or an error. Reflecting on them only risks
 #: spurious writes.
-_SKIP_INTENTS = {"meta", "error", "out_of_scope"}
+_SKIP_ROUTES = {"meta", "error"}
 
 #: A generous bound, not a tuning knob. Reflection is one structured-output call
 #: over a turn that is already sliced to ~6k characters of prompt; 45s covers a
@@ -121,8 +122,8 @@ def _gate(facts: TurnFacts) -> GateDecision:
         return GateDecision.skip("canned_non_answer")
     if matches_escalation_keywords(text):
         return GateDecision.skip("escalation")
-    if facts.intent in _SKIP_INTENTS:
-        return GateDecision.skip(f"intent_{facts.intent}")
+    if facts.routing_decision in _SKIP_ROUTES:
+        return GateDecision.skip(f"routing_{facts.routing_decision}")
     return GateDecision.proceed()
 
 

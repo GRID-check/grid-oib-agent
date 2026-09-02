@@ -87,7 +87,7 @@ export const StepEventPayloadSchema = z
     slot: z.string().optional().catch(undefined),
     intent: z.string().optional().catch(undefined),
     depth: z.string().optional().catch(undefined),
-    /** Routing/escalation rationale, in the classifier's own words. */
+    /** Escalation rationale, in the agent's own words. */
     reason: z.string().optional().catch(undefined),
     tools: z.array(z.string()).optional().catch(undefined),
     /**
@@ -235,10 +235,6 @@ export const TURN_EVENT_KEYS: Record<string, string> = {
   'status.documents.session': 'thinking.turnStatus.',
   'status.documents.several': 'thinking.turnStatus.',
   'status.documents.waiting': 'thinking.turnStatus.',
-  'status.routing.meta': 'thinking.turnStatus.',
-  'status.routing.outOfScope': 'thinking.turnStatus.',
-  'status.routing.shallow': 'thinking.turnStatus.',
-  'status.routing.deep': 'thinking.turnStatus.',
   'status.retrieval.withQuery': 'thinking.turnStatus.',
   'status.retrieval.plain': 'thinking.turnStatus.',
   'status.retrieval.requery': 'thinking.turnStatus.',

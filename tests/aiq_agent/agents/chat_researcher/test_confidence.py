@@ -15,8 +15,6 @@ from langchain_core.messages import HumanMessage
 from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
 from aiq_agent.agents.chat_researcher.agent import _finalize_shallow_answer
 from aiq_agent.agents.chat_researcher.models import ChatResearcherState
-from aiq_agent.agents.chat_researcher.models import DepthDecision
-from aiq_agent.agents.chat_researcher.models import IntentResult
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 
 
@@ -92,16 +90,6 @@ class TestConfidenceEndToEnd:
     """Propagation of answer_confidence through ChatResearcherAgent.run()."""
 
     @pytest.fixture
-    def research_orchestration(self):
-        async def classifier(state):
-            return {
-                "user_intent": IntentResult(intent="research", raw=None),
-                "depth_decision": DepthDecision(decision="shallow", raw_reasoning="simple"),
-            }
-
-        return classifier
-
-    @pytest.fixture
     def deep_fn(self):
         async def deep(state):
             result = MagicMock()
@@ -161,9 +149,8 @@ class TestConfidenceEndToEnd:
 
         return shallow
 
-    def _agent(self, research_orchestration, shallow_fn, deep_fn, **kw):
+    def _agent(self, shallow_fn, deep_fn, **kw):
         return ChatResearcherAgent(
-            intent_classifier_fn=research_orchestration,
             shallow_research_fn=shallow_fn,
             deep_research_fn=deep_fn,
             clarifier_fn=None,
@@ -172,95 +159,95 @@ class TestConfidenceEndToEnd:
         )
 
     @pytest.mark.asyncio
-    async def test_grounded_high_surfaces_high(self, research_orchestration, deep_fn):
+    async def test_grounded_high_surfaces_high(self, deep_fn):
         shallow = self._shallow_returning("OIB 2 [1].\n[CONFIDENCE:high]", grounded=True)
-        agent = self._agent(research_orchestration, shallow, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow, deep_fn, enable_escalation=False)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="t1")
         assert result["answer_confidence"] == "high"
         assert "[CONFIDENCE" not in result["messages"][-1].content
 
     @pytest.mark.asyncio
-    async def test_ungrounded_high_capped_to_low(self, research_orchestration, deep_fn):
+    async def test_ungrounded_high_capped_to_low(self, deep_fn):
         shallow = self._shallow_returning("Claim without grounding.\n[CONFIDENCE:high]", grounded=False)
-        agent = self._agent(research_orchestration, shallow, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow, deep_fn, enable_escalation=False)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="t2")
         assert result["answer_confidence"] == "low"
 
     @pytest.mark.asyncio
-    async def test_no_marker_surfaces_nothing(self, research_orchestration, deep_fn):
+    async def test_no_marker_surfaces_nothing(self, deep_fn):
         shallow = self._shallow_returning("A grounded answer [1].", grounded=True)
-        agent = self._agent(research_orchestration, shallow, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow, deep_fn, enable_escalation=False)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="t3")
         assert result.get("answer_confidence") is None
 
     @pytest.mark.asyncio
-    async def test_escalation_branch_surfaces_nothing(self, research_orchestration, deep_fn):
+    async def test_escalation_branch_surfaces_nothing(self, deep_fn):
         # Shallow emits the escalation marker → escalates to deep; no chip.
         shallow = self._shallow_returning("Partial.\n[CONFIDENCE:high]\n[ESCALATE_TO_DEEP]", grounded=True)
-        agent = self._agent(research_orchestration, shallow, deep_fn, enable_escalation=True)
+        agent = self._agent(shallow, deep_fn, enable_escalation=True)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="t4")
         assert result.get("answer_confidence") is None
         assert result["messages"][-1].content == "Deep report."
 
     @pytest.mark.asyncio
-    async def test_generic_error_branch_surfaces_nothing(self, research_orchestration, deep_fn):
+    async def test_generic_error_branch_surfaces_nothing(self, deep_fn):
         async def shallow_raises(state_input):
             raise RuntimeError("boom")
 
-        agent = self._agent(research_orchestration, shallow_raises, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow_raises, deep_fn, enable_escalation=False)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="t5")
         assert result.get("answer_confidence") is None
 
     @pytest.mark.asyncio
-    async def test_empty_source_registry_error_surfaces_nothing(self, research_orchestration, deep_fn):
+    async def test_empty_source_registry_error_surfaces_nothing(self, deep_fn):
         async def shallow_raises(state_input):
             raise EmptySourceRegistryError("shallow research")
 
-        agent = self._agent(research_orchestration, shallow_raises, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow_raises, deep_fn, enable_escalation=False)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="t6")
         assert result.get("answer_confidence") is None
 
     @pytest.mark.asyncio
-    async def test_structured_signals_grounded_high_surfaces_high(self, research_orchestration, deep_fn):
+    async def test_structured_signals_grounded_high_surfaces_high(self, deep_fn):
         # Answer text already clean; confidence arrives as a structured field.
         shallow = self._shallow_returning_structured(
             "OIB 2 [1].", grounded=True, escalation_requested=False, confidence_marker="high"
         )
-        agent = self._agent(research_orchestration, shallow, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow, deep_fn, enable_escalation=False)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="s1")
         assert result["answer_confidence"] == "high"
         assert "[CONFIDENCE" not in result["messages"][-1].content
 
     @pytest.mark.asyncio
-    async def test_structured_signals_ungrounded_high_capped_to_low(self, research_orchestration, deep_fn):
+    async def test_structured_signals_ungrounded_high_capped_to_low(self, deep_fn):
         shallow = self._shallow_returning_structured(
             "Claim.", grounded=False, escalation_requested=False, confidence_marker="high"
         )
-        agent = self._agent(research_orchestration, shallow, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow, deep_fn, enable_escalation=False)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="s2")
         assert result["answer_confidence"] == "low"
 
     @pytest.mark.asyncio
-    async def test_structured_signals_escalation_surfaces_nothing(self, research_orchestration, deep_fn):
+    async def test_structured_signals_escalation_surfaces_nothing(self, deep_fn):
         shallow = self._shallow_returning_structured(
             "Partial.", grounded=True, escalation_requested=True, confidence_marker="high"
         )
-        agent = self._agent(research_orchestration, shallow, deep_fn, enable_escalation=True)
+        agent = self._agent(shallow, deep_fn, enable_escalation=True)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="s3")
         assert result.get("answer_confidence") is None
         assert result["messages"][-1].content == "Deep report."
 
     @pytest.mark.asyncio
-    async def test_structured_reason_reaches_state(self, research_orchestration, deep_fn):
+    async def test_structured_reason_reaches_state(self, deep_fn):
         # The marker's `| reason` clause rides the structured path onto
         # answer_confidence_reason so the UI can show WHY the level was chosen.
         shallow = self._shallow_returning_structured(
@@ -270,19 +257,19 @@ class TestConfidenceEndToEnd:
             confidence_marker="high",
             confidence_reason="Direkt durch OIB-RL 2 belegt",
         )
-        agent = self._agent(research_orchestration, shallow, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow, deep_fn, enable_escalation=False)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="s4")
         assert result["answer_confidence"] == "high"
         assert result["answer_confidence_reason"] == "Direkt durch OIB-RL 2 belegt"
 
     @pytest.mark.asyncio
-    async def test_fallback_text_marker_reason_reaches_state(self, research_orchestration, deep_fn):
+    async def test_fallback_text_marker_reason_reaches_state(self, deep_fn):
         # Back-compat path: the marker (with reason) is still in the TEXT.
         shallow = self._shallow_returning(
             "Teilantwort.\n[CONFIDENCE:medium | Keine Quelle zur Sonderregel]", grounded=True
         )
-        agent = self._agent(research_orchestration, shallow, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow, deep_fn, enable_escalation=False)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="s5")
         assert result["answer_confidence"] == "medium"
@@ -290,7 +277,7 @@ class TestConfidenceEndToEnd:
         assert "[CONFIDENCE" not in result["messages"][-1].content
 
     @pytest.mark.asyncio
-    async def test_escalation_drops_reason(self, research_orchestration, deep_fn):
+    async def test_escalation_drops_reason(self, deep_fn):
         # Escalation supersedes the shallow answer — no confidence AND no reason.
         shallow = self._shallow_returning_structured(
             "Partial.",
@@ -299,14 +286,14 @@ class TestConfidenceEndToEnd:
             confidence_marker="high",
             confidence_reason="irrelevant",
         )
-        agent = self._agent(research_orchestration, shallow, deep_fn, enable_escalation=True)
+        agent = self._agent(shallow, deep_fn, enable_escalation=True)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="s6")
         assert result.get("answer_confidence") is None
         assert result.get("answer_confidence_reason") is None
 
     @pytest.mark.asyncio
-    async def test_capped_confidence_keeps_model_reason(self, research_orchestration, deep_fn):
+    async def test_capped_confidence_keeps_model_reason(self, deep_fn):
         # The guard caps the level but the model's reason still surfaces (it
         # describes the raw self-assessment; the cap note explains the level).
         shallow = self._shallow_returning_structured(
@@ -316,7 +303,7 @@ class TestConfidenceEndToEnd:
             confidence_marker="high",
             confidence_reason="Modell hält es für belegt",
         )
-        agent = self._agent(research_orchestration, shallow, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow, deep_fn, enable_escalation=False)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="s7")
         assert result["answer_confidence"] == "low"

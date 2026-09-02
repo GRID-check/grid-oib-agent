@@ -223,13 +223,11 @@ def _build_checkpointer_serde() -> JsonPlusSerializer:
     """
     # Imported lazily to avoid a circular import: the agent state modules import
     # from ``aiq_agent.common`` at module load time.
-    from aiq_agent.agents.chat_researcher.models.depth import DepthDecision
-    from aiq_agent.agents.chat_researcher.models.intent import IntentResult
     from aiq_agent.agents.chat_researcher.models.result import ShallowResult
     from aiq_agent.knowledge.schema import AvailableDocument
 
     return JsonPlusSerializer(
-        allowed_msgpack_modules=[IntentResult, DepthDecision, ShallowResult, AvailableDocument],
+        allowed_msgpack_modules=[ShallowResult, AvailableDocument],
     )
 
 

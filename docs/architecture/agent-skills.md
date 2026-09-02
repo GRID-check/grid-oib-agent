@@ -595,17 +595,16 @@ skills_enabled: true        # default true; false disables the use_skill tool + 
 skill_allowlist: []         # empty = every resolved skill is offered
 ```
 
-Both are fields on `ShallowResearchAgentConfig`; they only affect **research
-turns** (`requires_sources=True`) — meta/conversational turns never load
-skills, mirroring the interaction-only tool partition. Forced names and the
-allowlist filter to the actual resolved set; unknown names are simply ignored
-(fail-open on both sides: a typo in `skills:` never errors a turn).
+Both are fields on `ShallowResearchAgentConfig`. `use_skill` and the skill
+index are bound on **every** turn, greetings included: there is no classifier
+and no `requires_sources` gate in front of the answering agent any more
+(ADR-0052), so whether a turn loads a skill is the model's call, pinned by the
+prompt. Forced names and the allowlist filter to the actual resolved set;
+unknown names are simply ignored (fail-open on both sides: a typo in `skills:`
+never errors a turn).
 
-Forced skills do **not** depend on the intent classifier. `force_skills` is
-only ever set by an explicit `/name` invocation or a job run, and gating the
-`use_skill` tool on `requires_sources` alone made that a no-op on exactly the
-short, imperative messages people type after a slash command. A plain greeting
-still loads nothing.
+`force_skills` is only ever set by an explicit `/name` invocation or a job run
+and is loaded regardless of what the model would have chosen.
 
 The deep-research side is different by construction: it does NOT use the
 `use_skill` tool or these config keys. Its skills are deepagents-native

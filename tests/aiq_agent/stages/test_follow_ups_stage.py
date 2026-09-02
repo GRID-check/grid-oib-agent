@@ -69,7 +69,6 @@ def _facts(**overrides) -> TurnFacts:
         organization_id="org_1",
         query="In welche Gebäudeklasse fällt mein Haus?",
         answer=ANSWER,
-        intent="research",
         routing_decision="shallow",
         enabled_stages=frozenset({"follow_ups"}),
     )
@@ -149,9 +148,8 @@ class TestGate:
         ("overrides", "reason"),
         [
             ({"deep_research_job_id": "job_1"}, "deep_research_job"),
-            ({"intent": "out_of_scope", "routing_decision": "meta"}, "intent_out_of_scope"),
-            ({"intent": "meta", "routing_decision": "meta"}, "routing_meta"),
-            ({"intent": "error", "routing_decision": "error"}, "routing_error"),
+            ({"routing_decision": "meta"}, "routing_meta"),
+            ({"routing_decision": "error"}, "routing_error"),
             ({"research_truncated": True}, "research_truncated"),
             ({"query": ""}, "empty_turn"),
             ({"answer": "An error occurred while researching your question. " * 12}, "canned_non_answer"),
@@ -163,13 +161,6 @@ class TestGate:
         decision = _gate(**overrides)
         assert decision.run is False
         assert decision.reason == reason
-
-    def test_an_off_topic_redirect_is_not_filed_as_small_talk(self):
-        """`derive_routing_decision` folds out_of_scope into "meta" for the
-        transparency surface. Reading routing first would hide every off-topic
-        turn inside the small-talk bucket — and "how many redirects did the gate
-        catch" is one of the numbers this slice is for."""
-        assert _gate(intent="out_of_scope", routing_decision="meta").reason == "intent_out_of_scope"
 
     def test_a_turn_that_already_emitted_the_card_still_runs(self):
         """Deliberate: those are exactly the turns the stage is being measured

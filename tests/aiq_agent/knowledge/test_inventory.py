@@ -270,20 +270,6 @@ class TestShelfHintFromQuery:
         assert shelf_hint_from_query("und im archiv?") == Shelf.ARCHIV
 
 
-class TestListingIntentOverride:
-    def test_archiv_listing_is_meta_even_if_the_classifier_said_research(self):
-        from aiq_agent.knowledge.inventory import listing_intent_override
-
-        assert listing_intent_override("welche datein hast du im Bro archiv") == "meta"
-        assert listing_intent_override("nicht im projekt was hast du im archiv") == "meta"
-
-    def test_content_questions_are_not_overridden(self):
-        from aiq_agent.knowledge.inventory import listing_intent_override
-
-        assert listing_intent_override("was sagt OIB-RL 2 zum Brandschutz") is None
-        assert listing_intent_override("What is CUDA?") is None
-
-
 class TestScopedCollectionRoundTrip:
     def test_scope_entries_carry_the_shelf_the_renderer_needs(self):
         entries = [
@@ -376,9 +362,9 @@ class TestBaseShelfIsFolded:
     ``knowledge_search`` with no ``file_name`` fans out across this corpus and
     its hits name the file they came from.
 
-    The exception is the turn that has no retrieval: a listing question about
-    this shelf routes to ``intent="meta"``, which binds no search tools. That
-    turn arrives with ``focus_shelf=base`` and gets the full list.
+    The exception is the turn that is ABOUT the shelf: a listing question
+    names it (``shelf_hint_from_query`` → ``set_listing_shelf``), or the turn
+    arrives with ``focus_shelf=base``, and either gets the full list.
     """
 
     def teardown_method(self):

@@ -86,7 +86,7 @@ const ACTIVITY_RULES: Array<{ match: RegExp; key: LiveActivityKey }> = [
   // The shallow node doubles as the conversational assistant, so it must not
   // fall through to the `research` rule and call a greeting a Recherche. What
   // it is doing, from where the reader sits, is writing the answer.
-  { match: /shallow|meta_chatter/, key: 'composing' },
+  { match: /shallow/, key: 'composing' },
   { match: /depth|rout|plan|decompos|strateg/, key: 'planning' },
   { match: /research/, key: 'researching' },
   { match: /chatter|writ|report|compose|answer|respond|generat|synthes|summar|draft/, key: 'composing' },

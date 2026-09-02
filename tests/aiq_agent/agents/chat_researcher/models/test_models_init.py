@@ -10,18 +10,6 @@ class TestModelsInit:
 
         assert ChatResearcherState is not None
 
-    def test_import_depth_decision(self):
-        """Test that DepthDecision can be imported from models."""
-        from aiq_agent.agents.chat_researcher.models import DepthDecision
-
-        assert DepthDecision is not None
-
-    def test_import_intent_result(self):
-        """Test that IntentResult can be imported from models."""
-        from aiq_agent.agents.chat_researcher.models import IntentResult
-
-        assert IntentResult is not None
-
     def test_import_shallow_result(self):
         """Test that ShallowResult can be imported from models."""
         from aiq_agent.agents.chat_researcher.models import ShallowResult
@@ -29,10 +17,13 @@ class TestModelsInit:
         assert ShallowResult is not None
 
     def test_all_exports(self):
-        """Test that __all__ contains expected exports."""
+        """Test that __all__ contains exactly the surviving exports.
+
+        ``IntentResult`` and ``DepthDecision`` went with the classifier
+        (ADR-0052); a re-export would be a state type nobody sets.
+        """
         from aiq_agent.agents.chat_researcher import models
 
-        assert "ChatResearcherState" in models.__all__
-        assert "DepthDecision" in models.__all__
-        assert "IntentResult" in models.__all__
-        assert "ShallowResult" in models.__all__
+        assert set(models.__all__) == {"ChatResearcherState", "ShallowResult"}
+        assert not hasattr(models, "IntentResult")
+        assert not hasattr(models, "DepthDecision")

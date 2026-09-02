@@ -132,12 +132,11 @@ simply pays today's token cost.
 The whole mechanism is scoped to the agent that has something to defer.
 ``deferred_tool_loading`` sits under ``shallow_research_agent`` in the YAML,
 ``api_type: responses`` is on ``shallow_llm`` alone, and this module is imported
-only by that agent — so ``intent_classifier``, ``clarifier_llm``, ``summary_llm``
-and the ``deep_*`` roles never reach it. Keep it that way. Deferral pays only
-where a large tool surface meets a tight turn budget (~60 KB of BIM schemas on a
-5-iteration budget); an intent classifier has nothing worth deferring and would
-pay the ~620-token apparatus for nothing — and a cheap sub-50 model is the RIGHT
-choice for classification, so a floor applied there would be actively wrong.
+only by that agent — so ``clarifier_llm``, ``summary_llm`` and the ``deep_*``
+roles never reach it. Keep it that way. Deferral pays only where a large tool
+surface meets a tight turn budget (~60 KB of BIM schemas on a 5-iteration
+budget); a role with a handful of tools has nothing worth deferring and would
+pay the ~620-token apparatus for nothing.
 
 Structurally: the lists, the scores and the floor all live on the per-agent
 :class:`DeferredToolLoadingSettings`, never in module scope, so two agents can

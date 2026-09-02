@@ -36,10 +36,8 @@ export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'er
  * `onResponse` signature does not grow another handful of positional params.
  */
 export interface ResponseTransparency {
-  /** Which path the turn took after intent classification. */
+  /** Which path the turn turned out to take, observed after the answer. */
   routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
-  /** Human-readable "why" for the routing decision (verbatim from classifier). */
-  routingReason?: string
   /** Present only when a shallow→deep escalation happened this turn. */
   escalationReason?: string
   /**
@@ -665,7 +663,6 @@ export class NATWebSocketClient {
           // is optional; the hook renders only those that are present.
           const transparency: ResponseTransparency = {
             routingDecision: message.routing_decision,
-            routingReason: message.routing_reason,
             escalationReason: message.escalation_reason,
             answerConfidenceCappedReason: message.answer_confidence_capped_reason,
             answerConfidenceReason: message.answer_confidence_reason,

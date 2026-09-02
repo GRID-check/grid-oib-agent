@@ -67,7 +67,6 @@ class AgentGroup(StrEnum):
     id sets in sync.
     """
 
-    INTENT = "intent"
     CLARIFIER = "clarifier"
     SHALLOW_RESEARCH = "shallow_research"
     DEEP_RESEARCH = "deep_research"
@@ -404,8 +403,8 @@ def apply_zdr_routing(llm: object) -> object:
 def is_reasoning_incompatible_error(err: BaseException) -> bool:
     """True when a provider rejected the call because the model cannot disable reasoning.
 
-    An org override can point a ``reasoning_effort: none`` role (today: the
-    intent group) at a reasoning-mandatory model (e.g. ``x-ai/grok-4.5``);
+    An org override can point a ``reasoning_effort: none`` role at a
+    reasoning-mandatory model (e.g. ``x-ai/grok-4.5``);
     OpenRouter then 400s with "Reasoning is mandatory for this endpoint and
     cannot be disabled". Callers use this to fall back to the workflow-default
     model instead of failing the turn. Matched conservatively: the message must

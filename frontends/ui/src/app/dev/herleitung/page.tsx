@@ -124,9 +124,6 @@ const defaultCommon = {
   citations,
   enabledDataSources: ['OIB-Korpus', 'RIS', 'Projektdokumente'],
   messageFiles: [{ id: 'f1', fileName: 'Grundriss_EG.pdf' }],
-  routingDecision: 'shallow' as const,
-  routingReason:
-    'konkrete Frage zu OIB-Richtlinie 2 (Brandschutz), kein Bedarf für Tiefenrecherche',
 }
 
 // Dense scenario: what a real Tiefenrecherche turn looks like — nine documents
@@ -188,9 +185,6 @@ const denseStep: ThinkingStep = {
 const denseCommon = {
   ...defaultCommon,
   steps: [denseStep],
-  routingDecision: 'deep' as const,
-  routingReason:
-    'mehrteilige Frage über Rettungswege, Garagen und Bestandsschutz — Tiefenrecherche über mehrere Richtlinien und Landesrecht',
 }
 
 // Branches scenario: a live choice prompt and NO findings, so the parallel
@@ -204,9 +198,6 @@ const branchesCommon = {
   userQuestion:
     'Für ein sechsgeschossiges Bürogebäude der Gebäudeklasse 5 in Wien mit einer Bruttogeschossfläche von 1.200 m² pro Ebene: Wie viele bauliche Rettungswege sind nach OIB-Richtlinie 2 erforderlich, und welche Anforderungen gelten für die maximale Fluchtweglänge sowie die Ausbildung der Treppenhäuser?',
   enabledDataSources: ['OIB-Korpus', 'RIS', 'Projektdokumente'],
-  routingDecision: 'deep' as const,
-  routingReason:
-    'mehrteilige Frage mit Bezug auf Geschossanzahl, Flächen und Treppenhausausbildung — Tiefenrecherche über mehrere OIB-Richtlinien erforderlich',
   escalationReason: 'shallow→deep',
   choicePrompt: {
     promptId: 'p-dev',
@@ -221,20 +212,20 @@ const branchesCommon = {
   },
 }
 
-// Live scenario: a turn mid-stream — a completed classification, the KB hit,
-// and an in-progress web search. Exercises the live activity phrase (shown only
+// Live scenario: a turn mid-stream — the agent's own step still open, the KB
+// hit, and an in-progress web search. Exercises the live activity phrase (shown only
 // while the step actually runs), the animated edges, the executed-step chips
 // with the running pulse, and the elapsed-time pill.
 const liveCommon = {
   steps: [
     {
-      id: 'intent',
+      id: 'agent',
       userMessageId: 'msg-1',
       category: 'agents' as const,
-      functionName: 'intent_classifier',
-      displayName: 'Intent Classifier',
+      functionName: 'shallow_research_agent',
+      displayName: 'Shallow Research Agent',
       content: '',
-      isComplete: true,
+      isComplete: false,
       timestamp: new Date('2024-01-15T14:30:00'),
     },
     { ...step, id: 'kb' },
@@ -253,8 +244,6 @@ const liveCommon = {
   defaultOpen: true,
   userQuestion: defaultCommon.userQuestion,
   enabledDataSources: defaultCommon.enabledDataSources,
-  routingDecision: 'shallow' as const,
-  routingReason: defaultCommon.routingReason,
 }
 
 export default function HerleitungPreviewPage() {

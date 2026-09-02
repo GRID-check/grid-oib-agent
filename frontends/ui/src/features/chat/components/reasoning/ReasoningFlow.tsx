@@ -51,8 +51,8 @@
  * That is what a conditional handle used to do here. A live turn starts with no
  * sources and no verdict, so the framing card was measured with an EMPTY handle
  * list; the first streamed source then added its bottom anchor without changing
- * the card's height, and the fan-out drew no connectors at all — unless the
- * routing line happened to land in the same tick and resize the card into a
+ * the card's height, and the fan-out drew no connectors at all — unless another
+ * framing line happened to land in the same tick and resize the card into a
  * re-measure. Hence "sometimes the connectors are mangled".
  *
  * So every node declares its FULL handle set for its whole lifetime, whether or
@@ -178,8 +178,6 @@ const Eyebrow: FC<{ children: React.ReactNode }> = ({ children }) => (
 type FramingData = {
   label: string
   question: string
-  routingLabel?: string
-  routing?: string
   escalation?: string
   /**
    * Bottom (source) handles. Always populated — even on a turn that has not
@@ -276,12 +274,6 @@ const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
       </span>
     </Eyebrow>
     <p className="mt-1 text-sm leading-relaxed text-foreground">{data.question}</p>
-    {data.routing && (
-      <div className="mt-2 border-t border-base pt-1.5">
-        {data.routingLabel && <Eyebrow>{data.routingLabel}</Eyebrow>}
-        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{data.routing}</p>
-      </div>
-    )}
     {data.escalation && <p className="mt-1.5 text-xs leading-relaxed text-warning">{data.escalation}</p>}
     {data.sources.map((h) => (
       <Handle key={h.id} id={h.id} type="source" position={Position.Bottom} style={{ ...H, left: h.left }} />
@@ -451,8 +443,6 @@ export interface ReasoningFlowProps {
   citations?: CitationSource[]
   choicePrompt?: ChoicePrompt
   onChoiceRespond?: (promptId: string, choice: string) => void
-  routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
-  routingReason?: string
   escalationReason?: string
   /** Turn is still streaming — edges animate and the graph keeps growing. */
   live?: boolean
@@ -778,15 +768,6 @@ export function buildGraph(
   const columnIds = columns.map((_, i) => `col-${i}`)
   const columnX = (i: number) => fanX + i * (colW + gap)
 
-  const routing =
-    props.routingDecision && props.routingReason?.trim()
-      ? t('thinking.routing.line', {
-          decision: t(`thinking.routing.decision.${props.routingDecision}`),
-          reason: props.routingReason.trim(),
-        })
-      : undefined
-  const routingLabel = routing ? t('thinking.routing.whyLabel') : undefined
-
   const convergeId = hasFindings ? 'findings' : hasBranches ? 'branches' : null
 
   // ONE centred anchor on each banner, both directions. Every column edge
@@ -808,8 +789,6 @@ export function buildGraph(
     question: props.userQuestion.trim()
       ? t('thinking.node.framingQuestion', { question: props.userQuestion.trim() })
       : t('thinking.node.framingTitle'),
-    routingLabel,
-    routing,
     escalation: props.escalationReason?.trim()
       ? t('thinking.escalationNarration', { reason: props.escalationReason.trim() })
       : undefined,
@@ -1141,8 +1120,6 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
     citations,
     choicePrompt,
     onChoiceRespond,
-    routingDecision,
-    routingReason,
     escalationReason,
     live,
   } = props
@@ -1229,8 +1206,6 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
           citations,
           choicePrompt,
           onChoiceRespond,
-          routingDecision,
-          routingReason,
           escalationReason,
           // Drives the pending converge node: while the turn streams the graph
           // still needs its merge point, or the source columns end in mid-air.
@@ -1248,8 +1223,6 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
       citations,
       choicePrompt,
       onChoiceRespond,
-      routingDecision,
-      routingReason,
       escalationReason,
       live,
       t,

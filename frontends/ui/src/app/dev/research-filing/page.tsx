@@ -13,7 +13,7 @@
  *     submit form to carry it, and there is deliberately no modal, because a
  *     dialog asked after the run is only ever answered yes.
  *  2. `starting` after an ESCALATION — the same disclosure under the narration
- *     that says the classifier, not the reader, decided this run should happen.
+ *     that says the agent, not the reader, decided this run should happen.
  *     The pair is the point: when „the user asked for a report" is not even
  *     true, the destination line is the only thing standing between the reader
  *     and a file appearing in a folder nobody mentioned.
@@ -103,7 +103,7 @@ export default function ResearchFilingPreviewPage(): JSX.Element {
 
         <Panel
           title="2 — Start, nach automatischer Eskalation"
-          note="Der Lauf beginnt, weil der Klassifikator eskaliert hat — nicht, weil jemand einen Bericht bestellt hat. Genau dann trägt die Zeile darunter die ganze Last."
+          note="Der Lauf beginnt, weil der Agent selbst eskaliert hat — nicht, weil jemand einen Bericht bestellt hat. Genau dann trägt die Zeile darunter die ganze Last."
         >
           <DeepResearchBanner
             bannerType="starting"

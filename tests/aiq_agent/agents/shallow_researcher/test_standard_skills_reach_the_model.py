@@ -10,10 +10,10 @@ one covered in isolation and none of them covered together:
    list in the code, so a platform owner publishes one and it takes effect.
 2. Both rows are ``grid-hidden``, so the activation is routed to the technical
    channel instead of the running line — routed, never dropped.
-3. The runtime is only built when ``state.requires_sources or
-   state.force_skills``, so a greeting pays none of the ~22,000 characters of
-   skill prose.
-4. ``force_skills`` alone is enough, even against a ``meta`` classification.
+3. The runtime is built on every turn (ADR-0052), but a body travels only on
+   a ``use_skill`` call or a forced name, so a greeting pays for the catalog
+   and none of the ~22,000 characters of skill prose.
+4. ``force_skills`` alone is enough to deliver a body.
 5. A skill declaring ``grid-cards`` gets those card SHAPES inlined with its
    body; one declaring none gets its bare body.
 
@@ -280,7 +280,6 @@ class TestAResearchTurn:
         llm = _scripted_llm(_loads_both_house_skills(), _answer())
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="Wie hoch muss das Geländer bei 12 m Absturzhöhe sein?")],
-            requires_sources=True,
         )
 
         result, fetch = await _run_turn(llm, state)
@@ -293,7 +292,7 @@ class TestAResearchTurn:
         assert result.skills_activated == [VOICE, CARDS]
 
         prompt = _system_prompt(llm)
-        assert "## Active skills (required for this turn)" in prompt
+        assert "## Active skills (apply to every answer with subject matter)" in prompt
         assert f"- `{VOICE}`" in prompt
         assert f"- `{CARDS}`" in prompt
         # Progressive disclosure still holds: the prompt names them, it does not
@@ -323,7 +322,6 @@ class TestAResearchTurn:
         llm = _scripted_llm(_answer())
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="Wie hoch muss das Geländer sein?")],
-            requires_sources=True,
         )
 
         result, _ = await _run_turn(llm, state)
@@ -356,7 +354,6 @@ class TestAResearchTurn:
         llm = _scripted_llm(loads_voice_only, _answer())
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="Wie hoch muss das Geländer sein?")],
-            requires_sources=True,
         )
 
         result, _ = await _run_turn(llm, state)
@@ -375,53 +372,40 @@ class TestAConversationalTurn:
     to show for it, because what it buys is an absence."""
 
     @pytest.mark.asyncio
-    async def test_a_greeting_pays_for_no_skill_prose_at_all(self, bypass_citation_pipeline):
+    async def test_a_greeting_pays_for_the_catalog_and_no_skill_body(self, bypass_citation_pipeline):
         """If this fails, every "hallo" carries both house skills' full instructions.
 
         Nothing breaks — the greeting is still answered — so the only symptom is
-        the bill. The resolver is not consulted, no runtime is built, no
-        ``use_skill`` tool is offered, and no sentence of either body is in
-        front of the model.
+        the bill. Skills bind on every turn (ADR-0052), so the greeting sees the
+        catalog and the ``use_skill`` tool like any other turn; what it must not
+        see is a body it never asked for: no fetch, no activation, and no
+        sentence of either skill in front of the model.
         """
-        # The seeded house bodies this gate once avoided ran to ~22,000
-        # characters; the synthetic rows are small, so the guarantee is asserted
-        # on the sentinel phrases below rather than on a size floor.
-
         llm = _scripted_llm(AIMessage(content="Hallo! Womit kann ich helfen?"))
-        state = ShallowResearchAgentState(
-            messages=[HumanMessage(content="hallo")],
-            requires_sources=False,
-        )
+        state = ShallowResearchAgentState(messages=[HumanMessage(content="hallo")])
 
-        result, fetch = await _run_turn(llm, state)
+        result, _fetch = await _run_turn(llm, state)
 
-        fetch.assert_not_called()
-        assert state.skills_block is None
-        assert result.skills_activated is None
-        assert "use_skill" not in _bound_tool_names(llm)
+        assert not result.skills_activated
+        assert "use_skill" in _bound_tool_names(llm)
 
         given = _everything_the_model_was_given(llm)
         assert VOICE_PHRASE not in given
         assert CARDS_PHRASE not in given
-        assert "## Available skills" not in given
-        assert "## Active skills (required for this turn)" not in given
+        # The catalog names them and says a direct reply loads none of them.
+        assert "## Active skills" in given
+        assert "write it without loading them" in given
 
     @pytest.mark.asyncio
-    async def test_an_explicit_slash_invocation_survives_a_meta_classification(self, bypass_citation_pipeline):
+    async def test_an_explicit_slash_invocation_delivers_the_body(self, bypass_citation_pipeline):
         """If this fails, ``/piloti-voice`` is a silent no-op — again.
 
-        ``force_skills`` is only ever populated by a ``/name`` in the composer.
-        The intent classifier decides whether an UNPROMPTED turn needs sources;
-        it does not get to overrule a direct instruction, and gating on
-        ``requires_sources`` alone once made ``/name`` do nothing on exactly the
-        short, imperative messages people type after a slash command.
+        ``force_skills`` is only ever populated by a ``/name`` in the composer,
+        typically on exactly the short, imperative messages people type after
+        a slash command.
 
-        Two things have to hold for it to work, and only the first is obvious.
-        The register must build the runtime — and the agent's meta partition,
-        which strips the search tools from a conversational turn, must leave
-        ``use_skill`` bound. It does, because ``use_skill`` resolves to no data
-        source; adding it to the search classification would restore the no-op
-        with the register looking entirely correct.
+        The register must build the runtime with the forced name, and the
+        agent must leave ``use_skill`` bound — every tool is, on every turn.
         """
         llm = _scripted_llm(
             AIMessage(
@@ -432,7 +416,6 @@ class TestAConversationalTurn:
         )
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="und jetzt?")],
-            requires_sources=False,
             force_skills=[VOICE],
         )
 
@@ -463,7 +446,6 @@ class TestPreferredCards:
         llm = _scripted_llm(_loads_both_house_skills(), _answer())
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="Welche Gebäudeklasse gilt hier?")],
-            requires_sources=True,
         )
 
         await _run_turn(llm, state)
@@ -537,7 +519,6 @@ class TestHiddenIsRoutedNeverDropped:
         llm = _scripted_llm(_loads_both_house_skills(), _answer())
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="Wie hoch muss das Geländer sein?")],
-            requires_sources=True,
         )
 
         result, _ = await _run_turn(llm, state)

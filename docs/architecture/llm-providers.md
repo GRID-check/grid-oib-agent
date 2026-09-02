@@ -37,8 +37,8 @@ llms:
     # max_tokens / max_retries / reasoning_effort tuned per role
 ```
 
-The config defines several LLM "roles" (intent classification, the main
-super-model, the deep-research model, summarization) so different steps can use
+The config defines several LLM "roles" (the main super-model, the clarifier,
+the deep-research models, summarization) so different steps can use
 different models/parameters. Point them all at your endpoint to switch providers.
 
 ## To use a different provider
@@ -52,7 +52,7 @@ different models/parameters. Point them all at your endpoint to switch providers
 ## Runtime per-org model overrides (ADR-0014)
 
 The YAML remains the *default* layer. On top of it, org admins can re-point
-each **agent group** (intent, clarifier, shallow research, deep research,
+each **agent group** (clarifier, shallow research, deep research,
 deep-research router, memory reflection) at a different OpenRouter model at
 runtime — per tenant, versioned, validated against the OpenRouter catalog,
 no restart. The BFF forwards the active configuration as the
@@ -90,9 +90,8 @@ bounded by per-org/member/project budgets — see
   block in `configs/config_oib_openrouter.yml` now sets `request_timeout`
   (60–180 s depending on role) and `max_retries: 2`, so an unresponsive
   upstream call can no longer hang a run indefinitely at the HTTP layer.
-  This is in addition to, not a replacement for, the intent classifier's
-  `asyncio.wait_for` (`llm_timeout`, default 90 s) and card generation's 30 s
-  app-level timeouts. `DeepResearcherAgent` additionally gained a wall-clock
+  This is in addition to, not a replacement for, card generation's 30 s
+  app-level timeout. `DeepResearcherAgent` additionally gained a wall-clock
   `max_run_seconds` budget (config key, default 2400 s; `0` disables) around
   the whole run via `asyncio.wait_for` — `recursion_limit` still bounds graph
   *steps*, not time, but the run as a whole is now bounded either way.
@@ -155,9 +154,10 @@ bounded by per-org/member/project budgets — see
   None of this can fail a request or a build — every "no" means *bind the full
   schemas*, i.e. the pre-ADR-0048 behaviour. The gate is scoped to
   `shallow_research_agent` and lives on its per-agent settings object, never in
-  module scope: it is not, and must not become, a fleet-wide model policy. A
-  cheap sub-50 model remains the right choice for `intent_classifier`, which has
-  no tool surface worth deferring in the first place.
+  module scope: it is not, and must not become, a fleet-wide model policy.
+  Since ADR-0052 the shallow agent binds its full tool set on every turn,
+  greetings included, so this gate is what keeps the per-turn schema floor
+  from growing with the tool list.
 - `reasoning_effort` is a **native** `ChatOpenAI` field
   (`langchain_openai`'s `BaseChatOpenAI.reasoning_effort`), not something
   routed through `extra_body`: NAT's `OpenAIModelConfig` allows extra YAML

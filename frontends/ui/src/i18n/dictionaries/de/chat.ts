@@ -669,9 +669,9 @@ export const chat: typeof en.chat = {
     // Rauschen. Ein nicht klassifizierbarer Schritt fällt auf die vorige
     // sinnvolle Phrase zurück, sonst auf `working` weiter oben.
     activity: {
-      // Gleiche Wörter wie die Chips darunter (`stepName.understanding` =
-      // „Einordnung“, `stepName.routing` = „Rechercheweg“): Lesende sollen ein
-      // Vokabular lernen, nicht zwei für dieselbe Sache.
+      // Gleiche Wörter wie die Chips darunter (`stepName.*`, etwa
+      // `stepName.corpus` = „OIB-Wissen“): Lesende sollen ein Vokabular
+      // lernen, nicht zwei für dieselbe Sache.
       understanding: 'Frage wird eingeordnet …',
       planning: 'Rechercheweg wird festgelegt …',
       searchingWeb: 'Web wird durchsucht …',
@@ -723,21 +723,6 @@ export const chat: typeof en.chat = {
           // die Antwort wartet kurz darauf, statt ohne sie zu antworten.
           waiting: 'Eine neue Datei wird noch gelesen — die Antwort wartet darauf …',
         },
-        // Die Routing-ENTSCHEIDUNG aus einer festen Auswahl. Die Begründung des
-        // Klassifikators ist Freitext in der Sprache des Modells und steht
-        // deshalb nie hier — sie wird zitiert, zugeschrieben, in der
-        // nachgeordneten Zeile `routing.line` weiter unten.
-        // Jede Zeile nennt, was die Lesenden davon haben, nicht was das System
-        // gerade aufsetzt: „wird vorbereitet“ beschreibt einen Vorgang im
-        // Inneren, „einschlägige Stellen werden gesucht“ eine Arbeitsweise, die
-        // Planende aus ihrem eigenen Alltag kennen. `meta` heißt hier wörtlich
-        // wie in der Herleitung (`routing.decision.meta`) — ein Weg, ein Wort.
-        routing: {
-          meta: 'Direktantwort — keine Recherche nötig',
-          outOfScope: 'Frage außerhalb des Fachgebiets',
-          shallow: 'Kurzrecherche: einschlägige Stellen werden gesucht',
-          deep: 'Tiefenrecherche: mehrere Quellen werden geprüft',
-        },
         // `{query}` sind die eigenen Worte der Lesenden, zurückgespiegelt —
         // nie übersetzt, und vom Backend gekürzt, damit die Zeile passt.
         retrieval: {
@@ -778,8 +763,6 @@ export const chat: typeof en.chat = {
     // ein Chip pro ausgeführtem Agenten/Tool, ohne Technik-Opt-in.
     executedSteps: 'Ausgeführt:',
     stepName: {
-      understanding: 'Einordnung',
-      routing: 'Rechercheweg',
       webSearch: 'Websuche',
       ris: 'RIS',
       corpus: 'OIB-Wissen',
@@ -861,18 +844,6 @@ export const chat: typeof en.chat = {
     // Datenquellen sind Verfügbarkeit, keine Aktivität, und stehen bewusst
     // nicht hier — was gelaufen ist, zeigt die `executedSteps`-Zeile darüber.
     attachedFiles: 'Angehängte Dateien:',
-    // „Warum dieser Weg?“ — die Routing-Einordnung dieses Turns (WP-A
-    // `routing_decision` + `routing_reason`), im Herleitungs-Rahmenknoten.
-    routing: {
-      whyLabel: 'Warum dieser Weg?',
-      line: 'Einordnung: {decision} — {reason}',
-      decision: {
-        meta: 'Direktantwort',
-        shallow: 'Kurzrecherche',
-        deep: 'Tiefenrecherche',
-        error: 'Fehler',
-      },
-    },
     // Einzeiler, wenn dieser Turn von der Kurz- zur Tiefenrecherche eskaliert ist.
     escalationNarration: 'Eskaliert zur Tiefenrecherche: {reason}',
     node: {
@@ -999,7 +970,7 @@ export const chat: typeof en.chat = {
       // Die Offenlegung, die die Zustimmung erst echt macht. Sie steht auf dem
       // START-Banner, nicht auf dem Ergebnis: Deep Research eskaliert aus einem
       // Chat-Turn (es gibt kein Absendeformular), und ein Lauf kann beginnen,
-      // weil der Klassifikator eskaliert hat — nicht, weil jemand einen Bericht
+      // weil der Agent selbst eskaliert hat — nicht, weil jemand einen Bericht
       // bestellt hat. Der Zeitpunkt, an dem man den Lauf noch abbrechen kann,
       // ist deshalb der einzige, an dem die Angabe des Ablageorts etwas wert
       // ist. Kein Dialog, keine Rückfrage: eine Bestätigung nach dem Lauf wird

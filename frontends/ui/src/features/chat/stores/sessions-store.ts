@@ -1553,7 +1553,6 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       if (assistantMessage.routingDecision) {
         provenance.routingDecision = assistantMessage.routingDecision
       }
-      if (assistantMessage.routingReason) provenance.routingReason = assistantMessage.routingReason
       if (assistantMessage.escalationReason) {
         provenance.escalationReason = assistantMessage.escalationReason
       }

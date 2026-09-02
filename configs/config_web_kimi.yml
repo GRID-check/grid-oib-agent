@@ -28,16 +28,6 @@ general:
         - "*"
 
 llms:
-  # Intent classification / routing
-  nemotron_llm_intent:
-    _type: openai
-    model_name: kimi-for-coding
-    base_url: "https://api.kimi.com/coding/v1"
-    api_key: ${KIMI_API_KEY}
-    temperature: 1.0
-    top_p: 0.95
-    max_tokens: 4096
-    max_retries: 5
 
   # General reasoning / clarifier / shallow research
   nemotron_super_llm:
@@ -107,11 +97,6 @@ functions:
     summary_db: ${AIQ_SUMMARY_DB:-sqlite+aiosqlite:///./summaries.db}
     top_k: 5
     chroma_dir: ${AIQ_CHROMA_DIR:-/tmp/chroma_data}
-
-  intent_classifier:
-    _type: intent_classifier
-    llm: nemotron_llm_intent
-    verbose: true
 
   clarifier_agent:
     _type: clarifier_agent

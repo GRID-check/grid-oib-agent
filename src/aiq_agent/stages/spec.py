@@ -81,9 +81,9 @@ class TurnFacts:
     memory_digest: str | None = None
     bundesland: str | None = None
 
-    #: Classified user intent (``research`` / ``meta`` / ``error`` / …).
-    intent: str | None = None
-    #: The derived routing decision surfaced on the answer (WP-A transparency).
+    #: Which path the turn took, observed after the answer (``meta`` for a
+    #: direct reply, ``shallow``, ``deep``, ``error``); see
+    #: ``chat_researcher.agent.observed_routing``.
     routing_decision: str | None = None
     #: The research loop hit its tool-iteration ceiling: the turn ran out of
     #: budget before it ran out of question.

@@ -51,22 +51,6 @@ export interface AgentGroupDefinition {
 
 export const AGENT_GROUPS: AgentGroupDefinition[] = [
   {
-    id: 'intent',
-    label: 'Intent & routing',
-    description:
-      'Classifies each message (meta vs research, shallow vs deep) and writes short meta answers. High-frequency, latency-sensitive.',
-    configLlmRefs: ['intent_llm'],
-    // The intent LLM runs with reasoning disabled: config_oib_openrouter.yml
-    // `intent_llm` sets `reasoning_effort: none`. Pointing this group at a
-    // reasoning-mandatory model (incident: org override `intent ->
-    // x-ai/grok-4.5`) makes OpenRouter reject every intent call with HTTP 400
-    // "Reasoning is mandatory for this endpoint and cannot be disabled".
-    // `reasoningOff` filters those out via a denylist of known reasoning-only
-    // families (isReasoningSafeForOff); hybrid models that accept reasoning-off
-    // — nearly the whole modern catalog — stay selectable.
-    requirements: { requiredParameters: [], minContextLength: 16384, reasoningOff: true },
-  },
-  {
     id: 'clarifier',
     label: 'Clarifier',
     description:

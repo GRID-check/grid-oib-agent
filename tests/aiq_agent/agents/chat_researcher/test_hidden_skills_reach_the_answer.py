@@ -29,8 +29,6 @@ from langchain_core.messages import HumanMessage
 from aiq_agent.agents.chat_researcher.agent import ESCALATION_MARKER
 from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
 from aiq_agent.agents.chat_researcher.models import ChatResearcherState
-from aiq_agent.agents.chat_researcher.models import DepthDecision
-from aiq_agent.agents.chat_researcher.models import IntentResult
 from aiq_agent.agents.chat_researcher.register import _apply_transparency_extras
 from aiq_agent.agents.chat_researcher.register import _response_to_chunks
 from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
@@ -41,16 +39,8 @@ CARDS = "piloti-cards"
 VISIBLE = "forecast-analysis"
 
 
-async def _orchestration(state):
-    return {
-        "user_intent": IntentResult(intent="research", raw=None),
-        "depth_decision": DepthDecision(decision="shallow", raw_reasoning="Simple"),
-    }
-
-
 def _agent(shallow_fn, deep_fn=None):
     return ChatResearcherAgent(
-        intent_classifier_fn=_orchestration,
         shallow_research_fn=shallow_fn,
         deep_research_fn=deep_fn or (lambda state: None),
         clarifier_fn=None,

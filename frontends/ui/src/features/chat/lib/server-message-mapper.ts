@@ -259,7 +259,6 @@ const restoreProvenance = (value: unknown): Partial<ChatMessage> => {
   if (isRoutingDecision(provenance.routingDecision)) {
     out.routingDecision = provenance.routingDecision
   }
-  if (typeof provenance.routingReason === 'string') out.routingReason = provenance.routingReason
   if (typeof provenance.escalationReason === 'string') {
     out.escalationReason = provenance.escalationReason
   }

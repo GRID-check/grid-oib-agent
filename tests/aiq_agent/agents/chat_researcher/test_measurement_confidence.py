@@ -26,8 +26,6 @@ from langchain_core.messages import HumanMessage
 from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
 from aiq_agent.agents.chat_researcher.agent import _finalize_shallow_answer
 from aiq_agent.agents.chat_researcher.models import ChatResearcherState
-from aiq_agent.agents.chat_researcher.models import DepthDecision
-from aiq_agent.agents.chat_researcher.models import IntentResult
 from aiq_agent.agents.shallow_researcher.markers import MEASUREMENT_CONFIDENCE_CEILING
 from aiq_agent.agents.shallow_researcher.markers import answer_confidence_capped_reason
 from aiq_agent.agents.shallow_researcher.markers import surface_answer_confidence
@@ -213,16 +211,6 @@ class TestMeasurementConfidenceEndToEnd:
     """Propagation from a shallow result through ``ChatResearcherAgent.run()``."""
 
     @pytest.fixture
-    def research_orchestration(self):
-        async def classifier(state):
-            return {
-                "user_intent": IntentResult(intent="research", raw=None),
-                "depth_decision": DepthDecision(decision="shallow", raw_reasoning="simple"),
-            }
-
-        return classifier
-
-    @pytest.fixture
     def deep_fn(self):
         async def deep(state):
             result = MagicMock()
@@ -257,9 +245,8 @@ class TestMeasurementConfidenceEndToEnd:
 
         return shallow
 
-    def _agent(self, research_orchestration, shallow_fn, deep_fn):
+    def _agent(self, shallow_fn, deep_fn):
         return ChatResearcherAgent(
-            intent_classifier_fn=research_orchestration,
             shallow_research_fn=shallow_fn,
             deep_research_fn=deep_fn,
             clarifier_fn=None,
@@ -268,26 +255,26 @@ class TestMeasurementConfidenceEndToEnd:
         )
 
     @pytest.mark.asyncio
-    async def test_measured_answer_arrives_at_medium(self, research_orchestration, deep_fn):
+    async def test_measured_answer_arrives_at_medium(self, deep_fn):
         shallow = self._shallow(KELLER_MEASURED, measured=True, normative=False)
-        agent = self._agent(research_orchestration, shallow, deep_fn)
+        agent = self._agent(shallow, deep_fn)
         state = ChatResearcherState(messages=[HumanMessage(content="Wie hoch ist der Keller?")])
         result = await agent.run(state, thread_id="m1")
         assert result["answer_confidence"] == "medium"
         assert result["answer_confidence_capped_reason"] == "measurement_only"
 
     @pytest.mark.asyncio
-    async def test_mixed_answer_arrives_at_low_end_to_end(self, research_orchestration, deep_fn):
+    async def test_mixed_answer_arrives_at_low_end_to_end(self, deep_fn):
         """End to end: the legal claim does not reach the user at "medium"."""
         shallow = self._shallow(KELLER_MEASURED_PLUS_VERDICT, measured=True, normative=True)
-        agent = self._agent(research_orchestration, shallow, deep_fn)
+        agent = self._agent(shallow, deep_fn)
         state = ChatResearcherState(messages=[HumanMessage(content="Reicht die Kellerhöhe?")])
         result = await agent.run(state, thread_id="m2")
         assert result["answer_confidence"] == "low"
         assert result["answer_confidence_capped_reason"] == "normative_claim_uncited"
 
     @pytest.mark.asyncio
-    async def test_a_result_without_the_fields_falls_back_to_the_old_cap(self, research_orchestration, deep_fn):
+    async def test_a_result_without_the_fields_falls_back_to_the_old_cap(self, deep_fn):
         """Fail closed: an unrecognised signal never opens the gate.
 
         The result here is a bare ``MagicMock`` whose grounding attributes are
@@ -307,7 +294,7 @@ class TestMeasurementConfidenceEndToEnd:
             result.answer_confidence_marker_reason = None
             return result
 
-        agent = self._agent(research_orchestration, shallow, deep_fn)
+        agent = self._agent(shallow, deep_fn)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="m3")
         assert result["answer_confidence"] == "low"
@@ -378,16 +365,6 @@ class TestTheSingleSourceFallbackDoesNotLaunder:
         )
 
     @pytest.fixture
-    def research_orchestration(self):
-        async def classifier(state):
-            return {
-                "user_intent": IntentResult(intent="research", raw=None),
-                "depth_decision": DepthDecision(decision="shallow", raw_reasoning="simple"),
-            }
-
-        return classifier
-
-    @pytest.fixture
     def deep_fn(self):
         async def deep(state):
             result = MagicMock()
@@ -397,7 +374,7 @@ class TestTheSingleSourceFallbackDoesNotLaunder:
         return deep
 
     @pytest.mark.asyncio
-    async def test_a_mixed_answer_on_a_stale_source_arrives_at_low(self, research_orchestration, deep_fn):
+    async def test_a_mixed_answer_on_a_stale_source_arrives_at_low(self, deep_fn):
         """End to end through the chat node, which is where the level is set."""
 
         async def shallow(state_input):
@@ -415,7 +392,6 @@ class TestTheSingleSourceFallbackDoesNotLaunder:
             return result
 
         agent = ChatResearcherAgent(
-            intent_classifier_fn=research_orchestration,
             shallow_research_fn=shallow,
             deep_research_fn=deep_fn,
             clarifier_fn=None,
@@ -459,19 +435,12 @@ class TestTheFallbackFlagFailsClosedLikeItsSiblings:
 
     @pytest.mark.asyncio
     async def test_a_result_missing_the_flag_is_treated_as_fallback_grounded(self):
-        async def classifier(state):
-            return {
-                "user_intent": IntentResult(intent="research", raw=None),
-                "depth_decision": DepthDecision(decision="shallow", raw_reasoning="simple"),
-            }
-
         async def deep(state):
             result = MagicMock()
             result.messages = list(state.messages) + [AIMessage(content="Deep report.")]
             return result
 
         agent = ChatResearcherAgent(
-            intent_classifier_fn=classifier,
             shallow_research_fn=self._shallow_missing_the_field(),
             deep_research_fn=deep,
             clarifier_fn=None,

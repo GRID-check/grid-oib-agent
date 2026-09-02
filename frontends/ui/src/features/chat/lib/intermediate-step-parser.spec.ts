@@ -19,8 +19,8 @@ describe('getStepLabel', () => {
     // in front of a German reader.
     expect(getStepLabel(step('knowledge_search'), tDe)).toBe('OIB-Wissen')
     expect(getStepLabel(step('knowledge_search'), tEn)).toBe('OIB knowledge')
-    expect(getStepLabel(step('intent_classifier'), tDe)).toBe('Einordnung')
-    expect(getStepLabel(step('intent_classifier'), tEn)).toBe('Classification')
+    expect(getStepLabel(step('web_search_tool'), tDe)).toBe('Websuche')
+    expect(getStepLabel(step('web_search_tool'), tEn)).toBe('Web search')
     expect(getStepLabel(step('<workflow>'), tDe)).toBe('Ablauf')
     expect(getStepLabel(step('chat_deepresearcher_agent'), tDe)).toBe('Ablauf')
   })
@@ -82,7 +82,7 @@ describe('getStepLabel', () => {
     // A turn restored from the server carries the label the build that ran it
     // wrote — English, title-cased from the id. The node is known, so it is
     // renamed on the way to the page rather than frozen into the record.
-    expect(getStepLabel(step('intent_classifier', 'Intent Classifier'), tDe)).toBe('Einordnung')
+    expect(getStepLabel(step('web_search_tool', 'Web Search Tool'), tDe)).toBe('Websuche')
   })
 
   test('model names survive as names', () => {
@@ -104,7 +104,7 @@ describe('getDisplayName', () => {
     // name, the class name itself) is what put an identifier on the page and
     // froze an English label into every stored turn.
     expect(getDisplayName('web_search_tool')).toBe('')
-    expect(getDisplayName('intent_classifier')).toBe('')
+    expect(getDisplayName('shallow_research_agent')).toBe('')
     expect(getDisplayName('ClassificationAssistant')).toBe('')
   })
 })

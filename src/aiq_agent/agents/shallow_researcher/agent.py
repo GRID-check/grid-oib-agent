@@ -100,19 +100,10 @@ def _shelf_label(shelf: str | None) -> str | None:
     return SHELF_QUALIFIERS.get(parsed) if parsed is not None else None
 
 
-# Interaction tools the model still needs on conversational/meta turns —
-# `remember` (durable memory) and `emit_card` (UI cards). Matched on the tool's
-# base name so an MCP/group-qualified variant (e.g. ``mcp__remember``) is still
-# recognized. These are ALWAYS kept on meta turns, even if their qualified name
-# happens to prefix-match a declared data-source group, so a "remember this"
-# turn — which the orchestrator routes to this agent precisely for `remember` —
-# never loses the tool it was routed here to use.
-# `describe_card` is here for the same reason `emit_card` is, and it has to be
-# EXPLICIT rather than surviving by having no data source: a meta turn may emit
-# a card (the prompt's `<turn_classification>` says so), it is not given the
-# `piloti-cards` body, and so the only shapes it can reach are the ones
-# `describe_card` hands it. Dropping it would leave the model able to name the
-# right card and unable to fill it in.
+# Interaction tools — `remember` (durable memory), `emit_card` and
+# `describe_card` (UI cards). Their calls are budgeted apart from research
+# (see ``_INTERACTION_TOOL_ALLOWANCE``). Matched on the tool's base name so an
+# MCP/group-qualified variant (e.g. ``mcp__remember``) is still recognized.
 _INTERACTION_TOOL_BASENAMES = frozenset({"remember", "emit_card", "describe_card"})
 
 # How many interaction calls a turn may make WITHOUT spending research budget.
@@ -140,12 +131,6 @@ _INTERACTION_TOOL_ALLOWANCE = 6
 # now lives beside `tool_basename` in `tool_search`, so a NAT-qualified name
 # is decomposed in exactly one place rather than two that can disagree.
 _tool_basename = tool_basename
-
-# Bound on research turns, dropped on meta. File-discovery tools mix shelves
-# on a listing turn (the IFC models in "was hast du im Archiv" never came from
-# available_documents). The staged Soll-Ist pipeline is the same kind of
-# thing: a full 10-25-call run, not a greeting.
-_RESEARCH_ONLY_BASENAMES = frozenset({"surface_documents", "ifc_query", "ifc_measure", "compliance_check"})
 
 # Cap on both tool-search caches (query → selection, selection → bound LLM).
 # A shared agent serves many requests, so each map is dropped WHOLE at the cap
@@ -194,25 +179,6 @@ def _count_interaction_calls(tool_calls: Iterable[Any]) -> int:
         if name and _tool_basename(str(name)) in _INTERACTION_TOOL_BASENAMES:
             count += 1
     return count
-
-
-def _is_search_tool(tool_name: str) -> bool:
-    """True if a tool is dropped on meta turns (search, file-discovery, Soll-Ist).
-
-    A tool counts as search iff it resolves to a configured data source
-    via :func:`get_source_id_for_tool` AND is not one of the known interaction
-    tools. The interaction allowlist wins, so a `remember`/`emit_card` tool
-    whose qualified name prefix-matches a data-source group ref is never
-    mistakenly treated as search and dropped from a conversational turn.
-    File-discovery tools and ``compliance_check`` are not in the data-source
-    registry but they still do not belong on a greeting, so they are dropped
-    the same way.
-    """
-    if _tool_basename(tool_name) in _INTERACTION_TOOL_BASENAMES:
-        return False
-    if _tool_basename(tool_name) in _RESEARCH_ONLY_BASENAMES:
-        return True
-    return get_source_id_for_tool(tool_name) is not None
 
 
 def _tool_call_rounds(messages: Sequence[Any]) -> int:
@@ -530,19 +496,6 @@ class ShallowResearcherAgent:
         # byte-identical; only when the conversion happens changes.
         self._llm_with_tools = self._bind_research_tools(self.tools)
 
-        # Conversational/meta turns use a NARROWER tool set: only interaction
-        # tools (`remember`, `emit_card`), never the data-source search tools.
-        # A greeting or a memory request must not be able to fire a web or
-        # knowledge-base search — so on meta turns the model is neither OFFERED
-        # the search tools (narrowed binding) nor able to EXECUTE one it
-        # hallucinated (narrowed ToolNode returns an invalid-tool error instead
-        # of running it). Computed lazily on the first meta turn (see
-        # ``_ensure_meta_partition``) because the data-source registry that
-        # classifies tools is not reliably populated at construction time.
-        self._llm_with_meta_tools: Any = None
-        self._meta_tool_names: set[str] | None = None
-        self._meta_tool_node: ToolNode | None = None
-
         # Retrieval-based tool narrowing (off unless configured). The index is
         # built HERE, once, off the hot path: it is a pure in-process BM25 over
         # tool name + description, so construction touches no network and no
@@ -621,11 +574,8 @@ class ShallowResearcherAgent:
         binding and every narrowed one go through it, so the deferral cannot
         apply to one and silently miss the other.
 
-        Meta turns deliberately do NOT go through here. They bind only the
-        interaction tools (``remember``, ``emit_card``), whose schemas are a few
-        hundred characters, and OpenRouter's tool-search apparatus costs input
-        tokens of its own (~600 measured on an otherwise empty request) — so
-        deferring there would spend more than it withholds.
+        Every turn goes through here (ADR-0052): there is one binding, made
+        once at construction, and no narrower one for a greeting.
         """
         return bind_tools_deferred(
             self._get_llm(),
@@ -633,58 +583,6 @@ class ShallowResearcherAgent:
             settings=self.deferred_tool_loading,
             parallel_tool_calls=True,
         )
-
-    def _ensure_meta_partition(self) -> None:
-        """Lazily compute the meta-turn tool partition (binding, names, ToolNode).
-
-        Meta/conversational turns keep only interaction tools (``remember``,
-        ``emit_card``); the data-source search tools are dropped so a greeting,
-        small talk, or a ``remember`` request cannot trigger a web or
-        knowledge-base search. ``_is_search_tool`` classifies each tool.
-
-        Computed lazily and cached: the data-source registry that classifies
-        tools is reliably populated by the time a turn runs (unlike at
-        ``__init__``), and both the tool set and the registry mapping are fixed
-        for the life of this instance (the per-org override path builds a new
-        agent, so the cache cannot go stale). Guarded on ``_meta_tool_names``
-        (not the bound LLM) so an empty interaction set still caches.
-
-        Two artifacts back the two defenses:
-        - ``_llm_with_meta_tools`` — the LLM bound to interaction tools only
-          (bare LLM when there are none), so search is never OFFERED.
-        - ``_meta_tool_node`` — a ToolNode over interaction tools only, so a
-          hallucinated search call cannot EXECUTE (it returns an invalid-tool
-          error). ``None`` when there are no interaction tools: then the meta
-          binding offers no tools at all, the tools node is unreachable, and no
-          ToolNode is needed (``ToolNode([])`` is not constructible anyway).
-        """
-        if self._meta_tool_names is not None:
-            return
-        meta_tools = [t for t in self.tools if not _is_search_tool(t.name)]
-        self._meta_tool_names = {t.name for t in meta_tools}
-        self._llm_with_meta_tools = (
-            self._get_llm().bind_tools(meta_tools, parallel_tool_calls=True) if meta_tools else self._get_llm()
-        )
-        self._meta_tool_node = ToolNode(meta_tools) if meta_tools else None
-
-    def _meta_tool_binding(self, tools_info: list[dict[str, str]]) -> tuple[Any, list[dict[str, str]]]:
-        """LLM bound to interaction-only tools + the matching tool list, for meta turns.
-
-        The deterministic complement to the prompt's meta output contract
-        ("no search"): the search tools are simply not offered, so a weak model
-        cannot fire one against the instruction. The prompt's tool list is
-        narrowed to match, so the model is not told it has search it cannot use.
-
-        What survives is the interaction set — `remember`, `emit_card`,
-        `describe_card`. The contract used to read "no tool calls", which was
-        never true of this binding and cost a user two turns: a Baurecht question
-        that classified as meta was told it could call nothing, while the tool it
-        needed sat bound and offered.
-        """
-        self._ensure_meta_partition()
-        meta_names = self._meta_tool_names or set()
-        narrowed = [ti for ti in tools_info if ti.get("name") in meta_names]
-        return self._llm_with_meta_tools, narrowed
 
     def _select_tools_for_query(self, messages: Sequence[Any]) -> Any:
         """Run (or replay) the tool-search retrieval for this run's question.
@@ -803,27 +701,13 @@ class ShallowResearcherAgent:
 
             tools_info = state.tools_info if state.tools_info else self.tools_info
 
-            # On conversational/meta turns (requires_sources=False) offer ONLY
-            # interaction tools (remember, emit_card) and drop the data-source
-            # search tools, so a greeting or memory request cannot fire a web or
-            # knowledge-base search. This also narrows the prompt's tool list
-            # below so the model is not told it has search it must not use.
-            #
-            # Research turns take the full binding unless tool search is
+            # Every turn takes the full binding (ADR-0052): whether a greeting,
+            # a shelf listing or a Baurecht question needs a tool is the
+            # model's call, made with the tool in hand. Unless tool search is
             # configured, in which case the bound set is narrowed by retrieval
             # BEFORE this LLM call — no discovery turn, no extra node, no
             # change to the iteration budget.
-            # A bound composer subject widens the binding: the meta partition
-            # exists so a weak model cannot fire search at a greeting, but a
-            # file the user is looking at is an explicit statement that a file
-            # is in play. Stripping search from that turn is why "fass das
-            # zusammen" over an open PDF could only ever answer "which file?".
-            # `requires_sources` itself is untouched — the grounding contract
-            # still follows the classified intent, not the subject.
-            if state.requires_sources or state.focus_file_name:
-                active_llm_with_tools, tools_info = self._research_tool_binding(messages, tools_info)
-            else:
-                active_llm_with_tools, tools_info = self._meta_tool_binding(tools_info)
+            active_llm_with_tools, tools_info = self._research_tool_binding(messages, tools_info)
 
             # Get available documents (user-uploaded files with summaries)
             available_documents = state.available_documents or []
@@ -838,8 +722,7 @@ class ShallowResearcherAgent:
             # Render the system prompt once per run and cache it on the state.
             # Every input below (system_prompt, tools_info, user_info,
             # current_datetime at DATE precision, available_documents,
-            # project_context, the three norm blocks, requires_sources,
-            # skills_block) is fixed for the life of a single run(), so the
+            # project_context, the three norm blocks, skills_block) is fixed for the life of a single run(), so the
             # rendered string is byte-identical across tool-loop iterations.
             # When the cache is populated we skip both the Jinja render AND the
             # norm-block computation (registry reads / applicability compute)
@@ -853,13 +736,6 @@ class ShallowResearcherAgent:
                 # defeating provider prompt caching across tool-loop iterations
                 # and turns. Research needs the date, not the wall clock.
                 current_datetime = datetime.now().strftime("%Y-%m-%d")
-                # The source-hierarchy scaffolding (RIS Normenkatalog, norm doctrine,
-                # parcel note) is only consulted on research turns. Meta/conversational
-                # turns (requires_sources=False) never do source lookup, so skip both
-                # the ~1400-token catalog render AND its underlying registry read/
-                # applicability compute. Each block is truthiness-guarded in the
-                # template, so passing None simply omits it. Research turns are
-                # unchanged.
                 _documents_dump = [doc.model_dump() for doc in available_documents]
                 rendered_system_prompt = render_prompt_template(
                     self.system_prompt,
@@ -874,12 +750,9 @@ class ShallowResearcherAgent:
                     platform_lessons=render_lessons_block(state.platform_lessons),
                     focus_file_name=state.focus_file_name,
                     focus_shelf_label=_shelf_label(state.focus_shelf),
-                    ris_catalog=render_block_for_prompt(state.project_context) if state.requires_sources else None,
-                    norm_doctrine=doctrine_for(state.project_context) if state.requires_sources else None,
-                    parcel_note=parcel_note(_documents_dump) if state.requires_sources else None,
-                    # Deterministically suppress the control-marker mandate on
-                    # conversational/meta turns instead of relying on model judgment.
-                    requires_sources=state.requires_sources,
+                    ris_catalog=render_block_for_prompt(state.project_context),
+                    norm_doctrine=doctrine_for(state.project_context),
+                    parcel_note=parcel_note(_documents_dump),
                     # Skills catalog + forced-skills block (already collated by
                     # the register layer; None renders no section).
                     skills_block=state.skills_block,
@@ -945,14 +818,9 @@ class ShallowResearcherAgent:
 
                     full_messages = [system_message] + processed_history + [synthesis_anchor]
                     # Forced synthesis is the tool-FREE call, so provider JSON
-                    # mode is safe here unconditionally on research turns: there
-                    # is no tool call left to suppress, and the envelope is due.
-                    # Meta turns answer in prose (no envelope contract), so they
-                    # keep the plain call.
-                    if state.requires_sources:
-                        response = await self._ainvoke_with_envelope_json_mode(self._get_llm(), full_messages)
-                    else:
-                        response = await self._get_llm().ainvoke(full_messages)
+                    # mode is safe here unconditionally: there is no tool call
+                    # left to suppress, and the envelope is due.
+                    response = await self._ainvoke_with_envelope_json_mode(self._get_llm(), full_messages)
                     return {
                         "messages": [response],
                         "tool_iterations": iterations,
@@ -966,9 +834,8 @@ class ShallowResearcherAgent:
                 full_messages = [system_message] + processed_history
                 # Tool-bound iterations get JSON mode only by explicit opt-in:
                 # the constructor docstring carries the silent-tool-suppression
-                # argument for the default. Even opted in, meta turns stay
-                # plain — their reply is prose, not an envelope.
-                if self.envelope_json_mode_with_tools and state.requires_sources:
+                # argument for the default.
+                if self.envelope_json_mode_with_tools:
                     response = await self._ainvoke_with_envelope_json_mode(active_llm_with_tools, full_messages)
                 else:
                     response = await active_llm_with_tools.ainvoke(full_messages)
@@ -1076,20 +943,9 @@ class ShallowResearcherAgent:
             citation keys via the non-URL fallback and could surface as bogus
             references on turns where no real research tool succeeded.
 
-            On conversational/meta turns the search tools are not offered to
-            the model, but a weak model can still hallucinate a call to one.
-            Executing via the meta-scoped ToolNode (interaction tools only)
-            makes that impossible: an unheld search call returns an
-            invalid-tool error instead of running. Falls back to the full
-            ToolNode on research turns (and when no interaction tool exists,
-            where the meta path binds no tools and this node is unreachable).
-
-            Tool search deliberately does NOT get the same second defense. The
-            meta partition has two arms because firing a web search on a
-            greeting is a POLICY violation: refusing to execute it is the
-            correct outcome even though the refusal costs a turn. Tool-search
-            narrowing is not a policy, it is a GUESS about relevance, and its
-            one real failure mode is withholding the tool that would have
+            Tool-search narrowing deliberately gets no execution-side defense.
+            It is not a policy, it is a GUESS about relevance, and its one
+            real failure mode is withholding the tool that would have
             answered. If the model calls a withheld tool anyway — it can, by
             copying a name out of an earlier turn's history — then the guess
             was wrong and the model is right. Executing it spends a turn and
@@ -1098,12 +954,7 @@ class ShallowResearcherAgent:
             ToolNode, and execution stays the escape hatch that makes a
             recall-biased retrieval safe to run at all.
             """
-            active_tool_node = tool_node
-            if not state.requires_sources:
-                self._ensure_meta_partition()
-                if self._meta_tool_node is not None:
-                    active_tool_node = self._meta_tool_node
-            result = await active_tool_node.ainvoke(state)
+            result = await tool_node.ainvoke(state)
             # Resolve registry at call time (not build time) so each request
             # writes to its own session-scoped registry when available.
             active_registry = get_session_registry() or self.source_registry
@@ -1382,6 +1233,10 @@ class ShallowResearcherAgent:
         escalation_requested: bool | None = None
         answer_confidence_marker: str | None = None
         answer_confidence_marker_reason: str | None = None
+        answer_escalation_reason: str | None = None
+        # Whether any data-source tool ran this turn. With the self-assessment
+        # it is what the chat node reads the observed routing from.
+        source_lookup_attempted = False
         # The gated answer_meta payload (verdict / takeaways / callout), or None
         # when the answer carried no trailer or nothing survived the gates. It
         # travels as structured state like the confidence marker above — a
@@ -1441,10 +1296,16 @@ class ShallowResearcherAgent:
                 if answer_meta is not None:
                     if answer_meta.escalate_to_deep:
                         escalation_requested = True
+                        answer_escalation_reason = (answer_meta.escalation_reason or "").strip()[:300] or None
                     if answer_meta.confidence is not None:
                         answer_confidence_marker = answer_meta.confidence.level
                         reason = (answer_meta.confidence.reason or "").strip()
                         answer_confidence_marker_reason = reason[:300] or None
+
+                source_lookup_attempted = any(
+                    isinstance(msg, ToolMessage) and get_source_id_for_tool(getattr(msg, "name", "") or "") is not None
+                    for msg in validated_result["messages"]
+                )
 
                 # Step 1: verify citations against registry
                 if registry.all_sources():
@@ -1493,11 +1354,7 @@ class ShallowResearcherAgent:
                     # the failures named, re-verify, and keep whichever answer
                     # verifies better. Bounded to one retrieval per failure (two
                     # at most) and one rewrite; the markers remain the floor.
-                    if (
-                        self.repair_pass
-                        and state.requires_sources
-                        and (verification.removed_citations or unverified_quotes)
-                    ):
+                    if self.repair_pass and (verification.removed_citations or unverified_quotes):
                         repaired = await self._repair_answer(
                             original_prose,
                             removed_citations=list(verification.removed_citations),
@@ -1560,56 +1417,50 @@ class ShallowResearcherAgent:
                         # Resolve each surviving citation back to its registry
                         # SourceEntry — these are the sources the model actually
                         # cited in THIS answer, and only these become chips.
-                        # Dedup while preserving first-cited order. Gated on
-                        # requires_sources so a meta turn that reaches this
-                        # branch only because the cumulative registry carried
-                        # prior-turn sources still emits no chips.
-                        if state.requires_sources:
-                            seen_ids: set[int] = set()
-                            for citation in verification.valid_citations:
-                                entry: SourceEntry | None = None
-                                if citation.get("citation_key"):
-                                    entry = registry.entry_for_citation_key(citation["citation_key"])
-                                elif citation.get("url"):
-                                    entry = registry.entry_for_url(citation["url"])
-                                if entry is not None and id(entry) not in seen_ids:
-                                    seen_ids.add(id(entry))
-                                    relevant_sources.append(entry)
-                                    # Keep the [N] label this source carries in the
-                                    # prose. The binding exists only here (the
-                                    # verifier resolved it); without it the FE
-                                    # cannot fold the written "## Sources" list
-                                    # and the chip row into one provenance block.
-                                    number = citation.get("number")
-                                    if isinstance(number, int):
-                                        citation_numbers[id(entry)] = number
-                    elif len(sources) == 1:
+                        # Dedup while preserving first-cited order. A citation
+                        # of a source retrieved on an earlier turn is still a
+                        # citation the verifier resolved: it earns its chip.
+                        seen_ids: set[int] = set()
+                        for citation in verification.valid_citations:
+                            entry: SourceEntry | None = None
+                            if citation.get("citation_key"):
+                                entry = registry.entry_for_citation_key(citation["citation_key"])
+                            elif citation.get("url"):
+                                entry = registry.entry_for_url(citation["url"])
+                            if entry is not None and id(entry) not in seen_ids:
+                                seen_ids.add(id(entry))
+                                relevant_sources.append(entry)
+                                # Keep the [N] label this source carries in the
+                                # prose. The binding exists only here (the
+                                # verifier resolved it); without it the FE
+                                # cannot fold the written "## Sources" list
+                                # and the chip row into one provenance block.
+                                number = citation.get("number")
+                                if isinstance(number, int):
+                                    citation_numbers[id(entry)] = number
+                    elif source_lookup_attempted and len(sources) == 1:
                         # No model citation survived, but exactly one registry
                         # source is available: append it as the single minimal
                         # citation, which grounds the answer in a real source.
-                        # That one source IS the relevant one for this turn — but
-                        # only surface it as a chip on a research turn.
+                        # That one source IS the relevant one for this turn.
+                        # Only on a turn that looked something up: a greeting
+                        # on a conversation whose registry still holds last
+                        # turn's source must not be handed that source as its
+                        # citation.
                         content = _append_minimal_citation(content, sources[0])
                         citation_grounded = True
                         citation_fallback_used = True
-                        if state.requires_sources:
-                            relevant_sources = [sources[0]]
-                            # ``_append_minimal_citation`` always writes "[1]".
-                            citation_numbers = {id(sources[0]): 1}
-                elif state.requires_sources:
+                        relevant_sources = [sources[0]]
+                        # ``_append_minimal_citation`` always writes "[1]".
+                        citation_numbers = {id(sources[0]): 1}
+                else:
                     # Distinguish "retrieval genuinely failed" from "the agent
-                    # answered from conversation/project context without ever
-                    # querying a data source". Only the former is an error: when
-                    # no data-source tool was attempted there was nothing to
-                    # cite, and discarding a substantive answer would replace it
-                    # with a misleading "search tools failed" message (typical
-                    # for conversational turns misrouted as research).
-                    attempted_source_lookup = any(
-                        isinstance(msg, ToolMessage)
-                        and get_source_id_for_tool(getattr(msg, "name", "") or "") is not None
-                        for msg in validated_result["messages"]
-                    )
-                    if attempted_source_lookup:
+                    # answered without ever querying a data source". Only the
+                    # former is an error: a greeting, a shelf listing from the
+                    # inventory or a reply from project context has nothing to
+                    # cite, and discarding it would replace a substantive answer
+                    # with a misleading "search tools failed" message.
+                    if source_lookup_attempted:
                         from aiq_agent.common.tool_validation import validate_tool_availability
 
                         _, available_count, unavailable = validate_tool_availability(
@@ -1631,20 +1482,9 @@ class ShallowResearcherAgent:
                             unavailable_tools=unavailable,
                             available_count=available_count,
                         )
-                    logger.warning(
-                        "Shallow researcher: research turn answered without querying any "
-                        "data-source tool; returning the answer without citation verification",
-                    )
-                else:
-                    # Conversational/meta turn: no sources are expected, so an
-                    # empty registry is NOT a failure. Return the assistant's
-                    # answer as-is — there is nothing to cite or verify. The
-                    # research-only "no sources captured" guard must not apply to
-                    # persona/chit-chat turns; the orchestrator signals these via
-                    # requires_sources=False (derived from intent == "meta").
                     logger.debug(
-                        "Shallow researcher: conversational turn (requires_sources=False); "
-                        "returning answer without citation verification",
+                        "Shallow researcher: answered without querying any data-source tool; "
+                        "returning the answer without citation verification",
                     )
 
                 # Step 2: sanitize report (strip body URLs, shortened URLs, unsafe URLs)
@@ -1739,6 +1579,8 @@ class ShallowResearcherAgent:
         validated_result["escalation_requested"] = escalation_requested
         validated_result["answer_confidence_marker"] = answer_confidence_marker
         validated_result["answer_confidence_marker_reason"] = answer_confidence_marker_reason
+        validated_result["answer_escalation_reason"] = answer_escalation_reason
+        validated_result["source_lookup_attempted"] = source_lookup_attempted
         # The answer's structured anatomy (verdict / takeaways / callout), gated
         # above. None when absent, so the wire field stays off rather than
         # null-spamming a frame the frontend reads on presence.
@@ -1779,11 +1621,12 @@ class ShallowResearcherAgent:
         if citations_removed_summary is not None:
             validated_result["citations_removed"] = citations_removed_summary
 
-        # Citation-health ledger: one batch per RESEARCH turn (a meta turn has
-        # nothing to cite, so counting it would inflate the clean rate). Gated
-        # on an answer message actually having been verified. Best-effort by
-        # construction — ``record_turn`` swallows everything.
-        if state.requires_sources and answer_index is not None:
+        # Citation-health ledger: one batch per turn that consulted a source or
+        # measured the model (a direct reply has nothing to cite, so counting
+        # it would inflate the clean rate). Gated on an answer message actually
+        # having been verified. Best-effort by construction — ``record_turn``
+        # swallows everything.
+        if answer_index is not None and (source_lookup_attempted or measurement_grounded):
             # THIS turn's retrieval, not the cumulative conversation registry:
             # the ledger's source_count is the denominator that cited_count is
             # measured against, and cited_count has always been per-turn.

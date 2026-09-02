@@ -542,23 +542,6 @@ class TestTheAgentBindsWhatWasRetrieved:
         assert all(len(b) == len(PRODUCTION_SHAPED_TOOLS) for b in bindings), bindings
 
     @pytest.mark.asyncio
-    async def test_a_meta_turn_is_untouched_by_tool_search(self, provider, bindings):
-        """The meta partition already narrows to the interaction tools."""
-        agent = self._agent(provider, enabled=True, top_k=1)
-        bindings.clear()
-
-        await agent.run(
-            ShallowResearchAgentState(
-                messages=[HumanMessage(content="wie hoch ist der Keller")],
-                requires_sources=False,
-            )
-        )
-
-        # Whatever was bound came from the meta partition, which is driven by
-        # data-source classification and not by any ranking.
-        assert agent._tool_search_selections == {}
-
-    @pytest.mark.asyncio
     async def test_the_retrieval_runs_once_per_run_not_once_per_iteration(self, provider, mock_llm):
         """The loop must not re-rank on every LLM call — and must not drift."""
         mock_llm.ainvoke = AsyncMock(

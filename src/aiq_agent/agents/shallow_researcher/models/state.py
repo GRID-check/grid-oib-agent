@@ -28,12 +28,9 @@ class ShallowResearchAgentState(BaseModel):
             budget; see ``interaction_iterations`` for the output channel).
         interaction_iterations: Counter for interaction-tool calls (`emit_card`,
             `describe_card`, `remember`), which are budgeted separately.
-        requires_sources: Whether this turn must be grounded in captured sources.
-            True for research turns (an empty source registry is a failure —
-            EmptySourceRegistryError). False for conversational/meta turns, which
-            legitimately answer from persona/project context without any sources;
-            the orchestrator sets this based on the classified intent. Defaults to
-            True so standalone/eval callers keep the strict research contract.
+        source_lookup_attempted: Whether the turn called a data-source tool at
+            all. Set by ``run()``. With the self-assessment it is what the chat
+            node reads the observed routing from: neither → a direct reply.
         answer_citation_grounded: Whether the final answer carries at least one
             verified citation after citation verification. Set by ``run()`` — it
             is True only when verification kept a valid citation (or a single
@@ -74,12 +71,10 @@ class ShallowResearchAgentState(BaseModel):
     platform_lessons: str | None = None
     # The composer's "Asking about <file>" subject for this turn (filename +
     # shelf). Rendered into the system prompt so "summarize this document"
-    # has an antecedent, and widens the tool binding below: a bound file is an
-    # explicit statement that a file is in play, so the search tools are
-    # offered even on a turn the classifier called conversational.
+    # has an antecedent.
     focus_file_name: str | None = None
     focus_shelf: str | None = None
-    requires_sources: bool = True
+    source_lookup_attempted: bool = False
     answer_citation_grounded: bool = False
     # Whether every QUOTED span in the final answer was found (fuzzily) in a
     # retrieved passage. Set by ``run()``: True by default (and when there is
@@ -137,6 +132,10 @@ class ShallowResearchAgentState(BaseModel):
     # absent/malformed. The chat node surfaces it as ``answer_confidence_reason``
     # so the UI can show WHY the model chose the level.
     answer_confidence_marker_reason: str | None = None
+    # The envelope's own clause for WHY deep research is needed, when the
+    # model asked for it. The chat node narrates it; None falls back to a
+    # fixed string there.
+    answer_escalation_reason: str | None = None
     # The answer's structured anatomy — verdict / takeaways / callout — parsed
     # from the ```answer_json envelope, validated and GATED in run() (see
     # ``common.answer_envelope.gate_answer_meta``). A native field of the
@@ -149,14 +148,14 @@ class ShallowResearchAgentState(BaseModel):
     # can open document previews without inventing filenames.
     verified_sources: list[dict[str, Any]] | None = None
     # Skill names FORCED for this turn by the incoming request (parsed from the
-    # WS content JSON's `skills` array by the chat researcher). Research turns
-    # resolve them against the run's skill set and build the forced-activation
-    # list; meta turns ignore them. None = no skills were forced.
+    # WS content JSON's `skills` array by the chat researcher). Resolved
+    # against the run's skill set into the forced-activation list. None = no
+    # skills were forced.
     force_skills: list[str] | None = None
     # Pre-rendered skills section for the system prompt (guarded in the
     # template): the progressive-disclosure catalog plus the forced-skills
-    # block. Set by the register layer before ``run()`` on research turns when
-    # skills are enabled; None otherwise.
+    # block. Set by the register layer before ``run()`` when skills are
+    # enabled; None otherwise.
     skills_block: str | None = None
     # Ordered names of the skills whose BODY reached the model this turn, in
     # delivery order, deduped. DELIVERED, not forced: the disclosure renders
@@ -195,7 +194,7 @@ class ShallowResearchAgentState(BaseModel):
     # INTERNAL per-run render cache — NOT part of the public state contract.
     # Every input to the system-prompt render (system_prompt, tools_info,
     # user_info, current_datetime at DATE precision, available_documents,
-    # project_context, the three norm blocks, requires_sources) is fixed for the
+    # project_context, the three norm blocks) is fixed for the
     # life of a single ``run()``, so the rendered prompt is byte-identical across
     # tool-loop iterations. ``agent_node`` renders it once, returns it here, and
     # LangGraph persists it across the loop; state is per-invocation, so

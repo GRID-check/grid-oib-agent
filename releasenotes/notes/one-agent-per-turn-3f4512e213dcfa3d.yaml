@@ -1,0 +1,11 @@
+---
+improvements:
+  - >
+    Piloti sortiert eine Frage nicht mehr vor, bevor es antwortet. Jede Frage
+    erreicht den Assistenten mit all seinen Werkzeugen, sodass „zeig mir die
+    Grundrisse" oder „was weißt du über das Projekt" jetzt Dateien anzeigen und
+    lesen können, statt nur aus dem Projektprofil zu antworten.
+  - >
+    Übergibt der Assistent eine Frage an die Tiefenrecherche, sagt er jetzt in
+    eigenen Worten, warum. Der Grund steht in der Herleitung neben dem Hinweis
+    auf die Eskalation.

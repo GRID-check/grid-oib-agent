@@ -475,8 +475,8 @@ describe('ChatThinking', () => {
       // A greeting: one assistant step ran, no search tool did.
       const steps = [
         createStep({
-          functionName: 'meta_chatter',
-          displayName: 'Meta Chatter',
+          functionName: 'shallow_research_agent',
+          displayName: 'Shallow Research Agent',
           isComplete: true,
         }),
       ]

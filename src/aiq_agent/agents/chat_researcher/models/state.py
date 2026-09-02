@@ -17,8 +17,6 @@ from pydantic import BaseModel
 
 from aiq_agent.knowledge import AvailableDocument
 
-from .depth import DepthDecision
-from .intent import IntentResult
 from .result import ShallowResult
 
 
@@ -31,8 +29,6 @@ class ChatResearcherState(BaseModel):
         tools_info: Information about available tools.
         user_info: Optional user information for personalization.
         data_sources: Optional list of user-selected data source IDs.
-        user_intent: Result of intent classification.
-        depth_decision: Result of depth routing.
         final_report: The final research report.
         shallow_result: Result from shallow research (if executed).
         clarifier_result: Log from clarifier agent dialog.
@@ -57,8 +53,6 @@ class ChatResearcherState(BaseModel):
     messages: Annotated[list[AnyMessage], add_messages]
     user_info: dict[str, Any] | None = None
     data_sources: list[str] | None = None
-    user_intent: IntentResult | None = None
-    depth_decision: DepthDecision | None = None
     final_report: str | None = None
     shallow_result: ShallowResult | None = None
     clarifier_result: str | None = None
@@ -79,9 +73,9 @@ class ChatResearcherState(BaseModel):
     # STICKY, for the life of the conversation: the user rejected a research
     # plan. A rejection is not a cancel — the question is still on the table and
     # is answered on the shallow path in the same turn — but it is also durable
-    # information about what this reader wants, so it keeps the deep route (both
-    # the classifier's "deep" and the shallow agent's [ESCALATE_TO_DEEP]) from
-    # putting another plan in front of them for the rest of the thread. A user
+    # information about what this reader wants, so it keeps the shallow agent's
+    # escalation from putting another plan in front of them for the rest of
+    # the thread. A user
     # who has said no to a plan should not have to say it again.
     #
     # It survives the turn boundary by being DELIBERATELY ABSENT from the input
@@ -121,11 +115,12 @@ class ChatResearcherState(BaseModel):
     # the terminal system_response_message (websocket_reconnect), same path as
     # ``answer_confidence``/``deep_research_job_id``. Never null-spammed.
     #
-    # Which path the turn took after intent classification (derived from
-    # ``user_intent``/``depth_decision`` — see ``derive_routing_decision``).
+    # Which path the turn took, OBSERVED after the answer rather than decided
+    # before it: ``meta`` when the agent neither consulted a source nor graded
+    # itself (a direct reply), ``shallow`` for a researched answer, ``deep``
+    # once the clarifier hands over, ``error`` on a failed turn. See
+    # ``agent.observed_routing``.
     routing_decision: Literal["meta", "shallow", "deep", "error"] | None = None
-    # Human-readable why, verbatim from the depth classifier's ``raw_reasoning``.
-    routing_reason: str | None = None
     # Present only when a shallow→deep escalation happened this turn. Set by the
     # clarifier node from ``ShallowResult.escalation_reason`` or, on the
     # keyword-fallback path, the fixed German notice.
@@ -184,8 +179,8 @@ class ChatResearcherState(BaseModel):
     retry_after_seconds: int | None = None
     # Skill names the user's request FORCED for this turn (parsed from the WS
     # content JSON's `skills` array). Threaded into the shallow researcher's
-    # per-run SkillRuntime — research turns resolve them against the run's
-    # skill set; meta turns and deep-research jobs ignore them.
+    # per-run SkillRuntime, which resolves them against the run's skill set;
+    # deep-research jobs ignore them.
     # NOTE: plain types only (list[str] | None) — a new pydantic TYPE would
     # also need registering in the checkpointer serde allowlist
     # (aiq_agent/common/__init__.py).

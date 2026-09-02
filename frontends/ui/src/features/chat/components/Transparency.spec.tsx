@@ -1,6 +1,6 @@
 /**
- * Rendering tests for the WP-B transparency extras: routing narration in the
- * Herleitung, the mid-turn drop notice, the deep-research escalation line, and
+ * Rendering tests for the WP-B transparency extras: the escalation narration in
+ * the Herleitung, the mid-turn drop notice, the deep-research escalation line, and
  * the queue-rejection (research.queue_full) banner. These assert the real i18n
  * copy (English, the default test locale) and the real error registry.
  */
@@ -38,44 +38,7 @@ const createStep = (overrides: Partial<ThinkingStep> = {}): ThinkingStep => ({
   ...overrides,
 })
 
-describe('ChatThinking routing narration ("Why this path?")', () => {
-  test('renders the routing classification line when decision + reason are present', async () => {
-    const user = userEvent.setup()
-    render(
-      <ChatThinking
-        steps={[createStep()]}
-        isThinking={false}
-        userQuestion="Wie hoch darf ich bauen?"
-        routingDecision="deep"
-        routingReason="Die Frage erfordert eine tiefere Recherche."
-      />
-    )
-
-    // Expand the Herleitung so the framing node (which carries the routing
-    // narration) mounts.
-    await user.click(screen.getByText(/Trace ·/))
-
-    expect(screen.getByText('Why this path?')).toBeInTheDocument()
-    expect(
-      screen.getByText(/Classification: Deep research — Die Frage erfordert eine tiefere Recherche\./)
-    ).toBeInTheDocument()
-  })
-
-  test('renders nothing routing-related when only the decision (no reason) is present', async () => {
-    const user = userEvent.setup()
-    render(
-      <ChatThinking
-        steps={[createStep()]}
-        isThinking={false}
-        userQuestion="Frage"
-        routingDecision="shallow"
-      />
-    )
-
-    await user.click(screen.getByText(/Trace ·/))
-    expect(screen.queryByText('Why this path?')).not.toBeInTheDocument()
-  })
-
+describe('ChatThinking escalation narration', () => {
   test('shows the escalation narration in the framing node when escalated', async () => {
     const user = userEvent.setup()
     render(

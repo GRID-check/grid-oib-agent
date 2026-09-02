@@ -141,20 +141,6 @@ def test_a_narrowed_binding_is_deferred_too(provider, llm):
     assert "ifc_measure" in deferred
 
 
-def test_meta_turns_are_deliberately_not_deferred(provider, llm):
-    # Meta turns bind only remember/emit_card. Their schemas are a few hundred
-    # characters and the tool-search apparatus costs ~600 input tokens of its
-    # own, so deferring there spends more than it withholds.
-    agent = ShallowResearcherAgent(
-        llm_provider=provider, tools=TOOLS, deferred_tool_loading=DeferredToolLoadingSettings(enabled=True)
-    )
-    llm.bind_calls.clear()
-    bound, tools_info = agent._meta_tool_binding(agent.tools_info)
-    assert not isinstance(bound, DeferredToolBinding)
-    assert llm.bind_calls == []
-    assert {"remember", "emit_card"} <= {ti["name"] for ti in tools_info}
-
-
 def test_the_namespace_description_is_the_only_tool_text_sent_up_front(provider, llm):
     settings = DeferredToolLoadingSettings(enabled=True, namespace="piloti", namespace_description="Werkzeuge.")
     ShallowResearcherAgent(llm_provider=provider, tools=TOOLS, deferred_tool_loading=settings)

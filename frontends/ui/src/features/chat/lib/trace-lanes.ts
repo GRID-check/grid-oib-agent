@@ -88,7 +88,7 @@ const URL_RE = /https?:\/\/[^\s<>"'`)\]]+/gi
  * we just never fabricate lanes from their bare text via the URL scan.
  */
 const RESEARCH_AGENT_STEP_RE =
-  /^(chat_researcher|chat_deepresearcher_agent|intent_classifier|depth_router|shallow_research|deep_research|meta_chatter)/i
+  /^(chat_researcher|chat_deepresearcher_agent|shallow_research|deep_research)/i
 
 /**
  * Lane key → provenance signal. Delegates to the canonical SourceKind mapping

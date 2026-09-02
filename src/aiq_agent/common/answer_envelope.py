@@ -195,7 +195,15 @@ class AnswerMeta(_EnvelopeModel):
     confidence: AnswerMetaConfidence | None = None
     escalate_to_deep: bool | None = Field(
         default=None,
-        description="true only when the retrieved sources could not support an adequate answer",
+        description=(
+            "true when this question needs deep research: the user commissioned a report or document, "
+            "the answer needs many sources read against each other, or what you retrieved cannot support "
+            "an adequate answer"
+        ),
+    )
+    escalation_reason: str | None = Field(
+        default=None,
+        description="with escalate_to_deep: one short clause saying why, in the answer's language",
     )
 
     @property
@@ -207,6 +215,7 @@ class AnswerMeta(_EnvelopeModel):
             and self.callout is None
             and self.confidence is None
             and self.escalate_to_deep is None
+            and self.escalation_reason is None
         )
 
 
@@ -597,7 +606,10 @@ def render_envelope_schema() -> str:
     lines = [
         "answer*: string (the full written answer: markdown prose with [N] citations and the sources section)",
         f"confidence: {_shape(AnswerMetaConfidence)}",
-        "escalate_to_deep: boolean (true ONLY when the retrieved sources could not support an adequate answer)",
+        "escalate_to_deep: boolean (true when the question needs deep research: a commissioned report or "
+        "document, many sources to read against each other, or retrieved sources that cannot support an "
+        "adequate answer)",
+        "escalation_reason: string (with escalate_to_deep: one short clause saying why, in the answer's language)",
     ]
     field_models: dict[str, type[BaseModel] | None] = {
         "verdict": AnswerMetaVerdict,
