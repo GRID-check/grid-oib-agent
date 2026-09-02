@@ -131,6 +131,13 @@ def add_ingest_routes(router: APIRouter):
             # resolves the tenant's BYOK credential + runtime model override.
             if x_grid_organization_id:
                 config["organization_id"] = x_grid_organization_id
+            # The document's id, so the pipeline can ask the BFF for a PUT slot
+            # per raster it extracts (`knowledge_layer.llamaindex.image_store`).
+            # Without it the captions are indexed and the rasters discarded,
+            # which is what every caller that sends no id (the OIB corpus
+            # sync) gets.
+            if request.document_id:
+                config["document_id"] = request.document_id
 
             # Fast thumbnail: generate a 200px JPEG before the job enters the
             # pool so the BFF polling sees it (near-)instantly. Fail-open —

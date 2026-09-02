@@ -1022,12 +1022,33 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    `view_knowledge_image` (`llamaindex/view_image.py`, gated on
    `AIQ_VIEW_IMAGES_ENABLED`, default on, plus a resolvable VLM key) hands a
    knowledge image to the VLM **as an image block during a research turn** —
-   not just at ingestion. Two source shapes: **PDF pages** are re-rendered on
+   not just at ingestion. Three source shapes: **PDF pages** are re-rendered on
    demand with pypdfium2 (long edge `AIQ_PAGE_RENDER_MAX_DIM`, default 2048) —
    base-corpus PDFs from disk (`OIB_UPLOADS_DIR` / repo corpus), project/Archiv
-   PDFs from SeaweedFS bytes — and **standalone image uploads** (PNG/JPG
+   PDFs from SeaweedFS bytes; **standalone image uploads** (PNG/JPG
    project/Archiv documents) are fetched from SeaweedFS and re-encoded to JPEG
-   directly. Because the SeaweedFS `storage_key` lives only in the frontend's
+   directly; and **stored embedded rasters** — the images
+   `_extract_images_from_pdf` cuts out of a PDF are no longer discarded after
+   captioning. For a document the BFF dispatched (one with a `document_id` in
+   the ingest body), `llamaindex/image_store.py` asks the BFF for one presigned
+   PUT per raster (`POST /api/internal/document-image-upload-url`; the backend
+   holds a read-only object-store credential, so it writes the way the
+   thumbnail is written) and stores it as `<doc dir>/_img/<index>.jpg`, at most
+   `MAX_STORED_IMAGES_PER_DOCUMENT` (64, `frontends/ui/src/lib/s3.ts`, enforced
+   by the presign route; the backend stops at the first refusal). The caption
+   chunk records `image_key` and `stored_image_index`; `_format_results` shows
+   an `Image: stored (view_knowledge_image image_index=N)` line only for such a
+   chunk, and the tool's `image_index` argument fetches that raster through
+   `GET /api/internal/document-file?imageIndex=N` — the BFF derives the key
+   from the document's own row, so the backend never names an object key. Fail
+   open at every step: a presign or upload failure keeps the caption and stops
+   storing for that file; an unknown index points the model back at the page
+   render. The `_img/` prefix is swept with the document by
+   `deleteDerivedObjects` (`lib/documents/object-cleanup.ts`). One turn may
+   call the tool at most `MAX_IMAGE_VIEWS_PER_TURN` times (6,
+   `common/image_view_budget.py`, a per-turn ContextVar bound beside the card
+   registry in `chat_researcher/register.py`); past that it answers with a
+   text block. Because the SeaweedFS `storage_key` lives only in the frontend's
    `documents` table, the tool resolves `(collection, filename)` through a new
    token-guarded BFF route `GET /api/internal/document-file`
    (`lib/documents/{service,repository}.ts`, ADR-0017 layering) and fetches the
@@ -1040,7 +1061,12 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
 
 All five changes are covered by tests under `tests/knowledge_layer_tests/`
 (`test_agent_filters.py`, `test_hybrid.py`, `test_rerank.py`,
-`test_view_image.py`) and `src/app/api/internal/document-file/route.spec.ts`.
+`test_view_image.py`, `test_image_store.py`),
+`tests/aiq_agent/common/test_image_view_budget.py`, and in the BFF
+`src/app/api/internal/document-file/route.spec.ts`,
+`src/app/api/internal/document-image-upload-url/route.spec.ts`,
+`src/lib/documents/image-derivatives.spec.ts` and
+`src/lib/documents/object-cleanup.spec.ts`.
 Design rationale and rejected alternatives (native reranker API, embedding
 re-index, regex term extraction, presign-based reads): **ADR-0039**.
 

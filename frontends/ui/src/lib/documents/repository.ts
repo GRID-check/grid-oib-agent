@@ -488,6 +488,43 @@ export async function findStorageKeyByCollectionAndFilename(
 }
 
 /**
+ * The storage location of a document the ingest pipeline is working on,
+ * addressed the way the pipeline knows it: by the `document_id` the dispatch
+ * sent AND the collection it was sent for. Both must match — the id alone is
+ * unguessable, but requiring the collection means a caller holding one
+ * document's id cannot mint derived objects under it from another shelf's
+ * ingest. Same row filters as {@link findStorageKeyByCollectionAndFilename}:
+ * live, user-authored (this feeds a presigned WRITE under the document's
+ * prefix), and org-narrowed when the caller carries one.
+ */
+export async function findStorageKeyByIdAndCollection(
+  documentId: string,
+  collectionName: string,
+  organizationId?: string,
+): Promise<{ storageKey: string; storageBucket: string | null } | null> {
+  const db = getDb()
+  const [row] = await withOptionalTenant(
+    organizationId,
+    'internal document-image presign: the service-token caller identifies the row by its ' +
+      'unguessable document id and collection name and carries no organization',
+    () =>
+      db
+        .select({ storageKey: documents.storageKey, storageBucket: documents.storageBucket })
+        .from(documents)
+        .where(
+          and(
+            eq(documents.id, documentId),
+            eq(documents.collectionName, collectionName),
+            eq(documents.authoredBy, 'user'),
+            ...(organizationId ? [eq(documents.organizationId, organizationId)] : []),
+          ),
+        )
+        .limit(1),
+  )
+  return row ?? null
+}
+
+/**
  * Recording a document goes through `insertDocumentWithinQuota`
  * (`@/lib/storage/repository`), not through a plain insert here.
  *

@@ -11,10 +11,11 @@ vi.mock('@/lib/auth/require-auth', () => ({
 
 vi.mock('@/lib/documents/service', () => ({
   findDocumentStorageKey: vi.fn(),
+  findDocumentImageStorageKey: vi.fn(),
 }))
 
 import { GET } from './route'
-import { findDocumentStorageKey } from '@/lib/documents/service'
+import { findDocumentImageStorageKey, findDocumentStorageKey } from '@/lib/documents/service'
 
 const request = (query = '?collection=proj_1&filename=plan.png', token: string | null = 'test-token'): Request =>
   new Request(`http://localhost/api/internal/document-file${query}`, {
@@ -97,5 +98,38 @@ describe('GET /api/internal/document-file', () => {
     })
     const res = await GET(request())
     expect(await res.json()).toMatchObject({ storageBucket: 'grid-org-o1-abcdef123456' })
+  })
+
+  // The derived-key read. The backend only ever varies a bounded integer; the
+  // key itself is built from the document's row, so it cannot leave the prefix.
+  describe('with imageIndex', () => {
+    it('resolves the stored raster through the image lookup, not the file lookup', async () => {
+      vi.mocked(findDocumentImageStorageKey).mockResolvedValue({
+        storageKey: 'org/o1/project/p1/doc/d1/_img/2.jpg',
+        storageBucket: null,
+        contentType: 'image/jpeg',
+      })
+      const res = await GET(request('?collection=proj_1&filename=plan.pdf&imageIndex=2'))
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({
+        storageKey: 'org/o1/project/p1/doc/d1/_img/2.jpg',
+        storageBucket: null,
+        contentType: 'image/jpeg',
+      })
+      expect(vi.mocked(findDocumentImageStorageKey).mock.calls[0]).toEqual(['proj_1', 'plan.pdf', 2, undefined])
+      expect(findDocumentStorageKey).not.toHaveBeenCalled()
+    })
+
+    it('404s when the document or the index is unknown', async () => {
+      vi.mocked(findDocumentImageStorageKey).mockResolvedValue(null)
+      expect((await GET(request('?collection=proj_1&filename=plan.pdf&imageIndex=99'))).status).toBe(404)
+    })
+
+    it('400s a negative or non-integer index before any lookup', async () => {
+      expect((await GET(request('?collection=proj_1&filename=plan.pdf&imageIndex=-1'))).status).toBe(400)
+      expect((await GET(request('?collection=proj_1&filename=plan.pdf&imageIndex=1.5'))).status).toBe(400)
+      expect((await GET(request('?collection=proj_1&filename=plan.pdf&imageIndex=abc'))).status).toBe(400)
+      expect(findDocumentImageStorageKey).not.toHaveBeenCalled()
+    })
   })
 })

@@ -39,6 +39,7 @@ async def _invoke(
     file_name: str = "OIB-3.pdf",
     page_number: int = 3,
     collection: str = "",
+    image_index: int | None = None,
     pdf_path: str | None = None,
     render_result=(_JPEG_BYTES, 100, 50),
     render_raises: Exception | None = None,
@@ -72,7 +73,9 @@ async def _invoke(
 
     config = _config(tmp_path)
     async with view_knowledge_image(config, None) as info:
-        args = info.input_schema(file_name=file_name, page_number=page_number, collection=collection)
+        args = info.input_schema(
+            file_name=file_name, page_number=page_number, collection=collection, image_index=image_index
+        )
         return await info.single_fn(args)
 
 
@@ -276,8 +279,11 @@ def _patch_seaweed_chain(
     fetched: bytes | None = b"image-bytes",
     normalized=(_JPEG_BYTES, 100, 50),
 ) -> None:
-    async def _resolve(_collection, _file_name):
+    async def _resolve(_collection, _file_name, organization_id=None, image_index=None):
+        _patch_seaweed_chain.seen.append({"image_index": image_index})
         return None if storage_key is None else (storage_key, storage_bucket)
+
+    _patch_seaweed_chain.seen = []
 
     monkeypatch.setattr("sources.knowledge_layer.src.view_image._resolve_storage_location", _resolve)
     monkeypatch.setattr(
@@ -480,3 +486,85 @@ def test_fetch_seaweed_bytes_fail_open(monkeypatch) -> None:
 
     monkeypatch.setattr(boto3, "client", lambda *args, **kwargs: _TenantS3())
     assert _fetch_seaweed_bytes("org/o1/k.png", "grid-org-o1-abcdef123456") == b"tenant-bytes"
+
+
+# =============================================================================
+# Stored embedded rasters (image_index) and the per-turn cap
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_image_index_fetches_the_stored_raster_by_derived_key(monkeypatch, tmp_path) -> None:
+    _patch_seaweed_chain(monkeypatch, storage_key="org/o1/project/p1/doc/d1/_img/3.jpg", fetched=b"raster")
+    result = await _invoke(
+        monkeypatch, tmp_path, file_name="plan.pdf", collection="proj_1", image_index=3, pdf_path="x.pdf"
+    )
+
+    # The lookup carried the index, and no page was rendered even though the PDF is on disk.
+    assert _patch_seaweed_chain.seen == [{"image_index": 3}]
+    assert isinstance(result, list)
+    assert "Stored image 3 of 'plan.pdf' (page 3)" in result[0]["text"]
+    assert base64.b64decode(result[1]["image_url"]["url"].split(",", 1)[1]) == _JPEG_BYTES
+
+
+@pytest.mark.asyncio
+async def test_image_index_requires_a_collection(monkeypatch, tmp_path) -> None:
+    result = await _invoke(monkeypatch, tmp_path, file_name="plan.pdf", image_index=0)
+
+    assert isinstance(result, str)
+    assert "pass the hit's collection" in result
+
+
+@pytest.mark.asyncio
+async def test_unknown_image_index_points_back_at_the_page_render(monkeypatch, tmp_path) -> None:
+    _patch_seaweed_chain(monkeypatch, storage_key=None)
+    result = await _invoke(monkeypatch, tmp_path, file_name="plan.pdf", collection="proj_1", image_index=7)
+
+    assert isinstance(result, str)
+    assert "No stored image 7" in result
+    assert "without image_index" in result
+
+    result = await _invoke(monkeypatch, tmp_path, file_name="plan.pdf", collection="proj_1", image_index=-1)
+    assert isinstance(result, str)
+    assert "Invalid image_index" in result
+
+
+@pytest.mark.asyncio
+async def test_stored_raster_fetch_failure_returns_text_only(monkeypatch, tmp_path) -> None:
+    _patch_seaweed_chain(monkeypatch, storage_key="org/o1/_img/0.jpg", fetched=None)
+    result = await _invoke(monkeypatch, tmp_path, file_name="plan.pdf", collection="proj_1", image_index=0)
+
+    assert isinstance(result, str)
+    assert "Could not fetch stored image 0" in result
+
+
+@pytest.mark.asyncio
+async def test_per_turn_cap_stops_the_tool_before_any_work(monkeypatch, tmp_path) -> None:
+    from aiq_agent.common.image_view_budget import begin_image_view_budget
+    from aiq_agent.common.image_view_budget import end_image_view_budget
+
+    calls: list[str] = []
+
+    def _counting_render(_pdf_path, _page_number, _max_dim):
+        calls.append("render")
+        return (_JPEG_BYTES, 100, 50)
+
+    token = begin_image_view_budget(limit=2)
+    try:
+        for _ in range(2):
+            result = await _invoke(monkeypatch, tmp_path, pdf_path="x.pdf")
+            monkeypatch.setattr("sources.knowledge_layer.src.view_image._render_page", _counting_render)
+            assert isinstance(result, list)
+        monkeypatch.setattr("sources.knowledge_layer.src.view_image._render_page", _counting_render)
+        capped = await _invoke(monkeypatch, tmp_path, pdf_path="x.pdf")
+    finally:
+        end_image_view_budget(token)
+
+    assert isinstance(capped, str)
+    assert "cap reached" in capped
+    assert "per turn" in capped
+    # _invoke re-patches _render_page each call; the third call never reached it.
+    assert calls == []
+
+    # Outside a turn the tool is not capped.
+    assert isinstance(await _invoke(monkeypatch, tmp_path, pdf_path="x.pdf"), list)

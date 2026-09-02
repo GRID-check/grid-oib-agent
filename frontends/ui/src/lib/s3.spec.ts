@@ -3,7 +3,10 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  MAX_STORED_IMAGES_PER_DOCUMENT,
   buildArchivStorageKey,
+  buildImageDerivedPrefix,
+  buildImageStorageKey,
   buildStorageKey,
   buildThumbnailStorageKey,
   storageKeySegment,
@@ -117,5 +120,37 @@ describe('buildThumbnailStorageKey', () => {
     expect(buildThumbnailStorageKey('plan.pdf')).toBeNull()
     expect(buildThumbnailStorageKey('/plan.pdf')).toBeNull()
     expect(buildThumbnailStorageKey('')).toBeNull()
+  })
+})
+
+describe('buildImageStorageKey', () => {
+  const key = buildStorageKey('org-1', 'proj-1', 'doc-1', 'plan.pdf', 'Plans/Fire Safety')
+
+  it('files the raster under the document directory, in the _img/ prefix', () => {
+    expect(buildImageStorageKey(key, 0)).toBe('org/org-1/project/proj-1/Plans/Fire Safety/doc/doc-1/_img/0.jpg')
+    expect(buildImageStorageKey(key, 7)).toBe('org/org-1/project/proj-1/Plans/Fire Safety/doc/doc-1/_img/7.jpg')
+  })
+
+  it('stays under the prefix the cleanup sweeps', () => {
+    const prefix = buildImageDerivedPrefix(key)
+    expect(prefix).toBe('org/org-1/project/proj-1/Plans/Fire Safety/doc/doc-1/_img/')
+    expect(buildImageStorageKey(key, 3)?.startsWith(prefix as string)).toBe(true)
+  })
+
+  // The index is the ONLY free variable; everything else is the document's own
+  // key. An unbounded index would let one ingest mint an unbounded number of
+  // objects under the tenant's prefix.
+  it('refuses an index outside the per-document ceiling, or one that is not an integer', () => {
+    expect(buildImageStorageKey(key, MAX_STORED_IMAGES_PER_DOCUMENT - 1)).not.toBeNull()
+    expect(buildImageStorageKey(key, MAX_STORED_IMAGES_PER_DOCUMENT)).toBeNull()
+    expect(buildImageStorageKey(key, -1)).toBeNull()
+    expect(buildImageStorageKey(key, 1.5)).toBeNull()
+    expect(buildImageStorageKey(key, Number.NaN)).toBeNull()
+  })
+
+  it('returns null rather than a bucket-root path for a key with no directory', () => {
+    expect(buildImageStorageKey('plan.pdf', 0)).toBeNull()
+    expect(buildImageStorageKey('a/b/', 0)).toBeNull()
+    expect(buildImageDerivedPrefix('')).toBeNull()
   })
 })

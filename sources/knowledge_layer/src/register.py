@@ -1286,6 +1286,13 @@ def _format_results(retrieval_result, query: str) -> str:
             lines.append(f"Punkt: {punkt_id}")
         lines.append(f"Citation: {citation}")
         lines.append(f"Content Type: {chunk.content_type.value}")
+        # A raster the ingest pipeline stored beside the document (image_store.py).
+        # Present only when the chunk carries the key: the model reads the index
+        # off this line and passes it to `view_knowledge_image`, which then shows
+        # the embedded image itself rather than a render of the page around it.
+        stored_image_index = (chunk.metadata or {}).get("stored_image_index")
+        if (chunk.metadata or {}).get("image_key") and stored_image_index is not None:
+            lines.append(f"Image: stored (view_knowledge_image image_index={stored_image_index})")
         lines.append(f"Relevance Score: {chunk.score:.2f}")
         lines.append("")
 

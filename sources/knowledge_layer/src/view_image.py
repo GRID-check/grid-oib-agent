@@ -6,7 +6,7 @@ visual as a multimodal content block (``image_url`` with a data URL), so
 vision-capable models can inspect plans, sections, elevations and charts
 directly at answer time.
 
-Two source shapes are covered, without re-ingest:
+Three source shapes are covered, without re-ingest:
 
 - **PDF pages** — the requested page is rendered from the original PDF on
   demand (max-dim capped). Base-corpus PDFs are read from disk (``data/oib``,
@@ -14,12 +14,23 @@ Two source shapes are covered, without re-ingest:
   rendered from bytes.
 - **Standalone images** (PNG/JPG project/Archiv uploads) — the stored bytes
   are fetched from SeaweedFS and returned directly (re-encoded to JPEG).
+- **Stored embedded rasters** — an image the ingest pipeline cut out of a
+  PDF and kept beside the document (``<doc dir>/_img/<index>.jpg``, see
+  ``llamaindex/image_store.py``). Addressed by ``image_index``; the hit's
+  ``Image:`` line names the index. Fetched at its own resolution instead of
+  rendering the page it sits on.
 
 Storage-key resolution goes through the BFF internal lookup
 (``GET /api/internal/document-file``): the backend carries only
 ``(collection, filename)``, and the mapping to a SeaweedFS ``storage_key``
-lives in the frontend's ``documents`` table. Fail-open: every failure returns
-a text-only block explaining what went wrong — the tool never raises.
+lives in the frontend's ``documents`` table. For a stored raster the BFF
+builds the derived key from the document's own row, so this tool never names
+an object key itself. Fail-open: every failure returns a text-only block
+explaining what went wrong — the tool never raises.
+
+Bounded per turn: :mod:`aiq_agent.common.image_view_budget` caps how many
+times one turn may call this tool; past the cap the tool answers with a short
+text block instead of an image.
 """
 
 import asyncio
@@ -31,6 +42,8 @@ from pathlib import Path
 
 from pydantic import Field
 
+from aiq_agent.common.image_view_budget import MAX_IMAGE_VIEWS_PER_TURN
+from aiq_agent.common.image_view_budget import try_consume_image_view
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
@@ -192,9 +205,13 @@ def _normalize_image_to_jpeg(image_bytes: bytes, max_dim: int) -> tuple[bytes, i
 
 
 async def _resolve_storage_location(
-    collection: str, file_name: str, organization_id: str | None = None
+    collection: str, file_name: str, organization_id: str | None = None, image_index: int | None = None
 ) -> tuple[str, str | None] | None:
     """Resolve a ``(collection, filename)`` pair to a SeaweedFS object location.
+
+    With ``image_index`` the location is that of the stored raster the ingest
+    pipeline kept under the document (``imageIndex`` query param); the BFF
+    derives the key from the row, so an index it does not know yields ``None``.
 
     Returns ``(storage_key, storage_bucket)``, where ``storage_bucket`` is
     ``None`` for a document in the deployment's shared bucket — which is every
@@ -223,9 +240,11 @@ async def _resolve_storage_location(
 
         if organization_id is None and collection.startswith("archiv_"):
             organization_id = collection[len("archiv_") :]
-        params = {"collection": collection, "filename": file_name}
+        params: dict[str, str] = {"collection": collection, "filename": file_name}
         if organization_id:
             params["organizationId"] = organization_id
+        if image_index is not None:
+            params["imageIndex"] = str(image_index)
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
                 f"{base_url.rstrip('/')}/api/internal/document-file",
@@ -316,9 +335,18 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
         file_name: str,
         page_number: int = 1,
         collection: str = "",
+        image_index: int | None = None,
     ) -> list[dict] | str:
         if not _is_enabled():
             return f"[view_knowledge_image] Image viewing is disabled ({_VIEW_IMAGES_ENABLED_ENV} is off)."
+        # The per-turn ceiling comes before any work: a spent budget costs no
+        # lookup, no fetch and no render. Outside a turn nothing is bound and
+        # the call proceeds.
+        if not try_consume_image_view():
+            return (
+                f"[view_knowledge_image] Image viewing cap reached: at most {MAX_IMAGE_VIEWS_PER_TURN} "
+                "images per turn. Answer from the captions and the images already seen."
+            )
         try:
             from knowledge_layer.llamaindex import adapter as _adapter
 
@@ -332,6 +360,57 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
 
         if page_number < 1:
             return f"[view_knowledge_image] Invalid page number {page_number}: pages are 1-based."
+
+        # A stored embedded raster: the ingest pipeline kept the image the
+        # caption chunk describes, so serve that instead of the page around it.
+        if image_index is not None:
+            if image_index < 0:
+                return f"[view_knowledge_image] Invalid image_index {image_index}: indices are 0-based."
+            if not collection:
+                return (
+                    "[view_knowledge_image] image_index addresses a raster stored beside a project/Archiv "
+                    "document; pass the hit's collection so it can be located."
+                )
+            location = await _resolve_storage_location(collection, file_name, image_index=image_index)
+            if location is None:
+                return (
+                    f"[view_knowledge_image] No stored image {image_index} for '{file_name}' in collection "
+                    f"'{collection}' (the hit carries no such Image line, or the document service is "
+                    f"unreachable). Call again without image_index to render page {page_number} instead."
+                )
+            try:
+                image_bytes = await asyncio.wait_for(
+                    asyncio.to_thread(_fetch_seaweed_bytes, *location), timeout=config.timeout
+                )
+            except Exception as e:  # noqa: BLE001 - fail-open contract
+                logger.warning("view_knowledge_image: fetch failed for image %d of %s: %s", image_index, file_name, e)
+                image_bytes = None
+            if image_bytes is None:
+                return (
+                    f"[view_knowledge_image] Could not fetch stored image {image_index} of '{file_name}' "
+                    "from object storage (credentials/endpoint unavailable, or the object is gone). "
+                    f"Call again without image_index to render page {page_number} instead."
+                )
+            try:
+                jpeg_bytes, width, height = await asyncio.wait_for(
+                    asyncio.to_thread(_normalize_image_to_jpeg, image_bytes, config.max_dim), timeout=config.timeout
+                )
+            except Exception as e:  # noqa: BLE001 - fail-open contract
+                logger.warning("view_knowledge_image: image decode failed for %s: %s", file_name, e)
+                return f"[view_knowledge_image] Could not decode stored image {image_index} of '{file_name}': {e}"
+            image_b64 = base64.b64encode(jpeg_bytes).decode("ascii")
+            return [
+                {
+                    "type": "text",
+                    "text": (
+                        f"Stored image {image_index} of '{file_name}' (page {page_number}) from collection "
+                        f"'{collection}' ({width}x{height}px). This is the embedded image the retrieved "
+                        "chunk describes, at its own resolution — inspect it for what it shows; the "
+                        "surrounding page text is not included."
+                    ),
+                },
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+            ]
 
         # Standalone image upload (PNG/JPG): there is no page to render — fetch
         # the stored bytes from SeaweedFS and return them directly.
@@ -462,7 +541,10 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
             "(not the display title); page_number is its `Page:`. For a base-corpus document pass "
             "just those two; for a project/Archiv document (an uploaded PDF or image) also pass the "
             "hit's `Collection:` so the stored bytes can be fetched. A PDF page is rendered whole, "
-            "so a figure arrives with the text around it. Returns an image content block; fails "
-            "open with a text explanation."
+            "so a figure arrives with the text around it. When the hit carries an `Image:` line, "
+            "pass its image_index (with file_name, page_number and collection) to get that embedded "
+            "image alone, at its own resolution — better for a photo or scanned drawing inside a "
+            f"PDF. At most {MAX_IMAGE_VIEWS_PER_TURN} calls per turn. Returns an image content "
+            "block; fails open with a text explanation."
         ),
     )
