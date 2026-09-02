@@ -38,6 +38,11 @@ export function EmptyState({
       className={cn(
         'flex w-full min-w-0 flex-col items-center justify-center text-center',
         variant === 'panel' ? 'rounded-lg border border-dashed bg-muted/25 px-6 py-12' : 'py-10',
+        // Staged entrance, CSS-only (this stays server-safe): the panel fades
+        // in, the disc lands a beat later. Transform/opacity only, and the
+        // parent already reserves the space, so no layout shift. `fade-in-0`
+        // is the design language's content-entrance fade.
+        'animate-in fade-in-0 duration-base ease-entrance motion-reduce:animate-none',
         className,
       )}
       {...props}
@@ -45,7 +50,7 @@ export function EmptyState({
       {Icon && (
         // A raised disc that catches the light (border + card surface + soft
         // shadow) reads more considered than a flat muted circle.
-        <div className="mb-4 flex size-12 shrink-0 select-none items-center justify-center rounded-full border bg-card text-muted-foreground/70 shadow-sm">
+        <div className="mb-4 flex size-12 shrink-0 select-none items-center justify-center rounded-full border bg-card text-muted-foreground/70 shadow-sm animate-in zoom-in-95 duration-base ease-entrance motion-reduce:animate-none">
           <Icon className="size-5" aria-hidden />
         </div>
       )}

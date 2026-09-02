@@ -29,7 +29,10 @@ const Spinner = React.forwardRef<HTMLSpanElement, SpinnerProps>(
         className={cn('inline-flex', className)}
         {...props}
       >
-        <Loader2 className={cn('animate-spin', spinnerSizeMap[size])} aria-hidden="true" />
+        <Loader2
+          className={cn('animate-spin motion-reduce:animate-none', spinnerSizeMap[size])}
+          aria-hidden="true"
+        />
         {decorative ? null : <span className="sr-only">{label}</span>}
       </span>
     )

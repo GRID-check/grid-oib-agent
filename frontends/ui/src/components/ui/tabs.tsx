@@ -46,7 +46,10 @@ const TabsTrigger = React.forwardRef<
     ref={ref}
     data-slot="tabs-trigger"
     className={cn(
-      "data-[state=active]:bg-card data-[state=active]:text-foreground outline-none inline-flex h-full flex-1 items-center justify-center gap-1.5 rounded-md px-3.5 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow,background-color] duration-quick ease-out motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 data-[state=active]:shadow-xs pointer-coarse:min-h-11 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+      // Press dip only (no layoutId pill — that belongs to a different
+      // stream). Colors at the quick duration, the transform dip one step
+      // shorter at snap, mirroring the Button press split.
+      "data-[state=active]:bg-card data-[state=active]:text-foreground outline-none inline-flex h-full flex-1 items-center justify-center gap-1.5 rounded-md px-3.5 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow,background-color,transform] [transition-duration:var(--motion-quick),var(--motion-quick),var(--motion-quick),var(--motion-snap)] ease-out motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 data-[state=active]:shadow-xs pointer-coarse:min-h-11 active:scale-[0.98] motion-reduce:active:scale-100 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
       FOCUS_RING,
       className
     )}

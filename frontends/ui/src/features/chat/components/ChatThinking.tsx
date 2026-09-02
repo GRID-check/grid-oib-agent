@@ -14,7 +14,7 @@
 import { type FC, useMemo, useState, useEffect, useRef } from 'react'
 import { ChevronDown, CheckCircle2, AlertTriangle, Clock } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { motion, AnimatePresence } from '@/components/motion'
+import { motion, AnimatePresence, motionQuick } from '@/components/motion'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
@@ -216,7 +216,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                       initial={{ opacity: 0, y: 4 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -4 }}
-                      transition={{ duration: 0.18, ease: 'easeOut' }}
+                      transition={motionQuick}
                     >
                       {activityLabel}
                     </motion.span>
@@ -296,7 +296,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.18, ease: 'easeOut' }}
+              transition={motionQuick}
             >
               <div className="border-base border-t px-2 pb-3 pt-3 sm:px-4">
                 <ReasoningFlow

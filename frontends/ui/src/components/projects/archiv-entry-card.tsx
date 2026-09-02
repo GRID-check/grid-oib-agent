@@ -16,6 +16,8 @@
 import Link from 'next/link'
 import { Archive, ChevronRight } from 'lucide-react'
 import { useTranslations } from '@/i18n'
+import { FOCUS_RING } from '@/components/ui/focus-ring'
+import { cn } from '@/lib/utils'
 import { sourceTint } from '@/lib/ui/source-tint'
 
 const OFFICE_TINT = sourceTint('office')
@@ -27,14 +29,21 @@ export function ArchivEntryCard(): JSX.Element {
     <Link
       href="/app/archiv"
       aria-label={t('archivCard.aria')}
-      className="group flex w-full items-center gap-3.5 rounded-xl border border-border bg-card px-[18px] py-3.5 shadow-xs transition-shadow duration-quick ease-out hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 motion-reduce:transition-none"
+      // Scale values only (`px-4`, `size-9`, `size-4`) — the 2px/1px drift from
+      // the old arbitraries is a one-time static alignment to the scale, not an
+      // animated shift. One lift step (`shadow-xs` → `shadow-sm`), and the
+      // documented control ring instead of the hand-rolled third recipe.
+      className={cn(
+        'group flex w-full items-center gap-3.5 rounded-xl border border-border bg-card px-4 py-3.5 shadow-xs transition-shadow duration-quick ease-out hover:shadow-sm focus-visible:outline-none motion-reduce:transition-none',
+        FOCUS_RING,
+      )}
     >
       <span
-        className="flex size-[38px] shrink-0 items-center justify-center rounded-lg"
+        className="flex size-9 shrink-0 items-center justify-center rounded-lg"
         style={OFFICE_TINT}
         aria-hidden
       >
-        <Archive className="size-[17px]" />
+        <Archive className="size-4" />
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-semibold tracking-tight">{t('archivCard.title')}</span>

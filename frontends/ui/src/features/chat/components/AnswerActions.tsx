@@ -42,6 +42,7 @@
 import { useCallback, useState, type FC } from 'react'
 import { BookMarked, Check, Copy, FileDown } from 'lucide-react'
 import { toast } from 'sonner'
+import { AnimatePresence, motion, springSnap } from '@/components/motion'
 import { FOCUS_RING } from '@/components/ui/focus-ring'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslations } from '@/i18n'
@@ -94,7 +95,7 @@ type Copied = 'answer' | 'withSources' | null
  */
 const actionButton = cn(
   'inline-flex size-6 items-center justify-center rounded-md',
-  'text-muted-foreground/70 transition-colors duration-quick ease-out motion-reduce:transition-none',
+  'text-muted-foreground/70 transition-[color,transform] duration-snap ease-out active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100',
   'hover:bg-accent hover:text-foreground',
   'touch-target',
   FOCUS_RING
@@ -194,11 +195,23 @@ export const AnswerActions: FC<AnswerActionsProps> = ({
             aria-label={copyLabel}
             className={actionButton}
           >
-            {copied === 'answer' ? (
-              <Check className="size-3.5" aria-hidden="true" />
-            ) : (
-              <Copy className="size-3.5" aria-hidden="true" />
-            )}
+            <AnimatePresence mode="popLayout" initial={false}>
+              <motion.span
+                key={copied === 'answer' ? 'check' : 'copy'}
+                initial={{ opacity: 0, scale: 0.6 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.6 }}
+                transition={springSnap}
+                className="inline-flex"
+                aria-hidden="true"
+              >
+                {copied === 'answer' ? (
+                  <Check className="size-3.5" aria-hidden="true" />
+                ) : (
+                  <Copy className="size-3.5" aria-hidden="true" />
+                )}
+              </motion.span>
+            </AnimatePresence>
           </button>
         </TooltipTrigger>
         <TooltipContent>{copyLabel}</TooltipContent>
@@ -212,11 +225,23 @@ export const AnswerActions: FC<AnswerActionsProps> = ({
               aria-label={copyWithSourcesLabel}
               className={actionButton}
             >
-              {copied === 'withSources' ? (
-                <Check className="size-3.5" aria-hidden="true" />
-              ) : (
-                <BookMarked className="size-3.5" aria-hidden="true" />
-              )}
+              <AnimatePresence mode="popLayout" initial={false}>
+                <motion.span
+                  key={copied === 'withSources' ? 'check' : 'copy'}
+                  initial={{ opacity: 0, scale: 0.6 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.6 }}
+                  transition={springSnap}
+                  className="inline-flex"
+                  aria-hidden="true"
+                >
+                  {copied === 'withSources' ? (
+                    <Check className="size-3.5" aria-hidden="true" />
+                  ) : (
+                    <BookMarked className="size-3.5" aria-hidden="true" />
+                  )}
+                </motion.span>
+              </AnimatePresence>
             </button>
           </TooltipTrigger>
           <TooltipContent>{copyWithSourcesLabel}</TooltipContent>

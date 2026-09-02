@@ -848,7 +848,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       // Animate only genuinely new messages; hydrated ones render in place.
                       initial={hydratedIds.has(message.id) ? false : 'hidden'}
                       animate="visible"
-                      exit={{ opacity: 0, transition: { duration: 0.15, ease: 'easeOut' } }}
+                      exit={{ opacity: 0, transition: motionQuick }}
                       transition={motionQuick}
                     >
                       {/* Where the reader left off, in a shared thread (spec CC-19). */}
@@ -1050,7 +1050,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 6 }}
-              transition={{ duration: 0.15, ease: 'easeOut' }}
+              transition={motionQuick}
             >
               <button
                 type="button"
@@ -1384,10 +1384,28 @@ const TypingIndicator: FC<{ status?: StatusType | null }> = ({ status }) => {
       role="status"
       aria-label={label}
     >
-      <span className="flex items-center gap-1" aria-hidden="true">
-        <span className="bg-muted-foreground/70 size-1.5 animate-pulse rounded-full [animation-delay:-0.3s] motion-reduce:animate-none" />
-        <span className="bg-muted-foreground/70 size-1.5 animate-pulse rounded-full [animation-delay:-0.15s] motion-reduce:animate-none" />
-        <span className="bg-muted-foreground/70 size-1.5 animate-pulse rounded-full motion-reduce:animate-none" />
+      <span className="flex items-center gap-1 motion-reduce:hidden" aria-hidden="true">
+        <motion.span
+          className="bg-muted-foreground/70 size-1.5 rounded-full"
+          initial={{ y: 0, opacity: 0.4 }}
+          animate={{ y: [0, -2, 0], opacity: [0.4, 1, 0.4] }}
+          transition={{ ...motionQuick, repeat: Infinity, delay: 0 }}
+        />
+        <motion.span
+          className="bg-muted-foreground/70 size-1.5 rounded-full"
+          initial={{ y: 0, opacity: 0.4 }}
+          animate={{ y: [0, -2, 0], opacity: [0.4, 1, 0.4] }}
+          transition={{ ...motionQuick, repeat: Infinity, delay: 0.12 }}
+        />
+        <motion.span
+          className="bg-muted-foreground/70 size-1.5 rounded-full"
+          initial={{ y: 0, opacity: 0.4 }}
+          animate={{ y: [0, -2, 0], opacity: [0.4, 1, 0.4] }}
+          transition={{ ...motionQuick, repeat: Infinity, delay: 0.24 }}
+        />
+      </span>
+      <span className="text-muted-foreground/70 hidden text-xs motion-reduce:inline" aria-hidden="true">
+        …
       </span>
       {/* Always word the wait (shimmering), and surface elapsed seconds once
           past a couple of seconds so a slow first token never feels stalled. */}

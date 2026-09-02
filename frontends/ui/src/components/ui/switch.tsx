@@ -40,7 +40,10 @@ const Switch = React.forwardRef<
       // over it without turning a settings row into a row of buttons.
       // The TRACK is colour, and colour never springs — an overshooting colour
       // lands outside its token. Plain tween, on the default duration.
-      'peer data-[state=checked]:bg-primary data-[state=unchecked]:bg-input inline-flex h-6 w-10 shrink-0 items-center rounded-full border border-transparent transition-colors duration-quick ease-out outline-none disabled:cursor-not-allowed disabled:opacity-50 touch-target',
+      // The press dip is transform-only at snap (no layout shift); the track
+      // had no reduced-motion guard on its own transition, so it gains one
+      // alongside the scale guard.
+      'peer data-[state=checked]:bg-primary data-[state=unchecked]:bg-input inline-flex h-6 w-10 shrink-0 items-center rounded-full border border-transparent transition-[color,background-color,border-color,transform] [transition-duration:var(--motion-quick),var(--motion-quick),var(--motion-quick),var(--motion-snap)] ease-out outline-none disabled:cursor-not-allowed disabled:opacity-50 touch-target active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100',
       FOCUS_RING,
       className
     )}
