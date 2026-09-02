@@ -299,6 +299,7 @@ def _every_live_payload(steps) -> list[dict]:
     turn_status.emit_retrieval([{"name": "emit_card", "args": {"kind": "x"}}], round_index=3)
     turn_status.emit_retrieval_requery(query_count=2)
     turn_status.emit_citation_check(source_count=3)
+    turn_status.emit_answer_repair(removed_citations=1, unverified_quotes=1)
     turn_status.emit_escalation("Shallow agent emitted insufficiency marker")
     return _live(steps)
 

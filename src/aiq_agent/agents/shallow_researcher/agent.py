@@ -39,6 +39,7 @@ from aiq_agent.common.answer_envelope import resolve_callout_marker
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
+from aiq_agent.common.citation_verification import UnverifiedQuote
 from aiq_agent.common.citation_verification import annotate_unverified_quotes
 from aiq_agent.common.citation_verification import begin_turn_capture
 from aiq_agent.common.citation_verification import end_turn_capture
@@ -249,6 +250,11 @@ def _tool_call_shape(messages: Sequence[Any], *, limit: int = 24) -> list[str]:
     return shape
 
 
+#: How many retrievals one repair may spend: one per failing quote or
+#: citation, capped. Two is a repair; more is a second research turn.
+_REPAIR_MAX_RETRIEVALS = 2
+
+
 def _summarize_removed_citations(removed_citations: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Summarize ``verify_citations`` drops for the transparency wire.
 
@@ -445,6 +451,7 @@ class ShallowResearcherAgent:
         tool_search: ToolSearchSettings | None = None,
         deferred_tool_loading: DeferredToolLoadingSettings | None = None,
         envelope_json_mode_with_tools: bool = False,
+        repair_pass: bool = True,
     ) -> None:
         """
         Initialize the shallow researcher agent.
@@ -493,6 +500,9 @@ class ShallowResearcherAgent:
         self.max_tool_iterations = max_tool_iterations
         self.reserved_tool_iterations = max(0, reserved_tool_iterations)
         self.callbacks = callbacks or []
+        # One bounded repair after verification (see ``_repair_answer``). Off
+        # is the pre-repair behaviour: ship the markers, never re-search.
+        self.repair_pass = repair_pass
         self.tool_search = tool_search if (tool_search is not None and tool_search.enabled) else None
         self.deferred_tool_loading = (
             deferred_tool_loading if (deferred_tool_loading is not None and deferred_tool_loading.enabled) else None
@@ -1147,6 +1157,126 @@ class ShallowResearcherAgent:
 
         return builder.compile()
 
+    def _repair_search_tool(self) -> BaseTool | None:
+        """The data-source tool a repair searches with: the knowledge base, else
+        the first single-query data-source tool bound to this agent."""
+        candidates = [
+            tool
+            for tool in self.tools
+            if get_source_id_for_tool(tool.name) is not None
+            and "query" in (getattr(getattr(tool, "args_schema", None), "model_fields", None) or {})
+        ]
+        for tool in candidates:
+            if tool.name == "knowledge_search":
+                return tool
+        return candidates[0] if candidates else None
+
+    async def _repair_answer(
+        self,
+        prose: str,
+        *,
+        removed_citations: list[dict[str, Any]],
+        unverified_quotes: list[UnverifiedQuote],
+        system_prompt: str | None,
+        history: list[Any],
+    ) -> tuple[str, list[SourceEntry]] | None:
+        """One bounded repair of an answer that failed verification.
+
+        Retrieves again with the failing text itself as the query — a quote
+        the model claims is in a source is the best possible search for the
+        passage that actually is, and a citation line that resolved to
+        nothing names what it was about — then asks the model to rewrite its
+        answer with every failure named and the new passages in hand. The
+        rewrite is instructed structurally: cite only what was retrieved,
+        quote only what is verbatim, otherwise paraphrase without quotation
+        marks. Whether the rewrite is better is decided by the caller, by
+        verifying it again. Returns the rewritten prose and the sources the
+        repair retrieved (the turn's capture has already closed by now, so the
+        caller folds them in), or ``None`` when there is nothing to search
+        with or the model could not answer; never raises.
+        """
+        tool = self._repair_search_tool()
+        if tool is None:
+            return None
+        queries: list[str] = []
+        for quote in unverified_quotes:
+            if quote.quote.strip():
+                queries.append(quote.quote.strip())
+        for removed in removed_citations:
+            line = str(removed.get("line") or "").strip()
+            if line:
+                queries.append(line)
+        queries = list(dict.fromkeys(q[:300] for q in queries))[:_REPAIR_MAX_RETRIEVALS]
+        if not queries:
+            return None
+
+        try:
+            from aiq_agent.common.turn_status import emit_answer_repair
+
+            emit_answer_repair(removed_citations=len(removed_citations), unverified_quotes=len(unverified_quotes))
+        except Exception:  # noqa: BLE001 - transparency must never take a turn down
+            logger.debug("Repair status not emitted", exc_info=True)
+
+        # Retrieval, captured for the caller rather than into the registry:
+        # the graph's tool node is not running, and what the repair retrieved
+        # must not change the answer's grounding unless the repair is adopted.
+        source_id = get_source_id_for_tool(tool.name)
+        grounding: list[str] = []
+        captured_sources: list[SourceEntry] = []
+        try:
+            for query in queries:
+                output = await tool.ainvoke({"query": query})
+                text = str(output or "")
+                if not text:
+                    continue
+                grounding.append(text)
+                captured_sources.extend(extract_sources_from_tool_result(tool.name, text, source_id=source_id))
+        except Exception:  # noqa: BLE001 - the answer already exists; a failed repair keeps it
+            logger.warning("Shallow researcher: repair retrieval failed", exc_info=True)
+            return None
+        if not grounding:
+            return None
+
+        failures = [f"- Quote not found verbatim in any retrieved passage: „{q.quote}“" for q in unverified_quotes]
+        failures += [
+            f"- Citation removed ({removed.get('reason') or 'unverifiable'}): {removed.get('line') or ''}".rstrip()
+            for removed in removed_citations
+        ]
+        anchor = HumanMessage(
+            content=(
+                "Your previous answer did not pass verification. Problems found:\n"
+                + "\n".join(failures)
+                + "\n\nAdditional retrieval results, searched for exactly the text that failed:\n\n"
+                + "\n\n".join(grounding)
+                + "\n\nRewrite the whole answer once, as your ```answer_json envelope object, keeping "
+                "everything that verified. Cite only sources that appear in the retrieval results "
+                "you were given, using the citations [1], [2] and the '## References' format. Put "
+                "quotation marks only around text that appears verbatim in a retrieved passage; "
+                "where it does not, paraphrase without quotation marks or leave the claim out. "
+                "Do not call any tools."
+            )
+        )
+        messages: list[Any] = []
+        if system_prompt:
+            messages.append(SystemMessage(content=system_prompt))
+        messages.extend(history)
+        messages.append(AIMessage(content=prose))
+        messages.append(anchor)
+        try:
+            response = await self._ainvoke_with_envelope_json_mode(self._get_llm(), messages)
+        except Exception:  # noqa: BLE001 - see above
+            logger.warning("Shallow researcher: repair rewrite failed", exc_info=True)
+            return None
+        text = content_to_text(getattr(response, "content", "") or "")
+        if not text.strip():
+            return None
+        text = strip_and_salvage_dsml_tool_calls(text)
+        text, _meta = extract_answer_envelope(text)
+        text, _escalation = detect_and_strip_escalation_marker(text)
+        text, _level, _reason = detect_and_strip_confidence_marker(text)
+        text = text.strip()
+        return (text, captured_sources) if text else None
+
     async def run(self, state: ShallowResearchAgentState) -> ShallowResearchAgentState:
         """
         Execute shallow research with tool-calling.
@@ -1333,6 +1463,7 @@ class ShallowResearcherAgent:
                     # saw them, mirroring the deep researcher's call) so that an
                     # answer with inline [N] citations but no Sources section can
                     # have one synthesized instead of the citations being dropped.
+                    original_prose = content
                     verification = verify_citations(content, registry, reference_sources=registry.all_sources())
                     logger.debug(
                         "Shallow researcher: citation verification complete — "
@@ -1342,8 +1473,6 @@ class ShallowResearcherAgent:
                         len(registry.all_sources()),
                     )
                     content = verification.verified_report
-                    citations_removed_summary = _summarize_removed_citations(verification.removed_citations)
-                    removed_citations_detail = list(verification.removed_citations)
                     # Quote verification: verify_citations only proves a cited
                     # SOURCE is real, not that a QUOTED sentence actually appears
                     # in it. Catch the weak model's "real section, fabricated
@@ -1352,6 +1481,69 @@ class ShallowResearcherAgent:
                     # strip; a single unverified quote caps this answer's
                     # confidence (see answer_quotes_verified).
                     unverified_quotes = verify_quoted_spans(content, registry)
+
+                    # THE TURN'S ONE REPAIR (roadmap loop L0). Until now every
+                    # failure the verifier found was handled subtractively: the
+                    # citation line deleted, the quote marked, the confidence
+                    # capped, and the answer shipped that way. A marker that
+                    # says "this quote could not be verified" is cheaper than a
+                    # second search and worse for the reader in every case where
+                    # the passage exists and the model misquoted it. So, once:
+                    # retrieve again aimed at exactly what failed, rewrite with
+                    # the failures named, re-verify, and keep whichever answer
+                    # verifies better. Bounded to one retrieval per failure (two
+                    # at most) and one rewrite; the markers remain the floor.
+                    if (
+                        self.repair_pass
+                        and state.requires_sources
+                        and (verification.removed_citations or unverified_quotes)
+                    ):
+                        repaired = await self._repair_answer(
+                            original_prose,
+                            removed_citations=list(verification.removed_citations),
+                            unverified_quotes=list(unverified_quotes),
+                            system_prompt=validated_result.get("cached_system_prompt") or self.system_prompt,
+                            history=[m for m in messages_list[:answer_index] if not isinstance(m, ToolMessage)],
+                        )
+                        if repaired is not None:
+                            repaired_prose, repair_sources = repaired
+                            # Verified against a scratch registry that holds the
+                            # repair's retrieval too. Only an adopted repair
+                            # changes what the answer is grounded in; a
+                            # discarded one leaves the registry — and every
+                            # decision downstream that reads it, such as the
+                            # single-source fallback — exactly as it was.
+                            scratch = SourceRegistry()
+                            for existing in registry.all_sources():
+                                scratch.add(existing)
+                            for source in repair_sources:
+                                scratch.add(source)
+                            candidate = verify_citations(
+                                repaired_prose, scratch, reference_sources=scratch.all_sources()
+                            )
+                            candidate_quotes = verify_quoted_spans(candidate.verified_report, scratch)
+                            before = len(verification.removed_citations) + len(unverified_quotes)
+                            after = len(candidate.removed_citations) + len(candidate_quotes)
+                            if after < before and candidate.valid_citations:
+                                logger.info(
+                                    "Shallow researcher: repair pass adopted (%d -> %d verification failures)",
+                                    before,
+                                    after,
+                                )
+                                verification = candidate
+                                content = candidate.verified_report
+                                unverified_quotes = candidate_quotes
+                                for source in repair_sources:
+                                    registry.add(source)
+                                turn_sources = [*turn_sources, *repair_sources]
+                            else:
+                                logger.info(
+                                    "Shallow researcher: repair pass discarded (%d -> %d verification failures)",
+                                    before,
+                                    after,
+                                )
+                    citations_removed_summary = _summarize_removed_citations(verification.removed_citations)
+                    removed_citations_detail = list(verification.removed_citations)
                     if unverified_quotes:
                         content = annotate_unverified_quotes(content, unverified_quotes)
                         answer_quotes_verified = False

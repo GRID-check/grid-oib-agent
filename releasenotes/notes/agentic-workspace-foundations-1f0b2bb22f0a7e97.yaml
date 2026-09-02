@@ -88,3 +88,8 @@ fixes:
     Wenn ein Recherchelauf am Budget der Organisation scheitert, sagt die
     Fehlermeldung das jetzt, samt dem Hinweis, wo ein Admin die Grenzen
     anheben kann. Bisher stand dort „interner Fehler".
+  - >
+    Hält ein Beleg oder ein Zitat der Prüfung nicht stand, sucht Piloti
+    einmal gezielt nach der fraglichen Stelle nach und formuliert die Antwort
+    neu, bevor sie erscheint. Bisher wurde die Stelle nur markiert. Bleibt die
+    Prüfung auch danach ohne Erfolg, bleibt die Markierung.

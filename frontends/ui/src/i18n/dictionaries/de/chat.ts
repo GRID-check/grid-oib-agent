@@ -759,6 +759,9 @@ export const chat: typeof en.chat = {
         // wird nicht „irgendetwas an den Belegen“, sondern jede Fundstelle
         // gegen das, was tatsächlich abgerufen wurde.
         citations: 'Belege werden gegen die Quellen geprüft …',
+        // Ein Beleg oder ein Zitat hielt der Prüfung nicht stand; einmal wird
+        // nachrecherchiert und neu formuliert, bevor die Antwort markiert erscheint.
+        repair: 'Ein Beleg hielt der Prüfung nicht stand — wird nachrecherchiert …',
         escalation: 'Kurzrecherche reicht nicht — Tiefenrecherche startet',
       },
     },
