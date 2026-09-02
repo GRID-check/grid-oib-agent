@@ -383,7 +383,7 @@ Mapping current practice onto this specific stack, rather than a generic list:
 | Cross-encoder reranking | Substituted with a truncated LLM judge on a 1.25× pool | F2, F3, F4 |
 | Contextual chunk headers | Slot exists and is filled with `file_size` | F5 |
 | Structure-aware / parent-child chunking | Not present; fixed 1024/128 over page documents | F9 |
-| Query rewriting / multi-query / HyDE | Not present | F13 |
+| Query rewriting / multi-query / HyDE | Sufficiency judge + alternative-query fan-out fused by RRF (`knowledge_layer/requery.py`, `requery_llm`) | F13 |
 | Metadata-filtered retrieval | Denylist only; the domain's real axes are not chunk metadata | F14 |
 | Relevance gating / "I don't know" | Not present; `top_k` always filled | F6, F7 |
 | Semantic caching | Exact-string only | F15 |

@@ -161,6 +161,10 @@ KEY_ROUTING_PREFIX = "status.routing."
 #: Retrieval, with and without a query to quote.
 KEY_RETRIEVAL_WITH_QUERY = "status.retrieval.withQuery"
 KEY_RETRIEVAL_PLAIN = "status.retrieval.plain"
+#: The retrieval loop trying other formulations after judging the first pool
+#: insufficient. Value-less on purpose: the alternative queries are the
+#: model's words, not the reader's, and the rule above keeps them off the line.
+KEY_RETRIEVAL_REQUERY = "status.retrieval.requery"
 
 #: Non-retrieval tools the reader asked for by name.
 KEY_ACTION_REMEMBER = "status.action.remember"
@@ -185,6 +189,7 @@ ALL_STATUS_KEYS: tuple[str, ...] = (
     "status.routing.deep",
     "status.retrieval.withQuery",
     "status.retrieval.plain",
+    "status.retrieval.requery",
     "status.action.remember",
     "status.action.card",
     "status.citations",
@@ -493,6 +498,17 @@ def emit_retrieval(tool_calls: list[dict[str, Any]] | None, *, round_index: int)
         return
 
     emit_status(f"retrieval:{round_index}", key, values=values, tools=tools)
+
+
+def emit_retrieval_requery(*, query_count: int) -> None:
+    """The search widening itself: the first pool was judged insufficient and
+    other formulations are being tried.
+
+    Worth a line because it varies — most searches never reach it — and
+    because it is the honest account of a turn that takes a few seconds
+    longer than usual. The count travels as detail, not in the sentence.
+    """
+    emit_status("retrieval:requery", KEY_RETRIEVAL_REQUERY, query_count=query_count)
 
 
 def emit_citation_check(*, source_count: int | None = None) -> None:

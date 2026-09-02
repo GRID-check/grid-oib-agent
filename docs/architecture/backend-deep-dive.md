@@ -996,6 +996,17 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    OpenRouter/OpenAI-compatible endpoints, so the judge is a cheap single LLM
    call scoring 1–10 with an excerpt-windowed prompt (`_CHUNK_EXCERPT_CHARS=400`).
 
+3a. **The retrieval loop** — optional `requery_llm` (the reference config points
+   it at the same `rerank_llm`) and `requery_max_queries` (default 2). The
+   judge (`knowledge_layer/requery.py`) reads the head of the fused pool beside
+   the reranker and says whether it contains the governing statement the
+   question needs; a sufficient pool costs no extra latency. An insufficient
+   one gets the judge's alternative formulations, each retrieved from every
+   collection in scope and fused into the same RRF as new channels (the
+   original query keeps the tie-break seat), then reranked once more. The
+   live line says `status.retrieval.requery`; the Langfuse retrieval span
+   records `requery_queries`. Fail-open at every step.
+
 4. **Retrieval-precision feedback** — a new `retrieval_precision` event kind in
    the citation-health pipeline (`src/aiq_agent/common/citation_events.py`):
    `build_turn_events` now compares the *retrieved* source labels against the

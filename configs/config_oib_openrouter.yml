@@ -526,6 +526,15 @@ functions:
     # Platform -> Retrieval top_k above this can no longer silently cap a search.
     rerank_llm: rerank_llm
     rerank_candidates: 60
+    # The retrieval loop (rag-system-audit-2026-08 F13): the same judge model
+    # reads the head of the fused pool BESIDE the reranker and says whether it
+    # can answer the question. A sufficient pool — the common case — costs no
+    # extra latency. An insufficient one gets up to two alternative
+    # formulations, each retrieved from every collection in scope and fused
+    # into the same RRF before a second rerank; the live status line says so.
+    # Fail-open: any judge error keeps the first pool.
+    requery_llm: rerank_llm
+    requery_max_queries: 2
 
   # Project Memory: silent, observable capture of durable project findings.
   # Available in project-scoped chats; no-ops (with a clear error) elsewhere.

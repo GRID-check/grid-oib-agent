@@ -70,6 +70,7 @@ def build_retrieval_input(
     top_k: int,
     reranked: bool,
     dropped_by_floor: int,
+    requery_queries: list[str] | None = None,
 ) -> dict[str, Any]:
     """What the search asked for — the half that explains WHY these picks.
 
@@ -87,6 +88,11 @@ def build_retrieval_input(
         # The relevance floor is the only stage that can empty an otherwise
         # non-empty result, so its toll belongs next to the picks.
         "dropped_by_floor": dropped_by_floor,
+        # The alternative formulations the retrieval loop fanned out to after
+        # judging the first pool insufficient. Absent on a one-shot search, so
+        # "how often does the loop fire, and on which questions" is a query
+        # over the traces rather than a guess.
+        "requery_queries": list(requery_queries) if requery_queries else None,
     }
     return _compact(payload)
 

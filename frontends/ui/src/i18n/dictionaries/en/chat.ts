@@ -765,6 +765,9 @@ export const chat = {
         retrieval: {
           withQuery: 'Searching {corpus}: “{query}”',
           plain: 'Searching {corpus} …',
+          // The first pool was not enough; other formulations are being tried.
+          // The formulations are the model's words, so they stay off the line.
+          requery: 'First results are not enough — searching with other terms …',
         },
         // Non-retrieval tools the user asked for by name. A tool with no entry
         // gets no line at all: its internal name is not a status.

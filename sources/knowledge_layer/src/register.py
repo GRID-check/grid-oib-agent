@@ -185,6 +185,26 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
             "trimmed every search to nothing."
         ),
     )
+    requery_llm: str | None = Field(
+        default=None,
+        description=(
+            "Optional LLM reference from llms: section that judges whether the fused "
+            "candidate pool can answer the query and, when it cannot, proposes alternative "
+            "formulations that are retrieved and fused into the same pool before reranking "
+            "(the retrieval loop). Runs beside the reranker, so a sufficient pool costs no "
+            "extra latency. Unset = one-shot retrieval. Fail-open: any judge error keeps "
+            "the first pool."
+        ),
+    )
+    requery_max_queries: int = Field(
+        default=2,
+        ge=1,
+        le=4,
+        description=(
+            "Ceiling on alternative queries the judge may propose per search when "
+            "requery_llm is set. Each is one retrieval per in-scope collection."
+        ),
+    )
     # Foundational RAG (hosted RAG Blueprint) options
     rag_url: str = Field(default="http://localhost:8081/v1", description="RAG query server URL (foundational_rag only)")
     ingest_url: str = Field(
@@ -606,9 +626,13 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
     cosine similarity, but the professionally chunked base corpus sits in a systematically
     better distance band than a session or project collection, so a user's own uploaded
     PDF can never win on raw score and "layered retrieval" does not layer. Each surviving
-    collection therefore contributes one RRF channel (in ``target_collections`` order, so
+    result therefore contributes one RRF channel (in ``target_collections`` order, so
     the base corpus wins exact ties) and the merged order is the fused rank — scale-free
     by construction, so a session hit at rank 0 can outrank a corpus hit at rank 5.
+    When the retrieval loop has fanned out, ``results`` also carries one result per
+    (collection, alternative query), appended after the originals: a chunk that two
+    formulations agree on is fused upward, one that only a paraphrase reached enters
+    the pool, and the original query keeps the tie-break seat.
 
     Selection over that fused order is diversity-aware; see ``_apply_diversity_cap``. With
     a single collection and ``max_per_document=0`` this is identical to a plain top-k
@@ -1309,6 +1333,21 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         except Exception as e:
             logger.warning(f"Could not resolve rerank_llm '{config.rerank_llm}', reranking disabled: {e}")
 
+    # The retrieval loop's judge (fail-open the same way). Shares the reranker's
+    # handle when the config names the same model, which is the reference setup.
+    requery_llm_obj = None
+    if config.requery_llm:
+        if config.requery_llm == config.rerank_llm and rerank_llm_obj is not None:
+            requery_llm_obj = rerank_llm_obj
+        else:
+            from aiq_agent.common import get_langchain_llm
+
+            try:
+                requery_llm_obj = await get_langchain_llm(_builder, config.requery_llm)
+                logger.info("Resolved requery model: %s", config.requery_llm)
+            except Exception as e:
+                logger.warning(f"Could not resolve requery_llm '{config.requery_llm}', retrieval loop disabled: {e}")
+
     # Cross-encoder reranking, when configured. Primary when present; the LLM judge
     # above stays as the fallback. Returns None (never raises) for 'none', an unknown
     # provider, or a key that does not resolve.
@@ -1458,13 +1497,13 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             [(entry.collection, entry.shelf) for entry in target_collections],
         )
 
-        async def _retrieve_collection(entry):
+        async def _retrieve_collection(entry, search_query: str = retrieval_query):
             coll = entry.collection
             # File exclusions + caller filters apply to the base collection only;
             # session/project collections are user content and are never filtered.
             coll_filters = _base_collection_filters(config, filters) if coll == base_collection else None
             result = await retriever.retrieve(
-                query=retrieval_query, collection_name=coll, top_k=candidate_k, filters=coll_filters
+                query=search_query, collection_name=coll, top_k=candidate_k, filters=coll_filters
             )
             # Tag each chunk with its collection so the merge does not lose the
             # per-hit stratum — the trace UI's lane labels and source_lane read it.
@@ -1531,19 +1570,24 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # Agentic narrowing, then trim to the effective top_k.
             # `file_name=` is a FILTER, not a preference: the agent named a
             # file, so other hits would be a silent bait-and-switch.
-            if doc_class or title_contains or file_name or folder:
-                kept = _apply_agent_filters(
-                    merged.chunks,
-                    doc_class=doc_class,
-                    title_contains=title_contains,
-                    file_name=file_name,
-                    folder=folder,
-                )
-                merged = merged.model_copy(update={"chunks": kept})
+            def _narrowed(pool):
+                if doc_class or title_contains or file_name or folder:
+                    return _apply_agent_filters(
+                        pool.chunks,
+                        doc_class=doc_class,
+                        title_contains=title_contains,
+                        file_name=file_name,
+                        folder=folder,
+                    )
+                return pool.chunks
+
+            merged = merged.model_copy(update={"chunks": _narrowed(merged)})
 
             # Reranking: cross-encoder first when configured, LLM judge as the
             # fallback (fail-open: any error keeps the fused order).
-            if rerank_llm_obj is not None or cross_encoder is not None:
+            async def _reranked(chunks):
+                if rerank_llm_obj is None and cross_encoder is None:
+                    return chunks
                 from knowledge_layer.rerank import rerank_chunks
 
                 # Never trim below what the caller is about to ask for. `top_k` is
@@ -1553,14 +1597,63 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 # no error — the "must exceed top_k" invariant was documented in a
                 # comment and enforced nowhere.
                 rerank_top_n = max(effective_top_k, config.rerank_candidates)
-                reranked = await rerank_chunks(
+                return await rerank_chunks(
                     rerank_llm_obj,
                     query,
-                    merged.chunks,
+                    chunks,
                     top_n=rerank_top_n,
                     cross_encoder=cross_encoder,
                 )
-                merged = merged.model_copy(update={"chunks": reranked})
+
+            # The retrieval loop (rag-system-audit-2026-08 F13). The judge reads
+            # the head of the fused pool BESIDE the reranker rather than before
+            # it, so a pool that is sufficient — the common case — pays nothing
+            # for having been judged. Only an insufficient verdict costs a second
+            # round: the proposed formulations are retrieved from every collection
+            # in scope, fused into the SAME RRF as new channels (a chunk two
+            # queries agree on rises, one only a paraphrase found enters), and the
+            # widened pool is reranked once more. Never raises: the judge fails
+            # open to "sufficient", and a failed fan-out keeps the first ranking.
+            async def _judged(chunks):
+                if requery_llm_obj is None:
+                    return None
+                from knowledge_layer.requery import judge_sufficiency
+
+                return await judge_sufficiency(requery_llm_obj, query, chunks, max_queries=config.requery_max_queries)
+
+            reranked, verdict = await asyncio.gather(_reranked(merged.chunks), _judged(merged.chunks))
+            requery_queries: list[str] = []
+            if verdict is not None and verdict.wants_requery:
+                try:
+                    from aiq_agent.common.turn_status import emit_retrieval_requery
+
+                    emit_retrieval_requery(query_count=len(verdict.queries))
+                    extra = await asyncio.gather(
+                        *(
+                            _retrieve_collection(entry, alternative)
+                            for alternative in verdict.queries
+                            for entry in target_collections
+                        ),
+                        return_exceptions=True,
+                    )
+                    # The original query's channels stay first: RRF breaks exact
+                    # ties by channel order, and the question as asked keeps the
+                    # tie-break seat over any rewording of it.
+                    widened = _merge_results(
+                        [*results, *extra], query, candidate_k, retriever.backend_name, max_per_document=0
+                    )
+                    widened = widened.model_copy(update={"chunks": _narrowed(widened)})
+                    reranked = await _reranked(widened.chunks)
+                    merged = widened
+                    requery_queries = list(verdict.queries)
+                    logger.info(
+                        "Retrieval loop widened the pool with %d alternative quer(y/ies) to %d candidate(s)",
+                        len(requery_queries),
+                        len(merged.chunks),
+                    )
+                except Exception:  # noqa: BLE001 - the first ranking is always a valid answer
+                    logger.warning("Retrieval loop fan-out failed; keeping the first pool", exc_info=True)
+            merged = merged.model_copy(update={"chunks": reranked})
 
             # Diversity cap on the ANSWER budget, in whatever order survived reranking
             # (or the fused order when no reranker is configured). Soft, as the tool
@@ -1637,6 +1730,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                         top_k=effective_top_k,
                         reranked=rerank_llm_obj is not None or cross_encoder is not None,
                         dropped_by_floor=dropped_by_floor,
+                        requery_queries=requery_queries,
                     ),
                     picks=build_retrieval_output(chunks=merged.chunks),
                 )
