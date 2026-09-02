@@ -2203,6 +2203,65 @@ class TestShallowResearcherQuoteVerification:
         assert state.answer_quotes_verified is True
 
 
+class TestRepairLookups:
+    """The repair searches for exactly what failed, where the answer said it was."""
+
+    def _quote(self, body: str, inner: str):
+        from aiq_agent.common.citation_verification import UnverifiedQuote
+
+        span = f"„{inner}“"
+        start = body.index(span)
+        return UnverifiedQuote(quote=inner, span=span, start=start, end=start + len(span), best_coverage=0.1)
+
+    def test_a_failed_quote_is_looked_up_in_the_document_it_was_attributed_to(self):
+        from aiq_agent.agents.shallow_researcher.agent import _repair_lookups
+
+        body = "Die Richtlinie fordert „Treppen muessen rot sein“ [2].\n\n## Sources\n[2] OIB-330.pdf, p.12"
+        lookups = _repair_lookups(
+            body,
+            valid_citations=[{"number": 2, "citation_key": "OIB-330.pdf, p.12", "url": None}],
+            removed_citations=[],
+            unverified_quotes=[self._quote(body, "Treppen muessen rot sein")],
+        )
+        assert lookups == [("Treppen muessen rot sein", "OIB-330.pdf")]
+
+    def test_a_quote_with_no_citation_nearby_searches_everywhere(self):
+        from aiq_agent.agents.shallow_researcher.agent import _repair_lookups
+
+        body = "„Treppen muessen rot sein“ steht irgendwo."
+        lookups = _repair_lookups(
+            body,
+            valid_citations=[],
+            removed_citations=[],
+            unverified_quotes=[self._quote(body, "Treppen muessen rot sein")],
+        )
+        assert lookups == [("Treppen muessen rot sein", None)]
+
+    def test_a_removed_citation_is_searched_with_the_claim_not_the_reference_line(self):
+        from aiq_agent.agents.shallow_researcher.agent import _repair_lookups
+
+        body = (
+            "Einleitung. Die lichte Hoehe muss 2,10 m betragen [1]. Weiter im Text.\n\n"
+            "## Sources\n- [1] OIB-RL 4 – oib-rl_4.pdf, p.7"
+        )
+        lookups = _repair_lookups(
+            body,
+            valid_citations=[],
+            removed_citations=[
+                {"number": 1, "line": "- [1] OIB-RL 4 – oib-rl_4.pdf, p.7", "reason": "not_in_registry"}
+            ],
+            unverified_quotes=[],
+        )
+        assert lookups == [("Die lichte Hoehe muss 2,10 m betragen.", "oib-rl_4.pdf")]
+
+    def test_two_is_a_repair_and_more_is_a_second_turn(self):
+        from aiq_agent.agents.shallow_researcher.agent import _repair_lookups
+
+        body = "A [1]. B [2]. C [3]."
+        removed = [{"number": n, "line": f"[{n}] x.pdf, p.{n}"} for n in (1, 2, 3)]
+        assert len(_repair_lookups(body, valid_citations=[], removed_citations=removed, unverified_quotes=[])) == 2
+
+
 class TestShallowResearcherRepairPass:
     """One bounded repair: a failed quote is re-searched and rewritten, once,
     and the answer that verifies better ships."""

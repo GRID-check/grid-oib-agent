@@ -40,6 +40,8 @@ from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.citation_verification import UnverifiedQuote
+from aiq_agent.common.citation_verification import _answer_body_before_sources
+from aiq_agent.common.citation_verification import _parse_citation_key
 from aiq_agent.common.citation_verification import annotate_unverified_quotes
 from aiq_agent.common.citation_verification import begin_turn_capture
 from aiq_agent.common.citation_verification import end_turn_capture
@@ -219,6 +221,81 @@ def _tool_call_shape(messages: Sequence[Any], *, limit: int = 24) -> list[str]:
 #: How many retrievals one repair may spend: one per failing quote or
 #: citation, capped. Two is a repair; more is a second research turn.
 _REPAIR_MAX_RETRIEVALS = 2
+
+#: A citation marker in prose, and the file part of a written citation line
+#: ("- [3] OIB-RL 2 – oib-rl_2.pdf, p.12" → "oib-rl_2.pdf").
+_CITATION_MARKER_RE = re.compile(r"\[(\d+)\]")
+_CITED_FILE_RE = re.compile(r"([^\s\[\]()]+\.[A-Za-z0-9]{2,5})\s*,\s*(?:p|S)\.\s*\d+")
+#: How far past a quote's closing mark its citation may sit.
+_CITATION_REACH = 160
+
+
+def _sentence_citing(body: str, number: int) -> str | None:
+    """The sentence in *body* that carries ``[number]``, without its markers.
+
+    The claim is the search; the reference line that pointed nowhere is not.
+    """
+    marker = f"[{number}]"
+    at = body.find(marker)
+    if at < 0:
+        return None
+    start = max(body.rfind("\n", 0, at), body.rfind(". ", 0, at) + 1, 0)
+    end = at + len(marker)
+    tail = re.search(r"[.!?](\s|$)|\n", body[end:])
+    if tail:
+        end += tail.start() + 1
+    sentence = _CITATION_MARKER_RE.sub("", body[start:end])
+    sentence = re.sub(r"\s+([.,;:!?])", r"\1", re.sub(r"\s{2,}", " ", sentence)).strip(" -*#\n")
+    return sentence or None
+
+
+def _repair_lookups(
+    prose: str,
+    *,
+    valid_citations: Sequence[dict[str, Any]],
+    removed_citations: Sequence[dict[str, Any]],
+    unverified_quotes: Sequence[UnverifiedQuote],
+) -> list[tuple[str, str | None]]:
+    """What the repair searches for, and where — ``(query, file_name)`` pairs.
+
+    A quote the verifier could not find is searched for in the document the
+    answer attributed it to: the nearest citation after the quote, resolved
+    to the file it verified against. That makes the search a precision
+    lookup in one document instead of a fan-out over every shelf — which is
+    what put "almost every file in the project" into the Herleitung as
+    read-and-not-used after a repair. A removed citation is searched for
+    with the sentence that cited it (the claim, not the reference line), in
+    the file the line named when it named one. Deduplicated, capped at
+    ``_REPAIR_MAX_RETRIEVALS``: two is a repair; more is a second turn.
+    """
+    body = _answer_body_before_sources(prose)
+    file_by_number: dict[int, str] = {}
+    for citation in valid_citations:
+        number = citation.get("number")
+        key = citation.get("citation_key")
+        if isinstance(number, int) and key:
+            filename, _page = _parse_citation_key(str(key))
+            if filename:
+                file_by_number[number] = filename
+
+    lookups: list[tuple[str, str | None]] = []
+    for quote in unverified_quotes:
+        text = quote.quote.strip()
+        if not text:
+            continue
+        nearest = _CITATION_MARKER_RE.search(body, quote.end, min(len(body), quote.end + _CITATION_REACH))
+        file_name = file_by_number.get(int(nearest.group(1))) if nearest else None
+        lookups.append((text[:300], file_name))
+    for removed in removed_citations:
+        number = removed.get("number")
+        line = str(removed.get("line") or "").strip()
+        sentence = _sentence_citing(body, number) if isinstance(number, int) else None
+        query = (sentence or line)[:300]
+        if not query:
+            continue
+        named = _CITED_FILE_RE.search(line)
+        lookups.append((query, named.group(1) if named else None))
+    return list(dict.fromkeys(lookups))[:_REPAIR_MAX_RETRIEVALS]
 
 
 def _summarize_removed_citations(removed_citations: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -1028,15 +1105,15 @@ class ShallowResearcherAgent:
         *,
         removed_citations: list[dict[str, Any]],
         unverified_quotes: list[UnverifiedQuote],
+        valid_citations: list[dict[str, Any]] | None = None,
         system_prompt: str | None,
         history: list[Any],
     ) -> tuple[str, list[SourceEntry]] | None:
         """One bounded repair of an answer that failed verification.
 
-        Retrieves again with the failing text itself as the query — a quote
-        the model claims is in a source is the best possible search for the
-        passage that actually is, and a citation line that resolved to
-        nothing names what it was about — then asks the model to rewrite its
+        Retrieves again aimed at exactly what failed (``_repair_lookups``: the
+        quote, in the document it was attributed to; the claim a removed
+        citation stood behind) — then asks the model to rewrite its
         answer with every failure named and the new passages in hand. The
         rewrite is instructed structurally: cite only what was retrieved,
         quote only what is verbatim, otherwise paraphrase without quotation
@@ -1049,17 +1126,16 @@ class ShallowResearcherAgent:
         tool = self._repair_search_tool()
         if tool is None:
             return None
-        queries: list[str] = []
-        for quote in unverified_quotes:
-            if quote.quote.strip():
-                queries.append(quote.quote.strip())
-        for removed in removed_citations:
-            line = str(removed.get("line") or "").strip()
-            if line:
-                queries.append(line)
-        queries = list(dict.fromkeys(q[:300] for q in queries))[:_REPAIR_MAX_RETRIEVALS]
-        if not queries:
+        lookups = _repair_lookups(
+            prose,
+            valid_citations=valid_citations or [],
+            removed_citations=removed_citations,
+            unverified_quotes=unverified_quotes,
+        )
+        if not lookups:
             return None
+        tool_fields = getattr(getattr(tool, "args_schema", None), "model_fields", None) or {}
+        scoped_search = "file_name" in tool_fields
 
         try:
             from aiq_agent.common.turn_status import emit_answer_repair
@@ -1075,8 +1151,11 @@ class ShallowResearcherAgent:
         grounding: list[str] = []
         captured_sources: list[SourceEntry] = []
         try:
-            for query in queries:
-                output = await tool.ainvoke({"query": query})
+            for query, file_name in lookups:
+                args: dict[str, Any] = {"query": query}
+                if file_name and scoped_search:
+                    args["file_name"] = file_name
+                output = await tool.ainvoke(args)
                 text = str(output or "")
                 if not text:
                     continue
@@ -1359,6 +1438,7 @@ class ShallowResearcherAgent:
                             original_prose,
                             removed_citations=list(verification.removed_citations),
                             unverified_quotes=list(unverified_quotes),
+                            valid_citations=list(verification.valid_citations),
                             system_prompt=validated_result.get("cached_system_prompt") or self.system_prompt,
                             history=[m for m in messages_list[:answer_index] if not isinstance(m, ToolMessage)],
                         )
