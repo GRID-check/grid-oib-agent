@@ -245,6 +245,7 @@ export const TURN_EVENT_KEYS: Record<string, string> = {
   'status.action.remember': 'thinking.turnStatus.',
   'status.action.card': 'thinking.turnStatus.',
   'status.citations': 'thinking.turnStatus.',
+  'status.repair': 'thinking.turnStatus.',
   'status.escalation': 'thinking.turnStatus.',
   // Skill keys drop the `skill.` segment: it is already the dictionary group.
   'skill.activated': 'thinking.',

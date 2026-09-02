@@ -716,6 +716,10 @@ functions:
     # third standard skill would take it to 21, so the reserve is bounded by
     # what the platform owner publishes and wants watching if that grows.
     max_tool_iterations: 7
+    # The turn's one repair (roadmap loop L0): when a citation or a quote fails
+    # verification, one more retrieval aimed at the failing text and one rewrite,
+    # re-verified; the better answer ships. Off = ship the markers as before.
+    repair_pass: true
     # Agent skills (progressive-disclosure `use_skill` tool) active on research
     # turns. Empty allowlist = every resolved skill (builtin + org) is offered.
     skills_enabled: true

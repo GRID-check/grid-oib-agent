@@ -782,6 +782,9 @@ export const chat = {
         // "the citations" in the abstract but every one of them, against what
         // was actually retrieved.
         citations: 'Checking every citation against the sources …',
+        // A citation or a quote failed verification; one more search and one
+        // rewrite are tried before the answer ships with its markers.
+        repair: 'A citation did not hold up — searching again …',
         escalation: 'A quick lookup is not enough — starting deep research',
       },
     },

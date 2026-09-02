@@ -56,6 +56,14 @@ class ShallowResearchAgentConfig(FunctionBaseConfig, name="shallow_research_agen
     )
     max_llm_turns: int = Field(default=10, description="Maximum number of LLM turns")
     max_tool_iterations: int = Field(default=5, description="Maximum tool-calling iterations before forcing synthesis")
+    repair_pass: bool = Field(
+        default=True,
+        description=(
+            "After citation and quote verification, try ONE repair when something failed: "
+            "one more retrieval aimed at the failing quote or citation, one rewrite, then "
+            "re-verify and keep the better answer. Off ships the markers as before."
+        ),
+    )
     verbose: bool = Field(default=False, description="Whether to enable verbose logging")
     skills_enabled: bool = Field(
         default=True,
@@ -152,6 +160,7 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
         tool_search=config.tool_search,
         deferred_tool_loading=config.deferred_tool_loading,
         envelope_json_mode_with_tools=config.envelope_json_mode_with_tools,
+        repair_pass=config.repair_pass,
     )
 
     async def _run(state: ShallowResearchAgentState) -> ShallowResearchAgentState:
@@ -253,6 +262,7 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
                     # select sources or activate a skill.
                     deferred_tool_loading=config.deferred_tool_loading,
                     envelope_json_mode_with_tools=config.envelope_json_mode_with_tools,
+                    repair_pass=config.repair_pass,
                 )
 
             if all_mapped_tools_filtered_out(tools, selected_tools, data_sources):

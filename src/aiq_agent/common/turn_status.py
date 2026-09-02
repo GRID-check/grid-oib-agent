@@ -176,6 +176,10 @@ KEY_ACTION_REMEMBER = "status.action.remember"
 KEY_ACTION_CARD = "status.action.card"
 
 KEY_CITATIONS = "status.citations"
+#: The turn's one bounded repair: a citation or a quote failed verification,
+#: one more retrieval and one rewrite are being tried before the answer ships
+#: with its markers. Value-less; the counts travel as detail.
+KEY_REPAIR = "status.repair"
 KEY_ESCALATION = "status.escalation"
 
 #: EVERY key this module can emit, exhaustively. Two tests hang off it: the
@@ -199,6 +203,7 @@ ALL_STATUS_KEYS: tuple[str, ...] = (
     "status.action.remember",
     "status.action.card",
     "status.citations",
+    "status.repair",
     "status.escalation",
 )
 
@@ -537,6 +542,22 @@ def emit_citation_check(*, source_count: int | None = None) -> None:
     before the reader sees it.
     """
     emit_status("citations", KEY_CITATIONS, source_count=source_count)
+
+
+def emit_answer_repair(*, removed_citations: int, unverified_quotes: int) -> None:
+    """The answer's own verification failed and one repair is being tried.
+
+    Worth a line because it varies — most answers verify clean — and because
+    it is the honest account of an answer that arrives a few seconds late:
+    a citation nothing retrieved supports, or a quote no passage contains,
+    is being re-searched and rewritten once rather than shipped marked.
+    """
+    emit_status(
+        "repair",
+        KEY_REPAIR,
+        removed_citations=removed_citations,
+        unverified_quotes=unverified_quotes,
+    )
 
 
 def emit_escalation(reason: str | None = None) -> None:

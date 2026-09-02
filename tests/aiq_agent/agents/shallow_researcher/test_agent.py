@@ -1214,6 +1214,10 @@ class TestShallowResearcherSourceRegistryGating:
         agent = ShallowResearcherAgent(
             llm_provider=mock_llm_provider,
             tools=[spy_search_tool, remember_tool],
+            # This test is about tool GATING. The answer's "[1]" resolves to
+            # nothing, which is exactly what the repair pass re-searches for;
+            # that second search is the repair's own tests' business.
+            repair_pass=False,
         )
 
         state = ShallowResearchAgentState(
@@ -2274,6 +2278,123 @@ class TestShallowResearcherQuoteVerification:
     def test_state_defaults_quotes_verified_true(self):
         state = ShallowResearchAgentState(messages=[HumanMessage(content="hi")])
         assert state.answer_quotes_verified is True
+
+
+class TestShallowResearcherRepairPass:
+    """One bounded repair: a failed quote is re-searched and rewritten, once,
+    and the answer that verifies better ships."""
+
+    @pytest.fixture
+    def mock_llm(self):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
+        return llm
+
+    @pytest.fixture
+    def mock_llm_provider(self, mock_llm):
+        provider = MagicMock(spec=LLMProvider)
+        provider.get = MagicMock(return_value=mock_llm)
+        return provider
+
+    @pytest.fixture(autouse=True)
+    def _register_kb_source(self):
+        reset_registry()
+        populate_from_config(
+            [
+                {
+                    "id": "oib_knowledge",
+                    "name": "OIB Knowledge",
+                    "description": "Search the internal OIB knowledge base.",
+                    "tools": ["knowledge_search"],
+                }
+            ]
+        )
+        yield
+        reset_registry()
+
+    def _tool_call(self):
+        return AIMessage(
+            content="",
+            tool_calls=[{"name": "knowledge_search", "args": {"query": "Treppe"}, "id": "1"}],
+        )
+
+    FABRICATED = AIMessage(
+        content=(
+            "Die Richtlinie fordert „Treppen muessen mit einer automatischen "
+            'Loeschanlage ausgestattet sein" [1].\n\n'
+            "## Sources\n[1] OIB-330.pdf, p.12"
+        )
+    )
+    VERBATIM = AIMessage(
+        content=(
+            "Es gilt: „Die lichte Durchgangshoehe von Treppen muss mindestens "
+            '2,10 m betragen" [1].\n\n## Sources\n[1] OIB-330.pdf, p.12'
+        )
+    )
+
+    @pytest.mark.asyncio
+    async def test_a_fabricated_quote_is_re_searched_and_rewritten_once(self, mock_llm_provider, mock_llm):
+        mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), self.FABRICATED, self.VERBATIM])
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[knowledge_search])
+        state = ShallowResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
+
+        result = await _run_with_bound_registry(agent, state, SourceRegistry())
+
+        output = result.messages[-1].content
+        assert "[nicht wörtlich in der Quelle belegt]" not in output
+        assert "2,10 m" in output
+        assert result.answer_quotes_verified is True
+        # Exactly one extra model call, and it was told what failed.
+        assert mock_llm.ainvoke.await_count == 3
+        repair_messages = mock_llm.ainvoke.await_args_list[2].args[0]
+        anchor = repair_messages[-1].content
+        assert "did not pass verification" in anchor
+        assert "automatischen" in anchor
+        assert "Durchgangshoehe" in anchor  # the fresh retrieval rides along
+
+    @pytest.mark.asyncio
+    async def test_a_repair_that_does_not_verify_better_is_discarded(self, mock_llm_provider, mock_llm):
+        still_wrong = AIMessage(
+            content=(
+                'Die Richtlinie fordert „Treppen muessen rot gestrichen sein" [1].\n\n## Sources\n[1] OIB-330.pdf, p.12'
+            )
+        )
+        mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), self.FABRICATED, still_wrong])
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[knowledge_search])
+        state = ShallowResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
+
+        result = await _run_with_bound_registry(agent, state, SourceRegistry())
+
+        output = result.messages[-1].content
+        # The ORIGINAL ships, marked — never the rewrite that verified no better.
+        assert "Loeschanlage" in output
+        assert "rot gestrichen" not in output
+        assert "[nicht wörtlich in der Quelle belegt]" in output
+        assert result.answer_quotes_verified is False
+        assert mock_llm.ainvoke.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_a_clean_answer_costs_no_extra_call(self, mock_llm_provider, mock_llm):
+        mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), self.VERBATIM])
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[knowledge_search])
+        state = ShallowResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
+
+        await _run_with_bound_registry(agent, state, SourceRegistry())
+
+        assert mock_llm.ainvoke.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_switched_off_ships_the_marker_as_before(self, mock_llm_provider, mock_llm):
+        mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), self.FABRICATED])
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[knowledge_search], repair_pass=False)
+        state = ShallowResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
+
+        result = await _run_with_bound_registry(agent, state, SourceRegistry())
+
+        assert "[nicht wörtlich in der Quelle belegt]" in result.messages[-1].content
+        assert mock_llm.ainvoke.await_count == 2
 
 
 class TestShallowClarificationGuidance:
