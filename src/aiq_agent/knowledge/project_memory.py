@@ -18,6 +18,8 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextvars import ContextVar
+from contextvars import Token
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,36 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 _opener = urllib.request.build_opener(_NoRedirectHandler)
+
+
+#: What the ``remember`` tool wrote during THIS turn, per turn. The
+#: post-answer reflection stage reflects against the digest the agent saw at
+#: the start of the turn, so without this a fact the tool recorded mid-turn
+#: is proposed again minutes later — and lands as a second row whenever the
+#: BFF's dedup gates disagree on kind or wording. Same shape as the card
+#: registry: bound per turn, never module-level state (AGENTS.md).
+_turn_memory_writes: ContextVar[list[str] | None] = ContextVar("turn_memory_writes", default=None)
+
+
+def begin_turn_memory_log() -> Token:
+    """Start recording this turn's memory writes; reset with the token."""
+    return _turn_memory_writes.set([])
+
+
+def end_turn_memory_log(token: Token) -> None:
+    _turn_memory_writes.reset(token)
+
+
+def record_turn_memory_write(content: str) -> None:
+    """Note a write that landed this turn. No-op outside a turn."""
+    writes = _turn_memory_writes.get()
+    if writes is not None and content:
+        writes.append(content)
+
+
+def turn_memory_writes() -> tuple[str, ...]:
+    """The contents written this turn, in order; empty outside a turn."""
+    return tuple(_turn_memory_writes.get() or ())
 
 
 def _internal_base_url() -> str:
@@ -266,7 +298,10 @@ def insert_memory_item(
     try:
         with _opener.open(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
             body = json.loads(response.read().decode("utf-8"))
-            return body.get("item", {}).get("id")
+            item_id = body.get("item", {}).get("id")
+            if item_id:
+                record_turn_memory_write(content)
+            return item_id
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             # Unknown project — nothing recorded, not a transport failure.

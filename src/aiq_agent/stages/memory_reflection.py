@@ -127,6 +127,20 @@ def _gate(facts: TurnFacts) -> GateDecision:
     return GateDecision.proceed()
 
 
+def digest_with_turn_writes(memory_digest: str | None, written: tuple[str, ...]) -> str | None:
+    """The digest the agent saw, plus what the ``remember`` tool wrote after it.
+
+    Rendered in the digest's own line grammar, so the reflection prompt shows
+    them as existing memory and the "already in the digest" filter drops a
+    finding that restates one — the tool and the stage no longer write the
+    same fact twice within one turn.
+    """
+    if not written:
+        return memory_digest
+    lines = [f'- [this turn | recorded] "{content.replace(chr(34), chr(39))}"' for content in written]
+    return "\n".join(([memory_digest.rstrip()] if memory_digest else []) + lines)
+
+
 async def _handler(ctx: StageContext) -> dict[str, Any] | None:
     """One reflection pass. ``None`` when the turn established nothing durable —
     the common, correct outcome, recorded as ``empty`` rather than invented into
@@ -141,7 +155,7 @@ async def _handler(ctx: StageContext) -> dict[str, Any] | None:
         project_id=facts.project_id,
         organization_id=facts.organization_id,
         conversation_id=facts.conversation_id,
-        memory_digest=facts.memory_digest,
+        memory_digest=digest_with_turn_writes(facts.memory_digest, facts.remembered_this_turn),
     )
     if not recorded:
         # `None` is `empty` — the common, correct outcome for a turn that

@@ -79,6 +79,9 @@ class TurnFacts:
     answer: str = ""
     #: The project-memory digest the agent actually saw this turn.
     memory_digest: str | None = None
+    #: What the ``remember`` tool wrote DURING the turn, after that digest was
+    #: built. Reflection must treat these as already recorded.
+    remembered_this_turn: tuple[str, ...] = ()
     bundesland: str | None = None
 
     #: Which path the turn took, observed after the answer (``meta`` for a

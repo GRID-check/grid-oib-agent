@@ -30,6 +30,9 @@ from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.nat_converters import ensure_registered as _ensure_nat_converters_registered
 from aiq_agent.common.platform_lessons import render_lessons_block
 from aiq_agent.conversation_context import register_context_appender
+from aiq_agent.knowledge.project_memory import begin_turn_memory_log
+from aiq_agent.knowledge.project_memory import end_turn_memory_log
+from aiq_agent.knowledge.project_memory import turn_memory_writes
 from aiq_agent.observability.otel_header_redaction_exporter import (
     ensure_registered as _ensure_otel_redaction_registered,
 )
@@ -351,6 +354,7 @@ def _post_answer_turn_facts(
     cards: object,
     deep_research_job_id: str | None,
     answer_confidence: str | None,
+    remembered_this_turn: tuple[str, ...] = (),
 ) -> TurnFacts:
     """Complete the turn's :class:`TurnFacts` from the finished graph state.
 
@@ -372,6 +376,7 @@ def _post_answer_turn_facts(
         deep_research_job_id=deep_research_job_id,
         emitted_card_types=_emitted_card_types(cards),
         answer_confidence=answer_confidence,
+        remembered_this_turn=remembered_this_turn,
     )
 
 
@@ -1193,6 +1198,8 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         card_registry = get_or_create_card_registry(nat_context_conversation_id)
         card_registry.clear()
         card_token = set_card_registry(card_registry)
+        memory_log_token = begin_turn_memory_log()
+        remembered_this_turn: tuple[str, ...] = ()
         try:
             state = ChatResearcherState(
                 messages=[HumanMessage(content=query_text)],
@@ -1229,6 +1236,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 async with admit_turn_async(_admission_organization_id()):
                     with track_agent_profile(agent_name="chat_researcher"), track_llm_costs():
                         result = await agent.run(state, thread_id=nat_context_conversation_id)
+                remembered_this_turn = turn_memory_writes()
             except TurnAdmissionError as admission_error:
                 logger.warning("Turn refused by admission control: %s", admission_error)
                 busy_response = _create_chat_response(
@@ -1252,6 +1260,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         finally:
             reset_session_registry(token)
             reset_card_registry(card_token)
+            end_turn_memory_log(memory_log_token)
             # Persist the turn's captured citation sources to the shared cache
             # (ADR-0020) so the conversation keeps prior-turn sources after a
             # restart or on another replica. Best-effort and fire-and-forget: it
@@ -1331,6 +1340,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 cards=cards,
                 deep_research_job_id=deep_research_job_id,
                 answer_confidence=answer_confidence,
+                remembered_this_turn=remembered_this_turn,
             ),
             # Keyed by agent group, not by stage id: the runner applies the org's
             # model override and its ADR-0022 BYOK credential per group, here,
