@@ -234,6 +234,7 @@ export const TURN_EVENT_KEYS: Record<string, string> = {
   'status.documents.project': 'thinking.turnStatus.',
   'status.documents.session': 'thinking.turnStatus.',
   'status.documents.several': 'thinking.turnStatus.',
+  'status.documents.waiting': 'thinking.turnStatus.',
   'status.routing.meta': 'thinking.turnStatus.',
   'status.routing.outOfScope': 'thinking.turnStatus.',
   'status.routing.shallow': 'thinking.turnStatus.',

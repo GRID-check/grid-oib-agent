@@ -86,6 +86,12 @@ Additional limits:
 - **Chat-session attachments**: `FILE_UPLOAD_MAX_FILE_COUNT` (default: **10 files**) caps how many files one chat session can hold. Project Dateiablage and the Büroarchiv are **not** under this cap — they are bounded by the organization's storage quota.
 - **Duplicate filenames** within a session are rejected
 - Files already tracked in the current session are skipped on re-upload
+- **A question asked while an attachment is still being read waits for it.**
+  Indexing a file takes a few seconds after the upload finishes. If you send a
+  question in that window, the turn holds for up to twenty seconds (the status
+  line says so) and answers once the file is searchable. A file that takes
+  longer is named in the answer as still being processed, so the answer never
+  silently omits it.
 
 ## Moving a file into a folder
 

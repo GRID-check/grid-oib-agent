@@ -3,6 +3,7 @@
 import asyncio
 import dataclasses
 import logging
+import os
 from collections.abc import AsyncGenerator
 from collections.abc import Awaitable
 from collections.abc import Callable
@@ -113,6 +114,79 @@ def _as_scoped_collection(item):
     if isinstance(item, str) and item.strip():
         return ScopedCollection(item.strip())
     return None
+
+
+#: How long a turn holds for an upload still being indexed, in seconds.
+#: Ingestion of one PDF is seconds; a large plan set is minutes, and a turn
+#: that waits minutes is a hung chat. Twenty covers the common attachment and
+#: lets the rest fall through to the "still being read" paragraph, which tells
+#: the model to say so. Operators tune it with GRID_INGEST_WAIT_SECONDS.
+_INGEST_WAIT_SECONDS_DEFAULT = 20.0
+_INGEST_POLL_SECONDS = 1.0
+
+
+def _ingest_wait_seconds() -> float:
+    raw = os.environ.get("GRID_INGEST_WAIT_SECONDS")
+    if raw is None or not raw.strip():
+        return _INGEST_WAIT_SECONDS_DEFAULT
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        logger.warning("GRID_INGEST_WAIT_SECONDS=%r is not a number; using %s", raw, _INGEST_WAIT_SECONDS_DEFAULT)
+        return _INGEST_WAIT_SECONDS_DEFAULT
+
+
+def _session_collection_name(conversation_id: str) -> str:
+    return conversation_id if conversation_id.startswith("s_") else f"s_{conversation_id}"
+
+
+async def _await_ingest_settling(
+    scope_names: list[str],
+    pending: dict[str, list[str]],
+    *,
+    read,
+    timeout_seconds: float | None = None,
+    poll_seconds: float = _INGEST_POLL_SECONDS,
+    sleep=asyncio.sleep,
+) -> dict[str, list[str]]:
+    """Hold until the in-flight files in ``scope_names`` finish, or the deadline.
+
+    ``read`` is ``ingest_status_store.in_flight_files`` (sync, run on a thread);
+    it is a parameter so the loop can be driven by a test without a database.
+    Emits one status line when the wait begins — the reader is told why the
+    first byte is late — and returns whatever is STILL pending at the end:
+    empty when everything finished, the remaining names when the deadline hit.
+    Never raises: the caller's fail-open contract holds through this.
+    """
+    if not pending:
+        return pending
+    budget = _ingest_wait_seconds() if timeout_seconds is None else timeout_seconds
+    if budget <= 0:
+        return pending
+    try:
+        from aiq_agent.common.turn_status import emit_documents_waiting
+
+        emit_documents_waiting(file_count=sum(len(names) for names in pending.values()))
+    except Exception:  # noqa: BLE001 - transparency must never take a turn down
+        logger.debug("Documents-waiting status not emitted", exc_info=True)
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + budget
+    current = pending
+    while current and loop.time() < deadline:
+        await sleep(min(poll_seconds, max(0.0, deadline - loop.time())))
+        try:
+            current = await asyncio.to_thread(read, scope_names)
+        except Exception:  # noqa: BLE001 - a failed poll ends the wait, not the turn
+            logger.debug("In-flight ingest poll failed; ending the wait", exc_info=True)
+            break
+    if current:
+        logger.info(
+            "Ingest wait expired after %.0fs with %d file(s) still pending", budget, sum(map(len, current.values()))
+        )
+    else:
+        logger.info("Ingest wait cleared: the turn proceeds with the new file(s) indexed")
+    return current
 
 
 async def _aggregate_documents_across_collections(collections, fetch_one, max_documents=None):
@@ -1224,8 +1298,27 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 entry.collection if hasattr(entry, "collection") else entry
                 for entry in (_scoped_collections or _collection_scope or [])
             ]
+            if not scope_names and nat_context_conversation_id:
+                # No header scope: the same session collection the document
+                # loader falls back to, so an attachment dropped into this chat
+                # is watched whichever way the turn was scoped.
+                scope_names = [_session_collection_name(nat_context_conversation_id)]
             if scope_names:
                 pending = await asyncio.to_thread(ingest_status_store.in_flight_files, scope_names)
+                if pending:
+                    # HOLD THE TURN. A file attached seconds ago is invisible to
+                    # retrieval until its job finishes, and an answer written
+                    # without it is wrong in the one way the reader cannot see.
+                    # Bounded: past the deadline the turn proceeds and the
+                    # inventory says which files are still being read.
+                    settled = await _await_ingest_settling(
+                        scope_names, pending, read=ingest_status_store.in_flight_files
+                    )
+                    if settled != pending:
+                        # Something finished while we waited: the inventory was
+                        # built from the summaries table before it existed.
+                        available_documents = await _load_available_documents()
+                    pending = settled
                 for names in pending.values():
                     for name in names:
                         if name not in in_flight_documents:

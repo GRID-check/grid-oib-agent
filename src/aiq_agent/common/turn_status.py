@@ -154,6 +154,11 @@ MAX_REASON_CHARS = 160
 #: a shelf name cannot be interpolated into one shared template.
 KEY_DOCUMENTS_PREFIX = "status.documents."
 
+#: ``status.documents.waiting`` — a file the reader just uploaded is still
+#: being indexed and the turn is holding for it. Value-less: the filename is
+#: the reader's own word but the line reads the same whichever file it is.
+KEY_DOCUMENTS_WAITING = "status.documents.waiting"
+
 #: ``status.routing.<decision>`` — the routing decision, as an enum. Never the
 #: classifier's prose; see the module docstring.
 KEY_ROUTING_PREFIX = "status.routing."
@@ -183,6 +188,7 @@ ALL_STATUS_KEYS: tuple[str, ...] = (
     "status.documents.project",
     "status.documents.session",
     "status.documents.several",
+    "status.documents.waiting",
     "status.routing.meta",
     "status.routing.outOfScope",
     "status.routing.shallow",
@@ -498,6 +504,17 @@ def emit_retrieval(tool_calls: list[dict[str, Any]] | None, *, round_index: int)
         return
 
     emit_status(f"retrieval:{round_index}", key, values=values, tools=tools)
+
+
+def emit_documents_waiting(*, file_count: int) -> None:
+    """The turn holding for an upload that is still being indexed.
+
+    Rare by construction — most turns have nothing in flight — and the one
+    honest account of a turn whose first byte is seconds later than usual:
+    the question is about a file that does not exist to search yet, and the
+    answer is worth more after it does.
+    """
+    emit_status("documents:waiting", KEY_DOCUMENTS_WAITING, file_count=file_count)
 
 
 def emit_retrieval_requery(*, query_count: int) -> None:

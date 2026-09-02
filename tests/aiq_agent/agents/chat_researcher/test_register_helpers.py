@@ -7,10 +7,12 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
 from aiq_agent.agents.chat_researcher.register import _aggregate_documents_across_collections
+from aiq_agent.agents.chat_researcher.register import _await_ingest_settling
 from aiq_agent.agents.chat_researcher.register import _fold_chunks_to_response
 from aiq_agent.agents.chat_researcher.register import _iter_answer_deltas
 from aiq_agent.agents.chat_researcher.register import _post_answer_turn_facts
 from aiq_agent.agents.chat_researcher.register import _response_to_chunks
+from aiq_agent.agents.chat_researcher.register import _session_collection_name
 from aiq_agent.agents.chat_researcher.utils import _extract_query_and_sources
 from aiq_agent.agents.chat_researcher.utils import _extract_query_from_text
 from aiq_agent.agents.chat_researcher.utils import _extract_text_from_message
@@ -857,3 +859,66 @@ class TestExtractQueryAndSourcesEdgeCases:
         query, sources, _skills = _extract_query_and_sources(payload)
         assert query == "Query"
         assert sources == ["web_search", "confluence"]
+
+
+class TestAwaitIngestSettling:
+    """The turn holds for an attachment still being indexed, bounded."""
+
+    async def _run(self, reads, timeout=5.0):
+        reads = list(reads)
+        calls = {"polls": 0, "sleeps": []}
+
+        def read(scope_names):
+            calls["polls"] += 1
+            return reads.pop(0) if reads else {}
+
+        async def sleep(seconds):
+            calls["sleeps"].append(seconds)
+
+        settled = await _await_ingest_settling(
+            ["s_1"], {"s_1": ["plan.pdf"]}, read=read, timeout_seconds=timeout, poll_seconds=1.0, sleep=sleep
+        )
+        return settled, calls
+
+    async def test_returns_empty_once_the_file_finished(self):
+        settled, calls = await self._run([{"s_1": ["plan.pdf"]}, {}])
+
+        assert settled == {}
+        assert calls["polls"] == 2
+
+    async def test_returns_the_remaining_files_when_the_deadline_hits(self):
+        # A read that never clears: the loop must end on the clock, not spin.
+        stuck = {"s_1": ["plan.pdf"]}
+        settled, calls = await self._run([stuck] * 50, timeout=0.0001)
+
+        assert settled == stuck
+        assert calls["polls"] <= 2
+
+    async def test_a_zero_budget_never_polls(self):
+        settled, calls = await self._run([{}], timeout=0)
+
+        assert settled == {"s_1": ["plan.pdf"]}
+        assert calls["polls"] == 0
+
+    async def test_nothing_pending_is_an_immediate_return(self):
+        def read(_names):
+            raise AssertionError("must not poll")
+
+        assert await _await_ingest_settling(["s_1"], {}, read=read, timeout_seconds=5.0) == {}
+
+    async def test_a_failing_poll_ends_the_wait_with_the_last_known_state(self):
+        def read(_names):
+            raise RuntimeError("db gone")
+
+        async def sleep(_seconds):
+            return None
+
+        settled = await _await_ingest_settling(
+            ["s_1"], {"s_1": ["plan.pdf"]}, read=read, timeout_seconds=5.0, sleep=sleep
+        )
+        assert settled == {"s_1": ["plan.pdf"]}
+
+
+def test_session_collection_name_is_idempotent():
+    assert _session_collection_name("abc") == "s_abc"
+    assert _session_collection_name("s_abc") == "s_abc"
