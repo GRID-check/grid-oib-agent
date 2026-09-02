@@ -9,8 +9,10 @@ import pytest
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage
 
+from aiq_agent.cards.generate import CardGenerationResult
 from aiq_agent.cards.generate import _parse_cards_text
 from aiq_agent.cards.generate import generate_cards
+from aiq_agent.cards.generate import generate_cards_result
 
 _ONE_CARD_OBJECT = '{"cards": [{"type": "ifc_model_picker", "title": "Überblick"}]}'
 
@@ -141,3 +143,55 @@ class TestGenerateCards:
         llm.ainvoke = _never_returns
 
         assert await generate_cards(llm, "q", "ctx") is None
+
+
+class TestGenerateCardsResult:
+    """``failed`` tells an accident from an outcome.
+
+    A run whose card model timed out used to look exactly like a run whose
+    report warranted no proposals; the job runner records the first kind as a
+    degraded reason on the answer, so the two must be distinguishable here.
+    """
+
+    @pytest.mark.asyncio
+    async def test_nothing_to_do_is_not_a_failure(self):
+        assert await generate_cards_result(None, "q", "ctx") == CardGenerationResult(cards=None)
+        assert await generate_cards_result(MagicMock(), "", "ctx") == CardGenerationResult(cards=None)
+
+    @pytest.mark.asyncio
+    async def test_the_model_declining_to_propose_is_not_a_failure(self):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock(return_value=AIMessage(content='{"cards": []}'))
+
+        assert await generate_cards_result(llm, "q", "ctx") == CardGenerationResult(cards=[])
+
+    @pytest.mark.asyncio
+    async def test_a_provider_error_is_a_failure(self):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock(side_effect=RuntimeError("boom"))
+
+        assert await generate_cards_result(llm, "q", "ctx") == CardGenerationResult(cards=None, failed=True)
+
+    @pytest.mark.asyncio
+    async def test_unparseable_output_is_a_failure(self):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock(return_value=AIMessage(content="I cannot produce JSON today."))
+
+        assert await generate_cards_result(llm, "q", "ctx") == CardGenerationResult(cards=None, failed=True)
+
+    @pytest.mark.asyncio
+    async def test_a_batch_with_no_well_formed_card_is_a_failure(self):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock(return_value=AIMessage(content='{"cards": [{"type": "summary"}]}'))
+
+        assert await generate_cards_result(llm, "q", "ctx") == CardGenerationResult(cards=None, failed=True)
+
+    @pytest.mark.asyncio
+    async def test_a_good_batch_is_not_a_failure(self):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock(return_value=AIMessage(content=_ONE_CARD_OBJECT))
+
+        result = await generate_cards_result(llm, "q", "ctx")
+
+        assert result.failed is False
+        assert result.cards == [{"type": "ifc_model_picker", "title": "Überblick"}]

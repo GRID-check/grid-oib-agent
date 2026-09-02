@@ -439,10 +439,12 @@ describe('answerDegradations — an answer weaker than it looks', () => {
     expect(answerDegradations([status('citations', 'status.citations')])).toEqual([])
   })
 
-  test('both known reasons survive, in the order the backend recorded them', () => {
+  test('every known reason survives, in the order the backend recorded them', () => {
     expect(
-      answerDegradations([degraded({ degraded: true, reasons: ['no_report_file', 'no_valid_citations'] })])
-    ).toEqual(['no_report_file', 'no_valid_citations'])
+      answerDegradations([
+        degraded({ degraded: true, reasons: ['no_report_file', 'no_valid_citations', 'cards_generation_failed'] }),
+      ])
+    ).toEqual(['no_report_file', 'no_valid_citations', 'cards_generation_failed'])
   })
 
   test('an unknown token is dropped, not surfaced', () => {

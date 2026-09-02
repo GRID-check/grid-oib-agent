@@ -592,6 +592,12 @@ CUTOFF_UPSTREAM_TIMEOUT = "upstream_timeout"
 #: Ways a finished deep answer is weaker than a clean one. Also stable tokens.
 DEGRADED_NO_REPORT_FILE = "no_report_file"
 DEGRADED_NO_VALID_CITATIONS = "no_valid_citations"
+#: The report is whole, but the proposals the job derives from it post-hoc
+#: (Grid cards) could not be produced. Job path only: the chat path emits its
+#: cards mid-turn as a tool step, so it has nothing to derive and nothing to
+#: fail silently. Without this token a run whose card model timed out looked
+#: exactly like a run whose report warranted no proposals.
+DEGRADED_CARDS_GENERATION_FAILED = "cards_generation_failed"
 
 
 def emit_deep_research_cutoff(

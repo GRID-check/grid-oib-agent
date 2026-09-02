@@ -95,6 +95,8 @@ export type TruncationReason = (typeof TRUNCATION_REASONS)[number]
  * - `no_report_file`     the run produced no persisted report; the answer in the
  *   thread is the only copy.
  * - `no_valid_citations` nothing the answer cited survived verification.
+ * - `cards_generation_failed` the report is whole, but the proposals a job
+ *   derives from it afterwards could not be produced.
  *
  * An EMPTY list is not a claim of "degraded in zero ways" — it is the ordinary
  * case, and it is stored as no key at all.
@@ -166,7 +168,7 @@ const ROUTING_DECISIONS = ['meta', 'shallow', 'deep', 'error'] as const
 /** The cutoff causes the deep researcher records. See {@link TruncationReason}. */
 export const TRUNCATION_REASONS = ['wall_clock', 'step_limit', 'upstream_timeout'] as const
 /** The degradations it records. See {@link AnswerDegradedReason}. */
-export const ANSWER_DEGRADED_REASONS = ['no_report_file', 'no_valid_citations'] as const
+export const ANSWER_DEGRADED_REASONS = ['no_report_file', 'no_valid_citations', 'cards_generation_failed'] as const
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
