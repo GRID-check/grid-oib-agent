@@ -174,14 +174,24 @@ def _make_throttled_source_tool(
         # reader gets „Bericht konnte nicht abgeschlossen werden" for a source
         # that was never even asked anything.
         #
-        # An upstream timeout raised BY the tool still flows through untouched:
-        # that one is real evidence about a source, and the run-level cutoff
-        # handling for it is deliberate.
+        # An upstream timeout raised BY the tool is evidence about ONE source,
+        # and it stays that: a tool error the model reads and routes around.
+        # It used to flow through untouched into the run-level cutoff, on the
+        # argument that it was "real evidence" — and so a single slow RIS
+        # answer ended a twenty-minute run with nothing salvaged (the report
+        # did not exist yet) and a banner blaming a time limit that was never
+        # reached. The run-level catch stays for the wall clock; a source that
+        # does not answer is the tool's failure to report, not the run's to die of.
         try:
             async with limiter.limit():
                 result = await original_tool.ainvoke(kwargs)
         except SourceToolSlotTimeout as exc:
             return f"ERROR: {exc}. No call was made; try this source again or use another."
+        except TimeoutError as exc:
+            return (
+                f"ERROR: {original_tool.name} did not answer in time ({exc or 'timeout'}). "
+                "Try this source again with a narrower query, or use another source."
+            )
         return result
 
     args_schema = getattr(original_tool, "args_schema", None)

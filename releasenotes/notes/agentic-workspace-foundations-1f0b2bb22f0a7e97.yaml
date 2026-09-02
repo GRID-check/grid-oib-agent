@@ -76,3 +76,15 @@ fixes:
     Ein OIB-Dokument einer anderen Ausgabe als Mai 2023 erhält jetzt den
     richtigen Ausgabevermerk im Titel, statt als „Ausgabe Mai 2023"
     beschriftet oder gar nicht erkannt zu werden.
+  - >
+    Eine Tiefenrecherche bricht nicht mehr ab, wenn eine einzelne Quelle
+    nicht rechtzeitig antwortet: Der Lauf erhält die Antwort „Quelle hat
+    nicht geantwortet" als Werkzeugergebnis und sucht weiter. Bisher endete
+    ein zwanzigminütiger Lauf ohne Bericht, und der Hinweis sprach von einem
+    Zeitlimit, das nie erreicht war. Der Hinweis über einem abgebrochenen
+    Bericht nennt jetzt den tatsächlichen Grund, und das Schreiben eines
+    langen Berichts hat mehr Zeit.
+  - >
+    Wenn ein Recherchelauf am Budget der Organisation scheitert, sagt die
+    Fehlermeldung das jetzt, samt dem Hinweis, wo ein Admin die Grenzen
+    anheben kann. Bisher stand dort „interner Fehler".

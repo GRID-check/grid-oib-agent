@@ -368,8 +368,15 @@ async def test_slot_timeout_is_distinguishable_from_an_upstream_timeout():
 
 
 @pytest.mark.asyncio
-async def test_an_upstream_timeout_from_the_tool_itself_still_propagates():
-    """The run-level cutoff handling for a real upstream timeout is deliberate; do not swallow it."""
+async def test_an_upstream_timeout_from_the_tool_itself_is_a_tool_error_not_a_run_failure():
+    """A source that does not answer is that source's failure, reported to the model.
+
+    This used to propagate on purpose ("real evidence about a source"), and the
+    evidence cost the whole run: the agent's run-level catch treated it as a
+    cutoff, early runs had nothing to salvage, and the banner blamed a time
+    limit nobody reached. The evidence is still delivered — as an ERROR line
+    the model can route around, which is what evidence about one source is for.
+    """
 
     class _TwoFieldInput(BaseModel):
         query: str
@@ -387,5 +394,9 @@ async def test_an_upstream_timeout_from_the_tool_itself_still_propagates():
 
     throttled = _make_throttled_source_tool(tool, limiter=SourceToolConcurrencyLimiter(2))
 
-    with pytest.raises(TimeoutError, match="upstream RIS did not answer"):
-        await throttled.ainvoke({"query": "Fluchtweg", "page": 1})
+    result = await throttled.ainvoke({"query": "Fluchtweg", "page": 1})
+
+    assert isinstance(result, str)
+    assert result.startswith("ERROR: ris_search_tool did not answer in time")
+    assert "upstream RIS did not answer" in result
+    assert "another source" in result

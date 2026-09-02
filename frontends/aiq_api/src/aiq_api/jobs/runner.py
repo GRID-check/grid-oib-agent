@@ -118,11 +118,14 @@ def sanitize_job_error(exc: BaseException) -> str:
     the exact error "cancelled by user".
     """
     from aiq_agent.common import RunBudgetExceededError
+    from aiq_agent.common.cost_tracking import BudgetExceededError
 
-    if isinstance(exc, RunBudgetExceededError):
-        # Already a curated, user-safe message ("run exceeded the configured
-        # completion-token budget of N") -- persist verbatim instead of
-        # falling through to the generic internal-error classification below.
+    if isinstance(exc, (RunBudgetExceededError, BudgetExceededError)):
+        # Already curated, user-safe messages ("run exceeded the configured
+        # completion-token budget of N"; "the organization's LLM budget is
+        # exhausted … an org admin can raise limits under …") -- persist
+        # verbatim. The second used to fall through to "internal error", so
+        # the one failure a person could act on themselves read as a crash.
         return str(exc)
 
     root_module = (type(exc).__module__ or "").split(".")[0]

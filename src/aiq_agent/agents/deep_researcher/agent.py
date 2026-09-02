@@ -147,13 +147,16 @@ except ImportError:  # pragma: no cover - only on a langgraph that moved the nam
 #: The banner's opening, in the report and in the length check that ignores it.
 _HONESTY_BANNER_PREFIX = "> **Hinweis:**"
 
-#: What a reader is told the run ran out of. Deliberately coarse: the operator
-#: channel carries the token, the reader gets the kind of limit and nothing that
-#: pretends to be an error taxonomy.
-_CUTOFF_LIMIT_LABELS = {
-    CUTOFF_WALL_CLOCK: "Zeitlimits",
-    CUTOFF_STEP_LIMIT: "Schritt-Limits",
-    CUTOFF_UPSTREAM_TIMEOUT: "Zeitlimits",
+#: Why a reader is told the run stopped, as the clause after "wurde …".
+#: Deliberately coarse: the operator channel carries the token, the reader gets
+#: the kind of cause and nothing that pretends to be an error taxonomy. An
+#: upstream timeout is NOT a time limit — a source did not answer — and calling
+#: it one had readers asking for a longer budget on runs that died in three
+#: minutes.
+_CUTOFF_CAUSE_CLAUSES = {
+    CUTOFF_WALL_CLOCK: "wegen des erreichten Zeitlimits",
+    CUTOFF_STEP_LIMIT: "wegen des erreichten Schritt-Limits",
+    CUTOFF_UPSTREAM_TIMEOUT: "weil eine angefragte Quelle nicht rechtzeitig geantwortet hat",
 }
 
 
@@ -191,11 +194,10 @@ def _prepend_honesty_banner(
     """
     sentences: list[str] = []
     if cutoff_reason is not None:
-        limit = _CUTOFF_LIMIT_LABELS.get(cutoff_reason)
-        if limit:
+        cause = _CUTOFF_CAUSE_CLAUSES.get(cutoff_reason)
+        if cause:
             sentences.append(
-                f"Diese Recherche wurde wegen des erreichten {limit} vorzeitig beendet, "
-                "der folgende Bericht ist daher unvollständig."
+                f"Diese Recherche wurde {cause} vorzeitig beendet, der folgende Bericht ist daher unvollständig."
             )
         else:
             sentences.append("Diese Recherche wurde vorzeitig beendet, der folgende Bericht ist daher unvollständig.")
