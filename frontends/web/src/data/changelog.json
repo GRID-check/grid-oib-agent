@@ -77,6 +77,34 @@
             {
               "en": "Das Projektgedächtnis findet jetzt auch ältere Notizen wieder, wenn sie zur Frage passen, und eine Korrektur trifft die Notiz, die sie meint, auch wenn sie lange zurückliegt. Bisher endete beides bei den zweihundert zuletzt geänderten Einträgen.",
               "de": "Das Projektgedächtnis findet jetzt auch ältere Notizen wieder, wenn sie zur Frage passen, und eine Korrektur trifft die Notiz, die sie meint, auch wenn sie lange zurückliegt. Bisher endete beides bei den zweihundert zuletzt geänderten Einträgen."
+            },
+            {
+              "en": "Piloti sortiert eine Frage nicht mehr vor, bevor es antwortet. Jede Frage erreicht den Assistenten mit all seinen Werkzeugen, sodass „zeig mir die Grundrisse\" oder „was weißt du über das Projekt\" jetzt Dateien anzeigen und lesen können, statt nur aus dem Projektprofil zu antworten.",
+              "de": "Piloti sortiert eine Frage nicht mehr vor, bevor es antwortet. Jede Frage erreicht den Assistenten mit all seinen Werkzeugen, sodass „zeig mir die Grundrisse\" oder „was weißt du über das Projekt\" jetzt Dateien anzeigen und lesen können, statt nur aus dem Projektprofil zu antworten."
+            },
+            {
+              "en": "Übergibt der Assistent eine Frage an die Tiefenrecherche, sagt er jetzt in eigenen Worten, warum. Der Grund steht in der Herleitung neben dem Hinweis auf die Eskalation.",
+              "de": "Übergibt der Assistent eine Frage an die Tiefenrecherche, sagt er jetzt in eigenen Worten, warum. Der Grund steht in der Herleitung neben dem Hinweis auf die Eskalation."
+            },
+            {
+              "en": "In der Herleitung tragen Projektunterlagen, Büroarchiv und Sitzungsanhänge jetzt ihr eigenes Etikett und ihre eigene Farbe. Bisher erschien jedes hochgeladene Dokument als „Basisdokument\" in der Farbe des Baurechts, mit Paragrafen-Symbol.",
+              "de": "In der Herleitung tragen Projektunterlagen, Büroarchiv und Sitzungsanhänge jetzt ihr eigenes Etikett und ihre eigene Farbe. Bisher erschien jedes hochgeladene Dokument als „Basisdokument\" in der Farbe des Baurechts, mit Paragrafen-Symbol."
+            },
+            {
+              "en": "Eine Antwort mit belegten Fundstellen und einem einzelnen Zitat, das nicht wörtlich bestätigt werden konnte, wird jetzt mit „mittel\" statt „niedrig\" eingeschätzt. Das betroffene Zitat bleibt im Text markiert.",
+              "de": "Eine Antwort mit belegten Fundstellen und einem einzelnen Zitat, das nicht wörtlich bestätigt werden konnte, wird jetzt mit „mittel\" statt „niedrig\" eingeschätzt. Das betroffene Zitat bleibt im Text markiert."
+            },
+            {
+              "en": "Die Nachrecherche nach einem fehlgeschlagenen Zitat sucht jetzt gezielt in dem Dokument, dem die Antwort das Zitat zugeschrieben hat. Bisher listete die Herleitung danach fast alle Projektdateien als gelesen auf.",
+              "de": "Die Nachrecherche nach einem fehlgeschlagenen Zitat sucht jetzt gezielt in dem Dokument, dem die Antwort das Zitat zugeschrieben hat. Bisher listete die Herleitung danach fast alle Projektdateien als gelesen auf."
+            },
+            {
+              "en": "Das Projektgedächtnis legt dieselbe Erkenntnis nicht mehr zweimal an: eine Umformulierung wird mit dem bestehenden Eintrag zusammengeführt, auch wenn sie einer anderen Art zugeordnet wurde, und ein Eintrag, den der Assistent als überholt benennt, wird auch dann zurückgezogen.",
+              "de": "Das Projektgedächtnis legt dieselbe Erkenntnis nicht mehr zweimal an: eine Umformulierung wird mit dem bestehenden Eintrag zusammengeführt, auch wenn sie einer anderen Art zugeordnet wurde, und ein Eintrag, den der Assistent als überholt benennt, wird auch dann zurückgezogen."
+            },
+            {
+              "en": "Ein gelöschtes Dokument verschwindet jetzt auch aus dem Bestand, den der Assistent kennt, selbst wenn seine Textbausteine schon fehlten. Schlägt das Aufräumen im Hintergrund fehl, steht das im Audit-Protokoll.",
+              "de": "Ein gelöschtes Dokument verschwindet jetzt auch aus dem Bestand, den der Assistent kennt, selbst wenn seine Textbausteine schon fehlten. Schlägt das Aufräumen im Hintergrund fehl, steht das im Audit-Protokoll."
             }
           ]
         },
