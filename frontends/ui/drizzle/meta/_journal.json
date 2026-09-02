@@ -519,6 +519,13 @@
       "when": 1788652800006,
       "tag": "0073_job_runs_backend_job_id_index",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1788739200006,
+      "tag": "0074_documents_live_name_per_collection",
+      "breakpoints": true
     }
   ]
 }

@@ -153,6 +153,11 @@ vi.mock('@/lib/storage/service', () => ({
 const admitOrDiscard = vi.fn()
 vi.mock('@/lib/storage/admission', () => ({
   admitOrDiscard: (...args: unknown[]) => admitOrDiscard(...args),
+  admitReplacementOrDiscard: vi.fn(),
+}))
+// A first upload: the replace probe finds nothing to supersede.
+vi.mock('@/lib/documents/repository', () => ({
+  findLiveDocumentByFilename: vi.fn().mockResolvedValue(null),
 }))
 
 const listSessionDocumentsForCleanup = vi.fn()

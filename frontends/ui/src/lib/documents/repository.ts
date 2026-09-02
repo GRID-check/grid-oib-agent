@@ -357,11 +357,22 @@ export async function findDocumentAuthoredByRef(
  * row survived: listed, downloadable, cited by nothing, findable by nothing,
  * and charged to the organization's quota twice.
  *
- * Scoped to one project's collection and to rows that are not soft-deleted. The
- * comparison is exact, matching `_replace_previous_versions`' own identity rule
- * ("a NEW name is a new document, even when its content supersedes an old
- * one") — a looser match here would let this tier and that one disagree about
- * what the same file is.
+ * Scoped to one collection — a project's, the Archiv's or a conversation's,
+ * all three shelves replace the same way — and to rows that are not
+ * soft-deleted. The comparison is exact, matching `_replace_previous_versions`'
+ * own identity rule ("a NEW name is a new document, even when its content
+ * supersedes an old one") — a looser match here would let this tier and that
+ * one disagree about what the same file is.
+ *
+ * Only rows a PERSON uploaded. A machine-authored row (`fileGeneratedDocument`)
+ * carries a filename the model chose and owns no chunks, so a person dropping a
+ * file of the same name is not correcting Piloti's report — and pointing the
+ * agent's row at their bytes would leave a human file wearing the agent's
+ * authorship. The two coexist; only human uploads replace human uploads.
+ *
+ * `uniq_documents_live_name_per_collection` (migration 0074) is this probe's
+ * WHERE clause as a constraint, so a concurrent first upload of one name cannot
+ * slip past it and recreate the ghost this exists to stop.
  */
 export async function findLiveDocumentByFilename(
   organizationId: string,
@@ -388,6 +399,7 @@ export async function findLiveDocumentByFilename(
           eq(documents.organizationId, organizationId),
           eq(documents.collectionName, collectionName),
           eq(documents.filename, filename),
+          eq(documents.authoredBy, 'user'),
           isNull(documents.deletedAt),
         ),
       )
