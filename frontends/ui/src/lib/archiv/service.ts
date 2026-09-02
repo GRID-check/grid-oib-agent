@@ -37,7 +37,7 @@ import {
   joinHitsToFiles,
   type SearchedDocument,
 } from '@/lib/documents/service'
-import { collectionDocumentsUrl, collectionFileRef } from '@/lib/documents/collection-file-ref'
+import { collectionFileRef, purgeIngestedChunks } from '@/lib/documents/collection-file-ref'
 import { deleteBimDerivedObjects } from '@/lib/bim/service'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
@@ -234,18 +234,11 @@ export async function deleteArchivDocument(
   // filename. `null` here means "not ours to purge", which is the right answer
   // for a row that owns no chunks whatever put it in this scope.
   const purgeRef = collectionFileRef(doc)
-  if (purgeRef) {
-    try {
-      await fetch(collectionDocumentsUrl(getBackendUrl(), purgeRef), {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_ids: [purgeRef.filename] }),
-        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-      })
-    } catch {
-      // ignore — chunks may linger until the next collection reconcile/purge
-    }
-  }
+  // `null`: nothing of its own to purge. `false`: the backend did not confirm,
+  // and the audit row says so — the platform vector reconcile is the sweep.
+  const chunksPurged = purgeRef
+    ? await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_FETCH_TIMEOUT_MS)
+    : null
 
   if (doc.storageKey) {
     try {
@@ -276,7 +269,7 @@ export async function deleteArchivDocument(
     action: 'archiv.document.deleted',
     targetType: 'document',
     targetId: documentId,
-    metadata: { filename: doc.filename.slice(0, 200), collectionName: doc.collectionName },
+    metadata: { filename: doc.filename.slice(0, 200), collectionName: doc.collectionName, chunksPurged },
     request,
   })
 }
