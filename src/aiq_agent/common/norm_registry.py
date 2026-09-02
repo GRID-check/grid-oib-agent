@@ -804,9 +804,26 @@ _OIB_TITLE_ROLE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("aenderungen_", "Änderungen zu "),
 )
 
-_OIB_EDITION_RE = re.compile(r"ausgabe[_-]mai[_-]2023")
+# The edition as the corpus files spell it: ``ausgabe_<monat>_<jahr>`` or
+# ``ausgabe_<jahr>``. The month is any word, the year any four digits — the
+# shipped corpus is all "Mai 2023", but a title parser that only knows one
+# edition mislabels the next one as the one it knows, or refuses it.
+_OIB_EDITION_RE = re.compile(r"ausgabe[_-](?:([^\W\d_]+)[_-])?(\d{4})")
+# Filenames write German umlauts as digraphs (``maerz``); the title writes them
+# as letters. A structural transliteration rather than a table of month names.
+_UMLAUT_DIGRAPHS = (("ae", "ä"), ("oe", "ö"), ("ue", "ü"))
 _OIB_REVISION_RE = re.compile(r"rev[_.]?(\d+)")
 _OIB_NUMBER_RE = re.compile(r"^(\d+(?:\.\d+)?)")
+
+
+def _render_edition(month: str | None, year: str) -> str:
+    """``("mai", "2023")`` -> ``"Ausgabe Mai 2023"``; ``(None, "2019")`` -> ``"Ausgabe 2019"``."""
+    if not month:
+        return f"Ausgabe {year}"
+    word = month
+    for digraph, letter in _UMLAUT_DIGRAPHS:
+        word = word.replace(digraph, letter)
+    return f"Ausgabe {word.capitalize()} {year}"
 
 
 def guess_display_title(file_name: str) -> str | None:
@@ -847,7 +864,7 @@ def guess_display_title(file_name: str) -> str | None:
     edition = ""
     edition_match = _OIB_EDITION_RE.search(low)
     if edition_match:
-        edition = "Ausgabe Mai 2023"
+        edition = _render_edition(edition_match.group(1), edition_match.group(2))
         low = (low[: edition_match.start()] + low[edition_match.end() :]).strip("_")
 
     revision = ""
