@@ -41,6 +41,11 @@ from typing import Any
 
 PROJECT_CONTEXT_HEADER = "x-grid-project-context"
 PROJECT_MEMORY_HEADER = "x-grid-project-memory"
+# The memory header carries the bounded digest (≤1800 chars) AND the block of
+# decisions the project made about the agent's proposals (≤900 chars), so the
+# cap is the sum with room for the separator — never a silent truncation of
+# the second block.
+MEMORY_HEADER_MAX_CHARS = 3000
 PROJECT_ID_HEADER = "x-grid-project-id"
 MEMORY_REFLECTION_FEATURE_HEADER = "x-grid-feature-memory-reflection"
 ORGANIZATION_ID_HEADER = "x-grid-organization-id"
@@ -325,7 +330,9 @@ class GridRequestContext:
             collection_scope=_scope_names(scope_entries),
             collection_scope_entries=scope_entries,
             project_context=normalize_project_context(_read_encoded_header(PROJECT_CONTEXT_HEADER)),
-            project_memory=normalize_project_context(_read_encoded_header(PROJECT_MEMORY_HEADER), max_chars=2000),
+            project_memory=normalize_project_context(
+                _read_encoded_header(PROJECT_MEMORY_HEADER), max_chars=MEMORY_HEADER_MAX_CHARS
+            ),
             model_overrides=_as_str_dict(_read_json_header(MODEL_OVERRIDES_HEADER)),
             budget=_as_dict(_read_json_header(BUDGET_HEADER)),
             disabled_sources=_as_str_list(_read_json_header(DISABLED_SOURCES_HEADER)),
@@ -397,7 +404,7 @@ class GridRequestContext:
             collection_scope=_scope_names(scope_entries),
             collection_scope_entries=scope_entries,
             project_context=normalize_project_context(payload.get("projectContext"), max_chars=4000),
-            project_memory=normalize_project_context(payload.get("projectMemory"), max_chars=2000),
+            project_memory=normalize_project_context(payload.get("projectMemory"), max_chars=MEMORY_HEADER_MAX_CHARS),
             model_overrides=_as_str_dict(payload.get("modelOverrides")),
             budget=_as_dict(payload.get("budget")),
             disabled_sources=_as_str_list(payload.get("disabledSources")),

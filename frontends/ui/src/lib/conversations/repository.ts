@@ -421,6 +421,40 @@ export async function deleteConversationInOrg(conversationId: string, organizati
  * Callers must have resolved the conversation through `findConversationInOrg`
  * first — this query is scoped by conversation id only.
  */
+/**
+ * The most recent messages in a project's conversations that carry a card
+ * decision (`metadata.cardInteractions`), newest first.
+ *
+ * Read for the agent, not for a person: the decisions a project made about
+ * the agent's own proposals are folded into the memory digest so a declined
+ * profile patch is not proposed again next turn (ADR-0030's open question).
+ * Tenant-scoped through the conversation's organization, and bounded — a
+ * project's whole history of decisions is not what the next turn needs.
+ */
+export async function listRecentMessagesWithCardDecisions(
+  projectId: string,
+  organizationId: string,
+  limit: number,
+): Promise<Array<{ metadata: unknown; createdAt: Date }>> {
+  const db = getDb()
+  const rows = await db
+    .select({ metadata: messages.metadata, createdAt: messages.createdAt })
+    .from(messages)
+    .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+    .where(
+      and(
+        eq(conversations.projectId, projectId),
+        eq(conversations.organizationId, organizationId),
+        isNull(conversations.deletedAt),
+        sql`${messages.metadata} ? 'cardInteractions'`,
+      ),
+    )
+    .orderBy(desc(messages.createdAt), desc(messages.id))
+    .limit(limit)
+  // Raw column values are not runtime-validated — coerce at the boundary.
+  return rows.map((row) => ({ metadata: row.metadata, createdAt: new Date(row.createdAt) }))
+}
+
 export async function listMessagesForConversation(
   conversationId: string,
   limit = MESSAGE_LIST_LIMIT,

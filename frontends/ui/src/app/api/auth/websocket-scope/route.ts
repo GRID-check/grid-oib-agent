@@ -11,6 +11,7 @@ import { tenantSlotRoute } from '@/lib/db/tenant-context'
 import { getGridSession } from '@/lib/auth/session'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
+import { buildProposalDecisionsBlock, composeMemoryContext } from '@/lib/projects/proposal-decisions'
 import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
 import { isMemoryReflectionEnabled } from '@/lib/workos/feature-flags'
 import { isWebSearchEnabledForOrg } from '@/lib/organizations/service'
@@ -156,10 +157,13 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
     // even outside a project-scoped chat. Best-effort: memory must never block
     // the chat handshake.
     try {
-      const projectMemory = await buildProjectMemoryDigest(
-        projectId,
-        session?.organizationId ?? undefined
-      )
+      const digest = await buildProjectMemoryDigest(projectId, session?.organizationId ?? undefined)
+      // What the project decided about earlier proposals, on the same channel.
+      const decisions =
+        projectId && session?.organizationId
+          ? await buildProposalDecisionsBlock(projectId, session.organizationId).catch(() => null)
+          : null
+      const projectMemory = composeMemoryContext(digest, decisions)
       if (projectMemory) {
         response.projectMemory = projectMemory
       }
