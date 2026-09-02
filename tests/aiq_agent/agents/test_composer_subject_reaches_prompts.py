@@ -69,7 +69,6 @@ def _render(agent: ShallowResearcherAgent, **overrides) -> str:
         "available_documents": [],
         "project_context": None,
         "ris_catalog": None,
-        "requires_sources": True,
     }
     kwargs.update(overrides)
     return render_prompt_template(agent.system_prompt, **kwargs)
@@ -129,17 +128,18 @@ class TestShelfLabel:
         assert _shelf_label(shelf) == expected
 
 
-class TestSubjectWidensTheToolBinding:
-    """A bound subject must keep the search tools on the turn.
+class TestSubjectKeepsTheSearchTools:
+    """A deictic turn with a subject must have the search tools on it.
 
-    The meta partition exists so a weak model cannot fire a web search at a
-    greeting. Applied to a turn that has a file bound, it removed the only tool
-    that can read that file — so "fass zusammen" over an open PDF could not
-    have been answered even by a model that knew which file was meant.
+    A pre-answer partition once withheld the search tools from anything that
+    read as chit-chat, and "fass zusammen" over an open PDF read as chit-chat —
+    so the only tool that could read the file was gone before the model saw
+    the question. Since ADR-0052 every turn carries the full tool set; this
+    pins that the bare summary request is one of them.
     """
 
     @pytest.mark.asyncio
-    async def test_meta_turn_with_a_subject_keeps_the_search_tools(self, mock_llm_provider, mock_llm):
+    async def test_a_bare_summary_request_with_a_subject_has_the_search_tools(self, mock_llm_provider, mock_llm):
         populate_from_config(
             [
                 {
@@ -160,7 +160,6 @@ class TestSubjectWidensTheToolBinding:
 
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="fass zusammen")],
-            requires_sources=False,
             focus_file_name=SUBJECT,
             focus_shelf="project",
         )
@@ -171,80 +170,6 @@ class TestSubjectWidensTheToolBinding:
         system_prompt = mock_llm.ainvoke.call_args[0][0][0].content
         assert "**searching_tool**" in system_prompt
 
-    @pytest.mark.asyncio
-    async def test_meta_turn_without_a_subject_still_drops_them(self, mock_llm_provider, mock_llm):
-        """The greeting regression stays fixed — the widening is subject-only."""
-        populate_from_config(
-            [
-                {
-                    "id": "web_search",
-                    "name": "Web Search",
-                    "description": "Search the web.",
-                    "tools": ["searching_tool"],
-                }
-            ],
-        )
-        mock_llm.ainvoke = AsyncMock(side_effect=[AIMessage(content="Hallo!")])
-
-        agent = ShallowResearcherAgent(
-            llm_provider=mock_llm_provider,
-            tools=[searching_tool, remember_tool],
-        )
-        mock_llm.bind_tools.reset_mock()
-
-        state = ShallowResearchAgentState(
-            messages=[HumanMessage(content="wie läufts so")],
-            requires_sources=False,
-        )
-        await agent.run(state)
-
-        system_prompt = mock_llm.ainvoke.call_args[0][0][0].content
-        assert "**searching_tool**" not in system_prompt
-        bound_names = {getattr(t, "name", t) for t in mock_llm.bind_tools.call_args.args[0]}
-        assert bound_names == {"remember_tool"}
-
-
-class TestIntentClassifierSeesTheOpenFile:
-    """Routing is where the loss started: a bare "summarize" reads as chit-chat
-    until you know a file is open, and a `meta` route answers without sources."""
-
-    @pytest.mark.asyncio
-    async def test_open_file_section_is_rendered_into_the_classifier_prompt(self):
-        from aiq_agent.agents.chat_researcher.nodes import IntentClassifier
-
-        llm = MagicMock()
-        response = MagicMock()
-        response.content = '{"intent":"research","research_depth":"shallow","depth_reasoning":"x"}'
-        llm.ainvoke = AsyncMock(return_value=response)
-
-        classifier = IntentClassifier(llm=llm)
-        state = ChatResearcherState(
-            messages=[HumanMessage(content="summarize ducemnt")],
-            focus_file_name=SUBJECT,
-            focus_shelf="project",
-        )
-        await classifier.run(state)
-
-        system_content = llm.ainvoke.call_args[0][0][0].content
-        assert SUBJECT in system_content
-        assert "not `meta`" in system_content
-
-    @pytest.mark.asyncio
-    async def test_no_open_file_section_without_a_subject(self):
-        from aiq_agent.agents.chat_researcher.nodes import IntentClassifier
-
-        llm = MagicMock()
-        response = MagicMock()
-        response.content = '{"intent":"meta","research_depth":null,"depth_reasoning":null}'
-        llm.ainvoke = AsyncMock(return_value=response)
-
-        classifier = IntentClassifier(llm=llm)
-        state = ChatResearcherState(messages=[HumanMessage(content="hallo")])
-        await classifier.run(state)
-
-        system_content = llm.ainvoke.call_args[0][0][0].content
-        assert "## Open file" not in system_content
-
 
 class TestSubjectSurvivesTheGraphHandoff:
     """The chat graph is the only thing between the wire and the answering
@@ -253,30 +178,22 @@ class TestSubjectSurvivesTheGraphHandoff:
     @pytest.mark.asyncio
     async def test_shallow_node_forwards_the_subject(self):
         from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
-        from aiq_agent.agents.chat_researcher.models import DepthDecision
-        from aiq_agent.agents.chat_researcher.models import IntentResult
 
         captured: dict = {}
-
-        async def classifier(state):
-            return {
-                "user_intent": IntentResult(intent="research", raw=None),
-                "depth_decision": DepthDecision(decision="shallow", raw_reasoning="one lookup"),
-            }
 
         async def shallow(state):
             captured["focus_file_name"] = state.focus_file_name
             captured["focus_shelf"] = state.focus_shelf
             result = MagicMock()
             result.messages = list(state.messages) + [AIMessage(content="Zusammenfassung.")]
-            result.escalate_to_deep = False
+            result.escalation_requested = False
+            result.answer_confidence_marker = None
             return result
 
         async def unused(state):  # pragma: no cover — the route never reaches these
             raise AssertionError("shallow turn must not escalate")
 
         agent = ChatResearcherAgent(
-            intent_classifier_fn=classifier,
             shallow_research_fn=shallow,
             deep_research_fn=unused,
             clarifier_fn=unused,

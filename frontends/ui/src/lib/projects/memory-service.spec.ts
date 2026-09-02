@@ -666,6 +666,43 @@ describe('createProjectMemoryItem paraphrase de-duplication', () => {
   })
 
   /**
+   * The finding restates a row we already hold AND the caller named the entry
+   * it makes obsolete. Merging into the restatement used to end the write
+   * before the quote was read, so the named row stayed live beside the
+   * refreshed one — the second entry a reviewer saw after a correction.
+   */
+  it('retires a named target even when the finding merges into a paraphrase', async () => {
+    const existing = makeMemoryItem({
+      id: 'dup-1',
+      kind: 'derived_fact',
+      content: 'Natural smoke extraction was approved for the stairwell',
+    })
+    const stale = makeMemoryItem({
+      id: 'stale-3',
+      kind: 'constraint',
+      content: 'The stairwell must be pressurised (Druckbelueftung)',
+    })
+    // exact-dup: none; near-dup: the restatement; resolve scan: the named entry.
+    const { values, set } = mockSupersedeChain([[], [existing], [stale]])
+    const onSuperseded = vi.fn()
+
+    await createProjectMemoryItem(
+      {
+        scope: 'project',
+        projectId: 'proj-1',
+        organizationId: 'org-1',
+        kind: 'derived_fact',
+        content: 'Natural smoke extraction was approved for the stairwell instead',
+      },
+      { supersedesContent: 'The stairwell must be pressurised (Druckbelueftung)', onSuperseded }
+    )
+
+    expect(values).not.toHaveBeenCalled()
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ status: 'superseded' }))
+    expect(onSuperseded).toHaveBeenCalledWith('stale-3')
+  })
+
+  /**
    * A person's note is never retired by the agent. The finding still lands —
    * beside it — and the row remembers WHICH note it was not allowed to
    * replace, so the contradiction is a fact a panel can show rather than a

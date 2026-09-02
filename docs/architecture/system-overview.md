@@ -25,7 +25,7 @@ Architecturally, GRID is a **two-tier system**:
 - A **stateful BFF** (Next.js) owns identity, the application database, file
   storage, and access control — everything tenant-specific and durable.
 - A **stateless AI backend** (Python / NeMo Agent Toolkit + LangGraph) owns
-  orchestration — intent routing, retrieval, research, and answer generation —
+  orchestration — retrieval, research, escalation and answer generation —
   and holds no long-lived tenant state of its own.
 
 Everything the backend needs about *who is asking* and *what they can see*
@@ -158,9 +158,11 @@ or security, and every tenant-data mutation goes through one audited layer.
 
 ### 5.1 Chat & the agent pipeline
 Chat is **WebSocket-only** (ADR 0009). A turn runs through a LangGraph workflow
-(`chat_deepresearcher_agent`): **intent classification → {meta answer | shallow
-research | clarifier → deep research}**, with an escalation path from shallow to
-deep. Shallow research answers directly from retrieval; deep research is
+(`chat_deepresearcher_agent`): **one answering agent on every turn, with its
+full tool set → (escalate?) → clarifier → deep research** (ADR-0052). There is
+no classifier in front of it: the agent decides per turn, in its answer
+envelope, whether to reply directly, to research and cite, or to hand off to
+deep research. Shallow research answers directly from retrieval; deep research is
 dispatched as an async job (§5.5). Responses stream back through a monkeypatched
 NAT WebSocket handler that lifts structured fields (cards, deep-research job id)
 onto the message. → `docs/architecture/backend-deep-dive.md` §2.
@@ -269,7 +271,7 @@ logging. Memory capture is silent but observable in these traces.
 **A chat turn.** Browser opens a WebSocket → `server.js` resolves the session and
 attaches `X-Grid-Collection-Scope` + `x-grid-project-context` +
 `x-grid-project-memory` (base64url) → proxies the upgrade to the backend → the
-LangGraph workflow classifies intent, retrieves in scope, verifies citations,
+LangGraph workflow retrieves in scope (or replies directly), verifies citations,
 generates the answer + any cards → streams back → the UI renders text, sources,
 and cards.
 

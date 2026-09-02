@@ -79,11 +79,14 @@ class TurnFacts:
     answer: str = ""
     #: The project-memory digest the agent actually saw this turn.
     memory_digest: str | None = None
+    #: What the ``remember`` tool wrote DURING the turn, after that digest was
+    #: built. Reflection must treat these as already recorded.
+    remembered_this_turn: tuple[str, ...] = ()
     bundesland: str | None = None
 
-    #: Classified user intent (``research`` / ``meta`` / ``error`` / …).
-    intent: str | None = None
-    #: The derived routing decision surfaced on the answer (WP-A transparency).
+    #: Which path the turn took, observed after the answer (``meta`` for a
+    #: direct reply, ``shallow``, ``deep``, ``error``); see
+    #: ``chat_researcher.agent.observed_routing``.
     routing_decision: str | None = None
     #: The research loop hit its tool-iteration ceiling: the turn ran out of
     #: budget before it ran out of question.

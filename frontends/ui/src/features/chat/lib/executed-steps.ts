@@ -2,7 +2,7 @@
  * Executed-step chips for the Herleitung basis area.
  *
  * Derives "what actually ran" from the turn's thinking steps — one compact chip
- * per executed agent/tool (Einordnung · Websuche · OIB-Korpus · RIS …), in run
+ * per executed agent/tool (Assistent · Websuche · OIB-Korpus · RIS …), in run
  * order, without the technical-steps opt-in. A chip marked `running` belongs to
  * the step still in progress, so the row doubles as a quiet "this is the active
  * one" cue while streaming.
@@ -72,12 +72,10 @@ export type ExecutedStepInput = Pick<ThinkingStep, 'functionName' | 'isComplete'
 
 /** i18n keys under `chat.thinking.stepName.*`, matched on the lowercased function name. */
 const STEP_NAME_RULES: Array<{ match: RegExp; key: string }> = [
-  { match: /intent|classif/, key: 'understanding' },
-  { match: /depth_router|router/, key: 'routing' },
   { match: /web[_-]?search|tavily/, key: 'webSearch' },
   { match: /ris/, key: 'ris' },
   { match: /knowledge|retriev|corpus/, key: 'corpus' },
-  { match: /shallow|meta_chatter|assistant/, key: 'assistant' },
+  { match: /shallow|assistant/, key: 'assistant' },
   { match: /read|fetch/, key: 'reading' },
 ]
 

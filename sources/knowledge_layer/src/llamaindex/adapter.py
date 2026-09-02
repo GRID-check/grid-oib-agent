@@ -2653,15 +2653,19 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     if file_name in (stripped, unquote(stripped)):
                         matching_ids.append(all_results["ids"][i])
                 if not matching_ids:
-                    if not tracking_ids_to_remove:
-                        logger.warning(f"No chunks found for file_name={file_name}")
-                        return False
-                    # No chunks in ChromaDB but tracking entries exist (e.g. FAILED files).
-                    # Clean them up and report success.
-                    with self._lock:
-                        for tid in tracking_ids_to_remove:
-                            self._files.pop(tid, None)
-                    logger.info(f"Removed {len(tracking_ids_to_remove)} tracking entries for file {file_name}")
+                    # No chunks in ChromaDB. Whatever else the document left
+                    # behind — tracking entries for a FAILED file, the summary
+                    # row the inventory is built from, the lexical mirror — is
+                    # forgotten regardless: a delete that returned early here
+                    # left a file with no chunks in the agent's inventory for
+                    # good, and every later delete took the same early exit.
+                    if tracking_ids_to_remove:
+                        with self._lock:
+                            for tid in tracking_ids_to_remove:
+                                self._files.pop(tid, None)
+                        logger.info(f"Removed {len(tracking_ids_to_remove)} tracking entries for file {file_name}")
+                    else:
+                        logger.warning(f"No chunks found for file_name={file_name}; clearing its summary and text")
 
                     from aiq_agent.knowledge import unregister_summary
 
@@ -2670,7 +2674,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
 
                     get_chunk_text_store().delete_by_file(collection_name, file_name)
-                    return True
+                    # True only when something of the file was actually removed.
+                    return bool(tracking_ids_to_remove)
                 results = {"ids": matching_ids}
 
             collection.delete(ids=results["ids"])
@@ -3236,14 +3241,17 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # Explicit per-document classification ("Dokumentart").
                     # Prefer a human-set stored class over the filename guess;
                     # stamped into every chunk's metadata below and persisted to
-                    # the summaries row after ingestion. Only meaningful for
-                    # base-corpus files — a guess of "sonstiges" for project/
-                    # session uploads is harmless.
+                    # the summaries row after ingestion. The guess is for the
+                    # base corpus only: on a project, session or Büroarchiv
+                    # upload a guessed "sonstiges" is not harmless — it labelled
+                    # every user document a "Basisdokument" in the Herleitung.
                     from aiq_agent.common.norm_registry import guess_doc_class
+                    from aiq_agent.common.source_kinds import legacy_shelf_for_collection_name
                     from aiq_agent.knowledge import get_document_doc_class
 
                     stored_doc_class = get_document_doc_class(collection_name, file_name)
-                    doc_class = stored_doc_class or guess_doc_class(file_name)
+                    base_corpus = legacy_shelf_for_collection_name(collection_name) is None
+                    doc_class = stored_doc_class or (guess_doc_class(file_name) if base_corpus else None)
                     is_pdf = (
                         file_name.lower().endswith(".pdf")
                         or Path(file_path).suffix.lower() == ".pdf"

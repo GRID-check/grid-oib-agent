@@ -140,3 +140,36 @@ export const collectionDocumentsUrl = (backendUrl: string, ref: CollectionFileRe
  */
 export const collectionFileUrl = (backendUrl: string, ref: CollectionFileRef, suffix: string): string =>
   `${collectionDocumentsUrl(backendUrl, ref)}/${encodeURIComponent(ref.filename)}${suffix}`
+
+
+/**
+ * Ask the backend to forget a document's chunks, summary row and text mirror.
+ *
+ * Returns whether the backend confirmed it. A `false` is logged and recorded
+ * on the delete's audit event rather than swallowed: a deleted file whose
+ * chunks linger keeps answering questions and keeps its name in the agent's
+ * inventory, and the platform's vector reconcile is the only thing that
+ * catches it — so the failure has to be visible somewhere a person looks.
+ */
+export async function purgeIngestedChunks(
+  backendUrl: string,
+  ref: CollectionFileRef,
+  timeoutMs: number
+): Promise<boolean> {
+  try {
+    const response = await fetch(collectionDocumentsUrl(backendUrl, ref), {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_ids: [ref.filename] }),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (!response.ok) {
+      console.warn(`[documents] chunk purge refused for ${ref.collectionName}/${ref.filename}: HTTP ${response.status}`)
+      return false
+    }
+    return true
+  } catch (error) {
+    console.warn(`[documents] chunk purge failed for ${ref.collectionName}/${ref.filename}`, error)
+    return false
+  }
+}

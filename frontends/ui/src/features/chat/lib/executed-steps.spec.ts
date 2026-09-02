@@ -27,14 +27,11 @@ describe('deriveExecutedSteps', () => {
   })
 
   test.each([
-    ['intent_classifier', 'thinking.stepName.understanding'],
-    ['depth_router', 'thinking.stepName.routing'],
     ['web_search_tool', 'thinking.stepName.webSearch'],
     ['tavily_search', 'thinking.stepName.webSearch'],
     ['ris_search', 'thinking.stepName.ris'],
     ['knowledge_retrieval', 'thinking.stepName.corpus'],
     ['shallow_research_agent', 'thinking.stepName.assistant'],
-    ['meta_chatter', 'thinking.stepName.assistant'],
     ['url_fetch', 'thinking.stepName.reading'],
   ])('maps %s → %s', (functionName, expected) => {
     expect(deriveExecutedSteps([step({ functionName })], t)[0].label).toBe(expected)
@@ -70,13 +67,13 @@ describe('deriveExecutedSteps', () => {
   test('dedups a re-run tool into one chip and keeps run order', () => {
     const chips = deriveExecutedSteps(
       [
-        step({ id: '1', functionName: 'intent_classifier' }),
+        step({ id: '1', functionName: 'shallow_research_agent' }),
         step({ id: '2', functionName: 'web_search_tool' }),
         step({ id: '3', functionName: 'web_search_tool' }),
       ],
       t
     )
-    expect(chips.map((c) => c.key)).toEqual(['intent_classifier', 'web_search_tool'])
+    expect(chips.map((c) => c.key)).toEqual(['shallow_research_agent', 'web_search_tool'])
   })
 
   test('marks the in-progress step as running; a re-run refreshes the flag', () => {
@@ -293,7 +290,7 @@ describe('deriveExecutedSteps — turn status events', () => {
 
     test('still shows different kinds of work as different chips', () => {
       const steps = [
-        step({ functionName: 'intent_classifier' }),
+        step({ functionName: 'shallow_research_agent' }),
         step({ functionName: 'knowledge_search' }),
         step({ functionName: 'ris_search_tool' }),
         step({ functionName: 'web_search_tool' }),

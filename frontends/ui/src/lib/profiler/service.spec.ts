@@ -94,7 +94,7 @@ describe('getConversationTimeline', () => {
         spanId: 'node_1',
         parentSpanId: 'root',
         kind: 'node',
-        name: 'intent_classifier',
+        name: 'shallow_research_agent',
         durationMs: 120,
         startedAt: new Date('2026-01-01T00:00:00.100Z'),
       }),

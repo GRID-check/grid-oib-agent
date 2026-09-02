@@ -3,6 +3,7 @@ import {
   buildPassageIndex,
   findPassage,
   locatePassage,
+  MIN_PARTIAL_HALF,
   MIN_WINDOW_SCORE,
   normalizePassage,
   passageBounds,
@@ -205,6 +206,44 @@ describe('findPassage — windowed', () => {
     expect(
       locatePassage(twice, 'Der Eigentuemer hat die Fertigstellung der Behoerde anzuzeigen'),
     ).toBeNull()
+  })
+})
+
+describe('findPassage — partial', () => {
+  it('matches on its first half when the second half is on the next page', () => {
+    // The page holds the first half of the passage and ends; the rest is on the
+    // sheet after it. The opening words are ambiguous here (the section starts
+    // two clauses the same way), so no anchor holds, and half the distinctive
+    // words are missing, so no window clears the floor — but the half that IS
+    // here is here verbatim.
+    const chunks = page(
+      'Der Antrag ist bei der Behoerde schriftlich einzubringen und hat die Unterlagen zu enthalten',
+      'Der Antrag ist bei der Behoerde schriftlich einzubringen sobald die Frist verstrichen ist',
+    )
+    const match = locatePassage(
+      chunks,
+      'Der Antrag ist bei der Behoerde schriftlich einzubringen und hat die Unterlagen zu enthalten ' +
+        'die in der Verordnung genannt sind und vom Planverfasser stammen',
+    )
+    expect(match).not.toBeNull()
+    expect(match!.matcher).toBe('partial')
+    expect(match!.score).toBe(0.5)
+    // The first line, and only the first line.
+    const bounds = passageBounds(match!.rects)!
+    expect(bounds.y).toBe(0)
+    expect(bounds.height).toBe(LINE_HEIGHT)
+  })
+
+  it('never goes partial on a snippet shorter than two halves', () => {
+    // 46 normalised characters: one half would be under the floor, and a
+    // half that short is a clause every page has a copy of.
+    const chunks = page(
+      'Die Frist beginnt mit Zustellung des Bescheids',
+      'Die Frist beginnt mit Ablauf der Kundmachung',
+    )
+    const snippet = 'Die Frist beginnt mit Zustellung ohne Aufschub'
+    expect(normalizePassage(snippet).length).toBeLessThan(MIN_PARTIAL_HALF * 2)
+    expect(locatePassage(chunks, snippet)).toBeNull()
   })
 })
 

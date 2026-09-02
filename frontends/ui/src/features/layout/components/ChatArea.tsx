@@ -898,8 +898,6 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                             citations={agentMsg?.citations}
                             choicePrompt={choicePrompt}
                             onChoiceRespond={handlePromptRespond}
-                            routingDecision={agentMsg?.routingDecision}
-                            routingReason={agentMsg?.routingReason}
                             escalationReason={agentMsg?.escalationReason}
                           />
                         </div>

@@ -4,8 +4,6 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
 from aiq_agent.agents.chat_researcher.models import ChatResearcherState
-from aiq_agent.agents.chat_researcher.models import DepthDecision
-from aiq_agent.agents.chat_researcher.models import IntentResult
 from aiq_agent.agents.chat_researcher.models import ShallowResult
 
 
@@ -35,27 +33,20 @@ class TestChatResearcherState:
 
         assert state.user_info == {"name": "John", "preferences": {"theme": "dark"}}
 
-    def test_state_with_intent_result(self):
-        """Test state with intent result."""
-        intent = IntentResult(intent="research", raw={"confidence": 0.95})
+    def test_state_with_routing_decision(self):
+        """The observed routing is a plain literal on the state, set after the answer."""
         state = ChatResearcherState(
             messages=[HumanMessage(content="What is CUDA?")],
-            user_intent=intent,
+            routing_decision="shallow",
         )
 
-        assert state.user_intent == intent
-        assert state.user_intent.intent == "research"
+        assert state.routing_decision == "shallow"
 
-    def test_state_with_depth_decision(self):
-        """Test state with depth decision."""
-        depth = DepthDecision(decision="shallow", raw_reasoning="Simple query")
-        state = ChatResearcherState(
-            messages=[HumanMessage(content="Test")],
-            depth_decision=depth,
-        )
-
-        assert state.depth_decision == depth
-        assert state.depth_decision.decision == "shallow"
+    def test_state_carries_no_classification(self):
+        """ADR-0052: nothing decides the turn's shape before the answer, so the
+        state has no field to hold such a decision."""
+        for gone in ("user_intent", "depth_decision", "routing_reason"):
+            assert gone not in ChatResearcherState.model_fields
 
     def test_state_with_shallow_result(self):
         """Test state with shallow result."""
@@ -86,8 +77,8 @@ class TestChatResearcherState:
         state = ChatResearcherState(messages=[])
 
         assert state.user_info is None
-        assert state.user_intent is None
-        assert state.depth_decision is None
+        assert state.routing_decision is None
+        assert state.escalation_reason is None
         assert state.final_report is None
         assert state.shallow_result is None
         assert state.data_sources is None
@@ -139,8 +130,7 @@ class TestChatResearcherState:
                 AIMessage(content="CUDA is a parallel computing platform."),
             ],
             user_info={"role": "developer"},
-            user_intent=IntentResult(intent="research", raw=None),
-            depth_decision=DepthDecision(decision="shallow", raw_reasoning="Simple factual query"),
+            routing_decision="shallow",
             shallow_result=ShallowResult(
                 answer="CUDA is a parallel computing platform by NVIDIA.",
                 confidence="high",
@@ -150,7 +140,6 @@ class TestChatResearcherState:
             data_sources=["web_search", "confluence"],
         )
 
-        assert state.user_intent.intent == "research"
-        assert state.depth_decision.decision == "shallow"
+        assert state.routing_decision == "shallow"
         assert state.shallow_result.confidence == "high"
         assert state.data_sources == ["web_search", "confluence"]

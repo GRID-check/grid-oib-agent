@@ -254,11 +254,16 @@ User-informing: both in-turn and reflection writes surface under each answer as 
 fed by `GET /api/projects/{id}/memory?conversationId=…`), labelling in-turn
 (`agent`) vs reflection (`distillation`) provenance.
 
-De-duplication: `createProjectMemoryItem` runs a two-pass write-time check on
+De-duplication: `createProjectMemoryItem` runs a three-pass write-time check on
 every write (both the tool and this stage) — a normalized-equal active item is
-refreshed in place instead of duplicated, and a same-kind **paraphrase** (token
-Jaccard ≥ 0.8 over a bounded candidate scan) merges the same way **unless it
-asserts the opposite**, in which case it supersedes rather than merges (§3.2) —
+refreshed in place instead of duplicated; a **restatement** the embedder scores
+at cosine ≥ 0.9 (any kind: one fact filed as `constraint` and as `derived_fact`
+is one row) or a same-kind **paraphrase** (token Jaccard ≥ 0.8 over a bounded
+candidate scan) merges the same way **unless it asserts the opposite**, in which
+case it supersedes rather than merges (§3.2); and an entry the caller quotes as
+superseded is retired even when the finding itself merges. Within one turn the
+reflection stage also sees what the `remember` tool already wrote, so the two
+writers never file the same fact twice —
 backed by two partial UNIQUE indexes on normalized content (migration
 `0010_project_memory_dedup.sql`) that close the race window. This is a
 pragmatic slice of the §3.2 gate; embed-based consolidation remains a follow-up.

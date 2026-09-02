@@ -194,9 +194,9 @@ def _config(**overrides) -> KnowledgeRetrievalConfig:
     )
 
 
-async def _search(config, query="Fluchtweg GK4"):
+async def _search(config, query="Fluchtweg GK4", **scope):
     async with knowledge_retrieval(config, MagicMock()) as info:
-        return await info.single_fn(info.input_schema(query=query))
+        return await info.single_fn(info.input_schema(query=query, **scope))
 
 
 class TestRetrievalLoop:
@@ -237,6 +237,19 @@ class TestRetrievalLoop:
         assert out.count("shared") == 1
         # The chunk both formulations reached outranks the one only the paraphrase found.
         assert out.split("|")[0] == "shared"
+
+    async def test_a_file_scoped_search_is_never_widened(self, loop_harness):
+        # A search pinned to one document is a precision lookup (the repair
+        # pass makes them). Paraphrasing it across every shelf is the opposite
+        # of what was asked, so the judge does not run at all.
+        retriever = _FakeRetriever({"Fluchtweg GK4": [_chunk("a", "a")]})
+        judge = _FakeLLM('{"sufficient": false, "queries": ["Gehweglänge"]}')
+        loop_harness(retriever, judge)
+
+        out = await _search(_config(requery_llm="judge"), file_name="oib-rl_4.pdf")
+
+        assert [call["query"] for call in retriever.retrieve_calls] == ["Fluchtweg GK4"]
+        assert out == "a"
 
     async def test_an_empty_first_pool_is_rescued_by_the_loop(self, loop_harness):
         retriever = _FakeRetriever({"Gehweglänge": [_chunk("found", "found")]})

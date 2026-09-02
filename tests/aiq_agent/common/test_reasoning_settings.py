@@ -54,7 +54,7 @@ def _mock_bff(monkeypatch, payload: object = None, error: Exception | None = Non
 
 class TestSanitize:
     def test_round_trip_known_groups(self):
-        raw = {"intent": "none", "deep_research": "medium", "clarifier": "xhigh"}
+        raw = {"shallow_research": "none", "deep_research": "medium", "clarifier": "xhigh"}
         assert sanitize_reasoning_efforts(raw) == raw
 
     def test_non_object_fails_open(self):
@@ -63,31 +63,31 @@ class TestSanitize:
         assert sanitize_reasoning_efforts(None) == {}
 
     def test_unknown_groups_dropped(self):
-        assert sanitize_reasoning_efforts({"intent": "low", "nonsense": "low"}) == {"intent": "low"}
+        assert sanitize_reasoning_efforts({"shallow_research": "low", "nonsense": "low"}) == {"shallow_research": "low"}
 
     def test_unknown_levels_dropped(self):
         # "max" is DeepSeek's provider-native tier name. OpenRouter rejects it,
         # so it must never survive into a request even from a hand-edited row.
-        raw = {"intent": "max", "deep_research": "ludicrous", "clarifier": "high"}
+        raw = {"shallow_research": "max", "deep_research": "ludicrous", "clarifier": "high"}
         assert sanitize_reasoning_efforts(raw) == {"clarifier": "high"}
 
     def test_non_strings_dropped(self):
-        assert sanitize_reasoning_efforts({"intent": 3, "clarifier": None, "deep_research": "low"}) == {
+        assert sanitize_reasoning_efforts({"shallow_research": 3, "clarifier": None, "deep_research": "low"}) == {
             "deep_research": "low"
         }
 
 
 class TestResolution:
     def test_no_token_means_no_network_call(self, monkeypatch):
-        calls = _mock_bff(monkeypatch, {"efforts": {"intent": "high"}})
-        assert get_reasoning_effort("intent") is None
+        calls = _mock_bff(monkeypatch, {"efforts": {"shallow_research": "high"}})
+        assert get_reasoning_effort("shallow_research") is None
         assert calls["n"] == 0
 
     def test_resolves_and_caches(self, monkeypatch):
         monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "tok")
-        calls = _mock_bff(monkeypatch, {"efforts": {"intent": "high", "deep_research": "low"}})
+        calls = _mock_bff(monkeypatch, {"efforts": {"shallow_research": "high", "deep_research": "low"}})
 
-        assert get_reasoning_effort("intent") == "high"
+        assert get_reasoning_effort("shallow_research") == "high"
         assert get_reasoning_effort("deep_research") == "low"
         # Second lookup is served from the TTL cache, not a second round-trip.
         assert calls["n"] == 1
@@ -96,20 +96,20 @@ class TestResolution:
         """`None` means "leave the YAML value alone" and must not be confused
         with the level "none", which disables reasoning."""
         monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "tok")
-        _mock_bff(monkeypatch, {"efforts": {"intent": "none"}})
+        _mock_bff(monkeypatch, {"efforts": {"shallow_research": "none"}})
 
-        assert get_reasoning_effort("intent") == "none"
+        assert get_reasoning_effort("shallow_research") == "none"
         assert get_reasoning_effort("deep_research") is None
 
     def test_bff_failure_fails_open(self, monkeypatch):
         monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "tok")
         _mock_bff(monkeypatch, error=httpx.ConnectError("boom"))
-        assert get_reasoning_effort("intent") is None
+        assert get_reasoning_effort("shallow_research") is None
 
     def test_malformed_payload_fails_open(self, monkeypatch):
         monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "tok")
         _mock_bff(monkeypatch, {"efforts": "not-a-map"})
-        assert get_reasoning_effort("intent") is None
+        assert get_reasoning_effort("shallow_research") is None
 
 
 class _FakeLlm:
@@ -164,7 +164,9 @@ class TestApplyModelOverride:
         """The two layers are independent: the platform can re-tune thinking for
         a group no org has re-modelled."""
         llm = _FakeLlm(model_name="vendor/yaml", reasoning_effort="medium")
-        result = apply_model_override(llm, AgentGroup.INTENT, overrides={}, zdr_only=False, reasoning_effort="none")
+        result = apply_model_override(
+            llm, AgentGroup.SHALLOW_RESEARCH, overrides={}, zdr_only=False, reasoning_effort="none"
+        )
         assert result.model_name == "vendor/yaml"
         assert result.reasoning_effort == "none"
 
@@ -173,16 +175,16 @@ class TestApplyModelOverride:
         _mock_bff(monkeypatch, {"efforts": {}})
         llm = _FakeLlm(reasoning_effort="medium")
 
-        result = apply_model_override(llm, AgentGroup.INTENT, overrides={}, zdr_only=False)
+        result = apply_model_override(llm, AgentGroup.SHALLOW_RESEARCH, overrides={}, zdr_only=False)
 
         assert result.reasoning_effort == "medium"
 
     def test_resolves_from_the_platform_when_not_passed(self, monkeypatch):
         monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "tok")
-        _mock_bff(monkeypatch, {"efforts": {"intent": "xhigh"}})
+        _mock_bff(monkeypatch, {"efforts": {"shallow_research": "xhigh"}})
         llm = _FakeLlm(reasoning_effort="none")
 
-        result = apply_model_override(llm, AgentGroup.INTENT, overrides={}, zdr_only=False)
+        result = apply_model_override(llm, AgentGroup.SHALLOW_RESEARCH, overrides={}, zdr_only=False)
 
         assert result.reasoning_effort == "xhigh"
 

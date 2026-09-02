@@ -393,9 +393,9 @@ class TestGetCheckpointer:
     async def test_sqlite_serde_round_trips_all_state_types(self):
         """A fully-populated ChatResearcherState survives an AsyncSqliteSaver round-trip.
 
-        Exercises the explicit msgpack allow-list serde: all four custom pydantic
-        state types (IntentResult, DepthDecision, ShallowResult, AvailableDocument)
-        plus messages must deserialize back equal.
+        Exercises the explicit msgpack allow-list serde: both custom pydantic
+        state types (ShallowResult, AvailableDocument) plus messages must
+        deserialize back equal.
         """
         import aiosqlite
         from langchain_core.messages import AIMessage
@@ -403,8 +403,6 @@ class TestGetCheckpointer:
         from langgraph.checkpoint.base import empty_checkpoint
         from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-        from aiq_agent.agents.chat_researcher.models.depth import DepthDecision
-        from aiq_agent.agents.chat_researcher.models.intent import IntentResult
         from aiq_agent.agents.chat_researcher.models.result import ShallowResult
         from aiq_agent.agents.chat_researcher.models.state import ChatResearcherState
         from aiq_agent.common import _build_checkpointer_serde
@@ -420,8 +418,7 @@ class TestGetCheckpointer:
 
             state = ChatResearcherState(
                 messages=[HumanMessage(content="hi"), AIMessage(content="hello")],
-                user_intent=IntentResult(intent="research", raw={"score": 1}),
-                depth_decision=DepthDecision(decision="shallow", raw_reasoning="quick lookup"),
+                routing_decision="deep",
                 shallow_result=ShallowResult(
                     answer="the answer",
                     confidence="low",
@@ -435,8 +432,7 @@ class TestGetCheckpointer:
             checkpoint = empty_checkpoint()
             checkpoint["channel_values"] = {
                 "messages": state.messages,
-                "user_intent": state.user_intent,
-                "depth_decision": state.depth_decision,
+                "routing_decision": state.routing_decision,
                 "shallow_result": state.shallow_result,
                 "available_documents": state.available_documents,
                 "answer_confidence": state.answer_confidence,
@@ -446,10 +442,9 @@ class TestGetCheckpointer:
 
             restored = (await checkpointer.aget_tuple(saved_config)).checkpoint["channel_values"]
 
-            assert restored["user_intent"] == state.user_intent
-            assert isinstance(restored["user_intent"], IntentResult)
-            assert restored["depth_decision"] == state.depth_decision
+            assert restored["routing_decision"] == "deep"
             assert restored["shallow_result"] == state.shallow_result
+            assert isinstance(restored["shallow_result"], ShallowResult)
             assert restored["available_documents"] == state.available_documents
             assert isinstance(restored["available_documents"][0], AvailableDocument)
             assert restored["answer_confidence"] == "high"

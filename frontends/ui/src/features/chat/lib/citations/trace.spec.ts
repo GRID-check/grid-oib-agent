@@ -169,7 +169,7 @@ describe('robustness at the edges', () => {
   test('a label-only trace hit and the cited source it names are ONE document', () => {
     // The RIS case: `## Trace-Lanes` knows the norm only by its name, while the
     // answer's citation of it arrives with a real RIS URL. Two identities, one
-    // document — it used to render twice, once cited and once "read, not used".
+    // document — it used to render twice, once cited and once "retrieved, not cited".
     const docs = buildCitationModel({
       traceLanes: [
         lane({

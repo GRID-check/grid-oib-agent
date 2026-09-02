@@ -124,12 +124,12 @@ export type HumanPromptInputType =
 /**
  * Transparency extras attached to an answer from the terminal system_response
  * frame (WP-A → WP-B wire contract). All optional; each renders its own bit of
- * UI (routing narration, capped-confidence note, citations-removed note) only
- * when present.
+ * UI (the "Hinweis" role tab, capped-confidence note, citations-removed note)
+ * only when present.
  */
 export interface AnswerTransparency {
+  /** Which path the turn turned out to take, observed after the answer. */
   routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
-  routingReason?: string
   escalationReason?: string
   answerConfidenceCappedReason?: AnswerConfidenceCappedReason
   /** The model's own one-clause justification for its self-assessment, shown verbatim in the chip tooltip. */
@@ -408,12 +408,12 @@ export interface ChatMessage {
    */
   answerConfidenceReason?: string
   /**
-   * Which path the turn took after intent classification (meta/shallow/deep/
-   * error) — drives the "Warum dieser Weg?" narration in the Herleitung.
+   * Which path the turn turned out to take, observed after the answer rather
+   * than classified before it: `meta` is a direct reply (no source consulted,
+   * no self-assessment), `shallow` and `deep` are research, `error` a failed
+   * turn. Drives the answer's role tab — a `meta` reply reads as a "Hinweis".
    */
   routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
-  /** Human-readable "why" for the routing decision (verbatim from classifier). */
-  routingReason?: string
   /** Narration shown when the turn escalated shallow→deep this turn. */
   escalationReason?: string
   /**

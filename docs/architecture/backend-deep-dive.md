@@ -43,16 +43,17 @@ Browser WebSocket
       • ALSO sets the signed X-Grid-Request-Context envelope (below)
       • proxies the upgrade to the aiq-agent backend
   → NAT workflow  chat_deepresearcher_agent
-      LangGraph:  intent_classifier
-                    ├─ out_of_scope → END  (classifier emits a FIXED redirect
-                    │                  message; no answering agent runs — a clearly
-                    │                  off-domain question never spins up a research
-                    │                  agent or a source lookup. Surfaced as the
-                    │                  `meta`/"Direktantwort" routing decision.)
-                    ├─ meta      → shallow_research  (persona + `remember`; greetings,
-                    │               capability & project-profile questions)
-                    ├─ shallow   → shallow_research ─(escalate?)→ clarifier
-                    └─ deep      → clarifier → deep_research
+      LangGraph:  shallow_research  (entry on EVERY turn, full tool set bound)
+                    ├─ envelope.escalate_to_deep → clarifier → deep_research → END
+                    └─ otherwise                 → END
+
+    There is no classifier in front of the answering agent (ADR-0052). The
+    model decides per turn, in the answer envelope, what the turn is: a
+    direct reply (greeting, shelf listing, off-topic decline, "what can you
+    do" — `answer` only, no `confidence`), a researched answer (`confidence`
+    + citations), or a hand-off (`escalate_to_deep` + `escalation_reason`,
+    the model's own clause). A commissioned report escalates immediately,
+    without a retrieval first.
 
     Note: the shallow node doubles as the conversational assistant, so the UI
     presents it neutrally as "Assistant" (getDisplayName in
@@ -95,12 +96,16 @@ additive "why did the turn behave this way?" signals. Each rides
 All are **absent unless applicable** (never null-spammed) and reset at the turn
 boundary in `ChatResearcherAgent.run()`:
 
-- `routing_decision` (`meta`/`shallow`/`deep`/`error`) + `routing_reason`
-  (`depth_decision.raw_reasoning`) — which path the turn took and why.
+- `routing_decision` (`meta`/`shallow`/`deep`/`error`) — which path the turn
+  took, OBSERVED after the answer (`chat_researcher.agent.observed_routing`):
+  `meta` when the agent consulted no data source and gave no self-assessment,
+  `shallow` otherwise, `deep` set by the clarifier hand-off, `error` on a
+  failed turn. Nothing decides it up front (ADR-0052), so there is no
+  `routing_reason`.
 - `escalation_reason` — set by the clarifier node only on a shallow→deep
   escalation, and only from the structured `ShallowResult.escalation_reason`
-  carried by the shallow agent's explicit `[ESCALATE_TO_DEEP]` marker. There is
-  no keyword/prose fallback: a substring match on the answer tail ("nicht
+  carried by the shallow agent's envelope (`escalate_to_deep` plus the model's
+  own one-clause `escalation_reason`). There is no keyword/prose fallback: a substring match on the answer tail ("nicht
   finden", "weitere Recherche erforderlich") false-positived on successful
   German legal answers and surprise-escalated them to deep research. Likewise
   an empty/missing shallow answer is a generation failure — the node answers
@@ -119,7 +124,8 @@ boundary in `ChatResearcherAgent.run()`:
   - `"ungrounded"` — citation verification left the answer without grounding and
     nothing was measured.
   - `"quote_unverified"` — a quoted span failed the deterministic
-    quote-vs-source check (`verify_quoted_spans`, difflib coverage over the
+    quote-vs-source check (a grounded answer is held at "medium", an ungrounded
+    one at "low"; the span itself is marked inline) (`verify_quoted_spans`, difflib coverage over the
     registry's captured `chunk_text`, fail-open; the offending span is annotated
     inline with `[nicht wörtlich in der Quelle belegt]` and the answer is never
     otherwise altered).
@@ -614,16 +620,13 @@ alone.
 retrieval to the right file answers "where do I look"; it does not answer "what
 is *this document*". `register.py` lifts the turn ContextVars onto
 `ChatResearcherState.focus_file_name` / `.focus_shelf`, the graph carries them
-into `ShallowResearchAgentState`, and both the routing prompt
-(`intent_classification.j2`) and the answering prompt (`researcher.j2` §"This
-turn's subject") name the file — so a bare "fass zusammen" has an antecedent.
-Without that the model asked which document the user meant while the composer
-bar on screen said exactly which one, and retrieval's correct scoping was never
-reached. A bound subject additionally keeps the search tools on a turn the
-classifier called `meta`: the meta partition exists to stop a weak model firing
-search at a greeting, and stripping it from a file turn removes the only tool
-that can read the file. `requires_sources` is untouched — the grounding contract
-follows the classified intent, not the subject.
+into `ShallowResearchAgentState`, and the answering prompt (`researcher.j2`
+§"This turn's subject") names the file — so a bare "fass zusammen" has an
+antecedent. Without that the model asked which document the user meant while
+the composer bar on screen said exactly which one, and retrieval's correct
+scoping was never reached. The tool that can read the file is bound on every
+turn, subject or not: there is no routing prompt and no narrowed tool binding
+in front of the answering agent (ADR-0052).
 
 ### Document summaries & `available_documents` (SQL side-table, distinct from the vector index)
 
@@ -1453,7 +1456,7 @@ Soll-Ist-Abgleich through this open-ended deep-research harness — see §8c.
 ## 8. Backend agent architecture & DRY debt
 
 Registered agents (via NAT `@register_function` + `FunctionBaseConfig`):
-`intent_classifier`, `chat_deepresearcher_agent` (entrypoint), `clarifier_agent`,
+`chat_deepresearcher_agent` (entrypoint), `clarifier_agent`,
 `shallow_research_agent`, `deep_research_agent` (+ eval/placeholder wrappers).
 
 No shared base-agent class exists; four agent classes each repeat: tool
@@ -1504,8 +1507,8 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   `src/aiq_agent/common/model_overrides.py` and applied request-scoped:
   `LLMProvider.with_model_overrides()` (group-tagged roles; identity when
   nothing applies) in the shallow/deep/clarifier `_run` closures, plus
-  `apply_model_override()` at the intent-classifier invocation, the
-  clarifier planner, and the reflection scheduling site. Async jobs carry
+  `apply_model_override()` at the clarifier planner and the reflection
+  scheduling site. Async jobs carry
   the map through `submit_agent_job` → `jobs/runner.py` (provider + header
   re-injection). Only the model id changes; params/keys stay from YAML. When
   no header/envelope carries the map (e.g. the generic async-job proxy before
@@ -1602,8 +1605,8 @@ deterministically, validated strictly) + org rows from the BFF internal
 fail-open and cached in the shared cache
 (`GRID_SKILLS_CACHE_TTL_SECONDS`, default 60). `shallow_research_agent`
 config gate: `skills_enabled` (default true) + `skill_allowlist` (empty =
-all). Research turns only — meta turns keep the interaction-only tool
-partition (remember, emit_card, describe_card). Deep research loads
+all). `use_skill` is bound on every turn like every other tool; whether a
+greeting loads a skill is the model's call (ADR-0052). Deep research loads
 machinery from the filesystem (`DeepResearchSkillsConfig` mounts `oib`/`bim`
 on the researcher and `synthesis` on the writer; curated dirs 404) and
 loads house voice, offers and org skills through `use_skill`

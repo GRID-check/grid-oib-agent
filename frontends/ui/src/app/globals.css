@@ -786,6 +786,24 @@ body {
   animation: grid-passage-ping 1.15s cubic-bezier(0.16, 1, 0.3, 1) 2 both;
 }
 
+/* The fuzzy mark: a windowed or partial match, the software's best guess at
+   where the passage is rather than the passage itself. Lighter fill and a
+   dashed edge, so a reader verifying a citation can tell a guess from a hit
+   without a legend. The strengths are the resting ones scaled down, per
+   theme, because the dark ones are deliberately much stronger. */
+.passage-highlight--fuzzy {
+  --passage-strength: 22%;
+  --passage-peak: 60%;
+  outline: 1.5px dashed
+    color-mix(in oklch, var(--passage-tint, var(--ring)) 65%, transparent);
+  outline-offset: 1px;
+}
+
+.dark .passage-highlight--fuzzy {
+  --passage-strength: 40%;
+  --passage-peak: 70%;
+}
+
 /* =============================================================================
    PDF text layer — the page's own words, over the picture of them
 

@@ -19,10 +19,14 @@ vi.mock('@/features/layout/store', () => ({
   }),
 }))
 
+// Mutable, so one case can put the chat inside a project: the peek reads the
+// project id off the store, exactly as the marker's own resolver does.
+const chatStore = vi.hoisted(() => ({ projectId: null as string | null }))
+
 vi.mock('../store', () => ({
   useChatStore: vi.fn((selector?: (s: Record<string, unknown>) => unknown) => {
     const state = {
-      projectId: null,
+      projectId: chatStore.projectId,
       reportContent: '',
       deepResearchJobId: null,
       isDeepResearchStreaming: false,
@@ -65,7 +69,7 @@ const at = new Date('2026-07-28T12:00:00Z')
 
 const jsonResponse = (data: unknown) => ({ ok: true, json: async () => data })
 
-const fetchMock = vi.fn((input: RequestInfo | URL) => {
+const defaultFetch = (input: RequestInfo | URL) => {
   const url = String(input)
   if (url === '/api/knowledge-base') {
     return Promise.resolve(
@@ -73,7 +77,9 @@ const fetchMock = vi.fn((input: RequestInfo | URL) => {
     )
   }
   return Promise.resolve(jsonResponse({ documents: [] }))
-})
+}
+
+const fetchMock = vi.fn(defaultFetch)
 
 const locus = (page: number, number: number, passage?: string): CitationSource => ({
   id: `c${number}`,
@@ -111,6 +117,8 @@ describe('an inline citation marker', () => {
   beforeEach(() => {
     resetSourcePreviewIndexCache()
     fetchMock.mockClear()
+    fetchMock.mockImplementation(defaultFetch)
+    chatStore.projectId = null
     vi.stubGlobal('fetch', fetchMock)
   })
 
@@ -293,6 +301,80 @@ describe('an inline citation marker', () => {
         await within(peek).findByText('Cannot be opened in Piloti', {}, { timeout: 5000 })
       ).toBeInTheDocument()
       expect(peek.querySelector('[data-citation-open]')).toBeNull()
+    })
+  })
+
+  /**
+   * "What is this?" is answered; "where does it live?" gets a link — but only
+   * for a document that HAS a home in the app. A project file's home is the
+   * project's files page, the office archive has its own route; the base
+   * corpus has neither, and offering a link there would open nothing.
+   */
+  describe('the link to the document\'s home shelf', () => {
+    const projectFile = 'brandschutzkonzept_ausgabe_2026.pdf'
+    const shelved = (shelf: 'project' | 'archiv'): CitationSource => ({
+      id: 'c9',
+      content: `[KB] ${projectFile}, p.3`,
+      citationKey: `${projectFile}, p.3`,
+      fileName: projectFile,
+      collection: 'project_docs',
+      title: 'Brandschutzkonzept',
+      origin: 'kb',
+      kind: 'projekt',
+      shelf,
+      page: 3,
+      number: 1,
+      isCited: true,
+      timestamp: at,
+    })
+    const answerWith = (source: CitationSource) =>
+      render(
+        <AgentResponse
+          content={[
+            'Das Konzept sieht zwei Fluchtwege vor [1].',
+            '',
+            '## Quellen',
+            `- [1] [KB] ${source.fileName}, p.3`,
+          ].join('\n')}
+          messageId="m4"
+          citations={[source]}
+          routingDecision="deep"
+        />
+      )
+
+    test('a project-shelf document links to the project files', async () => {
+      chatStore.projectId = 'p-42'
+      const user = userEvent.setup()
+      answerWith(shelved('project'))
+
+      await user.click(screen.getByRole('button', { name: /Source 1: Brandschutzkonzept/i }))
+      const peek = await screen.findByRole('dialog')
+
+      const link = within(peek).getByRole('link', { name: 'Open in project files' })
+      expect(link).toHaveAttribute('href', '/app/projects/p-42/files')
+    })
+
+    test('an archive document links to the office archive', async () => {
+      const user = userEvent.setup()
+      answerWith(shelved('archiv'))
+
+      await user.click(screen.getByRole('button', { name: /Source 1: Brandschutzkonzept/i }))
+      const peek = await screen.findByRole('dialog')
+
+      expect(within(peek).getByRole('link', { name: 'Open in archive' })).toHaveAttribute(
+        'href',
+        '/app/archiv'
+      )
+    })
+
+    test('a base-corpus document offers no such link', async () => {
+      const user = userEvent.setup()
+      renderAnswer()
+
+      await user.click(screen.getByRole('button', { name: /Source 1: OIB-Richtlinie 2\.1/i }))
+      const peek = await screen.findByRole('dialog')
+
+      expect(peek.querySelector('[data-citation-home]')).toBeNull()
     })
   })
 })

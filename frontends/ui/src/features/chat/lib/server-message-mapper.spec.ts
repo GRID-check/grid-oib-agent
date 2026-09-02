@@ -249,7 +249,6 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     answerConfidence: 'high',
     answerConfidenceReason: 'Zwei übereinstimmende Quellen.',
     routingDecision: 'shallow',
-    routingReason: 'Direkte Normfrage.',
     citationsRemoved: { count: 1, reasons: ['ungrounded'] },
     deepResearchJobId: 'job_1',
     showViewReport: true,
@@ -269,7 +268,7 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     expect(step.traceLanes).toEqual([{ kind: 'oib', label: 'OIB 2.3' }])
   })
 
-  it('restores the confidence self-assessment and the routing transparency', () => {
+  it('restores the confidence self-assessment and the routing decision', () => {
     const mapped = mapServerMessageToChatMessage(
       serverMessage({ role: 'assistant', metadata: { provenance } }),
     )
@@ -277,7 +276,6 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     expect(mapped!.answerConfidence).toBe('high')
     expect(mapped!.answerConfidenceReason).toBe('Zwei übereinstimmende Quellen.')
     expect(mapped!.routingDecision).toBe('shallow')
-    expect(mapped!.routingReason).toBe('Direkte Normfrage.')
     expect(mapped!.citationsRemoved).toEqual({ count: 1, reasons: ['ungrounded'] })
     expect(mapped!.deepResearchJobId).toBe('job_1')
     expect(mapped!.showViewReport).toBe(true)

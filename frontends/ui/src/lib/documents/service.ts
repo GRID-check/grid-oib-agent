@@ -42,7 +42,7 @@ import { purgeResourceCollaboration } from '@/lib/collaboration/cleanup'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document, DocumentAuthor } from '@/lib/db/schema'
 import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
-import { collectionDocumentsUrl, collectionFileRef, collectionFileUrl } from './collection-file-ref'
+import { collectionDocumentsUrl, collectionFileRef, collectionFileUrl, purgeIngestedChunks } from './collection-file-ref'
 import {
   deleteProjectDocument,
   findDocumentInOrg,
@@ -1409,18 +1409,11 @@ export async function deleteDocument(
   // unrelated file. The purge is skipped rather than made conditional on the
   // collision, because for an agent row it is ALWAYS wrong, collision or not.
   const purgeRef = collectionFileRef(doc)
-  if (purgeRef) {
-    try {
-      await fetch(collectionDocumentsUrl(getBackendUrl(), purgeRef), {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_ids: [purgeRef.filename] }),
-        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-      })
-    } catch {
-      // ignore — chunks may linger until the next collection reconcile/purge
-    }
-  }
+  // `null`: nothing of its own to purge. `false`: the backend did not confirm,
+  // and the audit row says so — the platform vector reconcile is the sweep.
+  const chunksPurged = purgeRef
+    ? await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_FETCH_TIMEOUT_MS)
+    : null
 
   if (doc.storageKey) {
     try {
@@ -1457,7 +1450,12 @@ export async function deleteDocument(
     action: 'document.deleted',
     targetType: 'document',
     // Filename is user-controlled — cap it before it reaches the trail.
-    metadata: { projectId: doc.projectId, filename: doc.filename.slice(0, 200), collectionName: doc.collectionName },
+    metadata: {
+      projectId: doc.projectId,
+      filename: doc.filename.slice(0, 200),
+      collectionName: doc.collectionName,
+      chunksPurged,
+    },
     request,
   })
 }

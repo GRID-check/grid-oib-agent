@@ -109,7 +109,6 @@ export interface MessageProvenance {
   answerConfidenceCappedReason?: AnswerConfidenceCappedReason
   answerConfidenceReason?: string
   routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
-  routingReason?: string
   escalationReason?: string
   citationsRemoved?: { count: number; reasons: string[] }
   /**
@@ -253,9 +252,6 @@ export function sanitizeProvenance(input: unknown): MessageProvenance | null {
 
   const routing = oneOf(input.routingDecision, ROUTING_DECISIONS)
   if (routing) out.routingDecision = routing
-
-  const routingReason = cap(input.routingReason, MAX_REASON_CHARS)
-  if (routingReason) out.routingReason = routingReason
 
   const escalationReason = cap(input.escalationReason, MAX_REASON_CHARS)
   if (escalationReason) out.escalationReason = escalationReason

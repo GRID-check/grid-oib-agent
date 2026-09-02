@@ -19,11 +19,13 @@
  * every surviving character, which text run it came from and where in that run,
  * which is what turns a match back into pixels.
  *
- * Three matchers run in order of decreasing confidence, because a wrong
+ * Four matchers run in order of decreasing confidence, because a wrong
  * highlight is worse than none: exact substring, then anchoring on the first
  * and last few words (the middle of a snippet is where extractors disagree
- * most), then a word-overlap window with a score floor. Below the floor we
- * return nothing and the viewer just opens at the page.
+ * most), then a word-overlap window with a score floor, then the two halves of
+ * the snippet on their own — for a passage that straddles a page break, or one
+ * whose window tied and withdrew. Below all four we return nothing and the
+ * viewer just opens at the page.
  */
 
 /**
@@ -52,7 +54,7 @@ export interface HighlightRect {
  * — a reader who is verifying a citation needs to know whether the highlight is
  * the passage or the software's best guess at it.
  */
-export type PassageMatcher = 'exact' | 'anchored' | 'windowed'
+export type PassageMatcher = 'exact' | 'anchored' | 'windowed' | 'partial'
 
 export interface PassageMatch {
   rects: HighlightRect[]
@@ -105,6 +107,13 @@ const STEM_LENGTH = 6
 
 /** Words taken from each end of the snippet when anchoring. */
 const ANCHOR_WORDS = [8, 6, 4, 3]
+
+/**
+ * Shortest half the partial matcher will look for on its own. Below this a
+ * half is a clause every page has a copy of, and the snippet as a whole must
+ * be at least two of them — so a short snippet never goes partial at all.
+ */
+export const MIN_PARTIAL_HALF = 24
 
 /**
  * Characters `foldChar`'s generic rule would get wrong.
@@ -381,6 +390,40 @@ const windowMatch = (haystack: string, needle: string): { range: Range; score: n
   return rival ? null : best
 }
 
+/**
+ * Half the snippet, when the whole of it is not on this page.
+ *
+ * Two failures the stricter tiers share: a passage that straddles a page break
+ * puts only one half on the cited page, and the anchors need words from BOTH
+ * ends; a window that finds its twin elsewhere on the page withdraws rather
+ * than choose. Splitting at the word boundary nearest the middle and searching
+ * each half with the certain tiers — exact, then anchored — recovers the half
+ * that IS here. Longest half first: it is the more distinctive of the two.
+ */
+const partialMatch = (haystack: string, needle: string): Range | null => {
+  if (needle.length < MIN_PARTIAL_HALF * 2) return null
+
+  const middle = Math.floor(needle.length / 2)
+  let split = -1
+  for (let distance = 0; distance <= middle && split === -1; distance += 1) {
+    if (needle[middle - distance] === ' ') split = middle - distance
+    else if (needle[middle + distance] === ' ') split = middle + distance
+  }
+  if (split === -1) return null
+
+  const halves = [needle.slice(0, split).trim(), needle.slice(split + 1).trim()]
+    .filter((half) => half.length >= MIN_PARTIAL_HALF)
+    .sort((a, b) => b.length - a.length)
+
+  for (const half of halves) {
+    const exact = haystack.indexOf(half)
+    if (exact !== -1) return { start: exact, end: exact + half.length }
+    const anchored = anchorMatch(haystack, half)
+    if (anchored) return anchored
+  }
+  return null
+}
+
 /** Resolve a normalised character range back to the runs it covers. */
 const rangeToRects = (index: PassageIndex, range: Range): HighlightRect[] => {
   const spans = new Map<number, { from: number; to: number }>()
@@ -467,6 +510,13 @@ export function findPassage(index: PassageIndex, snippet: string): PassageMatch 
   if (windowed) {
     const rects = rangeToRects(index, windowed.range)
     if (rects.length) return { rects, matcher: 'windowed', score: windowed.score }
+  }
+
+  const partial = partialMatch(index.haystack, needle)
+  if (partial) {
+    const rects = rangeToRects(index, partial)
+    // Half the snippet is half the evidence, and the score says so.
+    if (rects.length) return { rects, matcher: 'partial', score: 0.5 }
   }
 
   return null

@@ -50,7 +50,7 @@ export type CitationOrigin = 'kb' | 'ris' | 'web'
  * WHERE the evidence sits inside a document — one retrieved passage.
  *
  * A locus exists whether or not the answer cited it: the Herleitung must be
- * able to say "read, not used", which is a claim about a locus, not a document.
+ * able to say "retrieved, not cited", which is a claim about a locus, not a document.
  */
 export interface CitationLocus {
   /** Stable key within the owning document. */
@@ -712,7 +712,7 @@ export class CitationAccumulator {
    *    what a `## Trace-Lanes` hit for a RIS norm looks like ("Bauordnung für
    *    Wien"); the answer's citation of the same norm arrives with a real RIS
    *    URL. Same document, two identities — and without this it rendered twice
-   *    in the fan-out, once cited and once "gelesen, nicht verwendet".
+   *    in the fan-out, once cited and once "abgerufen, nicht zitiert".
    */
   private find(id: string, title: string): CitedDocument | undefined {
     const exact = this.docs.get(id)

@@ -23,11 +23,8 @@ import type { IntermediateStepCategory } from '../types'
  */
 const CATEGORY_MAP: Record<string, IntermediateStepCategory> = {
   '<workflow>': 'tasks',
-  intent_classifier: 'agents',
-  depth_router: 'agents',
   shallow_research_agent: 'agents',
   deep_research_agent: 'agents',
-  meta_chatter: 'agents',
   chat_deepresearcher_agent: 'agents',
   web_search_tool: 'tools',
   tavily_search: 'tools',
@@ -148,7 +145,7 @@ export const getWorkflowDisplayName = (functionName: string): string => {
  * Reader-facing label for a known node, as an i18n key under `chat.thinking.*`.
  *
  * A map, not a formatter: what the backend puts on the wire is an internal id
- * (`knowledge_search`, `intent_classifier`), and NAT additionally forwards
+ * (`knowledge_search`, `shallow_research_agent`), and NAT additionally forwards
  * LangChain span names — CamelCase class names that no amount of snake_case
  * splitting turns into prose. Deriving a label from the id therefore either
  * fabricates an English noun phrase in a German UI ("Use Skill") or hands the
@@ -161,8 +158,6 @@ export const getWorkflowDisplayName = (functionName: string): string => {
 const NODE_LABEL_KEYS: Record<string, string> = {
   '<workflow>': 'nodeName.workflow',
   chat_deepresearcher_agent: 'nodeName.workflow',
-  intent_classifier: 'stepName.understanding',
-  depth_router: 'stepName.routing',
   clarifier_agent: 'nodeName.clarification',
   ask_user: 'nodeName.askUser',
   // The shallow node doubles as the conversational assistant (greetings,
@@ -171,7 +166,6 @@ const NODE_LABEL_KEYS: Record<string, string> = {
   // neutrally, as the assistant, for every turn it handles.
   shallow_research_agent: 'stepName.assistant',
   shallow_research: 'stepName.assistant',
-  meta_chatter: 'stepName.assistant',
   deep_research_agent: 'nodeName.deepResearch',
   deep_research: 'nodeName.deepResearch',
   data_sources: 'nodeName.dataSources',

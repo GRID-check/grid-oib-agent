@@ -205,10 +205,7 @@ async def test_a_turn_without_skills_announces_nothing():
         ResolverCls.return_value.resolve.return_value = ()
 
         run_fn, gen = await _get_run_fn(config, builder)
-        state = ShallowResearchAgentState(
-            messages=[HumanMessage(content="hallo")],
-            requires_sources=False,
-        )
+        state = ShallowResearchAgentState(messages=[HumanMessage(content="hallo")])
         await run_fn(state)
 
         assert announced == []
@@ -216,48 +213,11 @@ async def test_a_turn_without_skills_announces_nothing():
 
 
 @pytest.mark.asyncio
-async def test_plain_meta_turn_never_loads_skills():
-    """requires_sources=False and nothing forced: no resolution, no use_skill tool.
-
-    This is the greeting case — an unprompted conversational turn the intent
-    classifier judged needs no sources. It keeps its interaction-only tool
-    binding, so a "hallo" can never pull a skill body into context.
-    """
-    builder = _FakeBuilder({"web_search_tool": web_search_tool})
-    config = ShallowResearchAgentConfig(
-        llm="research_llm",
-        tools=["web_search_tool"],
-        skills_enabled=True,
-    )
-
-    with (
-        patch.object(register_module, "ShallowResearcherAgent", _make_agent_stub()),
-        patch("aiq_agent.project_context.get_organization_id_from_context", return_value="org-1"),
-        patch("aiq_agent.skills.SkillResolver") as ResolverCls,
-    ):
-        run_fn, gen = await _get_run_fn(config, builder)
-
-        state = ShallowResearchAgentState(
-            messages=[HumanMessage(content="hallo")],
-            requires_sources=False,
-        )
-        result = await run_fn(state)
-
-        ResolverCls.assert_not_called()
-        assert state.skills_block is None
-        assert result.skills_activated is None
-        await gen.aclose()
-
-
-@pytest.mark.asyncio
-async def test_explicit_slash_invocation_survives_a_meta_classification():
-    """requires_sources=False but the USER forced a skill: it still loads.
+async def test_explicit_slash_invocation_loads_the_skill():
+    """The USER forced a skill on a short, imperative turn: it loads.
 
     `force_skills` is only ever populated by an explicit `/name` invocation in
-    the composer. The intent classifier decides whether an *unprompted* turn
-    needs sources; it does not get to overrule a direct instruction. Gating on
-    `requires_sources` alone made `/name` a silent no-op on exactly the short,
-    imperative messages people type after a slash command.
+    the composer, and it reaches the runtime as the forced name.
     """
     builder = _FakeBuilder({"web_search_tool": web_search_tool})
     config = ShallowResearchAgentConfig(
@@ -281,7 +241,6 @@ async def test_explicit_slash_invocation_survives_a_meta_classification():
 
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="und jetzt?")],
-            requires_sources=False,
             force_skills=["forecast-analysis"],
         )
         result = await run_fn(state)
@@ -412,7 +371,7 @@ async def test_the_forced_house_skills_get_their_own_iteration_budget():
         ResolverCls.return_value.resolve.return_value = resolved
 
         run_fn, gen = await _get_run_fn(config, builder)
-        await run_fn(ShallowResearchAgentState(messages=[HumanMessage(content="Wie tief?")], requires_sources=True))
+        await run_fn(ShallowResearchAgentState(messages=[HumanMessage(content="Wie tief?")]))
 
         kwargs = stub.built[-1].init_kwargs
         # The research budget is untouched: it is what the traced floors in
@@ -446,9 +405,7 @@ async def test_a_forced_skill_the_model_never_opened_is_not_reported_as_used(cap
         ResolverCls.return_value.resolve.return_value = resolved
 
         run_fn, gen = await _get_run_fn(config, builder)
-        result = await run_fn(
-            ShallowResearchAgentState(messages=[HumanMessage(content="Wie tief?")], requires_sources=True)
-        )
+        result = await run_fn(ShallowResearchAgentState(messages=[HumanMessage(content="Wie tief?")]))
 
         assert result.skills_activated == ["piloti-voice"]
         unread = [m for m in caplog.messages if "Forced skills never loaded" in m]

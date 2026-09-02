@@ -29,7 +29,7 @@ def _facts(**overrides) -> TurnFacts:
         project_id="proj_1",
         query="Wie hoch darf die Brüstung sein?",
         answer="Das Gebäude ist Gebäudeklasse 4.",
-        intent="research",
+        routing_decision="shallow",
         enabled_stages=frozenset({"memory_reflection"}),
     )
     return dataclasses.replace(base, **overrides)
@@ -87,16 +87,21 @@ class TestGate:
     def test_real_research_answer_passes(self):
         assert _gate().run is True
 
-    def test_meta_intent_skipped(self):
-        decision = _gate(intent="meta", answer="Hello! How can I help?")
+    def test_direct_reply_skipped(self):
+        """A greeting, a listing, an off-topic decline: the turn consulted
+        nothing and graded nothing, so there is nothing to remember."""
+        decision = _gate(routing_decision="meta", answer="Hello! How can I help?")
         assert decision.run is False
-        assert decision.reason == "intent_meta"
+        assert decision.reason == "routing_meta"
 
-    def test_error_intent_skipped(self):
-        assert _gate(intent="error", answer="Something went wrong.").reason == "intent_error"
+    def test_error_route_skipped(self):
+        assert _gate(routing_decision="error", answer="Something went wrong.").reason == "routing_error"
 
-    def test_out_of_scope_intent_skipped(self):
-        assert _gate(intent="out_of_scope", answer="A concrete finding.").reason == "intent_out_of_scope"
+    def test_an_unobserved_route_still_runs(self):
+        """``None`` is "not recorded", not "direct reply": a deep-research
+        answer delivered off the WebSocket path has no observation and must
+        not be filed as small talk."""
+        assert _gate(routing_decision=None).run is True
 
     def test_insufficiency_answer_skipped(self):
         decision = _gate(answer="I don't have enough information to answer that.")

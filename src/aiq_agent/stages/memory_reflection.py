@@ -52,9 +52,10 @@ REFLECTION_NON_ANSWERS = (
     "I searched the available sources but couldn't retrieve anything usable",
 )
 
-#: Intents with nothing durable to record: reflecting on them only risks
+#: Paths with nothing durable to record: a direct reply (greeting, shelf
+#: listing, off-topic decline) or an error. Reflecting on them only risks
 #: spurious writes.
-_SKIP_INTENTS = {"meta", "error", "out_of_scope"}
+_SKIP_ROUTES = {"meta", "error"}
 
 #: A generous bound, not a tuning knob. Reflection is one structured-output call
 #: over a turn that is already sliced to ~6k characters of prompt; 45s covers a
@@ -121,9 +122,23 @@ def _gate(facts: TurnFacts) -> GateDecision:
         return GateDecision.skip("canned_non_answer")
     if matches_escalation_keywords(text):
         return GateDecision.skip("escalation")
-    if facts.intent in _SKIP_INTENTS:
-        return GateDecision.skip(f"intent_{facts.intent}")
+    if facts.routing_decision in _SKIP_ROUTES:
+        return GateDecision.skip(f"routing_{facts.routing_decision}")
     return GateDecision.proceed()
+
+
+def digest_with_turn_writes(memory_digest: str | None, written: tuple[str, ...]) -> str | None:
+    """The digest the agent saw, plus what the ``remember`` tool wrote after it.
+
+    Rendered in the digest's own line grammar, so the reflection prompt shows
+    them as existing memory and the "already in the digest" filter drops a
+    finding that restates one — the tool and the stage no longer write the
+    same fact twice within one turn.
+    """
+    if not written:
+        return memory_digest
+    lines = [f'- [this turn | recorded] "{content.replace(chr(34), chr(39))}"' for content in written]
+    return "\n".join(([memory_digest.rstrip()] if memory_digest else []) + lines)
 
 
 async def _handler(ctx: StageContext) -> dict[str, Any] | None:
@@ -140,7 +155,7 @@ async def _handler(ctx: StageContext) -> dict[str, Any] | None:
         project_id=facts.project_id,
         organization_id=facts.organization_id,
         conversation_id=facts.conversation_id,
-        memory_digest=facts.memory_digest,
+        memory_digest=digest_with_turn_writes(facts.memory_digest, facts.remembered_this_turn),
     )
     if not recorded:
         # `None` is `empty` — the common, correct outcome for a turn that

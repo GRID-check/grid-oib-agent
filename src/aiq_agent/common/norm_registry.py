@@ -923,6 +923,7 @@ def lane_for_hit(
     source_url: str | None = None,
     collection: str | None = None,
     registry: NormRegistry | None = None,
+    shelf: object = None,
 ) -> tuple[str, str]:
     """(stratum_key, human label) for a retrieval/citation hit — display tagging only.
 
@@ -933,20 +934,34 @@ def lane_for_hit(
     An explicit, human-set ``doc_class`` (the "Dokumentart") is FIRST priority:
     when valid it fully determines the lane, overriding every collection/filename/
     url heuristic below. This is the authoritative signal the filename guess only
-    approximates.
+    approximates. The one exception is the DEFAULT class on a user's own shelf:
+    ``sonstiges`` is what ingestion stamps on a file nobody classified, and on a
+    project, session or Büroarchiv document it says nothing a person decided —
+    it must not turn the user's plan into a "Basisdokument" in law blue.
+
+    ``shelf`` is the shelf the caller knows the hit came from; without it the
+    collection id is read the legacy way (ADR-0047).
     """
+    from aiq_agent.common.source_kinds import Shelf
+    from aiq_agent.common.source_kinds import legacy_shelf_for_collection_name
+    from aiq_agent.common.source_kinds import parse_shelf
+
+    known_shelf = parse_shelf(shelf) or legacy_shelf_for_collection_name(collection)
+    users_shelf = known_shelf in (Shelf.ARCHIV, Shelf.PROJECT, Shelf.SESSION)
     if doc_class:
+        from aiq_agent.knowledge.document_classification import DEFAULT_DOC_CLASS
         from aiq_agent.knowledge.document_classification import DOCUMENT_CLASS_LANES
         from aiq_agent.knowledge.document_classification import is_valid_doc_class
 
-        if is_valid_doc_class(doc_class):
+        if is_valid_doc_class(doc_class) and not (doc_class == DEFAULT_DOC_CLASS and users_shelf):
             lane_key = DOCUMENT_CLASS_LANES[doc_class]
             return (lane_key, _LANE_LABELS.get(lane_key, "Baurecht"))
-    if collection:
-        if collection.startswith("archiv_"):
-            return ("buero", "Büroarchiv")
-        if collection.startswith(("proj_", "s_")):
-            return ("projekt", "Projektwissen")
+    if known_shelf is Shelf.ARCHIV:
+        return ("buero", "Büroarchiv")
+    if known_shelf is Shelf.PROJECT:
+        return ("projekt", "Projektwissen")
+    if known_shelf is Shelf.SESSION:
+        return ("projekt", "Private Sitzung")
     if file_name:
         doc_class = oib_doc_class(Path(file_name).name)
         if doc_class:

@@ -175,7 +175,10 @@ const SEMANTIC_DUP_THRESHOLD = 0.9
  * embed-based consolidation gate the design named as essential and never got
  * (memory-system-audit-2026-07 F2).
  *
- * Same-kind and scope-exact like its lexical sibling, and it carries the same
+ * Scope-exact like its lexical sibling but NOT kind-bound: at 0.90 cosine the
+ * incoming note is the same statement, and the same statement filed once as a
+ * `constraint` and once as a `derived_fact` is one fact with two rows — the
+ * "there should be only one entry" a reviewer sees. It carries the same
  * polarity check: at this similarity the incoming finding is either the same
  * fact restated (merge) or the same fact CORRECTED (supersede), and merging a
  * correction is how memory becomes uncorrectable. Cosine is computed in SQL so
@@ -204,7 +207,6 @@ async function findSemanticNearMatch(
       from project_memory m
       where ${owner}
         and m.status = 'active'
-        and m.kind = ${values.kind}
         and m.embedding_model = ${embedded.fingerprint}
     )
     select * from scored
@@ -223,6 +225,8 @@ async function findSemanticNearMatch(
     pinned: Boolean(raw.pinned),
     verification: raw.verification,
     provenanceType: raw.provenance_type,
+    // The refresh compares confidence; without it the merge could never raise one.
+    confidence: (raw.confidence as ProjectMemoryConfidence | undefined) ?? 'medium',
     supersedesId: (raw.supersedes_id as string | null) ?? null,
   } as ProjectMemoryItem
   return {
@@ -435,13 +439,27 @@ export async function createProjectMemoryItem(
   // embedder had nothing to say.
   const near =
     (await findSemanticNearMatch(values, embedded)) ?? (await findActiveNearMatch(values))
-  if (near && !near.opposedPolarity) return refreshDuplicate(near.item, values)
+  const named = options.supersedesContent?.trim()
+    ? await resolveSupersedeTarget(values, options.supersedesContent)
+    : null
+  if (near && !near.opposedPolarity) {
+    const refreshed = await refreshDuplicate(near.item, values)
+    // The finding restates a row we already hold — and the caller ALSO named
+    // the entry it makes obsolete. Merging must not swallow that: the named
+    // row was left live beside the refreshed one, which is exactly the
+    // duplicate the caller was trying to close.
+    if (named && named.id !== refreshed.id && isAgentSupersedable(named)) {
+      const retired = await db
+        .update(projectMemory)
+        .set({ status: 'superseded', updatedAt: new Date() })
+        .where(and(eq(projectMemory.id, named.id), eq(projectMemory.status, 'active')))
+        .returning({ id: projectMemory.id })
+      if (retired.length > 0) options.onSuperseded?.(named.id)
+    }
+    return refreshed
+  }
 
-  const candidate =
-    near?.item ??
-    (options.supersedesContent?.trim()
-      ? await resolveSupersedeTarget(values, options.supersedesContent)
-      : null)
+  const candidate = near?.item ?? named
 
   let supersedeTarget: ProjectMemoryItem | null = null
   let conflictsWithId: string | null = null

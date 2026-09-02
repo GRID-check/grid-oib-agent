@@ -126,7 +126,7 @@ class DeepResearchGraphContext:
     backend: Any
     visibility_middleware: list[Any]
     #: The resolved platform/org skills for THIS run, rendered as the catalog +
-    #: "required for this turn" blocks the writer prompt shows. None when none
+    #: "Active skills" blocks the writer prompt shows. None when none
     #: resolved — including every run where the BFF could not be reached, which
     #: is why the writer prompt has to read as a complete instruction without it.
     skills_block: str | None = None

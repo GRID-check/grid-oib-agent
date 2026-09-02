@@ -497,36 +497,29 @@ question happened to need.
 
 ### Which turns may emit a card
 
-Every turn, including one the intent classifier routed as `meta`. This used to be
-contradictory rather than decided: the shallow prompt's meta output contract said
-"no tool calls" while the `<cards>` block six lines below sat outside both
-`{% if requires_sources %}` guards and told the model to emit one. The
-mandatory-sounding half won, and a Baurecht question that classified `meta` —
-„Wie läuft das Baubewilligungsverfahren in Wien ab?", retyped in plain words
-after a research plan was refused — shipped as prose twice.
+Every turn. `emit_card` and `describe_card` are bound on every turn like every
+other tool (ADR-0052: there is no classifier and no narrowed "meta" binding in
+front of the answering agent), so whether a turn ships a card is decided by
+what the answer has to show, never by a label given before the answer.
 
-Resolved toward allowing it, on the grounds that `_meta_tool_binding`
-(`shallow_researcher/agent.py`) has always kept `remember`, `emit_card` and
-`describe_card` bound on that turn. "No tool calls" was never a description of
-what the turn could do; it was a prompt line disagreeing with its own runtime.
-Classification decides whether the turn needs SOURCES, not whether the answer has
-anything worth showing.
+This used to be contradictory rather than decided: when the intent classifier
+still existed, the shallow prompt's meta output contract said "no tool calls"
+while the `<cards>` block six lines below sat outside both `requires_sources`
+guards and told the model to emit one. The mandatory-sounding half won, and a
+Baurecht question that classified `meta` — „Wie läuft das
+Baubewilligungsverfahren in Wien ab?", retyped in plain words after a research
+plan was refused — shipped as prose twice. Deleting the classifier removed the
+contradiction with it.
 
-Two things bound it:
-
-- **The prompt says what a meta turn may put on a card.** A subject-matter
-  question that merely landed in this shape earns the card its content calls for;
-  small talk, a formatting or memory request, a shelf listing and an off-topic
-  decline get none. The off-topic shape still reads "No tool calls".
-- **The skill gate stays shut.** `register.py` builds a `SkillRuntime` only when
-  `requires_sources or force_skills`, so a meta turn pays for no skill prose at
-  all (the house bodies that once made this gate worth ~7,400 cl100k tokens per
-  greeting are folded into the prompt now, but genre-skill bodies still ride
-  behind it). What the turn keeps is the always-on doctrine and the L1 index,
-  which ride in `emit_card`'s description regardless — enough to NAME the right
-  card. The shape costs one `describe_card` call, which is why `describe_card`
-  is pinned into `_INTERACTION_TOOL_BASENAMES` rather than surviving by having
-  no data source.
+What bounds it now is the prompt: **it says what a direct reply may put on a
+card.** A subject-matter question that merely landed in a short reply earns the
+card its content calls for; small talk, a formatting or memory request, a shelf
+listing and an off-topic decline get none. The always-on doctrine and the L1
+index ride in `emit_card`'s description on every turn — enough to NAME the
+right card; the shape costs one `describe_card` call. Skills, too, are bound on
+every turn (`use_skill`); there is no `requires_sources or force_skills` gate
+in front of the skill runtime any more, so a greeting that loads no skill is
+the model's judgment, pinned by the prompt.
 
 ### Every `emit_card` outcome is logged, refusals included
 

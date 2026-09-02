@@ -281,6 +281,12 @@ export const projects = {
       user: 'added by you',
       grid: 'noted by Piloti',
     },
+    conflict: {
+      badge: 'Conflicts with a confirmed note',
+      title:
+        'Conflicts with “{note}” — Piloti was not allowed to replace that note. Confirm or remove one of the two.',
+      titleUnknown: 'Conflicts with a confirmed note that is no longer in this list.',
+    },
     time: {
       justNow: 'just now',
       minutesAgo: '{count}m ago',

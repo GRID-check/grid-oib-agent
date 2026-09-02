@@ -192,7 +192,7 @@ def test_what_was_delivered_is_reported_in_the_order_it_was_asked_for() -> None:
 def test_forced_block_names_only_forced_skills() -> None:
     block = _runtime(forced=["beta"]).forced_block()
     assert block is not None
-    assert block.startswith("## Active skills (required for this turn)")
+    assert block.startswith("## Active skills (apply to every answer with subject matter)")
     assert "`beta`" in block
     assert "`alpha`" not in block
 

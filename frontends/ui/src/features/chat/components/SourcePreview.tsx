@@ -265,6 +265,14 @@ const faceClasses = (variant: CitationVariant): string =>
   variant === 'card' ? cardButtonClasses : cn(chipButtonClasses, 'max-w-56')
 
 /**
+ * The card face while nothing can be opened yet (the preview index is still
+ * loading): the same shape, none of the affordances. A hover tint and a press
+ * scale on a box with no handler behind it read as a broken button, which is
+ * exactly what the Herleitung's source chips looked like before resolution.
+ */
+const inertCardClasses = 'flex w-full gap-3 rounded-lg border bg-card p-3 text-left'
+
+/**
  * The card keeps the calm neutral card surface a long list needs and carries
  * its provenance in the icon + badge instead — tinting whole rows would make
  * the list unreadable.
@@ -1239,7 +1247,7 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
 
   if (variant === 'card') {
     return (
-      <div className={cn(faceClasses(variant), 'cursor-default')} style={faceStyle(variant, doc.tint)}>
+      <div className={cn(inertCardClasses, className)} style={faceStyle(variant, doc.tint)}>
         <CitationFace {...shared} />
       </div>
     )

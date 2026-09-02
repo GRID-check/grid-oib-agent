@@ -251,14 +251,11 @@ as-is. An old backend ignores the unknown keys and searches the full authorized
 scope — the pre-#429 behaviour, never a dropped frame.
 
 `focus_file_name` is not only a retrieval hint. It is lifted onto
-`ChatResearcherState` and rendered into both the routing prompt
-(`intent_classification.j2`) and the answering prompt (`researcher.j2`), because
-a turn that says "fass zusammen" carries its subject in the composer bar and
-nowhere in its text: with retrieval scoped correctly but the model told nothing,
-the answer was "which document do you mean?" over an open PDF. A bound subject
-also keeps the search tools on a turn the classifier called conversational —
-otherwise the one tool that can read that file is not offered. The grounding
-contract still follows the classified intent, not the subject.
+`ChatResearcherState` and rendered into the answering prompt (`researcher.j2`),
+because a turn that says "fass zusammen" carries its subject in the composer bar
+and nowhere in its text: with retrieval scoped correctly but the model told
+nothing, the answer was "which document do you mean?" over an open PDF. The
+tool that can read the file is bound on every turn regardless (ADR-0052).
 
 `focus_shelf` is optional even when a subject is set: a conversation persists
 only the subject's resource id, so a thread reopened after a reload re-reads the
@@ -328,7 +325,8 @@ Delivers final or streaming response text.
     // The [N] marker this source carries in the answer prose, resolved by
     // verify_citations (the only place that binding exists). Lets the UI render
     // ONE numbered provenance block instead of the written "## Quellen" list
-    // plus an unnumbered chip row. Absent when unknown (legacy/meta turns).
+    // plus an unnumbered chip row. Absent when unknown (a direct reply, or
+    // a backend that predates the numbering).
     number?: number | null
     file_name?: string | null
     page?: number | null
@@ -341,7 +339,6 @@ Delivers final or streaming response text.
   // client (`.catch(undefined)`), so one malformed extra never drops the
   // response text.
   routing_decision?: "meta" | "shallow" | "deep" | "error",
-  routing_reason?: string,
   escalation_reason?: string,
   answer_confidence_capped_reason?: "ungrounded" | "quote_unverified" | "normative_claim_uncited" | "measurement_only" | "citation_fallback",
   citations_removed?: { count: number, reasons: string[] },
@@ -362,9 +359,8 @@ The client extracts content in priority order: `output` → `text` → raw strin
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `routing_decision` | `"meta" \| "shallow" \| "deep" \| "error"` | Which path the turn took after intent classification. Rendered as a "Warum dieser Weg?" line in the expanded Herleitung. |
-| `routing_reason` | `string` | Human-readable "why" for the routing decision, rendered verbatim from the classifier. |
-| `escalation_reason` | `string` | Present only when a shallow→deep escalation happened this turn. Rendered as `Eskaliert zur Tiefenrecherche: <reason>` in the thinking panel and above the deep-research banner. |
+| `routing_decision` | `"meta" \| "shallow" \| "deep" \| "error"` | Which path the turn took, OBSERVED after the answer, never decided up front (ADR-0052): `meta` when the agent consulted no data source and gave no self-assessment (a direct reply), `shallow` otherwise, `deep` on a hand-off to deep research, `error` on a failed turn. Kept on the wire for the post-answer stages and transparency; there is no "Warum dieser Weg?" line any more because there is no upfront decision to attribute. |
+| `escalation_reason` | `string` | Present only when a shallow→deep escalation happened this turn: the model's own one-clause reason from its answer envelope. Rendered as `Eskaliert zur Tiefenrecherche: <reason>` in the thinking panel and above the deep-research banner. |
 | `answer_confidence_reason` | `string` (≤300 chars) | The model's own one-clause justification for its self-assessed confidence, parsed from the `[CONFIDENCE:<level> \| <reason>]` marker. Shown verbatim in the ConfidenceChip tooltip under "Assistant's reason". |
 | `answer_confidence_capped_reason` | `"ungrounded" \| "quote_unverified" \| "normative_claim_uncited" \| "measurement_only" \| "citation_fallback"` | Present only when confidence was downgraded by the deterministic overconfidence guard. `ungrounded` — no citation grounding and nothing measured. `quote_unverified` — a quoted span matched no retrieved passage. `normative_claim_uncited` — the answer WAS grounded in an IFC measurement but also asserts something normative with no verified citation, so it is held at "low" rather than riding out on the measurement's evidence. `measurement_only` — measured and purely descriptive, so a self-reported "high" was reduced to "medium" (measurement grounding never reaches "high"). `citation_fallback` — nothing the model cited survived verification and the grounding is the one source the agent attached from the cumulative session registry, which may predate this turn; it lifts the answer no further than a measurement does. Adds a sentence to the ConfidenceChip tooltip. |
 | `citations_removed` | `{ count: number, reasons: string[] }` | Present only when citation verification removed ≥1 citation. Renders a muted note under the sources row (reasons in a tooltip). |

@@ -170,33 +170,14 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
             # Agent skills: resolved per RUN (ADR-0018 — never cached on the
             # shared agent instance), builtin + org set from the resolver, then
             # narrowed by the config allowlist. The runtime's `use_skill` tool
-            # is folded into the tool set on research turns
-            # (requires_sources=True): meta/conversational turns keep their
-            # interaction-only binding — a greeting cannot load a skill.
-            #
-            # A turn the user EXPLICITLY invoked a skill on (`/name` in the
-            # composer, arriving as `force_skills`) is wired regardless of that
-            # classification. The classifier decides whether an unprompted turn
-            # needs sources; it does not get to overrule a direct instruction,
-            # and dropping the tool there made `/name` a silent no-op on exactly
-            # the short, imperative messages people type after a slash command.
-            #
-            # This gate STAYS CLOSED for meta turns even though those turns may
-            # now emit a card (see the prompt's `<turn_classification>`), and the
-            # decision is a price rather than a principle. Opening it would hand
-            # every greeting the `piloti-cards` body — 5,239 cl100k tokens — plus
-            # the shapes its `grid-cards` list inlines, 2,157 after 0061: ~7,400
-            # tokens on turns whose usual content is "hallo" or "kürzer bitte".
-            # What a meta turn keeps without it is the whole always-on doctrine
-            # and the L1 index, which ride in `emit_card`'s description on every
-            # turn regardless, so the model can still NAME the right card; the
-            # shape costs it one `describe_card` call. Paying a round trip on the
-            # rare misclassified subject-matter question is the cheaper side of
-            # that trade by two orders of magnitude, and `describe_card` is bound
-            # on meta turns precisely so the round trip exists to be paid.
+            # is folded into the tool set on every turn: the model has the
+            # catalog and decides whether a skill applies, the same way it
+            # decides whether to search (ADR-0052). A skill's BODY still only
+            # travels on a `use_skill` call, so a greeting costs the catalog
+            # lines and nothing more.
             skill_runtime = None
             run_tools = selected_tools
-            if config.skills_enabled and (state.requires_sources or state.force_skills):
+            if config.skills_enabled:
                 from aiq_agent.project_context import get_organization_id_from_context
                 from aiq_agent.skills import SkillResolver
                 from aiq_agent.skills import SkillRuntime
@@ -206,6 +187,9 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
                 if config.skill_allowlist:
                     allow = set(config.skill_allowlist)
                     resolved_skills = tuple(s for s in resolved_skills if s.name in allow)
+            # No skills resolved for this organization: nothing to offer, no
+            # tool to bind, and silence is the correct announcement.
+            if config.skills_enabled and resolved_skills:
                 skill_runtime = SkillRuntime(skills=resolved_skills, force_names=state.force_skills)
                 # Announce the catalog BEFORE the LLM runs: what was resolved
                 # and what the user forced, on the technical channel. The
@@ -306,8 +290,16 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
                 # what the READER should be shown about it is a product
                 # decision — but countable per deployment, which is what makes
                 # "the house voice reached 8 answers in 10" knowable at all.
+                # Only for an answer that had subject matter: one that loaded a
+                # skill, consulted a source or graded itself. A direct reply had
+                # nothing for the house voice to shape, and is not a miss.
                 unread = skill_runtime.forced_not_activated
-                if unread:
+                researched = (
+                    bool(skill_runtime.activated)
+                    or getattr(result, "source_lookup_attempted", True) is not False
+                    or getattr(result, "answer_confidence_marker", None) is not None
+                )
+                if unread and researched:
                     logger.warning(
                         "Forced skills never loaded by the model: %s (activated=%s)",
                         ", ".join(unread),

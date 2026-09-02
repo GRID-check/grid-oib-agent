@@ -83,7 +83,7 @@ export async function getActiveModelOverrides(organizationId: string): Promise<R
  * and needs no notion of platform defaults at all.
  *
  * Merge is PER GROUP, not all-or-nothing: an org that pinned only
- * `deep_research` still follows the platform default for `intent`. That is the
+ * `deep_research` still follows the platform default for `shallow_research`. That is the
  * whole point — a fleet-wide model switch reaches every tenant that has not
  * deliberately opted out of it, group by group.
  *

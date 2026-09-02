@@ -53,7 +53,7 @@ export const answerDocuments = (docs: CitedDocument[]): CitedDocument[] => {
 /**
  * Documents the turn retrieved but the answer never cited.
  *
- * The Herleitung's honest half: "read, not used" is a real research outcome and
+ * The Herleitung's honest half: "retrieved, not cited" is a real research outcome and
  * the surface that claims to show the derivation has to be able to say it.
  * Before the model existed this set was not expressible at all — the trace and
  * the answer were separate pipelines with no shared identity to subtract.

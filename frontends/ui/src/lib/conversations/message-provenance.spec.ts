@@ -30,7 +30,6 @@ describe('sanitizeProvenance', () => {
       answerConfidence: 'high',
       answerConfidenceReason: 'Zwei übereinstimmende Quellen.',
       routingDecision: 'shallow',
-      routingReason: 'Direkte Normfrage.',
       citationsRemoved: { count: 2, reasons: ['ungrounded', 'duplicate'] },
       deepResearchJobId: 'job_1',
       showViewReport: true,
@@ -51,7 +50,6 @@ describe('sanitizeProvenance', () => {
       answerConfidence: 'high',
       answerConfidenceReason: 'Zwei übereinstimmende Quellen.',
       routingDecision: 'shallow',
-      routingReason: 'Direkte Normfrage.',
       citationsRemoved: { count: 2, reasons: ['ungrounded', 'duplicate'] },
       deepResearchJobId: 'job_1',
       showViewReport: true,
@@ -99,13 +97,11 @@ describe('sanitizeProvenance', () => {
   it('caps reasons and truncates the step list', () => {
     const result = sanitizeProvenance({
       answerConfidenceReason: 'a'.repeat(5_000),
-      routingReason: 'b'.repeat(5_000),
       escalationReason: 'c'.repeat(5_000),
       thinkingSteps: Array.from({ length: 500 }, (_, index) => step({ id: `s${index}` })),
     })
 
     expect(result!.answerConfidenceReason).toHaveLength(600)
-    expect(result!.routingReason).toHaveLength(600)
     expect(result!.escalationReason).toHaveLength(600)
     expect(result!.thinkingSteps).toHaveLength(200)
   })

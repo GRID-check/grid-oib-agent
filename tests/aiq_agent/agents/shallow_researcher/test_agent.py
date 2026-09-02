@@ -502,17 +502,6 @@ class TestShallowResearcherAgent:
         assert "```" not in result.messages[-1].content
 
     @pytest.mark.asyncio
-    async def test_forced_synthesis_on_a_meta_turn_stays_plain(self, mock_llm_provider, mock_llm, real_tool):
-        """Meta turns answer in prose — no envelope contract, no JSON mode."""
-        mock_llm.bind = MagicMock()
-        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content="Gerne!"))
-        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], max_tool_iterations=0)
-
-        await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Hallo!")], requires_sources=False))
-
-        mock_llm.bind.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_json_mode_falls_back_to_a_plain_call(self, mock_llm_provider, mock_llm, real_tool):
         """A provider that rejects response_format degrades to prose, never fails."""
         bound = self._bindable(mock_llm, "")
@@ -647,7 +636,6 @@ class TestShallowResearcherAgent:
         mock_llm_provider,
         real_tool,
         *,
-        requires_sources: bool,
         project_context: str | None = None,
     ) -> str:
         from aiq_agent.common import render_prompt_template
@@ -661,7 +649,6 @@ class TestShallowResearcherAgent:
             available_documents=[],
             project_context=project_context,
             ris_catalog=None,
-            requires_sources=requires_sources,
         )
 
     def test_the_formatting_block_routes_a_diagram_to_a_drawing_card(self, mock_llm_provider, real_tool):
@@ -672,34 +659,20 @@ class TestShallowResearcherAgent:
         now routes a named diagram request to the drawing CARDS — the surface
         with the caption, the Fundstelle and the PDF path — keeps the ban on box
         art, and leaves the tagged mermaid fence only as the last resort.
-        Asserted on BOTH turn shapes, because `<formatting>` is outside the
-        `requires_sources` guards and a diagram is at least as likely on the
-        conversational one.
         """
-        for requires_sources in (True, False):
-            rendered = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=requires_sources)
-            formatting = rendered.split("<formatting>")[1].split("</formatting>")[0]
-            assert "A picture is a CARD" in formatting
-            assert "`diagram`" in formatting
-            # The box-art ban must survive the rewrite: the third field
-            # transcript drew box-drawing characters where a diagram was asked.
-            assert "never draw with them" in formatting
-            # And the fallback still names the notation that renders.
-            assert "flowchart TD" in formatting
-            # And the consequence, so an edit that keeps the rule and drops the
-            # reason still fails: a listing where a drawing was promised.
-            assert "monospace listing" in formatting
-            assert "│" in formatting
-
-    def test_meta_turn_prompt_suppresses_marker_mandate(self, mock_llm_provider, real_tool):
-        """requires_sources=False renders a deterministic suppression note and no marker mandate."""
-        rendered = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=False)
-
-        assert "<turn_classification>" in rendered
-        assert "NOT a research turn" in rendered
-        # The marker-mandate blocks are omitted on meta turns.
-        assert "<insufficient_answer_marker>" not in rendered
-        assert "<confidence_marker>" not in rendered
+        rendered = self._render_default_prompt(mock_llm_provider, real_tool)
+        formatting = rendered.split("<formatting>")[1].split("</formatting>")[0]
+        assert "A picture is a CARD" in formatting
+        assert "`diagram`" in formatting
+        # The box-art ban must survive the rewrite: the third field
+        # transcript drew box-drawing characters where a diagram was asked.
+        assert "never draw with them" in formatting
+        # And the fallback still names the notation that renders.
+        assert "flowchart TD" in formatting
+        # And the consequence, so an edit that keeps the rule and drops the
+        # reason still fails: a listing where a drawing was promised.
+        assert "monospace listing" in formatting
+        assert "│" in formatting
 
     def test_project_memory_is_framed_as_fallible_not_binding(self, mock_llm_provider, real_tool):
         """The digest rides inside <project_context>, whose "binding constraints —
@@ -709,7 +682,6 @@ class TestShallowResearcherAgent:
         rendered = self._render_default_prompt(
             mock_llm_provider,
             real_tool,
-            requires_sources=True,
             project_context=(
                 "PROJECT_MEMORY v1\n"
                 '- [derived_fact | high | unverified] "Für Bergsteiggasse ist OIB-RL 2.1 nicht anwendbar"'
@@ -723,12 +695,12 @@ class TestShallowResearcherAgent:
         assert "never a source for a legal requirement" in rendered
 
     def test_research_turn_prompt_keeps_the_envelope_mandate(self, mock_llm_provider, real_tool):
-        """requires_sources=True keeps the envelope contract and omits the suppression note."""
-        rendered = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=True)
+        """The envelope contract is rendered on every turn; there is no suppression note."""
+        rendered = self._render_default_prompt(mock_llm_provider, real_tool)
 
         assert "<answer_envelope>" in rendered
         assert "<control_signals>" in rendered
-        assert "Every reply carries `confidence`" in rendered
+        assert "Every researched answer carries `confidence`" in rendered
         # The schema the validator enforces is the one the model is taught —
         # injected by the renderer, never an empty block.
         assert "answer*: string" in rendered
@@ -757,7 +729,7 @@ class TestShallowResearcherAgent:
         Nothing here makes the marker enforceable: a missing marker stays a
         soft degradation (no chip), never an error and never a retry.
         """
-        rendered = self._render_default_prompt(mock_llm_provider, real_tool, requires_sources=True)
+        rendered = self._render_default_prompt(mock_llm_provider, real_tool)
 
         # Grounding is evidence, not sources alone — a measurement counts.
         assert "the sources you retrieved AND the measurements you took" in rendered
@@ -1076,14 +1048,11 @@ class TestShallowResearcherSourceRegistryGating:
         assert "current time" in result.messages[-1].content
 
     @pytest.mark.asyncio
-    async def test_meta_turn_without_sources_returns_answer(self, mock_llm_provider, mock_llm):
-        """Conversational/meta turns (requires_sources=False) answer from context
-        without capturing sources. An empty registry must NOT raise
-        EmptySourceRegistryError — the persona answer is returned as-is.
-
-        Regression for the (intent=meta, sources=empty) cell: routing meta turns
-        through the shallow agent previously discarded a valid answer and replaced
-        it with a "search tools returned no results" error.
+    async def test_an_answer_that_looked_nothing_up_is_returned_as_is(self, mock_llm_provider, mock_llm):
+        """A reply from project context calls no data-source tool. An empty
+        registry then is not a failure — the answer is returned as it is, and
+        the result says no source was consulted (which is what the chat node
+        reads a direct reply from).
         """
         final_response = AIMessage(content="Your project **test 1** is a Neubau, Beherbergung, GK3 building.")
         mock_llm.ainvoke = AsyncMock(side_effect=[final_response])
@@ -1095,23 +1064,19 @@ class TestShallowResearcherSourceRegistryGating:
 
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="what do you know about my project")],
-            requires_sources=False,
         )
         result = await agent.run(state)
 
         assert agent.source_registry.all_sources() == []
         assert "test 1" in result.messages[-1].content
+        assert result.source_lookup_attempted is False
 
     @pytest.mark.asyncio
-    async def test_meta_turn_binds_only_interaction_tools(self, mock_llm_provider, mock_llm):
-        """A conversational/meta turn must not OFFER the data-source search tools.
-
-        Regression for the "wie läufts so" → web-search incident: a greeting
-        routed through the shallow agent still fired a web search because the
-        search tool stayed bound to the LLM regardless of turn type. On
-        requires_sources=False the agent now binds ONLY interaction tools
-        (`remember_tool` here); the data-source search tool
-        (`empty_web_search_tool`) is dropped so it cannot be called at all.
+    async def test_a_greeting_keeps_the_full_binding(self, mock_llm_provider, mock_llm):
+        """No turn is narrowed by a classification any more (ADR-0052): the
+        greeting is answered from the same construction-time binding a
+        Baurecht question uses, search tool included. Whether to call it is
+        the model's decision, made with the tool in hand.
         """
         populate_from_config(
             [
@@ -1130,30 +1095,24 @@ class TestShallowResearcherSourceRegistryGating:
             llm_provider=mock_llm_provider,
             tools=[empty_web_search_tool, remember_tool],
         )
-        # Ignore the construction-time full binding; observe only the meta path.
+        bound_at_construction = {getattr(t, "name", t) for t in mock_llm.bind_tools.call_args.args[0]}
+        assert bound_at_construction == {"empty_web_search_tool", "remember_tool"}
         mock_llm.bind_tools.reset_mock()
 
-        state = ShallowResearchAgentState(
-            messages=[HumanMessage(content="wie läufts so")],
-            requires_sources=False,
-        )
+        state = ShallowResearchAgentState(messages=[HumanMessage(content="wie läufts so")])
         result = await agent.run(state)
 
-        # The meta binding kept the interaction tool and dropped the search tool.
-        assert mock_llm.bind_tools.call_count == 1
-        bound_names = {getattr(t, "name", t) for t in mock_llm.bind_tools.call_args.args[0]}
-        assert bound_names == {"remember_tool"}
-        assert "empty_web_search_tool" not in bound_names
+        # No second, narrower binding was made for the turn.
+        assert mock_llm.bind_tools.call_count == 0
         assert "läuft alles super" in result.messages[-1].content
+        assert result.source_lookup_attempted is False
 
     @pytest.mark.asyncio
-    async def test_meta_turn_hallucinated_search_call_does_not_execute(self, mock_llm_provider, mock_llm):
-        """Defense in depth: even if a weak model hallucinates a search tool call
-        on a meta turn (a tool it was never offered), the search must NOT run.
-
-        The meta-scoped ToolNode holds only interaction tools, so a call to the
-        data-source search tool returns an invalid-tool error instead of
-        executing it — the greeting never triggers a real web search.
+    async def test_a_search_the_model_calls_on_a_greeting_executes(self, mock_llm_provider, mock_llm):
+        """The other half of the same rule: a tool the model decides to call
+        runs, on any turn. The old meta partition returned an invalid-tool
+        error here; that partition is what made "zeig mir die Grundrisse"
+        answer that its tool was not available in this session.
         """
         _SPY_SEARCH_EXECUTIONS.clear()
         populate_from_config(
@@ -1166,33 +1125,30 @@ class TestShallowResearcherSourceRegistryGating:
                 }
             ],
         )
-        # The model hallucinates a search call first, then answers conversationally.
-        hallucinated_call = AIMessage(
+        search_call = AIMessage(
             content="",
             tool_calls=[{"name": "spy_search_tool", "args": {"query": "wie läufts so"}, "id": "1"}],
         )
         final_response = AIMessage(content="Hallo! Bei mir läuft alles super.")
-        mock_llm.ainvoke = AsyncMock(side_effect=[hallucinated_call, final_response])
+        mock_llm.ainvoke = AsyncMock(side_effect=[search_call, final_response])
 
         agent = ShallowResearcherAgent(
             llm_provider=mock_llm_provider,
             tools=[spy_search_tool, remember_tool],
+            repair_pass=False,
         )
 
-        state = ShallowResearchAgentState(
-            messages=[HumanMessage(content="wie läufts so")],
-            requires_sources=False,
-        )
+        state = ShallowResearchAgentState(messages=[HumanMessage(content="wie läufts so")])
         result = await agent.run(state)
 
-        # The search tool was never actually executed.
-        assert _SPY_SEARCH_EXECUTIONS == []
+        assert _SPY_SEARCH_EXECUTIONS == ["wie läufts so"]
         assert "läuft alles super" in result.messages[-1].content
+        assert result.source_lookup_attempted is True
 
     @pytest.mark.asyncio
     async def test_research_turn_hallucinated_search_call_executes(self, mock_llm_provider, mock_llm):
-        """Contrast: on a research turn the search tool is fully available and a
-        tool call executes normally (the meta scoping does not apply)."""
+        """A research question: the search tool is available and a tool call
+        executes normally."""
         _SPY_SEARCH_EXECUTIONS.clear()
         populate_from_config(
             [
@@ -1222,77 +1178,16 @@ class TestShallowResearcherSourceRegistryGating:
 
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="Which OIB Richtlinie applies?")],
-            requires_sources=True,
         )
         await _run_with_captured_registry(agent, state)
 
         # On a research turn the search tool really runs.
         assert _SPY_SEARCH_EXECUTIONS == ["OIB 2.2"]
 
-    def test_is_search_tool_keeps_interaction_tools_matching_a_group_ref(self):
-        """A `remember`/`emit_card` tool whose qualified name prefix-matches a
-        declared data-source group must NOT be classified as a search tool —
-        else a meta turn would lose the very tool it was routed here to use."""
-        from aiq_agent.agents.shallow_researcher.agent import _is_search_tool
-
-        reset_registry()
-        try:
-            populate_from_config(
-                [{"id": "mcp", "name": "MCP", "description": "MCP tools.", "tools": ["mcp"]}],
-                group_names={"mcp"},
-            )
-            # Interaction tool under the group prefix → kept (not search).
-            assert _is_search_tool("mcp__remember") is False
-            assert _is_search_tool("mcp__emit_card") is False
-            # A genuine evidence tool under the same group → search.
-            assert _is_search_tool("mcp__web_fetch") is True
-            # File-discovery tools are not in the data-source registry but they
-            # still mix shelves on a listing turn — drop them on meta.
-            assert _is_search_tool("surface_documents") is True
-            assert _is_search_tool("ifc_query") is True
-            assert _is_search_tool("ifc_measure") is True
-            assert _is_search_tool("compliance_check") is True
-        finally:
-            reset_registry()
-
-    @pytest.mark.asyncio
-    async def test_meta_turn_with_only_search_tools_binds_no_tools(self, mock_llm_provider, mock_llm):
-        """When every shallow tool is a data-source tool (the OIB config), a meta
-        turn binds NO tools — the greeting is answered directly with no search."""
-        populate_from_config(
-            [
-                {
-                    "id": "web_search",
-                    "name": "Web Search",
-                    "description": "Search the web.",
-                    "tools": ["empty_web_search_tool"],
-                }
-            ],
-        )
-        final_response = AIMessage(content="Hallo! Wie kann ich helfen?")
-        mock_llm.ainvoke = AsyncMock(side_effect=[final_response])
-
-        agent = ShallowResearcherAgent(
-            llm_provider=mock_llm_provider,
-            tools=[empty_web_search_tool],
-        )
-        mock_llm.bind_tools.reset_mock()
-
-        state = ShallowResearchAgentState(
-            messages=[HumanMessage(content="wie läufts so")],
-            requires_sources=False,
-        )
-        result = await agent.run(state)
-
-        # No interaction tools exist → the meta path binds the bare LLM (no
-        # bind_tools call) and no search tool is ever offered.
-        assert mock_llm.bind_tools.call_count == 0
-        assert "Hallo" in result.messages[-1].content
-
     @pytest.mark.asyncio
     async def test_research_turn_keeps_search_tools_bound(self, mock_llm_provider, mock_llm):
-        """Contrast: a research turn (requires_sources=True) still uses the full
-        construction-time binding, so the search tool remains available."""
+        """A research question uses the full construction-time binding, so the
+        search tool remains available."""
         populate_from_config(
             [
                 {
@@ -1314,7 +1209,6 @@ class TestShallowResearcherSourceRegistryGating:
 
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="Which OIB Richtlinie applies to high-rise buildings?")],
-            requires_sources=True,
         )
         await agent.run(state)
 
@@ -1352,7 +1246,6 @@ class TestShallowResearcherSourceRegistryGating:
 
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="Which OIB Richtlinie applies to high-rise buildings?")],
-            requires_sources=True,
         )
         with pytest.raises(EmptySourceRegistryError):
             await agent.run(state)
@@ -1376,7 +1269,6 @@ class TestShallowResearcherSourceRegistryGating:
 
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="what do you need to know to fill that in?")],
-            requires_sources=True,
         )
         result = await agent.run(state)
 
@@ -1832,6 +1724,31 @@ class TestShallowResearcherAnswerGrounding:
     and registry contents itself.
     """
 
+    @pytest.fixture(autouse=True)
+    def _reset_data_source_registry(self):
+        reset_registry()
+        yield
+        reset_registry()
+
+    @staticmethod
+    def _after_a_lookup(mock_llm, answer: str, *, query: str = "q") -> None:
+        """Script one web search, then the answer.
+
+        The single-source fallback grounds an answer in the one source THIS
+        turn retrieved; a turn that looked nothing up gets no citation appended
+        (or a greeting would inherit last turn's source). So the tests that
+        exercise the fallback have to look something up first.
+        """
+        populate_from_config(
+            [{"id": "web_search", "name": "Web Search", "description": "Search the web.", "tools": ["web_search_tool"]}]
+        )
+        mock_llm.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(content="", tool_calls=[{"name": "web_search_tool", "args": {"query": query}, "id": "1"}]),
+                AIMessage(content=answer),
+            ]
+        )
+
     @pytest.fixture
     def mock_llm(self):
         llm = MagicMock()
@@ -1845,8 +1762,10 @@ class TestShallowResearcherAnswerGrounding:
         provider.get = MagicMock(return_value=mock_llm)
         return provider
 
-    def _agent(self, provider):
-        return ShallowResearcherAgent(llm_provider=provider, tools=[web_search_tool])
+    def _agent(self, provider, **kwargs):
+        # The fallback tests script exactly one search and one answer; the
+        # repair pass would spend a third call and is not what they test.
+        return ShallowResearcherAgent(llm_provider=provider, tools=[web_search_tool], **kwargs)
 
     @pytest.mark.asyncio
     async def test_grounded_when_verification_keeps_valid_citation(self, mock_llm_provider, mock_llm):
@@ -1872,7 +1791,7 @@ class TestShallowResearcherAnswerGrounding:
     async def test_grounded_when_single_source_appended_as_minimal_citation(self, mock_llm_provider, mock_llm):
         # No model citation survives, but exactly one registry source exists →
         # appended as the one minimal citation, which grounds the answer.
-        mock_llm.ainvoke.return_value = AIMessage(content="Answer without any citation.")
+        self._after_a_lookup(mock_llm, "Answer without any citation.")
         source = SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool")
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[source]),
@@ -1881,10 +1800,10 @@ class TestShallowResearcherAnswerGrounding:
             mock_verify.return_value = MagicMock(
                 verified_report="Answer without any citation.",
                 valid_citations=[],
-                removed_citations=["[1]"],
+                removed_citations=[{"number": 1, "line": "[1]", "reason": "unverifiable"}],
             )
             state = ShallowResearchAgentState(messages=[HumanMessage(content="Q?")])
-            result, _ = await _run_with_captured_registry(self._agent(mock_llm_provider), state)
+            result, _ = await _run_with_captured_registry(self._agent(mock_llm_provider, repair_pass=False), state)
         assert result.answer_citation_grounded is True
 
     @pytest.mark.asyncio
@@ -1908,28 +1827,29 @@ class TestShallowResearcherAnswerGrounding:
         assert result.answer_citation_grounded is False
 
     @pytest.mark.asyncio
-    async def test_not_grounded_when_registry_empty_meta_turn(self, mock_llm_provider, mock_llm):
-        # Empty registry, conversational turn (requires_sources=False): nothing to
-        # cite → not grounded (a self-report would be capped to "low" downstream).
+    async def test_not_grounded_when_registry_empty_and_nothing_was_looked_up(self, mock_llm_provider, mock_llm):
+        # Empty registry, a greeting: nothing to cite → not grounded (a
+        # self-report would be capped to "low" downstream).
         mock_llm.ainvoke.return_value = AIMessage(content="Hallo! Wie kann ich helfen?")
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="Hi")],
-            requires_sources=False,
         )
         result, _ = await _run_with_captured_registry(self._agent(mock_llm_provider), state)
         assert result.answer_citation_grounded is False
 
     @pytest.mark.asyncio
-    async def test_reference_sources_synthesizes_missing_sources_section(self, mock_llm_provider, mock_llm):
-        # Inline [1] citation, NO Sources section written by the model, but a
-        # populated registry: the shallow path must pass reference_sources so the
-        # real verify_citations can synthesize the section (rather than dropping
-        # the citation). Uses the REAL verification/sanitization pipeline.
-        mock_llm.ainvoke.return_value = AIMessage(content="The building height limit is 12 m [1].")
+    async def test_an_unresolvable_citation_falls_back_to_the_turns_one_source(self, mock_llm_provider, mock_llm):
+        # Inline [1] citation, NO Sources section written by the model, and a
+        # registry whose one source the REAL verifier cannot resolve the [1]
+        # to (``all_sources`` is patched; the URL index is not): the citation
+        # is removed, and the single-source fallback grounds the answer in the
+        # one source this turn retrieved. Uses the REAL verification/
+        # sanitization pipeline.
+        self._after_a_lookup(mock_llm, "The building height limit is 12 m [1].")
         source = SourceEntry(url="https://example.gv.at/oib", title="OIB Richtlinie", tool_name="web_search_tool")
         with patch.object(SourceRegistry, "all_sources", return_value=[source]):
             state = ShallowResearchAgentState(messages=[HumanMessage(content="What is the height limit?")])
-            result, _ = await _run_with_captured_registry(self._agent(mock_llm_provider), state)
+            result, _ = await _run_with_captured_registry(self._agent(mock_llm_provider, repair_pass=False), state)
 
         answer = next(m for m in reversed(result.messages) if isinstance(m, AIMessage) and not m.tool_calls)
         assert "Sources" in answer.content
@@ -2022,7 +1942,8 @@ class TestShallowResearcherAnswerGrounding:
     async def test_verified_sources_single_source_minimal_citation_path(self, mock_llm_provider, mock_llm):
         # Exactly one registry source and no surviving model citation → the
         # single minimal-citation path fires and that one source IS emitted.
-        mock_llm.ainvoke.return_value = AIMessage(content="Answer without any citation.")
+        # The search result names the same URL, so the registry keeps ONE source.
+        self._after_a_lookup(mock_llm, "Answer without any citation.", query="https://example.com/only")
         registry = SourceRegistry()
         only = SourceEntry(url="https://example.com/only", title="Only", tool_name="web_search_tool")
         registry.add(only)
@@ -2033,20 +1954,23 @@ class TestShallowResearcherAnswerGrounding:
                 removed_citations=[{"number": 1, "line": "[1]", "reason": "unverifiable"}],
             )
             state = ShallowResearchAgentState(messages=[HumanMessage(content="Q?")])
-            result = await _run_with_bound_registry(self._agent(mock_llm_provider), state, registry)
+            result = await _run_with_bound_registry(self._agent(mock_llm_provider, repair_pass=False), state, registry)
         assert result.verified_sources is not None
         assert [s["url"] for s in result.verified_sources] == ["https://example.com/only"]
 
     @pytest.mark.asyncio
-    async def test_verified_sources_empty_on_meta_turn_with_populated_registry(self, mock_llm_provider, mock_llm):
-        # Meta turn (requires_sources=False): even with a populated registry no
-        # verification runs, so no chips are emitted.
+    async def test_verified_sources_empty_when_a_greeting_cites_nothing_from_a_populated_registry(
+        self, mock_llm_provider, mock_llm
+    ):
+        # A greeting on a conversation whose registry still holds last turn's
+        # source: nothing is cited and nothing was looked up this turn, so the
+        # single-source fallback must not hand the greeting that source as its
+        # citation, and no chip is emitted.
         mock_llm.ainvoke.return_value = AIMessage(content="Hallo! Wie kann ich helfen?")
         registry = SourceRegistry()
         registry.add(SourceEntry(url="https://ris.bka.gv.at/prev", title="Prior RIS", tool_name="ris_search"))
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="Hi")],
-            requires_sources=False,
         )
         result = await _run_with_bound_registry(self._agent(mock_llm_provider), state, registry)
         assert result.verified_sources is None
@@ -2079,7 +2003,7 @@ class TestShallowResearcherAnswerGrounding:
     async def test_minimal_citation_source_is_numbered_one(self, mock_llm_provider, mock_llm):
         # ``_append_minimal_citation`` writes "[1]" into the answer, so the one
         # emitted source must claim that number.
-        mock_llm.ainvoke.return_value = AIMessage(content="Answer without any citation.")
+        self._after_a_lookup(mock_llm, "Answer without any citation.", query="https://example.com/only")
         registry = SourceRegistry()
         registry.add(SourceEntry(url="https://example.com/only", title="Only", tool_name="web_search_tool"))
         with patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify:
@@ -2089,7 +2013,7 @@ class TestShallowResearcherAnswerGrounding:
                 removed_citations=[],
             )
             state = ShallowResearchAgentState(messages=[HumanMessage(content="Q?")])
-            result = await _run_with_bound_registry(self._agent(mock_llm_provider), state, registry)
+            result = await _run_with_bound_registry(self._agent(mock_llm_provider, repair_pass=False), state, registry)
         assert [s["number"] for s in result.verified_sources] == [1]
 
     @pytest.mark.asyncio
@@ -2165,13 +2089,12 @@ class TestShallowResearcherAnswerGrounding:
         assert result.citations_removed is None
 
     @pytest.mark.asyncio
-    async def test_citations_removed_absent_on_meta_turn_without_verification(self, mock_llm_provider, mock_llm):
-        # Meta turn (requires_sources=False) with an empty registry: no
-        # verification runs, so citations_removed is never populated.
+    async def test_citations_removed_absent_on_a_greeting_without_verification(self, mock_llm_provider, mock_llm):
+        # A greeting with an empty registry: no verification runs, so
+        # citations_removed is never populated.
         mock_llm.ainvoke.return_value = AIMessage(content="Hallo! Wie kann ich helfen?")
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="Hi")],
-            requires_sources=False,
         )
         result, _ = await _run_with_captured_registry(self._agent(mock_llm_provider), state)
         assert result.citations_removed is None
@@ -2278,6 +2201,65 @@ class TestShallowResearcherQuoteVerification:
     def test_state_defaults_quotes_verified_true(self):
         state = ShallowResearchAgentState(messages=[HumanMessage(content="hi")])
         assert state.answer_quotes_verified is True
+
+
+class TestRepairLookups:
+    """The repair searches for exactly what failed, where the answer said it was."""
+
+    def _quote(self, body: str, inner: str):
+        from aiq_agent.common.citation_verification import UnverifiedQuote
+
+        span = f"„{inner}“"
+        start = body.index(span)
+        return UnverifiedQuote(quote=inner, span=span, start=start, end=start + len(span), best_coverage=0.1)
+
+    def test_a_failed_quote_is_looked_up_in_the_document_it_was_attributed_to(self):
+        from aiq_agent.agents.shallow_researcher.agent import _repair_lookups
+
+        body = "Die Richtlinie fordert „Treppen muessen rot sein“ [2].\n\n## Sources\n[2] OIB-330.pdf, p.12"
+        lookups = _repair_lookups(
+            body,
+            valid_citations=[{"number": 2, "citation_key": "OIB-330.pdf, p.12", "url": None}],
+            removed_citations=[],
+            unverified_quotes=[self._quote(body, "Treppen muessen rot sein")],
+        )
+        assert lookups == [("Treppen muessen rot sein", "OIB-330.pdf")]
+
+    def test_a_quote_with_no_citation_nearby_searches_everywhere(self):
+        from aiq_agent.agents.shallow_researcher.agent import _repair_lookups
+
+        body = "„Treppen muessen rot sein“ steht irgendwo."
+        lookups = _repair_lookups(
+            body,
+            valid_citations=[],
+            removed_citations=[],
+            unverified_quotes=[self._quote(body, "Treppen muessen rot sein")],
+        )
+        assert lookups == [("Treppen muessen rot sein", None)]
+
+    def test_a_removed_citation_is_searched_with_the_claim_not_the_reference_line(self):
+        from aiq_agent.agents.shallow_researcher.agent import _repair_lookups
+
+        body = (
+            "Einleitung. Die lichte Hoehe muss 2,10 m betragen [1]. Weiter im Text.\n\n"
+            "## Sources\n- [1] OIB-RL 4 – oib-rl_4.pdf, p.7"
+        )
+        lookups = _repair_lookups(
+            body,
+            valid_citations=[],
+            removed_citations=[
+                {"number": 1, "line": "- [1] OIB-RL 4 – oib-rl_4.pdf, p.7", "reason": "not_in_registry"}
+            ],
+            unverified_quotes=[],
+        )
+        assert lookups == [("Die lichte Hoehe muss 2,10 m betragen.", "oib-rl_4.pdf")]
+
+    def test_two_is_a_repair_and_more_is_a_second_turn(self):
+        from aiq_agent.agents.shallow_researcher.agent import _repair_lookups
+
+        body = "A [1]. B [2]. C [3]."
+        removed = [{"number": n, "line": f"[{n}] x.pdf, p.{n}"} for n in (1, 2, 3)]
+        assert len(_repair_lookups(body, valid_citations=[], removed_citations=removed, unverified_quotes=[])) == 2
 
 
 class TestShallowResearcherRepairPass:
@@ -2406,7 +2388,7 @@ class TestShallowClarificationGuidance:
     got zero clarification guidance and always answered straight through.
     """
 
-    def _render(self, *, requires_sources: bool, project_context):
+    def _render(self, *, project_context):
         from pathlib import Path
 
         from aiq_agent.agents.shallow_researcher import agent as shallow_agent
@@ -2427,13 +2409,12 @@ class TestShallowClarificationGuidance:
             ris_catalog=None,
             norm_doctrine=None,
             parcel_note=None,
-            requires_sources=requires_sources,
         )
 
     def test_clarification_guidance_present_on_research_turn_without_project_context(self):
-        """A research turn (requires_sources=True) with NO project context still
-        gets the push-back guidance — the core regression."""
-        rendered = self._render(requires_sources=True, project_context=None)
+        """A turn with NO project context still gets the push-back guidance —
+        the core regression."""
+        rendered = self._render(project_context=None)
         assert "<clarification>" in rendered
         assert "Folgefrage" in rendered
         # It must explicitly extend push-back to the shallow/quick path.
@@ -2443,28 +2424,23 @@ class TestShallowClarificationGuidance:
         assert "assumption" in lowered
 
     def test_clarification_guidance_present_with_project_context_too(self):
-        rendered = self._render(requires_sources=True, project_context="facts:\n  bundesland: unknown")
+        rendered = self._render(project_context="facts:\n  bundesland: unknown")
         assert "<clarification>" in rendered
         assert "Folgefrage" in rendered
 
-    def test_clarification_guidance_suppressed_on_meta_turn(self):
-        """Meta/conversational turns (requires_sources=False) answer/redirect
-        directly and must NOT carry the research push-back block."""
-        rendered = self._render(requires_sources=False, project_context=None)
-        assert "<clarification>" not in rendered
-
 
 class TestOffTopicDeclineShape:
-    """Out-of-scope questions route to the assistant as `meta`, but the assistant
-    must DECLINE + redirect them — not answer them from its own knowledge.
+    """Out-of-scope questions reach the assistant like every other turn, and
+    the assistant must DECLINE + redirect them — not answer them from its own
+    knowledge.
 
-    Regression: the meta output shape said "answer from your own knowledge", so a
-    clearly off-topic question (e.g. "how do I bake a cake") classified `meta`
-    risked getting a cheerful full answer. The contract now carves out an
-    explicit off-topic decline shape.
+    Regression: the direct-reply shape said "answer from your own knowledge",
+    so a clearly off-topic question (e.g. "how do I bake a cake") risked
+    getting a cheerful full answer. The contract carves out an explicit
+    off-topic decline shape.
     """
 
-    def _render_meta(self):
+    def _render(self):
         from pathlib import Path
 
         from aiq_agent.agents.shallow_researcher import agent as shallow_agent
@@ -2472,7 +2448,6 @@ class TestOffTopicDeclineShape:
         from aiq_agent.common import render_prompt_template
 
         prompt = load_prompt(Path(shallow_agent.__file__).parent / "prompts", "researcher")
-        # requires_sources=False is the meta/off-topic (non-research) turn.
         return render_prompt_template(
             prompt,
             tools=[],
@@ -2483,12 +2458,11 @@ class TestOffTopicDeclineShape:
             ris_catalog=None,
             norm_doctrine=None,
             parcel_note=None,
-            requires_sources=False,
         )
 
     def test_contract_has_explicit_off_topic_decline_shape(self):
-        rendered = self._render_meta()
-        assert "Off-topic / out-of-scope turn" in rendered
+        rendered = self._render()
+        assert "An off-topic decline" in rendered
         # The decisive instruction: do not answer, decline + redirect.
         assert "Do NOT answer" in rendered
         lowered = rendered.lower()
@@ -2499,133 +2473,61 @@ class TestOffTopicDeclineShape:
     def test_in_scope_conversational_shape_still_answers(self):
         """Guard against over-correction: genuine conversational/platform turns
         (greetings, capability questions) are still answered directly."""
-        rendered = self._render_meta()
-        assert "in-scope meta turn" in rendered
+        rendered = self._render()
+        assert "A direct reply" in rendered
         # The capability example that DOES answer is retained.
-        assert 'type="meta"' in rendered
-
-    def test_non_research_turn_classification_points_at_both_shapes(self):
-        """The requires_sources=False banner must not blanket-say 'reply
-        directly' (which pushed toward answering off-topic questions)."""
-        rendered = self._render_meta()
-        banner = rendered.split("<turn_classification>")[1].split("</turn_classification>")[0]
-        assert "off-topic" in banner.lower()
-        assert "decline" in banner.lower()
+        assert 'type="direct_reply"' in rendered
 
 
-class TestAMetaTurnMayStillEmitACard:
-    """The meta contract and the `<cards>` block must not contradict each other.
+class TestADirectReplyMayStillEmitACard:
+    """The direct-reply shape and the `<cards>` block must not contradict.
 
     Field case: „Wie läuft das Baubewilligungsverfahren in Wien ab?" was offered
-    a deep-research plan, refused twice, then retyped in plain words — and that
-    follow-up classified `meta`. Two instructions then met on one turn. The
-    output contract said "no tool calls", `emit_card` is a tool call, and the
-    `<cards>` block sits outside both `requires_sources` guards and told the
-    model to emit one. The mandatory-sounding half won and the user got prose.
-
-    Resolved toward ALLOWING the card, for a reason that is about the binding
-    rather than about taste: `_meta_tool_binding` has always kept `remember`,
-    `emit_card` and `describe_card` bound on this turn, so "no tool calls" was
-    never a description of what the turn could do — it was a prompt line
-    disagreeing with its own runtime, and the disagreement cost a real user two
-    turns on a real Baurecht question. Classification is a judgement about
-    whether the turn needs SOURCES; it is not a judgement about whether the
-    answer has anything to show.
-
-    The restraint is unchanged and lives where it already lived: the doctrine's
-    volume rule and `_FOLLOW_UPS_RULE` both already exempt a conversational turn
-    with no subject in it, so a greeting still emits nothing.
+    a deep-research plan, refused twice, then retyped in plain words — and the
+    reply came as prose because the conversational shape said "no tool calls"
+    while `<cards>` told the model to emit one. Every tool is bound on every
+    turn (ADR-0052), so the shape now says so, and the restraint lives where it
+    lived: a greeting has nothing to put on a card and emits none.
     """
 
-    def _meta(self):
-        return TestOffTopicDeclineShape._render_meta(self)
+    def _render(self):
+        return TestOffTopicDeclineShape._render(self)
 
-    def _research(self):
-        from pathlib import Path
-
-        from aiq_agent.agents.shallow_researcher import agent as shallow_agent
-        from aiq_agent.common import load_prompt
-        from aiq_agent.common import render_prompt_template
-
-        prompt = load_prompt(Path(shallow_agent.__file__).parent / "prompts", "researcher")
-        return render_prompt_template(
-            prompt,
-            tools=[],
-            user_info=None,
-            current_datetime="2026-08-19",
-            available_documents=[],
-            project_context=None,
-            ris_catalog=None,
-            norm_doctrine=None,
-            parcel_note=None,
-            requires_sources=True,
-        )
-
-    def test_the_meta_contract_no_longer_forbids_every_tool_call(self):
-        # The exact contradiction. `emit_card` IS a tool call, and this line
-        # sat six lines above a `<cards>` block telling the model to make one.
-        contract = self._meta().split("<output_contract>")[1].split("</output_contract>")[0]
-        meta_shape = contract.split("Off-topic / out-of-scope turn")[0]
-        assert "no tool calls" not in meta_shape
-        assert "no search" in meta_shape
+    def test_the_direct_reply_shape_has_every_tool(self):
+        contract = self._render().split("<output_contract>")[1].split("</output_contract>")[0]
+        direct_shape = contract.split("An off-topic decline")[0]
+        assert "every tool on every turn" in direct_shape
+        assert "no tool calls" not in direct_shape
+        # A search is the model's call, and files the user wants to SEE are a
+        # surface call, not a list of names — the case that used to answer
+        # "the tool is not available in this session".
+        assert "A search is not wrong here" in direct_shape
+        assert "`surface_documents`" in direct_shape
 
     def test_the_off_topic_shape_still_forbids_every_tool_call(self):
         # The carve-out is for a turn that ANSWERS something. A decline has no
         # content, so nothing here is loosened for it.
-        contract = self._meta().split("<output_contract>")[1].split("</output_contract>")[0]
-        off_topic = contract.split("Off-topic / out-of-scope turn")[1].split("Research turn")[0]
-        assert "No tool calls" in off_topic
+        contract = self._render().split("<output_contract>")[1].split("</output_contract>")[0]
+        off_topic = contract.split("An off-topic decline")[1].split("A researched answer")[0]
+        assert "no tool calls" in off_topic
 
-    def test_the_meta_shape_names_the_card_exception_and_its_limit(self):
-        contract = self._meta().split("<output_contract>")[1].split("</output_contract>")[0]
-        meta_shape = contract.split("Off-topic / out-of-scope turn")[0]
-        # Permission...
-        assert "card tools are the ONE exception" in meta_shape
-        # ...scoped to the case that actually failed: a subject-matter question
-        # that merely landed in this shape.
-        assert "sometimes wrong" in meta_shape
+    def test_the_direct_reply_shape_names_the_card_rule_and_its_limit(self):
+        contract = self._render().split("<output_contract>")[1].split("</output_contract>")[0]
+        direct_shape = contract.split("An off-topic decline")[0]
+        assert "A card only when the reply carries real subject matter" in direct_shape
         # ...and closed again for the turns with nothing to show.
-        assert "so emit none" in meta_shape
+        assert "so emit none" in direct_shape
 
-    def test_the_non_research_banner_tells_the_turn_how_to_reach_a_shape(self):
-        # This turn is NOT given the `piloti-cards` body (the skill gate in
-        # `register.py` stays closed), so the only route to a card's shape is
-        # `describe_card`. Saying "you may emit one" without that is an
-        # instruction the turn cannot carry out.
-        banner = self._meta().split("<turn_classification>")[1].split("</turn_classification>")[0]
-        assert "emit_card" in banner and "describe_card" in banner
-        assert "never a reason to skip a card" in banner
-
-    def test_the_banner_judges_the_answer_and_not_the_classification(self):
-        banner = self._meta().split("<turn_classification>")[1].split("</turn_classification>")[0]
-        assert "ANSWER YOU ARE WRITING" in banner
-        # And an off-topic decline is named as getting none, so the carve-out
-        # cannot be read as "every non-research turn gets a card".
-        assert "small talk are not, and get none" in banner
+    def test_the_hand_off_shape_escalates_a_commissioned_report_at_once(self):
+        contract = self._render().split("<output_contract>")[1].split("</output_contract>")[0]
+        hand_off = contract.split("A hand-off to deep research")[1]
+        assert "`escalate_to_deep`" in hand_off and "`escalation_reason`" in hand_off
+        assert "needs no retrieval of your own first" in hand_off
+        assert 'type="hand_off"' in self._render()
 
     def test_the_cards_block_says_out_loud_that_it_is_always_on(self):
-        # It always WAS ungated — outside both `{% if requires_sources %}`
-        # blocks — but silently, which is what let it read as a research-turn
-        # section that had leaked. Both renders carry it and it now says why.
-        for rendered in (self._meta(), self._research()):
-            cards = rendered.split("\n<cards>\n")[1].split("\n</cards>\n")[0]
-            assert "on for EVERY turn" in cards
-
-    def test_describe_card_survives_the_meta_partition(self):
-        from aiq_agent.agents.shallow_researcher.agent import _INTERACTION_TOOL_BASENAMES
-        from aiq_agent.agents.shallow_researcher.agent import _is_search_tool
-
-        assert "describe_card" in _INTERACTION_TOOL_BASENAMES
-        with patch(
-            "aiq_agent.agents.shallow_researcher.agent.get_source_id_for_tool",
-            side_effect=lambda name: "grid_cards" if "card" in name else None,
-        ):
-            # The pin is what makes this hold: without it a `describe_card`
-            # that resolves to a data source is classified as search and
-            # dropped, leaving a meta turn able to NAME a card and unable to
-            # fill it in.
-            assert _is_search_tool("describe_card") is False
-            assert _is_search_tool("emit_card") is False
+        cards = self._render().split("\n<cards>\n")[1].split("\n</cards>\n")[0]
+        assert "on for EVERY turn" in cards
 
 
 class TestKnowledgeInventoryIsNotCitable:
@@ -2653,7 +2555,6 @@ class TestKnowledgeInventoryIsNotCitable:
             ris_catalog=None,
             norm_doctrine=None,
             parcel_note=None,
-            requires_sources=True,
             execution_enabled=False,
             jurisdiction_grounding=None,
             enable_source_router=False,
@@ -2777,7 +2678,6 @@ class TestTheModelCardsAreActuallyAskedFor:
             ris_catalog=None,
             norm_doctrine=None,
             parcel_note=None,
-            requires_sources=True,
         )
 
     def _ifc_skill(self) -> str:
@@ -2925,7 +2825,6 @@ class TestMeasurementSourcesDoNotGroundCitations:
         agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=tools)
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="Wie hoch ist der Keller?")],
-            requires_sources=True,
         )
         result, registry = await _run_with_captured_registry(agent, state)
 
@@ -2975,7 +2874,6 @@ class TestMeasurementSourcesDoNotGroundCitations:
         agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=tools)
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="Wie hoch ist der Keller?")],
-            requires_sources=True,
         )
         result, registry = await _run_with_captured_registry(agent, state)
 
@@ -3000,7 +2898,6 @@ class TestMeasurementSourcesDoNotGroundCitations:
         agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=tools)
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="Wie hoch ist der Keller?")],
-            requires_sources=True,
         )
         result, _ = await _run_with_captured_registry(agent, state)
 
@@ -3067,7 +2964,6 @@ class TestMeasurementSourcesDoNotGroundCitations:
         )
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="Wie hoch ist der Keller?")],
-            requires_sources=True,
         )
         with pytest.raises(EmptySourceRegistryError):
             await _run_with_captured_registry(agent, state)
@@ -3081,7 +2977,6 @@ class TestMeasurementSourcesDoNotGroundCitations:
         agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=tools)
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="Wie hoch ist der Keller?")],
-            requires_sources=True,
         )
         result, _ = await _run_with_captured_registry(agent, state)
 
@@ -3111,7 +3006,6 @@ class TestMeasurementSourcesDoNotGroundCitations:
         agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=tools)
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="Wie hoch ist der Keller?")],
-            requires_sources=True,
         )
         with patch("aiq_agent.agents.shallow_researcher.agent.citation_events") as events:
             result, _ = await _run_with_captured_registry(agent, state)
@@ -3417,7 +3311,7 @@ class TestInteractionCallCounting:
         assert _count_interaction_calls(calls) == 1
 
     def test_it_resolves_a_qualified_tool_name(self):
-        # NAT/MCP qualify a tool name; the meta partition resolves the base name
+        # NAT/MCP qualify a tool name; `tool_basename` resolves the base name
         # the same way, and an unrecognised `emit_card` would be charged to
         # research on exactly the deployments that qualify names.
         assert _count_interaction_calls([{"name": "aiq_cards__emit_card", "args": {}, "id": "1"}]) == 1

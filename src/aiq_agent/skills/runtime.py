@@ -48,11 +48,14 @@ logger = logging.getLogger(__name__)
 
 _L1_HEADING = "## Available skills"
 _L1_DOCTRINE = "Call `use_skill` to load a skill's full instructions before following them."
-_FORCED_HEADING = "## Active skills (required for this turn)"
+_FORCED_HEADING = "## Active skills (apply to every answer with subject matter)"
 _FORCED_DOCTRINE = (
-    "The following skills are ACTIVE for this request and must be applied. Call "
-    "`use_skill` for each of them as soon as its instructions become relevant — "
-    "for a skill that governs how you WRITE, that is before you write the answer."
+    "The following skills are ACTIVE for this request and must be applied to any "
+    "answer with subject matter. Call `use_skill` for each of them as soon as its "
+    "instructions become relevant — for a skill that governs how you WRITE, that "
+    "is before you write the answer. A direct reply — a greeting, a shelf listing, "
+    "an off-topic decline — has nothing for them to shape: write it without "
+    "loading them."
 )
 
 _TOOL_NAME = "use_skill"

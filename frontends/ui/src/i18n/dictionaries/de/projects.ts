@@ -281,6 +281,12 @@ export const projects: typeof en.projects = {
       user: 'von Ihnen hinzugefügt',
       grid: 'von Piloti notiert',
     },
+    conflict: {
+      badge: 'Widerspricht einer bestätigten Notiz',
+      title:
+        'Widerspricht „{note}“ — Piloti durfte diese Notiz nicht ersetzen. Bestätigen oder entfernen Sie einen der beiden Einträge.',
+      titleUnknown: 'Widerspricht einer bestätigten Notiz, die nicht mehr in dieser Liste steht.',
+    },
     time: {
       justNow: 'gerade eben',
       minutesAgo: 'vor {count} Min.',

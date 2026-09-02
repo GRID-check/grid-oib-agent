@@ -59,7 +59,6 @@ def _render_template(template_path: Path, ris_catalog) -> str:
         tools=[],
         available_documents=[],
         project_context=None,
-        requires_sources=False,
         execution_enabled=False,
         ris_catalog=ris_catalog,
     )

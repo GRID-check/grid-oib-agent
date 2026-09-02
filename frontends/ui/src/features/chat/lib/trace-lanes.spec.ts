@@ -282,9 +282,9 @@ describe('deriveTraceLanes', () => {
   test('skips non-tool agent chatter without tool markers', () => {
     const cards = deriveTraceLanes([
       {
-        functionName: 'intent_classifier',
+        functionName: 'deep_research_agent',
         category: 'agents',
-        content: 'Classifying intent for https://example.com/x',
+        content: 'Planning the research for https://example.com/x',
       },
     ])
     expect(cards).toHaveLength(0)

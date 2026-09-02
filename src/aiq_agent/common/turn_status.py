@@ -6,8 +6,7 @@ turns LLM/tool/function spans into ``system_intermediate_message`` frames; the
 frontend then guesses an activity label by regex-matching the raw NAT function
 name. Nothing in this repo ever *said* anything. The holes that leaves are not
 edge cases — they are the longest stretches of the turn: context loading before
-the graph starts, the routing decision (known one second in, shipped only on
-the terminal frame), and the whole answer phase behind a generic label.
+the graph starts, and the whole answer phase behind a generic label.
 
 This module is the other direction: the agent states what it is doing at the
 moment it does it.
@@ -22,7 +21,7 @@ German — a regression the whole product rule exists to prevent: **nothing in
 emitted data is language-specific**. What travels now is
 
 ``key``
-    a stable dotted id (``status.retrieval.withQuery``, ``status.routing.deep``)
+    a stable dotted id (``status.retrieval.withQuery``, ``status.escalation``)
     that the frontend resolves against its own dictionary. It is an identifier,
     not copy: renaming one is a wire change.
 ``values``
@@ -43,9 +42,9 @@ English sentence. Three rules, applied per value:
    clothes — and the preposition and the conjunction joining two of them are
    pure German grammar. So a corpus travels as ``knowledge``/``ris``/``web``/
    ``documents``/``ifc`` and the frontend both names and joins them.
-3. **Prose is never a value.** The routing ``reason`` is a free-text sentence an
-   LLM wrote; it cannot be interpolated into an English line without smuggling
-   a German clause into it. The live line therefore says only the routing
+3. **Prose is never a value.** An escalation ``reason`` is a free-text sentence
+   an LLM wrote; it cannot be interpolated into an English line without
+   smuggling a German clause into it. The live line therefore says only the
    DECISION, from a fixed enum, phrased entirely by the frontend. The reason
    still travels — as the ``reason`` FIELD, which the Herleitung already renders
    as the model's own words, attributed and secondary. (Because it is still
@@ -159,10 +158,6 @@ KEY_DOCUMENTS_PREFIX = "status.documents."
 #: the reader's own word but the line reads the same whichever file it is.
 KEY_DOCUMENTS_WAITING = "status.documents.waiting"
 
-#: ``status.routing.<decision>`` — the routing decision, as an enum. Never the
-#: classifier's prose; see the module docstring.
-KEY_ROUTING_PREFIX = "status.routing."
-
 #: Retrieval, with and without a query to quote.
 KEY_RETRIEVAL_WITH_QUERY = "status.retrieval.withQuery"
 KEY_RETRIEVAL_PLAIN = "status.retrieval.plain"
@@ -193,10 +188,6 @@ ALL_STATUS_KEYS: tuple[str, ...] = (
     "status.documents.session",
     "status.documents.several",
     "status.documents.waiting",
-    "status.routing.meta",
-    "status.routing.outOfScope",
-    "status.routing.shallow",
-    "status.routing.deep",
     "status.retrieval.withQuery",
     "status.retrieval.plain",
     "status.retrieval.requery",
@@ -309,15 +300,6 @@ def emit_status(
 # sentences sit side by side in the frontend dictionary, which is the only
 # place that knows who is reading.
 
-#: Routing: the decision, as a closed enum. ``outOfScope`` is camelCase because
-#: the key is a dictionary path, and the dictionary is TypeScript.
-_ROUTING_DECISIONS = {
-    "meta": "meta",
-    "out_of_scope": "outOfScope",
-    "shallow": "shallow",
-    "deep": "deep",
-}
-
 #: Retrieval tools, by basename prefix, in match order. The value is the CORPUS
 #: ID — not its display name: "im OIB-Wissen" is product copy and a German
 #: preposition, and two corpora are joined by a German "und". The frontend owns
@@ -427,32 +409,6 @@ def emit_documents_loading(shelves: list[str] | None = None) -> None:
         "documents",
         f"{KEY_DOCUMENTS_PREFIX}{where}",
         shelves=list(shelves or ()),
-    )
-
-
-def emit_routing(*, intent: str, depth: str | None, reason: str | None) -> None:
-    """The routing decision, the moment it is parsed.
-
-    Known roughly a second into the turn and, before this, shipped only on the
-    TERMINAL frame — i.e. announced after the answer it explains.
-
-    The live line carries the DECISION and nothing else. The classifier's own
-    words for why are the part a reader can disagree with, and they are worth
-    showing — but they are a free-text sentence in whatever language the model
-    wrote, so pasting them into the running one-liner is exactly how German
-    reached an English reader. They travel as ``reason``, which the Herleitung
-    renders in its own secondary "Warum dieser Weg?" row, attributed to the
-    model rather than presented as the product's voice.
-    """
-    decision = intent if intent in ("meta", "out_of_scope") else (depth or "shallow")
-    slug = _ROUTING_DECISIONS.get(decision, _ROUTING_DECISIONS["shallow"])
-    reason_text = " ".join(str(reason).split()) if reason else ""
-    emit_status(
-        "routing",
-        f"{KEY_ROUTING_PREFIX}{slug}",
-        intent=intent,
-        depth=depth,
-        reason=clip(reason_text, MAX_REASON_CHARS) or None,
     )
 
 

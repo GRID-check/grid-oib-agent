@@ -478,7 +478,6 @@ def _chunk_finish_reason(value: Any) -> str | None:
 # answer_confidence / deep_research_job_id. Each is surfaced only when present.
 _TRANSPARENCY_EXTRA_FIELDS = (
     "routing_decision",
-    "routing_reason",
     "escalation_reason",
     "answer_confidence_capped_reason",
     "answer_confidence_reason",

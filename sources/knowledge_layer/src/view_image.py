@@ -456,11 +456,13 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
     yield FunctionInfo.from_fn(
         lookup,
         description=(
-            "View a knowledge image or PDF page as an image the model can inspect. Use when a "
-            "retrieved chunk is an image or drawing (plan, section, elevation, chart) and you need "
-            "to see what it shows. For a base-corpus document pass just file_name and page_number; "
-            "for a project/Archiv document (an uploaded PDF or image) also pass its collection so "
-            "the stored bytes can be fetched. Returns an image content block; fails open with a "
-            "text explanation."
+            "View a knowledge image or PDF page as an image you can inspect. Use when a retrieved "
+            "chunk has Content Type image, drawing or chart, or the question is about what a plan, "
+            "section, photo or diagram shows. file_name is the name in the hit's `Citation:` line "
+            "(not the display title); page_number is its `Page:`. For a base-corpus document pass "
+            "just those two; for a project/Archiv document (an uploaded PDF or image) also pass the "
+            "hit's `Collection:` so the stored bytes can be fetched. A PDF page is rendered whole, "
+            "so a figure arrives with the text around it. Returns an image content block; fails "
+            "open with a text explanation."
         ),
     )

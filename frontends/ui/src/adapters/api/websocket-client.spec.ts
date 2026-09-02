@@ -263,7 +263,6 @@ describe('NATWebSocketClient frame tolerance + transparency (WP-B)', () => {
           status: 'complete',
           content: 'here is your answer',
           routing_decision: 'deep',
-          routing_reason: 'The question needs a deep dive.',
           escalation_reason: 'The first answer was insufficient.',
           answer_confidence_capped_reason: 'ungrounded',
           answer_confidence_reason: 'Only one source found.',
@@ -278,7 +277,6 @@ describe('NATWebSocketClient frame tolerance + transparency (WP-B)', () => {
     const transparency = onResponse.mock.calls[0][8]
     expect(transparency).toEqual({
       routingDecision: 'deep',
-      routingReason: 'The question needs a deep dive.',
       escalationReason: 'The first answer was insufficient.',
       answerConfidenceCappedReason: 'ungrounded',
       answerConfidenceReason: 'Only one source found.',

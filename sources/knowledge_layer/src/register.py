@@ -1615,7 +1615,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # widened pool is reranked once more. Never raises: the judge fails
             # open to "sufficient", and a failed fan-out keeps the first ranking.
             async def _judged(chunks):
-                if requery_llm_obj is None:
+                # A search pinned to one document is a precision lookup — the
+                # caller knows where the passage is and wants that passage.
+                # Paraphrasing it across every collection in scope is the
+                # opposite of what was asked, and every document it drags in
+                # lands in the Herleitung as "read".
+                if requery_llm_obj is None or file_name:
                     return None
                 from knowledge_layer.requery import judge_sufficiency
 

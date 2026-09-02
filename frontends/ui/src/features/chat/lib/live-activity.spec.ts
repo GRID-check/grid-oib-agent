@@ -30,7 +30,6 @@ describe('deriveLiveActivity', () => {
   })
 
   test.each([
-    ['intent_classifier', 'thinking.activity.understanding'],
     ['web_search_tool', 'thinking.activity.searchingWeb'],
     ['advanced_web_search_tool', 'thinking.activity.searchingWeb'],
     ['tavily_search', 'thinking.activity.searchingWeb'],
@@ -39,10 +38,10 @@ describe('deriveLiveActivity', () => {
     ['ris_search_tool', 'thinking.activity.searchingRis'],
     ['ris_catalog_lookup_tool', 'thinking.activity.searchingRis'],
     ['ris_fetch_tool', 'thinking.activity.searchingRis'],
-    ['depth_router', 'thinking.activity.planning'],
+    ['research_planner', 'thinking.activity.planning'],
     ['deep_research_agent', 'thinking.activity.researching'],
     ['url_fetch', 'thinking.activity.reading'],
-    ['meta_chatter', 'thinking.activity.composing'],
+    ['shallow_research_agent', 'thinking.activity.composing'],
     ['generic_query', 'thinking.activity.searchingSources'],
   ])('classifies %s → %s', (functionName, expected) => {
     expect(deriveLiveActivity([step({ functionName })], t)).toBe(expected)
@@ -50,7 +49,7 @@ describe('deriveLiveActivity', () => {
 
   test('classifies the newest in-progress step, not an earlier completed one', () => {
     const steps = [
-      step({ id: '1', functionName: 'intent_classifier', isComplete: true }),
+      step({ id: '1', functionName: 'shallow_research_agent', isComplete: true }),
       step({ id: '2', functionName: 'web_search_tool', isComplete: false }),
     ]
     expect(deriveLiveActivity(steps, t)).toBe('thinking.activity.searchingWeb')
@@ -61,7 +60,7 @@ describe('deriveLiveActivity', () => {
     // backend goes quiet while the LLM composes; the header must NOT keep
     // shimmering "Searching the web …" for that finished step.
     const steps = [
-      step({ id: '1', functionName: 'intent_classifier', isComplete: true }),
+      step({ id: '1', functionName: 'shallow_research_agent', isComplete: true }),
       step({ id: '2', functionName: 'web_search_tool', isComplete: true }),
     ]
     expect(deriveLiveActivity(steps, t)).toBeNull()
@@ -206,7 +205,6 @@ describe('deriveLiveActivity — turn events', () => {
   test('an English reader never sees German — the whole point of the change', () => {
     const steps = [
       status('documents', 'status.documents.archiv'),
-      status('routing', 'status.routing.shallow'),
       status('retrieval:0', 'status.retrieval.plain', { corpus: 'ris' }),
       status('citations', 'status.citations'),
       status('escalation', 'status.escalation'),
@@ -215,7 +213,6 @@ describe('deriveLiveActivity — turn events', () => {
     const english = steps.map((_, i) => deriveLiveActivity(steps.slice(0, i + 1), tEn))
     expect(english).toEqual([
       'Reviewing documents from the office archive …',
-      'Quick lookup: searching the relevant provisions',
       'Searching RIS (Austrian law) …',
       'Checking every citation against the sources …',
       'A quick lookup is not enough — starting deep research',
@@ -223,7 +220,6 @@ describe('deriveLiveActivity — turn events', () => {
     const german = steps.map((_, i) => deriveLiveActivity(steps.slice(0, i + 1), tDe))
     expect(german).toEqual([
       'Unterlagen aus dem Büroarchiv werden gesichtet …',
-      'Kurzrecherche: einschlägige Stellen werden gesucht',
       'Sucht im RIS …',
       'Belege werden gegen die Quellen geprüft …',
       'Kurzrecherche reicht nicht — Tiefenrecherche startet',
@@ -233,7 +229,6 @@ describe('deriveLiveActivity — turn events', () => {
   test('the newest event wins — the line replaces, it never accumulates', () => {
     const phrase = deriveLiveActivity(
       [
-        status('routing', 'status.routing.shallow'),
         status('retrieval:0', 'status.retrieval.withQuery', { corpus: 'ris', query: '§ 3 BO Wien' }),
         status('citations', 'status.citations'),
       ],
@@ -258,7 +253,7 @@ describe('deriveLiveActivity — turn events', () => {
 
   test('a technical event is never rendered, and carries no key to render', () => {
     const steps = [
-      status('routing', 'status.routing.shallow'),
+      status('citations', 'status.citations'),
       eventStep('skill_selection', {
         kind: 'skill',
         channel: 'technical',
@@ -268,17 +263,17 @@ describe('deriveLiveActivity — turn events', () => {
       }),
     ]
     // Falls back to the newest event that MAY speak.
-    expect(deriveLiveActivity(steps, tDe)).toBe('Kurzrecherche: einschlägige Stellen werden gesucht')
+    expect(deriveLiveActivity(steps, tDe)).toBe('Belege werden gegen die Quellen geprüft …')
   })
 
   test('an unknown key falls back to the previous phrase, never to the key', () => {
     // The specific failure this guards: a backend one release ahead adds a
     // slot, and the live line prints `status.somethingNew` at the reader.
     const steps = [
-      status('routing', 'status.routing.shallow'),
+      status('citations', 'status.citations'),
       status('somethingNew', 'status.somethingNew'),
     ]
-    expect(deriveLiveActivity(steps, tEn)).toBe('Quick lookup: searching the relevant provisions')
+    expect(deriveLiveActivity(steps, tEn)).toBe('Checking every citation against the sources …')
     // And with nothing older to fall back to, the caller's generic copy wins.
     expect(deriveLiveActivity([status('somethingNew', 'status.somethingNew')], tEn)).toBeNull()
   })

@@ -94,20 +94,20 @@ describe('turnEventLiveText', () => {
     )
   })
 
-  test('the routing DECISION is phrased; the model\'s reason never reaches the line', () => {
-    const step = event('status:routing', {
+  test('the escalation is phrased; the model\'s reason never reaches the line', () => {
+    const step = event('status:escalation', {
       kind: 'status',
       channel: 'live',
-      slot: 'routing',
-      key: 'status.routing.deep',
+      slot: 'escalation',
+      key: 'status.escalation',
       values: {},
-      // Free-text prose in whatever language the classifier wrote. It travels
-      // for the secondary "why this route?" row, which attributes it.
+      // Free-text prose in whatever language the agent wrote. It travels for
+      // the framing node's escalation narration, which attributes it.
       reason: 'Mehrere klar getrennte Teilfragen.',
     })
-    expect(turnEventLiveText(step, tEn)).toBe('Deep research: working through several sources')
+    expect(turnEventLiveText(step, tEn)).toBe('A quick lookup is not enough — starting deep research')
     expect(turnEventLiveText(step, tEn)).not.toContain('Teilfragen')
-    expect(turnEventLiveText(step, tDe)).toBe('Tiefenrecherche: mehrere Quellen werden geprüft')
+    expect(turnEventLiveText(step, tDe)).toBe('Kurzrecherche reicht nicht — Tiefenrecherche startet')
   })
 
   test('a technical event is refused even if it somehow carries a key', () => {
@@ -115,11 +115,11 @@ describe('turnEventLiveText', () => {
     // Belt and braces, because a leak here is the phantom-Websuche class of bug.
     expect(
       turnEventLiveText(
-        event('status:routing', {
+        event('status:escalation', {
           kind: 'status',
           channel: 'technical',
-          slot: 'routing',
-          key: 'status.routing.deep',
+          slot: 'escalation',
+          key: 'status.escalation',
           values: {},
         }),
         tDe

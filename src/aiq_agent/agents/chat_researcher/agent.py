@@ -1,11 +1,18 @@
 """
-Chat Researcher Agent - Orchestrates intent classification, depth routing, and research.
+Chat Researcher Agent - one answering agent per turn, escalation as its own call.
 
-This is the main orchestrator agent that coordinates the full research workflow:
-1. Intent classification (meta vs research)
-2. Depth routing (shallow vs deep)
-3. Research execution
-4. Optional escalation from shallow to deep
+Every turn enters the shallow research agent with its full tool set. That agent
+decides, per turn and in the answer envelope, what the turn is: a direct reply
+(no source consulted, no self-assessment), a researched answer (sources
+retrieved, cited, graded), or a hand-off to deep research (``escalate_to_deep``
+with a reason). There is no classifier in front of it (ADR-0052): a label
+decided before the answer could only ever withhold capabilities the answer
+turned out to need, and the classes it produced — "meta", "listing", "out of
+scope" — are all shapes the answering model can choose itself.
+
+What remains of routing is an OBSERVATION recorded after the fact
+(``routing_decision``): which path the turn took, for the transparency
+surface and the post-answer stages.
 """
 
 import logging
@@ -48,7 +55,6 @@ except ImportError:
     _AuthError = None  # type: ignore[assignment,misc]
 
 from .models import ChatResearcherState
-from .models import DepthDecision
 from .models import ShallowResult
 from .utils import trim_message_history
 
@@ -71,29 +77,24 @@ routes straight to the shallow agent instead of producing plan number two.
 """
 
 
-def derive_routing_decision(
-    user_intent: Any,
-    depth_decision: Any,
-) -> Literal["meta", "shallow", "deep", "error"] | None:
-    """Which path the turn took after intent classification.
+RoutingDecision = Literal["meta", "shallow", "deep", "error"]
 
-    Mirrors ``route_after_orchestration``/``should_escalate`` framing: error and
-    meta intents win over depth; a research turn is "deep" only when the depth
-    classifier said so, otherwise "shallow". Returns ``None`` when no
-    classification ran (nothing to surface).
+
+def observed_routing(*, source_lookup_attempted: bool, self_reported: ConfidenceLevel | None) -> RoutingDecision:
+    """What kind of turn the answering agent made of it, read off what it did.
+
+    Nothing classifies a turn up front any more; the model has every tool on
+    every turn and picks the reply's shape itself. Two facts of the finished
+    answer say which shape it picked: whether it consulted a data source, and
+    whether it graded itself (a direct reply — a greeting, a shelf listing, an
+    off-topic decline, "what can you do" — carries no ``confidence``, because
+    there is nothing to grade). Neither → ``meta``, the transparency surface's
+    word for a direct reply. Either → ``shallow``: a researched answer, or at
+    least one the model presented as one. Deep and error are set by the nodes
+    that take those paths, never derived here.
     """
-    intent = getattr(user_intent, "intent", None)
-    if intent == "error":
-        return "error"
-    # An out-of-scope turn is a fixed conversational redirect (no agent ran), so
-    # it surfaces as a "meta"/direct-answer route for transparency — the frontend
-    # already renders `meta` as "Direktantwort", which is exactly what it is.
-    if intent in ("meta", "out_of_scope"):
+    if not source_lookup_attempted and self_reported is None:
         return "meta"
-    if intent is None:
-        return None
-    if getattr(depth_decision, "decision", None) == "deep":
-        return "deep"
     return "shallow"
 
 
@@ -139,8 +140,15 @@ def _finalize_shallow_answer(
     skills_hidden: list[str] | None = None,
     research_truncated: bool | None = None,
     answer_meta: dict[str, Any] | None = None,
+    source_lookup_attempted: bool = True,
+    escalation_reason: str | None = None,
 ) -> dict[str, Any]:
     """Build the node update for a successful/insufficient shallow answer.
+
+    ``source_lookup_attempted`` and ``self_reported`` together decide the
+    observed routing (see ``observed_routing``). ``escalation_reason`` is the
+    model's own clause from the envelope; without one, the legacy fixed
+    string stands in so the frontend's narration still has something to say.
 
     The shallow agent now extracts and strips BOTH control markers inside its
     own ``run()`` and returns the signals as structured state fields. When those
@@ -214,7 +222,7 @@ def _finalize_shallow_answer(
                 answer=clean_content,
                 confidence="low",
                 escalate_to_deep=True,
-                escalation_reason="Shallow agent emitted insufficiency marker",
+                escalation_reason=escalation_reason or "Shallow agent emitted insufficiency marker",
             ),
             # Escalation supersedes the shallow answer → surface no self-assessment.
             "answer_confidence": None,
@@ -237,6 +245,9 @@ def _finalize_shallow_answer(
     return {
         "messages": [updated_message],
         "shallow_result": None,
+        "routing_decision": observed_routing(
+            source_lookup_attempted=source_lookup_attempted, self_reported=self_reported
+        ),
         "answer_confidence": surface_answer_confidence(
             self_reported,
             citation_grounded,
@@ -290,21 +301,16 @@ def matches_escalation_keywords(content: str) -> bool:
 
 class ChatResearcherAgent:
     """
-    Orchestrates the full chat research workflow.
-
-    Coordinates intent classification, depth routing, and research agents
-    to produce research results based on user queries.
+    Orchestrates the chat workflow: one answering agent, one escalation path.
 
     The workflow:
-    1. Classify intent (meta vs research)
-    2. If meta → respond with meta chatter
-    3. If research → route to shallow or deep based on complexity
-    4. Optionally escalate from shallow to deep if results insufficient
+    1. The shallow research agent answers, with every tool it has.
+    2. If its envelope asks for deep research, the clarifier confirms a plan
+       and deep research runs (as an async job when a submitter is wired).
     """
 
     def __init__(
         self,
-        intent_classifier_fn: Callable[[str], Awaitable[str]],
         shallow_research_fn: Callable[[str], Awaitable[str]],
         deep_research_fn: Callable[[str], Awaitable[str]],
         clarifier_fn: Callable[
@@ -325,7 +331,6 @@ class ChatResearcherAgent:
         Initialize the chat researcher agent.
 
         Args:
-            intent_classifier_fn: Combined orchestration (intent + meta response + depth in one node)
             shallow_research_fn: Function for shallow research
             deep_research_fn: Function for deep research
             clarifier_fn: Function for clarification
@@ -339,7 +344,6 @@ class ChatResearcherAgent:
         Cards are emitted by the answering agent via the ``emit_card`` tool, not
         generated here — this class no longer needs a card LLM.
         """
-        self.intent_classifier_fn = intent_classifier_fn
         self.shallow_research_fn = shallow_research_fn
         self.deep_research_fn = deep_research_fn
         self.clarifier_fn = clarifier_fn
@@ -361,12 +365,10 @@ class ChatResearcherAgent:
         returned only on an escalation entry: the structured
         ``ShallowResult.escalation_reason`` carried by the shallow agent's
         explicit ``[ESCALATE_TO_DEEP]`` marker. A direct-deep entry (no shallow
-        answer, escalation disabled, or a meta turn) yields ``None`` so the
-        field stays absent. Mirrors ``should_escalate``'s branches.
+        answer, or escalation disabled) yields ``None`` so the field stays
+        absent. Mirrors ``should_escalate``'s branches.
         """
         if not self.enable_escalation:
-            return None
-        if state.user_intent and state.user_intent.intent == "meta":
             return None
         if state.shallow_result is not None and state.shallow_result.escalate_to_deep:
             return state.shallow_result.escalation_reason
@@ -374,9 +376,6 @@ class ChatResearcherAgent:
 
     def _build_graph(self) -> CompiledStateGraph:
         """Build the LangGraph workflow."""
-
-        async def intent_classifier_node(state: ChatResearcherState) -> dict[str, Any]:
-            return await self.intent_classifier_fn(state)
 
         async def clarifier_node(state: ChatResearcherState) -> dict[str, Any]:
             original_query = get_latest_user_query(state.messages)
@@ -422,12 +421,8 @@ class ChatResearcherAgent:
                 #
                 # So: fall through to shallow, and remember the rejection for
                 # the rest of the conversation (see
-                # ``ChatResearcherState.deep_research_declined``) so neither the
-                # classifier nor ``should_escalate`` offers another plan.
-                # ``depth_decision`` is rewritten to shallow with it, because
-                # the model's "deep" and its reasoning are what the user just
-                # refused — left standing they would put "deep" in the
-                # transparency panel of an answer shallow wrote.
+                # ``ChatResearcherState.deep_research_declined``) so
+                # ``should_escalate`` never offers another plan.
                 # An explicit cancellation ("cancel"/"abbrechen", or the
                 # Abbrechen button) is the one refusal that may end the turn
                 # without an answer: the user chose it over the shallow option
@@ -437,19 +432,14 @@ class ChatResearcherAgent:
                 # question yields the answer, not plan number two.
                 if getattr(result, "plan_cancelled", False):
                     logger.info("ChatResearcher: Plan cancelled by user, ending the turn with a receipt")
-                    try:
-                        from aiq_agent.common.turn_status import emit_routing
-
-                        emit_routing(intent="research", depth="shallow", reason=None)
-                    except Exception:  # noqa: BLE001 — transparency must never take a turn down
-                        logger.debug("Fallback routing status not emitted", exc_info=True)
                     return Command(
                         goto=END,
                         update={
                             "messages": [AIMessage(content=PLAN_CANCELLED_MESSAGE)],
                             "original_query": original_query,
                             "deep_research_declined": True,
-                            "depth_decision": DepthDecision(decision="shallow", raw_reasoning=None),
+                            # A receipt, not an answer: neither path was taken.
+                            "routing_decision": "meta",
                             # A cancellation is not an escalation; never narrate one.
                             "escalation_reason": None,
                             "shallow_result": None,
@@ -458,18 +448,11 @@ class ChatResearcherAgent:
 
                 if result.plan_rejected:
                     logger.info("ChatResearcher: Plan rejected by user, answering on the shallow path instead")
-                    try:
-                        from aiq_agent.common.turn_status import emit_routing
-
-                        emit_routing(intent="research", depth="shallow", reason=None)
-                    except Exception:  # noqa: BLE001 — transparency must never take a turn down
-                        logger.debug("Fallback routing status not emitted", exc_info=True)
                     return Command(
                         goto="shallow_research",
                         update={
                             "original_query": original_query,
                             "deep_research_declined": True,
-                            "depth_decision": DepthDecision(decision="shallow", raw_reasoning=None),
                             # A decline is not an escalation; never narrate one.
                             "escalation_reason": None,
                             "shallow_result": None,
@@ -488,11 +471,16 @@ class ChatResearcherAgent:
                         "clarifier_result": clarifier_result,
                         "original_query": original_query,
                         "escalation_reason": escalation_reason,
+                        "routing_decision": "deep",
                     },
                 )
             return Command(
                 goto="deep_research",
-                update={"original_query": original_query, "escalation_reason": escalation_reason},
+                update={
+                    "original_query": original_query,
+                    "escalation_reason": escalation_reason,
+                    "routing_decision": "deep",
+                },
             )
 
         async def shallow_research_node(state: ChatResearcherState) -> dict[str, Any]:
@@ -503,12 +491,13 @@ class ChatResearcherAgent:
                 state.available_documents,
             )
 
-            # Meta/conversational turns are routed through the shallow agent for
-            # persona + the `remember` tool, but they answer from context without
-            # calling research tools — so they capture no sources and must NOT be
-            # held to the research-only "sources required" guard. Everything else
-            # (research) keeps the strict contract.
-            requires_sources = not (state.user_intent is not None and state.user_intent.intent == "meta")
+            # A shelf named in the question ("was hast du im Büroarchiv") is
+            # the one the inventory prints in full this turn. A ContextVar,
+            # read by the prompt renderer; the graph runs in this task.
+            from aiq_agent.knowledge.inventory import set_listing_shelf
+            from aiq_agent.knowledge.inventory import shelf_hint_from_query
+
+            set_listing_shelf(shelf_hint_from_query(get_latest_user_query(state.messages) or ""))
 
             try:
                 shallow_state = ShallowResearchAgentState(
@@ -521,11 +510,9 @@ class ChatResearcherAgent:
                     platform_lessons=state.platform_lessons,
                     focus_file_name=state.focus_file_name,
                     focus_shelf=state.focus_shelf,
-                    requires_sources=requires_sources,
-                    # The user-requested forced skills (WS `skills` array). The
-                    # shallow register layer resolves them against the run's
-                    # skill set on research turns and ignores them on meta
-                    # turns — never passed to deep research.
+                    # The user-requested forced skills (WS `skills` array),
+                    # resolved by the shallow register layer against the run's
+                    # skill set — never passed to deep research.
                     force_skills=state.force_skills,
                 )
                 result = await self.shallow_research_fn(shallow_state)
@@ -555,6 +542,7 @@ class ChatResearcherAgent:
                 # source registry or transient failure; the user should rephrase and retry.
                 return {
                     "messages": [AIMessage(content=err_msg)],
+                    "routing_decision": "error",
                     "shallow_result": ShallowResult(
                         answer=err_msg,
                         confidence="high",
@@ -567,6 +555,7 @@ class ChatResearcherAgent:
                     err_msg = str(e)
                     return {
                         "messages": [AIMessage(content=err_msg)],
+                        "routing_decision": "error",
                         "shallow_result": ShallowResult(
                             answer=err_msg,
                             confidence="high",
@@ -579,6 +568,7 @@ class ChatResearcherAgent:
                 # occurred; escalating to deep research will not resolve an unexpected exception.
                 return {
                     "messages": [AIMessage(content=err_msg)],
+                    "routing_decision": "error",
                     "shallow_result": ShallowResult(
                         answer=err_msg,
                         confidence="high",
@@ -595,6 +585,7 @@ class ChatResearcherAgent:
                 err_msg = "An error occurred while researching your question. Please try again."
                 return {
                     "messages": [AIMessage(content=err_msg)],
+                    "routing_decision": "error",
                     "shallow_result": ShallowResult(
                         answer=err_msg,
                         confidence="high",
@@ -696,6 +687,14 @@ class ChatResearcherAgent:
             if not isinstance(answer_meta, dict) or not answer_meta:
                 answer_meta = None
 
+            # Whether the turn consulted a data source at all — with the
+            # self-assessment, the fact the observed routing is read from.
+            # Fail toward "research": an older result that does not carry the
+            # field must not turn a cited answer into a direct reply.
+            source_lookup_attempted = getattr(result, "source_lookup_attempted", True) is not False
+            raw_escalation_reason = getattr(result, "answer_escalation_reason", None)
+            escalation_reason = raw_escalation_reason if isinstance(raw_escalation_reason, str) else None
+
             if final_ai_message:
                 return _finalize_shallow_answer(
                     final_ai_message,
@@ -713,6 +712,8 @@ class ChatResearcherAgent:
                     skills_hidden=skills_hidden,
                     research_truncated=research_truncated,
                     answer_meta=answer_meta,
+                    source_lookup_attempted=source_lookup_attempted,
+                    escalation_reason=escalation_reason,
                 )
             if new_messages:
                 return _finalize_shallow_answer(
@@ -731,6 +732,8 @@ class ChatResearcherAgent:
                     skills_hidden=skills_hidden,
                     research_truncated=research_truncated,
                     answer_meta=answer_meta,
+                    source_lookup_attempted=source_lookup_attempted,
+                    escalation_reason=escalation_reason,
                 )
             return {"messages": [], "shallow_result": None}
 
@@ -801,41 +804,6 @@ class ChatResearcherAgent:
                     update["citations_removed"] = citations_removed
                 return update
 
-        def route_after_orchestration(state: ChatResearcherState) -> str:
-            """Route by classification: error -> END (canned message already in
-            messages), deep research -> clarifier, everything else (research
-            shallow AND meta/conversational turns) -> shallow agent, which owns
-            the persona and the `remember` tool."""
-            if state.user_intent and state.user_intent.intent == "error":
-                return "END"
-            # Out-of-scope turns are answered by the classifier's fixed redirect
-            # message (already in state) and end immediately — no answering agent
-            # runs, so a greeting/off-topic question never spins up the shallow
-            # (research) agent or a source lookup.
-            if state.user_intent and state.user_intent.intent == "out_of_scope":
-                return "END"
-            # Meta/conversational turns (greetings, capability questions AND
-            # memory/`remember` requests) are owned by the shallow agent and must
-            # never escalate to deep research — even when the depth classifier
-            # says "deep". Checking intent before depth mirrors the meta guard in
-            # should_escalate(); without it a "remember X for the whole org"
-            # request classified meta+deep is misrouted into a deep-research job
-            # that lacks the `remember` tool and hallucinates a filesystem write.
-            if state.user_intent and state.user_intent.intent == "meta":
-                return "shallow_research"
-            # The classifier already downgrades "deep" to "shallow" when the
-            # user has rejected a plan (so the live status line and the
-            # transparency panel agree with the agent that runs). This is the
-            # graph-level backstop for the paths that reach here with a
-            # depth_decision the classifier never wrote — a restored checkpoint,
-            # or a caller that seeds the state directly.
-            if state.depth_decision and state.depth_decision.decision == "deep":
-                if state.deep_research_declined:
-                    logger.info("Deep route suppressed: the user rejected a research plan in this conversation")
-                    return "shallow_research"
-                return "clarifier"
-            return "shallow_research"
-
         def should_escalate(state: ChatResearcherState) -> str:
             if not self.enable_escalation:
                 return "END"
@@ -847,11 +815,6 @@ class ChatResearcherAgent:
             # wrote is the product's reply either way.
             if state.deep_research_declined:
                 logger.info("Escalation suppressed: the user rejected a research plan in this conversation")
-                return "END"
-
-            # Conversational (meta) turns are answered by the shallow agent but
-            # must never escalate to deep research.
-            if state.user_intent and state.user_intent.intent == "meta":
                 return "END"
 
             # Escalation requires the shallow agent's explicit, prompted
@@ -895,22 +858,14 @@ class ChatResearcherAgent:
 
         graph = StateGraph(ChatResearcherState)
 
-        graph.add_node("intent_classifier", profiled_node("intent_classifier", intent_classifier_node))
         graph.add_node("shallow_research", profiled_node("shallow_research", shallow_research_node))
         graph.add_node("clarifier", profiled_node("clarifier", clarifier_node))
         graph.add_node("deep_research", profiled_node("deep_research", deep_research_node))
 
-        graph.set_entry_point("intent_classifier")
-
-        graph.add_conditional_edges(
-            "intent_classifier",
-            route_after_orchestration,
-            {
-                "END": END,
-                "clarifier": "clarifier",
-                "shallow_research": "shallow_research",
-            },
-        )
+        # Every turn starts with the answering agent. Deep research is reached
+        # only through its escalation; the clarifier confirms the plan on the
+        # way (or is skipped for headless callers).
+        graph.set_entry_point("shallow_research")
 
         graph.add_conditional_edges(
             "shallow_research",
@@ -968,7 +923,6 @@ class ChatResearcherAgent:
                 # so a prior turn's routing/escalation/citation signals never leak
                 # onto this turn via the persisted checkpoint.
                 "routing_decision": None,
-                "routing_reason": None,
                 "escalation_reason": None,
                 "answer_confidence_capped_reason": None,
                 "answer_confidence_reason": None,

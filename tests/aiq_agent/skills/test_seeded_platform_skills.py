@@ -454,7 +454,7 @@ def test_the_voice_carries_the_certainty_split_the_confidence_field_cannot():
     prompt = SHALLOW_PROMPT.read_text(encoding="utf-8")
     body = _unwrapped(_effective_row("piloti-voice")["body"])
 
-    assert "Every reply carries `confidence`" in prompt
+    assert "Every researched answer carries `confidence`" in prompt
     assert "richtet sich nach dem schwächeren Teil" in prompt
     assert "die Teilung existiert nur in der Prosa" in prompt
 

@@ -122,8 +122,8 @@ describe.skipIf(!url)('platform default bootstrap against live Postgres', () => 
       await import('./platform-defaults')
 
     await savePlatformModelDefaults({
-      defaults: { intent: 'vendor/owner-pick' },
-      modelSnapshot: { intent: { id: 'vendor/owner-pick' } },
+      defaults: { shallow_research: 'vendor/owner-pick' },
+      modelSnapshot: { shallow_research: { id: 'vendor/owner-pick' } },
       note: 'owner choice',
       actorUserId: 'user_owner',
       actorEmail: 'owner@grid.test',
@@ -131,7 +131,7 @@ describe.skipIf(!url)('platform default bootstrap against live Postgres', () => 
 
     expect(await bootstrapPlatformModelDefaults()).toEqual([])
     await invalidatePlatformModelDefaults()
-    expect(await getPlatformModelDefaults()).toEqual({ intent: 'vendor/owner-pick' })
+    expect(await getPlatformModelDefaults()).toEqual({ shallow_research: 'vendor/owner-pick' })
   })
 
   it('writes nothing on a deployment pointed at another provider', async () => {

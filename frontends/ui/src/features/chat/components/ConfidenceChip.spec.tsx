@@ -32,14 +32,16 @@ describe('ConfidenceChip', () => {
 
   test('shows the quote-unverified reason in the tooltip when a quote could not be verified', async () => {
     const user = userEvent.setup()
-    render(<ConfidenceChip confidence="low" cappedReason="quote_unverified" />)
+    // A grounded answer with one unverified quote is held at "medium", so the
+    // reason no longer names a level; it says what was capped and why.
+    render(<ConfidenceChip confidence="medium" cappedReason="quote_unverified" />)
 
     await user.hover(screen.getByRole('button'))
 
     expect(
       (
         await screen.findAllByText(
-          /Low confidence: a quote could not be verified verbatim against the source\./
+          /A quote could not be verified verbatim against the source; the assessment is capped accordingly\./
         )
       ).length
     ).toBeGreaterThan(0)

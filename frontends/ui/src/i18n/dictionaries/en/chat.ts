@@ -694,9 +694,9 @@ export const chat = {
     // dressed up as a status is noise, so an unclassifiable step falls through
     // to the previous meaningful phrase, or to `working` above.
     activity: {
-      // The same words as the chips below (`stepName.understanding` =
-      // "Classification", `stepName.routing` = "Research path"): the reader
-      // should learn one vocabulary, not two for the same thing.
+      // The same words as the chips below (`stepName.*`, e.g.
+      // `stepName.corpus` = "OIB knowledge"): the reader should learn one
+      // vocabulary, not two for the same thing.
       understanding: 'Classifying your question …',
       planning: 'Choosing the research path …',
       searchingWeb: 'Searching the web …',
@@ -748,21 +748,6 @@ export const chat = {
           // for it briefly rather than answering without it.
           waiting: 'A new file is still being read — the answer is waiting for it …',
         },
-        // The routing DECISION, from a closed enum. The classifier's own
-        // reason for it is free-text prose in whatever language the model
-        // wrote, so it never appears here — it is quoted, attributed, in the
-        // secondary `routing.line` row below.
-        // Each line names what the reader gets, not what the system is setting
-        // up: "preparing" describes an internal step, "searching the relevant
-        // provisions" describes a working method an architect already knows.
-        // `meta` uses the same word the trace does (`routing.decision.meta`) —
-        // one path, one word.
-        routing: {
-          meta: 'Direct answer — no research needed',
-          outOfScope: 'Question outside the subject area',
-          shallow: 'Quick lookup: searching the relevant provisions',
-          deep: 'Deep research: working through several sources',
-        },
         // `{query}` is the reader's own words echoed back — never translated,
         // and clipped by the backend so the line still fits one narrow row.
         retrieval: {
@@ -800,8 +785,6 @@ export const chat = {
     // executed agent/tool, without the technical-steps opt-in.
     executedSteps: 'Ran:',
     stepName: {
-      understanding: 'Classification',
-      routing: 'Research path',
       webSearch: 'Web search',
       ris: 'RIS',
       corpus: 'OIB knowledge',
@@ -863,24 +846,12 @@ export const chat = {
     gapHit: 'Nothing found',
     // A document the research read but the answer never cited — a real
     // research outcome, not a gap.
-    readNotUsed: 'read, not used',
+    readNotUsed: 'retrieved, not cited',
     moreSources: '+{count} more',
     // The files hung on THIS message. The data sources toggled on in the
     // composer are availability, not activity, and are deliberately not listed
     // here — what ran is the `executedSteps` row above.
     attachedFiles: 'Attached files:',
-    // "Why this path?" — the routing classification for this turn (WP-A
-    // `routing_decision` + `routing_reason`), in the trace framing node.
-    routing: {
-      whyLabel: 'Why this path?',
-      line: 'Classification: {decision} — {reason}',
-      decision: {
-        meta: 'Direct answer',
-        shallow: 'Quick research',
-        deep: 'Deep research',
-        error: 'Error',
-      },
-    },
     // One-liner when this turn escalated from shallow to deep research.
     escalationNarration: 'Escalated to deep research: {reason}',
     node: {
@@ -1002,7 +973,7 @@ export const chat = {
       // The disclosure that makes the authorization real. It sits on the
       // STARTING banner rather than the outcome: deep research escalates out of
       // a chat turn (there is no submit form), and a run can begin because the
-      // classifier escalated rather than because anybody ordered a report. The
+      // agent itself escalated rather than because anybody ordered a report. The
       // moment the run can still be stopped is therefore the only moment at
       // which naming the destination is worth anything. No dialog and no
       // confirmation: a modal asked after the fact is only ever answered yes,
@@ -1161,7 +1132,7 @@ export const chat = {
     // capped, keyed by `answer_confidence_capped_reason` (WP-A, PB-9).
     cappedReasons: {
       ungrounded: 'Low confidence: answer not backed by sources.',
-      quoteUnverified: 'Low confidence: a quote could not be verified verbatim against the source.',
+      quoteUnverified: 'A quote could not be verified verbatim against the source; the assessment is capped accordingly.',
       // The measurement backs the number, not the legal statement beside it —
       // so the mixed answer stays at "low" and the tooltip says why.
       normativeClaimUncited:

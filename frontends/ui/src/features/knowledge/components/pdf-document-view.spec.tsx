@@ -104,6 +104,47 @@ describe('PdfDocumentView', () => {
     expect(mark.style.getPropertyValue('--passage-tint')).toBe('var(--source-law)')
   })
 
+  it('wears the fuzzy dress when the match is a guess, and not when it is the passage', async () => {
+    // Every anchor word inflects differently from the page, so only the
+    // word-overlap window finds this — and a window is a guess the reader
+    // should be able to see as one.
+    state.pages = [
+      {
+        items: [
+          run(
+            'Der Sachverstaendige erstattet Befund und Gutachten ueber die Standsicherheit des bestehenden Dachstuhls',
+            700,
+            400,
+          ),
+        ],
+      },
+    ]
+    const { unmount } = render(
+      <PdfDocumentView
+        src="/api/doc.pdf"
+        title="doc.pdf"
+        page={1}
+        highlight="Sachverstaendiger erstattete Befund und Gutachten ueber die Standsicherheit des bestehende Dachstuhles"
+      />,
+    )
+    const guess = await screen.findByTestId('passage-mark')
+    expect(guess.className).toContain('passage-highlight--fuzzy')
+    expect(guess.getAttribute('data-fuzzy')).toBe('true')
+    unmount()
+
+    render(
+      <PdfDocumentView
+        src="/api/doc.pdf"
+        title="doc.pdf"
+        page={1}
+        highlight="Der Sachverstaendige erstattet Befund und Gutachten"
+      />,
+    )
+    const hit = await screen.findByTestId('passage-mark')
+    expect(hit.className).not.toContain('passage-highlight--fuzzy')
+    expect(hit.getAttribute('data-fuzzy')).toBeNull()
+  })
+
   it('marks nothing when the snippet is not on the page', async () => {
     state.pages = [{ items: [run('Vorbemerkungen zum Verfahren', 740, 160)] }]
     render(

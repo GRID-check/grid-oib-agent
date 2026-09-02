@@ -674,9 +674,6 @@ const buildAgentResponseMessage = (
     ...(opts.transparency?.routingDecision
       ? { routingDecision: opts.transparency.routingDecision }
       : {}),
-    ...(opts.transparency?.routingReason
-      ? { routingReason: opts.transparency.routingReason }
-      : {}),
     ...(opts.transparency?.escalationReason
       ? { escalationReason: opts.transparency.escalationReason }
       : {}),
@@ -1548,7 +1545,6 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
         ...(citations && citations.length > 0 ? { citations } : {}),
         // Transparency extras ride the terminal frame; attach only what's present.
         ...(transparency?.routingDecision ? { routingDecision: transparency.routingDecision } : {}),
-        ...(transparency?.routingReason ? { routingReason: transparency.routingReason } : {}),
         ...(transparency?.escalationReason ? { escalationReason: transparency.escalationReason } : {}),
         ...(transparency?.answerConfidenceCappedReason
           ? { answerConfidenceCappedReason: transparency.answerConfidenceCappedReason }

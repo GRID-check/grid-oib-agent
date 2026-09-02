@@ -173,9 +173,6 @@ const commonThinking = {
   userQuestion: question,
   enabledDataSources: ['OIB-Korpus', 'RIS', 'Projektdokumente'],
   messageFiles: [{ id: 'f1', fileName: 'Grundriss_EG.pdf' }],
-  routingDecision: 'shallow' as const,
-  routingReason:
-    'konkrete Frage zu OIB-Richtlinie 2 (Brandschutz), kein Bedarf für Tiefenrecherche',
 }
 
 /**

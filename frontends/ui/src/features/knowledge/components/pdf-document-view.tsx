@@ -115,6 +115,12 @@ const MIN_QUOTE_LENGTH = 3
 interface PassageHit {
   page: number
   rects: HighlightRect[]
+  /**
+   * The mark is the software's best guess, not the passage verbatim: a
+   * windowed or partial match. A reader verifying a citation needs to see the
+   * difference, so the mark wears it.
+   */
+  fuzzy: boolean
 }
 
 /** A selection the reader made, and where to hang the offer to quote it. */
@@ -642,6 +648,7 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
                 highlight={page && Math.abs(number - page) <= radius ? highlight : null}
                 highlightColor={highlightColor}
                 marks={hit?.page === number ? hit.rects : null}
+                fuzzy={hit?.page === number && hit.fuzzy}
                 ping={ping}
                 onPassage={handlePassage}
                 onMiss={handleMiss}
@@ -722,6 +729,8 @@ interface PdfPageCanvasProps {
   highlight?: string | null
   highlightColor?: string
   marks: HighlightRect[] | null
+  /** The marks are a guess — see {@link PassageHit.fuzzy}. */
+  fuzzy: boolean
   ping: number
   onPassage: (hit: PassageHit) => void
   /** This page read its text and the passage is not on it. */
@@ -742,6 +751,7 @@ const PdfPageCanvas: FC<PdfPageCanvasProps> = ({
   highlight,
   highlightColor,
   marks,
+  fuzzy,
   ping,
   onPassage,
   onMiss,
@@ -878,7 +888,12 @@ const PdfPageCanvas: FC<PdfPageCanvasProps> = ({
       )
       const match = locatePassage(pageTextChunks(items, base.transform), highlight)
       if (cancelled) return
-      if (match) onPassage({ page: pageNumber, rects: match.rects })
+      if (match)
+        onPassage({
+          page: pageNumber,
+          rects: match.rects,
+          fuzzy: match.matcher !== 'exact' && match.matcher !== 'anchored',
+        })
       // Saying "not here" is what lets the viewer look next door. A page that
       // stayed silent is indistinguishable from one still reading its text.
       else onMiss(pageNumber)
@@ -964,8 +979,12 @@ const PdfPageCanvas: FC<PdfPageCanvasProps> = ({
           // Remounting on each ping is what replays the arrival animation.
           key={`${ping}-${index}`}
           data-testid="passage-mark"
+          data-fuzzy={fuzzy || undefined}
           aria-hidden
-          className="passage-highlight animate-passage-ping motion-reduce:animate-none pointer-events-none absolute"
+          className={cn(
+            'passage-highlight animate-passage-ping motion-reduce:animate-none pointer-events-none absolute',
+            fuzzy && 'passage-highlight--fuzzy'
+          )}
           style={
             {
               left: rect.x * scale,

@@ -20,7 +20,6 @@ from aiq_agent.cards.registry import set_card_registry
 from aiq_agent.common import AgentGroup
 from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import _create_chat_response
-from aiq_agent.common import format_data_source_tools
 from aiq_agent.common import get_checkpointer
 from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_model_overrides_from_context
@@ -31,6 +30,9 @@ from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.nat_converters import ensure_registered as _ensure_nat_converters_registered
 from aiq_agent.common.platform_lessons import render_lessons_block
 from aiq_agent.conversation_context import register_context_appender
+from aiq_agent.knowledge.project_memory import begin_turn_memory_log
+from aiq_agent.knowledge.project_memory import end_turn_memory_log
+from aiq_agent.knowledge.project_memory import turn_memory_writes
 from aiq_agent.observability.otel_header_redaction_exporter import (
     ensure_registered as _ensure_otel_redaction_registered,
 )
@@ -47,8 +49,6 @@ from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.api_server import ChatResponse
 from nat.data_models.api_server import ChatResponseChunk
-from nat.data_models.component_ref import FunctionGroupRef
-from nat.data_models.component_ref import FunctionRef
 from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
 from nat.data_models.streaming import Streaming
@@ -261,7 +261,6 @@ _STREAM_EXTRA_FIELDS = (
     "sources",
     # Transparency extras (WP-A): each surfaced only when applicable.
     "routing_decision",
-    "routing_reason",
     "escalation_reason",
     "answer_confidence_capped_reason",
     "answer_confidence_reason",
@@ -355,6 +354,7 @@ def _post_answer_turn_facts(
     cards: object,
     deep_research_job_id: str | None,
     answer_confidence: str | None,
+    remembered_this_turn: tuple[str, ...] = (),
 ) -> TurnFacts:
     """Complete the turn's :class:`TurnFacts` from the finished graph state.
 
@@ -367,18 +367,16 @@ def _post_answer_turn_facts(
     ``research_truncated`` came to ride the wire for months without the one gate
     that needed it ever reading it.
     """
-    user_intent = _result_field(result, "user_intent")
-    intent = getattr(user_intent, "intent", None)
     return dataclasses.replace(
         request_facts,
         query=query_text,
         answer=answer_text,
-        intent=str(intent) if intent else None,
         routing_decision=getattr(response, "routing_decision", None),
         research_truncated=bool(_result_field(result, "research_truncated")),
         deep_research_job_id=deep_research_job_id,
         emitted_card_types=_emitted_card_types(cards),
         answer_confidence=answer_confidence,
+        remembered_this_turn=remembered_this_turn,
     )
 
 
@@ -398,11 +396,7 @@ def _apply_transparency_extras(response: ChatResponse, result: object) -> None:
     NAT workflow, which is why ``skills_hidden`` could be set by the shallow
     researcher, declared by the frontend, and still never reach a reader.
     """
-    from .agent import derive_routing_decision
-
-    depth_decision = _result_field(result, "depth_decision")
-    routing_decision = derive_routing_decision(_result_field(result, "user_intent"), depth_decision)
-    routing_reason = getattr(depth_decision, "raw_reasoning", None)
+    routing_decision = _result_field(result, "routing_decision")
     escalation_reason = _result_field(result, "escalation_reason")
     answer_confidence_capped_reason = _result_field(result, "answer_confidence_capped_reason")
     answer_confidence_reason = _result_field(result, "answer_confidence_reason")
@@ -416,8 +410,6 @@ def _apply_transparency_extras(response: ChatResponse, result: object) -> None:
 
     if routing_decision:
         response.routing_decision = routing_decision
-    if routing_reason:
-        response.routing_reason = routing_reason
     if escalation_reason:
         response.escalation_reason = escalation_reason
     if answer_confidence_capped_reason:
@@ -525,30 +517,6 @@ def _fold_chunks_to_response(chunks: list[ChatResponseChunk]) -> ChatResponse:
     return response
 
 
-########################################################
-# Intent Classifier
-########################################################
-
-
-class IntentClassifierConfig(FunctionBaseConfig, name="intent_classifier"):
-    """Configuration for the combined orchestration node (intent + meta response + depth)."""
-
-    llm: LLMRef = Field(..., description="LLM to use")
-    tools: list[FunctionRef | FunctionGroupRef] = Field(
-        default_factory=list,
-        description="Explicit tool list. Empty = inherit all from data_source_registry.",
-    )
-    exclude_tools: list[str] = Field(
-        default_factory=list,
-        description="Tool names to exclude when inheriting from registry.",
-    )
-    verbose: bool = Field(default=False)
-    llm_timeout: float = Field(
-        default=90,
-        description="Timeout in seconds for the intent-classification LLM call. Default 90 if not set.",
-    )
-
-
 # Strong references to in-flight fire-and-forget persistence tasks so the event
 # loop cannot garbage-collect them mid-run (and so an unretrieved exception is
 # never logged as a warning). Entries are discarded on completion.
@@ -586,107 +554,6 @@ def _schedule_registry_persist(conversation_id: str) -> None:
         return
     _persist_tasks.add(task)
     task.add_done_callback(_persist_tasks.discard)
-
-
-def _compact_tool_blurb(tool_name: str, full_description: str) -> str:
-    """One-line routing blurb for a tool used by the intent classifier.
-
-    The classifier only needs each tool's PURPOSE to route (meta-vs-research,
-    shallow-vs-deep) — not its argument-level usage contract. It renders the
-    tool list below the KV-cache boundary and does not ``bind_tools``, so a
-    full agent-facing docstring (e.g. ris_search's ~40 lines) is pure prefill
-    weight on the gating LLM call of every turn.
-
-    Prefer the data-source registry's short description — the exact text the
-    pinned-sources path already renders via ``format_data_source_tools`` — so
-    the two paths converge. Fall back to the first sentence of the tool's own
-    description for non-registry tools (e.g. ``remember``). Always single-line.
-    """
-    try:
-        from aiq_agent.common.data_source_registry import get_source
-        from aiq_agent.common.data_source_registry import get_source_id_for_tool
-
-        source_id = get_source_id_for_tool(tool_name)
-        if source_id:
-            meta = get_source(source_id)
-            if meta and meta.description:
-                return " ".join(meta.description.split())
-    except Exception:
-        pass
-
-    text = " ".join((full_description or "").split())
-    if not text:
-        return ""
-    # First sentence, so a non-registry tool still conveys its purpose.
-    for sep in (". ", "! ", "? "):
-        idx = text.find(sep)
-        if idx != -1:
-            return text[: idx + 1]
-    # No sentence terminator: cap length so a stray long docstring can't bloat.
-    return text if len(text) <= 240 else text[:237] + "..."
-
-
-@register_function(config_type=IntentClassifierConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
-async def intent_classifier(config: IntentClassifierConfig, builder: Builder):
-    """Combined orchestration: classifies intent, produces meta response, and routes depth in one node."""
-    from .nodes import IntentClassifier
-
-    llm = await get_langchain_llm(builder, config.llm)
-
-    if config.tools:
-        tool_refs = config.tools
-    else:
-        from aiq_agent.common import get_all_tool_refs
-
-        tool_refs = get_all_tool_refs()
-
-    tools = await builder.get_tools(tool_names=tool_refs, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-
-    if config.exclude_tools:
-        excluded = set(config.exclude_tools)
-        tools = [t for t in tools if getattr(t, "name", "") not in excluded]
-
-    verbose = is_verbose(config.verbose)
-    callbacks = [VerboseTraceCallback()] if verbose else []
-
-    # Routing only needs each tool's purpose, not its full call docstring: keep
-    # the exact tool name (the registry/non-registry split below keys on it) but
-    # collapse the description to a short single-line blurb (see helper).
-    tools_info = [
-        {
-            "name": getattr(t, "name", str(t)),
-            "description": _compact_tool_blurb(getattr(t, "name", str(t)), getattr(t, "description", "")),
-        }
-        for t in tools
-    ]
-    classifier = IntentClassifier(
-        llm=llm,
-        tools_info=tools_info,
-        callbacks=callbacks,
-        llm_timeout=config.llm_timeout,
-    )
-
-    # Tools that exist outside the data-source registry (e.g. `remember`) must
-    # survive the per-request data-source narrowing below, otherwise the
-    # classifier believes they don't exist and denies the capability to users.
-    from aiq_agent.common import get_all_tool_refs as _registry_refs
-
-    registry_names = set(_registry_refs())
-    non_registry_tools_info = [t for t in tools_info if t["name"] not in registry_names]
-
-    async def _run(state: ChatResearcherState) -> dict[str, Any]:
-        # Pass the narrowed list per request instead of mutating the shared
-        # classifier instance: a mutation would leak one request's data-source
-        # selection into every later request (and race between concurrent ones).
-        request_tools_info = None
-        if state.data_sources is not None:
-            request_tools_info = format_data_source_tools(state.data_sources) + non_registry_tools_info
-        return await classifier.run(state, tools_info=request_tools_info)
-
-    yield FunctionInfo.from_fn(
-        _run,
-        description="Orchestration: intent classification, meta response, and depth routing.",
-    )
 
 
 ########################################################
@@ -816,8 +683,8 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
     """
     Chat deep researcher orchestrator agent.
 
-    Coordinates intent classification, depth routing, and research agents
-    to produce research results based on user queries.
+    One answering agent per turn, with escalation to deep research as that
+    agent's own decision (ADR-0052).
     """
     import os
     import sys
@@ -875,7 +742,6 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
     from .agent import ChatResearcherAgent
 
     workflow_id = config.name or config.type
-    intent_classifier_fn = await builder.get_function("intent_classifier")
     shallow_research_fn = await builder.get_function("shallow_research_agent")
     deep_research_fn = await builder.get_function("deep_research_agent")
     clarifier_fn = await builder.get_function("clarifier_agent") if config.enable_clarifier else None
@@ -959,7 +825,6 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
     checkpointer = await get_checkpointer(config.checkpoint_db)
 
     agent = ChatResearcherAgent(
-        intent_classifier_fn=intent_classifier_fn.ainvoke,
         shallow_research_fn=shallow_research_fn.ainvoke,
         deep_research_fn=deep_research_fn.ainvoke,
         clarifier_fn=clarifier_fn.ainvoke if clarifier_fn else None,
@@ -1009,7 +874,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         #
         # This and the available-documents aggregation below are two independent
         # blocking I/O paths that used to run strictly one after the other before
-        # intent classification. They are now defined as coroutines and awaited
+        # the answering agent started. They are now defined as coroutines and awaited
         # together via asyncio.gather (see below), so the digest fetch and the
         # per-collection document reads overlap. Each degrades independently:
         # a failure in one never affects the other.
@@ -1036,7 +901,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             # The request-scoped half of the post-answer stages' TurnFacts,
             # captured while the request context is still live — the stage tasks
             # run after this returns, when the context is gone. The turn-scoped
-            # half (query, answer, intent, truncation) is filled in at the call
+            # half (query, answer, routing, truncation) is filled in at the call
             # site with dataclasses.replace.
             _stage_facts = TurnFacts()
             try:
@@ -1246,7 +1111,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             return available_documents
 
         # Say what is happening in the FIRST hole of the turn. Nothing at all
-        # reached the client before the intent classifier's LLM call, so a turn
+        # reached the client before the answering agent's first LLM call, so a turn
         # scoped to an archive or a project sat silent through every one of
         # these round-trips. Only emitted when one of the reader's OWN shelves
         # is in scope -- the base OIB corpus is read on every research turn,
@@ -1333,6 +1198,8 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         card_registry = get_or_create_card_registry(nat_context_conversation_id)
         card_registry.clear()
         card_token = set_card_registry(card_registry)
+        memory_log_token = begin_turn_memory_log()
+        remembered_this_turn: tuple[str, ...] = ()
         try:
             state = ChatResearcherState(
                 messages=[HumanMessage(content=query_text)],
@@ -1369,6 +1236,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 async with admit_turn_async(_admission_organization_id()):
                     with track_agent_profile(agent_name="chat_researcher"), track_llm_costs():
                         result = await agent.run(state, thread_id=nat_context_conversation_id)
+                remembered_this_turn = turn_memory_writes()
             except TurnAdmissionError as admission_error:
                 logger.warning("Turn refused by admission control: %s", admission_error)
                 busy_response = _create_chat_response(
@@ -1392,6 +1260,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         finally:
             reset_session_registry(token)
             reset_card_registry(card_token)
+            end_turn_memory_log(memory_log_token)
             # Persist the turn's captured citation sources to the shared cache
             # (ADR-0020) so the conversation keeps prior-turn sources after a
             # restart or on another replica. Best-effort and fire-and-forget: it
@@ -1471,6 +1340,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 cards=cards,
                 deep_research_job_id=deep_research_job_id,
                 answer_confidence=answer_confidence,
+                remembered_this_turn=remembered_this_turn,
             ),
             # Keyed by agent group, not by stage id: the runner applies the org's
             # model override and its ADR-0022 BYOK credential per group, here,
@@ -1485,4 +1355,4 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         for _chunk in _response_to_chunks(response, stream=True):
             yield _chunk
 
-    yield FunctionInfo.from_fn(_run, description="Chat deep researcher with intent routing and escalation.")
+    yield FunctionInfo.from_fn(_run, description="Chat researcher: one answering agent, escalation to deep research.")

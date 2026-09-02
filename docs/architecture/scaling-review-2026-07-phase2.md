@@ -61,7 +61,8 @@ the TTL-cleanup lock — is a cliff).
    turn, including chit-chat. `focus_shelf=base` still prints the full list, which
    is exactly the turn that has no retrieval. A search-first `available_documents`
    tool (recency/relevance ranking) remains the richer follow-up; note it would
-   need adding to `_INTERACTION_TOOL_BASENAMES` to survive the meta partition.
+   need adding to `_INTERACTION_TOOL_BASENAMES` to survive the meta partition
+   (the partition and that allowlist are gone since ADR-0052; every tool is bound on every turn).
 7. **No orchestrator-level context compaction** — summarization is wired only into
    the leaf researcher (`factory.py:363`), not orchestrator/planner/writer; ~80k-token
    contexts confirmed. The budget guard counts only output tokens and is off by

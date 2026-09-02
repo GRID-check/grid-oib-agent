@@ -205,11 +205,6 @@ class TestAggregateDocumentsAcrossCollections:
         assert len(result) == 5
 
 
-class _Intent:
-    def __init__(self, intent):
-        self.intent = intent
-
-
 class _TurnState:
     def __init__(self, **fields):
         for name, value in fields.items():
@@ -260,11 +255,6 @@ class TestPostAnswerTurnFacts:
     def test_truncation_crosses(self):
         assert self._facts(_TurnState(research_truncated=True)).research_truncated is True
         assert self._facts(_TurnState()).research_truncated is False
-
-    def test_intent_crosses_from_state_or_dict(self):
-        assert self._facts(_TurnState(user_intent=_Intent("meta"))).intent == "meta"
-        assert self._facts({"user_intent": _Intent("research")}).intent == "research"
-        assert self._facts(_TurnState()).intent is None
 
     def test_routing_decision_crosses_off_the_answer(self):
         response = _create_chat_response("answer", response_id="r", model="m")
@@ -375,7 +365,6 @@ class TestResponseToChunks:
         resp = _answer_response(
             "some answer text that spans multiple deltas for the stream",
             routing_decision="deep",
-            routing_reason="The question needs multi-source synthesis.",
             escalation_reason="Die erste Antwort war unzureichend.",
             answer_confidence_capped_reason="ungrounded",
             citations_removed={"count": 2, "reasons": ["broken"]},
@@ -383,7 +372,6 @@ class TestResponseToChunks:
         chunks = _response_to_chunks(resp, stream=True)
         terminal = chunks[-1]
         assert getattr(terminal, "routing_decision", None) == "deep"
-        assert getattr(terminal, "routing_reason", None) == "The question needs multi-source synthesis."
         assert getattr(terminal, "escalation_reason", None) == "Die erste Antwort war unzureichend."
         assert getattr(terminal, "answer_confidence_capped_reason", None) == "ungrounded"
         assert getattr(terminal, "citations_removed", None) == {"count": 2, "reasons": ["broken"]}
@@ -397,7 +385,6 @@ class TestResponseToChunks:
         terminal = _response_to_chunks(resp, stream=True)[-1]
         for field in (
             "routing_decision",
-            "routing_reason",
             "escalation_reason",
             "answer_confidence_capped_reason",
             "citations_removed",

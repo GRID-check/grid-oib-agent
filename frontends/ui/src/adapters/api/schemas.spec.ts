@@ -84,7 +84,6 @@ describe('NATSystemResponseMessageSchema transparency extras (WP-A → WP-B)', (
     const parsed = NATSystemResponseMessageSchema.parse({
       ...base,
       routing_decision: 'deep',
-      routing_reason: 'Die Frage erfordert eine tiefere Recherche.',
       escalation_reason: 'Die erste Antwort war unzureichend.',
       answer_confidence_capped_reason: 'ungrounded',
       citations_removed: { count: 2, reasons: ['not found', 'stale'] },
@@ -93,7 +92,6 @@ describe('NATSystemResponseMessageSchema transparency extras (WP-A → WP-B)', (
     })
 
     expect(parsed.routing_decision).toBe('deep')
-    expect(parsed.routing_reason).toBe('Die Frage erfordert eine tiefere Recherche.')
     expect(parsed.escalation_reason).toBe('Die erste Antwort war unzureichend.')
     expect(parsed.answer_confidence_capped_reason).toBe('ungrounded')
     expect(parsed.citations_removed).toEqual({ count: 2, reasons: ['not found', 'stale'] })
@@ -104,7 +102,6 @@ describe('NATSystemResponseMessageSchema transparency extras (WP-A → WP-B)', (
   test('extras are all optional — omitting them stays backward compatible', () => {
     const parsed = NATSystemResponseMessageSchema.parse(base)
     expect(parsed.routing_decision).toBeUndefined()
-    expect(parsed.routing_reason).toBeUndefined()
     expect(parsed.escalation_reason).toBeUndefined()
     expect(parsed.answer_confidence_capped_reason).toBeUndefined()
     expect(parsed.citations_removed).toBeUndefined()
@@ -119,12 +116,12 @@ describe('NATSystemResponseMessageSchema transparency extras (WP-A → WP-B)', (
       ...base,
       routing_decision: 'sideways', // out of enum
       citations_removed: 'nope', // wrong shape
-      routing_reason: 'still valid',
+      escalation_reason: 'still valid',
     })
     expect(parsed.content).toBe('an answer')
     expect(parsed.routing_decision).toBeUndefined()
     expect(parsed.citations_removed).toBeUndefined()
-    expect(parsed.routing_reason).toBe('still valid')
+    expect(parsed.escalation_reason).toBe('still valid')
   })
 
   test('answer_confidence_capped_reason parses both grounding and quote causes', () => {

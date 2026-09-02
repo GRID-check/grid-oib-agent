@@ -66,8 +66,8 @@ class TestParseModelOverrides:
         assert parse_model_overrides(_encode(["a", "b"])) == {}
 
     def test_unknown_groups_dropped(self):
-        raw = _encode({"nonsense_group": "vendor/model", "intent": "vendor/model"})
-        assert parse_model_overrides(raw) == {"intent": "vendor/model"}
+        raw = _encode({"nonsense_group": "vendor/model", "shallow_research": "vendor/model"})
+        assert parse_model_overrides(raw) == {"shallow_research": "vendor/model"}
 
     def test_invalid_model_ids_dropped(self):
         raw = _encode(
@@ -82,8 +82,8 @@ class TestParseModelOverrides:
     def test_provider_native_ids_accepted_for_byok(self):
         # BYOK orgs (ADR-0022) may run provider-native ids without a slash;
         # multi-slash ids are still rejected.
-        raw = _encode({"intent": "gpt-4o", "clarifier": "ft:gpt-4o:acme::abc", "deep_research": "a/b/c"})
-        assert parse_model_overrides(raw) == {"intent": "gpt-4o", "clarifier": "ft:gpt-4o:acme::abc"}
+        raw = _encode({"shallow_research": "gpt-4o", "clarifier": "ft:gpt-4o:acme::abc", "deep_research": "a/b/c"})
+        assert parse_model_overrides(raw) == {"shallow_research": "gpt-4o", "clarifier": "ft:gpt-4o:acme::abc"}
 
     def test_sanitize_rejects_non_dict(self):
         assert sanitize_model_overrides("x") == {}
@@ -106,12 +106,12 @@ class TestOverrideModel:
 
     def test_apply_with_explicit_overrides(self):
         llm = FakeChatModel()
-        result = apply_model_override(llm, AgentGroup.INTENT, {"intent": "vendor/other"})
+        result = apply_model_override(llm, AgentGroup.SHALLOW_RESEARCH, {"shallow_research": "vendor/other"})
         assert result.model_name == "vendor/other"
 
     def test_apply_without_matching_override_is_identity(self):
         llm = FakeChatModel()
-        assert apply_model_override(llm, AgentGroup.INTENT, {"clarifier": "vendor/other"}) is llm
+        assert apply_model_override(llm, AgentGroup.SHALLOW_RESEARCH, {"clarifier": "vendor/other"}) is llm
 
     def test_override_rebinds_instance_patched_methods(self):
         """Regression: NAT's patch_with_retry stores public methods in the
@@ -192,20 +192,22 @@ class TestApplyZdrRouting:
     def test_apply_model_override_applies_zdr_without_model_change(self):
         llm = FakeOpenRouterModel()
         # No model override for this group, but ZDR is on -> still a ZDR copy.
-        result = apply_model_override(llm, AgentGroup.INTENT, {}, zdr_only=True)
+        result = apply_model_override(llm, AgentGroup.SHALLOW_RESEARCH, {}, zdr_only=True)
         assert result is not llm
         assert result.model_name == "deepseek/deepseek-v4-flash"
         assert result.extra_body["provider"]["zdr"] is True
 
     def test_apply_model_override_applies_both_model_and_zdr(self):
         llm = FakeOpenRouterModel()
-        result = apply_model_override(llm, AgentGroup.INTENT, {"intent": "x-ai/grok-4.5"}, zdr_only=True)
+        result = apply_model_override(
+            llm, AgentGroup.SHALLOW_RESEARCH, {"shallow_research": "x-ai/grok-4.5"}, zdr_only=True
+        )
         assert result.model_name == "x-ai/grok-4.5"
         assert result.extra_body["provider"]["zdr"] is True
 
     def test_apply_model_override_zdr_off_is_identity(self):
         llm = FakeOpenRouterModel()
-        assert apply_model_override(llm, AgentGroup.INTENT, {}, zdr_only=False) is llm
+        assert apply_model_override(llm, AgentGroup.SHALLOW_RESEARCH, {}, zdr_only=False) is llm
 
 
 class TestProviderWithModelOverrides:
@@ -221,7 +223,7 @@ class TestProviderWithModelOverrides:
     def test_identity_when_no_relevant_override(self):
         provider = self._provider()
         assert provider.with_model_overrides({}) is provider
-        assert provider.with_model_overrides({"intent": "vendor/x"}) is provider
+        assert provider.with_model_overrides({"shallow_research": "vendor/x"}) is provider
 
     def test_overrides_apply_per_group(self):
         provider = self._provider()
@@ -272,11 +274,11 @@ class TestOrgScopedFallbackResolution:
     def test_header_takes_precedence_over_fetch(self, monkeypatch):
         import aiq_agent.common.model_overrides as M
 
-        encoded = base64.urlsafe_b64encode(json.dumps({"intent": "vendor/x"}).encode()).decode()
+        encoded = base64.urlsafe_b64encode(json.dumps({"shallow_research": "vendor/x"}).encode()).decode()
         monkeypatch.setattr("aiq_agent.project_context._read_header", lambda name: encoded)
         monkeypatch.setattr(M, "_fetch_org_config", lambda org: pytest.fail("must not fetch when header present"))
 
-        assert M.get_model_overrides_from_context() == {"intent": "vendor/x"}
+        assert M.get_model_overrides_from_context() == {"shallow_research": "vendor/x"}
 
     def test_absent_header_falls_back_to_org_resolution(self, monkeypatch):
         import aiq_agent.common.model_overrides as M
@@ -303,13 +305,13 @@ class TestOrgScopedFallbackResolution:
 
         def fake_fetch(org):
             calls.append(org)
-            return {"intent": "vendor/x"}, True
+            return {"shallow_research": "vendor/x"}, True
 
         monkeypatch.setattr(M, "_fetch_org_config", fake_fetch)
         # A single fetch populates BOTH the overrides and the ZDR flag.
-        assert M.resolve_org_model_overrides("org_A") == {"intent": "vendor/x"}
+        assert M.resolve_org_model_overrides("org_A") == {"shallow_research": "vendor/x"}
         assert M.resolve_org_zdr_only("org_A") is True
-        assert M.resolve_org_model_overrides("org_A") == {"intent": "vendor/x"}
+        assert M.resolve_org_model_overrides("org_A") == {"shallow_research": "vendor/x"}
         assert calls == ["org_A"]
 
     def test_fetch_failure_fails_open_to_empty(self, monkeypatch):
@@ -334,7 +336,11 @@ class TestOrgScopedFallbackResolution:
 
             def json(self):
                 return {
-                    "overrides": {"deep_research": "x-ai/grok-4.5", "bogus_group": "x/y", "intent": "bad id!!"},
+                    "overrides": {
+                        "deep_research": "x-ai/grok-4.5",
+                        "bogus_group": "x/y",
+                        "shallow_research": "bad id!!",
+                    },
                     "zdrOnly": True,
                 }
 
