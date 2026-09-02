@@ -1011,6 +1011,7 @@ def lane_for_knowledge_hit(
     source_url: str | None = None,
     collection: str | None = None,
     registry: NormRegistry | None = None,
+    shelf: object = None,
 ) -> tuple[str, str]:
     """:func:`lane_for_hit` for a hit that came from the KNOWLEDGE LAYER.
 
@@ -1032,5 +1033,6 @@ def lane_for_knowledge_hit(
         source_url=source_url,
         collection=collection,
         registry=registry,
+        shelf=shelf,
     )
     return ("projekt", "Projektwissen") if lane == ("web", "Web") else lane

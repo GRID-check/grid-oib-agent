@@ -245,6 +245,9 @@ const addTraceLanes = (
         title: source.title,
         fileName: looksLikeFile ? name : undefined,
         url: isUrl ? detail : undefined,
+        // Stated by the backend for this hit (ADR-0047): the only channel a
+        // document the answer never cited has for its shelf.
+        shelf: source.shelf,
         kind: lane.kind,
         lane: lane.key,
         laneLabel: lane.label,

@@ -156,6 +156,24 @@ describe('buildCitationModel', () => {
     expect(isCited(cited)).toBe(true)
   })
 
+  it('gives an uncited document the shelf its trace-lane hit stated', () => {
+    // A document only the fan-out knows has no citation payload; the lane
+    // source is its one channel for the shelf, and the Herleitung colours by it.
+    const lanes: TraceLaneCard[] = [
+      {
+        key: 'projekt',
+        label: 'Projektwissen',
+        kind: 'projekt',
+        signal: 'project',
+        hitCount: 1,
+        sources: [{ name: 'Plan.pdf', detail: 'p.2', shelf: 'project' }],
+      },
+    ]
+    const docs = buildCitationModel({ citations: [], traceLanes: lanes })
+
+    expect(unusedDocuments(docs).map((doc) => doc.shelf)).toEqual(['project'])
+  })
+
   it('keeps a web source linking out and tinted as web', () => {
     const web: CitationSource = {
       id: 'w',

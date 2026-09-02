@@ -1467,12 +1467,16 @@ def source_lane(entry: SourceEntry, registry: NormRegistry | None = None) -> tup
     if registry is None:
         registry = load_registry() if (entry.url and "ris.bka.gv.at" in entry.url) else None
     classify = lane_for_knowledge_hit if entry.source_type == "knowledge_layer" else lane_for_hit
+    # The shelf the hit already carries (ADR-0047) is what decides whether the
+    # default doc class means anything; without it the resolver has to guess
+    # the shelf back from the collection name.
     return classify(
         doc_class=entry.doc_class,
         file_name=file_name,
         source_url=entry.url,
         collection=entry.collection,
         registry=registry,
+        shelf=entry.shelf,
     )
 
 

@@ -1108,8 +1108,11 @@ def _trace_lanes_json(
         for chunk in chunks:
             metadata = chunk.metadata or {}
             collection = metadata.get("collection")
+            shelf = metadata.get("shelf")
             doc_class = _hit_doc_class(chunk, resolved)
-            key, label = lane_for_knowledge_hit(doc_class=doc_class, file_name=chunk.file_name, collection=collection)
+            key, label = lane_for_knowledge_hit(
+                doc_class=doc_class, file_name=chunk.file_name, collection=collection, shelf=shelf
+            )
             bucket = lanes.get(key)
             if bucket is None:
                 bucket = {
@@ -1133,6 +1136,8 @@ def _trace_lanes_json(
                     entry["title"] = title
                 if detail:
                     entry["detail"] = detail
+                if isinstance(shelf, str) and shelf:
+                    entry["shelf"] = shelf
                 bucket["sources"].append(entry)
         return json.dumps({"lanes": list(lanes.values())}, ensure_ascii=False)
     except Exception:

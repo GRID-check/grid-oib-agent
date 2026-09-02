@@ -120,6 +120,29 @@ describe('parseTraceLanesBlock', () => {
     })
   })
 
+  test('keeps the shelf the backend stated for a hit, and drops one it does not know', () => {
+    const cards = parseTraceLanesBlock(
+      [
+        '## Trace-Lanes',
+        JSON.stringify({
+          lanes: [
+            {
+              key: 'projekt',
+              label: 'Projektwissen',
+              kind: 'projekt',
+              hitCount: 2,
+              sources: [
+                { name: 'Plan.pdf', detail: 'p.2', shelf: 'project' },
+                { name: 'Notiz.pdf', detail: 'p.1', shelf: 'attic' },
+              ],
+            },
+          ],
+        }),
+      ].join('\n')
+    )
+    expect(cards![0].sources.map((s) => s.shelf)).toEqual(['project', undefined])
+  })
+
   test('takes the coarse kind from the backend rather than re-deriving it', () => {
     // The wire's `kind` is authoritative even when it disagrees with what this
     // side would have guessed from the lane key — that is the point of shipping
