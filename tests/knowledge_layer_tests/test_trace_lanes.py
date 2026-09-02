@@ -114,4 +114,3 @@ def test_format_results_empty_chunks_skips_trace_block():
     result = SimpleNamespace(success=True, chunks=[], error_message=None)
     text = _format_results(result, "q")
     assert "Trace-Lanes" not in text
-
