@@ -255,3 +255,43 @@ async def test_a_poll_with_no_report_yet_pays_for_no_access_read(report_app, mon
     assert body["has_report"] is False
     assert body["project_collection"] is None
     assert calls == []
+
+
+NUMBERED_SOURCE = {
+    "title": "OIB-Richtlinie 2",
+    "file_name": "oib-rl_2_ausgabe_mai_2023.pdf",
+    "page": 7,
+    "number": 3,
+    "collection": "oib_base",
+}
+
+
+@pytest.mark.asyncio
+async def test_report_response_carries_the_runs_numbered_sources(report_app):
+    """The [N] a report cites a source by is assigned at verification, after the
+    live stream has already announced the source without one. The persisted
+    output is the only place the binding exists, and this route is how the
+    finished report's reader gets it."""
+    body = await _fetch_report(
+        report_app,
+        json.dumps({"report": "# Bericht [3]", "sources": [NUMBERED_SOURCE]}),
+    )
+
+    assert body["sources"] == [NUMBERED_SOURCE]
+
+
+@pytest.mark.asyncio
+async def test_sources_are_withheld_when_there_is_no_report(report_app):
+    body = await _fetch_report(report_app, json.dumps({"sources": [NUMBERED_SOURCE]}))
+
+    assert body["has_report"] is False
+    assert body["sources"] is None
+
+
+@pytest.mark.parametrize("stored", ["not-a-list", 5, {"number": 1}, [], ["a string", 7]])
+@pytest.mark.asyncio
+async def test_a_malformed_sources_value_never_costs_the_report(report_app, stored):
+    body = await _fetch_report(report_app, json.dumps({"report": "# Bericht", "sources": stored}))
+
+    assert body["report"] == "# Bericht"
+    assert body["sources"] is None

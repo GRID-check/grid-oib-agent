@@ -356,6 +356,29 @@ class JobReportResponse(BaseModel):
             "(already validated at write time). Null when the run produced none."
         ),
     )
+    sources: list[dict] | None = Field(
+        None,
+        description=(
+            "The report's verified sources, each carrying the [N] the report cites it by, "
+            "as the runner persisted them. The live event stream discovers sources before "
+            "verification numbers them, so this is the only place a reader of the finished "
+            "report can learn which row [3] is. Null when the run recorded none."
+        ),
+    )
+
+
+def _report_sources(raw: Any) -> list[dict] | None:
+    """The persisted source list, or ``None`` for anything that is not one.
+
+    Same posture as :func:`_report_cards`: written by the runner from
+    ``source_entry_to_wire``, so a well-formed value is passed through whole, and
+    a malformed one (an older worker, a corrupted blob) degrades to "no sources"
+    rather than costing the report.
+    """
+    if not isinstance(raw, list):
+        return None
+    sources = [entry for entry in raw if isinstance(entry, dict)]
+    return sources or None
 
 
 class ResearchRunItem(BaseModel):
@@ -820,6 +843,7 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
         report = None
         cards = None
+        sources = None
         if job.output:
             try:
                 output = json.loads(job.output) if isinstance(job.output, str) else job.output
@@ -830,6 +854,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
                 # describes a state the runner cannot produce — it writes both
                 # keys in the same `output` dict or neither.
                 cards = _report_cards(output.get("cards")) if report else None
+                # Gated the same way, for the same reason: they are the sources
+                # OF this report, numbered as it cites them.
+                sources = _report_sources(output.get("sources")) if report else None
             except (json.JSONDecodeError, AttributeError):
                 pass
 
@@ -842,6 +869,7 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             has_report=bool(report),
             report=report,
             cards=cards,
+            sources=sources,
             project_collection=project_collection,
         )
 

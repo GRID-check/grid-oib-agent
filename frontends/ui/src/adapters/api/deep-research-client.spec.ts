@@ -223,6 +223,26 @@ describe('report filing, as it crosses the wire', () => {
     expect(response.filingFailed).toBeUndefined()
   })
 
+  test('carries the numbered sources through the rebuild', async () => {
+    // The [N] a report cites a source by exists only in the persisted output,
+    // and this rebuild names every key the caller can see — so a key left out
+    // here is a source list the report tab never gets.
+    const source = { file_name: 'oib-rl_2_ausgabe_mai_2023.pdf', page: 7, number: 3 }
+    reportBody({ sources: [source] })
+
+    const response = await getJobReport('job-1')
+
+    expect(response.sources).toEqual([source])
+  })
+
+  test('drops a malformed or empty sources value rather than the report', async () => {
+    reportBody({ sources: 'not-a-list' })
+    expect((await getJobReport('job-1')).sources).toBeUndefined()
+
+    reportBody({ sources: [] })
+    expect((await getJobReport('job-1')).sources).toBeUndefined()
+  })
+
   test('believes only a real boolean', async () => {
     // A retraction is a claim about a promise the server made. A truthy string
     // arriving in this key would have the banner take back a promise nobody
