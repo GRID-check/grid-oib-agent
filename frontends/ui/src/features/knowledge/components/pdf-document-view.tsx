@@ -80,6 +80,48 @@ export interface PdfDocumentViewProps {
 }
 
 /** Zoom steps, as multiples of fit-to-width. */
+/**
+ * How far either side of the cited page the passage is still looked for.
+ *
+ * The page number is somebody else's arithmetic: retrieval counts sheets, and
+ * a document whose own numbering starts after a cover page — which is most of
+ * them — is off by one against it; a title sheet plus a table of contents make
+ * it two. That mismatch used to cost the reader the entire feature, silently:
+ * the viewer opened at the wrong page with nothing marked, indistinguishable
+ * from a passage that could not be found at all.
+ *
+ * The radius stays at 0 until the cited page itself comes up empty, widens to
+ * one page either side then, and to two only once both neighbours have come up
+ * empty as well — so the second ring is looked at only after the first has
+ * answered, never speculatively. Two is the ceiling: the matchers are strict
+ * enough that a neighbour either holds the quoted sentence or holds nothing,
+ * so looking next door cannot invent a hit, but three pages out is no longer a
+ * numbering offset, it is a different passage that happens to read alike.
+ *
+ * Derived from the misses rather than stored, so a new Fundstelle resets it
+ * with them and no state can disagree with what the pages actually reported.
+ */
+export const MAX_SEARCH_RADIUS = 2
+
+export function searchRadius(
+  page: number | null | undefined,
+  missed: readonly number[],
+  numPages: number,
+): number {
+  if (!page || !missed.includes(page)) return 0
+  const neighbours = pagesWithin(page, 1, numPages).filter((number) => number !== page)
+  return neighbours.every((number) => missed.includes(number)) ? MAX_SEARCH_RADIUS : 1
+}
+
+/** The page numbers within `radius` of `page` that the document actually has. */
+export function pagesWithin(page: number, radius: number, numPages: number): number[] {
+  const pages: number[] = []
+  for (let number = page - radius; number <= page + radius; number += 1) {
+    if (number >= 1 && number <= numPages) pages.push(number)
+  }
+  return pages
+}
+
 const ZOOM_STEPS = [0.75, 1, 1.25, 1.5, 2, 3]
 
 /** Horizontal room left for the page shadow and the scrollbar. */
@@ -147,9 +189,6 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
   const [frameWidth, setFrameWidth] = useState(0)
   const [zoomStep, setZoomStep] = useState(ZOOM_STEPS.indexOf(1))
   const [hit, setHit] = useState<PassageHit | null>(null)
-  // How far either side of the cited page the passage is still looked for. See
-  // `handleMiss`: it stays at 0 until the cited page itself comes up empty.
-  const [radius, setRadius] = useState(0)
   // Page 1's shape, used to reserve room for pages that have not rasterised.
   const [defaultAspect, setDefaultAspect] = useState<number | null>(null)
   // Bumped to replay the arrival animation — a CSS animation only runs on
@@ -238,7 +277,6 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
   useEffect(() => {
     foundRef.current = false
     setHit(null)
-    setRadius(0)
     setMissed([])
   }, [page, highlight])
 
@@ -329,28 +367,17 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
   )
 
   /**
-   * Widen the search by one page when the cited page has no such passage.
-   *
-   * The page number is somebody else's arithmetic: retrieval counts sheets, and
-   * a document whose own numbering starts after a cover page — which is most of
-   * them — is off by one against it. That mismatch used to cost the reader the
-   * entire feature, silently: the viewer opened at the wrong page with nothing
-   * marked, indistinguishable from a passage that could not be found at all.
-   *
-   * One page either side, and no further. The matchers are strict enough that a
-   * neighbour either holds the quoted sentence or holds nothing, so looking next
-   * door cannot invent a hit — but three pages out is no longer an off-by-one,
-   * it is a different passage that happens to read alike.
+   * A page that read its text and did not hold the passage says so. The search
+   * radius is derived from these misses, see {@link searchRadius}.
    */
-  const handleMiss = useCallback(
-    (missedPage: number) => {
-      setMissed((current) =>
-        current.includes(missedPage) ? current : [...current, missedPage],
-      )
-      if (page && missedPage === page) setRadius((current) => Math.max(current, 1))
-    },
-    [page],
-  )
+  const handleMiss = useCallback((missedPage: number) => {
+    setMissed((current) =>
+      current.includes(missedPage) ? current : [...current, missedPage],
+    )
+  }, [])
+
+  // How far either side of the cited page the passage is still looked for.
+  const radius = searchRadius(page, missed, doc?.numPages ?? 0)
 
   /**
    * Re-apply the scroll once the page stack has settled.
@@ -526,7 +553,7 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
   // found" and "still looking" are different claims and only one is true yet.
   const candidatePages =
     doc && page && highlight
-      ? [page - 1, page, page + 1].filter((number) => number >= 1 && number <= doc.numPages)
+      ? pagesWithin(page, MAX_SEARCH_RADIUS, doc.numPages)
       : []
   const passageMissing =
     !hit && candidatePages.length > 0 && candidatePages.every((number) => missed.includes(number))

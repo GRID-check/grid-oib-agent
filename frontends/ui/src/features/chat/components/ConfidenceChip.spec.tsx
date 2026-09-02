@@ -47,6 +47,34 @@ describe('ConfidenceChip', () => {
     ).toBeGreaterThan(0)
   })
 
+  test("labels the model's reason as the one it gave before the cap", async () => {
+    const user = userEvent.setup()
+    // The model explained a "high"; the backend held the answer at "medium".
+    // Showing that explanation under the shown level would read as nonsense,
+    // so the label says which level the reason belongs to.
+    render(
+      <ConfidenceChip
+        confidence="medium"
+        cappedReason="quote_unverified"
+        reason="Every claim is backed by the cited paragraph."
+      />
+    )
+
+    await user.hover(screen.getByRole('button'))
+
+    expect((await screen.findAllByText(/Assistant's reason before the cap:/)).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/^Assistant's reason:$/)).not.toBeInTheDocument()
+  })
+
+  test("labels the model's reason plainly when nothing capped it", async () => {
+    const user = userEvent.setup()
+    render(<ConfidenceChip confidence="high" reason="Directly stated in the cited paragraph." />)
+
+    await user.hover(screen.getByRole('button'))
+
+    expect((await screen.findAllByText(/Assistant's reason:/)).length).toBeGreaterThan(0)
+  })
+
   test('falls back to the generic tooltip when no reason is present', async () => {
     const user = userEvent.setup()
     render(<ConfidenceChip confidence="high" />)

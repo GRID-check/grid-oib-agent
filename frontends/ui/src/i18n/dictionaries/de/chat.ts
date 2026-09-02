@@ -1124,6 +1124,9 @@ export const chat: typeof en.chat = {
     },
     // Label vor der eigenen Kurzbegründung des Modells (wortgetreu).
     reasonLabel: 'Begründung des Assistenten',
+    // Dasselbe Label, wenn die Einschätzung danach gedeckelt wurde: die
+    // Begründung beschreibt die Stufe VOR der Begrenzung, nicht die gezeigte.
+    reasonLabelBeforeCap: 'Begründung des Assistenten vor der Begrenzung',
     // Zusatzsatz, der im Tooltip erklärt, WARUM die Einschätzung gedeckelt
     // wurde, je nach `answer_confidence_capped_reason` (WP-A, PB-9).
     cappedReasons: {

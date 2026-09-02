@@ -228,7 +228,7 @@ export const en: LegalContent = {
       {
         heading: 'Which AI models are used',
         paragraphs: [
-          'By default, Piloti uses models routed through the API gateway OpenRouter (reference model: OpenAI GPT-5.6 Luna). Different internal functions (intent detection, clarification, research, deep research, memory reflection) may use different models.',
+          'By default, Piloti uses models routed through the API gateway OpenRouter (reference model: OpenAI GPT-5.6 Luna). Different internal functions (clarification, research, deep research, memory reflection) may use different models.',
         ],
         notice:
           'Model choice is dynamic: administrators of your organization can re-point each function to a different AI model from the OpenRouter catalog at any time, without a new release of the service. Every change is validated against the catalog, versioned, attributed to the administrator who made it and reversible, and for every single AI request the model that actually produced the answer is recorded in the usage ledger. The gateway (OpenRouter) and its credentials can never be changed by a model selection — only which model behind that gateway serves your organization.',

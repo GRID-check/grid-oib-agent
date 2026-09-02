@@ -284,11 +284,12 @@ describe('PdfDocumentView', () => {
     expect(mark.closest('[data-page]')?.getAttribute('data-page')).toBe('3')
   })
 
-  it('does not wander further than that', async () => {
+  it('looks a second page out once both neighbours have come up empty', async () => {
+    // A title sheet and a table of contents: the document's own numbering is
+    // two behind the sheet count retrieval reported.
     state.pages = [
-      { items: [run('Vorbemerkungen zum Verfahren', 740, 160)] },
+      { items: [run('Titelblatt', 740, 160)] },
       { items: [run('Inhaltsverzeichnis', 740, 100)] },
-      { items: [run('Zwischenblatt', 740, 90)] },
       { items: [run('Die Frist betraegt vier Wochen', 700, 180)] },
     ]
     render(
@@ -299,9 +300,30 @@ describe('PdfDocumentView', () => {
         highlight="Die Frist betraegt vier Wochen"
       />,
     )
-    await waitFor(() => expect(document.querySelectorAll('[data-page]')).toHaveLength(4))
 
-    // Three pages out is not a numbering offset, it is a different passage that
+    const mark = await screen.findByTestId('passage-mark')
+    expect(mark.closest('[data-page]')?.getAttribute('data-page')).toBe('3')
+  })
+
+  it('does not wander further than that', async () => {
+    state.pages = [
+      { items: [run('Vorbemerkungen zum Verfahren', 740, 160)] },
+      { items: [run('Inhaltsverzeichnis', 740, 100)] },
+      { items: [run('Zwischenblatt', 740, 90)] },
+      { items: [run('Abkuerzungen', 740, 90)] },
+      { items: [run('Die Frist betraegt vier Wochen', 700, 180)] },
+    ]
+    render(
+      <PdfDocumentView
+        src="/api/doc.pdf"
+        title="doc.pdf"
+        page={1}
+        highlight="Die Frist betraegt vier Wochen"
+      />,
+    )
+    await waitFor(() => expect(document.querySelectorAll('[data-page]')).toHaveLength(5))
+
+    // Four pages out is not a numbering offset, it is a different passage that
     // happens to read alike — and pointing at it would be a confident lie.
     await waitFor(() => expect(screen.queryByTestId('passage-mark')).toBeNull())
   })
