@@ -90,6 +90,16 @@ describe("the program constructs in the split topology", () => {
     ]);
   });
 
+  it("schedules both internal sweeps as CronJobs by default", () => {
+    // Both are default-on because what they recover is invisible in the
+    // product. A sweep that silently stopped being created would leave the
+    // storage alert dead, or the vector store slowly filling with chunks of
+    // deleted documents, behind a green `pulumi up`.
+    expect(named("kubernetes:batch/v1:CronJob")).toEqual(
+      expect.arrayContaining(["storage-alerts", "vector-reconcile"]),
+    );
+  });
+
   it("keeps the S3 endpoint on the name the app tier already uses", () => {
     // A rename here silently removes the `allow-edge-to-seaweedfs` NetworkPolicy
     // from the pods that serve S3, and breaks `SEAWEED_ENDPOINT` for every tier.

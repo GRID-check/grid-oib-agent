@@ -502,7 +502,7 @@ export interface ThinkingTraceLane {
   key: string
   label: string
   hitCount: number
-  sources: Array<{ name: string; detail?: string }>
+  sources: Array<{ name: string; title?: string; detail?: string; shelf?: Shelf }>
   /**
    * Canonical coarse source kind (ADR-0026), as classified by the backend.
    * Optional: lanes persisted before the `## Trace-Lanes` block carried it have

@@ -43,7 +43,14 @@ run. A green `task fe:types` is what tells you the build will typecheck.
 
 **`task db:test:rls` is a required merge check and is not part of `task
 verify`.** It needs PostgreSQL server binaries, so it runs separately. Run it
-whenever you touch the tenant boundary.
+whenever you touch the tenant boundary — and whenever you touch a claim that is
+really about SQL. The script (`scripts/rls-test-db.sh`) runs a fixed list of
+`*.integration.spec.ts` files, not a glob: tenant isolation, the two BIM query
+suites, and the memory service's "one fact, one live row" consolidation suite.
+A new database-backed spec has to be added to that list, or it only ever runs
+on a developer's machine. Each of those files also carries a
+`GRID_RLS_SUITE_REQUIRED` guard so the CI job fails if the database goes
+missing instead of skipping green.
 
 **Backend tests need `PYTHONPATH=src`.** Without it pytest resolves `aiq_agent`
 from whatever the venv has installed, possibly another worktree, and validates
@@ -73,6 +80,36 @@ only exists on a PR.
 The single required status check is **CI OK**
 ([`ci.yml`](../../.github/workflows/ci.yml)), which passes only when every
 needed job succeeded or was skipped by the path filter.
+
+## The live turn-shape eval
+
+ADR-0052 deleted the intent router, so two things that used to be code are now
+the shallow researcher's reading of its own prompt: a greeting or a question
+about the assistant answers without calling a search tool, and a commissioned
+report („erstelle mir einen vollständigen Prüfbericht …") escalates to deep
+research before it retrieves anything.
+[`tests/benchmarks/test_turn_shapes_live.py`](../../tests/benchmarks/test_turn_shapes_live.py)
+pins both, plus a control question that must still search. It runs the real
+agent on the real prompt against the shallow model through OpenRouter, with
+stub tools that record every call, so the assertion is on the trace rather
+than on the prose.
+
+It needs a model, so it is not in `task verify` and skips itself without
+`OPENROUTER_API_KEY` (the `live` marker in `pyproject.toml` names the class).
+Locally:
+
+```bash
+OPENROUTER_API_KEY=… task be:eval:turn-shapes
+```
+
+`GRID_DEFAULT_MODEL` moves the model under test, the same way it moves the
+config's boot floor. In CI,
+[`turn-shapes-live.yml`](../../.github/workflows/turn-shapes-live.yml) runs
+it weekly and on `workflow_dispatch`, never on a pull request, and fails
+rather than skips when the secret is missing. The assertions are strict: a
+transport failure gets one rerun, a behaviour miss does not. A red run means
+the prompt no longer holds the model on one of the two shapes; the ADR's
+"More Information" section says what to do about that.
 
 ## Security and static analysis
 

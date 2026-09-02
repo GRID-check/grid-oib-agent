@@ -874,8 +874,10 @@ with realistic fixtures for visual review; `/dev/document-grid` previews the
 backend-free `document_grid` surfacing card. Both are captured by the screenshot
 harness (`npm run screenshots`, see `docs/ux/visual-screenshots.md`).
 For a system card emitted by a tool (`document_grid`), that tool must be added to
-the agent's `tools:` list in the config (e.g. `shallow_research_agent`) and its
-`_type` registered — see `surface_documents` in `configs/config_oib_openrouter.yml`.
+the agent's `tools:` list in the config (both `shallow_research_agent` and
+`deep_research_agent` bind it) and its `_type` registered — see `surface_documents`
+in `configs/config_oib_openrouter.yml`; `tests/aiq_agent/test_config_tool_wiring.py`
+is the gate.
 If the new card is one the MODEL may emit and its contents must be **copied
 from a tool result** rather than written from the answer, add its type to
 `MODEL_BACKED_CARD_TYPES` as well, and say in a prompt when to emit it — a
@@ -889,11 +891,23 @@ instead. Next phases: a 3D massing card
 
 - The post-hoc generation path (`cards/generate.py` / `cards/prompt.py`) is
   deliberately kept next to the `emit_card` tool: async deep-research jobs use
-  it (`jobs/runner.py::_generate_grid_cards`) because the conversation-scoped
-  `CardRegistry` behind `emit_card` does not exist inside a Dask worker.
+  it (`jobs/runner.py::_generate_grid_cards`) for the cards derived from the
+  finished report. The job runner ALSO binds a fresh `CardRegistry` around the
+  run (`_bound_card_registry`), so `emit_card` and `surface_documents` called
+  by a researcher worker during the run deliver — a deep answer can show a
+  `document_grid` card. `_merge_job_cards` puts the emitted cards FIRST, in
+  emission order, then the post-hoc ones: `[[card:N]]` resolves positionally,
+  and only the emitted cards were ever addressed by a marker.
+- Which subagent holds the tools: everything in the deep agent's `tools:` list
+  goes to the RESEARCHER workers (`factory.py::build_deep_research_tool_set`);
+  the writer holds helper and skill tools only, and the orchestrator the
+  research batch tool. So an emitted card is a researcher's, and its marker
+  never reaches the report the writer produces — the card lands after the
+  report, which is where an unaddressed card goes anyway.
 - Async deep-research answers carry cards (generated post-hoc from the final
   report in the job runner); synchronous inline deep research (no Dask) does
-  not yet.
+  not run the post-hoc pass yet, though it inherits the chat turn's registry
+  and so does deliver emitted cards.
 - **An async deep-research answer therefore carries no model card**, because
   post-hoc generation is not shown the IFC types (above) and the deep
   researcher's own prompts have no `<cards>` block at all — it holds `emit_card`

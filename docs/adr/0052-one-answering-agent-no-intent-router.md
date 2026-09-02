@@ -119,9 +119,10 @@ shallow_research ─(envelope.escalate_to_deep?)─▶ clarifier ─▶ deep_res
   escalates before retrieving" are now the model's judgment, pinned by the
   prompt and not by code. A weaker model will get one of them wrong sooner
   than the partition would have.
-- Bad, because deep research is reachable only through escalation. A config
-  with `enable_escalation: false` has no deep research at all; every shipped
-  config sets it true.
+- Bad, because deep research is reachable only through escalation. The
+  `enable_escalation` switch that used to turn it off is gone with the router:
+  a graph whose only road to deep research can be closed by a flag is a graph
+  with a hidden dead end, so the flag was deleted rather than defaulted.
 - Neutral, because the Herleitung loses its "Warum dieser Weg?" line: there is
   no upfront decision to attribute. The escalation line, with the model's own
   reason, replaces it on the turns where a decision was actually made.
@@ -137,12 +138,17 @@ The shape of the graph and the binding are tests, not comments:
 - `tests/aiq_agent/common/test_turn_status.py`: the live status vocabulary
   carries no `routing.*` keys.
 
-What is **not** enforced yet: "a greeting does not search" and "a commissioned
-report escalates first" are prompt-pinned model behaviour with no automated
-eval behind them. Review of the prompt is the only gate today. They belong in
-`evals/` next, as two cases the suite fails on: a greeting whose trace shows a
-data-source call, and a report request whose trace shows a retrieval before the
-escalation.
+The two prompt-pinned behaviours, "a greeting does not search" and "a
+commissioned report escalates first", are model judgment and cannot be tested
+against a fake LLM. They are pinned by
+`tests/benchmarks/test_turn_shapes_live.py`: the real agent on the real prompt
+against the shallow model through OpenRouter, with stub tools that record the
+trace. It fails on a greeting whose trace shows a data-source call, on a report
+request whose trace shows a retrieval before the escalation, and on a control
+Baurecht question that does not retrieve. It runs weekly and on demand
+(`.github/workflows/turn-shapes-live.yml`, `task be:eval:turn-shapes`), never
+on a pull request, so a PR still passes on the prompt review alone; the eval is
+the drift signal, not the merge gate.
 
 ## Pros and Cons of the Options
 
@@ -174,9 +180,9 @@ escalation.
 
 ## More Information
 
-- Revisit if the prompt-pinned behaviours drift: a measured rate of greetings
-  that search, or of report requests that retrieve first, that the eval suite
-  cannot hold down by prompt alone. The answer then is a cheap deterministic
+- Revisit if the prompt-pinned behaviours drift: a red weekly turn-shape eval
+  (greetings that search, report requests that retrieve first) that a prompt
+  edit alone cannot hold down. The answer then is a cheap deterministic
   pre-check on the *envelope* (a post-answer gate), not a pre-answer router.
 - Revisit if the per-turn token floor becomes a cost line: ADR-0048 (deferred
   tool schemas) is the mechanism, applied per tool, not per turn class.

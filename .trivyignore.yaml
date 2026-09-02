@@ -394,7 +394,57 @@ vulnerabilities:
       such a decision. This is "no reachable path found", not "the library is
       unreachable" — it is on the request path, behind the edge permission gate.
 
-      Drop as soon as a Langfuse image ships fast-uri >= 3.1.5.
+      Drop as soon as a Langfuse image ships fast-uri >= 3.1.6, which also
+      clears the four entries that follow.
+
+  # Four more fast-uri 3.1.4 advisories, published 2026-09-02 (the develop
+  # scan at 16:21Z that day was green; the one at 21:06Z was not, with no
+  # image change between them). Same package, same image, same ajv call
+  # path as CVE-2026-18446 above, and the same honest limit: ajv validates
+  # request bodies and schemas in Langfuse, it does not decide where a
+  # request goes, so the SSRF and host-confusion outcomes these describe
+  # need a URI-to-destination step this deployment does not have. The fix
+  # for all four is fast-uri 3.1.6; the pinned digest ships 3.1.4 and, per
+  # the block comment above, so did every published tag when the pin was
+  # last re-verified. Boxed to the same date so the whole fast-uri question
+  # is re-argued in one pass.
+
+  - id: CVE-2026-75899
+    expired_at: 2026-10-09
+    statement: |
+      fast-uri 3.1.4 — server-side request forgery via repeated hostname
+      percent-decoding. Bundled inside ghcr.io/langfuse/langfuse as ajv's
+      URI parser. Not exploitable here: no caller-supplied URI parsed by ajv
+      becomes an outbound fetch target in Langfuse; see CVE-2026-18446 above.
+
+      Drop as soon as a Langfuse image ships fast-uri >= 3.1.6.
+
+  - id: CVE-2026-75931
+    expired_at: 2026-10-09
+    statement: |
+      fast-uri 3.1.4 — host confusion via skipped IDN canonicalization. Same
+      image, same call path and same limit as CVE-2026-18446 above: the
+      parsed authority is not used for an allowlist or routing decision.
+
+      Drop as soon as a Langfuse image ships fast-uri >= 3.1.6.
+
+  - id: CVE-2026-75975
+    expired_at: 2026-10-09
+    statement: |
+      fast-uri 3.1.4 — server-side request forgery via malformed IPv6
+      normalization. Same image, same call path and same limit as
+      CVE-2026-18446 above.
+
+      Drop as soon as a Langfuse image ships fast-uri >= 3.1.6.
+
+  - id: CVE-2026-76172
+    expired_at: 2026-10-09
+    statement: |
+      fast-uri 3.1.4 — URI parsing flaw enabling server-side request forgery
+      and redirects. Same image, same call path and same limit as
+      CVE-2026-18446 above.
+
+      Drop as soon as a Langfuse image ships fast-uri >= 3.1.6.
 
   - id: GHSA-5p4m-2wfm-xmqj
     expired_at: 2026-10-09

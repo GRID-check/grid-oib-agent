@@ -320,7 +320,6 @@ class ChatResearcherAgent:
         | None,
         *,
         enable_clarifier: bool = True,
-        enable_escalation: bool = True,
         callbacks: list[BaseCallbackHandler] | None = None,
         max_history_tokens: int = 8000,
         deep_research_job_submitter: Callable[[Any], Awaitable[str]] | None = None,
@@ -335,7 +334,6 @@ class ChatResearcherAgent:
             deep_research_fn: Function for deep research
             clarifier_fn: Function for clarification
             enable_clarifier: Whether to enable clarification
-            enable_escalation: Whether to escalate shallow to deep on low confidence
             callbacks: Optional list of callback handlers
             max_history_tokens: Maximum number of tokens of history to keep
             deep_research_job_submitter: Optional function to submit deep research as async job
@@ -348,7 +346,6 @@ class ChatResearcherAgent:
         self.deep_research_fn = deep_research_fn
         self.clarifier_fn = clarifier_fn
         self.enable_clarifier = enable_clarifier
-        self.enable_escalation = enable_escalation
         self.callbacks = callbacks or []
         self.max_history_tokens = max_history_tokens
         self.deep_research_job_submitter = deep_research_job_submitter
@@ -368,8 +365,6 @@ class ChatResearcherAgent:
         answer, or escalation disabled) yields ``None`` so the field stays
         absent. Mirrors ``should_escalate``'s branches.
         """
-        if not self.enable_escalation:
-            return None
         if state.shallow_result is not None and state.shallow_result.escalate_to_deep:
             return state.shallow_result.escalation_reason
         return None
@@ -805,9 +800,6 @@ class ChatResearcherAgent:
                 return update
 
         def should_escalate(state: ChatResearcherState) -> str:
-            if not self.enable_escalation:
-                return "END"
-
             # The user rejected a research plan in this conversation. Escalating
             # would route straight back into the clarifier and put a THIRD plan
             # in front of them — and on the rejection turn itself it would be a

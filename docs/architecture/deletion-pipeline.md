@@ -46,7 +46,7 @@ New table `deletion_queue` — simultaneously tombstone, work queue, and survivi
 
 Rationale for a central table (vs per-table columns only): organizations have **no DB row** in grid_app (ADR-0007 — they live in WorkOS), so there is nothing to put a `deleted_at` column on. The queue also gives one audit trail and one poller for all entity types.
 
-Entities that do have rows additionally get a `deleted_at timestamptz` column (`projects`, `documents`, `conversations`) used **only** for query filtering — the reaper never scans entity tables.
+Entities that do have rows additionally get a `deleted_at timestamptz` column (`projects`, `conversations`) used **only** for query filtering — the reaper never scans entity tables. `documents` had one too (migration 0009) but never soft-deleted — every document delete is a hard DELETE — and migration 0077 dropped the column, because a filter over a column nothing writes hides rows the day something does.
 
 ### Legal holds (grid_app Postgres)
 
@@ -60,7 +60,7 @@ API: `POST /api/holds` and `POST /api/holds/[id]/release` (org owner + internal 
 
 ### Query filtering
 
-All list/get queries for projects, documents, and conversations gain `WHERE deleted_at IS NULL`, via a small shared helper (e.g. `notDeleted(table)`) so the filter cannot be forgotten. Soft-deleted projects 404 on their routes. Documents and conversations inside a soft-deleted project are hidden transitively via the project check.
+All list/get queries for projects and conversations gain `WHERE deleted_at IS NULL`, via a small shared helper (e.g. `notDeleted(table)`) so the filter cannot be forgotten. Soft-deleted projects 404 on their routes. Documents and conversations inside a soft-deleted project are hidden transitively via the project check; documents themselves are hard-deleted and carry no such filter (0077).
 
 ### Per-entity policy
 
@@ -140,6 +140,8 @@ Content deletion (their messages' *text*, files they uploaded) stays with the ow
 
 Python-side steps (Chroma collection + summaries, `aiq_jobs` rows, LangGraph checkpoints) are performed by the backend's internal `POST /v1/maintenance/purge-project-resources` endpoint, guarded by `GRID_INTERNAL_API_TOKEN`; the purger calls it as its first step. WorkOS calls use the same `@workos-inc/node` SDK and API key the UI uses.
 
+Beside it, `POST /v1/maintenance/reconcile-summaries` (same guard) forgets summary rows — the agent's document inventory — whose file holds no chunks in the vector store, the rows a per-document delete orphaned before `delete_file` learned to forget both together. Body: `{ collections?: string[], dry_run?: boolean }`; answer: `{ status, dry_run, collections_scanned, orphans_found, orphans_forgotten, forgotten: [{ collection, file_name }], failures: [{ collection, error }] }`. It fails per collection, treats a file that is tracked in any status or still in flight as held, and refuses (503) rather than guesses when the vector store cannot be listed. The BFF's orphaned-vector sweep (`lib/platform/vector-reconcile.ts`, Platform → Vector maintenance) calls it as its second half over the collections it just chunk-reconciled, so the OIB corpus is never in scope from there. The same sweep runs on a clock: `POST /api/internal/maintenance/reconcile-vectors` (token-guarded `internalApiRoute`, cross-tenant by declaration) is called by the `vector-reconcile` CronJob in `deploy/pulumi/src/app/workers.ts` — the `storage-alerts` shape, weekly on Sunday 03:00 UTC by default (`vectorReconcileSchedule`, `vectorReconcileEnabled`; rows in `deploy/pulumi/README.md`). The manual run on the page and the scheduled one are the same function, so the page stays the place to run it now and read the counts. Compose has no scheduler for either sweep; an operator there points `cron` at the internal route.
+
 ### API surface (Next.js BFF)
 
 - `DELETE /api/projects/[id]` — reworked: permission check → set `projects.deleted_at` → insert `deletion_queue` row. No hard deletes, no WorkOS call here.
@@ -158,7 +160,7 @@ Python-side steps (Chroma collection + summaries, `aiq_jobs` rows, LangGraph che
 ### Migrations (grid_app)
 
 1. `deletion_queue` table.
-2. `deleted_at` on `projects`, `documents`, `conversations`.
+2. `deleted_at` on `projects`, `documents`, `conversations` (the `documents` one was never written and is dropped again by 0077).
 3. `conversations.project_id` FK: `ON DELETE SET NULL` → `ON DELETE CASCADE` (belt-and-braces behind the purger's explicit delete).
 4. `documents.folder_id` → `project_folders.id`: add `ON DELETE CASCADE` (currently no action; multi-path cascade from project delete is fragile without it).
 

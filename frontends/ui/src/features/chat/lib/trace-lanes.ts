@@ -22,8 +22,8 @@
 
 import type { SourceSignal } from '@/features/layout/lib/source-presets'
 import type { ThinkingStep } from '../types'
-import type { SourceKind } from './source-kinds'
-import { KIND_TO_SIGNAL, asSourceKind, kindForLane } from './source-kinds'
+import type { Shelf, SourceKind } from './source-kinds'
+import { KIND_TO_SIGNAL, asShelf, asSourceKind, kindForLane } from './source-kinds'
 
 /** One document/source hit inside a lane (wire / storage intermediate). */
 export interface TraceSourceHit {
@@ -36,6 +36,12 @@ export interface TraceSourceHit {
    */
   title?: string
   detail?: string
+  /**
+   * The shelf the hit was read from, as the backend stated it (ADR-0047). It
+   * lets the Herleitung colour a document the answer did not cite; a source
+   * only ever reached from the fan-out has no citation payload to carry it.
+   */
+  shelf?: Shelf
 }
 
 /** Lane bucket on the wire (`## Trace-Lanes`) and in storage prune. */
@@ -62,7 +68,7 @@ interface TraceLanesPayload {
     /** Coarse source kind from `source_kinds.kind_for_lane` (ADR-0026). */
     kind?: string
     hitCount?: number
-    sources?: Array<{ name?: string; title?: string; detail?: string }>
+    sources?: Array<{ name?: string; title?: string; detail?: string; shelf?: string }>
   }>
 }
 
@@ -187,7 +193,8 @@ export const parseTraceLanesBlock = (payload: string): TraceLaneCard[] | null =>
             if (!name) return null
             const detail = (s.detail || '').trim() || undefined
             const title = (s.title || '').trim() || undefined
-            return { name, title, detail }
+            const shelf = asShelf(s.shelf)
+            return { name, title, detail, shelf }
           })
           .filter((s): s is TraceSourceHit => s != null)
         const hitCount =

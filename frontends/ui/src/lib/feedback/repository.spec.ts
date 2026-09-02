@@ -111,7 +111,7 @@ describe('listFeedbackTurns', () => {
   }
 
   const capture = () => {
-    const execute = vi.fn().mockResolvedValue({ rows: [] })
+    const execute = vi.fn().mockResolvedValue([])
     mockGetDb.mockReturnValue({ execute } as never)
     return execute
   }
@@ -146,8 +146,7 @@ describe('listFeedbackTurns', () => {
   })
 
   it('coerces the raw row — `sql` results are not runtime-validated', async () => {
-    const execute = vi.fn().mockResolvedValue({
-      rows: [
+    const execute = vi.fn().mockResolvedValue([
         {
           id: 'fb_1',
           organization_id: 'org_1',
@@ -164,8 +163,7 @@ describe('listFeedbackTurns', () => {
           // that predates the current keys. The UI has no label for it.
           topics: ['brandschutz', 'not_a_real_tag'],
         },
-      ],
-    })
+    ])
     mockGetDb.mockReturnValue({ execute } as never)
 
     const [row] = await listFeedbackTurns({})

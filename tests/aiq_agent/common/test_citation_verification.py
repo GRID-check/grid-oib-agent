@@ -1755,6 +1755,32 @@ class TestSourceLane:
         entry = SourceEntry(citation_key="einreichplan_rev04.pdf, p.1", source_type="knowledge_layer")
         assert source_lane(entry) == ("projekt", "Projektwissen")
 
+    def test_the_shelf_the_entry_carries_beats_the_default_class(self):
+        # Ingestion stamps ``sonstiges`` on an unclassified upload; on the
+        # user's own shelf that says nothing, so the stated shelf decides.
+        entry = SourceEntry(
+            citation_key="einreichplan_rev04.pdf, p.1",
+            source_type="knowledge_layer",
+            collection="x9",
+            doc_class="sonstiges",
+            shelf="project",
+        )
+        assert source_lane(entry) == ("projekt", "Projektwissen")
+
+    def test_the_stated_shelf_beats_the_default_class_and_an_opaque_collection(self):
+        # ``sonstiges`` is what ingestion stamps on an unclassified upload; on the
+        # user's own shelf it says nothing a person decided. The shelf travels on
+        # the entry (ADR-0047), so the resolver must not guess it back from a
+        # collection id that carries no prefix.
+        entry = SourceEntry(
+            citation_key="Plan.pdf, p.2",
+            source_type="knowledge_layer",
+            collection="c_9f2a",
+            doc_class="sonstiges",
+            shelf="project",
+        )
+        assert source_lane(entry) == ("projekt", "Projektwissen")
+
     def test_ris_url_without_registry_match_is_ris_lane(self):
         entry = SourceEntry(url="https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR99999999", source_type="generic")
         key, label = source_lane(entry)

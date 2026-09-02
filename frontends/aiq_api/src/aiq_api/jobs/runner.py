@@ -12,16 +12,21 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import importlib
 import json
 import logging
 import os
 import uuid
+from collections.abc import Iterator
 from typing import Any
 
 from starlette.datastructures import Headers
 
 from aiq_agent.cards.generate import CardGenerationResult
+from aiq_agent.cards.registry import CardRegistry
+from aiq_agent.cards.registry import reset_card_registry
+from aiq_agent.cards.registry import set_card_registry
 from aiq_agent.common.turn_status import DEGRADED_CARDS_GENERATION_FAILED
 from aiq_agent.project_context import ORGANIZATION_ID_HEADER
 from aiq_agent.project_context import PROJECT_ID_HEADER
@@ -1017,6 +1022,11 @@ async def run_agent_job(
                             identity=_usage.get("identity") or {},
                             budget=BudgetSnapshot.from_header(_usage.get("budget_header")) or BudgetSnapshot(),
                         ),
+                        # The card channel the chat turn binds, bound here for
+                        # the job: without it `emit_card` and `surface_documents`
+                        # answer "no card channel" and a deep answer never shows
+                        # a document card.
+                        _bound_card_registry() as card_registry,
                     ):
                         result = await _run_agent(
                             agent=agent,
@@ -1065,7 +1075,7 @@ async def run_agent_job(
                     # re-emit the report artifact with the cards attached.
                     # Best-effort and additive: card failures never fail the job.
                     cards_result = await _generate_grid_cards(llm, input_text, report)
-                    cards = cards_result.cards
+                    cards = _merge_job_cards(card_registry.snapshot(), cards_result.cards)
                     if cards:
                         # Card delivery is additive and must never flip an
                         # already-complete job to FAILURE — the report is done
@@ -1516,6 +1526,42 @@ def _get_agent_state_class(agent) -> type | None:
         pass
 
     return None
+
+
+@contextlib.contextmanager
+def _bound_card_registry() -> Iterator[CardRegistry]:
+    """Bind a fresh per-job ``CardRegistry`` for the agent run, and unbind it after.
+
+    The chat turn does the same around ``agent.run`` (``chat_researcher/register.py``),
+    with a conversation-scoped registry it clears per turn. A job has no
+    conversation of its own to key on and runs once, so a fresh registry is the
+    per-turn state here — the ``ContextVar`` rule in ``src/aiq_agent/AGENTS.md``.
+    Reset in ``finally`` so a failed run leaves nothing bound for the next job
+    this worker picks up.
+    """
+    registry = CardRegistry()
+    token = set_card_registry(registry)
+    try:
+        yield registry
+    finally:
+        reset_card_registry(token)
+
+
+def _merge_job_cards(emitted: list[dict[str, Any]], generated: list[Any] | None) -> list[Any] | None:
+    """The job's cards: what the agent emitted during the run, then what was generated from its report.
+
+    EMITTED FIRST, and this is the ordering contract rather than a preference.
+    ``emit_card`` hands the model ``[[card:N]]`` with N = the registry's count
+    at emission, and the frontend resolves that marker positionally against the
+    ordered ``cards`` array. Keeping the emitted cards at the front, in emission
+    order, is what keeps every N the model wrote pointing at the card it meant.
+    The post-hoc cards were derived from the finished report and are named by
+    no marker, so appending them costs nothing — putting them first would shift
+    every emitted index by their count. ``None`` when there is nothing at all,
+    matching ``_build_job_output``'s absent-not-empty rule.
+    """
+    merged = [*emitted, *(generated or [])]
+    return merged or None
 
 
 async def _generate_grid_cards(llm: Any, query: str, report: str) -> CardGenerationResult:

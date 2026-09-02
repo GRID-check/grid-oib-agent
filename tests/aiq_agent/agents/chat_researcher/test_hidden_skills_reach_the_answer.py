@@ -44,7 +44,6 @@ def _agent(shallow_fn, deep_fn=None):
         shallow_research_fn=shallow_fn,
         deep_research_fn=deep_fn or (lambda state: None),
         clarifier_fn=None,
-        enable_escalation=True,
         enable_clarifier=False,
     )
 

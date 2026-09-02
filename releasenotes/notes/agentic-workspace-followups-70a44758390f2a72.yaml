@@ -1,0 +1,25 @@
+---
+fixes:
+  - >
+    Das Projektgedächtnis erkannte sinngleiche Erkenntnisse in der Produktion
+    nicht als Duplikate: die Ähnlichkeitsprüfung las das Datenbankergebnis in
+    einer Form, die der eingesetzte Treiber nicht liefert, und fand deshalb
+    nie einen Treffer. Eine Umformulierung wird jetzt auch dort mit dem
+    bestehenden Eintrag zusammengeführt.
+improvements:
+  - >
+    Findet der Dokument-Viewer die zitierte Stelle weder auf der genannten
+    Seite noch auf den Nachbarseiten, sucht er jetzt noch eine Seite weiter in
+    beide Richtungen. Titelblatt und Inhaltsverzeichnis verschieben die eigene
+    Seitenzählung eines Dokuments oft um zwei Blätter.
+  - >
+    Wurde die Einschätzung einer Antwort nachträglich begrenzt, ist die
+    Begründung des Assistenten im Tooltip jetzt als die Begründung vor der
+    Begrenzung ausgewiesen, statt unter der gezeigten Stufe zu stehen.
+  - >
+    In der Herleitung tragen jetzt auch Dokumente, die gelesen und nicht
+    zitiert wurden, Etikett und Farbe ihres Bereichs (Projekt, Büroarchiv,
+    Sitzung).
+  - >
+    Die Rechtstexte nennen bei den internen Funktionen keine Intent-Erkennung
+    mehr; sie existiert seit der letzten Version nicht mehr.

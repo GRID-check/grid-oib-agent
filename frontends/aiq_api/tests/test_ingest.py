@@ -410,3 +410,39 @@ def test_public_resolution_allows_allowlisted_private_host(monkeypatch):
     must not apply to them (the in-network store resolves private)."""
     monkeypatch.setenv("SEAWEED_PUBLIC_ENDPOINT", "http://seaweedfs.test")
     _assert_public_host_resolution("http://seaweedfs.test:8333/bucket/key")
+
+
+@pytest.mark.asyncio
+async def test_ingest_carries_document_id_into_job_config(app, mock_ingestor):
+    """The pipeline stores extracted rasters under the document's prefix by
+    asking the BFF for a slot per image; that call needs the document id, so
+    it travels in the job config. A caller without one (the corpus sync) gets
+    no key, and the pipeline keeps the captions only."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient.get") as mock_get:
+            mock_response = MagicMock(spec=httpx.Response)
+            mock_response.status_code = 200
+            mock_response.content = b"%PDF-1.4"
+            mock_response.headers = {"content-type": "application/pdf"}
+            mock_response.raise_for_status = MagicMock()
+            mock_get.return_value = mock_response
+
+            with_id = await client.post(
+                "/v1/ingest",
+                json={
+                    "file_ref": "http://seaweedfs.test/bucket/plan.pdf",
+                    "collection": "proj_1",
+                    "document_id": "4f9c1d2e-3b4a-4c5d-8e6f-7a8b9c0d1e2f",
+                },
+            )
+            assert with_id.status_code == 202
+            assert mock_ingestor.submit_job.call_args[1]["config"]["document_id"] == (
+                "4f9c1d2e-3b4a-4c5d-8e6f-7a8b9c0d1e2f"
+            )
+
+            without_id = await client.post(
+                "/v1/ingest",
+                json={"file_ref": "http://seaweedfs.test/bucket/plan.pdf", "collection": "oib"},
+            )
+            assert without_id.status_code == 202
+            assert "document_id" not in mock_ingestor.submit_job.call_args[1]["config"]

@@ -197,7 +197,6 @@ class TestSubjectSurvivesTheGraphHandoff:
             shallow_research_fn=shallow,
             deep_research_fn=unused,
             clarifier_fn=unused,
-            enable_escalation=False,
         )
 
         await agent.run(

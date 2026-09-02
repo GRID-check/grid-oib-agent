@@ -15,7 +15,7 @@
  */
 
 import 'server-only'
-import { and, eq, isNull, ne, sql } from 'drizzle-orm'
+import { and, eq, ne, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withPlatformAccess } from '@/lib/db/tenant-context'
 import { documents, DOCUMENT_SCOPES, type DocumentScope, type NewDocument } from '@/lib/db/schema'
@@ -61,7 +61,7 @@ export async function aggregateStorageUsage(
       documents: sql<string>`count(*)::bigint`,
     })
     .from(documents)
-    .where(and(eq(documents.organizationId, organizationId), isNull(documents.deletedAt)))
+    .where(eq(documents.organizationId, organizationId))
     .groupBy(documents.scope)
 
   const usage = Object.fromEntries(
@@ -102,7 +102,7 @@ export async function sumStorageBytes(organizationId: string): Promise<number> {
   const [row] = await db
     .select({ bytes: sql<string>`coalesce(sum(${documents.fileSize}), 0)::bigint` })
     .from(documents)
-    .where(and(eq(documents.organizationId, organizationId), isNull(documents.deletedAt)))
+    .where(eq(documents.organizationId, organizationId))
 
   return Number(row?.bytes) || 0
 }
@@ -134,7 +134,6 @@ export async function aggregateStorageUsageByOrganization(): Promise<
           documents: sql<string>`count(*)::bigint`,
         })
         .from(documents)
-        .where(isNull(documents.deletedAt))
         .groupBy(documents.organizationId),
   )
 
@@ -227,11 +226,7 @@ export async function replaceDocumentWithinQuota(
         .select({ bytes: sql<string>`coalesce(sum(${documents.fileSize}), 0)::bigint` })
         .from(documents)
         .where(
-          and(
-            eq(documents.organizationId, organizationId),
-            isNull(documents.deletedAt),
-            ne(documents.id, documentId),
-          ),
+          and(eq(documents.organizationId, organizationId), ne(documents.id, documentId)),
         )
 
       const usedBytes = Number(row?.bytes) || 0
@@ -279,9 +274,7 @@ export async function insertDocumentWithinQuota(
       const [row] = await tx
         .select({ bytes: sql<string>`coalesce(sum(${documents.fileSize}), 0)::bigint` })
         .from(documents)
-        .where(
-          and(eq(documents.organizationId, values.organizationId), isNull(documents.deletedAt)),
-        )
+        .where(eq(documents.organizationId, values.organizationId))
 
       const usedBytes = Number(row?.bytes) || 0
       if (usedBytes + incoming > quotaBytes) {

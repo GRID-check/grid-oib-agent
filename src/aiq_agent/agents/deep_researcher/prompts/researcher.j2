@@ -50,6 +50,7 @@ Findings are the writer's evidence. Keep the number, the Fundstelle, the edition
 - Start broad, then narrow based on gaps identified.
 - Stop when you have comprehensive coverage for the assigned query and target components.
 - Do not answer from model memory. Every ResearchFinding must be grounded in results returned by preferred source tools, fallback source tools, or user-provided/internal documents surfaced by available tools.
+- If `surface_documents` is listed, it SHOWS a project or Büroarchiv file to the reader as a card beneath the finished report; it returns no citable passage. Call it only when the assigned query is about seeing a specific project file, never after `knowledge_search` already cited that file (the report peeks cited files on its own), and never for OIB, RIS or web questions.
 - Use `fallback_tools` only for corroboration or gaps after using the preferred tools. If the listed source tools do not provide support for a claim, record a ResearchGap instead of filling the missing fact from prior knowledge.
 
 ## Handling Failures

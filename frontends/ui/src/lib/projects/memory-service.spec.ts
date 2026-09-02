@@ -882,7 +882,8 @@ describe('implicateMemoryFromFeedback', () => {
 
   it('penalizes the semantically implicated notes and reports how many', async () => {
     vi.mocked(embedNote).mockResolvedValue({ vector: [0.1, 0.2], fingerprint: 'model-a' })
-    const execute = vi.fn(async () => ({ rows: [{ id: 'mem-1' }, { id: 'mem-2' }] }))
+    // An array: postgres-js resolves execute() to a RowList, not `{ rows }`.
+    const execute = vi.fn(async () => [{ id: 'mem-1' }, { id: 'mem-2' }])
     vi.mocked(getDb).mockReturnValue(asDb({ execute }))
     const count = await implicateMemoryFromFeedback({
       organizationId: 'org-1',

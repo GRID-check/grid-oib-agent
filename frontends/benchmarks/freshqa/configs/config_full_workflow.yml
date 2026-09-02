@@ -79,7 +79,6 @@ functions:
 
 workflow:
   _type: chat_deepresearcher_agent
-  enable_escalation: true
   verbose: true
   tools:
     - web_search_tool

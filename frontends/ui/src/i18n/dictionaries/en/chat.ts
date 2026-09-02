@@ -1128,6 +1128,9 @@ export const chat = {
     },
     // Label introducing the model's own one-clause justification (verbatim).
     reasonLabel: "Assistant's reason",
+    // The same label when the level was capped afterwards: the reason describes
+    // the level BEFORE the cap, not the one shown.
+    reasonLabelBeforeCap: "Assistant's reason before the cap",
     // Extra sentence appended to the tooltip explaining WHY the confidence was
     // capped, keyed by `answer_confidence_capped_reason` (WP-A, PB-9).
     cappedReasons: {

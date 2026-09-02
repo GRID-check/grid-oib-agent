@@ -556,6 +556,11 @@ EMBED_EXCLUDED_METADATA_KEYS = (
     "image_format",
     "image_width",
     "image_height",
+    # Where the stored raster lives (image_store.py): an object key and an
+    # ordinal, addressing for the view tool and not a word of what the image
+    # shows.
+    "image_key",
+    "stored_image_index",
     "drawing_type",
     "drawing_scale",
     # The v2 structured payload: multi-KB JSON for the detail view / later
@@ -3443,6 +3448,23 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             extract_charts=extract_charts,
                         )
 
+                        # Keep the rasters the VLM just captioned, beside the
+                        # document, so `view_knowledge_image` can show one at
+                        # its own resolution rather than as a page render.
+                        # Only a document the BFF dispatched has an id and a
+                        # prefix to store under; the corpus sync has neither
+                        # and keeps captions only. Fail-open inside.
+                        document_id = config.get("document_id")
+                        if document_id and image_results:
+                            from knowledge_layer.llamaindex import image_store as _image_store
+
+                            _image_store.store_extracted_images(
+                                image_results,
+                                document_id=str(document_id),
+                                collection=collection_name,
+                                organization_id=organization_id,
+                            )
+
                         # Build image/chart/drawing documents. An embedded raster
                         # now goes through the SAME analysis as a rendered page,
                         # so a scanned plan placed inside a PDF is indexed per
@@ -3475,6 +3497,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                                         "image_format": record["format"],
                                         "image_width": record["width"],
                                         "image_height": record["height"],
+                                        # Present only when the raster was stored.
+                                        **{
+                                            key: record[key]
+                                            for key in ("image_key", "stored_image_index")
+                                            if key in record
+                                        },
                                     },
                                 )
                             )

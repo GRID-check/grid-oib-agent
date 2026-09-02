@@ -89,20 +89,8 @@ class TestChatResearcherAgent:
             clarifier_fn=mock_clarifier,
         )
 
-        assert agent.enable_escalation is True
         assert agent.callbacks == []
         assert agent.graph is not None
-
-    def test_init_with_escalation_disabled(self, mock_shallow_research, mock_deep_research, mock_clarifier):
-        """Test ChatResearcherAgent initialization with escalation disabled."""
-        agent = ChatResearcherAgent(
-            shallow_research_fn=mock_shallow_research,
-            deep_research_fn=mock_deep_research,
-            clarifier_fn=mock_clarifier,
-            enable_escalation=False,
-        )
-
-        assert agent.enable_escalation is False
 
     def test_init_with_callbacks(self, mock_shallow_research, mock_deep_research, mock_clarifier):
         """Test ChatResearcherAgent initialization with callbacks."""
@@ -176,7 +164,6 @@ class TestChatResearcherAgent:
             shallow_research_fn=mock_shallow_research,
             deep_research_fn=mock_deep_research,
             clarifier_fn=mock_clarifier,
-            enable_escalation=False,
         )
 
         state = ChatResearcherState(messages=[HumanMessage(content="What is CUDA?")])
@@ -475,7 +462,6 @@ class TestRoutingBoundary:
             shallow_research_fn=shallow_answering("Here's a quick answer with sources."),
             deep_research_fn=deep,
             clarifier_fn=clarifier,
-            enable_escalation=False,
         )
         state = ChatResearcherState(messages=[HumanMessage(content="Was regelt die OIB-Richtlinie 2?")])
         result = await agent.run(state, thread_id="t")
@@ -505,24 +491,6 @@ class TestRoutingBoundary:
         assert calls["clarifier"] is True, "an escalation must pass through the clarifier"
         assert calls["deep"] is True
         assert result["routing_decision"] == "deep"
-
-    @pytest.mark.asyncio
-    async def test_escalation_disabled_keeps_an_escalating_answer_shallow(self, trackers):
-        """``enable_escalation=False`` is the one switch left: the marker is
-        stripped and the partial answer stands."""
-        calls, shallow_answering, deep, clarifier = trackers
-
-        agent = ChatResearcherAgent(
-            shallow_research_fn=shallow_answering("Teilantwort.", escalating=True),
-            deep_research_fn=deep,
-            clarifier_fn=clarifier,
-            enable_escalation=False,
-        )
-        result = await agent.run(ChatResearcherState(messages=[HumanMessage(content="Frage?")]), thread_id="t")
-
-        assert calls["clarifier"] is False
-        assert calls["deep"] is False
-        assert result["messages"][-1].content == "Teilantwort."
 
 
 class TestAppendContextMessage:

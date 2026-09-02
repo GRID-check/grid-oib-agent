@@ -338,7 +338,7 @@ export const platform = {
     // retrieval disagrees with the catalog — so the answer lives here.
     howTitle: 'What reconciling does',
     howBody:
-      'Deleting a document is two steps: drop its indexed chunks from the vector store, then drop its row from the catalog. When the first step is skipped or fails, the row disappears but the chunks stay behind — invisible everywhere in the app, yet still eligible to be retrieved and cited. Reconciling walks every collection, compares it against the catalog, and deletes the chunks no document owns any more.',
+      'Deleting a document is two steps: drop its indexed chunks from the vector store, then drop its row from the catalog. When the first step is skipped or fails, the row disappears but the chunks stay behind — invisible everywhere in the app, yet still eligible to be retrieved and cited. Reconciling walks every collection, compares it against the catalog, and deletes the chunks no document owns any more. It then forgets the opposite leftover: an entry in the assistant’s document inventory whose file has no chunks left, so the assistant stops listing a file it cannot read.',
     whenTitle: 'When you need it',
     whenBody:
       'Run it when an answer cites a document nobody can find, when a deleted file keeps reappearing as a source, or after a bulk delete that reported errors. Repeating it is harmless: on a healthy store it finds nothing and deletes nothing.',
@@ -366,6 +366,8 @@ export const platform = {
     measureFoundHint: 'Indexed files with no owning document row.',
     measureDeleted: 'Chunks removed',
     measureDeletedHint: 'Chunks the vector store confirmed it deleted.',
+    measureSummaries: 'Inventory entries forgotten',
+    measureSummariesHint: 'Files the assistant still listed although nothing of them was left to read.',
     outcomeRemoved: 'Removed {chunks} orphaned chunk(s) across {collections} collection(s).',
     outcomeClean: 'Nothing to clean up — every indexed chunk still has its document.',
     failuresTitle: '{count} collection(s) could not be reconciled',

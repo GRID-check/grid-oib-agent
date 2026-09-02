@@ -1108,8 +1108,11 @@ def _trace_lanes_json(
         for chunk in chunks:
             metadata = chunk.metadata or {}
             collection = metadata.get("collection")
+            shelf = metadata.get("shelf")
             doc_class = _hit_doc_class(chunk, resolved)
-            key, label = lane_for_knowledge_hit(doc_class=doc_class, file_name=chunk.file_name, collection=collection)
+            key, label = lane_for_knowledge_hit(
+                doc_class=doc_class, file_name=chunk.file_name, collection=collection, shelf=shelf
+            )
             bucket = lanes.get(key)
             if bucket is None:
                 bucket = {
@@ -1133,6 +1136,8 @@ def _trace_lanes_json(
                     entry["title"] = title
                 if detail:
                     entry["detail"] = detail
+                if isinstance(shelf, str) and shelf:
+                    entry["shelf"] = shelf
                 bucket["sources"].append(entry)
         return json.dumps({"lanes": list(lanes.values())}, ensure_ascii=False)
     except Exception:
@@ -1281,6 +1286,13 @@ def _format_results(retrieval_result, query: str) -> str:
             lines.append(f"Punkt: {punkt_id}")
         lines.append(f"Citation: {citation}")
         lines.append(f"Content Type: {chunk.content_type.value}")
+        # A raster the ingest pipeline stored beside the document (image_store.py).
+        # Present only when the chunk carries the key: the model reads the index
+        # off this line and passes it to `view_knowledge_image`, which then shows
+        # the embedded image itself rather than a render of the page around it.
+        stored_image_index = (chunk.metadata or {}).get("stored_image_index")
+        if (chunk.metadata or {}).get("image_key") and stored_image_index is not None:
+            lines.append(f"Image: stored (view_knowledge_image image_index={stored_image_index})")
         lines.append(f"Relevance Score: {chunk.score:.2f}")
         lines.append("")
 

@@ -796,6 +796,7 @@ functions:
       - remember
       - emit_card
       - describe_card
+      - surface_documents
       - ifc_query
       - ifc_measure
     verbose: true
@@ -812,7 +813,6 @@ functions:
 workflow:
   _type: chat_deepresearcher_agent
   verbose: true
-  enable_escalation: true
   enable_clarifier: true
   use_async_deep_research: true
   checkpoint_db: ${AIQ_CHECKPOINT_DB:-./checkpoints.db}

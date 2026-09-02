@@ -2,11 +2,12 @@
  * Erasing what one stored document left in the object store.
  *
  * A document is never one object. The ingest pipeline writes `_thumb.jpg` as a
- * sibling of the file, and the IFC pipeline writes its digest and index under a
- * `_bim/` prefix beneath it. Both are rendered FROM the file — a floor plan and
- * a parsed building are not less of a disclosure than the source — so an
- * erasure that removes the file and leaves either behind has not erased the
- * document.
+ * sibling of the file and the rasters it extracted from a PDF under an `_img/`
+ * prefix beneath it, and the IFC pipeline writes its digest and index under a
+ * `_bim/` prefix. All are rendered FROM the file — a floor plan, a photo cut
+ * out of a plan set and a parsed building are not less of a disclosure than
+ * the source — so an erasure that removes the file and leaves any behind has
+ * not erased the document.
  *
  * Shared by every shelf. The session cleanup (`session-documents/cleanup.ts`)
  * was where this first became a reported result rather than a swallowed error,
@@ -16,8 +17,8 @@
  */
 
 import 'server-only'
-import { DeleteObjectCommand } from '@aws-sdk/client-s3'
-import { s3Client, buildThumbnailStorageKey } from '@/lib/s3'
+import { DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3'
+import { s3Client, buildImageDerivedPrefix, buildThumbnailStorageKey } from '@/lib/s3'
 import { resolveDocumentBucket } from '@/lib/storage/bucket'
 import { deleteBimDerivedObjects } from '@/lib/bim/service'
 import type { Document } from '@/lib/db/schema'
@@ -72,6 +73,30 @@ async function attemptObjectDelete(what: string, run: () => Promise<unknown>): P
 
 type StoredObjectRef = Pick<Document, 'storageKey' | 'storageBucket'>
 
+/**
+ * Delete every object under a prefix, paged to exhaustion.
+ *
+ * The number of stored rasters is only known by listing, so the sweep lists.
+ * Paged for the same reason the BIM sweep is (`lib/bim/service.ts`): a single
+ * `ListObjectsV2` answers at most a page, and stopping there would leave the
+ * rest in the bucket after the tenant was told the document is gone. A delete
+ * that fails here throws, so the caller reports it rather than the row
+ * disappearing over objects that stayed.
+ */
+async function deleteObjectsUnderPrefix(bucket: string, prefix: string): Promise<void> {
+  let continuationToken: string | undefined
+  do {
+    const listed = await s3Client.send(
+      new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: continuationToken }),
+    )
+    for (const object of listed.Contents ?? []) {
+      if (!object.Key) continue
+      await s3Client.send(new DeleteObjectCommand({ Bucket: bucket, Key: object.Key }))
+    }
+    continuationToken = listed.IsTruncated ? listed.NextContinuationToken : undefined
+  } while (continuationToken)
+}
+
 function resolveBucket(doc: StoredObjectRef): { bucket: string } | { failure: ExternalCleanupResult } {
   try {
     return { bucket: resolveDocumentBucket(doc.storageBucket) }
@@ -81,8 +106,9 @@ function resolveBucket(doc: StoredObjectRef): { bucket: string } | { failure: Ex
 }
 
 /**
- * Remove what the pipelines derived from a document — the `_thumb.jpg` sibling
- * and the `_bim/` derivatives — and leave the file itself in place.
+ * Remove what the pipelines derived from a document — the `_thumb.jpg` sibling,
+ * the `_img/` rasters and the `_bim/` derivatives — and leave the file itself
+ * in place.
  *
  * The replace path's half of the erasure. A re-upload under the same name
  * keeps the id, so the new bytes usually land on the old key, and the file
@@ -105,6 +131,14 @@ export async function deleteDerivedObjects(doc: StoredObjectRef): Promise<Extern
     if (!thumb.ok) return thumb
   }
 
+  const imagePrefix = buildImageDerivedPrefix(storageKey)
+  if (imagePrefix) {
+    const images = await attemptObjectDelete(`stored rasters under ${imagePrefix}`, () =>
+      deleteObjectsUnderPrefix(resolved.bucket, imagePrefix),
+    )
+    if (!images.ok) return images
+  }
+
   return attemptObjectDelete(`bim derivatives of ${storageKey}`, () =>
     deleteBimDerivedObjects(storageKey, doc.storageBucket),
   )
@@ -112,8 +146,8 @@ export async function deleteDerivedObjects(doc: StoredObjectRef): Promise<Extern
 
 /**
  * Remove one stored document's objects: the file, the ingest pipeline's
- * `_thumb.jpg` sibling, and the `_bim/` derivatives an IFC extraction wrote
- * underneath it.
+ * `_thumb.jpg` sibling and `_img/` rasters, and the `_bim/` derivatives an IFC
+ * extraction wrote underneath it.
  *
  * **Reports whether the bytes are actually gone.** It used to swallow every
  * S3 failure, and the callers then deleted the row regardless — which is the
@@ -125,10 +159,10 @@ export async function deleteDerivedObjects(doc: StoredObjectRef): Promise<Extern
  * {@link isAlreadyGone}) — that is the outcome we wanted, and it is what makes
  * a retry able to finish.
  *
- * All three parts count. The thumbnail and the `_bim/` derivatives are rendered
- * FROM the private file — a floor plan and a parsed building are not less of a
- * disclosure than the source — so a failure on either is a failure of the
- * erasure, not a cosmetic remainder.
+ * Every part counts. The thumbnail, the rasters and the `_bim/` derivatives are
+ * rendered FROM the private file — a floor plan and a parsed building are not
+ * less of a disclosure than the source — so a failure on any is a failure of
+ * the erasure, not a cosmetic remainder.
  */
 export async function deleteDocumentObjects(doc: StoredObjectRef): Promise<ExternalCleanupResult> {
   const storageKey = doc.storageKey
