@@ -14,7 +14,14 @@ vi.mock('@/lib/projects/memory-service', () => ({
   resolveProjectOrganization: vi.fn(),
 }))
 
+vi.mock('@/lib/projects/proposal-decisions', () => ({
+  buildProposalDecisionsBlock: vi.fn(async () => null),
+  composeMemoryContext: (digest: string | null, decisions: string | null) =>
+    [digest, decisions].filter(Boolean).join('\n\n') || null,
+}))
+
 import { buildProjectMemoryDigest, resolveProjectOrganization } from '@/lib/projects/memory-service'
+import { buildProposalDecisionsBlock } from '@/lib/projects/proposal-decisions'
 import { GET } from './route'
 
 const DEV_DEFAULT_TOKEN = 'grid-internal-dev-token'
@@ -150,5 +157,22 @@ describe('GET /api/internal/memory/digest', () => {
 
       expect(resolveProjectOrganization).not.toHaveBeenCalled()
     })
+  })
+})
+
+describe('the decisions the project made about earlier proposals', () => {
+  it('ride the digest, after the memory', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(resolveProjectOrganization).mockResolvedValue(ORG_ID)
+    vi.mocked(buildProjectMemoryDigest).mockResolvedValue('PROJECT_MEMORY v1\n- [decision | high | user_confirmed] "x"')
+    vi.mocked(buildProposalDecisionsBlock).mockResolvedValueOnce('PROPOSAL_DECISIONS v1\n- [abgelehnt | Profil | 2026-09-01] "y"')
+
+    const response = await GET(makeRequest(`?projectId=${PROJECT_ID}`, REAL_TOKEN))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      digest: 'PROJECT_MEMORY v1\n- [decision | high | user_confirmed] "x"\n\nPROPOSAL_DECISIONS v1\n- [abgelehnt | Profil | 2026-09-01] "y"',
+    })
+    expect(buildProposalDecisionsBlock).toHaveBeenCalledWith(PROJECT_ID, ORG_ID)
   })
 })

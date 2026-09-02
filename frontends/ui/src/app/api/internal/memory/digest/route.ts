@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { internalApiRoute, parseQuery } from '@/lib/api/handler'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { buildProjectMemoryDigest, resolveProjectOrganization } from '@/lib/projects/memory-service'
+import { buildProposalDecisionsBlock, composeMemoryContext } from '@/lib/projects/proposal-decisions'
 
 /**
  * INTERNAL service endpoint — the per-turn READ path for the agent's core
@@ -67,7 +68,13 @@ export const GET = internalApiRoute(
       // was. Optional on purpose — a caller that has no question (the WS
       // handshake) must still get a digest.
       const digest = await buildProjectMemoryDigest(projectId, tenant, { query })
-      return { digest }
+      // The decisions the project made about the agent's own proposals ride
+      // the same channel, so a declined patch is not proposed again. Best
+      // effort: a failure here must not cost the turn its memory.
+      const decisions = projectId
+        ? await buildProposalDecisionsBlock(projectId, tenant).catch(() => null)
+        : null
+      return { digest: composeMemoryContext(digest, decisions) }
     })
   },
   { tenancy: { fromPayload: '?organizationId, else resolved from the project row' } }
