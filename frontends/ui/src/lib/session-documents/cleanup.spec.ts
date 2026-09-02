@@ -18,7 +18,7 @@
  * ever remove.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { DeleteObjectCommand } from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3'
 
 vi.mock('server-only', () => ({}))
 
@@ -101,11 +101,20 @@ describe('deleteDocumentObjects', () => {
     const result = await deleteDocumentObjects(sessionDoc())
 
     expect(result).toEqual({ ok: true })
-    const keys = send.mock.calls.map((call) => (call[0] as DeleteObjectCommand).input.Key)
+    const commands = send.mock.calls.map(([command]) => command)
+    const keys = commands
+      .filter((command): command is DeleteObjectCommand => command instanceof DeleteObjectCommand)
+      .map((command) => command.input.Key)
     expect(keys).toEqual([
       `org/${ORG_ID}/session/${CONVERSATION_ID}/doc/doc-1/brandschutz.pdf`,
       `org/${ORG_ID}/session/${CONVERSATION_ID}/doc/doc-1/_thumb.jpg`,
     ])
+    // The rasters ingestion cut out of the PDF live under `_img/`; the sweep
+    // lists that prefix so none of them outlives the document.
+    const listed = commands.find(
+      (command): command is ListObjectsV2Command => command instanceof ListObjectsV2Command,
+    )
+    expect(listed?.input.Prefix).toBe(`org/${ORG_ID}/session/${CONVERSATION_ID}/doc/doc-1/_img/`)
     expect(deleteBimDerivedObjects).toHaveBeenCalled()
   })
 
