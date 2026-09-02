@@ -730,6 +730,12 @@ def _resolve_doc_classes(chunks) -> dict[tuple[str, str], str]:
     try:
         from aiq_agent.knowledge.factory import get_document_doc_classes
     except Exception:
+        # Fail-open, but never silent: with the store unreachable every hit
+        # falls back to its chunk metadata, and that fallback looks exactly
+        # like a correct answer from the outside.
+        logger.warning(
+            "document metadata store unavailable; %s falls back to chunk metadata", "doc_class", exc_info=True
+        )
         return resolved
 
     # Group the distinct documents by collection so each collection needs a
@@ -754,6 +760,12 @@ def _resolve_doc_classes(chunks) -> dict[tuple[str, str], str]:
         try:
             stored_map = get_document_doc_classes(collection, file_names)
         except Exception:
+            logger.warning(
+                "document metadata store read failed for collection %s; %s falls back to chunk metadata",
+                collection,
+                "doc_class",
+                exc_info=True,
+            )
             stored_map = {}
         for file_name, stored in stored_map.items():
             if stored:
@@ -790,6 +802,12 @@ def _resolve_display_titles(chunks) -> dict[tuple[str, str], str]:
     try:
         from aiq_agent.knowledge.factory import get_document_display_titles
     except Exception:
+        # Fail-open, but never silent: with the store unreachable every hit
+        # falls back to its chunk metadata, and that fallback looks exactly
+        # like a correct answer from the outside.
+        logger.warning(
+            "document metadata store unavailable; %s falls back to chunk metadata", "display_title", exc_info=True
+        )
         return resolved
 
     by_collection: dict[str, list[str]] = {}
@@ -809,6 +827,12 @@ def _resolve_display_titles(chunks) -> dict[tuple[str, str], str]:
         try:
             stored_map = get_document_display_titles(collection, file_names)
         except Exception:
+            logger.warning(
+                "document metadata store read failed for collection %s; %s falls back to chunk metadata",
+                collection,
+                "display_title",
+                exc_info=True,
+            )
             stored_map = {}
         for file_name, stored in stored_map.items():
             if stored:
@@ -857,6 +881,12 @@ def _resolve_folder_paths(chunks) -> dict[tuple[str, str], str]:
     try:
         from aiq_agent.knowledge.factory import get_document_folder_paths
     except Exception:
+        # Fail-open, but never silent: with the store unreachable every hit
+        # falls back to its chunk metadata, and that fallback looks exactly
+        # like a correct answer from the outside.
+        logger.warning(
+            "document metadata store unavailable; %s falls back to chunk metadata", "folder_path", exc_info=True
+        )
         return resolved
 
     by_collection: dict[str, list[str]] = {}
@@ -876,6 +906,12 @@ def _resolve_folder_paths(chunks) -> dict[tuple[str, str], str]:
         try:
             stored_map = get_document_folder_paths(collection, file_names)
         except Exception:
+            logger.warning(
+                "document metadata store read failed for collection %s; %s falls back to chunk metadata",
+                collection,
+                "folder_path",
+                exc_info=True,
+            )
             stored_map = {}
         for file_name, stored in stored_map.items():
             if stored:

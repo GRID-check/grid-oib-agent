@@ -637,6 +637,16 @@ class TestGuessDisplayTitle:
     def test_edition_year_is_not_mistaken_for_the_number(self):
         assert nr.guess_display_title("oib-rl_6_ausgabe_mai_2023.pdf") == "OIB-Richtlinie 6, Ausgabe Mai 2023"
 
+    def test_an_edition_other_than_the_shipped_one_is_read_not_assumed(self):
+        # The parser used to know exactly one edition, so the next OIB release
+        # would have been labelled "Mai 2023" or refused outright.
+        assert nr.guess_display_title("oib-rl_2_ausgabe_maerz_2019.pdf") == "OIB-Richtlinie 2, Ausgabe März 2019"
+        assert nr.guess_display_title("oib-rl_4_ausgabe_april_2027.pdf") == "OIB-Richtlinie 4, Ausgabe April 2027"
+        assert nr.guess_display_title("oib-rl_4_ausgabe_2015.pdf") == "OIB-Richtlinie 4, Ausgabe 2015"
+        assert nr.guess_display_title("oib-rl_2_leitfaden_ausgabe_oktober_2027_rev.2.pdf") == (
+            "OIB-Richtlinie 2 – Leitfaden, Ausgabe Oktober 2027, Rev. 2"
+        )
+
     def test_non_oib_returns_none(self):
         assert nr.guess_display_title("Brandschutzkonzept_v3.pdf") is None
         assert nr.guess_display_title("") is None
