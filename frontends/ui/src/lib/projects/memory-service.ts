@@ -260,6 +260,24 @@ async function resolveSupersedeTarget(
 
   const normalized = normalizeContent(supersedesContent)
   if (!normalized) return null
+  // An exact quote resolves against the WHOLE scope, through the same
+  // normalisation the 0010 unique index is built on, so a correction of a
+  // note older than the fuzzy window below still lands on it.
+  const [exactInScope] = await db
+    .select()
+    .from(projectMemory)
+    .where(
+      and(
+        memoryOwnerCondition(values),
+        eq(projectMemory.status, 'active'),
+        sql`btrim(regexp_replace(lower(${projectMemory.content}), '[^a-z0-9]+', ' ', 'g')) = ${normalized}`
+      )
+    )
+    .orderBy(desc(projectMemory.updatedAt))
+    .limit(1)
+  // Re-checked in JS: the row is what the index expression says it is, and
+  // the two normalisations are kept in lock-step by exactly this comparison.
+  if (exactInScope && normalizeContent(exactInScope.content) === normalized) return exactInScope
   const exact = candidates.find((candidate) => normalizeContent(candidate.content) === normalized)
   if (exact) return exact
 
@@ -742,7 +760,15 @@ export async function buildProjectMemoryDigest(
     })
     .from(projectMemory)
     .where(scope)
-    .orderBy(desc(projectMemory.updatedAt))
+    // The window is the whole quality mechanism's ceiling: everything below
+    // (dedup, decay, hybrid fusion) runs over these rows only. Recency was the
+    // only order it had, so past two hundred notes a relevant old one could
+    // not be recalled at all. With a query, the database ranks by similarity
+    // first and recency breaks ties; without one, recency is still the order.
+    .orderBy(
+      ...(embedded ? [sql`${relevanceColumn} desc nulls last`] : []),
+      desc(projectMemory.updatedAt)
+    )
     .limit(RECALL_CANDIDATE_LIMIT)
 
   if (rows.length === 0) return null
