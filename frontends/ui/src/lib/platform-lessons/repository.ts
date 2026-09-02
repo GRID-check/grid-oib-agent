@@ -29,6 +29,7 @@ import {
 } from '@/lib/db/schema'
 import { normalizeContentGerman } from '@/lib/knowledge/consolidation'
 import { toVectorLiteral } from '@/lib/knowledge/embeddings'
+import { executeRows } from '@/lib/db/execute-rows'
 
 /** Hard ceilings on every dashboard list. */
 export const LESSON_LIST_LIMIT = 200
@@ -92,7 +93,7 @@ export async function listUnprocessedDownvotes(limit: number): Promise<Unprocess
     limit ${limit}
   `)
 
-  const rows = (result as { rows?: Record<string, unknown>[] })?.rows ?? []
+  const rows = executeRows(result)
   return rows.map((row) => ({
     feedbackId: String(row.feedback_id),
     organizationId: String(row.organization_id),
@@ -206,7 +207,7 @@ export async function listSemanticLessonCandidates(
     order by similarity desc
     limit ${limit}
   `)
-  const rows = (result as { rows?: Record<string, unknown>[] })?.rows ?? []
+  const rows = executeRows(result)
   // Raw rows are snake_case; map the columns the matcher actually reads.
   return rows.map(
     (row) =>
@@ -689,7 +690,7 @@ export async function flagIneffectiveActiveLessons(
       group by l.id
       having count(r.id) >= ${minRecurrences}
     `)
-    const raw = (result as { rows?: Record<string, unknown>[] })?.rows ?? []
+    const raw = executeRows(result)
     const rows = raw.map((row) => ({
       id: String(row.id),
       recurrences: Number(row.recurrences),
@@ -749,7 +750,7 @@ export async function retireQuietAddressedLessons(
             and r.created_at > a.addressed_at
         )
     `)
-    const raw = (result as { rows?: Record<string, unknown>[] })?.rows ?? []
+    const raw = executeRows(result)
     const ids = raw.map((row) => String(row.id))
     if (ids.length === 0) return []
     const now = new Date()

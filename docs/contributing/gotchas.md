@@ -35,6 +35,7 @@ string you are seeing.
 | A composite foreign key silently permits a bad row | Composite FKs are MATCH SIMPLE, so the check is skipped when **any** column of the key is NULL | Add a CHECK asserting the columns are populated together. `documents_folder_requires_project` is the worked example. MATCH FULL is the reflex fix and is wrong |
 | Cached project context comes back belonging to another tenant | `getCached` returns before the loader runs, so a key without the organization serves whatever the first caller populated, never entering the tenant scope | Put the organization in the cache key. `lib/project-profile/prompt-view.ts` is the pattern |
 | A tenant-scoped query returns rows it should not | The `WHERE organization_id` was lost, widened by a join, or written as a raw fragment | Row-level security is the backstop, not the plan. Check the table joined the boundary via `grid_secure_table` |
+| A raw `db.execute(sql\`…\`)` query returns nothing, every mocked test passes, and in production a semantic or deduplication gate never matches | The code read `result.rows`. drizzle over postgres-js resolves `execute()` to a RowList, which is an **array**; `{ rows }` is the node-postgres shape the docs show, and `?? []` turned the `undefined` into "no rows" | Read through `executeRows()` from `lib/db/execute-rows.ts`, which throws on the object shape so a wrong stub fails instead of passing. Stub `execute` with an array. The memory service, platform lessons and feedback all had it |
 
 ## On a phone
 
