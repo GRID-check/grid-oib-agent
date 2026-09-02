@@ -16,7 +16,7 @@
  * `base_url` and `api_key` alone, so that an override can never re-point traffic
  * at another provider. A migration runs on every deployment regardless of which
  * `BACKEND_CONFIG` that deployment loaded, and the repo ships configs pointing at
- * Kimi (`config_grid_oib.yml`) and NVIDIA (`config_web_default_llamaindex.yml`)
+ * Kimi (`config_web_kimi.yml`) and NVIDIA (`config_web_default_llamaindex.yml`)
  * as well as OpenRouter. Seeding an OpenRouter id there sends an unknown model
  * to that provider on every request — and the admin UI cannot repair it, because
  * its save path only accepts ids the OpenRouter catalog knows.

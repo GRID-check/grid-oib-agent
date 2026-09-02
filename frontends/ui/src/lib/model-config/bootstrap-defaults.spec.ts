@@ -92,7 +92,7 @@ describe('groupsEligibleForBootstrap', () => {
   })
 
   it('refuses every group on a deployment pointed at another provider', () => {
-    // config_grid_oib.yml (Kimi) and config_web_default_llamaindex.yml (NVIDIA)
+    // config_web_kimi.yml (Kimi) and config_web_default_llamaindex.yml (NVIDIA)
     // are shipped, supported BACKEND_CONFIG values. Seeding an OpenRouter id
     // into either sends an unknown model to that provider on every request.
     expect(groupsEligibleForBootstrap(allOn('https://api.kimi.com/coding/v1'))).toEqual([])

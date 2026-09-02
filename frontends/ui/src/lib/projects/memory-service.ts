@@ -444,12 +444,18 @@ export async function createProjectMemoryItem(
       : null)
 
   let supersedeTarget: ProjectMemoryItem | null = null
+  let conflictsWithId: string | null = null
   if (candidate) {
     if (isAgentSupersedable(candidate)) {
       supersedeTarget = candidate
     } else {
       // Both stay active and the user resolves it in the memory panel — the
       // new finding is still recorded, it just doesn't retire a human's entry.
+      // Recorded ON THE ROW, not only in this log line: the contradiction is a
+      // fact about the project (two live notes disagree, and a person's wins
+      // until a person says otherwise), and a panel can only show a conflict
+      // the database remembers.
+      conflictsWithId = candidate.id
       console.warn(
         `[memory] Not superseding human-curated item ${candidate.id} (pinned/user-confirmed/user-authored)`
       )
@@ -466,7 +472,9 @@ export async function createProjectMemoryItem(
     : values
   const insertValues: NewProjectMemoryItem = supersedeTarget
     ? { ...withVector, supersedesId: supersedeTarget.id }
-    : withVector
+    : conflictsWithId
+      ? { ...withVector, conflictsWithId }
+      : withVector
 
   try {
     if (!supersedeTarget) {
@@ -836,10 +844,14 @@ export async function buildProjectMemoryDigest(
   const kept = [...keptPinned, ...keptRecalled]
   const omitted = candidates.length - kept.length
 
-  // Recall is the reinforcement event: what was surfaced decays more slowly
-  // next time. Fire-and-forget — a bookkeeping write must never delay a turn,
-  // and losing one is a slightly colder score, not a wrong answer.
-  void markMemoryRecalled(kept.map((item) => item.id))
+  // Recall FOR A QUESTION is the reinforcement event: what was surfaced against
+  // a query decays more slowly next time. The query-less handshake build
+  // (opening a chat, typing nothing) used to reinforce exactly as hard, and
+  // under it the selection is pinned-then-recent — so recency reinforced
+  // recency and whatever was already winning compounded. Fire-and-forget — a
+  // bookkeeping write must never delay a turn, and losing one is a slightly
+  // colder score, not a wrong answer.
+  if (queryText) void markMemoryRecalled(kept.map((item) => item.id))
 
   return formatDigestLines(kept, omitted)
 }

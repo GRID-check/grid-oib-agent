@@ -167,6 +167,8 @@ means not raised again without new evidence.
 
 ### 3.4 Maintain — keep it small and fresh
 - `last_referenced_at` + salience decay → low-value items sink out of the digest.
+- Reinforcement (`recall_count`, `last_referenced_at`) fires only on a build ranked against a question; the query-less handshake build reinforces nothing, so recency cannot reinforce recency.
+- A finding that contradicts a pinned, user-confirmed or user-written note is inserted beside it with `conflicts_with_id` naming that note (migration 0076); a person resolves the pair in the panel.
 - Superseded/dismissed items are archived (kept for provenance, excluded from serve).
 - Periodic re-summarization collapses many small related items into one.
 

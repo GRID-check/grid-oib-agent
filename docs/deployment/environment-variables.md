@@ -19,7 +19,7 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `KIMI_API_KEY` | Yes | — | Kimi (Moonshot AI) OpenAI-compatible API key for LLM inference. Used by `config_grid_oib.yml` for all LLM models (intent, reasoning, deep research, summaries). |
+| `KIMI_API_KEY` | Yes | — | Kimi (Moonshot AI) OpenAI-compatible API key for LLM inference. Used by the Kimi config (`config_web_kimi.yml`) for all LLM models. |
 | `OPENROUTER_API_KEY` | Yes* | — | OpenRouter API key. Powers embeddings, the VLM, and the BFF-invoked LLM routes. Because the bespoke LLM call sites now resolve credentials through the shared resolver with **provider inference** (see note below), setting this alone is enough whenever the corresponding base URL points at `openrouter.ai`. |
 | `GRID_DEFAULT_MODEL` | No | `openai/gpt-5.6-luna` | Boot-floor model id for every `llms:` entry in `configs/config_oib_openrouter.yml`. It applies only where neither a platform default (Platform → Models, `platform_model_defaults`) nor an org override exists. **On a deployment the BFF has bootstrapped, that is nothing for the eight `llms:` entries an agent group covers — this variable no longer moves those.** It DOES still fully control `summary_llm` and `rerank_llm`, which have no agent group and therefore always resolve to the config file. **Moving the fleet to a new model is a save in the admin UI, not a change to this variable.** See `docs/architecture/org-model-configuration.md`. |
 | `NVIDIA_API_KEY` | Yes* | — | NVIDIA API key for NIM inference models, and the historical fallback env for embeddings/VLM (the LlamaIndex `NVIDIAEmbedding` class reads this name). With OpenRouter base URLs, provider inference now picks up `OPENROUTER_API_KEY` natively, so aliasing `NVIDIA_API_KEY=${OPENROUTER_API_KEY}` is only a belt-and-suspenders back-compat. A real NVIDIA NGC key is required only for actual NVIDIA endpoints. |
@@ -102,7 +102,7 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `BACKEND_CONFIG` | Yes | `/app/configs/config_grid_oib.yml` | Path to the NAT workflow YAML config file inside the container. The compose stack mounts `configs/` at `/app/configs`. |
+| `BACKEND_CONFIG` | Yes | `/app/configs/config_oib_openrouter.yml` | Path to the NAT workflow YAML config file inside the container. The compose stack mounts `configs/` at `/app/configs`. |
 | `AIQ_CHROMA_DIR` | No | `/tmp/chroma_data` | Directory for ChromaDB persistence. In Docker: `/app/data/chroma_data`. Ignored once `AIQ_CHROMA_URL`/`AIQ_CHROMA_HOST` selects a shared server. |
 | `AIQ_CHROMA_URL` | No | (unset — embedded client) | Full URL of a **shared** Chroma server (e.g. `http://chroma:8000`). Setting this (or `AIQ_CHROMA_HOST`) makes every backend replica and research worker talk to ONE Chroma over HTTP instead of each opening its own embedded `PersistentClient` on local disk — which is what otherwise pins the vector store to a single pod. A scheme-less value (`chroma:8000`) is accepted; `https://` implies TLS. Unset keeps today's embedded behaviour, so local dev and single-node are untouched. |
 | `AIQ_CHROMA_HOST` | No | (unset — embedded client) | Host of a shared Chroma server, as an alternative to `AIQ_CHROMA_URL`. |

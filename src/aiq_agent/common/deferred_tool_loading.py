@@ -425,7 +425,7 @@ class DeferredToolLoadingSettings(BaseModel):
 
     Absent from a workflow YAML this validates to ``enabled=False`` and every
     binding path below is byte-identical to the one the agent has always taken.
-    The Chat-Completions deployments (``config_grid_oib.yml`` against
+    Plain Chat-Completions deployments (``config_web_kimi.yml`` against
     ``api.kimi.com``) have no such capability and must never be handed this.
     """
 

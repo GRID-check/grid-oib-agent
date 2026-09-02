@@ -352,19 +352,15 @@ Cards (`SummaryCard`, `LegalBasisCard`, `ProjectProfilePatchCard`) are defined i
 `src/aiq_agent/cards/models.py` (discriminated union, `validate_cards`); the
 frontend renders them in `frontends/ui/src/features/grid-cards/`.
 
-### How generation works (post-fix)
+### How generation works
 
-Card generation is a **second LLM call** (`ChatResearcherAgent._generate_cards`,
-`agent.py`) run in `run()` after the graph produces an answer, using the
-`card_generator_llm` (config: `card_llm`). Post-fix behaviour:
-
-- Cards are generated whenever a turn produced a real answer (`query` + `context`).
-  The old code hard-gated on `intent == "research"` and was inconsistent between
-  its two return-shape branches; this was unified.
-- Generation is **skipped when the turn only dispatched an async deep-research
-  job** (the "answer" is just the job-submitted stub — nothing to card).
-- The result rides `ChatResponse.cards` → monkeypatch → `message.cards` → the
-  frontend `validateGridCards` → `GridCards.tsx`.
+On the sync chat path the answering agent emits cards itself, mid-turn,
+through the `emit_card` tool (`aiq_agent.cards.register`): each card is
+validated against the shared schema and pushed into the conversation-scoped
+`CardRegistry`, which the chat entrypoint reads after the turn. There is no
+separate card-generation LLM call on that path, and no `card_generator_llm`
+config key any more. The result rides `ChatResponse.cards` → `message.cards`
+→ the frontend `validateGridCards` → `GridCards.tsx`.
 
 ### Deep-research cards (async path: closed; sync inline path: open)
 

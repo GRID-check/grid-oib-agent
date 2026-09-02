@@ -54,7 +54,7 @@ The Python backend service running NAT + FastAPI.
 | `AIQ_CHECKPOINT_DB` | `postgresql://aiq:aiq_dev@postgres:5432/aiq_checkpoints` |
 | `AIQ_SUMMARY_DB` | `postgresql+psycopg://aiq:aiq_dev@postgres:5432/aiq_jobs` |
 | `AIQ_CHROMA_DIR` | `/app/data/chroma_data` |
-| `CONFIG_FILE` | `/app/configs/config_grid_oib.yml` |
+| `CONFIG_FILE` | `/app/configs/config_oib_openrouter.yml` |
 | `HOST` | `0.0.0.0` |
 | `PORT` | `8000` |
 | `DASK_NWORKERS` | `1` |

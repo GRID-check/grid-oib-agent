@@ -710,10 +710,6 @@ class ChatDeepResearcherConfig(FunctionBaseConfig, name="chat_deepresearcher_age
         default="./checkpoints.db",
         description="SQLite database path or Postgres DSN for persistent checkpoints.",
     )
-    card_generator_llm: LLMRef | None = Field(
-        default=None,
-        description="Optional LLM to use for structured response card generation. Defaults to nemotron_super_llm.",
-    )
     memory_reflection_llm: LLMRef | None = Field(
         default=None,
         description=(
@@ -886,9 +882,9 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
 
     # Cards are emitted by the answering agent via the `emit_card` tool (see
     # aiq_agent.cards.register) and read from the conversation-scoped
-    # CardRegistry after the turn — no separate card-generation LLM call.
-    # card_generator_llm remains in the config schema for compatibility but is
-    # no longer used on the sync chat path.
+    # CardRegistry after the turn — no separate card-generation LLM call on
+    # the sync chat path. The job path derives them post-hoc from the report
+    # (`aiq_api.jobs.runner._generate_grid_cards`).
 
     # Get deep research tools for early validation
     deep_research_config = builder.get_function_config("deep_research_agent")

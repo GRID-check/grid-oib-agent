@@ -164,7 +164,7 @@ def test_the_namespace_description_is_the_only_tool_text_sent_up_front(provider,
 
 
 def test_a_chat_completions_deployment_keeps_the_full_binding(provider, llm):
-    # config_grid_oib.yml runs Chat Completions against api.kimi.com. Even with
+    # config_web_kimi.yml runs Chat Completions against api.kimi.com. Even with
     # the flag set, that deployment must fall back to sending schemas.
     llm.use_responses_api = False
     agent = ShallowResearcherAgent(

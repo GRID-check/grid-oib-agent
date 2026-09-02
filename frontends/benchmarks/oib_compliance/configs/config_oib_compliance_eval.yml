@@ -250,7 +250,6 @@ workflow:
   enable_escalation: true
   use_async_deep_research: false
   checkpoint_db: ${AIQ_EVAL_CHECKPOINT_DB:-./checkpoints_oib_compliance_eval.db}
-  card_generator_llm: card_llm
 
 eval:
   general:
