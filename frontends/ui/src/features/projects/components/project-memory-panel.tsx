@@ -2,13 +2,24 @@
 
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { AlertCircle, Brain, Check, Pencil, Pin, PinOff, Plus, Trash2 } from 'lucide-react'
+import {
+  AlertCircle,
+  Brain,
+  Check,
+  CircleAlert,
+  Pencil,
+  Pin,
+  PinOff,
+  Plus,
+  Trash2,
+} from 'lucide-react'
 import {
   PROJECT_MEMORY_KINDS,
   type ProjectMemoryItem,
   type ProjectMemoryKind,
 } from '@/lib/db/schema'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -250,6 +261,19 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
 
   const visible =
     items?.filter((it) => it.status !== 'superseded' && it.status !== 'dismissed') ?? []
+  /**
+   * What the conflict badge says on hover: the note this one contradicts, by
+   * its own words. An agent finding that disagreed with a pinned, confirmed or
+   * user-written note was not allowed to retire it (`conflictsWithId`), so the
+   * two stand side by side — and without this the pair reads as a duplicate
+   * nobody can explain.
+   */
+  const conflictTitle = (item: MemoryItem): string => {
+    const other = items?.find((it) => it.id === item.conflictsWithId)
+    return other
+      ? t('memory.conflict.title', { note: other.content })
+      : t('memory.conflict.titleUnknown')
+  }
   const groups = PROJECT_MEMORY_KINDS.map((kind) => ({
     kind,
     items: visible.filter((it) => it.kind === kind),
@@ -459,6 +483,17 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                             )}
                             <span className="min-w-0">{item.content}</span>
                           </p>
+                          {item.conflictsWithId && (
+                            <Badge
+                              variant="outline"
+                              className="text-muted-foreground mt-1.5"
+                              title={conflictTitle(item)}
+                              data-testid="memory-conflict"
+                            >
+                              <CircleAlert aria-hidden />
+                              {t('memory.conflict.badge')}
+                            </Badge>
+                          )}
                           <p className="text-muted-foreground mt-1 text-xs">
                             {item.scope === 'organization' && (
                               <>

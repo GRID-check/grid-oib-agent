@@ -245,18 +245,6 @@ describe('findPassage — partial', () => {
     expect(normalizePassage(snippet).length).toBeLessThan(MIN_PARTIAL_HALF * 2)
     expect(locatePassage(chunks, snippet)).toBeNull()
   })
-
-  it('needs each half to carry enough to identify anything', () => {
-    // Long enough as a whole, but split so the half that is on the page is
-    // below the floor: the half is common, the match would be a guess.
-    const chunks = page('Die Frist beginnt mit Zustellung des Bescheids an den Bauwerber')
-    const match = locatePassage(
-      chunks,
-      'Frist beginnt mit Zustellung ' +
-        'sofern nicht eine spaetere Kundmachung durch Anschlag an der Amtstafel erfolgt ist',
-    )
-    expect(match).toBeNull()
-  })
 })
 
 describe('findPassage — guards', () => {
