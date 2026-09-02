@@ -217,8 +217,12 @@ llms:
     temperature: 1.0
     top_p: 0.95
     max_tokens: 128000
-    max_retries: 2
-    request_timeout: 180
+    # The writer runs on this model and a long German report at this output
+    # size takes minutes to stream. A 180 s bound inside a 2400 s run budget
+    # ended exactly those runs with a generic provider error — and one retry
+    # of a ten-minute call is the most a run can afford before its own clock.
+    max_retries: 1
+    request_timeout: 600
     reasoning_effort: medium
 
   # Deep Researcher — Planning sub-agents.

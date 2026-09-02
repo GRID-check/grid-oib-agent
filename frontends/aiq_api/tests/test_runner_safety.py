@@ -211,6 +211,18 @@ class TestSanitizeJobError:
         assert message == "run exceeded the configured completion-token budget of 50000"
 
 
+class TestBudgetMessagesSurvive:
+    """The one failure a person can act on themselves must say so."""
+
+    def test_organization_budget_exhaustion_keeps_its_actionable_message(self) -> None:
+        from aiq_agent.common.cost_tracking import BudgetExceededError
+
+        message = sanitize_job_error(BudgetExceededError("organization"))
+
+        assert "budget is exhausted" in message
+        assert "raise limits" in message
+
+
 class TestResolveDeepResearchCheckpointer:
     """Async-job checkpointer seam (T3-8): restart-safe deep-research jobs.
 
