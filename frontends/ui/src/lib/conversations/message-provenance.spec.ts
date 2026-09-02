@@ -197,9 +197,9 @@ describe('why the run stopped, and what it cost', () => {
   it('keeps the degradations, de-duplicated', () => {
     expect(
       sanitizeProvenance({
-        degradedReasons: ['no_report_file', 'no_valid_citations', 'no_report_file'],
+        degradedReasons: ['no_report_file', 'no_valid_citations', 'cards_generation_failed', 'no_report_file'],
       })
-    ).toEqual({ degradedReasons: ['no_report_file', 'no_valid_citations'] })
+    ).toEqual({ degradedReasons: ['no_report_file', 'no_valid_citations', 'cards_generation_failed'] })
   })
 
   it('drops an unknown degradation without losing the ones beside it', () => {

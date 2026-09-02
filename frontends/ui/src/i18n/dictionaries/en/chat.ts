@@ -188,6 +188,8 @@ export const chat = {
       no_report_file: 'No research report was filed — this answer is the only record of the run',
       no_valid_citations:
         'No citation survived verification — please check the figures yourself before relying on them',
+      cards_generation_failed:
+        'The report is complete, but the proposals derived from it could not be produced',
     },
     // The verification's own reasons for dropping a citation, in the reader's
     // words. The backend states them as tokens (`url_not_in_registry`, …) and
@@ -940,6 +942,7 @@ export const chat = {
             'No research report was filed — the answer exists only here in the conversation.',
           noCitations:
             'No citation held up under checking. Please verify the figures yourself before using them.',
+          noCards: 'The report is complete, but the proposals derived from it could not be produced.',
         },
       },
       branchesTab: 'Next steps',

@@ -26,6 +26,8 @@ from aiq_api.jobs.runner import _build_job_output
 from aiq_api.jobs.runner import _create_agent_instance
 from aiq_api.jobs.runner import _extract_answer_transparency
 from aiq_api.jobs.runner import _extract_skills_activated
+from aiq_api.jobs.runner import _generate_grid_cards
+from aiq_api.jobs.runner import _mark_degraded
 from aiq_api.jobs.runner import _purge_deep_checkpoint
 from aiq_api.jobs.runner import _resolve_deep_research_checkpointer
 from aiq_api.jobs.runner import _update_status_if_not_terminal
@@ -428,6 +430,36 @@ class TestExtractSkillsActivated:
         assert _extract_skills_activated(SimpleNamespace(skills_activated=[])) is None
         assert _extract_skills_activated(SimpleNamespace(skills_activated="oib")) is None
         assert _extract_skills_activated(SimpleNamespace(skills_activated=[None, 3, "ok"])) == ["ok"]
+
+
+class TestCardFailureIsADegradedReason:
+    """A run whose proposals could not be derived says so, beside the agent's own reasons."""
+
+    def test_appends_after_the_agent_reasons_without_duplicating(self) -> None:
+        transparency: dict = {"degraded_reasons": ["no_valid_citations"]}
+
+        _mark_degraded(transparency, "cards_generation_failed")
+        _mark_degraded(transparency, "cards_generation_failed")
+
+        assert transparency["degraded_reasons"] == ["no_valid_citations", "cards_generation_failed"]
+
+    def test_creates_the_list_when_the_agent_recorded_none(self) -> None:
+        transparency: dict = {"research_truncated": True}
+
+        _mark_degraded(transparency, "cards_generation_failed")
+
+        assert transparency == {"research_truncated": True, "degraded_reasons": ["cards_generation_failed"]}
+
+    @pytest.mark.asyncio
+    async def test_generate_grid_cards_reports_a_lost_attempt(self) -> None:
+        with patch(
+            "aiq_agent.cards.generate.generate_cards_result",
+            AsyncMock(side_effect=RuntimeError("the worker has no card model")),
+        ):
+            result = await _generate_grid_cards(MagicMock(), "q", "report")
+
+        assert result.cards is None
+        assert result.failed is True
 
 
 class TestExtractAnswerTransparency:

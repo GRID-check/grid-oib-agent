@@ -294,9 +294,10 @@ export const deepResearchCutoff = (steps: TurnEventStep[]): DeepResearchCutoff |
  * `no_report_file` — the writer never persisted a report, so what shipped is a
  * chat message wearing a report's clothes. `no_valid_citations` — citation
  * verification found nothing it could stand behind, so nothing in the answer is
- * provably grounded.
+ * provably grounded. `cards_generation_failed` — the report is whole, but the
+ * proposals a job derives from it afterwards could not be produced.
  */
-export const ANSWER_DEGRADATIONS = ['no_report_file', 'no_valid_citations'] as const
+export const ANSWER_DEGRADATIONS = ['no_report_file', 'no_valid_citations', 'cards_generation_failed'] as const
 export type AnswerDegradation = (typeof ANSWER_DEGRADATIONS)[number]
 
 /**

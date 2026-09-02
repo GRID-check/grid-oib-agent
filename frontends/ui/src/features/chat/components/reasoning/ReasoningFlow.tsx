@@ -658,6 +658,17 @@ const MIN_REPORTED_MINUTES = 1
  * sentence pair, then what had been gathered by then — so the block stays
  * readable when a turn was both cut off and degraded.
  */
+/**
+ * Dictionary key per degradation, total over the closed set: a token added to
+ * `ANSWER_DEGRADATIONS` without a line here fails the typecheck, rather than
+ * rendering as whichever line a fallback branch happened to pick.
+ */
+const DEGRADATION_KEYS: Record<AnswerDegradation, string> = {
+  no_report_file: 'noReport',
+  no_valid_citations: 'noCitations',
+  cards_generation_failed: 'noCards',
+}
+
 function limitations(
   cutoff: DeepResearchCutoff | null,
   degradations: AnswerDegradation[],
@@ -693,8 +704,7 @@ function limitations(
   }
 
   for (const reason of degradations) {
-    const key = reason === 'no_report_file' ? 'noReport' : 'noCitations'
-    lines.push({ text: t(`${LIMIT}degraded.${key}`), warn: true })
+    lines.push({ text: t(`${LIMIT}degraded.${DEGRADATION_KEYS[reason]}`), warn: true })
   }
 
   return lines

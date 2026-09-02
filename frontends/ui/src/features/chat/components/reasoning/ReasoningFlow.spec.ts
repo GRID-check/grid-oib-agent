@@ -483,10 +483,11 @@ describe('a deep run that was cut off or degraded says so under the assessment',
   })
 
   test('a degraded answer is marked as one the reader should check', () => {
-    const g = build([degradedStep(['no_report_file', 'no_valid_citations'])])
+    const g = build([degradedStep(['no_report_file', 'no_valid_citations', 'cards_generation_failed'])])
     expect(limits(g)?.lines).toEqual([
       { text: 'thinking.node.limits.degraded.noReport', warn: true },
       { text: 'thinking.node.limits.degraded.noCitations', warn: true },
+      { text: 'thinking.node.limits.degraded.noCards', warn: true },
     ])
   })
 
@@ -526,7 +527,7 @@ describe('a deep run that was cut off or degraded says so under the assessment',
       [cutoffStep({ reason: 'wall_clock', salvaged: true, source_count: 1, elapsed_seconds: 62 })],
       [cutoffStep({ reason: 'step_limit', salvaged: false, source_count: 9, elapsed_seconds: 900 })],
       [cutoffStep({ reason: 'quota_exhausted', salvaged: false })],
-      [degradedStep(['no_report_file', 'no_valid_citations'])],
+      [degradedStep(['no_report_file', 'no_valid_citations', 'cards_generation_failed'])],
     ]
     for (const steps of shapes) {
       const block = limits(build(steps, translator))

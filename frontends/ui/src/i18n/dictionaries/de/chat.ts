@@ -178,6 +178,8 @@ export const chat: typeof en.chat = {
         'Kein Recherchebericht abgelegt — diese Antwort ist die einzige Aufzeichnung des Laufs',
       no_valid_citations:
         'Keine Quellenangabe hielt der Prüfung stand — bitte prüfen Sie die Angaben vor der Verwendung selbst',
+      cards_generation_failed:
+        'Der Bericht ist vollständig, aber die daraus abgeleiteten Vorschläge konnten nicht erzeugt werden',
     },
     // Die Gründe der Zitatprüfung, in der Sprache des Lesers. Das Backend nennt
     // sie als Token (`url_not_in_registry`, …), und genau so standen sie bisher
@@ -933,6 +935,8 @@ export const chat: typeof en.chat = {
             'Es wurde kein Recherchebericht abgelegt — die Antwort steht nur hier im Verlauf.',
           noCitations:
             'Keine Belegstelle hielt der Prüfung stand. Bitte schlagen Sie die Angaben vor der Verwendung selbst nach.',
+          noCards:
+            'Der Bericht ist vollständig, aber die daraus abgeleiteten Vorschläge konnten nicht erzeugt werden.',
         },
       },
       branchesTab: 'Folgewege',

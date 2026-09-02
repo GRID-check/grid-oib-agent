@@ -21,6 +21,8 @@ from typing import Any
 
 from starlette.datastructures import Headers
 
+from aiq_agent.cards.generate import CardGenerationResult
+from aiq_agent.common.turn_status import DEGRADED_CARDS_GENERATION_FAILED
 from aiq_agent.project_context import ORGANIZATION_ID_HEADER
 from aiq_agent.project_context import PROJECT_ID_HEADER
 from aiq_agent.project_context import PROJECT_MEMORY_HEADER
@@ -1051,7 +1053,8 @@ async def run_agent_job(
                     # Generate Grid response cards from the final report and
                     # re-emit the report artifact with the cards attached.
                     # Best-effort and additive: card failures never fail the job.
-                    cards = await _generate_grid_cards(llm, input_text, report)
+                    cards_result = await _generate_grid_cards(llm, input_text, report)
+                    cards = cards_result.cards
                     if cards:
                         # Card delivery is additive and must never flip an
                         # already-complete job to FAILURE — the report is done
@@ -1090,6 +1093,12 @@ async def run_agent_job(
                     transparency: dict[str, Any] = {}
                     try:
                         transparency = _extract_answer_transparency(result)
+                        # Post-hoc card generation is the runner's own step, so
+                        # its failure is recorded here rather than by the agent:
+                        # the report is whole, the proposals derived from it are
+                        # missing, and the reader is told which of the two it is.
+                        if cards_result.failed:
+                            _mark_degraded(transparency, DEGRADED_CARDS_GENERATION_FAILED)
                         if event_store is not None and (
                             transparency.get("research_truncated") or transparency.get("degraded_reasons")
                         ):
@@ -1492,22 +1501,38 @@ def _get_agent_state_class(agent) -> type | None:
     return None
 
 
-async def _generate_grid_cards(llm: Any, query: str, report: str) -> list[dict] | None:
+async def _generate_grid_cards(llm: Any, query: str, report: str) -> CardGenerationResult:
     """Generate Grid response cards from the final report.
 
-    Best-effort: logs and returns None on any failure so card generation
-    can never crash or fail the job.
+    Best-effort: never raises, so card generation can never crash or fail the
+    job. It does say when it LOST — ``failed`` on the result — because a run
+    whose card model timed out used to look exactly like a run whose report
+    warranted no proposals, and the reader had no way to ask for them again.
     """
     try:
-        from aiq_agent.cards import generate_cards
+        from aiq_agent.cards.generate import generate_cards_result
 
-        cards = await generate_cards(llm, query, report)
-        if cards:
-            logger.info("Generated %d Grid card(s) for deep-research report", len(cards))
-        return cards
+        result = await generate_cards_result(llm, query, report)
+        if result.cards:
+            logger.info("Generated %d Grid card(s) for deep-research report", len(result.cards))
+        return result
     except Exception as e:
         logger.warning("Grid card generation failed (non-fatal): %s", e)
-        return None
+        return CardGenerationResult(cards=None, failed=True)
+
+
+def _mark_degraded(transparency: dict[str, Any], reason: str) -> None:
+    """Add one degraded-reason token to an answer's transparency, in place.
+
+    Appends rather than replaces: the agent's own reasons (no report file, no
+    valid citation) are already there, in its order, and this is one more thing
+    the reader should know, not a different claim about the run.
+    """
+    existing = transparency.get("degraded_reasons")
+    reasons = [token for token in existing if isinstance(token, str)] if isinstance(existing, list) else []
+    if reason not in reasons:
+        reasons.append(reason)
+    transparency["degraded_reasons"] = reasons
 
 
 async def _run_deep_research_reflection(

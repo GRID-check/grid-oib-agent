@@ -242,7 +242,7 @@ describe('every token this build accepts has words in BOTH locales', () => {
   // the reader when an entry is missing. This is that guard, for these groups.
   test.each([
     ['truncationReason', ['wall_clock', 'step_limit']],
-    ['degradedReason', ['no_report_file', 'no_valid_citations']],
+    ['degradedReason', ['no_report_file', 'no_valid_citations', 'cards_generation_failed']],
     [
       'citationsRemovedReason',
       [
