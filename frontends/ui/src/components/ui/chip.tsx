@@ -24,7 +24,10 @@ import { FOCUS_RING } from '@/components/ui/focus-ring'
  */
 const chipVariants = cva(
   'inline-flex items-center gap-1 rounded-md border font-medium w-fit whitespace-nowrap shrink-0 ' +
-    'align-middle outline-none transition-[transform,opacity] duration-quick ease-out ' +
+    // background/border ride along so the interactive hover fills below
+    // transition instead of snapping; transform keeps the press dip smooth.
+    // Paint only — no layout property is ever transitioned here.
+    'align-middle outline-none transition-[transform,opacity,background-color,border-color] duration-quick ease-out ' +
     'motion-reduce:transition-none [&>svg]:pointer-events-none [&>svg]:shrink-0 ' +
     FOCUS_RING,
   {
@@ -50,14 +53,34 @@ const chipVariants = cva(
       // A disabled chip has to say so, and it is routinely `asChild` an anchor
       // or a Radix trigger — neither of which honours `disabled` — so the
       // `aria-disabled` mirror carries the same treatment as the real attribute.
+      //
+      // No brightness filters: they shift the provenance tints (and wash the
+      // lifted dark tints toward white). Hover fills live in compoundVariants
+      // below so each variant steps within its own family; the press here is
+      // transform-only at the snap duration.
       interactive: {
         true:
-          'cursor-pointer touch-target hover:brightness-95 active:brightness-90 dark:hover:brightness-125 active:scale-[0.98] motion-reduce:active:scale-100 ' +
+          'cursor-pointer touch-target active:scale-[0.98] active:duration-snap motion-reduce:active:scale-100 ' +
           'disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 ' +
           'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
         false: '',
       },
     },
+    // Hover is interactive-only: a static status chip lighting up on hover
+    // would promise a click that does not exist. Neutrals step one surface up
+    // (secondary/muted → accent, outline → secondary, ink wash → deeper wash);
+    // provenance variants keep their tint and gain a signal hairline instead,
+    // so the hue that carries the meaning is never replaced.
+    compoundVariants: [
+      { interactive: true, variant: 'default', className: 'hover:bg-primary/15' },
+      { interactive: true, variant: 'secondary', className: 'hover:bg-accent' },
+      { interactive: true, variant: 'outline', className: 'hover:bg-secondary' },
+      { interactive: true, variant: 'muted', className: 'hover:bg-accent' },
+      { interactive: true, variant: 'success', className: 'hover:border-success' },
+      { interactive: true, variant: 'warning', className: 'hover:border-warning' },
+      { interactive: true, variant: 'info', className: 'hover:border-info' },
+      { interactive: true, variant: 'destructive', className: 'hover:border-danger' },
+    ],
     defaultVariants: {
       variant: 'muted',
       size: 'md',

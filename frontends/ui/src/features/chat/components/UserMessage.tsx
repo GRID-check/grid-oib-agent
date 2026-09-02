@@ -48,6 +48,7 @@
 import { type FC, useState } from 'react'
 import { User, Copy, Check } from 'lucide-react'
 import { toast } from 'sonner'
+import { AnimatePresence, motion, springSnap } from '@/components/motion'
 import { SectionLabel } from '@/components/ui/section-label'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { formatTime } from '@/shared/utils/format-time'
@@ -75,7 +76,7 @@ import { MessageAuthor } from './MessageAuthor'
  */
 const COPY_BUTTON_CLASS = cn(
   'absolute right-2 top-2 rounded-md bg-muted p-1.5 text-muted-foreground',
-  'opacity-0 transition-opacity duration-quick ease-out group-hover:opacity-100',
+  'opacity-0 transition-[opacity,transform] duration-snap ease-out group-hover:opacity-100 active:scale-[0.98] motion-reduce:active:scale-100',
   'focus-visible:opacity-100 pointer-coarse:opacity-100 motion-reduce:transition-none',
   'inline-flex items-center justify-center pointer-coarse:size-11 pointer-coarse:p-0',
   'hover:bg-accent hover:text-foreground',
@@ -183,11 +184,23 @@ export const UserMessage: FC<UserMessageProps> = ({
             aria-label={copied ? t('copyMessage.copied') : t('copyMessage.copy')}
             className={COPY_BUTTON_CLASS}
           >
-            {copied ? (
-              <Check className="size-4" aria-hidden="true" />
-            ) : (
-              <Copy className="size-4" aria-hidden="true" />
-            )}
+            <AnimatePresence mode="popLayout" initial={false}>
+              <motion.span
+                key={copied ? 'check' : 'copy'}
+                initial={{ opacity: 0, scale: 0.6 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.6 }}
+                transition={springSnap}
+                className="inline-flex"
+                aria-hidden="true"
+              >
+                {copied ? (
+                  <Check className="size-4" aria-hidden="true" />
+                ) : (
+                  <Copy className="size-4" aria-hidden="true" />
+                )}
+              </motion.span>
+            </AnimatePresence>
           </button>
         </div>
 
@@ -252,11 +265,23 @@ export const UserMessage: FC<UserMessageProps> = ({
           aria-label={copied ? t('copyMessage.copied') : t('copyMessage.copy')}
           className={COPY_BUTTON_CLASS}
         >
-          {copied ? (
-            <Check className="size-4" aria-hidden="true" />
-          ) : (
-            <Copy className="size-4" aria-hidden="true" />
-          )}
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.span
+              key={copied ? 'check' : 'copy'}
+              initial={{ opacity: 0, scale: 0.6 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.6 }}
+              transition={springSnap}
+              className="inline-flex"
+              aria-hidden="true"
+            >
+              {copied ? (
+                <Check className="size-4" aria-hidden="true" />
+              ) : (
+                <Copy className="size-4" aria-hidden="true" />
+              )}
+            </motion.span>
+          </AnimatePresence>
         </button>
       </div>
 

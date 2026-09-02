@@ -1010,3 +1010,37 @@ body {
 [data-citation-marker] + [data-citation-marker] {
   margin-left: 0.18em;
 }
+
+/* =============================================================================
+   Skeleton shimmer — the loading placeholder's breathing loop.
+
+   The Skeleton primitive owns the base fill (`bg-secondary`); this utility only
+   lays a brighter ink band that travels across it, so the sweep stays
+   theme-aware in both modes without naming a surface. Cadence and curve come
+   from the motion tokens (`--motion-ambient` is the looping-background value,
+   `--ease-cycle` the symmetric loop curve) — no literal durations here. Paint
+   only (background-position), so it never moves layout, and it collapses under
+   the global prefers-reduced-motion block plus the primitive's own
+   `motion-reduce:animate-none`.
+   ============================================================================= */
+@keyframes grid-skeleton-shimmer {
+  0% {
+    background-position: 150% 0;
+  }
+  100% {
+    background-position: -150% 0;
+  }
+}
+
+@utility animate-skeleton-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    transparent 0%,
+    transparent 38%,
+    color-mix(in oklch, var(--foreground) 8%, transparent) 50%,
+    transparent 62%,
+    transparent 100%
+  );
+  background-size: 220% 100%;
+  animation: grid-skeleton-shimmer var(--motion-ambient) var(--ease-cycle) infinite;
+}

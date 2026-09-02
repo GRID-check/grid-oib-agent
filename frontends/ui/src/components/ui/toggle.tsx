@@ -13,7 +13,11 @@ const toggleVariants = cva(
   // same filter row rounded differently depending on which variant they were.
   // 8px is also what nests correctly inside the segmented group's `rounded-lg`
   // tray — an item as round as its container reads as a bulge.
-  "inline-flex items-center justify-center gap-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors duration-quick ease-out outline-none disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 motion-reduce:transition-none " +
+  //
+  // Press dip: transform joins the transition list at the snap duration while
+  // colors stay at quick (the Button press split). Transform-only motion, so
+  // no layout shift.
+  "inline-flex items-center justify-center gap-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-[color,background-color,border-color,transform] [transition-duration:var(--motion-quick),var(--motion-quick),var(--motion-quick),var(--motion-snap)] ease-out outline-none disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 motion-reduce:transition-none active:scale-[0.98] motion-reduce:active:scale-100 " +
     FOCUS_RING,
   {
     variants: {

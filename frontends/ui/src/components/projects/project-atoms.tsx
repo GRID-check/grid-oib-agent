@@ -44,6 +44,7 @@
 import Link from 'next/link'
 import { Clock3, FileText, MessageSquare, Settings } from 'lucide-react'
 import { useMemo } from 'react'
+import { FOCUS_RING } from '@/components/ui/focus-ring'
 import { projectInitials } from '@/features/projects/lib/project-initials'
 import type { Project } from '@/lib/db/schema'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
@@ -68,7 +69,11 @@ export function ProjectOpenLink({
       href={`/app/projects/${project.id}/chat`}
       aria-label={t('card.open', { name: project.name })}
       className={cn(
-        'after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring/50',
+        // Inset, not offset: the ring draws on the `::after` sheet covering the
+        // whole card, and an offset ring would be sliced off by the card's own
+        // `overflow-hidden` — this is the documented inset exception at the
+        // documented `/60` alpha, not the old `/50` third recipe.
+        'after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring/60',
         className,
       )}
     >
@@ -190,7 +195,8 @@ export function ProjectSettingsLink({
         // p-2 around a 14px glyph is a 30px target — over WCAG 2.2's 24px floor
         // with room to spare, which this one needs: on a row it is the only
         // control besides the stretched link covering everything else.
-        'relative z-10 rounded-lg p-2 text-muted-foreground transition-colors duration-quick ease-out hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 motion-reduce:transition-none',
+        'relative z-10 rounded-lg p-2 text-muted-foreground transition-colors duration-quick ease-out hover:bg-accent hover:text-foreground focus-visible:outline-none motion-reduce:transition-none',
+        FOCUS_RING,
         className,
       )}
     >

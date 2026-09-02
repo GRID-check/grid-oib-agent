@@ -73,7 +73,9 @@ export function ViewerPanel({
         </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-3">{children}</div>
-      {footer && <div className="border-t border-border p-2">{footer}</div>}
+      {/* Footer keeps the panel scale (`p-3` like header and body) — a tighter
+          `p-2` here was a second padding hiding in the same card. */}
+      {footer && <div className="border-t border-border p-3">{footer}</div>}
     </ViewerSurface>
   )
 }

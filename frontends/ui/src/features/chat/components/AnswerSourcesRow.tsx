@@ -175,7 +175,7 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
           style={{
             ...(isFocused
               ? ({ ['--citation-pulse' as string]: `var(--source-${doc.tint})` } as CSSProperties)
-              : { animationDelay: `${Math.min(docIndex, 6) * 40}ms` }),
+              : { animationDelay: `${Math.min(docIndex, 5) * 40}ms` }),
           }}
         >
           {/* One anchor per [N] this document carries, all resolving to this

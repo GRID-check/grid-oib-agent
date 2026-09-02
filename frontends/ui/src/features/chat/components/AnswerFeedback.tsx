@@ -189,8 +189,8 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
             <>
               {/* Only the mark moves; the sentence is legible from frame one. */}
               <motion.span
-                initial={{ scale: 0.6 }}
-                animate={{ scale: 1 }}
+                initial={{ opacity: 0, scale: 0.6 }}
+                animate={{ opacity: 1, scale: 1 }}
                 transition={springSnap}
                 className="inline-flex"
                 aria-hidden="true"

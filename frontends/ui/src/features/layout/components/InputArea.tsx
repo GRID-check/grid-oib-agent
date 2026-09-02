@@ -48,7 +48,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { AnimatePresence, motion, easeQuiet, springSnappy } from '@/components/motion'
+import { AnimatePresence, motion, easeQuiet, motionQuick, motionEntrance, springPress } from '@/components/motion'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
 import { resolveAddressee, sendMessageOptions } from '@/features/collaboration/lib/composer-routing'
@@ -1937,7 +1937,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   <motion.div
                     className="inline-flex"
                     whileTap={{ scale: 0.94 }}
-                    transition={springSnappy}
+                    transition={springPress}
                     tabIndex={-1}
                   >
                     <Button
@@ -1976,7 +1976,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   <motion.div
                     className="inline-flex"
                     whileTap={{ scale: 0.94 }}
-                    transition={springSnappy}
+                    transition={springPress}
                     tabIndex={-1}
                   >
                     <Button
@@ -1999,7 +1999,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   <motion.div
                     className="inline-flex"
                     whileTap={{ scale: 0.94 }}
-                    transition={springSnappy}
+                    transition={springPress}
                     // whileTap makes framer-motion inject tabindex="0"; the wrapper must
                     // not be a tab stop — the Button inside is the real control.
                     tabIndex={-1}
@@ -2031,11 +2031,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                         {isLoading ? (
                           <motion.span
                             key="loading"
-                            className="animate-pulse"
-                            initial={{ opacity: 0, scale: 0.8 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.8 }}
-                            transition={springSnappy}
+                            initial={{ opacity: 0, y: -4 }}
+                            animate={{ opacity: 1, y: 0, transition: motionEntrance }}
+                            exit={{ opacity: 0, y: 6, transition: motionQuick }}
                           >
                             ...
                           </motion.span>
@@ -2043,10 +2041,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                           <motion.span
                             key="send"
                             className="inline-flex"
-                            initial={{ opacity: 0, scale: 0.8 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.8 }}
-                            transition={springSnappy}
+                            initial={{ opacity: 0, y: -4 }}
+                            animate={{ opacity: 1, y: 0, transition: motionEntrance }}
+                            exit={{ opacity: 0, y: 6, transition: motionQuick }}
                           >
                             <ArrowUp className="size-4" aria-hidden="true" />
                           </motion.span>
