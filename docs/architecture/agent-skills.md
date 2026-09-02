@@ -866,10 +866,14 @@ from the job row itself, and it never throws for a skip:
 
 1. Build the run context in parallel — budget snapshot, effective model
    overrides (ADR-0014), the project's ordered collection scope, project
-   context and Bundesland — exactly what the interactive path attaches. The
-   signed `X-Grid-Request-Context` envelope is built from those same values
-   through the shared builder, so the job path's wire format cannot drift
-   from the interactive one.
+   context, Bundesland, **the project-memory digest** (ranked against the
+   fire prompt, the way a chat turn's digest is ranked against its question)
+   and **the organization's memory-reflection flag** — exactly what the
+   interactive path attaches. The signed `X-Grid-Request-Context` envelope is
+   built from those same values through the shared builder, so the job path's
+   wire format cannot drift from the interactive one. The digest travels as
+   the worker's FALLBACK: the worker fetches a live one first (a queued job
+   may wait minutes) and keeps the fired one only when that fetch fails.
 2. For an `output: 'chat'` job, create the conversation the run will land in
    (see below). Before submission, because the backend needs its id.
 3. POST the backend `POST /v1/internal/skills/submit` with
@@ -885,6 +889,26 @@ from the job row itself, and it never throws for a skip:
 
 Admission caps (`GRID_MAX_ACTIVE_JOBS[_PER_ORG]`) therefore apply to scheduled
 runs automatically, and every run — however triggered — is visible in history.
+
+### The worker's side, and the outcome
+
+Inside the run the worker places the job's project, organization and user
+identity into its request context, the way the WebSocket upgrade does for a
+chat turn, so every project-scoped tool (`remember` included) resolves the
+same project a chat turn would; before this a deep-research run's `remember`
+answered "no project in scope" every time. The reflection pass at the end of
+a deep run compares the report against the live memory digest, and resolves
+the reflection model from the worker's own config — the BFF evaluates the
+flag, the worker knows the model.
+
+When the run ends — success, failure or cancellation — the worker reports
+the outcome to `POST /api/internal/jobs/[jobId]/outcome` by the backend job
+id, only when it was the one that wrote the terminal status (a run the reaper
+already finalized is reported by nobody). The BFF turns that into a
+`job.completed` or `job.failed` inbox item for the job's creator, one row per
+run, landing on the project's automation page. Best-effort by contract: the
+run is already final in the job store, and a missed notification never
+unmakes a good run.
 
 ### The fire prompt
 

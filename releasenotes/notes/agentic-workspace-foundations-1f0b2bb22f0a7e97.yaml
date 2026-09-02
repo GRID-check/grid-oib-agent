@@ -1,0 +1,46 @@
+---
+features:
+  - >
+    Wenn ein geplanter Auftrag fertig ist oder fehlschlägt, erfahren Sie es
+    jetzt im Posteingang. Bisher lief ein Auftrag um drei Uhr früh, legte
+    seinen Bericht ab, und niemand wurde benachrichtigt; der Eintrag führt
+    direkt zur Automatisierungsseite des Projekts, wo die Laufhistorie steht.
+  - >
+    Eine Fundstelle nennt jetzt den Punkt der Richtlinie, nicht nur die Seite:
+    „Pkt. 3.5.2 · S. 7" statt „S. 7". Das ist die Zählung, in der das
+    Baurecht selbst zitiert, und sie bleibt nach einem Neuladen und in einer
+    geteilten Unterhaltung erhalten.
+improvements:
+  - >
+    Ein Hintergrundauftrag arbeitet jetzt mit demselben Wissen wie ein
+    Chat-Zug: Er kennt das Projektgedächtnis, kann selbst Notizen ins Projekt
+    schreiben und vergleicht seinen Bericht am Ende mit dem, was das Projekt
+    schon weiß. Bisher lief er allein mit dem Steckbrief aus dem Wizard.
+  - >
+    Piloti weiß jetzt, was Sie über seine Vorschläge entschieden haben. Ein
+    abgelehnter Vorschlag zum Projektkontext oder eine verworfene Notiz kommt
+    im nächsten Zug nicht wieder; ein angenommener gilt als erledigt.
+  - >
+    Was Piloti in einem Zug tatsächlich gesucht hat, bleibt nach dem Neuladen
+    der Unterhaltung erhalten und ist auch für Kolleginnen in einer geteilten
+    Unterhaltung nachvollziehbar. Bisher ging diese Angabe beim Speichern
+    verloren.
+  - >
+    Das Projektgedächtnis findet jetzt auch ältere Notizen wieder, wenn sie
+    zur Frage passen, und eine Korrektur trifft die Notiz, die sie meint, auch
+    wenn sie lange zurückliegt. Bisher endete beides bei den zweihundert
+    zuletzt geänderten Einträgen.
+fixes:
+  - >
+    Ein Zitat, das ein ganzes Wort auslässt oder einfügt, gilt nicht mehr als
+    wörtlich belegt. Ein Zitat, aus dem ein „nicht" verschwunden war, konnte
+    bisher als geprüfte Wiedergabe der Quelle durchgehen; Lesefehler innerhalb
+    eines Wortes werden weiterhin toleriert.
+  - >
+    Eine Antwort stützt sich wieder auf mehrere Dokumente, wo die Frage
+    mehrere berührt. Ein einzelnes PDF konnte bisher alle Belegplätze einer
+    Antwort füllen, obwohl Piloti höchstens fünf pro Dokument versprach.
+  - >
+    Ein Datum in einer Projektnotiz, etwa eine Einreichfrist, wird nicht mehr
+    als Telefonnummer verwechselt und verworfen. Kontaktdaten und Zugangsdaten
+    werden weiterhin von beiden Wegen ins Gedächtnis ferngehalten.

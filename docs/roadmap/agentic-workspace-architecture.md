@@ -34,6 +34,30 @@
 
 ---
 
+## 0. What has landed on this branch
+
+Written after the fact, so the loop tables below stay the plan and this is
+the ledger. Each row is one commit with its own tests; the verification pass
+that closes a loop is named where it ran.
+
+| Loop | Landed | Where |
+|---|---|---|
+| A | Diversity cap applied on the answer budget after reranking (was a no-op on the candidate pool) | `sources/knowledge_layer/src/register.py` |
+| A | Quote verification refuses a skipped or inserted whole word, whatever the word, at any length; sub-word OCR noise stays tolerated | `common/citation_verification.py` |
+| A | The Punkt and the retrieval score are parsed off the grounding block, fold under page dedup, reach the wire and the stored message, and the locus reads "Pkt. 3.5.2 · S. 7" | `citation_verification.py`, `features/chat/lib/citations/*`, `SourcePreview.tsx`, `CitationPeek.tsx` |
+| A | The turn's retrieval query survives the storage prune and the server whitelist, so a reloaded or shared thread keeps what was searched | `prune-message-for-storage.ts`, `message-provenance.ts`, `turn-events.ts` |
+| A · pass | The structural retrievability harness runs in CI as a gate (`task be:eval:retrieval`, 95% floor, 98.3% measured) | `Taskfile.yml`, `.github/workflows/ci.yml`, `oib_retrieval_eval/runner.py` |
+| B | A background run carries the project, organization and user identity, fetches the live memory digest, composes it into the agent's context and hands the reflection pass a real digest; the fire path builds the digest and evaluates the reflection flag | `aiq_api/jobs/runner.py`, `routes/skills.py`, `lib/jobs/service.ts` |
+| B | A finished or failed run tells the job's creator: `job.completed` / `job.failed` inbox items, a `project` inbox target, an internal outcome route the worker calls from its terminal arms | `lib/inbox/*`, `app/api/internal/jobs/[jobId]/outcome`, `aiq_api/jobs/outcome_notify.py` |
+| B | One personal-data guard on the write path both memory writers share; a date is no longer dropped as a phone number | `knowledge/project_memory.py` |
+| B | Accepted and declined proposals reach the next turn as a `PROPOSAL_DECISIONS` block on the memory channel | `lib/projects/proposal-decisions.ts`, `researcher.j2` |
+| B | Memory recall ranks by similarity in SQL and a quoted correction resolves across the whole scope, not the 200 most recent rows | `lib/projects/memory-service.ts` |
+
+Still open from the plan: the card-generation failure signal, the stall
+notice on the banner and the memory chip link (UI workstream); reinforcement
+on use rather than injection; the task row (Loop C); the repair pass, the
+retrieval loop and the event seam (Loop D).
+
 ## 1. The verdict in one paragraph
 
 Piloti is an unusually well-engineered **question-answering system wearing a

@@ -153,6 +153,18 @@ answering prompt (`shallow_researcher/prompts/researcher.j2`) therefore carves
 then newest-first; the current conversation always wins; and a memory entry is
 never a citable source for a legal requirement.
 
+**What the project decided about the agent's proposals travels with the
+digest.** A `project_profile_patch` or `memory_proposal` card is a proposal;
+the reader's Accept or Reject is persisted on the message (ADR-0030) and,
+until 2026-09, read by nothing the agent could see, so a declined patch came
+back next turn. `lib/projects/proposal-decisions.ts` renders the most recent
+verdicts as a bounded `PROPOSAL_DECISIONS v1` block (≤10 lines / ≤900 chars,
+newest first, in the card's own words) that is appended to the digest on the
+handshake and on the live per-turn fetch. The memory header cap is sized for
+both blocks (`MEMORY_HEADER_MAX_CHARS`), and `researcher.j2` explains the
+block once, next to PROJECT_MEMORY: accepted means already in place, declined
+means not raised again without new evidence.
+
 ### 3.4 Maintain — keep it small and fresh
 - `last_referenced_at` + salience decay → low-value items sink out of the digest.
 - Superseded/dismissed items are archived (kept for provenance, excluded from serve).
