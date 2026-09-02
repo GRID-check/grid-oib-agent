@@ -321,6 +321,18 @@ tasks:
     cmds:
       - '{{.PY}} -X faulthandler -m pytest tests/ -q'
 
+  be:eval:retrieval:
+    desc: Retrieval regression gate — the Punkt arm must keep its citable-unit share (model-free, offline)
+    env:
+      PYTHONPATH: src:frontends/benchmarks/oib_retrieval/src
+    cmds:
+      # ADR-0044 rule 7 made enforceable: a chunker or German-analyzer change
+      # that makes fewer Punkte survive as a citable unit fails here, on the
+      # real corpus, with no embedder and no key. Baseline is in the harness
+      # README; the gate sits a few points under it so a measurement wobble is
+      # not a red build while a real regression is.
+      - '{{.PY}} -m oib_retrieval_eval.runner --structure-only --fail-below {{.RETRIEVAL_GATE_PCT | default "95"}}'
+
   be:test:ci:
     desc: Backend core suite with the coverage gate CI enforces
     cmds:

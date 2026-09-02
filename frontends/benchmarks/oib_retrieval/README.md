@@ -148,6 +148,12 @@ PYTHONPATH=src:frontends/benchmarks/oib_retrieval/src \
   ./.venv/bin/python -m oib_retrieval_eval.runner --embedder e5
 ```
 
+The structural arm is also the **regression gate** CI runs on every change to the
+chunker, the German analyzer, the harness or the corpus (`task be:eval:retrieval`,
+the `retrieval-eval` job): `--fail-below 95` fails the build when the Punkt arm's
+citable-unit share drops under 95%. The measured baseline on the current corpus is
+98.3% (`punkt` arm, 744 of 744 located leaf Punkte), against 5.2% for page cutting.
+
 The offline unit tests live at the repo root and are keyless, model-free and CI-safe:
 
 ```bash
