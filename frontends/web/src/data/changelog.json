@@ -32,6 +32,106 @@
   },
   "releases": [
     {
+      "id": "2026-09-02",
+      "kind": "date",
+      "version": null,
+      "date": "2026-09-02",
+      "summary": null,
+      "sections": [
+        {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Wenn ein geplanter Auftrag fertig ist oder fehlschlägt, erfahren Sie es jetzt im Posteingang. Bisher lief ein Auftrag um drei Uhr früh, legte seinen Bericht ab, und niemand wurde benachrichtigt; der Eintrag führt direkt zur Automatisierungsseite des Projekts, wo die Laufhistorie steht.",
+              "de": "Wenn ein geplanter Auftrag fertig ist oder fehlschlägt, erfahren Sie es jetzt im Posteingang. Bisher lief ein Auftrag um drei Uhr früh, legte seinen Bericht ab, und niemand wurde benachrichtigt; der Eintrag führt direkt zur Automatisierungsseite des Projekts, wo die Laufhistorie steht."
+            },
+            {
+              "en": "Eine Fundstelle nennt jetzt den Punkt der Richtlinie, nicht nur die Seite: „Pkt. 3.5.2 · S. 7\" statt „S. 7\". Das ist die Zählung, in der das Baurecht selbst zitiert, und sie bleibt nach einem Neuladen und in einer geteilten Unterhaltung erhalten.",
+              "de": "Eine Fundstelle nennt jetzt den Punkt der Richtlinie, nicht nur die Seite: „Pkt. 3.5.2 · S. 7\" statt „S. 7\". Das ist die Zählung, in der das Baurecht selbst zitiert, und sie bleibt nach einem Neuladen und in einer geteilten Unterhaltung erhalten."
+            },
+            {
+              "en": "Ein geplanter Rechercheauftrag legt seinen Bericht jetzt selbst unter „Berichte\" im Projekt ab, und zwar unter der Berechtigung der Person, die den Auftrag eingerichtet hat. Bisher verfiel der Bericht eines nächtlichen Laufs nach einem Tag, wenn ihn niemand aus dem Verlauf öffnete. Der Eintrag im Posteingang nennt das abgelegte Dokument.",
+              "de": "Ein geplanter Rechercheauftrag legt seinen Bericht jetzt selbst unter „Berichte\" im Projekt ab, und zwar unter der Berechtigung der Person, die den Auftrag eingerichtet hat. Bisher verfiel der Bericht eines nächtlichen Laufs nach einem Tag, wenn ihn niemand aus dem Verlauf öffnete. Der Eintrag im Posteingang nennt das abgelegte Dokument."
+            },
+            {
+              "en": "Ein fertiger Auftrag kann angenommen oder mit Begründung abgelehnt werden. Die Begründung erreicht den nächsten Lauf desselben Auftrags, sodass eine Korrektur wie „Atrium ist OIB 2.3\" nicht jede Woche neu ausgesprochen werden muss.",
+              "de": "Ein fertiger Auftrag kann angenommen oder mit Begründung abgelehnt werden. Die Begründung erreicht den nächsten Lauf desselben Auftrags, sodass eine Korrektur wie „Atrium ist OIB 2.3\" nicht jede Woche neu ausgesprochen werden muss."
+            }
+          ]
+        },
+        {
+          "key": "improvements",
+          "notes": [
+            {
+              "en": "Ein Hintergrundauftrag arbeitet jetzt mit demselben Wissen wie ein Chat-Zug: Er kennt das Projektgedächtnis, kann selbst Notizen ins Projekt schreiben und vergleicht seinen Bericht am Ende mit dem, was das Projekt schon weiß. Bisher lief er allein mit dem Steckbrief aus dem Wizard.",
+              "de": "Ein Hintergrundauftrag arbeitet jetzt mit demselben Wissen wie ein Chat-Zug: Er kennt das Projektgedächtnis, kann selbst Notizen ins Projekt schreiben und vergleicht seinen Bericht am Ende mit dem, was das Projekt schon weiß. Bisher lief er allein mit dem Steckbrief aus dem Wizard."
+            },
+            {
+              "en": "Piloti weiß jetzt, was Sie über seine Vorschläge entschieden haben. Ein abgelehnter Vorschlag zum Projektkontext oder eine verworfene Notiz kommt im nächsten Zug nicht wieder; ein angenommener gilt als erledigt.",
+              "de": "Piloti weiß jetzt, was Sie über seine Vorschläge entschieden haben. Ein abgelehnter Vorschlag zum Projektkontext oder eine verworfene Notiz kommt im nächsten Zug nicht wieder; ein angenommener gilt als erledigt."
+            },
+            {
+              "en": "Was Piloti in einem Zug tatsächlich gesucht hat, bleibt nach dem Neuladen der Unterhaltung erhalten und ist auch für Kolleginnen in einer geteilten Unterhaltung nachvollziehbar. Bisher ging diese Angabe beim Speichern verloren.",
+              "de": "Was Piloti in einem Zug tatsächlich gesucht hat, bleibt nach dem Neuladen der Unterhaltung erhalten und ist auch für Kolleginnen in einer geteilten Unterhaltung nachvollziehbar. Bisher ging diese Angabe beim Speichern verloren."
+            },
+            {
+              "en": "Das Projektgedächtnis findet jetzt auch ältere Notizen wieder, wenn sie zur Frage passen, und eine Korrektur trifft die Notiz, die sie meint, auch wenn sie lange zurückliegt. Bisher endete beides bei den zweihundert zuletzt geänderten Einträgen.",
+              "de": "Das Projektgedächtnis findet jetzt auch ältere Notizen wieder, wenn sie zur Frage passen, und eine Korrektur trifft die Notiz, die sie meint, auch wenn sie lange zurückliegt. Bisher endete beides bei den zweihundert zuletzt geänderten Einträgen."
+            }
+          ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Ein Zitat, das ein ganzes Wort auslässt oder einfügt, gilt nicht mehr als wörtlich belegt. Ein Zitat, aus dem ein „nicht\" verschwunden war, konnte bisher als geprüfte Wiedergabe der Quelle durchgehen; Lesefehler innerhalb eines Wortes werden weiterhin toleriert.",
+              "de": "Ein Zitat, das ein ganzes Wort auslässt oder einfügt, gilt nicht mehr als wörtlich belegt. Ein Zitat, aus dem ein „nicht\" verschwunden war, konnte bisher als geprüfte Wiedergabe der Quelle durchgehen; Lesefehler innerhalb eines Wortes werden weiterhin toleriert."
+            },
+            {
+              "en": "Eine Antwort stützt sich wieder auf mehrere Dokumente, wo die Frage mehrere berührt. Ein einzelnes PDF konnte bisher alle Belegplätze einer Antwort füllen, obwohl Piloti höchstens fünf pro Dokument versprach.",
+              "de": "Eine Antwort stützt sich wieder auf mehrere Dokumente, wo die Frage mehrere berührt. Ein einzelnes PDF konnte bisher alle Belegplätze einer Antwort füllen, obwohl Piloti höchstens fünf pro Dokument versprach."
+            },
+            {
+              "en": "Ein Datum in einer Projektnotiz, etwa eine Einreichfrist, wird nicht mehr als Telefonnummer verwechselt und verworfen. Kontaktdaten und Zugangsdaten werden weiterhin von beiden Wegen ins Gedächtnis ferngehalten.",
+              "de": "Ein Datum in einer Projektnotiz, etwa eine Einreichfrist, wird nicht mehr als Telefonnummer verwechselt und verworfen. Kontaktdaten und Zugangsdaten werden weiterhin von beiden Wegen ins Gedächtnis ferngehalten."
+            },
+            {
+              "en": "Eine Datei, die ein zweites Mal unter demselben Namen in eine Unterhaltung gezogen wird, ersetzt jetzt die erste, wie im Projekt und im Büroarchiv. Bisher blieb der erste Eintrag sichtbar und herunterladbar, war für Piloti aber nicht mehr auffindbar und zählte doppelt zum Speicherplatz. Vorschaubild und Gebäudemodell der alten Version werden mit entfernt.",
+              "de": "Eine Datei, die ein zweites Mal unter demselben Namen in eine Unterhaltung gezogen wird, ersetzt jetzt die erste, wie im Projekt und im Büroarchiv. Bisher blieb der erste Eintrag sichtbar und herunterladbar, war für Piloti aber nicht mehr auffindbar und zählte doppelt zum Speicherplatz. Vorschaubild und Gebäudemodell der alten Version werden mit entfernt."
+            },
+            {
+              "en": "Die Quellenliste eines Rechercheberichts trägt jetzt dieselben Nummern, mit denen der Bericht zitiert: Wo im Text „[3]\" steht, ist in der Liste ersichtlich, welche Fundstelle die dritte ist. Bisher kannte die Liste eines live verfolgten oder aus dem Verlauf geöffneten Laufs die Nummern nicht.",
+              "de": "Die Quellenliste eines Rechercheberichts trägt jetzt dieselben Nummern, mit denen der Bericht zitiert: Wo im Text „[3]\" steht, ist in der Liste ersichtlich, welche Fundstelle die dritte ist. Bisher kannte die Liste eines live verfolgten oder aus dem Verlauf geöffneten Laufs die Nummern nicht."
+            },
+            {
+              "en": "Wenn ein Recherchelauf seinen Bericht fertigstellt, die daraus abgeleiteten Vorschläge aber nicht erzeugen konnte, sagt Piloti das jetzt unter der Antwort. Bisher sah ein solcher Lauf genauso aus wie einer, zu dem es schlicht nichts vorzuschlagen gab.",
+              "de": "Wenn ein Recherchelauf seinen Bericht fertigstellt, die daraus abgeleiteten Vorschläge aber nicht erzeugen konnte, sagt Piloti das jetzt unter der Antwort. Bisher sah ein solcher Lauf genauso aus wie einer, zu dem es schlicht nichts vorzuschlagen gab."
+            },
+            {
+              "en": "Ein OIB-Dokument einer anderen Ausgabe als Mai 2023 erhält jetzt den richtigen Ausgabevermerk im Titel, statt als „Ausgabe Mai 2023\" beschriftet oder gar nicht erkannt zu werden.",
+              "de": "Ein OIB-Dokument einer anderen Ausgabe als Mai 2023 erhält jetzt den richtigen Ausgabevermerk im Titel, statt als „Ausgabe Mai 2023\" beschriftet oder gar nicht erkannt zu werden."
+            },
+            {
+              "en": "Eine einzelne Quelle, die nicht rechtzeitig antwortet, beendet die Tiefenrecherche nicht mehr. Der Lauf erhält das als Werkzeugergebnis und sucht weiter, statt ohne Bericht abzubrechen.",
+              "de": "Eine einzelne Quelle, die nicht rechtzeitig antwortet, beendet die Tiefenrecherche nicht mehr. Der Lauf erhält das als Werkzeugergebnis und sucht weiter, statt ohne Bericht abzubrechen."
+            },
+            {
+              "en": "Der Hinweis über einem abgebrochenen Bericht nennt jetzt den tatsächlichen Grund, nicht ein Zeitlimit, das nie erreicht war. Das Schreiben eines langen Berichts hat mehr Zeit.",
+              "de": "Der Hinweis über einem abgebrochenen Bericht nennt jetzt den tatsächlichen Grund, nicht ein Zeitlimit, das nie erreicht war. Das Schreiben eines langen Berichts hat mehr Zeit."
+            },
+            {
+              "en": "Wenn ein Recherchelauf am Budget der Organisation scheitert, sagt die Fehlermeldung das jetzt, samt dem Hinweis, wo ein Admin die Grenzen anheben kann. Bisher stand dort „interner Fehler\".",
+              "de": "Wenn ein Recherchelauf am Budget der Organisation scheitert, sagt die Fehlermeldung das jetzt, samt dem Hinweis, wo ein Admin die Grenzen anheben kann. Bisher stand dort „interner Fehler\"."
+            },
+            {
+              "en": "Hält ein Beleg oder ein Zitat der Prüfung nicht stand, sucht Piloti einmal gezielt nach der fraglichen Stelle nach und formuliert die Antwort neu, bevor sie erscheint. Bisher wurde die Stelle nur markiert. Bleibt die Prüfung auch danach ohne Erfolg, bleibt die Markierung.",
+              "de": "Hält ein Beleg oder ein Zitat der Prüfung nicht stand, sucht Piloti einmal gezielt nach der fraglichen Stelle nach und formuliert die Antwort neu, bevor sie erscheint. Bisher wurde die Stelle nur markiert. Bleibt die Prüfung auch danach ohne Erfolg, bleibt die Markierung."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-09-01",
       "kind": "date",
       "version": null,
