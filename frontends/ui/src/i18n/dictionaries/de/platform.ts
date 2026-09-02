@@ -346,7 +346,7 @@ export const platform: typeof en.platform = {
     // Katalog auseinanderlaufen — die Antwort steht deshalb hier.
     howTitle: 'Was der Abgleich macht',
     howBody:
-      'Ein Dokument zu löschen sind zwei Schritte: zuerst seine indexierten Textabschnitte aus dem Vektorspeicher entfernen, dann seinen Eintrag aus dem Katalog. Wird der erste Schritt übersprungen oder schlägt er fehl, verschwindet der Eintrag, die Abschnitte bleiben aber zurück – in der App nirgends sichtbar, in der Suche jedoch weiterhin auffindbar und zitierbar. Der Abgleich durchläuft jede Sammlung, vergleicht sie mit dem Katalog und löscht die Abschnitte, zu denen es kein Dokument mehr gibt.',
+      'Ein Dokument zu löschen sind zwei Schritte: zuerst seine indexierten Textabschnitte aus dem Vektorspeicher entfernen, dann seinen Eintrag aus dem Katalog. Wird der erste Schritt übersprungen oder schlägt er fehl, verschwindet der Eintrag, die Abschnitte bleiben aber zurück – in der App nirgends sichtbar, in der Suche jedoch weiterhin auffindbar und zitierbar. Der Abgleich durchläuft jede Sammlung, vergleicht sie mit dem Katalog und löscht die Abschnitte, zu denen es kein Dokument mehr gibt. Danach vergisst er den umgekehrten Rest: einen Eintrag im Dokumentinventar des Assistenten, zu dessen Datei keine Abschnitte mehr existieren – damit der Assistent keine Datei mehr auflistet, die er nicht lesen kann.',
     whenTitle: 'Wann Sie ihn brauchen',
     whenBody:
       'Führen Sie ihn aus, wenn eine Antwort ein Dokument zitiert, das niemand findet, wenn eine gelöschte Datei immer wieder als Quelle auftaucht oder nach einer Sammellöschung mit Fehlern. Wiederholen ist unbedenklich: In einem sauberen Speicher findet und löscht er nichts.',
@@ -375,6 +375,8 @@ export const platform: typeof en.platform = {
     measureFoundHint: 'Indexierte Dateien ohne zugehörigen Katalogeintrag.',
     measureDeleted: 'Abschnitte entfernt',
     measureDeletedHint: 'Abschnitte, deren Löschung der Vektorspeicher bestätigt hat.',
+    measureSummaries: 'Inventareinträge vergessen',
+    measureSummariesHint: 'Dateien, die der Assistent noch auflistete, obwohl nichts mehr davon zu lesen war.',
     outcomeRemoved: '{chunks} verwaiste(r) Abschnitt(e) in {collections} Sammlung(en) entfernt.',
     outcomeClean: 'Nichts zu bereinigen – jeder indexierte Abschnitt hat noch sein Dokument.',
     failuresTitle: '{count} Sammlung(en) konnten nicht bereinigt werden',

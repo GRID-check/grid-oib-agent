@@ -11,6 +11,15 @@
  * what should exist; any chunk whose owning document no longer has a row is an
  * orphan and is deleted from the vector store.
  *
+ * The chunks have a mirror image: a summary row (the backend's
+ * `document_metadata` table, which the agent's document inventory is built
+ * from) whose chunks are gone. Deleting a file used to leave that row behind
+ * when the chunk delete found nothing, so the agent kept listing a file it
+ * could not read. The backend forgets both together now; the rows orphaned
+ * before it did are swept here too, as the second half of the same run, by
+ * the backend's own `reconcile-summaries` route — the summaries table is not
+ * this tier's to read.
+ *
  * Cross-org and destructive — caller authorization (requirePlatformPermission)
  * happens in the route; this module is data-only and must never be exposed to a
  * tenant session.
@@ -33,8 +42,28 @@ export interface VectorReconcileResult {
   orphansFound: number
   /** Chunks actually removed from the vector store. */
   orphansDeleted: number
-  /** Per-collection failures; the sweep continues past them. */
+  /**
+   * Summary rows forgotten because their file holds no chunks (the second
+   * half of the sweep, run by the backend over the same collections).
+   */
+  summariesForgotten: number
+  /**
+   * Per-collection failures; the sweep continues past them. A failure of the
+   * summary half as a whole (the backend refused or could not be reached) is
+   * one entry under {@link SUMMARY_SWEEP_FAILURE_NAME}, since it names no
+   * single collection.
+   */
   failures: { collectionName: string; error: string }[]
+}
+
+/** The `collectionName` a whole-sweep summary failure is filed under. */
+export const SUMMARY_SWEEP_FAILURE_NAME = '*'
+
+/** The backend's `POST /v1/maintenance/reconcile-summaries` answer. */
+interface BackendSummaryReconcile {
+  orphans_forgotten?: number
+  forgotten?: { collection: string; file_name: string }[]
+  failures?: { collection: string; error: string }[]
 }
 
 interface BackendFileInfo {
@@ -164,8 +193,43 @@ async function deleteChunks(collectionName: string, fileIds: string[]): Promise<
 }
 
 /**
+ * Forget summary rows whose chunks are gone, in the given collections only.
+ *
+ * The backend does the comparison: it holds the summaries table and the
+ * vector store, and it already knows the two spellings a chunk name can be
+ * stored under. Internal-token guarded, like every other BFF → backend call
+ * that is not a user's own request (`lib/knowledge/embeddings.ts` is the
+ * pattern). Scoped to the collections the chunk half just walked, so the
+ * separately managed OIB corpus is never touched from here.
+ */
+async function reconcileOrphanedSummaries(
+  collectionNames: string[],
+): Promise<Pick<VectorReconcileResult, 'summariesForgotten' | 'failures'>> {
+  if (collectionNames.length === 0) return { summariesForgotten: 0, failures: [] }
+  const res = await fetch(`${getBackendUrl()}/v1/maintenance/reconcile-summaries`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-grid-internal-token': process.env.GRID_INTERNAL_API_TOKEN ?? '',
+    },
+    body: JSON.stringify({ collections: collectionNames, dry_run: false }),
+    signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+  })
+  if (!res.ok) throw new Error(`reconcile-summaries returned ${res.status}`)
+  const body = (await res.json().catch(() => ({}))) as BackendSummaryReconcile
+  return {
+    summariesForgotten: typeof body.orphans_forgotten === 'number' ? body.orphans_forgotten : 0,
+    failures: (body.failures ?? []).map((failure) => ({
+      collectionName: failure.collection,
+      error: `summary reconcile: ${failure.error}`,
+    })),
+  }
+}
+
+/**
  * Scan every live collection and delete chunks whose owning document row is
- * gone. Idempotent: a clean store deletes nothing. Compares the DECODED stored
+ * gone, then forget the summary rows those collections hold for files with no
+ * chunks. Idempotent: a clean store deletes nothing. Compares the DECODED stored
  * name against live filenames, so a live document persisted under an encoded
  * name (the historical bug) is correctly recognised as live and its vectors are
  * never deleted.
@@ -176,6 +240,7 @@ export async function reconcileOrphanedVectors(): Promise<VectorReconcileResult>
     collectionsScanned: 0,
     orphansFound: 0,
     orphansDeleted: 0,
+    summariesForgotten: 0,
     failures: [],
   }
 
@@ -196,6 +261,21 @@ export async function reconcileOrphanedVectors(): Promise<VectorReconcileResult>
         error: error instanceof Error ? error.message : 'unknown error',
       })
     }
+  }
+
+  // Second half, AFTER the chunk pass: deleting a file's chunks above already
+  // forgets its summary on the backend, so what is left for this call is
+  // exactly the rows orphaned before the backend learned to do that. Its
+  // failure is recorded like any collection's and never undoes the chunk half.
+  try {
+    const summaries = await reconcileOrphanedSummaries([...live.keys()])
+    result.summariesForgotten = summaries.summariesForgotten
+    result.failures.push(...summaries.failures)
+  } catch (error) {
+    result.failures.push({
+      collectionName: SUMMARY_SWEEP_FAILURE_NAME,
+      error: `summary reconcile: ${error instanceof Error ? error.message : 'unknown error'}`,
+    })
   }
 
   return result

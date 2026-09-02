@@ -17,6 +17,7 @@ const RESULT = {
   collectionsScanned: 24,
   orphansFound: 6,
   orphansDeleted: 148,
+  summariesForgotten: 3,
   failures: [
     { collectionName: 'org-nordbau_proj-hafenspeicher', error: 'list returned 503' },
     { collectionName: 'org-lindner_proj-schulcampus-ost', error: 'delete returned 500' },
