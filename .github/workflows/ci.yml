@@ -472,7 +472,11 @@ jobs:
     # `tenant-isolation` IS here, and must stay: it is the only check that proves
     # the row-level-security boundary actually holds (ADR-0041). The unit shards
     # cannot — the integration suite self-skips without a database.
-    needs: [changes, backend-lint, backend-test, frontend, frontend-test, tenant-isolation, web, infra, repo-lint, release-note]
+    #
+    # `retrieval-eval` IS here for the same reason: it is the only check that
+    # proves a chunker still leaves Punkte as citable units (ADR-0044 rule 7).
+    # Skipped is fine when the retrieval paths did not change.
+    needs: [changes, backend-lint, backend-test, frontend, frontend-test, tenant-isolation, web, infra, repo-lint, release-note, retrieval-eval]
     runs-on: ubuntu-latest
     steps:
       - name: Require needed jobs to have passed (skipped is fine)

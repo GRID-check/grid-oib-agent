@@ -91,6 +91,11 @@ tasks:
 
   setup:
     desc: Install every toolchain this repo needs (backend venv + UI + web + infra)
+    env:
+      # Same reason as .github/actions/setup-python-env: nltk pathsec refuses
+      # hard-linked corpora, and SentenceSplitter (production + retrieval gate)
+      # opens them. Copy mode is the install, not a per-job workaround.
+      UV_LINK_MODE: copy
     cmds:
       - uv venv .venv
       - uv sync --group dev

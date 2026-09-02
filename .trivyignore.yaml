@@ -299,6 +299,34 @@ vulnerabilities:
       assuming a tag bump carries it, exactly as the x/mod entries above
       had to.
 
+  # ── google.golang.org/grpc inside otelcol-contrib (ADR-0029) ──────────────
+  #
+  # Separate from the Go stdlib block (a toolchain rebuild does not clear
+  # it) and from the x/mod / x/crypto pairs (different module). Same image,
+  # same reachability posture. grpc 1.83.1 is the library fix; no published
+  # collector-contrib tag ships it yet (latest is 0.159.0, 2026-08-17).
+
+  - id: CVE-2026-84304
+    expired_at: 2026-10-01
+    statement: |
+      google.golang.org/grpc 1.82.1 — HIGH, marked fixed in 1.83.1. Compiled
+      into otelcol-contrib inside the digest-pinned 0.157.0 image. trivy
+      reads that version from the binary. Latest published collector-contrib
+      tag is 0.159.0 (2026-08-17); grpc 1.83.1 is the library fix, and no
+      digest bump of a currently published tag is known to carry it.
+
+      Not exploitable here: the collector's gRPC listeners are the OTLP
+      receivers in deploy/pulumi/src/platform/otel-collector.ts. Peers are
+      our own pods and the Aspire dashboard, cluster-internal, under a
+      NetworkPolicy. An attacker who can speak gRPC to this process is
+      already inside the cluster. The prize is a denial of service against
+      the telemetry pipeline, not the product.
+
+      Drop as soon as a collector-contrib image ships
+      google.golang.org/grpc >= 1.83.1 — re-verify with
+      `go version -m otelcol-contrib` on the candidate image rather than
+      assuming a tag bump carries it.
+
   # ── Langfuse web/worker images (ADR-0044) ─────────────────────────────────
   #
   # All seven are npm dependencies bundled INSIDE ghcr.io/langfuse/langfuse, not
