@@ -40,7 +40,7 @@ interface SubjectMembership {
  * Cached under a key distinct from `membership:` (used by session resolution,
  * which stores only the id) so the two never clobber each other's shape.
  */
-async function resolveSubjectMembership(
+export async function resolveSubjectMembership(
   organizationId: string,
   userId: string
 ): Promise<SubjectMembership | null> {

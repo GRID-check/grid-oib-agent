@@ -1172,7 +1172,13 @@ async def run_agent_job(
                     # terminal status: a job the reaper already finalized was
                     # reported by nobody, and will not be reported twice here.
                     if finalized:
-                        await notify_job_outcome(job_id=job_id, usage_context=usage_context, status="success")
+                        await notify_job_outcome(
+                            job_id=job_id,
+                            usage_context=usage_context,
+                            status="success",
+                            report=report,
+                            cards=cards,
+                        )
                     logger.info(
                         "Job %s completed (report: %d chars, cards: %d)",
                         job_id,

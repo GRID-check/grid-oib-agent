@@ -526,6 +526,13 @@
       "when": 1788739200006,
       "tag": "0074_documents_live_name_per_collection",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1788825600006,
+      "tag": "0075_tasks",
+      "breakpoints": true
     }
   ]
 }

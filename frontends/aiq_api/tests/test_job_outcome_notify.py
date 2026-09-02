@@ -83,3 +83,31 @@ async def test_never_raises_when_the_bff_is_unreachable() -> None:
 
     with mock.patch("aiq_api.jobs.outcome_notify.httpx.AsyncClient", _Broken):
         assert await notify_job_outcome(job_id="job-4", usage_context=USAGE, status="interrupted") is False
+
+
+@pytest.mark.asyncio
+async def test_a_finished_report_rides_along_for_filing_as_the_requester() -> None:
+    """The BFF files the report as the task's pinned requester (ADR-0051); the
+    worker is the only party that holds the report at completion time."""
+    with mock.patch("aiq_api.jobs.outcome_notify.httpx.AsyncClient", _Client):
+        await notify_job_outcome(
+            job_id="job-1",
+            usage_context=USAGE,
+            status="success",
+            report="# Bericht",
+            cards=[{"type": "legal_basis", "title": "OIB-RL 2"}],
+        )
+
+    call = _Client.calls[0]
+    assert call["json"]["report"] == "# Bericht"
+    assert call["json"]["cards"] == [{"type": "legal_basis", "title": "OIB-RL 2"}]
+
+
+@pytest.mark.asyncio
+async def test_no_report_means_no_report_key() -> None:
+    with mock.patch("aiq_api.jobs.outcome_notify.httpx.AsyncClient", _Client):
+        await notify_job_outcome(job_id="job-1", usage_context=USAGE, status="interrupted", cards=[{"x": 1}])
+
+    assert "report" not in _Client.calls[0]["json"]
+    assert "cards" not in _Client.calls[0]["json"]
+

@@ -74,7 +74,7 @@ describe('POST /api/internal/jobs/[jobId]/outcome', () => {
   it('records the outcome for the run the backend id names', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
     vi.mocked(loadJobRunForOutcome).mockResolvedValue(run)
-    vi.mocked(recordJobOutcome).mockResolvedValue({ notified: true })
+    vi.mocked(recordJobOutcome).mockResolvedValue({ notified: true, filed: null })
 
     const response = await POST(
       makeRequest({ organizationId: 'org-1', status: 'failure', error: 'Budget exhausted' }, REAL_TOKEN),
@@ -83,8 +83,13 @@ describe('POST /api/internal/jobs/[jobId]/outcome', () => {
 
     expect(response.status).toBe(200)
     expect(loadJobRunForOutcome).toHaveBeenCalledWith(BACKEND_JOB_ID)
-    expect(recordJobOutcome).toHaveBeenCalledWith(run, { status: 'failure', error: 'Budget exhausted' })
-    expect(await response.json()).toEqual({ notified: true })
+    expect(recordJobOutcome).toHaveBeenCalledWith(run, {
+      status: 'failure',
+      error: 'Budget exhausted',
+      report: null,
+      cards: null,
+    })
+    expect(await response.json()).toEqual({ notified: true, filed: null })
   })
 
   it('is a 404 for a backend id the BFF has no run for', async () => {

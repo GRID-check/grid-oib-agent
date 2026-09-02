@@ -51,6 +51,7 @@ import {
   type JobSubmitPayload,
 } from './backend-client'
 import * as repository from './repository'
+import { completeTaskForRun, createTaskForRun, loadTaskForOutcome, previousDecisionsBlock } from '@/lib/tasks/service'
 import {
   AGENT_FOR_OUTPUT,
   emptySkillSnapshot,
@@ -362,7 +363,12 @@ export async function fireJob(
   const { organizationId, projectId, createdBy } = job
 
   try {
-    const firePrompt = buildFirePrompt({ prompt: job.prompt, skill: job.skillSnapshot })
+    // What earlier runs of this job were told "no" about, in the reviewer's
+    // words, so the rejection reaches the run instead of a log line.
+    const decisions = await previousDecisionsBlock(job)
+    const firePrompt = [buildFirePrompt({ prompt: job.prompt, skill: job.skillSnapshot }), decisions]
+      .filter(Boolean)
+      .join('\n\n')
     const [
       budgetSnapshot,
       modelOverrides,
@@ -439,7 +445,11 @@ export async function fireJob(
     )
 
     const { jobId } = await submitJob(payload, contextHeaders)
-    return recordJobRun(job, trigger, actor, 'submitted', jobId, null, conversationId)
+    const run = await recordJobRun(job, trigger, actor, 'submitted', jobId, null, conversationId)
+    // The durable unit of this attempt (ADR-0051): the requester pinned, the
+    // plan frozen, the backend id recorded for the worker's outcome to close.
+    await createTaskForRun(job, run, firePrompt)
+    return run
   } catch (err) {
     if (err instanceof JobSubmitSkippedError) {
       const detail =
@@ -575,6 +585,9 @@ export interface JobOutcome {
   status: JobOutcomeStatus
   /** The sanitized, user-safe error the worker persisted, when it failed. */
   error?: string | null
+  /** The finished report and its cards, for filing as the requester (ADR-0051). */
+  report?: string | null
+  cards?: unknown[] | null
 }
 
 /**
@@ -600,10 +613,18 @@ export async function loadJobRunForOutcome(backendJobId: string): Promise<JobRun
  * Idempotent: the unique `(recipient, group_key)` upsert folds a retried report
  * into the existing row, so a worker that notifies twice cannot notify twice.
  */
-export async function recordJobOutcome(run: JobRun, outcome: JobOutcome): Promise<{ notified: boolean }> {
+export async function recordJobOutcome(
+  run: JobRun,
+  outcome: JobOutcome,
+): Promise<{ notified: boolean; filed: { documentId: string; filename: string } | null }> {
   const job = await repository.findJobById(run.scheduleId)
-  if (!job || job.organizationId !== run.organizationId) return { notified: false }
-  if (!run.jobId) return { notified: false }
+  if (!job || job.organizationId !== run.organizationId) return { notified: false, filed: null }
+  if (!run.jobId) return { notified: false, filed: null }
+
+  // Close the task first, and file the report as the requester while doing
+  // so, so the inbox item below can say where the result landed.
+  const task = await loadTaskForOutcome(run.jobId)
+  const completed = task ? await completeTaskForRun(task, outcome) : null
 
   const type: InboxItemType = outcome.status === 'success' ? 'job.completed' : 'job.failed'
   const emitted = await emitInboxItems([
@@ -623,10 +644,13 @@ export async function recordJobOutcome(run: JobRun, outcome: JobOutcome): Promis
         jobId: job.id,
         runId: run.id,
         conversationId: run.conversationId,
+        taskId: completed?.task.id ?? null,
+        filedDocumentId: completed?.filed?.documentId ?? null,
+        filedFilename: completed?.filed?.filename ?? null,
       },
     },
   ])
-  return { notified: emitted > 0 }
+  return { notified: emitted > 0, filed: completed?.filed ?? null }
 }
 
 /**

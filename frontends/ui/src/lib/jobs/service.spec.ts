@@ -52,6 +52,13 @@ vi.mock('@/lib/inbox/service', () => ({
   emitInboxItems: vi.fn(async () => 1),
 }))
 
+vi.mock('@/lib/tasks/service', () => ({
+  createTaskForRun: vi.fn(async () => null),
+  completeTaskForRun: vi.fn(),
+  loadTaskForOutcome: vi.fn(async () => null),
+  previousDecisionsBlock: vi.fn(async () => ''),
+}))
+
 vi.mock('@/lib/projects/memory-service', () => ({
   buildProjectMemoryDigest: vi.fn(async () => 'PROJECT_MEMORY v1\n- Atrium ist OIB 2.3'),
 }))
@@ -87,13 +94,14 @@ import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { resolveSelectableSkills, resolveSkillSnapshot } from '@/lib/skills/service'
 import { insertConversation } from '@/lib/conversations/repository'
+import { completeTaskForRun, createTaskForRun, loadTaskForOutcome, previousDecisionsBlock } from '@/lib/tasks/service'
 import * as repository from './repository'
 import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
 import { emitInboxItems } from '@/lib/inbox/service'
 import { buildGridRequestContextWireHeaders } from '@/lib/request-context'
 import { submitJob, JobSubmitSkippedError, JobSubmitError } from './backend-client'
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
-import type { Job, JobRun } from '@/lib/db/schema'
+import type { Job, JobRun, Task } from '@/lib/db/schema'
 import type { SkillSnapshot } from '@/lib/skills/types'
 import {
   buildFirePrompt,
@@ -370,6 +378,23 @@ describe('fireJob', () => {
     expect(repository.touchJobLastRun).toHaveBeenCalled()
   })
 
+  it('records the attempt as a task, with the prompt it actually submitted', async () => {
+    await fireJob(makeJob({ output: 'deep-research' }), 'manual', 'user_1')
+    const payload = vi.mocked(submitJob).mock.calls[0][0]
+    const [job, run, firePrompt] = vi.mocked(createTaskForRun).mock.calls[0]
+    expect(job.id).toBe(makeJob().id)
+    expect(run).toMatchObject({ status: 'submitted', jobId: 'backend-job-1' })
+    expect(firePrompt).toBe(payload.input)
+  })
+
+  it('tells the run what earlier runs of this job were rejected for', async () => {
+    vi.mocked(previousDecisionsBlock).mockResolvedValueOnce('### PREVIOUS_DECISIONS v1\n- [abgelehnt] Atrium ist OIB 2.3.')
+    await fireJob(makeJob({ output: 'deep-research' }), 'manual', 'user_1')
+    const payload = vi.mocked(submitJob).mock.calls[0][0]
+    expect(payload.input).toContain('Fasse die Woche zusammen.')
+    expect(payload.input.endsWith('- [abgelehnt] Atrium ist OIB 2.3.')).toBe(true)
+  })
+
   it('sends the project memory digest and the reflection flag, ranked against the fire prompt', async () => {
     await fireJob(makeJob({ output: 'deep-research' }), 'manual', 'user_1')
     const payload = vi.mocked(submitJob).mock.calls[0][0]
@@ -571,7 +596,7 @@ describe('recordJobOutcome', () => {
   it('tells the creator of the job, one row per run, with nobody as the actor', async () => {
     vi.mocked(repository.findJobById).mockResolvedValueOnce(makeJob({ id: 'job-1', name: 'Wochenbericht' }))
     const result = await recordJobOutcome(run, { status: 'success' })
-    expect(result).toEqual({ notified: true })
+    expect(result).toEqual({ notified: true, filed: null })
     const [emissions] = vi.mocked(emitInboxItems).mock.calls[0]
     expect(emissions).toHaveLength(1)
     expect(emissions[0]).toMatchObject({
@@ -597,9 +622,31 @@ describe('recordJobOutcome', () => {
     expect(emissions[0].payload).toMatchObject({ status: 'failure', error: 'Budget exhausted' })
   })
 
+  it('closes the task first and tells the creator where the report was filed', async () => {
+    vi.mocked(repository.findJobById).mockResolvedValueOnce(makeJob({ id: 'job-1', name: 'Wochenbericht' }))
+    const task = { id: 'task-1' } as unknown as Task
+    vi.mocked(loadTaskForOutcome).mockResolvedValueOnce(task)
+    vi.mocked(completeTaskForRun).mockResolvedValueOnce({
+      task,
+      filed: { documentId: 'doc-9', filename: 'wochenbericht-2026-09-02.pdf' },
+    })
+
+    const result = await recordJobOutcome(run, { status: 'success', report: '# Bericht', cards: null })
+
+    expect(loadTaskForOutcome).toHaveBeenCalledWith('backend-job-1')
+    expect(completeTaskForRun).toHaveBeenCalledWith(task, { status: 'success', report: '# Bericht', cards: null })
+    expect(result).toEqual({ notified: true, filed: { documentId: 'doc-9', filename: 'wochenbericht-2026-09-02.pdf' } })
+    const [emissions] = vi.mocked(emitInboxItems).mock.calls[0]
+    expect(emissions[0].payload).toMatchObject({
+      taskId: 'task-1',
+      filedDocumentId: 'doc-9',
+      filedFilename: 'wochenbericht-2026-09-02.pdf',
+    })
+  })
+
   it('notifies nobody when the run belongs to a job of another tenant', async () => {
     vi.mocked(repository.findJobById).mockResolvedValueOnce(makeJob({ id: 'job-1', organizationId: 'org-2' }))
-    expect(await recordJobOutcome(run, { status: 'success' })).toEqual({ notified: false })
+    expect(await recordJobOutcome(run, { status: 'success' })).toEqual({ notified: false, filed: null })
     expect(emitInboxItems).not.toHaveBeenCalled()
   })
 })

@@ -114,6 +114,7 @@ Consequences, where a reader looks for them.
 | [0048](0048-tool-schemas-stay-with-the-provider.md) | Tool schemas stay with the provider, and a namespace is what makes that true | Proposed |
 | [0049](0049-folders-travel-as-a-materialised-path.md) | Folders reach the backend as a materialised path, mirrored on move | Proposed |
 | [0050](0050-scoped-agent-onboarding-guides.md) | Agent onboarding guides are scoped per service and bridged into Claude Code by import | Accepted |
+| [0051](0051-tasks-are-the-durable-unit-of-delegated-work.md) | A task row is the durable unit of delegated work: pinned requester, lifecycle and review, filing at completion | Accepted |
 
 > Note: two ADRs were independently numbered 0027, two more 0039, and two more
 > 0047. Each collision is recorded rather than renumbered so existing links

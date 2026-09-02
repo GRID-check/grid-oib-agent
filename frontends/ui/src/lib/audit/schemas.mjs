@@ -252,6 +252,23 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   // `schemas.spec.ts` is what notices when it does not — a kind added there and
   // missing here does not lose an audit line, it unfiles the document the line
   // was about, because this action's emit throws.
+  // A task is the durable unit of delegated work (ADR-0051): created when a
+  // job fires, completed when the worker reports, reviewed when a person judges
+  // the result. The actor is the pinned requester on the first two — the
+  // person whose permission the unattended work acts under — and the reviewer
+  // on the third.
+  'task.created': {
+    targets: [{ type: 'task' }],
+    metadata: { projectId: 'string', kind: 'string', jobId: 'string', trigger: 'string' },
+  },
+  'task.completed': {
+    targets: [{ type: 'task' }],
+    metadata: { projectId: 'string', kind: 'string', status: 'string' },
+  },
+  'task.reviewed': {
+    targets: [{ type: 'task' }],
+    metadata: { projectId: 'string', kind: 'string', decision: 'string', withReason: 'boolean' },
+  },
   'document.generated': {
     targets: [{ type: 'document' }, { type: 'agent_run' }, { type: 'answer_artifact' }],
     // `producer` is emitted by `fileGeneratedDocument` and MUST be declared

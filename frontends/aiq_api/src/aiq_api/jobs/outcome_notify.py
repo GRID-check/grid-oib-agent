@@ -17,6 +17,7 @@ so reporting twice is harmless.
 from __future__ import annotations
 
 import logging
+from typing import Any
 from typing import Literal
 
 import httpx
@@ -41,6 +42,8 @@ async def notify_job_outcome(
     usage_context: dict | None,
     status: JobOutcomeStatus,
     error: str | None = None,
+    report: str | None = None,
+    cards: list[dict] | None = None,
 ) -> bool:
     """POST the run's outcome to ``/api/internal/jobs/{job_id}/outcome``.
 
@@ -57,11 +60,19 @@ async def notify_job_outcome(
         logger.debug("Job %s: outcome not reported (internal BFF route not configured or no tenant)", job_id)
         return False
 
-    payload: dict[str, str | None] = {
+    payload: dict[str, Any] = {
         "organizationId": organization_id,
         "status": status,
         "error": error,
     }
+    # The finished report rides along so the BFF can file it as the requester
+    # (the task row's pinned person) instead of leaving it to expire with the
+    # job store. The interactive report GET stays the other way to file it;
+    # both key on this job id, so they cannot file twice.
+    if report:
+        payload["report"] = report
+        if cards:
+            payload["cards"] = cards
     url = f"{base_url.rstrip('/')}/api/internal/jobs/{job_id}/outcome"
     try:
         async with httpx.AsyncClient(timeout=_NOTIFY_TIMEOUT_SECONDS) as client:
