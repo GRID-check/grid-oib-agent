@@ -3236,14 +3236,17 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # Explicit per-document classification ("Dokumentart").
                     # Prefer a human-set stored class over the filename guess;
                     # stamped into every chunk's metadata below and persisted to
-                    # the summaries row after ingestion. Only meaningful for
-                    # base-corpus files — a guess of "sonstiges" for project/
-                    # session uploads is harmless.
+                    # the summaries row after ingestion. The guess is for the
+                    # base corpus only: on a project, session or Büroarchiv
+                    # upload a guessed "sonstiges" is not harmless — it labelled
+                    # every user document a "Basisdokument" in the Herleitung.
                     from aiq_agent.common.norm_registry import guess_doc_class
+                    from aiq_agent.common.source_kinds import legacy_shelf_for_collection_name
                     from aiq_agent.knowledge import get_document_doc_class
 
                     stored_doc_class = get_document_doc_class(collection_name, file_name)
-                    doc_class = stored_doc_class or guess_doc_class(file_name)
+                    base_corpus = legacy_shelf_for_collection_name(collection_name) is None
+                    doc_class = stored_doc_class or (guess_doc_class(file_name) if base_corpus else None)
                     is_pdf = (
                         file_name.lower().endswith(".pdf")
                         or Path(file_path).suffix.lower() == ".pdf"

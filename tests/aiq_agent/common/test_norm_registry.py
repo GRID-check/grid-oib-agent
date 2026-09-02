@@ -409,7 +409,21 @@ class TestLaneForHit:
 
     def test_project_collections(self):
         assert nr.lane_for_hit(collection="proj_123") == ("projekt", "Projektwissen")
-        assert nr.lane_for_hit(collection="s_session42") == ("projekt", "Projektwissen")
+        # A session attachment shares the project's colour and says whose it is.
+        assert nr.lane_for_hit(collection="s_session42") == ("projekt", "Private Sitzung")
+
+    def test_a_shelf_the_caller_knows_beats_the_collection_guess(self):
+        assert nr.lane_for_hit(collection="whatever", shelf="archiv") == ("buero", "Büroarchiv")
+
+    def test_the_default_class_never_relabels_a_users_document(self):
+        # Ingestion used to stamp "sonstiges" on every upload; on a user's own
+        # shelf that guess is not a decision, and the shelf wins.
+        assert nr.lane_for_hit(collection="proj_123", doc_class="sonstiges") == ("projekt", "Projektwissen")
+        assert nr.lane_for_hit(collection="archiv_org", doc_class="sonstiges") == ("buero", "Büroarchiv")
+        assert nr.lane_for_hit(collection="s_chat", doc_class="sonstiges") == ("projekt", "Private Sitzung")
+        # A base-corpus file nobody classified is still a base document.
+        assert nr.lane_for_hit(collection="oib_knowledge", doc_class="sonstiges") == ("baurecht_basis", "Basisdokument")
+        # A human-set class on a project file still wins (see the test above).
 
     def test_unknown_defaults_to_web(self):
         assert nr.lane_for_hit() == ("web", "Web")

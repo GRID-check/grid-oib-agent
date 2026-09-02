@@ -121,7 +121,7 @@ class TestGuardWithMeasurementGrounding:
         )
 
     def test_fabricated_quote_still_floors_the_answer(self):
-        assert surface_answer_confidence("high", citation_grounded=True, quotes_verified=False) == "low"
+        assert surface_answer_confidence("high", citation_grounded=True, quotes_verified=False) == "medium"
         assert (
             answer_confidence_capped_reason("high", citation_grounded=True, quotes_verified=False) == "quote_unverified"
         )
@@ -174,9 +174,14 @@ class TestGuardWithMeasurementGrounding:
         for level in ("low", "medium", "high"):
             for grounded in (True, False):
                 for quotes in (True, False):
-                    assert surface_answer_confidence(level, grounded, quotes) == (
-                        level if (grounded and quotes) else "low"
-                    )
+                    if grounded and quotes:
+                        expected = level
+                    elif grounded:
+                        # Grounded with one unverified quote: a gap, not nothing.
+                        expected = "low" if level == "low" else "medium"
+                    else:
+                        expected = "low"
+                    assert surface_answer_confidence(level, grounded, quotes) == expected
 
 
 class TestFinalizeShallowAnswerCarriesTheSignals:

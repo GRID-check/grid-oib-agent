@@ -2874,7 +2874,7 @@ class TestDeepReportConfidence:
         )
         result = await self._run(mock_llm_provider, real_tool, self._report("[CONFIDENCE:high]", body=body))
 
-        assert result.answer_confidence == "low"
+        assert result.answer_confidence == "medium"
         assert result.answer_confidence_capped_reason == "quote_unverified"
 
     @pytest.mark.asyncio

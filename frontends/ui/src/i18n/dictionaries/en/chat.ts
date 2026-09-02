@@ -846,7 +846,7 @@ export const chat = {
     gapHit: 'Nothing found',
     // A document the research read but the answer never cited — a real
     // research outcome, not a gap.
-    readNotUsed: 'read, not used',
+    readNotUsed: 'retrieved, not cited',
     moreSources: '+{count} more',
     // The files hung on THIS message. The data sources toggled on in the
     // composer are availability, not activity, and are deliberately not listed
@@ -1132,7 +1132,7 @@ export const chat = {
     // capped, keyed by `answer_confidence_capped_reason` (WP-A, PB-9).
     cappedReasons: {
       ungrounded: 'Low confidence: answer not backed by sources.',
-      quoteUnverified: 'Low confidence: a quote could not be verified verbatim against the source.',
+      quoteUnverified: 'A quote could not be verified verbatim against the source; the assessment is capped accordingly.',
       // The measurement backs the number, not the legal statement beside it —
       // so the mixed answer stays at "low" and the tooltip says why.
       normativeClaimUncited:

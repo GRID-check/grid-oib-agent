@@ -838,7 +838,7 @@ export const chat: typeof en.chat = {
     gapHit: 'Nicht im Bestand',
     // Ein Dokument, das die Recherche gelesen, die Antwort aber nicht zitiert
     // hat — ein echtes Rechercheergebnis, keine Lücke.
-    readNotUsed: 'gelesen, nicht verwendet',
+    readNotUsed: 'abgerufen, nicht zitiert',
     moreSources: '+{count} weitere',
     // Die an DIESE Nachricht angehängten Dateien. Die im Composer aktivierten
     // Datenquellen sind Verfügbarkeit, keine Aktivität, und stehen bewusst
@@ -1129,7 +1129,7 @@ export const chat: typeof en.chat = {
     cappedReasons: {
       ungrounded: 'Geringe Sicherheit: Antwort nicht durch Quellen belegt.',
       quoteUnverified:
-        'Geringe Sicherheit: ein Zitat konnte nicht wörtlich in der Quelle bestätigt werden.',
+        'Ein Zitat konnte nicht wörtlich in der Quelle bestätigt werden; die Einschätzung ist entsprechend begrenzt.',
       // Die Messung belegt die Zahl, nicht die Rechtsaussage daneben — deshalb
       // bleibt die gemischte Antwort auf „gering", und der Tooltip sagt warum.
       normativeClaimUncited:

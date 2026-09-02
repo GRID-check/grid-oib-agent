@@ -160,8 +160,12 @@ class TestAnswerConfidenceCappedReason:
 class TestSurfaceAnswerConfidenceQuotes:
     """The overconfidence guard also caps on an unverified quoted span."""
 
-    def test_unverified_quote_caps_to_low(self):
-        assert surface_answer_confidence("high", True, False) == "low"
+    def test_unverified_quote_caps_a_grounded_answer_to_medium(self):
+        # The span is marked inline; the citations around it still hold.
+        assert surface_answer_confidence("high", True, False) == "medium"
+
+    def test_unverified_quote_without_grounding_is_low(self):
+        assert surface_answer_confidence("high", False, False) == "low"
 
     def test_grounded_and_verified_surfaces_verbatim(self):
         assert surface_answer_confidence("high", True, True) == "high"

@@ -124,7 +124,8 @@ boundary in `ChatResearcherAgent.run()`:
   - `"ungrounded"` — citation verification left the answer without grounding and
     nothing was measured.
   - `"quote_unverified"` — a quoted span failed the deterministic
-    quote-vs-source check (`verify_quoted_spans`, difflib coverage over the
+    quote-vs-source check (a grounded answer is held at "medium", an ungrounded
+    one at "low"; the span itself is marked inline) (`verify_quoted_spans`, difflib coverage over the
     registry's captured `chunk_text`, fail-open; the offending span is annotated
     inline with `[nicht wörtlich in der Quelle belegt]` and the answer is never
     otherwise altered).

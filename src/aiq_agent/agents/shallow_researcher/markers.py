@@ -275,6 +275,14 @@ def surface_answer_confidence(
     if citation_grounded and quotes_verified and not fallback_grounded:
         return self_reported
     if not quotes_verified:
+        # A quote that no passage backs verbatim is marked inline where it
+        # stands; the answer around it may still rest on verified citations.
+        # A grounded answer with one unverified quote is partial grounding
+        # with a gap — "medium" by the reader's own definition of the levels —
+        # not the "low" of an answer nothing supports. Without citation
+        # grounding there is nothing under the quote, and it is "low".
+        if citation_grounded and not fallback_grounded:
+            return _at_most(self_reported, MEASUREMENT_CONFIDENCE_CEILING)
         return "low"
     if (measurement_grounded or fallback_grounded) and not normative_claim_uncited:
         return _at_most(self_reported, MEASUREMENT_CONFIDENCE_CEILING)
