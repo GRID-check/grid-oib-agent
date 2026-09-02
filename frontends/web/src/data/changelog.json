@@ -63,6 +63,22 @@
           "key": "improvements",
           "notes": [
             {
+              "en": "Findet der Dokument-Viewer die zitierte Stelle weder auf der genannten Seite noch auf den Nachbarseiten, sucht er jetzt noch eine Seite weiter in beide Richtungen. Titelblatt und Inhaltsverzeichnis verschieben die eigene Seitenzählung eines Dokuments oft um zwei Blätter.",
+              "de": "Findet der Dokument-Viewer die zitierte Stelle weder auf der genannten Seite noch auf den Nachbarseiten, sucht er jetzt noch eine Seite weiter in beide Richtungen. Titelblatt und Inhaltsverzeichnis verschieben die eigene Seitenzählung eines Dokuments oft um zwei Blätter."
+            },
+            {
+              "en": "Wurde die Einschätzung einer Antwort nachträglich begrenzt, ist die Begründung des Assistenten im Tooltip jetzt als die Begründung vor der Begrenzung ausgewiesen, statt unter der gezeigten Stufe zu stehen.",
+              "de": "Wurde die Einschätzung einer Antwort nachträglich begrenzt, ist die Begründung des Assistenten im Tooltip jetzt als die Begründung vor der Begrenzung ausgewiesen, statt unter der gezeigten Stufe zu stehen."
+            },
+            {
+              "en": "In der Herleitung tragen jetzt auch Dokumente, die gelesen und nicht zitiert wurden, Etikett und Farbe ihres Bereichs (Projekt, Büroarchiv, Sitzung).",
+              "de": "In der Herleitung tragen jetzt auch Dokumente, die gelesen und nicht zitiert wurden, Etikett und Farbe ihres Bereichs (Projekt, Büroarchiv, Sitzung)."
+            },
+            {
+              "en": "Die Rechtstexte nennen bei den internen Funktionen keine Intent-Erkennung mehr; sie existiert seit der letzten Version nicht mehr.",
+              "de": "Die Rechtstexte nennen bei den internen Funktionen keine Intent-Erkennung mehr; sie existiert seit der letzten Version nicht mehr."
+            },
+            {
               "en": "Ein Hintergrundauftrag arbeitet jetzt mit demselben Wissen wie ein Chat-Zug: Er kennt das Projektgedächtnis, kann selbst Notizen ins Projekt schreiben und vergleicht seinen Bericht am Ende mit dem, was das Projekt schon weiß. Bisher lief er allein mit dem Steckbrief aus dem Wizard.",
               "de": "Ein Hintergrundauftrag arbeitet jetzt mit demselben Wissen wie ein Chat-Zug: Er kennt das Projektgedächtnis, kann selbst Notizen ins Projekt schreiben und vergleicht seinen Bericht am Ende mit dem, was das Projekt schon weiß. Bisher lief er allein mit dem Steckbrief aus dem Wizard."
             },
@@ -77,6 +93,10 @@
             {
               "en": "Das Projektgedächtnis findet jetzt auch ältere Notizen wieder, wenn sie zur Frage passen, und eine Korrektur trifft die Notiz, die sie meint, auch wenn sie lange zurückliegt. Bisher endete beides bei den zweihundert zuletzt geänderten Einträgen.",
               "de": "Das Projektgedächtnis findet jetzt auch ältere Notizen wieder, wenn sie zur Frage passen, und eine Korrektur trifft die Notiz, die sie meint, auch wenn sie lange zurückliegt. Bisher endete beides bei den zweihundert zuletzt geänderten Einträgen."
+            },
+            {
+              "en": "Auch ein Recherchebericht kann jetzt eine Datei aus dem Projekt oder dem Büroarchiv als Karte zeigen. Bisher konnte die tiefe Recherche eine Unterlage zitieren, aber nicht öffnen; die Karte erschien nur im Chat.",
+              "de": "Auch ein Recherchebericht kann jetzt eine Datei aus dem Projekt oder dem Büroarchiv als Karte zeigen. Bisher konnte die tiefe Recherche eine Unterlage zitieren, aber nicht öffnen; die Karte erschien nur im Chat."
             },
             {
               "en": "Piloti sortiert eine Frage nicht mehr vor, bevor es antwortet. Jede Frage erreicht den Assistenten mit all seinen Werkzeugen, sodass „zeig mir die Grundrisse\" oder „was weißt du über das Projekt\" jetzt Dateien anzeigen und lesen können, statt nur aus dem Projektprofil zu antworten.",
@@ -105,12 +125,20 @@
             {
               "en": "Ein gelöschtes Dokument verschwindet jetzt auch aus dem Bestand, den der Assistent kennt, selbst wenn seine Textbausteine schon fehlten. Schlägt das Aufräumen im Hintergrund fehl, steht das im Audit-Protokoll.",
               "de": "Ein gelöschtes Dokument verschwindet jetzt auch aus dem Bestand, den der Assistent kennt, selbst wenn seine Textbausteine schon fehlten. Schlägt das Aufräumen im Hintergrund fehl, steht das im Audit-Protokoll."
+            },
+            {
+              "en": "Ein Foto oder eine eingescannte Zeichnung, die in einem hochgeladenen PDF steckt, kann der Assistent jetzt einzeln und in voller Auflösung ansehen, statt nur die ganze Seite darum herum zu rendern. Beim Hochladen werden solche Bilder neben dem Dokument abgelegt und mit dem Dokument wieder gelöscht. Je Antwort sieht sich der Assistent höchstens sechs Bilder an.",
+              "de": "Ein Foto oder eine eingescannte Zeichnung, die in einem hochgeladenen PDF steckt, kann der Assistent jetzt einzeln und in voller Auflösung ansehen, statt nur die ganze Seite darum herum zu rendern. Beim Hochladen werden solche Bilder neben dem Dokument abgelegt und mit dem Dokument wieder gelöscht. Je Antwort sieht sich der Assistent höchstens sechs Bilder an."
             }
           ]
         },
         {
           "key": "fixes",
           "notes": [
+            {
+              "en": "Das Projektgedächtnis erkannte sinngleiche Erkenntnisse in der Produktion nicht als Duplikate: die Ähnlichkeitsprüfung las das Datenbankergebnis in einer Form, die der eingesetzte Treiber nicht liefert, und fand deshalb nie einen Treffer. Eine Umformulierung wird jetzt auch dort mit dem bestehenden Eintrag zusammengeführt.",
+              "de": "Das Projektgedächtnis erkannte sinngleiche Erkenntnisse in der Produktion nicht als Duplikate: die Ähnlichkeitsprüfung las das Datenbankergebnis in einer Form, die der eingesetzte Treiber nicht liefert, und fand deshalb nie einen Treffer. Eine Umformulierung wird jetzt auch dort mit dem bestehenden Eintrag zusammengeführt."
+            },
             {
               "en": "Ein Zitat, das ein ganzes Wort auslässt oder einfügt, gilt nicht mehr als wörtlich belegt. Ein Zitat, aus dem ein „nicht\" verschwunden war, konnte bisher als geprüfte Wiedergabe der Quelle durchgehen; Lesefehler innerhalb eines Wortes werden weiterhin toleriert.",
               "de": "Ein Zitat, das ein ganzes Wort auslässt oder einfügt, gilt nicht mehr als wörtlich belegt. Ein Zitat, aus dem ein „nicht\" verschwunden war, konnte bisher als geprüfte Wiedergabe der Quelle durchgehen; Lesefehler innerhalb eines Wortes werden weiterhin toleriert."
@@ -154,6 +182,10 @@
             {
               "en": "Hält ein Beleg oder ein Zitat der Prüfung nicht stand, sucht Piloti einmal gezielt nach der fraglichen Stelle nach und formuliert die Antwort neu, bevor sie erscheint. Bisher wurde die Stelle nur markiert. Bleibt die Prüfung auch danach ohne Erfolg, bleibt die Markierung.",
               "de": "Hält ein Beleg oder ein Zitat der Prüfung nicht stand, sucht Piloti einmal gezielt nach der fraglichen Stelle nach und formuliert die Antwort neu, bevor sie erscheint. Bisher wurde die Stelle nur markiert. Bleibt die Prüfung auch danach ohne Erfolg, bleibt die Markierung."
+            },
+            {
+              "en": "Der Abgleich unter Plattform → Vektorpflege vergisst jetzt auch Inventareinträge, zu deren Datei nichts mehr zu lesen ist. Ein früher gelöschtes Dokument konnte im Dokumentinventar des Assistenten stehen bleiben und wurde dort weiter aufgelistet, obwohl die Suche es nicht mehr fand. Die Tabelle des letzten Laufs zeigt die Zahl in einer eigenen Zeile.",
+              "de": "Der Abgleich unter Plattform → Vektorpflege vergisst jetzt auch Inventareinträge, zu deren Datei nichts mehr zu lesen ist. Ein früher gelöschtes Dokument konnte im Dokumentinventar des Assistenten stehen bleiben und wurde dort weiter aufgelistet, obwohl die Suche es nicht mehr fand. Die Tabelle des letzten Laufs zeigt die Zahl in einer eigenen Zeile."
             }
           ]
         }
