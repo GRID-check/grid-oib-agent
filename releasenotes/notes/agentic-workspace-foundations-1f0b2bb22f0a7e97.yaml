@@ -46,11 +46,10 @@ fixes:
     werden weiterhin von beiden Wegen ins Gedächtnis ferngehalten.
   - >
     Eine Datei, die ein zweites Mal unter demselben Namen in eine Unterhaltung
-    gezogen wird, ersetzt jetzt die erste, so wie es im Projekt und im
-    Büroarchiv schon der Fall war. Bisher blieb der erste Eintrag sichtbar und
-    herunterladbar, war aber für Piloti nicht mehr auffindbar und wurde doppelt
-    auf den Speicherplatz angerechnet. Vorschaubild und Gebäudemodell der
-    alten Version werden beim Ersetzen mit entfernt.
+    gezogen wird, ersetzt jetzt die erste, wie im Projekt und im Büroarchiv.
+    Bisher blieb der erste Eintrag sichtbar und herunterladbar, war für Piloti
+    aber nicht mehr auffindbar und zählte doppelt zum Speicherplatz.
+    Vorschaubild und Gebäudemodell der alten Version werden mit entfernt.
   - >
     Die Quellenliste eines Rechercheberichts trägt jetzt dieselben Nummern,
     mit denen der Bericht zitiert: Wo im Text „[3]" steht, ist in der Liste

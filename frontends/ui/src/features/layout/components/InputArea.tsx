@@ -490,7 +490,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   })
 
   // Count of files still uploading/ingesting for the current session. Drives
-  // the "still processing" hint on the send button (send is never blocked).
+  // the "still processing" hint on the send button, and holds a submitted
+  // message until it reaches zero (`heldForUpload` below): a question sent
+  // while its attachment is still being read would be answered without it.
   const pendingCount = sessionFiles.filter(
     (f) => f.status === 'uploading' || f.status === 'ingesting'
   ).length
