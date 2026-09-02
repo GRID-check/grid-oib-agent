@@ -666,6 +666,37 @@ describe('createProjectMemoryItem paraphrase de-duplication', () => {
   })
 
   /**
+   * A person's note is never retired by the agent. The finding still lands —
+   * beside it — and the row remembers WHICH note it was not allowed to
+   * replace, so the contradiction is a fact a panel can show rather than a
+   * server log line nobody reads.
+   */
+  it('records a conflict instead of retiring a pinned, human-curated note', async () => {
+    const human = makeMemoryItem({
+      id: 'human-1',
+      kind: 'constraint',
+      pinned: true,
+      content: 'The stairwell must be pressurised (Druckbelueftung)',
+    })
+    const { values, txSet } = mockSupersedeChain([[], [], [human]])
+
+    await createProjectMemoryItem(
+      {
+        scope: 'project',
+        projectId: 'proj-1',
+        organizationId: 'org-1',
+        kind: 'derived_fact',
+        content: 'Natural smoke extraction was approved for the stairwell instead.',
+      },
+      { supersedesContent: 'The stairwell must be pressurised (Druckbelueftung)' }
+    )
+
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({ conflictsWithId: 'human-1' }))
+    expect(values).not.toHaveBeenCalledWith(expect.objectContaining({ supersedesId: 'human-1' }))
+    expect(txSet).not.toHaveBeenCalled()
+  })
+
+  /**
    * The retirement is reported by the write, not read off the returned row: a
    * duplicate/paraphrase refresh hands back an EXISTING item that may already
    * carry a `supersedesId` from an earlier correction, and the internal

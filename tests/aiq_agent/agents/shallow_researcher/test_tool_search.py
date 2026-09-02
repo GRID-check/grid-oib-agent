@@ -274,7 +274,7 @@ class TestNeverNarrowsAwayTheToolTheModelNeeds:
         assert set(selection.selected) == {t.name for t in PRODUCTION_SHAPED_TOOLS}
 
     def test_a_tool_set_smaller_than_top_k_is_never_narrowed(self):
-        """config_grid_oib.yml has three tools. There is nothing to withhold."""
+        """config_web_kimi.yml has three tools. There is nothing to withhold."""
         index = ToolSearchIndex([web_search_tool, knowledge_search, ifc_measure])
         selection = index.select([QueryPart("wie hoch ist der Keller", 1.0)], top_k=4)
 

@@ -51,6 +51,19 @@ MEMORY_REFLECTION_FEATURE_HEADER = "x-grid-feature-memory-reflection"
 ORGANIZATION_ID_HEADER = "x-grid-organization-id"
 USER_ID_HEADER = "x-grid-user-id"
 
+#: What each project-scoped tool needs from the request context to run at all,
+#: keyed by the NAT function TYPE (`_type:` in the config — the stable identity;
+#: the name a config binds it under is the config's choice), as the headers
+#: that carry it. DECLARATIVE, so a test can check every entry path that binds
+#: a tool supplies what it needs: the chat path sets these on the WebSocket
+#: upgrade, the job worker injects them from the run's identity
+#: (`aiq_api.jobs.runner.WORKER_IDENTITY_HEADERS`). `remember` answered "no
+#: project in scope" on every deep-research run for weeks because this
+#: contract lived in two hand-maintained lists that nothing compared.
+TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
+    "project_memory_remember": (PROJECT_ID_HEADER, ORGANIZATION_ID_HEADER),
+}
+
 # Consolidated signed context envelope (backlog T3-9 follow-up, 2026-07-16).
 # `X-Grid-Request-Context` carries base64url(JSON) of the SAME fields the
 # individual x-grid-* headers above carry (minus the internal token, which is

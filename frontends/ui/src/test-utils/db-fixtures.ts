@@ -60,6 +60,7 @@ export const makeMemoryItem = (
   provenanceType: 'agent',
   sourceConversationId: null,
   supersedesId: null,
+  conflictsWithId: null,
   salience: 0.5,
   pinned: false,
   createdBy: null,

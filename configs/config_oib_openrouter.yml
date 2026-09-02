@@ -886,7 +886,6 @@ workflow:
   enable_clarifier: true
   use_async_deep_research: true
   checkpoint_db: ${AIQ_CHECKPOINT_DB:-./checkpoints.db}
-  card_generator_llm: card_llm
   # Enables the async post-answer memory-reflection stage (reuses the cheap
   # card_llm). This only makes the capability AVAILABLE; whether it runs is
   # decided per TURN by the BFF (`GET /api/internal/stages`): the

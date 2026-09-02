@@ -89,6 +89,18 @@ JOB_DEGRADED_EVENT_TYPE = "job.degraded"
 # channel exists so a live listener and an operator counting cutoffs can see it.
 _DEGRADED_EVENT_FIELDS = ("research_truncated", "truncation_reason", "degraded_reasons")
 
+#: The request-context headers a worker supplies to the tools it runs, from
+#: the run's identity. The contract `aiq_agent.project_context.
+#: TOOL_CONTEXT_REQUIREMENTS` is checked against THIS tuple by
+#: `tests/aiq_agent/test_tool_context_contract.py`: a tool that needs a header
+#: the worker does not inject fails that test rather than every unattended run.
+WORKER_IDENTITY_HEADERS: tuple[str, ...] = (PROJECT_ID_HEADER, ORGANIZATION_ID_HEADER, USER_ID_HEADER)
+
+
+def _identity_values(identity: dict) -> tuple[object, object, object]:
+    return (identity.get("project_id"), identity.get("organization_id"), identity.get("user_id"))
+
+
 # The answer's self-assessment, lifted alongside the cutoff/degradation marks and
 # spelled exactly as the socket path spells it (``persist_assistant_message``), so
 # the BFF's existing decoder maps all three into the stored provenance with no
@@ -849,11 +861,7 @@ async def run_agent_job(
             _identity = (usage_context or {}).get("identity") or {}
             _identity_headers = {
                 name: value
-                for name, value in (
-                    (PROJECT_ID_HEADER, _identity.get("project_id")),
-                    (ORGANIZATION_ID_HEADER, _identity.get("organization_id")),
-                    (USER_ID_HEADER, _identity.get("user_id")),
-                )
+                for name, value in zip(WORKER_IDENTITY_HEADERS, _identity_values(_identity), strict=True)
                 if isinstance(value, str) and value.strip()
             }
             if _identity_headers:
