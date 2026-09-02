@@ -58,6 +58,7 @@ class TestRetrievalInput:
             top_k=16,
             reranked=True,
             dropped_by_floor=3,
+            requery_queries=["Gehweglänge Gebäudeklasse 4"],
         )
 
         assert payload == {
@@ -71,6 +72,7 @@ class TestRetrievalInput:
             "top_k": 16,
             "reranked": True,
             "dropped_by_floor": 3,
+            "requery_queries": ["Gehweglänge Gebäudeklasse 4"],
         }
 
     def test_absent_facts_are_omitted_not_null(self):
@@ -85,6 +87,8 @@ class TestRetrievalInput:
             dropped_by_floor=0,
         )
         assert "retrieval_query" not in payload
+        # A one-shot search records no loop, rather than an empty one.
+        assert "requery_queries" not in payload
 
 
 class TestRetrievalOutput:

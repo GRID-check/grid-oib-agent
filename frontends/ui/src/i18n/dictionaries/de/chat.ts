@@ -740,6 +740,10 @@ export const chat: typeof en.chat = {
         retrieval: {
           withQuery: 'Sucht {corpus}: „{query}“',
           plain: 'Sucht {corpus} …',
+          // Die erste Trefferliste reichte nicht; es wird mit anderen
+          // Formulierungen weitergesucht. Die Formulierungen selbst sind
+          // die des Modells und stehen deshalb nicht in der Zeile.
+          requery: 'Erste Treffer reichen nicht — sucht mit anderen Begriffen weiter …',
         },
         // Werkzeuge, die keine Recherche sind, aber vom Nutzer gewollt waren.
         // Ein Werkzeug ohne Eintrag bekommt gar keine Zeile: sein interner

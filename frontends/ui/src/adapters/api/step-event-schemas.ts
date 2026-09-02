@@ -240,6 +240,7 @@ export const TURN_EVENT_KEYS: Record<string, string> = {
   'status.routing.deep': 'thinking.turnStatus.',
   'status.retrieval.withQuery': 'thinking.turnStatus.',
   'status.retrieval.plain': 'thinking.turnStatus.',
+  'status.retrieval.requery': 'thinking.turnStatus.',
   'status.action.remember': 'thinking.turnStatus.',
   'status.action.card': 'thinking.turnStatus.',
   'status.citations': 'thinking.turnStatus.',
