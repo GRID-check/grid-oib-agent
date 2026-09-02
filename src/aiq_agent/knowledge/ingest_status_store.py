@@ -184,10 +184,15 @@ def in_flight_files(collections: Iterable[str]) -> dict[str, list[str]]:
             continue
         if status.status not in (JobState.PENDING, JobState.PROCESSING):
             continue
+        # ``SUCCESS`` is the file-level terminal token (``JobState`` has
+        # ``COMPLETED``; ``FileStatus`` does not). Comparing against the member
+        # that did not exist raised on the first job that carried per-file
+        # detail, the caller swallowed it, and the "still being read" warning
+        # this function feeds never fired for exactly the uploads it was for.
         names = [
             detail.file_name
             for detail in status.file_details
-            if detail.status not in (FileStatus.COMPLETED, FileStatus.FAILED) and detail.file_name
+            if detail.status not in (FileStatus.SUCCESS, FileStatus.FAILED) and detail.file_name
         ]
         # A job with no per-file detail yet is still a job in flight; the
         # collection alone is what the caller needs in that case.

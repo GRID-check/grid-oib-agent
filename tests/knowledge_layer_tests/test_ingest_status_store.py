@@ -12,6 +12,8 @@ from datetime import datetime
 import pytest
 
 from aiq_agent.knowledge import ingest_status_store
+from aiq_agent.knowledge.schema import FileProgress
+from aiq_agent.knowledge.schema import FileStatus
 from aiq_agent.knowledge.schema import IngestionJobStatus
 from aiq_agent.knowledge.schema import JobState
 
@@ -69,3 +71,43 @@ def test_delete(sqlite_db):
     ingest_status_store.put(_status("job-1"))
     ingest_status_store.delete("job-1")
     assert ingest_status_store.get("job-1") is None
+
+
+def _job_with_files(job_id: str, state: JobState, files: dict[str, FileStatus]) -> IngestionJobStatus:
+    status = _status(job_id, state)
+    status.file_details = [FileProgress(file_name=name, status=file_status) for name, file_status in files.items()]
+    return status
+
+
+class TestInFlightFiles:
+    """What the chat turn waits on. This used to raise on the first job with
+    per-file detail (it compared against ``FileStatus.COMPLETED``, which does
+    not exist), and the caller's fail-open swallowed it, so the "still being
+    read" warning never fired for exactly the uploads it was written for."""
+
+    def test_lists_files_still_ingesting_in_a_running_job(self, sqlite_db):
+        ingest_status_store.put(
+            _job_with_files(
+                "job-1",
+                JobState.PROCESSING,
+                {"plan.pdf": FileStatus.INGESTING, "done.pdf": FileStatus.SUCCESS, "bad.pdf": FileStatus.FAILED},
+            )
+        )
+
+        assert ingest_status_store.in_flight_files(["s_test"]) == {"s_test": ["plan.pdf"]}
+
+    def test_a_finished_job_is_not_in_flight(self, sqlite_db):
+        ingest_status_store.put(_job_with_files("job-1", JobState.COMPLETED, {"plan.pdf": FileStatus.SUCCESS}))
+
+        assert ingest_status_store.in_flight_files(["s_test"]) == {}
+
+    def test_only_the_collections_asked_for(self, sqlite_db):
+        ingest_status_store.put(_job_with_files("job-1", JobState.PROCESSING, {"plan.pdf": FileStatus.INGESTING}))
+
+        assert ingest_status_store.in_flight_files(["s_other"]) == {}
+        assert ingest_status_store.in_flight_files([]) == {}
+
+    def test_no_db_is_empty(self, monkeypatch):
+        monkeypatch.delenv("AIQ_SUMMARY_DB", raising=False)
+        monkeypatch.delenv("NAT_JOB_STORE_DB_URL", raising=False)
+        assert ingest_status_store.in_flight_files(["s_test"]) == {}

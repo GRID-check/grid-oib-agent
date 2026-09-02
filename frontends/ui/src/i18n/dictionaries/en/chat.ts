@@ -744,6 +744,9 @@ export const chat = {
           project: 'Reviewing documents from the project …',
           session: 'Reviewing documents from this conversation …',
           several: 'Reviewing your documents …',
+          // A file uploaded moments ago is not indexed yet; the answer holds
+          // for it briefly rather than answering without it.
+          waiting: 'A new file is still being read — the answer is waiting for it …',
         },
         // The routing DECISION, from a closed enum. The classifier's own
         // reason for it is free-text prose in whatever language the model

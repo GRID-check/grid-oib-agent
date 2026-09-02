@@ -282,6 +282,7 @@ def _every_live_payload(steps) -> list[dict]:
     turn_status.emit_documents_loading(["project"])
     turn_status.emit_documents_loading(["session"])
     turn_status.emit_documents_loading(["archiv", "project"])
+    turn_status.emit_documents_waiting(file_count=1)
     turn_status.emit_routing(intent="meta", depth=None, reason=None)
     turn_status.emit_routing(intent="out_of_scope", depth=None, reason=None)
     turn_status.emit_routing(intent="research", depth="shallow", reason="Eine einzelne Fachfrage.")

@@ -719,6 +719,9 @@ export const chat: typeof en.chat = {
           project: 'Unterlagen aus dem Projekt werden gesichtet …',
           session: 'Unterlagen aus dieser Unterhaltung werden gesichtet …',
           several: 'Ihre Unterlagen werden gesichtet …',
+          // Eine gerade hochgeladene Datei ist noch nicht fertig indiziert;
+          // die Antwort wartet kurz darauf, statt ohne sie zu antworten.
+          waiting: 'Eine neue Datei wird noch gelesen — die Antwort wartet darauf …',
         },
         // Die Routing-ENTSCHEIDUNG aus einer festen Auswahl. Die Begründung des
         // Klassifikators ist Freitext in der Sprache des Modells und steht
