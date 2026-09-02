@@ -260,13 +260,12 @@ async def _clarifier(state):
     return result
 
 
-def _agent(shallow_fn=None, *, deep_fn=None, enable_escalation=True, deep_submitter=None):
+def _agent(shallow_fn=None, *, deep_fn=None, deep_submitter=None):
     """Build a ChatResearcherAgent with trivial async node functions."""
     return ChatResearcherAgent(
         shallow_research_fn=shallow_fn or _shallow_fn("answer"),
         deep_research_fn=deep_fn or _deep,
         clarifier_fn=_clarifier,
-        enable_escalation=enable_escalation,
         enable_clarifier=False,
         deep_research_job_submitter=deep_submitter,
     )
@@ -364,19 +363,6 @@ class TestEscalationReasonFor:
         agent = _agent()
         state = ChatResearcherState(
             messages=[HumanMessage(content="Compare X and Y in detail")],
-        )
-        assert agent._escalation_reason_for(state) is None
-
-    def test_disabled_escalation_yields_none(self):
-        agent = _agent(enable_escalation=False)
-        state = ChatResearcherState(
-            messages=[HumanMessage(content="q")],
-            shallow_result=ShallowResult(
-                answer="a",
-                confidence="low",
-                escalate_to_deep=True,
-                escalation_reason="not enough sources",
-            ),
         )
         assert agent._escalation_reason_for(state) is None
 

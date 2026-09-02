@@ -256,7 +256,6 @@ class TestMeasurementConfidenceEndToEnd:
             deep_research_fn=deep_fn,
             clarifier_fn=None,
             enable_clarifier=False,
-            enable_escalation=False,
         )
 
     @pytest.mark.asyncio
@@ -401,7 +400,6 @@ class TestTheSingleSourceFallbackDoesNotLaunder:
             deep_research_fn=deep_fn,
             clarifier_fn=None,
             enable_clarifier=False,
-            enable_escalation=False,
         )
         state = ChatResearcherState(messages=[HumanMessage(content="Reicht die Kellerhöhe?")])
         result = await agent.run(state, thread_id="f1")
@@ -450,7 +448,6 @@ class TestTheFallbackFlagFailsClosedLikeItsSiblings:
             deep_research_fn=deep,
             clarifier_fn=None,
             enable_clarifier=False,
-            enable_escalation=False,
         )
         state = ChatResearcherState(messages=[HumanMessage(content="Wie hoch ist der Keller?")])
 

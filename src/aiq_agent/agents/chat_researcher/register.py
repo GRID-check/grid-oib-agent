@@ -27,6 +27,8 @@ from aiq_agent.common import is_verbose
 from aiq_agent.common.citation_verification import get_or_create_session_registry
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
+from aiq_agent.common.image_view_budget import begin_image_view_budget
+from aiq_agent.common.image_view_budget import end_image_view_budget
 from aiq_agent.common.nat_converters import ensure_registered as _ensure_nat_converters_registered
 from aiq_agent.common.platform_lessons import render_lessons_block
 from aiq_agent.conversation_context import register_context_appender
@@ -562,7 +564,6 @@ def _schedule_registry_persist(conversation_id: str) -> None:
 class ChatDeepResearcherConfig(FunctionBaseConfig, name="chat_deepresearcher_agent"):
     """Configuration for the chat deep researcher orchestrator agent."""
 
-    enable_escalation: bool = Field(default=False, description="Enable escalation from shallow to deep research")
     max_history_tokens: int = Field(
         default=8000,
         description="Maximum number of tokens of chat history to keep before invoking the agent",
@@ -829,7 +830,6 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         deep_research_fn=deep_research_fn.ainvoke,
         clarifier_fn=clarifier_fn.ainvoke if clarifier_fn else None,
         enable_clarifier=config.enable_clarifier,
-        enable_escalation=config.enable_escalation,
         callbacks=callbacks,
         max_history_tokens=config.max_history_tokens,
         deep_research_job_submitter=deep_research_job_submitter,
@@ -1198,6 +1198,10 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         card_registry = get_or_create_card_registry(nat_context_conversation_id)
         card_registry.clear()
         card_token = set_card_registry(card_registry)
+        # Per-turn ceiling on `view_knowledge_image` calls, bound here for the
+        # same reason the card registry is: the tool must see it, and it must
+        # not outlive the turn.
+        image_view_token = begin_image_view_budget()
         memory_log_token = begin_turn_memory_log()
         remembered_this_turn: tuple[str, ...] = ()
         try:
@@ -1260,6 +1264,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         finally:
             reset_session_registry(token)
             reset_card_registry(card_token)
+            end_image_view_budget(image_view_token)
             end_turn_memory_log(memory_log_token)
             # Persist the turn's captured citation sources to the shared cache
             # (ADR-0020) so the conversation keeps prior-turn sources after a

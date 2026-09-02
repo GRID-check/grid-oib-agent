@@ -345,7 +345,7 @@ class TestRejectionIsRemembered:
             calls["shallow"] += 1
             return _shallow_result(state_input.messages, escalating=True)
 
-        agent = _build(escalating_shallow, deep, clarifier, enable_escalation=True)
+        agent = _build(escalating_shallow, deep, clarifier)
 
         # Turn 1: the plan is rejected; the fallback answer asks to escalate.
         await agent.run(

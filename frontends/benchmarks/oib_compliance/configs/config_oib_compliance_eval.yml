@@ -247,7 +247,6 @@ workflow:
   # Clarifier off for eval: golden cases are meant to run unattended/batched;
   # HITL clarification would stall `nat eval` waiting on a human turn.
   enable_clarifier: false
-  enable_escalation: true
   use_async_deep_research: false
   checkpoint_db: ${AIQ_EVAL_CHECKPOINT_DB:-./checkpoints_oib_compliance_eval.db}
 

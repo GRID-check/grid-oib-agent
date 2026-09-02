@@ -161,7 +161,7 @@ class TestConfidenceEndToEnd:
     @pytest.mark.asyncio
     async def test_grounded_high_surfaces_high(self, deep_fn):
         shallow = self._shallow_returning("OIB 2 [1].\n[CONFIDENCE:high]", grounded=True)
-        agent = self._agent(shallow, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow, deep_fn)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="t1")
         assert result["answer_confidence"] == "high"
@@ -170,7 +170,7 @@ class TestConfidenceEndToEnd:
     @pytest.mark.asyncio
     async def test_ungrounded_high_capped_to_low(self, deep_fn):
         shallow = self._shallow_returning("Claim without grounding.\n[CONFIDENCE:high]", grounded=False)
-        agent = self._agent(shallow, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow, deep_fn)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="t2")
         assert result["answer_confidence"] == "low"
@@ -178,7 +178,7 @@ class TestConfidenceEndToEnd:
     @pytest.mark.asyncio
     async def test_no_marker_surfaces_nothing(self, deep_fn):
         shallow = self._shallow_returning("A grounded answer [1].", grounded=True)
-        agent = self._agent(shallow, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow, deep_fn)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="t3")
         assert result.get("answer_confidence") is None
@@ -187,7 +187,7 @@ class TestConfidenceEndToEnd:
     async def test_escalation_branch_surfaces_nothing(self, deep_fn):
         # Shallow emits the escalation marker → escalates to deep; no chip.
         shallow = self._shallow_returning("Partial.\n[CONFIDENCE:high]\n[ESCALATE_TO_DEEP]", grounded=True)
-        agent = self._agent(shallow, deep_fn, enable_escalation=True)
+        agent = self._agent(shallow, deep_fn)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="t4")
         assert result.get("answer_confidence") is None
@@ -198,7 +198,7 @@ class TestConfidenceEndToEnd:
         async def shallow_raises(state_input):
             raise RuntimeError("boom")
 
-        agent = self._agent(shallow_raises, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow_raises, deep_fn)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="t5")
         assert result.get("answer_confidence") is None
@@ -208,7 +208,7 @@ class TestConfidenceEndToEnd:
         async def shallow_raises(state_input):
             raise EmptySourceRegistryError("shallow research")
 
-        agent = self._agent(shallow_raises, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow_raises, deep_fn)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="t6")
         assert result.get("answer_confidence") is None
@@ -219,7 +219,7 @@ class TestConfidenceEndToEnd:
         shallow = self._shallow_returning_structured(
             "OIB 2 [1].", grounded=True, escalation_requested=False, confidence_marker="high"
         )
-        agent = self._agent(shallow, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow, deep_fn)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="s1")
         assert result["answer_confidence"] == "high"
@@ -230,7 +230,7 @@ class TestConfidenceEndToEnd:
         shallow = self._shallow_returning_structured(
             "Claim.", grounded=False, escalation_requested=False, confidence_marker="high"
         )
-        agent = self._agent(shallow, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow, deep_fn)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="s2")
         assert result["answer_confidence"] == "low"
@@ -240,7 +240,7 @@ class TestConfidenceEndToEnd:
         shallow = self._shallow_returning_structured(
             "Partial.", grounded=True, escalation_requested=True, confidence_marker="high"
         )
-        agent = self._agent(shallow, deep_fn, enable_escalation=True)
+        agent = self._agent(shallow, deep_fn)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="s3")
         assert result.get("answer_confidence") is None
@@ -257,7 +257,7 @@ class TestConfidenceEndToEnd:
             confidence_marker="high",
             confidence_reason="Direkt durch OIB-RL 2 belegt",
         )
-        agent = self._agent(shallow, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow, deep_fn)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="s4")
         assert result["answer_confidence"] == "high"
@@ -269,7 +269,7 @@ class TestConfidenceEndToEnd:
         shallow = self._shallow_returning(
             "Teilantwort.\n[CONFIDENCE:medium | Keine Quelle zur Sonderregel]", grounded=True
         )
-        agent = self._agent(shallow, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow, deep_fn)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="s5")
         assert result["answer_confidence"] == "medium"
@@ -286,7 +286,7 @@ class TestConfidenceEndToEnd:
             confidence_marker="high",
             confidence_reason="irrelevant",
         )
-        agent = self._agent(shallow, deep_fn, enable_escalation=True)
+        agent = self._agent(shallow, deep_fn)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="s6")
         assert result.get("answer_confidence") is None
@@ -303,7 +303,7 @@ class TestConfidenceEndToEnd:
             confidence_marker="high",
             confidence_reason="Modell hält es für belegt",
         )
-        agent = self._agent(shallow, deep_fn, enable_escalation=False)
+        agent = self._agent(shallow, deep_fn)
         state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
         result = await agent.run(state, thread_id="s7")
         assert result["answer_confidence"] == "low"
