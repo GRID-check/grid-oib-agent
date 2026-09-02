@@ -27,6 +27,12 @@ runs:
       # (run-shell-injection), even though this input is CI-controlled today.
       env:
         PYTHON_VERSION: ${{ inputs.python-version }}
+        # uv's default hard-link install leaves nltk's bundled corpora with
+        # st_nlink>=2. nltk pathsec then refuses to open them (CWE-59), which
+        # is how llama-index's SentenceSplitter dies on the retrieval gate
+        # and on any production path that actually splits. Copy mode is the
+        # install that matches how those files have to be read.
+        UV_LINK_MODE: copy
       run: |
         uv venv --python "$PYTHON_VERSION" .venv
         uv sync --group dev

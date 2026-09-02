@@ -110,4 +110,3 @@ async def test_no_report_means_no_report_key() -> None:
 
     assert "report" not in _Client.calls[0]["json"]
     assert "cards" not in _Client.calls[0]["json"]
-

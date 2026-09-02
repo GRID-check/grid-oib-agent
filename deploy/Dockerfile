@@ -48,6 +48,9 @@ RUN uv venv /app/.venv --python /usr/local/bin/python
 ENV VIRTUAL_ENV=/app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 ENV UV_PYTHON=/app/.venv/bin/python
+# nltk pathsec refuses hard-linked corpora (st_nlink>=2). SentenceSplitter
+# opens them on ingest; copy mode is the install that makes that legal.
+ENV UV_LINK_MODE=copy
 
 # Copy workspace configuration and lockfile
 COPY pyproject.toml uv.lock ./

@@ -99,6 +99,26 @@ does not have.
 - Bad: one more table inside the tenant boundary (secured by
   `grid_secure_table`, listed in `rls-coverage.spec.ts`).
 
+### Confirmation
+
+The tenant boundary is a CHECK plus a test, not a comment. Migration
+`0075_tasks.sql` calls `grid_secure_table` with the same org-and-project
+predicate `jobs` uses, and names today's `status` / `review` /
+`filing_status` members as CHECKs. `rls-coverage.spec.ts` lists `0075` in
+`BOUNDARY_MIGRATIONS`; `task db:test:rls` (CI's tenant-isolation job) is
+what proves the policy holds.
+
+Filing as a person is three tests, not a route comment:
+`pinned-session.spec.ts` (left the org, no role, feature-flag fail-closed),
+`lib/tasks/service.spec.ts` (the outcome callback files through that
+session, a refusal is recorded on the row, a rejection's reason is quoted
+into the next fire prompt), and `test_job_outcome_notify.py` (the worker
+is the party that holds the report, so the report rides the callback).
+
+`budget_usd` and `deadline_at` are recorded. Nothing enforces them yet;
+the budget guard and the scheduler are the next step, named in the
+decision.
+
 ## More Information
 
 - The row's columns and their reasons: `frontends/ui/src/lib/db/schema/tasks.ts`.
