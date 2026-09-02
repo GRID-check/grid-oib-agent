@@ -307,8 +307,30 @@ def set_db_loader(
     reset_registry_cache()
 
 
+# The repository root, three levels above this file (src/aiq_agent/common/).
+# Only meaningful for a source checkout; an installed wheel has no seed beside it.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
 def _norms_dir(path: str | None) -> Path:
-    return Path(path or os.environ.get(ENV_NORMS_DIR, DEFAULT_NORMS_DIR))
+    """The norms seed directory: explicit ``path``, else ``$GRID_NORMS_DIR``, else the default.
+
+    The default is relative to the working directory, which is the repo root
+    everywhere the seed is loaded on purpose. When it is NOT there — a test run
+    from a package directory such as ``frontends/aiq_api`` — resolve it against
+    the repository root instead, so the seed does not silently vanish and every
+    caller downstream sees an empty registry.
+    """
+    if path:
+        return Path(path)
+    env_value = os.environ.get(ENV_NORMS_DIR)
+    if env_value:
+        return Path(env_value)
+    default = Path(DEFAULT_NORMS_DIR)
+    if default.is_dir():
+        return default
+    from_root = _REPO_ROOT / DEFAULT_NORMS_DIR
+    return from_root if from_root.is_dir() else default
 
 
 def _validated_entries(norms_file: NormsFile, origin: str) -> list[NormEntry]:

@@ -672,3 +672,35 @@ class TestGuessDisplayTitle:
             pytest.skip("corpus not present in this checkout")
         for pdf in corpus.glob("*.pdf"):
             assert nr.guess_display_title(pdf.name), pdf.name
+
+
+class TestNormsDirResolution:
+    """The YAML seed must be found from any working directory of the checkout.
+
+    Every package suite that boots the registry (``frontends/aiq_api`` included)
+    used to see an empty registry when run from its own directory: the default
+    ``configs/norms`` is cwd-relative, and nothing said so. It failed four route
+    tests for weeks and read as a test bug.
+    """
+
+    def test_explicit_path_wins(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(nr.ENV_NORMS_DIR, str(tmp_path / "env"))
+        assert nr._norms_dir(str(tmp_path / "explicit")) == tmp_path / "explicit"
+
+    def test_env_var_beats_the_default(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(nr.ENV_NORMS_DIR, str(tmp_path / "env"))
+        assert nr._norms_dir(None) == tmp_path / "env"
+
+    def test_default_resolves_against_the_repo_root_from_another_cwd(self, tmp_path, monkeypatch):
+        monkeypatch.delenv(nr.ENV_NORMS_DIR, raising=False)
+        monkeypatch.chdir(tmp_path)
+        resolved = nr._norms_dir(None)
+        assert resolved.is_absolute()
+        assert (resolved / "at" / "registry.yml").is_file()
+        assert nr.registry_yaml_files(), "the seed must load from a foreign working directory"
+
+    def test_default_stays_relative_when_the_cwd_holds_the_seed(self, tmp_path, monkeypatch):
+        monkeypatch.delenv(nr.ENV_NORMS_DIR, raising=False)
+        (tmp_path / "configs" / "norms").mkdir(parents=True)
+        monkeypatch.chdir(tmp_path)
+        assert nr._norms_dir(None) == Path(nr.DEFAULT_NORMS_DIR)
