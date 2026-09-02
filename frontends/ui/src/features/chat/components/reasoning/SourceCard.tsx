@@ -11,7 +11,7 @@
  *
  * Now the card can state both halves of the derivation honestly:
  *  - the markers it carries in the answer (`[2] [7]`), or
- *  - "gelesen, nicht verwendet" when retrieval returned it and the answer
+ *  - "abgerufen, nicht zitiert" when retrieval returned it and the answer
  *    did not use it — a real research outcome that was previously not
  *    expressible at all.
  *
@@ -165,7 +165,7 @@ export const SourceCard: FC<{
               {numbers.map((n) => `[${n}]`).join(' ')}
             </span>
           )}
-          {/* "gelesen, nicht verwendet" is a claim about the FINISHED answer.
+          {/* "abgerufen, nicht zitiert" is a claim about the FINISHED answer.
               While the turn is still running there is no answer to make it
               about, so every retrieved document read as discarded — including
               the ones about to be cited a second later. Withheld until the

@@ -357,7 +357,7 @@ describe('a legal_basis card in a mixed answer', () => {
     expect(docs).toHaveLength(2)
     expect(answerDocuments(docs).map((doc) => doc.title)).toContain('Bauordnung für Wien § 108')
     // …and only there: the card was never retrieved, so the Herleitung's
-    // "gelesen, nicht verwendet" half must not claim it as well.
+    // "abgerufen, nicht zitiert" half must not claim it as well.
     expect(unusedDocuments(docs)).toEqual([])
   })
 })

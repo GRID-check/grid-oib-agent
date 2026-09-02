@@ -360,7 +360,6 @@ class TestTransparencyExtrasLift:
         handler = self._handler(built)
         chunk = _chunk("full answer", "stop")
         chunk.routing_decision = "deep"
-        chunk.routing_reason = "needs multi-source synthesis"
         chunk.escalation_reason = "Die erste Antwort war unzureichend."
         chunk.answer_confidence_capped_reason = "ungrounded"
         chunk.citations_removed = {"count": 1, "reasons": ["dead link"]}
@@ -372,7 +371,6 @@ class TestTransparencyExtrasLift:
                 status=WebSocketMessageStatus.COMPLETE,
             )
         assert built.routing_decision == "deep"
-        assert built.routing_reason == "needs multi-source synthesis"
         assert built.escalation_reason == "Die erste Antwort war unzureichend."
         assert built.answer_confidence_capped_reason == "ungrounded"
         assert built.citations_removed == {"count": 1, "reasons": ["dead link"]}
@@ -391,7 +389,6 @@ class TestTransparencyExtrasLift:
             )
         for field in (
             "routing_decision",
-            "routing_reason",
             "escalation_reason",
             "answer_confidence_capped_reason",
             "citations_removed",

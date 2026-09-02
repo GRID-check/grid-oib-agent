@@ -207,7 +207,7 @@ type SourceColumnData = {
   /**
    * The turn is still running.
    *
-   * "gelesen, nicht verwendet" is a claim about the FINISHED answer, and while
+   * "abgerufen, nicht zitiert" is a claim about the FINISHED answer, and while
    * the turn streams there is no answer to make it about — so every retrieved
    * document briefly reads as discarded, including the ones the answer is about
    * to cite. The card withholds the verdict until the turn lands.
