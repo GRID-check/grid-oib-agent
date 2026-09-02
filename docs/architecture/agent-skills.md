@@ -1053,6 +1053,29 @@ report" affordance lights up for free.
   is already stored on the job, and the thread is a convenience layered on top
   of it.
 
+### The task row (ADR-0051)
+
+Every submitted run is also a **task** (`tasks`, `lib/tasks/`): the durable
+unit of delegated work. `fireJob` inserts it beside the `job_runs` row with the
+requester pinned (`jobs.created_by`, never the scheduler), the plan frozen
+(prompt, skill snapshot, data sources) and the backend job id recorded. The
+worker's outcome callback closes it (`succeeded` / `failed` / `interrupted`)
+and, for a finished deep-research task, **files the report into the project as
+the requester**: `lib/auth/pinned-session.ts` resolves that person's membership,
+role and the organization's flags into a session, and `fileResearchReport` runs
+exactly as it does on the interactive report GET, keyed on the same backend job
+id, so the two paths collapse onto one document. A requester who left the
+organization, lacks `project:documents:generate`, or whose organization has
+agent-authored documents off is a `refused` filing recorded on the row — a
+permission the person does not hold is not one the scheduler may borrow.
+
+Review is a second axis on the row: `POST /api/projects/[id]/tasks/[taskId]/review`
+with `{ decision: accepted | rejected, reason? }` (`project:edit`). A rejection's
+reason is quoted into the next run of the same job as a `PREVIOUS_DECISIONS`
+block on the fire prompt (`previousDecisionsBlock`), so what a person told
+Piloti "no" about reaches the run rather than a log line.
+`GET /api/projects/[id]/tasks` lists a project's tasks, newest first.
+
 ## Scheduler worker (`frontends/ui/scheduler/`)
 
 Plain-Node worker (purger idiom: CommonJS, `postgres` client, `.spec.mjs`

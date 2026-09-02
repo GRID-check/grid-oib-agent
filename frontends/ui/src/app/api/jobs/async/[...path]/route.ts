@@ -232,17 +232,18 @@ function readReportCards(data: unknown): unknown[] | undefined {
  * absent) rather than raised, which is the same posture every other best-effort
  * enrichment on this route already takes.
  *
- * ## Interactive runs only
+ * ## Interactive runs here; scheduled runs at completion
  *
- * A scheduled run (`jobs.schedule_cron`) has no live session, and there is no
- * BFF path today on which one reaches this handler — nothing polls a report on
- * a user's behalf. The session check below is therefore both the anonymous-mode
- * guard and the scheduled-run guard: with no session there is no principal
- * whose `project:documents:write` could authorize the write, and resolving the
- * scheduler's `triggered_by` permission at fire time is a real design that v1.1
- * owns (design doc decision 10). Do not paper over it by falling back to a
- * service token — the agent's principal is WIDER than the user's, which is the
- * hole this whole feature was shaped to avoid.
+ * A scheduled run (`jobs.schedule_cron`) has no live session and never reaches
+ * this handler. It is filed by the worker's outcome callback instead
+ * (`/api/internal/jobs/[jobId]/outcome` → `completeTaskForRun`), as the
+ * REQUESTER the task row pinned when the job was set up — the person's own
+ * membership and permissions resolved at completion (ADR-0051, the design's
+ * decision 10). Both paths key the document on the same backend job id, so a
+ * report filed at 03:00 and opened here at 09:00 is one row (migration 0064).
+ * The session check below stays the anonymous-mode guard, and the rule stays:
+ * never a service token — the agent's principal is WIDER than the user's,
+ * which is the hole this whole feature was shaped to avoid.
  */
 async function fileReportIfCommissioned(
   req: Request,

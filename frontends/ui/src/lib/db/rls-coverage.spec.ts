@@ -57,6 +57,9 @@ const BOUNDARY_MIGRATIONS = [
   // event trail. No tenant data (provenance is a feedback uuid + an org hash),
   // so PLATFORM tables: every tenant reads, only the platform role writes.
   '0068_platform_lessons.sql',
+  // Adds tasks — the durable unit of delegated work (ADR-0051). Project-scoped
+  // tenant data, secured the way jobs is.
+  '0075_tasks.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

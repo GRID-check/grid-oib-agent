@@ -10,6 +10,17 @@ features:
     „Pkt. 3.5.2 · S. 7" statt „S. 7". Das ist die Zählung, in der das
     Baurecht selbst zitiert, und sie bleibt nach einem Neuladen und in einer
     geteilten Unterhaltung erhalten.
+  - >
+    Ein geplanter Rechercheauftrag legt seinen Bericht jetzt selbst unter
+    „Berichte" im Projekt ab, und zwar unter der Berechtigung der Person, die
+    den Auftrag eingerichtet hat. Bisher verfiel der Bericht eines
+    nächtlichen Laufs nach einem Tag, wenn ihn niemand aus dem Verlauf
+    öffnete. Der Eintrag im Posteingang nennt das abgelegte Dokument.
+  - >
+    Ein fertiger Auftrag kann angenommen oder mit Begründung abgelehnt
+    werden. Die Begründung erreicht den nächsten Lauf desselben Auftrags,
+    sodass eine Korrektur wie „Atrium ist OIB 2.3" nicht jede Woche neu
+    ausgesprochen werden muss.
 improvements:
   - >
     Ein Hintergrundauftrag arbeitet jetzt mit demselben Wissen wie ein
