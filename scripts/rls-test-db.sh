@@ -28,7 +28,16 @@ if [ -z "${PGBIN:-}" ] || [ ! -x "$PGBIN/initdb" ]; then
 fi
 
 cleanup() {
-  "$PGBIN/pg_ctl" -D "$PGDATA" -m immediate stop >/dev/null 2>&1 || true
+  # Through run_pg, not directly: pg_ctl refuses to run as root, and on a root
+  # host the direct call failed under `|| true` while the rm -rf below deleted
+  # the data directory out from under a server that kept running. (CI is
+  # unprivileged, which is why it never showed there.) run_pg is defined after
+  # this trap is armed, so the early exits above it fall back to the direct call.
+  if declare -F run_pg >/dev/null; then
+    run_pg "'$PGBIN/pg_ctl' -D '$PGDATA' -m immediate stop" >/dev/null 2>&1 || true
+  else
+    "$PGBIN/pg_ctl" -D "$PGDATA" -m immediate stop >/dev/null 2>&1 || true
+  fi
   rm -rf "$WORKDIR"
 }
 trap cleanup EXIT
@@ -85,14 +94,17 @@ node -e '
   }
 done
 
-# Both suites need the same cluster and the same restricted role. The BIM one
-# is here rather than in the unit shards because every claim it makes is a claim
-# about SQL — jsonb property filters, grouped aggregates, the element-to-model
-# tenancy join — and a mocked drizzle handle cannot disagree with the fixture
-# that mocked it.
-echo "==> running the isolation and BIM query suites as grid_app_rw"
+# Every suite here needs the same cluster and the same restricted role. The BIM
+# and memory ones are here rather than in the unit shards because every claim
+# they make is a claim about SQL — jsonb property filters, grouped aggregates,
+# the element-to-model tenancy join, "one fact, one live row" through a raw
+# cosine query — and a mocked drizzle handle cannot disagree with the fixture
+# that mocked it. (The memory suite is the one that found the semantic gate
+# reading `.rows` off a postgres-js array, which every mock had agreed with.)
+echo "==> running the isolation, BIM query and memory consolidation suites as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
   npx vitest run \
     src/lib/db/tenant-isolation.integration.spec.ts \
     src/lib/bim/query.integration.spec.ts \
-    src/lib/bim/model-shelf.integration.spec.ts
+    src/lib/bim/model-shelf.integration.spec.ts \
+    src/lib/projects/memory-service.integration.spec.ts

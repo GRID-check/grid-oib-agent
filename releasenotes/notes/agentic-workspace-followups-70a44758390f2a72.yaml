@@ -1,4 +1,11 @@
 ---
+fixes:
+  - >
+    Das Projektgedächtnis erkannte sinngleiche Erkenntnisse in der Produktion
+    nicht als Duplikate: die Ähnlichkeitsprüfung las das Datenbankergebnis in
+    einer Form, die der eingesetzte Treiber nicht liefert, und fand deshalb
+    nie einen Treffer. Eine Umformulierung wird jetzt auch dort mit dem
+    bestehenden Eintrag zusammengeführt.
 improvements:
   - >
     Findet der Dokument-Viewer die zitierte Stelle weder auf der genannten

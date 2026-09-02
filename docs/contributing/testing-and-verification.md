@@ -43,7 +43,14 @@ run. A green `task fe:types` is what tells you the build will typecheck.
 
 **`task db:test:rls` is a required merge check and is not part of `task
 verify`.** It needs PostgreSQL server binaries, so it runs separately. Run it
-whenever you touch the tenant boundary.
+whenever you touch the tenant boundary — and whenever you touch a claim that is
+really about SQL. The script (`scripts/rls-test-db.sh`) runs a fixed list of
+`*.integration.spec.ts` files, not a glob: tenant isolation, the two BIM query
+suites, and the memory service's "one fact, one live row" consolidation suite.
+A new database-backed spec has to be added to that list, or it only ever runs
+on a developer's machine. Each of those files also carries a
+`GRID_RLS_SUITE_REQUIRED` guard so the CI job fails if the database goes
+missing instead of skipping green.
 
 **Backend tests need `PYTHONPATH=src`.** Without it pytest resolves `aiq_agent`
 from whatever the venv has installed, possibly another worktree, and validates

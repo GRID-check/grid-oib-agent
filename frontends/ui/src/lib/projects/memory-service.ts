@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { executeRows } from '@/lib/db/execute-rows'
 import { projectMemory, projects } from '@/lib/db/schema'
 import type {
   NewProjectMemoryItem,
@@ -214,7 +215,7 @@ async function findSemanticNearMatch(
     order by similarity desc
     limit 1
   `)
-  const rows = (result as { rows?: Record<string, unknown>[] })?.rows ?? []
+  const rows = executeRows(result)
   if (rows.length === 0) return null
   const raw = rows[0]
   // The consolidation path reads id/content/pinned/verification/provenance —
@@ -1025,8 +1026,7 @@ export async function implicateMemoryFromFeedback(input: {
       where p.id = i.id
       returning p.id
     `)
-    const rows = (result as { rows?: Record<string, unknown>[] })?.rows ?? []
-    return rows.length
+    return executeRows(result).length
   } catch (error) {
     console.warn('[memory] Feedback implication failed (non-fatal):', error)
     return 0
