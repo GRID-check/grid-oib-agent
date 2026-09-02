@@ -244,6 +244,11 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     { name: "AIQ_VLM_MODEL", value: cfg.llm.vlmModel },
     { name: "AIQ_VLM_BASE_URL", value: cfg.llm.vlmBaseUrl },
     srefAs("AIQ_VLM_API_KEY", "OPENROUTER_API_KEY"),
+    // Photos and figures embedded in uploaded PDFs are captioned at ingest so a
+    // search can find them and `view_knowledge_image` can be asked for the
+    // page. Off, a plan set's photos are invisible to retrieval; the compose
+    // deployment has had this on since the tool shipped.
+    { name: "AIQ_EXTRACT_IMAGES", value: "true" },
     // Object storage for the `view_knowledge_image` tool (ADR-0039): the backend
     // fetches project/Archiv document bytes directly from SeaweedFS (it resolves
     // the storage key via the internal BFF lookup first). This OVERRIDES the

@@ -16,7 +16,8 @@
 'use client'
 
 import { type FC } from 'react'
-import { ExternalLink, FileSearch, Link2 } from 'lucide-react'
+import Link from 'next/link'
+import { ExternalLink, FileSearch, FolderOpen, Link2 } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -25,7 +26,10 @@ import {
   citedPages,
   refPage,
   type CitationRef,
+  type CitedDocument,
 } from '../lib/citations'
+import type { Shelf } from '../lib/source-kinds'
+import { useChatStore } from '../store'
 import { CopySourceCitationButton } from './CopyCitation'
 import { CopyCitationLinkButton } from './CopyCitationLink'
 
@@ -108,6 +112,51 @@ const LocusLine: FC<{ citation: CitationRef }> = ({ citation }) => {
         : t('citationPeek.wholeDocument')
 
   return <p className="text-xs tabular-nums text-muted-foreground">{text}</p>
+}
+
+/**
+ * The link to where the cited document LIVES in the app.
+ *
+ * The peek answers "what is this?"; the next question is often "where is it?"
+ * — to see the file beside its siblings, to replace it with a newer version,
+ * to check who filed it. Answering that used to mean closing the peek and
+ * navigating from memory. The project shelf lives in the project's files, the
+ * office archive at its own route; the base corpus and the session shelf have
+ * no page of their own, and a web source already carries its `url`, so for
+ * those there is nothing to offer and nothing is rendered.
+ *
+ * The project id comes off the chat store, which is how every other consumer
+ * of the store on this popover's path already reads it.
+ */
+const DocumentHomeLink: FC<{ shelf?: Shelf; tint: CitedDocument['tint'] }> = ({
+  shelf,
+  tint,
+}) => {
+  const t = useTranslations('chat')
+  const projectId = useChatStore((s) => s.projectId)
+
+  const target =
+    shelf === 'project' && projectId
+      ? {
+          href: `/app/projects/${encodeURIComponent(projectId)}/files`,
+          label: t('documentGrid.openInFiles'),
+        }
+      : shelf === 'archiv'
+        ? { href: '/app/archiv', label: t('documentGrid.openInArchive') }
+        : null
+  if (!target) return null
+
+  return (
+    <Link
+      href={target.href}
+      data-citation-home=""
+      className="inline-flex items-center gap-1 text-xs font-medium hover:underline"
+      style={{ color: `var(--source-${tint}-text, var(--foreground))` }}
+    >
+      <FolderOpen aria-hidden="true" className="size-3.5" />
+      {target.label}
+    </Link>
+  )
 }
 
 export const CitationPeek: FC<CitationPeekProps> = ({
@@ -210,6 +259,7 @@ export const CitationPeek: FC<CitationPeekProps> = ({
             <ExternalLink aria-hidden="true" className="size-3" />
           </a>
         )}
+        <DocumentHomeLink shelf={doc.shelf} tint={tint} />
         <span className="flex-1" />
         <CopyCitationLinkButton citation={citation} icon={<Link2 className="size-3" />} />
         <CopySourceCitationButton citation={citation} />

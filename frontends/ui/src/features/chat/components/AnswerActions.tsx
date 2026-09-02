@@ -9,7 +9,7 @@
  * structure on the way. These two buttons are that way out.
  *
  *   ⧉  Antwort kopieren                 → the markdown the answer was written in
- *   ☰  Antwort mit Quellenangaben       → the same prose, sources written out
+ *   ❞  Antwort mit Quellenangaben       → the same prose, sources written out
  *   ⤓  Als Word-Dokument               → the export route's .docx, cards and all
  *
  * The copy buttons put the answer on the clipboard in two flavors at once
@@ -30,12 +30,20 @@
  * full contrast on hover/focus, no band and no divider of its own. Confirmation
  * is the Check-swap `CopyCitation` already uses — no toast on success, and the
  * error path is that component's `toast.error`, not a new mechanism.
+ *
+ * Each glyph carries a tooltip with the same words as its `aria-label`. Three
+ * unlabelled 14px icons in a row read as one control with three states, and
+ * the two copy actions in particular used to be two clipboard glyphs a reader
+ * could only tell apart by hovering and reading the screen-reader name — which
+ * a sighted reader never sees. The quote mark on the second is the difference
+ * made visible: the sources come along.
  */
 
 import { useCallback, useState, type FC } from 'react'
-import { Check, ClipboardList, Copy, FileDown } from 'lucide-react'
+import { BookMarked, Check, Copy, FileDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { FOCUS_RING } from '@/components/ui/focus-ring'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { copyMarkdownToClipboard } from '@/shared/utils/clipboard-rich'
@@ -171,50 +179,65 @@ export const AnswerActions: FC<AnswerActionsProps> = ({
   }, [copy, body, documents, t])
 
   const withSources = hasCopyableSources(documents)
+  const copyLabel = copied === 'answer' ? t('answerActions.copied') : t('answerActions.copy')
+  const copyWithSourcesLabel =
+    copied === 'withSources' ? t('answerActions.copied') : t('answerActions.copyWithSources')
+  const downloadLabel = t('answerActions.downloadDocx')
 
   return (
     <div className={cn('flex items-center gap-0.5', className)}>
-      <button
-        type="button"
-        onClick={handleCopyAnswer}
-        aria-label={copied === 'answer' ? t('answerActions.copied') : t('answerActions.copy')}
-        className={actionButton}
-      >
-        {copied === 'answer' ? (
-          <Check className="size-3.5" aria-hidden="true" />
-        ) : (
-          <Copy className="size-3.5" aria-hidden="true" />
-        )}
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={handleCopyAnswer}
+            aria-label={copyLabel}
+            className={actionButton}
+          >
+            {copied === 'answer' ? (
+              <Check className="size-3.5" aria-hidden="true" />
+            ) : (
+              <Copy className="size-3.5" aria-hidden="true" />
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{copyLabel}</TooltipContent>
+      </Tooltip>
       {withSources && (
-        <button
-          type="button"
-          onClick={handleCopyWithSources}
-          aria-label={
-            copied === 'withSources'
-              ? t('answerActions.copied')
-              : t('answerActions.copyWithSources')
-          }
-          className={actionButton}
-        >
-          {copied === 'withSources' ? (
-            <Check className="size-3.5" aria-hidden="true" />
-          ) : (
-            <ClipboardList className="size-3.5" aria-hidden="true" />
-          )}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={handleCopyWithSources}
+              aria-label={copyWithSourcesLabel}
+              className={actionButton}
+            >
+              {copied === 'withSources' ? (
+                <Check className="size-3.5" aria-hidden="true" />
+              ) : (
+                <BookMarked className="size-3.5" aria-hidden="true" />
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{copyWithSourcesLabel}</TooltipContent>
+        </Tooltip>
       )}
       {conversationId && messageId && (
-        <button
-          type="button"
-          onClick={() => void handleDownloadDocx()}
-          disabled={exporting}
-          aria-busy={exporting || undefined}
-          aria-label={t('answerActions.downloadDocx')}
-          className={cn(actionButton, exporting && 'cursor-progress opacity-50')}
-        >
-          <FileDown className="size-3.5" aria-hidden="true" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => void handleDownloadDocx()}
+              disabled={exporting}
+              aria-busy={exporting || undefined}
+              aria-label={downloadLabel}
+              className={cn(actionButton, exporting && 'cursor-progress opacity-50')}
+            >
+              <FileDown className="size-3.5" aria-hidden="true" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{downloadLabel}</TooltipContent>
+        </Tooltip>
       )}
     </div>
   )
