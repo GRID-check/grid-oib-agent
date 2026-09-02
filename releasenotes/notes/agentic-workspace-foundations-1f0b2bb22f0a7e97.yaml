@@ -51,3 +51,18 @@ fixes:
     herunterladbar, war aber für Piloti nicht mehr auffindbar und wurde doppelt
     auf den Speicherplatz angerechnet. Vorschaubild und Gebäudemodell der
     alten Version werden beim Ersetzen mit entfernt.
+  - >
+    Die Quellenliste eines Rechercheberichts trägt jetzt dieselben Nummern,
+    mit denen der Bericht zitiert: Wo im Text „[3]" steht, ist in der Liste
+    ersichtlich, welche Fundstelle die dritte ist. Bisher kannte die Liste
+    eines live verfolgten oder aus dem Verlauf geöffneten Laufs die Nummern
+    nicht.
+  - >
+    Wenn ein Recherchelauf seinen Bericht fertigstellt, die daraus
+    abgeleiteten Vorschläge aber nicht erzeugen konnte, sagt Piloti das jetzt
+    unter der Antwort. Bisher sah ein solcher Lauf genauso aus wie einer, zu
+    dem es schlicht nichts vorzuschlagen gab.
+  - >
+    Ein OIB-Dokument einer anderen Ausgabe als Mai 2023 erhält jetzt den
+    richtigen Ausgabevermerk im Titel, statt als „Ausgabe Mai 2023"
+    beschriftet oder gar nicht erkannt zu werden.

@@ -843,6 +843,14 @@ export interface JobReportResponse {
    * permissions and limits, and those are in the server log an operator reads.
    */
   filingFailed?: boolean
+  /**
+   * The report's verified sources, each carrying the `[N]` the report cites it
+   * by. The live stream announces a source when a tool finds it, before
+   * verification has numbered anything, so a reader of the finished report
+   * had rows with no way to tell which one `[3]` was. Absent when the run
+   * recorded none, or on a body from before the field existed.
+   */
+  sources?: WireCitationSource[]
 }
 
 /**
@@ -907,6 +915,7 @@ export const getJobReport = async (
     // client that believed a string here would retract a promise the server
     // never said was broken.
     ...(body.filingFailed === true ? { filingFailed: true as const } : {}),
+    ...(Array.isArray(body.sources) && body.sources.length > 0 ? { sources: body.sources } : {}),
   }
 }
 
