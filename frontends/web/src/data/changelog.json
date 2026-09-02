@@ -32,6 +32,33 @@
   },
   "releases": [
     {
+      "id": "2026-09-03",
+      "kind": "date",
+      "version": null,
+      "date": "2026-09-03",
+      "summary": null,
+      "sections": [
+        {
+          "key": "improvements",
+          "notes": [
+            {
+              "en": "The interface feels calmer and more responsive: buttons answer every press with a subtle dip, copying an answer pops a check mark, and loading placeholders shimmer instead of flashing grey.",
+              "de": "The interface feels calmer and more responsive: buttons answer every press with a subtle dip, copying an answer pops a check mark, and loading placeholders shimmer instead of flashing grey."
+            }
+          ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Loading views no longer jump when the real content arrives, error messages are clearly visible as errors, and status chips, search fields and viewer panels render consistently in light and dark mode.",
+              "de": "Loading views no longer jump when the real content arrives, error messages are clearly visible as errors, and status chips, search fields and viewer panels render consistently in light and dark mode."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-09-02",
       "kind": "date",
       "version": null,
