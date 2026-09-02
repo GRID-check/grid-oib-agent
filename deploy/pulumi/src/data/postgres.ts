@@ -41,6 +41,8 @@ export interface Postgres {
 }
 
 const CLUSTER_NAME = "grid-pg";
+export const CNPG_CHART_REPOSITORY =
+  "https://raw.githubusercontent.com/cloudnative-pg/charts/gh-pages";
 
 // Table DDL adapted from deploy/compose/init-db.sql, minus the psql
 // meta-commands (\gexec/\connect) — CNPG creates the databases, this Job only
@@ -141,7 +143,7 @@ export function installPostgres(
       chart: "cloudnative-pg",
       // Unpinned: track the latest CloudNativePG operator chart.
       namespace: opNs.metadata.name,
-      repositoryOpts: { repo: "https://cloudnative-pg.github.io/charts" },
+      repositoryOpts: { repo: CNPG_CHART_REPOSITORY },
       // The chart ships no resources by default; set both (autoscaler prereq).
       values: { resources: PLATFORM_RESOURCES.cnpgOperator },
     },
