@@ -824,6 +824,26 @@ export interface GridConfig {
     schedule: string;
   };
 
+  vectorReconcile: {
+    /**
+     * The orphaned-vector sweep (`POST /api/internal/maintenance/reconcile-vectors`):
+     * chunks whose document row is gone are deleted from the shared vector
+     * store, and summary rows whose chunks are gone are forgotten. Enabled by
+     * default for the reason the storage alert is: the orphans it recovers are
+     * invisible in the product — a deleted file that still answers questions,
+     * a listed file nobody can read — so nobody knows to start the manual run
+     * on Platform → Vector maintenance.
+     */
+    enabled: boolean;
+    /**
+     * 5-field cron for the sweep. Weekly, off-peak, by default: every
+     * collection is scanned each tick, and the store is written to only when
+     * a past delete left something behind, so a tighter period costs scans
+     * without recovering anything sooner than the next upload would notice.
+     */
+    schedule: string;
+  };
+
   agentAuthoredDocuments: {
     /**
      * Operator kill switch for agent-authored documents: a finished
@@ -2292,6 +2312,12 @@ export function loadConfig(): GridConfig {
       enabled: bool(cfg, "storageAlertsEnabled", true),
       thresholdPercent: storageAlertThresholdPercent,
       schedule: cfg.get("storageAlertSchedule") ?? "0 * * * *",
+    },
+
+    vectorReconcile: {
+      enabled: bool(cfg, "vectorReconcileEnabled", true),
+      // Sundays 03:00 UTC.
+      schedule: cfg.get("vectorReconcileSchedule") ?? "0 3 * * 0",
     },
 
     collaboration: {
