@@ -186,6 +186,98 @@ def expansion_terms(query: str | None) -> list[str]:
     return terms
 
 
+#: Human-readable German names for the six OIB-Richtlinien, keyed by number.
+#: Mirrors ``aiq_agent.agents.compliance_checker.models.request.RICHTLINIE_NAMES``
+#: (duplicated, not imported, so this hot-path pure module stays dependency-free).
+_OIB_RICHTLINIE_NAMES: dict[int, str] = {
+    1: "Standsicherheit",
+    2: "Brandschutz",
+    3: "Hygiene, Gesundheit und Umweltschutz",
+    4: "Nutzungssicherheit und Barrierefreiheit",
+    5: "Schallschutz",
+    6: "Energieeinsparung und Wärmeschutz",
+}
+
+#: Loose OIB references users actually type: "oib 2", "OIB 2", "oib-richtlinie 2",
+#: "OIB-RL 2", "OIB RL 2.3", "oib rl_2". The number is captured whole ("2023",
+#: not "2") so a year never becomes a Richtlinie.
+_OIB_REF_RE = re.compile(
+    r"\boib[\s\-_–—]*?(?:(?:richtlinie(?:n)?|rl\.?)[\s\-_–—]*)?(\d+(?:\.\d+)?)\b",
+    re.IGNORECASE,
+)
+
+#: An explicit multi-Richtlinie range ("1-6", "1–6", "1 bis 6") names the whole
+#: corpus, not one Richtlinie. Pinning a single discipline onto it would bias
+#: retrieval at exactly the overview question that must stay broad.
+_OIB_RANGE_RE = re.compile(r"\b[1-6]\s*(?:[-–—]|bis)\s*[1-6]\b", re.IGNORECASE)
+
+#: Already-canonical "OIB-Richtlinie N" (hyphen or space, any case), per number.
+def _oib_canonical_present(query: str, number: str) -> bool:
+    return re.search(
+        rf"\boib[-\s]*richtlinie\s*{re.escape(number)}\b",
+        query,
+        re.IGNORECASE,
+    ) is not None
+
+
+def canonicalize_oib_query(query: str | None) -> str:
+    """Prepend the retrievable OIB formulation a broad overview query is missing.
+
+    Backlog 11: "was weißt du über die oib 2" reaches retrieval as pure vector
+    single-channel -- lowercase "oib" yields zero exact terms
+    (``legal_terms.extract_exact_terms`` needs ALLCAPS or the canonical
+    "OIB-Richtlinie N" token) and the sparse survivors die on the DF ceiling
+    ("oib" is a 95%-frequent corpus-identity word) plus the digit-only rule
+    ("2" alone is discarded). The precise rewrite "OIB-Richtlinie 2
+    Brandschutz" lights all three channels. The LLM rewrite that should
+    produce it only does so on turn 2, once history shows the precise form.
+
+    This is the deterministic turn-1 half of that rewrite: when the query names
+    an OIB-Richtlinie number in any loose spelling, ensure the canonical
+    "OIB-Richtlinie N" form plus the discipline term (2 -> Brandschutz, ...)
+    reach the retrieval query. Prepended, because encoders weight early tokens
+    more (same reason :func:`augmented_query` prepends) and the original
+    wording is kept for its specifics. Idempotent and additive: a query that
+    already carries the canonical form and the discipline is returned
+    unchanged; anything without an OIB 1-6 reference is returned unchanged.
+
+    Pure, deterministic, fail-open: never raises, never translates, never
+    guesses a number outside 1-6 (a year such as 2023 is ignored).
+    """
+    if not query or not query.strip():
+        return query or ""
+    if _OIB_RANGE_RE.search(query):
+        return query
+    folded = query.casefold()
+    seen: set[str] = set()
+    prefix: list[str] = []
+    for match in _OIB_REF_RE.finditer(query):
+        number = match.group(1)
+        if not number or number in seen:
+            continue
+        seen.add(number)
+        try:
+            base = int(number.split(".", 1)[0])
+        except ValueError:
+            continue
+        discipline = _OIB_RICHTLINIE_NAMES.get(base)
+        if not discipline:
+            continue
+        if not _oib_canonical_present(query, number):
+            prefix.append(f"OIB-Richtlinie {number}")
+        # The discipline counts as present when its first content word is
+        # already there ("Hygiene" for RL 3), so a partial mention is not
+        # re-prepended in full.
+        first_word = re.search(r"[^\W\d_]+", discipline, re.UNICODE)
+        anchor = first_word.group(0) if first_word else discipline
+        if anchor.casefold() not in folded:
+            prefix.append(discipline)
+            folded = f"{anchor.casefold()} {folded}"
+    if not prefix:
+        return query
+    return f"{' '.join(prefix)} {query}"
+
+
 def augmented_query(query: str | None) -> str:
     """``query`` with its German equivalents prepended, or unchanged.
 
