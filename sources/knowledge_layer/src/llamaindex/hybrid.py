@@ -106,3 +106,75 @@ def reciprocal_rank_fusion(
         Chunks sorted by fused score, descending, trimmed to ``top_n``.
     """
     return [chunk for chunk, _fused_rank, _fused_score in fuse_with_ranks(channels, k=k, top_n=top_n)]
+
+
+try:
+    from aiq_agent.common.german_text import DEFAULT_DF_CEILING_MIN_TOTAL  # type: ignore
+    from aiq_agent.common.german_text import DEFAULT_DF_CEILING_RATIO  # type: ignore
+except ImportError:  # knowledge_layer usable without the aiq_agent package
+    #: Mirrors ``aiq_agent.common.german_text`` for the standalone-package case only.
+    #: Change the numbers THERE; these exist so the import failure degrades to the same
+    #: behaviour rather than to no ceiling at all.
+    DEFAULT_DF_CEILING_RATIO = 0.25  # type: ignore[assignment]
+    DEFAULT_DF_CEILING_MIN_TOTAL = 25  # type: ignore[assignment]
+
+
+def selective_terms(
+    frequencies: dict[str, int],
+    total: int,
+    *,
+    df_ceiling_ratio: float = DEFAULT_DF_CEILING_RATIO,
+    min_total: int = DEFAULT_DF_CEILING_MIN_TOTAL,
+) -> list[str]:
+    """Drop the exact terms whose document frequency is too high to filter anything.
+
+    The ``$contains`` channel is a FILTER over the dense ranking, so its worth is
+    entirely its selectivity: a term present in nearly every chunk returns the vector
+    channel back, and RRF then counts that same dense ranking twice — every chunk the
+    dense channel already found scores ``2/(k+rank+1)`` while a chunk only the German
+    sparse channel found still scores ``1/(k+rank+1)``. The lexical evidence loses to
+    an echo. Measured on this corpus, a bare ``OIB`` is on 92.3% of pages and 39 of 39
+    documents, so it is exactly that echo (``german_text``'s module docstring records
+    the same finding at chunk level: 467 of 490, 95.3%).
+
+    That channel had no ceiling while the German sparse channel it sits beside has had
+    one since it was built (``german_text.select_terms`` rule 2, same constants, same
+    reason). This is that rule, applied where the terms are literal substrings rather
+    than lexemes: drop a term that matches nothing (a wasted round trip) and drop a term
+    that matches more than ``df_ceiling_ratio`` of the collection (a wasted round trip
+    that also skews the fusion). An EMPTY result is a correct, expected outcome and
+    means "no usable exact signal" — the caller degrades to the other channels.
+
+    The ceiling is only applied once the collection is big enough for a ratio to mean
+    anything (``min_total``), because in a six-chunk project collection every real term
+    looks ubiquitous.
+
+    Args:
+        frequencies: ``term -> number of chunks in the collection containing it``.
+        total: Chunks in the collection.
+        df_ceiling_ratio: Share of the collection above which a term is noise.
+        min_total: Below this many chunks the ratio is noise; only ``df == 0`` drops.
+
+    Returns:
+        The terms worth a ``$contains`` pass, in ``frequencies`` insertion order.
+    """
+    if not frequencies or total <= 0:
+        return []
+    apply_ceiling = total >= min_total
+    ceiling = total * df_ceiling_ratio
+    kept: list[str] = []
+    for term, frequency in frequencies.items():
+        if frequency <= 0:
+            continue
+        if apply_ceiling and frequency > ceiling:
+            logger.info(
+                "Exact term %r dropped: on %d of %d chunks (%.1f%%), above the %.0f%% ceiling",
+                term,
+                frequency,
+                total,
+                100.0 * frequency / total,
+                100.0 * df_ceiling_ratio,
+            )
+            continue
+        kept.append(term)
+    return kept

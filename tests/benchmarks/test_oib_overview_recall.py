@@ -5,23 +5,34 @@ three cohorts (overview / exact-id / paraphrase), scored as recall@16
 (k = production top_k) + MRR against a deterministic in-memory fixture corpus.
 Offline, no network, no Chroma, no embedder, no PDF, no key — seconds in CI.
 
-BASELINE (recorded 2026-09-03; overview re-recorded after item 13, see ``BASELINE`` below):
+BASELINE (recorded 2026-09-03; overview re-recorded after the item-13 correction):
 
 | cohort     | recall@16 | mrr   | empty |
 |------------|-----------|-------|-------|
-| overview   | 0.583     | 0.389 | 0.10  |
+| overview   | 0.150     | 0.200 | 0.80  |
 | exact-id   | 0.700     | 0.367 | 0.20  |
 | paraphrase | 1.000     | 0.553 | 0.00  |
 
 "empty" = share of queries with no firing deterministic channel. The overview
-cohort was the known-bad one (item 11): 8 of its 10 queries ranked nothing
-until item 13 (casefold identifier) let the "oib N" shape fire the exact
-channel — 9 of 10 now rank something. Only ov-cross-rl (bare
-"oib-richtlinien", no number, no other signal) still ranks nothing; the two
-content-noun queries ("Wohngebäude", "Begriffsbestimmung") scored via sparse
-before and still do. Item 14 must LIFT the overview numbers further; when it
-does, the floor asserts below go red on purpose — raise them and re-record
-the table.
+cohort is the known-bad one (item 11): 8 of its 10 queries rank nothing, and
+only the two content-noun queries ("Wohngebäude", "Begriffsbestimmung") score,
+via sparse. That is the honest state and no shipped change has moved it.
+
+Item 13 briefly appeared to move it to 0.583. It did not. Casefolding let
+"oib N" emit the bare term ``OIB``, which is on 34 of these 39 fixture files
+and 92.3% of real corpus pages — in production a ``$contains`` filter that
+removes almost nothing, and offline an unranked dump of the corpus in filename
+order. All six "oib N" questions got ONE identical ranking; the 0.583 was
+where their labels happened to sit in it, and it moved to 0.750 under nothing
+but a reordering of the fixture. The retriever now prices exact terms against
+the live collection with the DF ceiling the sparse channel has always had
+(``knowledge_layer.llamaindex.hybrid.selective_terms``), this harness mirrors
+that rule, and the number went back to the 0.150 it never really left.
+
+A real lift here has to come from a channel that can tell "oib 2" from
+"oib 6" — item 14, or the filename/designation-aware lookup the harness
+module docstring names. When one lands this test goes red on purpose: raise
+the floors and re-record the table.
 
 Import fallback as in the sibling benchmark tests: the suite is importable via
 ``pip install -e frontends/benchmarks/oib_retrieval``, otherwise the src tree
@@ -52,7 +63,7 @@ PUNKT_INDEX_PATH = FIXTURES / "punkt_index.json"
 #: The HEAD baseline the thresholds below are derived from. Re-record (code +
 #: table + module docstring) whenever a retrieval change moves the harness.
 BASELINE = {
-    "overview": {"recall": 0.583, "mrr": 0.389, "empty": 0.10},
+    "overview": {"recall": 0.150, "mrr": 0.200, "empty": 0.80},
     "exact-id": {"recall": 0.700, "mrr": 0.367, "empty": 0.20},
     "paraphrase": {"recall": 1.000, "mrr": 0.553, "empty": 0.00},
 }
@@ -188,18 +199,26 @@ def test_the_loader_rejects_an_expected_file_production_filters_out(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_the_broad_overview_query_sparse_channel_stays_silent(index):
-    """The item-11 cause, half-lifted by item 13: lowercase "oib 2" now yields
-    the exact term "OIB" (casefold identifier — the deleted ``== []`` assert
-    went red on purpose when item 13 landed, per its flip instruction; the
-    "oib 2" -> "OIB" pin now lives in
-    ``tests/aiq_agent/common/test_legal_terms.py::TestCaseInsensitiveIdentifiers``),
-    while the sparse survivors still die at the DF ceiling / digit-only rule.
+def test_the_broad_overview_query_reaches_neither_deterministic_channel(index):
+    """The item-11 cause, still uncured: no deterministic channel serves
+    "was weißt du über die oib 2".
 
-    The sparse assert is independent of item 13 and must keep holding until a
-    sparse-side change moves it.
+    Both halves die for the SAME reason at two different layers — the token
+    that carries the intent is corpus-identity vocabulary. The sparse
+    survivors die at ``german_text``'s DF ceiling; the exact term ``OIB`` that
+    casefolding extracts (pinned in
+    ``tests/aiq_agent/common/test_legal_terms.py::TestCaseInsensitiveIdentifiers``)
+    dies at the same ceiling in ``hybrid.selective_terms``, because on this
+    corpus it filters nothing.
+
+    This is the query class a real fix has to serve. Until one lands, both
+    asserts hold, and a change that flips either without also lifting
+    ``ov-rl2`` above has moved a number rather than the retrieval.
     """
     assert overview.sparse_terms_for(index, "was weißt du über die oib 2") == []
+    assert (
+        overview.exact_files_for(overview.exact_terms_for("was weißt du über die oib 2"), overview.fixture_docs()) == []
+    )
 
 
 def test_the_precise_rewrite_of_the_same_intent_fires(index):
@@ -222,25 +241,33 @@ def test_the_cutoff_is_production_top_k(report):
     )
 
 
-def test_overview_cohort_recall_has_a_floor(report):
-    """Post-item-13 floor (item 11's ceilings, flipped per their instruction):
-    the casefold identifier lets the "oib N" shape fire the exact channel
-    (overview recall 0.150 -> 0.583, empty 0.80 -> 0.10). Item 14 must lift
-    these numbers further — when it does this test goes red, raise the floors
-    and re-record BASELINE."""
+def test_overview_cohort_is_still_the_unsolved_cohort(report):
+    """The overview cohort is a CEILING, not a floor, and that is the point.
+
+    It is the open problem (item 11): 8 of 10 queries reach no deterministic
+    channel. A change that lifts these numbers has done something real and
+    this test goes red on purpose — raise it to a floor and re-record
+    BASELINE. A change that lifts them by widening a channel until it matches
+    most of the corpus has done nothing, and the ceiling is what catches that:
+    the near-no-op scores here precisely because recall alone cannot tell the
+    two apart, so the assert direction has to."""
     scores = _cohort(report, "overview")
-    assert scores.recall >= 0.50, _diff(report)
-    assert scores.mrr >= 0.30, _diff(report)
-    assert scores.empty_share <= 0.20, _diff(report)
+    assert scores.recall <= 0.20, _diff(report)
+    assert scores.empty_share >= 0.70, _diff(report)
 
 
-def test_the_exemplar_overview_query_now_retrieves(report):
-    """Post-item-13: the item-11 exemplar ("was weißt du über die oib 2")
-    fires the exact channel ("OIB") and retrieves all 6 expected RL-2 files
-    (recall was 0.0 at the item-12 baseline). Re-record on the next move."""
+def test_the_exemplar_overview_query_still_does_not_retrieve(report):
+    """The item-11 exemplar ("was weißt du über die oib 2") ranks nothing.
+
+    It scored 1.00 for one release on the strength of a term that matched 34
+    of 39 files: the six "oib N" questions shared one identical ranking, so
+    the exemplar's six RL-2 labels sat inside a list that RL-6's labels sat
+    outside of, and nothing about the retrieval distinguished them. Lift this
+    with a channel that separates "oib 2" from "oib 6" and the assert flips
+    for a reason worth recording."""
     by_id = {result.entry.id: result for result in report.results}
-    assert by_id["ov-rl2"].recall == 1.0, _diff(report)
-    assert by_id["ov-rl2"].ranked != ()
+    assert by_id["ov-rl2"].recall == 0.0, _diff(report)
+    assert by_id["ov-rl2"].ranked == ()
 
 
 def test_exact_id_cohort_recall_has_a_floor(report):

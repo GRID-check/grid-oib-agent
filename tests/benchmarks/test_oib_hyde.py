@@ -124,11 +124,15 @@ def test_hyde_on_without_drafts_matches_the_pinned_baseline(entries) -> None:
     floors' baseline — no lift measurable without recorded drafts, no
     regression anywhere."""
     report = overview.run(entries, hyde_drafter=lambda entry: None)
+    # Read from the golden test's BASELINE rather than restated: these numbers
+    # were duplicated here once, and a retrieval correction moved one copy and
+    # not the other. One place to re-record.
+    from tests.benchmarks.test_oib_overview_recall import BASELINE
+
     # Table precision (3dp): the exact identity with off-mode is pinned by
     # test_hyde_on_without_drafts_is_the_baseline above.
-    assert _cohort(report, "overview").recall == pytest.approx(0.583, abs=5e-4)
-    assert _cohort(report, "exact-id").recall == pytest.approx(0.700, abs=5e-4)
-    assert _cohort(report, "paraphrase").recall == pytest.approx(1.000, abs=5e-4)
+    for cohort, expected in BASELINE.items():
+        assert _cohort(report, cohort).recall == pytest.approx(expected["recall"], abs=5e-4), cohort
 
 
 def test_fusion_keeps_the_original_channel_first() -> None:

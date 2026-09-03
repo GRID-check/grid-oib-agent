@@ -11,10 +11,14 @@ WHAT IT MEASURES
 Which of the CURRENT retrieval's deterministic channels fire for each query
 shape, and whether the expected corpus files are among what fired:
 
-* the exact channel: ``aiq_agent.common.legal_terms.extract_exact_terms`` plus
-  a case-sensitive substring match over ``file_name + text`` — the offline
-  mirror of Chroma ``where_document {"$contains": term}``, which
-  ``german_text``'s docstring documents as case-sensitive;
+* the exact channel: ``aiq_agent.common.legal_terms.extract_exact_terms``,
+  then ``knowledge_layer.llamaindex.hybrid.selective_terms`` (the retriever's
+  document-frequency ceiling), then a case-sensitive substring match over
+  ``file_name + text`` — the offline mirror of Chroma
+  ``where_document {"$contains": term}``, which ``german_text``'s docstring
+  documents as case-sensitive. The ceiling half is load-bearing: without it
+  this mirror credits a term for retrieving a corpus it merely fails to
+  filter (see EXPECTED BASELINE);
 * the sparse channel: ``oib_retrieval_eval.lexical`` — the shipped
   ``german_text`` analyzer, query terms, DF-ceiling selection and idf ranking
   over the fixture corpus (the SQLite-path semantics, in memory).
@@ -43,14 +47,31 @@ WHAT IT DOES NOT MEASURE (read before citing a number)
 
 EXPECTED BASELINE (recorded 2026-09-03; overview re-recorded after item 13)
 ---------------------------------------------------------------------
-Overview "oib N" queries fire the exact channel since item 13 (casefold
-identifier: "oib 2" -> "OIB"); their sparse survivors still die at the DF
-ceiling / digit-only rule, and the bare "oib-richtlinien" question with no
-number fires neither channel. Exact-id and paraphrase queries fire one or both
-channels and score high — except literal filenames, which neither deterministic
-channel can serve (lowercase, corpus-identity lexemes plus digits) and which
-honestly score ~0 until a filename-aware lookup exists. See
+Overview queries reach NEITHER deterministic channel: the sparse survivors die
+at the DF ceiling / digit-only rule, and the exact term casefolding extracts
+from "oib N" is the bare ``OIB``, which dies at the same ceiling on the exact
+side. Exact-id and paraphrase queries fire one or both channels and score high
+— except literal filenames, which neither deterministic channel can serve
+(lowercase, corpus-identity lexemes plus digits) and which honestly score ~0
+until a filename-aware lookup exists. See
 ``tests/benchmarks/test_oib_overview_recall.py`` for the pinned numbers.
+
+THE FAILURE MODE THIS HARNESS HAD, AND WHY THE CEILING IS MIRRORED
+-------------------------------------------------------------------
+Item 13 first read as overview 0.150 -> 0.583. It was an artefact, and it is
+the artefact any recall-only instrument invites: the bare ``OIB`` term is on
+34 of these 39 files (92.3% of real corpus pages), so all six "oib N"
+questions produced ONE identical ranking — the corpus in filename order — and
+each question's score was just where its labels happened to fall in it.
+Reversing the fixture order moved the cohort to 0.750 with no code change.
+
+Two rules follow, for anything measured here later:
+
+* mirror the production GATE, not just the production matcher. A channel that
+  fires is not a channel that retrieves, and recall cannot tell the two apart;
+* when a change lifts a cohort, check that the rankings it lifted are
+  DIFFERENT from each other. Identical rankings across distinct questions mean
+  the corpus was returned, not searched.
 
 HYDE (backlog item 14) — WHAT THE ON-MODE MEASURES, AND WHAT IT CANNOT
 ----------------------------------------------------------------------
@@ -474,10 +495,31 @@ def sparse_terms_for(index, query: str) -> list[str]:
 
 
 def exact_files_for(terms: list[str], docs: list[FixtureDoc]) -> list[str]:
-    """Files whose name or text contains any of ``terms`` (offline $contains mirror)."""
+    """Files whose name or text contains any SELECTIVE term (offline ``$contains`` mirror).
+
+    Two production halves, both imported rather than restated: the substring test is
+    the case-sensitive byte match Chroma's ``where_document`` runs, and the document
+    frequency ceiling is ``knowledge_layer.llamaindex.hybrid.selective_terms`` — the
+    same rule and constants the retriever applies before it spends a pass on a term.
+
+    Without that second half this mirror scored a term like a bare ``OIB`` (34 of the
+    39 fixture files here, 92.3% of real corpus pages) as if it retrieved something,
+    when in production it is a filter that removes almost nothing: every ``oib N``
+    question got ONE identical ranking — the corpus in filename order — and the cohort
+    recall that came out was a function of where the labels happened to sit in it, not
+    of retrieval. Mirroring the ceiling is what makes the number mean the same thing
+    on both sides.
+    """
     if not terms:
         return []
-    return [doc.file_name for doc in docs if any(term in f"{doc.file_name}\n{doc.text}" for term in terms)]
+    from knowledge_layer.llamaindex.hybrid import selective_terms
+
+    haystacks = [f"{doc.file_name}\n{doc.text}" for doc in docs]
+    frequencies = {term: sum(1 for hay in haystacks if term in hay) for term in terms}
+    kept = selective_terms(frequencies, len(docs))
+    if not kept:
+        return []
+    return [doc.file_name for doc, hay in zip(docs, haystacks, strict=True) if any(term in hay for term in kept)]
 
 
 def sparse_files_for(index, query: str, *, depth: int = RETRIEVE_DEPTH) -> list[str]:

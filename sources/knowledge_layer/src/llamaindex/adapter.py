@@ -3873,6 +3873,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 # =============================================================================
 
 
+#: Entries in the exact-term document-frequency cache before it is cleared. The live
+#: key set is a handful of terms per collection; the cap only bounds a pathological
+#: run of one-off terms.
+_EXACT_TERM_DF_CACHE_MAX = 512
+
+
 @register_retriever("llamaindex")
 class LlamaIndexRetriever(BaseRetriever):
     """
@@ -3950,6 +3956,11 @@ class LlamaIndexRetriever(BaseRetriever):
         self._embed_cache: dict[tuple[str, str], list[float]] = {}
         self._embed_cache_order: list[tuple[str, str]] = []
         self._embed_cache_lock = threading.Lock()
+
+        # Document frequency of each exact term, per collection size, so the
+        # `$contains` channel's DF ceiling costs one `get` per new term rather
+        # than one per retrieval. See `_selective_exact_terms`.
+        self._exact_term_df: dict[tuple[str, int, str], int] = {}
 
         # Result cache for static corpora (the shared OIB knowledge base):
         # identical questions recur across users and conversations, and the
@@ -4234,6 +4245,56 @@ class LlamaIndexRetriever(BaseRetriever):
                 error_message=f"Retrieval failed: {str(e)[:500]}",
             )
 
+    def _selective_exact_terms(self, collection, collection_name: str, terms: list[str]) -> list[str]:
+        """Keep the exact terms whose document frequency leaves them worth retrieving.
+
+        One id-only ``collection.get`` per term measures the term against the LIVE
+        collection -- "OIB is noise" is a property of this corpus, not of German, so it
+        is measured, never listed (``german_text``'s module docstring states the rule
+        this follows). For the ubiquitous term this REPLACES the vector query that used
+        to run, so the common case gets cheaper rather than dearer.
+
+        Cached per ``(collection, chunk count, term)``: the term set is tiny and stable
+        while the corpus is, and a changed count invalidates it. An in-place edit that
+        leaves the count identical keeps the old frequency, which is acceptable for a
+        noise heuristic and is why nothing downstream treats this as a correctness gate.
+
+        Deliberately unlocked, unlike the caches beside it: those keep an ordering list
+        that a race would corrupt, while the worst a race here can cost is measuring one
+        term twice. A lock would have to be held across a Chroma round trip, which would
+        serialise the per-collection fan-out this retriever exists to run in parallel.
+
+        Fails OPEN: if the frequency cannot be measured the term is kept, so a Chroma
+        that cannot answer ``get`` degrades to the previous behaviour rather than to no
+        lexical channel at all.
+        """
+        from .hybrid import selective_terms
+
+        try:
+            total = collection.count()
+        except Exception as e:  # noqa: BLE001 - selectivity is an optimisation, never a gate
+            logger.warning("Exact-term frequencies unavailable (%s); keeping all terms", e)
+            return terms
+
+        frequencies: dict[str, int] = {}
+        for term in terms:
+            key = (collection_name, total, term)
+            frequency = self._exact_term_df.get(key)
+            if frequency is None:
+                try:
+                    matched = collection.get(where_document={"$contains": term}, include=[])
+                    frequency = len(matched.get("ids") or [])
+                except Exception as e:  # noqa: BLE001 - see the fail-open note above
+                    logger.warning("Frequency of exact term %r unmeasurable (%s); keeping it", term, e)
+                    frequencies[term] = 1
+                    continue
+                if len(self._exact_term_df) >= _EXACT_TERM_DF_CACHE_MAX:
+                    self._exact_term_df.clear()
+                self._exact_term_df[key] = frequency
+            frequencies[term] = frequency
+
+        return selective_terms(frequencies, total)
+
     def _hybrid_lexical_boost(
         self,
         query: str,
@@ -4263,6 +4324,13 @@ class LlamaIndexRetriever(BaseRetriever):
             # lexical pass raise, and the fail-open below turned hybrid off for exactly
             # the filtered queries, visible only in a log line.
             where = _to_chroma_where(filters)
+            # A `$contains` pass is a FILTER over the dense ranking, so a term that is
+            # on nearly every chunk hands the vector channel straight back and RRF then
+            # counts that ranking twice -- demoting every chunk only the German sparse
+            # channel found. Price the terms against the live collection first, the same
+            # rule and the same constants the sparse channel has always used.
+            if terms:
+                terms = self._selective_exact_terms(collection, collection_name, terms)
             channels: list[list[Chunk]] = [chunks]
             for term in terms:
                 raw = collection.query(
