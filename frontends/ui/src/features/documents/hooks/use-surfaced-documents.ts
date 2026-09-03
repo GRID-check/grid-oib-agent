@@ -17,6 +17,16 @@ export interface SurfacedDocument {
   source?: 'projekt' | 'buero' | null
 }
 
+/**
+ * Which corpus a filename was resolved in.
+ *
+ * `session` is a shelf the backend's `surface_documents` tool cannot name, so a
+ * SURFACED document never resolves to one; it exists for the caller that asks
+ * the question the other way round — {@link storedFileIndex}, which is how an
+ * answer's prose reaches a file the reader attached to this very conversation.
+ */
+export type DocumentCorpus = 'projekt' | 'buero' | 'session'
+
 /** A surfaced document resolved (or not) to its live document row. */
 export interface ResolvedSurfacedDocument {
   /** Stable render key. */
@@ -34,6 +44,18 @@ interface SurfacedIndex {
   /** filename → row, Büroarchiv. */
   buero: Map<string, FileItem>
   /**
+   * filename → row, THIS conversation's private attachments (ADR-0047's
+   * `session` shelf). Empty unless the caller named a conversation.
+   *
+   * Added for the answer's file references: a reader drops a PDF into the
+   * composer, asks about it, and the answer names it back — and until this map
+   * existed that filename resolved to nothing at all, because the only two
+   * corpora here were the ones the backend's `surface_documents` tool can tag.
+   * Consulted last, and only for a surfaced document that names no source, so
+   * no tagged resolution changes.
+   */
+  session: Map<string, FileItem>
+  /**
    * A GENUINE fetch failure occurred (network / 5xx) so resolutions may be
    * incomplete — distinct from a legitimately-empty corpus or a fail-open
    * feature gate (Archiv 403). Drives the retry affordance instead of a wall of
@@ -45,7 +67,13 @@ interface SurfacedIndex {
 /** Module-wide cache: one index fetch per project per page lifetime. */
 const indexCache = new Map<string, Promise<SurfacedIndex>>()
 
-const cacheKey = (projectId: string | null): string => projectId ?? '__no-project__'
+/**
+ * The conversation is part of the key, not just of the fetch: two chats in one
+ * project have different private attachments, and one cached index would hand
+ * a thread the other thread's files.
+ */
+const cacheKey = (projectId: string | null, conversationId: string | null): string =>
+  `${projectId ?? '__no-project__'}|${conversationId ?? '__no-conversation__'}`
 
 /** Test hook — clears the module cache between specs. */
 export const resetSurfacedDocumentsCache = (): void => {
@@ -73,7 +101,17 @@ async function fetchCorpus(
   }
 }
 
-/** Keep the most-recently-created row when a filename repeats (re-uploads). */
+/**
+ * Keep the most-recently-created row when a filename repeats (re-uploads).
+ *
+ * Keyed on the LOWERCASED name, and read back through {@link corpusLookup}.
+ * A name is a name: `Grundriss.PDF` and `grundriss.pdf` in one corpus are a
+ * re-upload, not two documents, and the exact-match index made an answer that
+ * spelled a filename in a different case resolve to nothing — a dead tile on a
+ * card, and (once answers began naming their files in prose) plain text where a
+ * chip belonged. Two rows that differ only in case collapse onto the newer one,
+ * which is what the same-name rule above already does.
+ */
 function indexByFilename(rows: unknown): Map<string, FileItem> {
   const map = new Map<string, FileItem>()
   if (!Array.isArray(rows)) return map
@@ -81,30 +119,75 @@ function indexByFilename(rows: unknown): Map<string, FileItem> {
     if (!row || typeof row !== 'object') continue
     const file = row as FileItem
     if (typeof file.id !== 'string' || typeof file.filename !== 'string') continue
-    const existing = map.get(file.filename)
+    const key = file.filename.toLowerCase()
+    const existing = map.get(key)
     if (!existing || new Date(file.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
-      map.set(file.filename, file)
+      map.set(key, file)
     }
   }
   return map
 }
+
+/** Read a corpus map built by {@link indexByFilename}. */
+const corpusLookup = (corpus: Map<string, FileItem>, fileName: string): FileItem | undefined =>
+  corpus.get(fileName.trim().toLowerCase())
 
 export async function resolveStoredDocument(
   projectId: string | null,
   fileName: string,
   source: 'projekt' | 'buero',
 ): Promise<FileItem | null> {
-  const index = await loadSurfacedIndex(projectId)
-  return (source === 'buero' ? index.buero : index.projekt).get(fileName) ?? null
+  const index = await loadSurfacedIndex(projectId, null)
+  return corpusLookup(source === 'buero' ? index.buero : index.projekt, fileName) ?? null
 }
 
-function loadSurfacedIndex(projectId: string | null): Promise<SurfacedIndex> {
-  const key = cacheKey(projectId)
+/** One openable file, with the corpus it was found in. */
+export interface StoredFile {
+  file: FileItem
+  corpus: DocumentCorpus
+}
+
+/**
+ * Every file the reader can open here, keyed by lowercased filename.
+ *
+ * The same index, asked the question the other way round: not "where is this
+ * named file?" but "which of my files could this text be naming?" — which is
+ * what an answer's prose references need, since the set of things that can BE a
+ * file reference is exactly the set of files the reader has.
+ *
+ * Precedence on a shared name is the shelf's own: the project's copy is the one
+ * everybody on the project means, the Büroarchiv's the office-wide one, and a
+ * private attachment is reached only when neither holds the name. Same order
+ * the surfaced fallback above uses, for the same reason.
+ */
+export async function storedFileIndex(
+  projectId: string | null,
+  conversationId: string | null
+): Promise<Map<string, StoredFile>> {
+  const index = await loadSurfacedIndex(projectId, conversationId)
+  const byName = new Map<string, StoredFile>()
+  const corpora: ReadonlyArray<readonly [DocumentCorpus, Map<string, FileItem>]> = [
+    ['session', index.session],
+    ['buero', index.buero],
+    ['projekt', index.projekt],
+  ]
+  // Written least-specific first, so the project's copy overwrites the rest.
+  for (const [corpus, rows] of corpora) {
+    for (const [key, file] of rows) byName.set(key, { file, corpus })
+  }
+  return byName
+}
+
+function loadSurfacedIndex(
+  projectId: string | null,
+  conversationId: string | null
+): Promise<SurfacedIndex> {
+  const key = cacheKey(projectId, conversationId)
   const existing = indexCache.get(key)
   if (existing) return existing
 
   const promise = (async (): Promise<SurfacedIndex> => {
-    const [projektRes, bueroRes] = await Promise.all([
+    const [projektRes, bueroRes, sessionRes] = await Promise.all([
       // The project list is the primary corpus — any non-ok is a genuine error.
       projectId
         ? fetchCorpus(`/api/documents?projectId=${encodeURIComponent(projectId)}`, [])
@@ -112,11 +195,20 @@ function loadSurfacedIndex(projectId: string | null): Promise<SurfacedIndex> {
       // Büroarchiv is org-scoped (no projectId) and feature-gated — a 403 (or a
       // 404) is fail-open (no Archiv resolutions), NOT an error.
       fetchCorpus('/api/archiv/documents', [403, 404]),
+      // This conversation's private attachments. A caller that names no
+      // conversation gets an empty session corpus and no extra request.
+      conversationId
+        ? fetchCorpus(
+            `/api/session/documents?conversationId=${encodeURIComponent(conversationId)}`,
+            [403, 404]
+          )
+        : Promise.resolve({ rows: null, failed: false }),
     ])
     return {
       projekt: indexByFilename(projektRes.rows),
       buero: indexByFilename(bueroRes.rows),
-      error: projektRes.failed || bueroRes.failed,
+      session: indexByFilename(sessionRes.rows),
+      error: projektRes.failed || bueroRes.failed || sessionRes.failed,
     }
   })()
 
@@ -149,7 +241,13 @@ function loadSurfacedIndex(projectId: string | null): Promise<SurfacedIndex> {
  */
 export function useSurfacedDocuments(
   documents: SurfacedDocument[],
-  projectId: string | null
+  projectId: string | null,
+  /**
+   * The conversation whose private attachments join the index. Omit it and the
+   * `session` corpus is empty and unfetched — which is what every card surface
+   * wants, since `surface_documents` cannot name that shelf.
+   */
+  conversationId: string | null = null
 ): { resolved: ResolvedSurfacedDocument[]; isLoading: boolean; error: boolean; retry: () => void } {
   const [index, setIndex] = useState<SurfacedIndex | null>(null)
   // Bumped by `retry` to re-run the load effect after evicting the cache.
@@ -160,22 +258,24 @@ export function useSurfacedDocuments(
     // Back to the loading state on (re)load so callers show a skeleton, not the
     // previous (possibly dead) resolution.
     setIndex(null)
-    loadSurfacedIndex(projectId)
+    loadSurfacedIndex(projectId, conversationId)
       .then((loaded) => {
         if (!cancelled) setIndex(loaded)
       })
       .catch(() => {
-        if (!cancelled) setIndex({ projekt: new Map(), buero: new Map(), error: true })
+        if (!cancelled) {
+          setIndex({ projekt: new Map(), buero: new Map(), session: new Map(), error: true })
+        }
       })
     return () => {
       cancelled = true
     }
-  }, [projectId, reloadTick])
+  }, [projectId, conversationId, reloadTick])
 
   const retry = useCallback(() => {
-    indexCache.delete(cacheKey(projectId))
+    indexCache.delete(cacheKey(projectId, conversationId))
     setReloadTick((t) => t + 1)
-  }, [projectId])
+  }, [projectId, conversationId])
 
   // Memoized so the resolved rows (and the file objects the grid remaps from
   // them) keep a stable identity across renders while nothing changed — no
@@ -193,15 +293,15 @@ export function useSurfacedDocuments(
         // best-effort last resort.
         if (surfaced.source === 'projekt' || surfaced.source === 'buero') {
           const map = surfaced.source === 'buero' ? index.buero : index.projekt
-          const hit = map.get(surfaced.file_name)
+          const hit = corpusLookup(map, surfaced.file_name)
           return hit
             ? { key, surfaced, file: hit, docSource: surfaced.source }
             : { key, surfaced, file: null, docSource: null }
         }
 
-        const inProjekt = index.projekt.get(surfaced.file_name)
+        const inProjekt = corpusLookup(index.projekt, surfaced.file_name)
         if (inProjekt) return { key, surfaced, file: inProjekt, docSource: 'projekt' }
-        const inBuero = index.buero.get(surfaced.file_name)
+        const inBuero = corpusLookup(index.buero, surfaced.file_name)
         if (inBuero) return { key, surfaced, file: inBuero, docSource: 'buero' }
         return { key, surfaced, file: null, docSource: null }
       }),

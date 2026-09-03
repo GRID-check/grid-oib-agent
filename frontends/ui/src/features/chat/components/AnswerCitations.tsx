@@ -7,6 +7,11 @@
  * its in-page anchors to something that knows what they mean
  * ({@link InPageAnchorProvider}).
  *
+ * It carries the answer's FILE references on the same door: a filename the
+ * prose names (`pd8280-2.pdf`) reaches `FileReferenceLink` through the same
+ * in-page-anchor provider a citation does, because both are things the answer
+ * knows about its own text that the markdown renderer must not learn.
+ *
  * It also honours a shared link: arriving with `?cite=…` opens the named
  * document at the named page, in the answer that actually holds it. Every other
  * answer on screen sees the same parameter and stands down — by document
@@ -32,28 +37,50 @@ import {
 } from '../lib/citations'
 import { CitationScope } from './CitationScope'
 import { CitationMarker } from './CitationMarker'
+import {
+  FileReferenceLink,
+  FileReferenceProvider,
+  type FileReferenceResolver,
+} from './FileReference'
 import { SourceDocumentDialog } from './SourcePreview'
+
+const NO_FILE_REFERENCES: FileReferenceResolver = () => null
 
 export const AnswerCitations: FC<{
   documents: CitedDocument[]
   anchorPrefix: string
+  /**
+   * Resolves a filename the prose names to a document the reader can open.
+   * Omitted on a surface that has not built the index — every anchor then falls
+   * through to the plain link, exactly as before file references existed.
+   */
+  resolveFileReference?: FileReferenceResolver
   children: ReactNode
-}> = ({ documents, anchorPrefix, children }) => {
+}> = ({ documents, anchorPrefix, resolveFileReference, children }) => {
   const linked = useLinkedCitation(documents)
 
   return (
     <CitationScope documents={documents} anchorPrefix={anchorPrefix}>
+      <FileReferenceProvider resolve={resolveFileReference ?? NO_FILE_REFERENCES}>
       <InPageAnchorProvider
         render={({ href, children: label }) => (
           <CitationMarker
             href={href}
             fallback={
-              // Not one of this answer's citations — a heading link the model
-              // wrote. Keep the plain scroll anchor rather than dressing up
-              // something we cannot describe.
-              <a href={href} className="text-brand underline underline-offset-2 hover:opacity-80">
+              // Not a citation. It may still be a file this answer named, which
+              // is a different kind of reference to a different kind of thing —
+              // and if it is neither, the plain scroll anchor stands rather than
+              // dressing up something we cannot describe.
+              <FileReferenceLink
+                href={href}
+                fallback={
+                  <a href={href} className="text-brand underline underline-offset-2 hover:opacity-80">
+                    {label}
+                  </a>
+                }
+              >
                 {label}
-              </a>
+              </FileReferenceLink>
             }
           />
         )}
@@ -96,6 +123,7 @@ export const AnswerCitations: FC<{
           {children}
         </InternalLinkProvider>
       </InPageAnchorProvider>
+      </FileReferenceProvider>
       {linked.ref && (
         <SourceDocumentDialog citation={linked.ref} onClose={linked.dismiss} />
       )}

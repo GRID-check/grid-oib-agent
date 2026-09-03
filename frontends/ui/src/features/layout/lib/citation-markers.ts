@@ -65,10 +65,13 @@ export const remarkCitationMarkers =
   }
 
 /**
- * Node types we do not descend into: their subtree is a link label or an
- * alt text, where a `[N]` is part of the construct rather than a citation.
+ * Node types no inline marker pass descends into: their subtree is a link
+ * label, an alt text or a reference definition, where a `[N]` — or a filename —
+ * is part of the construct rather than something to rewrite. Shared with
+ * `file-reference-markers`, which walks the same tree for the same reason: two
+ * copies of this list would drift the moment mdast grew an eighth node type.
  */
-const OPAQUE_TO_MARKERS: ReadonlySet<string> = new Set([
+export const OPAQUE_TO_MARKERS: ReadonlySet<string> = new Set([
   'link',
   'linkReference',
   'image',

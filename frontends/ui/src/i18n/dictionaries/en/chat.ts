@@ -70,6 +70,25 @@ export const chat = {
     showing: 'Showing {label}',
   },
   // Composer (InputArea) control row — WS-3 click-dummy overhaul.
+  // A file the answer names in its running prose ("Start with pd8280-2.pdf") —
+  // not evidence, but a pointer at a document the reader owns. Clicking it
+  // opens the document beside the answer.
+  fileReference: {
+    openAria: 'Open file: {name}',
+    open: 'Open beside the answer',
+    pages: '{count, plural, one {# page} other {# pages}}',
+    // Shown when the answer spelled the name differently from the file itself.
+    writtenAs: 'In the text: {name}',
+    // Which shelf the file came from — the same distinction the sources draw:
+    // shared project knowledge, the office-wide archive, a private attachment.
+    shelf: {
+      projekt: 'Project files',
+      buero: 'Office archive',
+      session: 'Attachment in this chat',
+    },
+    notIndexed: 'Not indexed — readable, but it cannot be cited.',
+    failed: 'Processing this file failed.',
+  },
   composer: {
     /** Shown when the reader holds project:view but not project:chat. */
     noProjectChatPermission:

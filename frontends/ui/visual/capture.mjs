@@ -371,6 +371,28 @@ async function captureVariant(browser, baseUrl, target, variant) {
     if (target.tabStops) {
       for (let i = 0; i < target.tabStops; i++) await page.keyboard.press('Tab')
     }
+    // Optional pointer rest: a REAL mouse move onto the element, held for the
+    // rest of the capture.
+    //
+    // Some of the product's answers to "what is this?" exist only under the
+    // pointer — the citation peek, the mention peek, the file-reference peek —
+    // and a dev page cannot fake one honestly. A synthesised `pointerover`
+    // fires the enter handler, but the cursor is still parked wherever
+    // Playwright left it, so the first real pointer event closes the panel
+    // again; the shot then lands on a page at rest and is committed as the
+    // "open" baseline, which is a screenshot that has silently stopped showing
+    // what it is named for. `page.hover` moves the actual cursor, and it stays
+    // there through the theme flip and both shots, which is exactly the state a
+    // reader is in when they look at one.
+    //
+    // On the mobile variant it is skipped: `hasTouch` viewports have no hover,
+    // and a target whose surface is hover-only should not claim `mobile: true`
+    // in the first place.
+    if (target.hover && !variant.isMobile) {
+      await page.hover(target.hover, { timeout: 10_000 }).catch(() => {
+        console.warn(`[screenshots] WARN ${target.id}: could not hover "${target.hover}"`)
+      })
+    }
     await settle(page, SETTLE_MS) // let fonts/animations settle
 
     for (const [i, theme] of THEMES.entries()) {
