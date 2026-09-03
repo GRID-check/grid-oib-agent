@@ -82,13 +82,7 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "`surface_documents`; the UI peeks the cited file. Live Austrian law "
     "(statutes, Bauordnungen) is the RIS tools, not this index.\n"
     "HOW TO QUERY — rewrite the user question into a search query (topic + "
-    "jurisdiction + implied year). For OIB questions naming a Richtlinie number, "
-    "use the canonical 'OIB-Richtlinie N' plus its discipline (1 Standsicherheit, "
-    "2 Brandschutz, 3 Hygiene, 4 Nutzungssicherheit, 5 Schallschutz, "
-    "6 Energieeinsparung) — never the bare 'oib N' form (e.g. 'OIB-Richtlinie 2 "
-    "Brandschutz', not 'oib 2'). An overview question ('was weißt du über X') "
-    "still names the Richtlinie and discipline. Prefer one precise call over a "
-    "broad dump. "
+    "jurisdiction + implied year). Prefer one precise call over a broad dump. "
     "At most 2 calls; change the query on the second. Never invent a "
     "`file_name`; take it from the inventory or the user. The OIB base corpus "
     "is not enumerated there — reach it by `doc_class` (e.g. `oib_richtlinie`) "
@@ -1487,10 +1481,8 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
 
         Args:
             query (str): The fact or passage you need, rewritten as a search
-                query (topic + jurisdiction + implied year). For OIB questions
-                naming a Richtlinie number, use the canonical 'OIB-Richtlinie N'
-                plus its discipline (e.g. 'OIB-Richtlinie 2 Brandschutz', never
-                the bare 'oib 2'). Not the raw user message.
+                query (topic + jurisdiction + implied year). Not the raw user
+                message.
             file_name (str | None): Indexed file name to read (from the
                 inventory or the user). Never invent a name. Base-corpus
                 files are not listed in the inventory — filter those with
@@ -1579,17 +1571,8 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         # not the intent, and a judge shown "Fassade Außenwand What are the facade…"
         # would be scoring a phrase nobody asked.
         from aiq_agent.common.query_expansion import augmented_query
-        from aiq_agent.common.query_expansion import canonicalize_oib_query
 
-        # Deterministic turn-1 OIB normalization (backlog 11): a broad overview
-        # query ("was weißt du über die oib 2") carries no usable lexical signal
-        # -- lowercase "oib" yields zero exact terms and the sparse survivors die
-        # on the DF ceiling + digit-only rule -- while "OIB-Richtlinie 2
-        # Brandschutz" lights all three channels. The prompt contract above asks
-        # the LLM for that rewrite, and this holds it when the model still emits
-        # the bare form. Applied after augmentation so the language decision in
-        # `augmented_query` still sees the query as asked.
-        retrieval_query = canonicalize_oib_query(augmented_query(query))
+        retrieval_query = augmented_query(query)
         if retrieval_query != query:
             logger.info("Query expanded for retrieval: %r -> %r", query[:60], retrieval_query[:80])
 
@@ -1600,10 +1583,6 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         )
 
         async def _retrieve_collection(entry, search_query: str = retrieval_query):
-            # The retrieval loop's alternative formulations get the same
-            # deterministic OIB normalization as the first query, so a judge
-            # paraphrase in the bare "oib N" form still reaches all channels.
-            search_query = canonicalize_oib_query(search_query)
             coll = entry.collection
             # File exclusions + caller filters apply to the base collection only;
             # session/project collections are user content and are never filtered.

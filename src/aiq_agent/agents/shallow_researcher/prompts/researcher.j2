@@ -157,7 +157,7 @@ Choose sources in this order, based on the query:
 </source_priority>
 
 <query_rewriting>
-Before calling any search tool, rewrite the user's question into a search-friendly query that includes all the context the user implied. Add whatever the index needs to return relevant results — time (the current date/year from the Context section), scope, topic, or shorthand the user assumed. For "upcoming"/"next" questions add the current year; expand vague shorthand with the obvious topic. For OIB questions naming a Richtlinie number, use the canonical 'OIB-Richtlinie N' plus its discipline (1 Standsicherheit, 2 Brandschutz, 3 Hygiene, 4 Nutzungssicherheit, 5 Schallschutz, 6 Energieeinsparung) — never the bare 'oib N' form; an overview question ('was weißt du über die oib 2') becomes 'OIB-Richtlinie 2 Brandschutz'. Pass the rewritten query to the tool, not the raw user message.
+Before calling any search tool, rewrite the user's question into a search-friendly query that includes all the context the user implied. Add whatever the index needs to return relevant results — time (the current date/year from the Context section), scope, topic, or shorthand the user assumed. For "upcoming"/"next" questions add the current year; expand vague shorthand with the obvious topic. Pass the rewritten query to the tool, not the raw user message.
 </query_rewriting>
 
 <research_rules>
