@@ -148,8 +148,36 @@ class AnswerMetaVerdict(_EnvelopeModel):
 
 
 class AnswerMetaTakeaway(_EnvelopeModel):
-    text: str = Field(min_length=1, description="one standalone claim, never an outline heading")
-    detail: str | None = Field(default=None, description="the footnote behind it; omit rather than restate")
+    """One row of „Das Wichtigste" — the claim, and the footnote folded behind it.
+
+    Both descriptions are long on purpose: they are the only guidance that
+    reaches BOTH the taught schema and the provider-enforced one, and the two
+    failures they name are the two this block actually shipped — a row that is
+    a topic („Rechtsgrundlage") instead of a claim, and a `detail` so thin that
+    opening it repaid nothing.
+    """
+
+    text: str = Field(
+        min_length=1,
+        description=(
+            "ONE standalone claim carrying its own value — the number, the class, the Frist, the ruling: "
+            "'Tragende Bauteile in GK 4: mindestens REI 60' passes. A topic or an outline heading fails, "
+            "and is the usual mistake: 'Rechtsgrundlage', 'Fazit', 'Anforderungen an tragende Bauteile' "
+            "name what the row would be about instead of saying it. The reader who reads only these rows "
+            "must leave with the answer, so a row with nothing to write down is a wasted row"
+        ),
+    )
+    detail: str | None = Field(
+        default=None,
+        description=(
+            "The footnote behind the claim, one to two FULL sentences, revealed only when the reader "
+            "opens the row: where the value comes from (Richtlinie, Punkt, Tabelle, Ausgabe), how it was "
+            "derived, or the one case in which the claim does not hold. It has to repay the click — a "
+            "half-sentence, a pointer back at the prose, or `text` said again in other words is worse "
+            "than none. Omit it where the claim needs no footnote; that is normal, and a row without one "
+            "simply does not open"
+        ),
+    )
 
 
 class AnswerMetaCallout(_EnvelopeModel):
@@ -276,6 +304,27 @@ def _gate_callout(meta: AnswerMeta, ctx: GateContext) -> dict | None:
     return callout
 
 
+def _takeaway_payload(item: AnswerMetaTakeaway) -> dict:
+    """One takeaway on the wire, without a ``detail`` that opens onto nothing.
+
+    A row WITH a detail is a button in the frontend; a row without one is not
+    (``KeyTakeawaysCard.tsx``). So a detail that repeats its own claim does not
+    merely waste a line — it teaches the reader the chevrons are decorative, and
+    then they stop opening the ones that are not.
+
+    Blank and verbatim-restated are the two forms of that a gate can judge
+    without guessing at editorial quality; the rest is the schema's job
+    (:class:`AnswerMetaTakeaway`, whose description says what a detail must
+    carry). Deliberately not a similarity test: a detail that qualifies the
+    claim in words close to it is exactly what the field is for.
+    """
+    text = item.text.strip()
+    detail = (item.detail or "").strip()
+    if not detail or detail.casefold() == text.casefold():
+        return {"text": text}
+    return {"text": text, "detail": detail}
+
+
 def _gate_takeaways(meta: AnswerMeta, ctx: GateContext) -> list | None:
     takeaways = [t for t in (meta.takeaways or []) if t.text.strip()][:TAKEAWAYS_MAX_ITEMS]
     if not takeaways:
@@ -290,7 +339,7 @@ def _gate_takeaways(meta: AnswerMeta, ctx: GateContext) -> list | None:
     if len(takeaways) < 2:
         logger.info("answer_meta takeaways gated out: a single takeaway is a sentence, not a block")
         return None
-    return [t.model_dump(exclude_none=True) for t in takeaways]
+    return [_takeaway_payload(t) for t in takeaways]
 
 
 @dataclass(frozen=True)

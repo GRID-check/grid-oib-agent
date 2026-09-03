@@ -1089,6 +1089,9 @@ def render_card_catalog(*, include_model_backed: bool = True) -> str:
     # measured-numbers rule does: it is a rule about filling a field in, and this
     # is the surface that renders every field.
     diagram_note = _diagram_note() if "diagram" not in withheld else ""
+    # The margin rule rides with the shape for the same reason, and is needed on
+    # this surface too: the post-hoc generator fills the same two fields.
+    legal_basis_note = _legal_basis_note() if "legal_basis" not in withheld else ""
 
     return (
         "Building blocks (reused object shapes):\n" + "\n".join(block_lines) + "\n\n"
@@ -1097,6 +1100,7 @@ def render_card_catalog(*, include_model_backed: bool = True) -> str:
         + interactive_note
         + measured_note
         + diagram_note
+        + legal_basis_note
         + _plain_text_note()
         + "\n\n"
         "Worked examples (copy the nesting exactly):\n" + examples
@@ -1142,6 +1146,38 @@ def _measured_note() -> str:
         "  `value` null and `missing` set to that answer's missing.remedy, VERBATIM — that sentence\n"
         "  is what the architect changes in their CAD. A blank slot instead of it reads as a fact\n"
         "  about the building, when it is a finding about the export."
+    )
+
+
+def _legal_basis_note() -> str:
+    # The two fields whose renderer has a WIDTH the model cannot see.
+    # `article` and `section` are set in a 72px margin at 11px mono — the way a
+    # statute prints its § beside the text (grid-card-charter §B1) — and a
+    # shipped card put „Punkte 8 bis 10 der OIB-Richtlinie 2" and
+    # „Anwendungsbereiche der ergänzenden Richtlinien" there. That rendered as a
+    # nine-line ragged pillar of mono taller than the card beside it, with „§ "
+    # glued to a heading, on the product's proof-of-work card.
+    #
+    # Stated HERE rather than left to the field descriptions because top-level
+    # card fields are rendered with `with_desc=False`: the shape line carries a
+    # name and a type and nothing else, so the only ways to reach the model
+    # about one field are the worked example — which already shows „3.1.1" and
+    # „Tabelle 1a", and was not enough — and a note like this one. Same reason
+    # the diagram boundary is a note: a rule about how to fill a field in
+    # arrives with the shape the model cannot emit the card without.
+    #
+    # The frontend degrades a long value inline rather than dropping it, so this
+    # note is the half that keeps it from having to.
+    return (
+        "\n\nThe Fundstelle on a `legal_basis` card (`article`, `section`):\n"
+        "  Both are set in a narrow MARGIN beside the law's name, the way a statute prints its §, so\n"
+        "  each carries an identifier and never a sentence: `article` is the number alone ('3.1.1',\n"
+        "  '87', '8 bis 10', 'Art. 5 Abs. 2'), `section` the label alone ('Tabelle 1a', 'Abs. 4',\n"
+        "  'Anhang B'). Roughly 20 characters is the whole budget. 'Punkte 8 bis 10 der\n"
+        "  OIB-Richtlinie 2' names the Richtlinie a second time, and 'Anwendungsbereiche der\n"
+        "  ergänzenden Richtlinien' says what the passage regulates — that is `summary`, not a\n"
+        "  Fundstelle. Omit either field where the passage carries no such number or label; an empty\n"
+        "  margin costs the card nothing, a paragraph in it costs the card its shape."
     )
 
 
@@ -1319,6 +1355,10 @@ def render_card_details(card_types: Iterable[str]) -> str:
     # is only instruction where the card it bounds is in play.
     if "diagram" in wanted:
         out += _diagram_note()
+    # Same again for the Fundstelle margin: a width the model cannot see, on the
+    # card that gets screenshotted into an Einreichung.
+    if "legal_basis" in wanted:
+        out += _legal_basis_note()
     # Unconditional, unlike the provenance rule: every card type here has text
     # fields, so there is no shape this one fails to apply to.
     out += _plain_text_note()
