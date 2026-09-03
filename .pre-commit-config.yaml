@@ -50,7 +50,15 @@ repos:
         # secret by none. Excluded rather than baselined for the reason the note
         # below gives — a baseline entry pins a hash to a LINE NUMBER, and this
         # file grows by a block every time a skill is added.
-        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$)
+        #
+        # vector_channel_recorded.json is the scope_header.json case again: its
+        # `corpus_fingerprint` is a SHA-256 prefix over the embedded corpus text,
+        # hex by construction and secret by none. `task be:eval:record-vector`
+        # rewrites the whole file whenever the model or the corpus moves, so a
+        # baseline entry would pin a hash to a line number that does not survive
+        # the next recording — and JSON cannot carry the inline
+        # `pragma: allowlist secret` comment that would be the other way out.
+        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$|^frontends/benchmarks/oib_retrieval/fixtures/vector_channel_recorded\.json$)
         # REGENERATING THE BASELINE — keep the --exclude-lines flag, or CI starts
         # failing again a few commits later:
         #

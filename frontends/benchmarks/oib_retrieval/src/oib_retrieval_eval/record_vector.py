@@ -49,7 +49,6 @@ import json
 import os
 import random
 import sys
-import urllib.request
 from pathlib import Path
 
 #: Pages sampled per corpus document. Four is enough for a file to register in
@@ -95,19 +94,28 @@ def resolve_api_key(base_url: str, model: str) -> str:
 
 
 def embed(texts: list[str], *, model: str, base_url: str, api_key: str) -> list[list[float]]:
-    """Embed ``texts`` in order through the configured embeddings endpoint."""
+    """Embed ``texts`` in order through the configured embeddings endpoint.
+
+    ``httpx`` rather than ``urllib``: ``base_url`` is configuration, and urllib
+    would honour a ``file://`` in it and read a local path instead of calling an
+    API. httpx speaks http and https only, so the scheme cannot be talked into
+    something else.
+    """
+    import httpx
+
     vectors: list[list[float]] = []
-    for start in range(0, len(texts), _BATCH):
-        batch = texts[start : start + _BATCH]
-        request = urllib.request.Request(
-            f"{base_url.rstrip('/')}/embeddings",
-            data=json.dumps({"model": model, "input": batch}).encode(),
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(request, timeout=180) as response:
-            payload = json.load(response)["data"]
-        vectors.extend(item["embedding"] for item in sorted(payload, key=lambda item: item["index"]))
-        print(f"  embedded {min(start + _BATCH, len(texts))}/{len(texts)}", file=sys.stderr)
+    with httpx.Client(timeout=180.0) as client:
+        for start in range(0, len(texts), _BATCH):
+            batch = texts[start : start + _BATCH]
+            response = client.post(
+                f"{base_url.rstrip('/')}/embeddings",
+                json={"model": model, "input": batch},
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            response.raise_for_status()
+            payload = response.json()["data"]
+            vectors.extend(item["embedding"] for item in sorted(payload, key=lambda item: item["index"]))
+            print(f"  embedded {min(start + _BATCH, len(texts))}/{len(texts)}", file=sys.stderr)
     return vectors
 
 
