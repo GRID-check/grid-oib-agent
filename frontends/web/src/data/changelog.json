@@ -80,6 +80,10 @@
               "de": "Eine Deep Research in einem Projekt, dessen Beschreibung deutsche Anführungszeichen oder Gedankenstriche enthält, brach sofort nach dem Start ab — der Bericht schlug fehl und die Seitenleiste blieb leer. Solche Projekte lassen sich jetzt ohne Abbruch recherchieren."
             },
             {
+              "en": "Broad overview questions about a building guideline now find the same documents as the precise technical terms. A question asked in everyday wording no longer comes back with too few sources when the official documents spell the key terms differently.",
+              "de": "Broad overview questions about a building guideline now find the same documents as the precise technical terms. A question asked in everyday wording no longer comes back with too few sources when the official documents spell the key terms differently."
+            },
+            {
               "en": "Loading placeholders no longer jump when content arrives, file states and error messages are readable instead of technical, failed operations stay visible longer, and the whole interface shares one consistent shape language in light and dark mode.",
               "de": "Loading placeholders no longer jump when content arrives, file states and error messages are readable instead of technical, failed operations stay visible longer, and the whole interface shares one consistent shape language in light and dark mode."
             },
