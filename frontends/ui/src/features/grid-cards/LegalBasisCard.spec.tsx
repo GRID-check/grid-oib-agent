@@ -126,6 +126,62 @@ describe('LegalBasisCard primary source', () => {
   })
 })
 
+describe('LegalBasisCard Fundstelle', () => {
+  // A shipped card set `article` to „Punkte 8 bis 10 der OIB-Richtlinie 2" and
+  // `section` to „Anwendungsbereiche der ergänzenden Richtlinien". The margin
+  // is 72px of 11px mono — about ten characters a line — so it rendered them
+  // as a ragged pillar taller than the card, and prefixed the second with „§ ",
+  // which only reads on a number. The schema now asks for identifiers; this is
+  // the layer that holds when the model writes prose anyway.
+
+  const marginOf = (container: HTMLElement) => container.querySelector('.font-mono')
+
+  it('keeps a short identifier in the margin, prefixed', () => {
+    const { container } = render(<LegalBasisCard {...card({ article: '3.1.1', section: 'Tabelle 1a' })} />)
+    const margin = marginOf(container)
+    expect(margin).not.toBeNull()
+    expect(margin).toHaveTextContent('Art. 3.1.1')
+    expect(margin).toHaveTextContent('§ Tabelle 1a')
+  })
+
+  it('runs a Fundstelle too long for the margin inline, without the § prefix', () => {
+    const { container } = render(
+      <LegalBasisCard
+        {...card({
+          article: 'Punkte 8 bis 10 der OIB-Richtlinie 2',
+          section: 'Anwendungsbereiche der ergänzenden Richtlinien',
+        })}
+      />
+    )
+
+    expect(marginOf(container)).toBeNull()
+    // Nothing is dropped — this is the citation an architect verifies.
+    expect(
+      screen.getByText('Punkte 8 bis 10 der OIB-Richtlinie 2 · Anwendungsbereiche der ergänzenden Richtlinien')
+    ).toBeInTheDocument()
+    expect(container.textContent).not.toContain('§ Anwendungsbereiche')
+    expect(container.textContent).not.toContain('Art. Punkte 8')
+  })
+
+  it('moves the whole reference out of the margin when either half is prose', () => {
+    // Article and section are ONE Fundstelle. A short „3.1.1" left in the
+    // margin while its section wrapped inline would split the citation across
+    // two treatments.
+    const { container } = render(
+      <LegalBasisCard {...card({ article: '3.1.1', section: 'Anwendungsbereiche der ergänzenden Richtlinien' })} />
+    )
+
+    expect(marginOf(container)).toBeNull()
+    expect(screen.getByText('3.1.1 · Anwendungsbereiche der ergänzenden Richtlinien')).toBeInTheDocument()
+  })
+
+  it('collapses the margin for a blank Fundstelle rather than printing a bare prefix', () => {
+    const { container } = render(<LegalBasisCard {...card({ article: '   ', section: null })} />)
+    expect(marginOf(container)).toBeNull()
+    expect(container.textContent).not.toContain('Art.')
+  })
+})
+
 describe('LegalBasisCard text fields are plain text', () => {
   // A production card put „[OIB-Richtlinie ansehen](https://www.oib.or.at/de/
   // oib-richtlinien)“ on screen as literal brackets, beside this card's own

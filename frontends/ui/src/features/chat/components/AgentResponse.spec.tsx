@@ -435,38 +435,42 @@ describe('AgentResponse', () => {
       expect(reserved?.className).not.toContain('animation-delay')
     })
 
-    test('holds confidence, memory, the feedback row and the timestamp behind ONE disclosure', async () => {
+    test('holds confidence, memory and the timestamp behind ONE disclosure — feedback stays out', async () => {
       const user = userEvent.setup()
+      // Local-only, uncited turn: no conversationId means no Word export, so
+      // the plain-copy fallback keeps the row from going silent (AnswerActions
+      // shows it only when the turn has neither sources nor an export).
       render(
         <AgentResponse
           content="Answer"
           messageId="m1"
-          conversationId="conv-1"
           stages={NOTED}
           answerConfidence="high"
           timestamp={new Date('2026-07-17T10:30:00')}
         />
       )
 
-      // The visible row holds the copy action and the trigger — nothing else.
+      // The visible row holds the copy action, the thumbs and the trigger —
+      // rating the answer costs no click. Confidence, memory and time wait
+      // behind the disclosure.
       const metaRow = screen.getByRole('button', { name: 'Copy answer' }).closest('.min-h-6')
       expect(metaRow).not.toBeNull()
       expect(metaRow).toContainElement(screen.getByTestId('answer-details-trigger'))
+      expect(metaRow).toContainElement(
+        screen.getByRole('button', { name: 'Mark this answer as helpful' })
+      )
       expect(screen.queryByText('Confidence: high')).not.toBeInTheDocument()
       expect(screen.queryByText('Piloti noted')).not.toBeInTheDocument()
 
       await user.click(screen.getByTestId('answer-details-trigger'))
 
-      // Opened: everything the turn carries is in the document.
+      // Opened: everything else the turn carries is in the document.
       expect(screen.getByText('Confidence: high')).toBeInTheDocument()
       expect(screen.getByText('Piloti noted')).toBeInTheDocument()
-      expect(
-        screen.getByRole('button', { name: 'Mark this answer as helpful' })
-      ).toBeInTheDocument()
       expect(screen.getByText(/^\d{1,2}:\d{2}/)).toBeInTheDocument()
     })
 
-    test('the copy actions and the details trigger share the wrapping meta row', () => {
+    test('the export actions, the thumbs and the details trigger share the wrapping meta row', () => {
       render(
         <AgentResponse
           content="Answer"
@@ -478,13 +482,16 @@ describe('AgentResponse', () => {
         />
       )
 
-      const copy = screen.getByRole('button', { name: 'Copy answer' })
+      // A cited answer offers the with-sources copy (not the plain fallback).
+      const copy = screen.getByRole('button', { name: 'Copy answer with full source references' })
       const trigger = screen.getByTestId('answer-details-trigger')
-      // Both hang off the one wrapping row — the row breaks before either,
-      // never between copy and details at phone width.
+      const thumb = screen.getByRole('button', { name: 'Mark this answer as helpful' })
+      // All hang off the one wrapping row — the row breaks before any of
+      // them, never between copy and rating at phone width.
       const metaRow = copy.closest('.min-h-6')
       expect(metaRow).not.toBeNull()
       expect(metaRow).toContainElement(trigger)
+      expect(metaRow).toContainElement(thumb)
       expect(metaRow?.className).toContain('flex-wrap')
     })
 
@@ -509,23 +516,30 @@ describe('AgentResponse', () => {
       expect(screen.getByText('Piloti noted')).toBeInTheDocument()
     })
 
-    test('renders the full feedback row inside the disclosure, not inline in the card', async () => {
+    test('renders the feedback row in the open, beside the export actions', async () => {
       const user = userEvent.setup()
-      render(<AgentResponse content="Answer" messageId="m1" conversationId="conv-1" />)
+      // Local-only, uncited turn with a timestamp: the fallback copy keeps the
+      // row from going silent, and the timestamp gives the disclosure something
+      // to hold so the trigger exists to prove feedback stays out of it.
+      render(
+        <AgentResponse
+          content="Answer"
+          messageId="m1"
+          timestamp={new Date('2026-07-17T10:30:00')}
+        />
+      )
 
-      // Closed: no question, no thumbs.
-      expect(screen.queryByText('Was this helpful?')).not.toBeInTheDocument()
-      expect(
-        screen.queryByRole('button', { name: 'Mark this answer as helpful' })
-      ).not.toBeInTheDocument()
-
-      await user.click(screen.getByTestId('answer-details-trigger'))
-
-      // Opened: the full row with its question and both thumbs.
+      // No click needed: the question and both thumbs are in the visible row,
+      // next to the fallback copy of this sourceless answer.
       expect(screen.getByText('Was this helpful?')).toBeInTheDocument()
       expect(
         screen.getByRole('button', { name: 'Mark this answer as helpful' })
       ).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Copy answer' })).toBeInTheDocument()
+
+      // And the disclosure holds none of it — only the details.
+      await user.click(screen.getByTestId('answer-details-trigger'))
+      expect(screen.getAllByText('Was this helpful?')).toHaveLength(1)
     })
 
     test('the sources row draws no divider inside the card (the body hairline already separates)', () => {

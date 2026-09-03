@@ -29,13 +29,6 @@ export const research: typeof en.research = {
       'Melden Sie sich an, um projektbezogene OIB-Recherche, das Einlesen Ihrer Dokumente und Zugriffsrechte für Mitglieder freizuschalten.',
     signInSso: 'Mit SSO anmelden',
     welcomeTitle: 'Wie kann Piloti bei Ihrem Projekt helfen?',
-    capabilityLine:
-      'Belegt jede Antwort mit OIB-Richtlinie und Seite — oder sagt, dass sie fehlt.',
-    startersAria: 'Beispielfragen',
-    usePrompt: 'Vorschlag verwenden: {prompt}',
-    prompt1: 'Vergleiche die Brandschutzpflichten nach OIB 2 über die Gebäudeklassen hinweg.',
-    prompt2: 'Fasse die Barrierefreiheitsanforderungen für eine öffentliche Sanierung zusammen.',
-    prompt3: 'Finde Widersprüche zwischen den hochgeladenen Plänen und den OIB-Richtlinien.',
   },
 
   chatToolbar: {

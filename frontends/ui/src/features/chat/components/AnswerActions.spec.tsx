@@ -3,9 +3,12 @@
  *
  * What matters here is not that a button exists but WHAT lands on the
  * clipboard: source markdown (numbering, tables, emphasis intact), never the
- * rendered text, and never the internal `[[card:N]]` machinery. Plus the two
- * refusals — no dead "with sources" button on an answer that has none, and no
- * silent failure when the clipboard is blocked.
+ * rendered text, and never the internal `[[card:N]]` machinery. Two buttons
+ * and a fallback: the with-sources copy when the turn resolved sources, the
+ * Word export when the turn is persisted, and a plain copy when a turn has
+ * neither — so the row never goes silent, and never promises provenance an
+ * answer does not have. Plus the refusal: no silent failure when the
+ * clipboard is blocked.
  */
 
 import { render, screen, waitFor } from '@/test-utils'
@@ -62,8 +65,10 @@ describe('AnswerActions', () => {
   const copied = () => writeText.mock.calls[0]![0] as string
 
   test('copies the answer as markdown — numbering, table and emphasis survive', async () => {
+    // A sourceless turn gets the plain-copy fallback — the right surface to
+    // assert the markdown flavor on.
     const user = userEvent.setup()
-    render(<AnswerActions content={ANSWER} body={ANSWER} documents={documents} />)
+    render(<AnswerActions content={ANSWER} body={ANSWER} documents={[]} />)
     installClipboard()
 
     await user.click(screen.getByRole('button', { name: 'Copy answer' }))
@@ -76,7 +81,7 @@ describe('AnswerActions', () => {
 
   test('never puts the internal card markers on the clipboard', async () => {
     const user = userEvent.setup()
-    render(<AnswerActions content={ANSWER} body={ANSWER} documents={documents} />)
+    render(<AnswerActions content={ANSWER} body={ANSWER} documents={[]} />)
     installClipboard()
 
     await user.click(screen.getByRole('button', { name: 'Copy answer' }))
@@ -100,11 +105,20 @@ describe('AnswerActions', () => {
     expect(copied()).toContain('oib-rl_2_ausgabe_mai_2023.pdf')
   })
 
-  test('renders no "with sources" button when the answer has none', () => {
+  test('renders the plain copy as a fallback when the answer has no sources', () => {
     render(<AnswerActions content="Nur Prosa." body="Nur Prosa." documents={[]} />)
 
     expect(screen.getByRole('button', { name: 'Copy answer' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /source references/i })).not.toBeInTheDocument()
+  })
+
+  test('hides the plain copy once the with-sources copy is available', () => {
+    render(<AnswerActions content={ANSWER} body={ANSWER} documents={documents} />)
+
+    expect(
+      screen.getByRole('button', { name: 'Copy answer with full source references' })
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Copy answer' })).not.toBeInTheDocument()
   })
 
   test('confirms with the Check swap, on the pressed button only', async () => {
@@ -112,19 +126,17 @@ describe('AnswerActions', () => {
     render(<AnswerActions content={ANSWER} body={ANSWER} documents={documents} />)
     installClipboard()
 
-    await user.click(screen.getByRole('button', { name: 'Copy answer' }))
+    await user.click(
+      screen.getByRole('button', { name: 'Copy answer with full source references' })
+    )
 
     expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument()
-    // The other action is untouched — one press, one confirmation.
-    expect(
-      screen.getByRole('button', { name: 'Copy answer with full source references' })
-    ).toBeInTheDocument()
   })
 
   test('says so when the clipboard refuses instead of failing silently', async () => {
     const user = userEvent.setup()
     writeText.mockRejectedValueOnce(new Error('denied'))
-    render(<AnswerActions content={ANSWER} body={ANSWER} documents={documents} />)
+    render(<AnswerActions content={ANSWER} body={ANSWER} documents={[]} />)
     installClipboard()
 
     await user.click(screen.getByRole('button', { name: 'Copy answer' }))
@@ -139,7 +151,9 @@ describe('AnswerActions', () => {
     installClipboard()
 
     await user.tab()
-    expect(screen.getByRole('button', { name: 'Copy answer' })).toHaveFocus()
+    expect(
+      screen.getByRole('button', { name: 'Copy answer with full source references' })
+    ).toHaveFocus()
     await user.keyboard('{Enter}')
 
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))

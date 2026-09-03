@@ -175,8 +175,27 @@ class LegalBasisCard(CardModel):
             "when you did not see it: an invented Ausgabe makes an unverifiable citation look verified."
         ),
     )
-    article: str | None = Field(default=None, description="Relevant article or paragraph number")
-    section: str | None = Field(default=None, description="Relevant section or chapter")
+    article: str | None = Field(
+        default=None,
+        description=(
+            "The article or point NUMBER alone, as the document prints it: '3.1.1', '87', '8 bis 10', "
+            "'Art. 5 Abs. 2'. It is set in the card's MARGIN, the way a statute prints its § beside the "
+            "text, so it must be an identifier and not a sentence — 'Punkte 8 bis 10 der OIB-Richtlinie 2' "
+            "names the Richtlinie a second time and does not fit a margin; write '8 bis 10' here and let "
+            "`summary` say what those Punkte require. Roughly 20 characters is the whole budget. Omit it "
+            "when the passage carries no number."
+        ),
+    )
+    section: str | None = Field(
+        default=None,
+        description=(
+            "The section, table or annex LABEL alone: 'Tabelle 1a', 'Abs. 4', 'Anhang B', 'Pkt. 2.1'. Set "
+            "in the same margin as `article`, under the same budget, so it is a label and never a heading "
+            "or a description of what the section regulates — 'Anwendungsbereiche der ergänzenden "
+            "Richtlinien' is a summary of the passage, and belongs in `summary`. Omit it when the passage "
+            "carries no such label."
+        ),
+    )
     summary: str | None = Field(default=None, description="Plain-language summary of the legal relevance")
     original_text: str | None = Field(default=None, description="Literal excerpt from the source, if available")
 

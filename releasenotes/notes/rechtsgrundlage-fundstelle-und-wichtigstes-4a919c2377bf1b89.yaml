@@ -1,0 +1,15 @@
+---
+fixes:
+  - >
+    In der Rechtsgrundlage stand die Fundstelle bisher immer in der schmalen
+    Randspalte — auch als ganzer Satz. „Punkte 8 bis 10 der OIB-Richtlinie 2“
+    brach dort auf sieben Zeilen um und war höher als die Karte daneben. Eine
+    kurze Fundstelle steht weiterhin am Rand, eine lange jetzt in der Zeile
+    neben der Richtlinie.
+improvements:
+  - >
+    „Das Wichtigste“ am Ende einer Antwort trägt jetzt in jeder Zeile das, was
+    man mitschreibt — die Zahl, die Klasse, die Frist —, statt nur zu benennen,
+    worum es in der Zeile ginge. Aufgeklappt steht dahinter die Fundstelle, die
+    Herleitung oder der Fall, in dem die Aussage nicht gilt; wo es dazu nichts
+    zu sagen gibt, lässt sich die Zeile gar nicht mehr aufklappen.
