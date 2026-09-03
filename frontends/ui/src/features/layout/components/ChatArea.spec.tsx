@@ -1,4 +1,4 @@
-import { render, screen, within } from '@/test-utils'
+import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ChatArea } from './ChatArea'
@@ -236,39 +236,28 @@ describe('ChatArea', () => {
     mockBimModels = null
   })
 
-  describe('the empty canvas offers starters that prefill, never send', () => {
-    // The greeting used to stand alone — no subtitle, no example questions —
-    // on the theory that onboarding copy is charged to every user on every new
-    // thread. Reversed deliberately: a blank canvas with a blinking caret is
-    // where first-run threads go to die, and three chips that FILL the
-    // composer (never send — the reader reviews and edits before anything goes
-    // out) cost one line each. The ratchet now guards the prefill-only
-    // contract, not the absence: a starter that auto-sends is the regression.
-    test('offers three example questions that fill the composer without sending', async () => {
-      const user = userEvent.setup()
+  describe('the empty canvas offers nothing to read, only something to do', () => {
+    // The greeting used to be followed by static example questions. They are
+    // gone: static examples cannot know the project. Their replacement —
+    // categorized, backend-driven starters from the project's own documents,
+    // checks and memory — is planned separately; until it lands, the canvas
+    // stays quiet rather than showing placeholders.
+    //
+    // This block is the ratchet. Suggestion chips are the kind of thing that
+    // grows back one well-argued pull request at a time, so the absence is
+    // asserted in the exact conditions that used to produce the most of them.
+    // A reintroduction must prefill only (never auto-send).
+
+    test('grows no suggestion chips, not even where a readable model exists', () => {
       mockProjectId = 'proj-1'
+      // The strongest case: this project's model is ready, which is precisely
+      // when the canvas used to lead with two building questions.
       mockBimModels = [{ status: 'ready' }]
       render(<ChatArea isAuthenticated />)
 
-      const group = screen.getByRole('group', { name: 'Example questions' })
-      const starters = within(group).getAllByRole('button')
-      expect(starters).toHaveLength(3)
+      expect(screen.queryAllByRole('button', { name: /\?$/ })).toHaveLength(0)
+      expect(screen.queryByRole('group', { name: /example|beispiel/i })).not.toBeInTheDocument()
       expect(mockSetComposerPrefill).not.toHaveBeenCalled()
-
-      await user.click(starters[0])
-
-      expect(mockSetComposerPrefill).toHaveBeenCalledTimes(1)
-      expect(mockSetComposerPrefill).toHaveBeenCalledWith(
-        'Compare OIB 2 fire resistance duties across building classes.'
-      )
-    })
-
-    test('states the provenance promise in one capability line', () => {
-      render(<ChatArea isAuthenticated />)
-
-      expect(
-        screen.getByText(/backs every answer with the oib richtlinie and page/i)
-      ).toBeInTheDocument()
     })
 
     test('leaves the greeting alone under it', () => {

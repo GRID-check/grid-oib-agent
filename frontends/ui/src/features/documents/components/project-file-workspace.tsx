@@ -543,6 +543,18 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   const filterEmptyNotice = useMemo(() => {
     const clear = () => setFilters(NO_FILE_FILTERS)
     if (activeFilterCount(filters, !!canCollaborate) === 0) return null
+    // The notice REPLACES the whole listing (the pane renders it before every
+    // other branch), so it may only exist when the listing is actually empty —
+    // otherwise an active filter blanks the files it just matched. A query or
+    // semantic search owns its own empty states, so the notice yields to them.
+    if (search.query.trim() !== '' || search.semantic.active) return null
+    if (levelFiles.length > 0) return null
+    // An unfiltered-empty level is an empty folder, not a filter hiding
+    // anything — clearing the filter would still show nothing.
+    const levelOccupied = foldersError
+      ? files.length > 0
+      : files.some((file) => (file.folderId ?? null) === selectedFolderId)
+    if (!levelOccupied) return null
     if (filters.agentAuthoredOnly) {
       return {
         title: t('authorship.emptyTitle'),
@@ -569,7 +581,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       description: t('filters.emptyDescription'),
       onClear: clear,
     }
-  }, [filters, canCollaborate, t])
+  }, [filters, canCollaborate, t, search.query, search.semantic.active, levelFiles, files, selectedFolderId, foldersError])
 
   // After a successful re-ingestion the document is back to 'pending'; reflect
   // that locally so the badge flips to "Processing" and the dead-end failure UI
