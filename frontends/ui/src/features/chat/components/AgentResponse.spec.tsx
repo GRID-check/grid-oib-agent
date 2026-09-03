@@ -437,11 +437,13 @@ describe('AgentResponse', () => {
 
     test('holds confidence, memory and the timestamp behind ONE disclosure — feedback stays out', async () => {
       const user = userEvent.setup()
+      // Local-only, uncited turn: no conversationId means no Word export, so
+      // the plain-copy fallback keeps the row from going silent (AnswerActions
+      // shows it only when the turn has neither sources nor an export).
       render(
         <AgentResponse
           content="Answer"
           messageId="m1"
-          conversationId="conv-1"
           stages={NOTED}
           answerConfidence="high"
           timestamp={new Date('2026-07-17T10:30:00')}
@@ -516,7 +518,16 @@ describe('AgentResponse', () => {
 
     test('renders the feedback row in the open, beside the export actions', async () => {
       const user = userEvent.setup()
-      render(<AgentResponse content="Answer" messageId="m1" conversationId="conv-1" />)
+      // Local-only, uncited turn with a timestamp: the fallback copy keeps the
+      // row from going silent, and the timestamp gives the disclosure something
+      // to hold so the trigger exists to prove feedback stays out of it.
+      render(
+        <AgentResponse
+          content="Answer"
+          messageId="m1"
+          timestamp={new Date('2026-07-17T10:30:00')}
+        />
+      )
 
       // No click needed: the question and both thumbs are in the visible row,
       // next to the fallback copy of this sourceless answer.
