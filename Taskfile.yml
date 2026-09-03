@@ -338,6 +338,15 @@ tasks:
       # not a red build while a real regression is.
       - '{{.PY}} -m oib_retrieval_eval.runner --structure-only --fail-below {{.RETRIEVAL_GATE_PCT | default "95"}}'
 
+  be:eval:overview:
+    desc: Overview/exact/paraphrase golden recall report — the item-12 ratchet (offline, prints cohort table + per-query diff)
+    env:
+      PYTHONPATH: src:frontends/benchmarks/oib_retrieval/src
+    cmds:
+      # Gating lives in tests/benchmarks/test_oib_overview_recall.py (CI runs it
+      # via be:test:ci); this task is the human entry point to the same numbers.
+      - '{{.PY}} -m oib_retrieval_eval.overview'
+
   be:eval:turn-shapes:
     desc: ADR-0052 turn-shape eval against the live shallow model (needs OPENROUTER_API_KEY; skips without it)
     cmds:
