@@ -1,0 +1,12 @@
+---
+fixes:
+  - >
+    Rating an answer as not helpful no longer pulls the footer under it out of
+    shape. The question about what went wrong, the four reasons and the note
+    field now open on their own line, aligned with the answer above them, while
+    the copy and export buttons stay on the line they were on.
+  - >
+    Every finished answer can now be copied. An answer that cites no source —
+    a clarifying question, a short conversational reply — offered only the Word
+    download before, so there was no way to take a sentence from it into an
+    e-mail.

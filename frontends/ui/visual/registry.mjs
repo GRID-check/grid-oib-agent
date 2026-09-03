@@ -251,6 +251,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="answer-layer-preview"]',
   },
   {
+    id: 'answer-feedback-footer',
+    mobile: true,
+    path: '/dev/chat-turn?variant=feedback-open',
+    description:
+      "The provenance footer with the feedback footnote OPEN, in the real answer card. The same answer twice — at rest, and after a „nicht hilfreich\" whose reason is chosen, so the note is showing too — because the comparison is the evidence. The footer is the one row where a 24px control row and a form share a wrapping flex row, and the open state had only ever been reviewed in the component's own gallery, where there is no row to break. It broke: one box held the thumbs and their form, `items-center` centred the copy actions against the form's height, and the result was two icons floating mid-footer in an empty left half with the reason chips and the note hanging off the row's right end. Read the two panels' top line: copy, export and the thumbs must sit on it at the same height in both, with the disclosure below on the answer's own left edge, and „Antwortdetails\" last.",
+    waitFor: '[data-testid="answer-layer-preview"]',
+  },
+  {
     id: 'answer-anatomy',
     mobile: true,
     path: '/dev/chat-turn?variant=anatomy',

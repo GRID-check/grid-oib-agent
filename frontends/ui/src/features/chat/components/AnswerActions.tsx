@@ -3,10 +3,12 @@
 /**
  * AnswerActions — getting the answer out of Piloti.
  *
- * Two ways out, and only two:
+ * Two ways out, and only two — the clipboard and the file:
  *
  *   ❞  Antwort mit Quellenangaben       → the prose with its sources written
  *                                        out (clipboard, rich + markdown)
+ *   ⧉  Antwort kopieren                 → the prose alone, when the turn
+ *                                        resolved no sources to write out
  *   ⤓  Als Word-Dokument               → the export route's .docx, cards and all
  *
  * The copy puts the answer on the clipboard in two flavors at once
@@ -17,12 +19,20 @@
  * carries what no clipboard copy can: the question, the resolved citations,
  * the cards as tables and the confidence note.
  *
- * The copy button is only rendered when the turn actually resolved sources. A
- * button that would copy an empty "Quellen" heading is a dead button, and this
- * row is not the place to promise provenance an answer does not have. When a
- * turn has neither sources nor an exportable message (a local-only, uncited
- * answer), a plain copy stands in — so the row never goes silent on a turn
- * that can still be taken along.
+ * EXACTLY ONE of the two copies is rendered, and one of them always is: an
+ * answer that finished can always be put on the clipboard. Which one is a fact
+ * about the turn's SOURCES and nothing else — with resolved citations the copy
+ * writes them out, without them it hands over the prose, because a button that
+ * would copy an empty "Quellen" heading is a dead button and this row is not the
+ * place to promise provenance an answer does not have.
+ *
+ * The download is a THIRD thing and never stands in for either. It was once
+ * treated as one — the plain copy was withheld from any turn that had an export
+ * — which left every uncited answer in a real conversation with a .docx
+ * download as its only way out, because a persisted turn always has an export.
+ * A Rückfrage, a conversational reply, an answer whose citations were all
+ * dropped: none of them could be copied. Downloading a Word document is not
+ * copying a sentence into an e-mail.
  *
  * ── Weight ───────────────────────────────────────────────────────────────────
  * This sits in the answer's meta row, beside the feedback thumbs, so it
@@ -179,9 +189,9 @@ export const AnswerActions: FC<AnswerActionsProps> = ({
 
   const withSources = hasCopyableSources(documents)
   const canExport = Boolean(conversationId && messageId)
-  // A turn with neither sources nor an export still gets the plain copy —
-  // the fallback keeps the row from going silent, never from overpromising.
-  const showPlainCopy = !withSources && !canExport
+  // The two copies are exclusive and exhaustive: sources decide WHICH, never
+  // whether. The export is orthogonal and cannot stand in for either.
+  const showPlainCopy = !withSources
   const copyLabel = copied === 'plain' ? t('answerActions.copied') : t('answerActions.copy')
   const copyWithSourcesLabel =
     copied === 'withSources' ? t('answerActions.copied') : t('answerActions.copyWithSources')

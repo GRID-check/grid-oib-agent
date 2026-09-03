@@ -19,7 +19,7 @@
  * on a bare page, at full width — and "does this look right on its own" is a
  * different question from "does this look right wedged between two paragraphs,
  * under a lede, above a provenance footer, at the thread's real 680px column".
- * These four variants ask the second one:
+ * These variants ask the second one:
  *
  *   • `lede-card`    — a long answer (over the `LEDE_MIN_CHARS` threshold, so
  *                      the lede fires) with a `calculation` spliced in mid-answer
@@ -60,6 +60,19 @@
  *   • `anatomy`      — the envelope's NATIVE anatomy, flat: verdict masthead
  *                      above the prose, callout anchored inside it by its
  *                      `[[callout]]` marker, takeaways closing the answer.
+ *   • `feedback-open` — the provenance footer with the feedback footnote OPEN:
+ *                      the same answer at rest and after a down-vote whose
+ *                      reason is chosen, so the note is showing too. The footer
+ *                      is the only place where a 24px control row and a form
+ *                      share one wrapping row, and the open state had never been
+ *                      seen in it — only in the component's own gallery, where
+ *                      there is no row to break. It broke: `items-center`
+ *                      centred the copy actions against the form's height, so
+ *                      two icons floated mid-footer in an empty left half while
+ *                      the reason chips and the note hung off the row's right
+ *                      end. Read the two panels' top line: copy, export and the
+ *                      thumbs must sit on it identically, with the disclosure
+ *                      below on the answer's own left edge.
  *
  * Every fixture answer deliberately ends in a written "## Quellen" section, the
  * way a verified backend answer does: it must NOT render as a second source
@@ -265,8 +278,16 @@ const AnswerTurn: FC<{
   stages?: MessageStages
   /** The envelope's native anatomy — rendered flat, never as cards. */
   answerMeta?: AnswerMeta
+  /**
+   * The conversation the turn belongs to. Only the `feedback-open` variant sets
+   * it, and it is what makes that fixture real rather than staged: the footer's
+   * thumbs hydrate per conversation, so a conversation id is the ONLY way to
+   * put the real component into a voted state — no prop, no stubbed hook. It
+   * also turns on the .docx export action, which is the production footer.
+   */
+  conversationId?: string
   children?: ReactNode
-}> = ({ label, question, answer, cards, citations, confidenceReason, messageId, rail, stages, answerMeta, children }) => (
+}> = ({ label, question, answer, cards, citations, confidenceReason, messageId, rail, stages, answerMeta, conversationId, children }) => (
   <div className="flex flex-col gap-5 rounded-2xl border bg-background p-5">
     <div className="font-mono text-xs text-muted-foreground">{label}</div>
     {children}
@@ -290,6 +311,7 @@ const AnswerTurn: FC<{
         timestamp={new Date('2024-01-15T14:30:12')}
         cards={cards}
         citations={citations}
+        conversationId={conversationId}
         answerConfidence="high"
         answerConfidenceReason={confidenceReason}
         routingDecision="shallow"
@@ -690,7 +712,49 @@ const anatomyMeta: AnswerMeta = {
   ],
 }
 
+/* --- variant: feedback-open ------------------------------------------------ */
+
+/**
+ * What the footer's thumbs are holding for each turn of the `feedback-open`
+ * fixture, keyed by conversation — the shape GET /api/feedback/answers returns.
+ *
+ * Keyed by conversation because that is how the real hook hydrates: one GET per
+ * conversation, so two conversations is what puts two copies of the REAL
+ * component on one page in two different states, with nothing stubbed but the
+ * network.
+ */
+const FEEDBACK_STATES: Record<string, { messageId: string; verdict: string; reason: string | null; comment: string | null }[]> = {
+  'conv-feedback-rest': [],
+  'conv-feedback-down': [
+    { messageId: 'msg-feedback-down', verdict: 'down', reason: 'inaccurate', comment: null },
+  ],
+}
+
+if (typeof window !== 'undefined') {
+  const real = window.fetch.bind(window)
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    if (url.includes('/api/feedback/answers')) {
+      const conversationId = new URL(url, 'http://x').searchParams.get('conversationId') ?? ''
+      return new Response(JSON.stringify({ feedback: FEEDBACK_STATES[conversationId] ?? [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    return real(input, init)
+  }
+}
+
+const feedbackQuestion = 'Wie breit muss die Haupttreppe in einem Wohnhaus der Gebäudeklasse 4 sein?'
+
+const feedbackAnswer = `Die nutzbare **Laufbreite** der Haupttreppe muss mindestens **1,20 m** betragen. Gemessen wird zwischen den begrenzenden Bauteilen, Handläufe dürfen bis 10 cm je Seite einragen [1].
+
+Für Wien konkretisiert § 111 BO die Ausführung: die Breite ist über den gesamten Lauf einzuhalten, Einbauten und Verziehungen dürfen sie an keiner Stelle unterschreiten [2].
+
+${STAIR_SOURCES}`
+
 const ANSWER_VARIANTS = [
+  'feedback-open',
   'lede-card',
   'two-cards',
   'follow-ups-rail',
@@ -704,6 +768,39 @@ const isAnswerVariant = (value: string | null): value is AnswerVariant =>
   ANSWER_VARIANTS.includes(value as AnswerVariant)
 
 function AnswerLayer({ variant }: { variant: AnswerVariant }) {
+  if (variant === 'feedback-open') {
+    // The SAME footer twice: at rest, and after a down-vote with a reason
+    // chosen, so the note is open too — the tallest the footnote ever gets.
+    // The pair is the evidence, and the top line of the two footers is where to
+    // look: the copy actions and the thumbs must sit on it at the same height
+    // in both, with the reason chips and the note below, on the answer's left
+    // edge. They used to be one box in a centred row, which made the second
+    // footer as tall as the form, floated the copy actions halfway down its
+    // empty left half, and hung the chips and the note off the right end.
+    return (
+      <>
+        <AnswerTurn
+          label="↓ AT REST — the footnote is one 24px line: copy, export, the question, two thumbs"
+          question={feedbackQuestion}
+          answer={feedbackAnswer}
+          citations={stairCitations}
+          confidenceReason="Laufbreite direkt aus OIB-RL 4 und § 111 BO Wien belegt"
+          messageId="msg-feedback-rest"
+          conversationId="conv-feedback-rest"
+        />
+        <AnswerTurn
+          label="↓ NOT HELPFUL, REASON CHOSEN — the disclosure takes the next line, the row above it does not move"
+          question={feedbackQuestion}
+          answer={feedbackAnswer}
+          citations={stairCitations}
+          confidenceReason="Laufbreite direkt aus OIB-RL 4 und § 111 BO Wien belegt"
+          messageId="msg-feedback-down"
+          conversationId="conv-feedback-down"
+        />
+      </>
+    )
+  }
+
   if (variant === 'anatomy') {
     return (
       <AnswerTurn

@@ -112,6 +112,26 @@ describe('AnswerActions', () => {
     expect(screen.queryByRole('button', { name: /source references/i })).not.toBeInTheDocument()
   })
 
+  test('an uncited answer in a real conversation can still be copied', () => {
+    // The regression: the plain copy used to be withheld from any turn that had
+    // an export, and every persisted turn has one. So an answer with no
+    // resolved citations — a Rückfrage, a conversational reply, an answer whose
+    // citations were all dropped — offered a .docx download and no way to put a
+    // sentence on the clipboard. The download is not a copy.
+    render(
+      <AnswerActions
+        content="Nur Prosa."
+        body="Nur Prosa."
+        documents={[]}
+        conversationId="conv-1"
+        messageId="msg-1"
+      />
+    )
+
+    expect(screen.getByRole('button', { name: 'Copy answer' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Download as Word document' })).toBeInTheDocument()
+  })
+
   test('hides the plain copy once the with-sources copy is available', () => {
     render(<AnswerActions content={ANSWER} body={ANSWER} documents={documents} />)
 
