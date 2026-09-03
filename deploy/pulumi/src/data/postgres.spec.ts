@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { sslParamFor } from "./postgres";
+import { CNPG_CHART_REPOSITORY, sslParamFor } from "./postgres";
+
+describe("CNPG chart repository", () => {
+  it("uses the GitHub-hosted chart index to avoid DNS redirects in CI", () => {
+    expect(CNPG_CHART_REPOSITORY).toBe(
+      "https://raw.githubusercontent.com/cloudnative-pg/charts/gh-pages",
+    );
+  });
+});
 
 /**
  * Every DSN this program emits asks for TLS, and the parameter that asks for it
