@@ -371,9 +371,10 @@ in `cards/models.py`) and the DSML salvage (`shallow_researcher/dsml.py`) — an
 `grid-cards` shapes block) and the worked example all go together.
 
 What it deliberately does NOT do is remove the union member. `validateGridCards`
-(`shared/cards/schemas.ts`) drops anything failing the union and logs a warning per
-card, so deleting the type would cost every historical thread its chips and fill
-the console doing it. Retiring one is therefore a checklist:
+(`shared/cards/schemas.ts`) leaves an `undefined` hole for anything failing the
+union and logs a warning per card, so deleting the type would cost every
+historical thread its chips at those positions and fill the console doing it.
+Retiring one is therefore a checklist:
 
 1. add the type to `SYSTEM_CARD_TYPES`;
 2. remove its prompt weight everywhere it is written by hand — the trigger row and
@@ -854,7 +855,7 @@ endpoint, and the request-a-card link sits in the header and again at the foot.
 | piece | where |
 |---|---|
 | The page | `src/app/app/platform/cards/page.tsx` + `platform-cards.tsx` |
-| The sample cards | `features/grid-cards/preview-fixtures.ts` — authored in schema-INPUT shape, then run through `validateGridCards`, so a fixture that stops matching the union is dropped rather than rendered |
+| The sample cards | `features/grid-cards/preview-fixtures.ts` — authored in schema-INPUT shape, then run through `validateGridCards`, so a fixture that stops matching the union is holed (absent from the map) rather than rendered |
 | Coverage guard | `preview-fixtures.spec.ts` — every type in `CARD_INTERACTIVITY` needs a fixture or an entry in `PREVIEW_EXCLUDED` |
 | Not previewed | all five IFC cards + `document_grid`: they carry identifiers resolved against a loaded model or real document rows, and a fabricated preview would show a building that does not exist |
 | Preview evidence | `/dev/platform-cards` + the `platform-cards` screenshot target |
@@ -897,7 +898,12 @@ instead. Next phases: a 3D massing card
   by a researcher worker during the run deliver — a deep answer can show a
   `document_grid` card. `_merge_job_cards` puts the emitted cards FIRST, in
   emission order, then the post-hoc ones: `[[card:N]]` resolves positionally,
-  and only the emitted cards were ever addressed by a marker.
+  and only the emitted cards were ever addressed by a marker. Positions hold
+  end to end because `validateGridCards` never compacts the array: a card the
+  frontend schema rejects leaves an `undefined` hole at its wire index, so a
+  marker after the hole still names the card it was written for (a marker
+  pointing AT the hole renders nothing), and a persisted `cardKey` decision
+  stays bound to its proposal across reloads.
 - Which subagent holds the tools: everything in the deep agent's `tools:` list
   goes to the RESEARCHER workers (`factory.py::build_deep_research_tool_set`);
   the writer holds helper and skill tools only, and the orchestrator the

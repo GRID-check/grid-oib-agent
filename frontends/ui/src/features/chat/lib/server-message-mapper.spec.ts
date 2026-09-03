@@ -77,12 +77,17 @@ describe('mapServerMessageToChatMessage', () => {
     expect(mapped!.messageFiles).toEqual([{ id: 'f1', fileName: 'a.pdf' }])
   })
 
-  it('drops a stored card the current schema does not know, keeping the rest', () => {
-    // This path — every card read back out of the database — used to CAST
+  it('holes a stored card the current schema does not know, keeping the rest in place', () => {
+    // This path - every card read back out of the database - used to CAST
     // rather than validate, while the live websocket path validated. One row
     // written under a different schema version then reached a renderer that
     // indexes a lookup table by an unvalidated field, threw during render, and
     // blanked the whole conversation instead of that one card.
+    //
+    // The rejected card leaves a HOLE rather than being filtered out:
+    // positions are card identity (`[[card:N]]` markers address them, persisted
+    // decisions key on them), so closing the gap would rebind every marker and
+    // decision after it onto the wrong card on reload.
     const mapped = mapServerMessageToChatMessage(
       serverMessage({
         role: 'assistant',
@@ -91,8 +96,9 @@ describe('mapServerMessageToChatMessage', () => {
         },
       })
     )
-    expect(mapped!.cards).toHaveLength(1)
-    expect(mapped!.cards?.[0]).toMatchObject({ type: 'summary' })
+    expect(mapped!.cards).toHaveLength(2)
+    expect(mapped!.cards?.[0]).toBeUndefined()
+    expect(mapped!.cards?.[1]).toMatchObject({ type: 'summary' })
   })
 
   it('restores interactive-card decisions so a settled card cannot be re-answered', () => {

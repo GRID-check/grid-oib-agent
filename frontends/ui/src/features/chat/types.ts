@@ -352,8 +352,13 @@ export interface ChatMessage {
   enabledDataSources?: string[]
   /** Files that were available when this message was sent (for display in thinking panel) */
   messageFiles?: Array<{ id: string; fileName: string }>
-  /** Grid cards rendered with this agent response */
-  cards?: GridCard[]
+  /** Grid cards rendered with this agent response.
+   *
+   * Positions are identity (`[[card:N]]` addresses N-1 here): a card the
+   * validator rejected leaves an `undefined` hole rather than renumbering the
+   * rest — see `validateGridCards`.
+   */
+  cards?: (GridCard | undefined)[]
   /**
    * The user's answer to each interactive card of this answer (`accepted`,
    * `dismissed`, …), keyed by `cardKey(card, index)`. Persisted alongside
@@ -957,7 +962,7 @@ export interface ChatState {
   /** File artifacts for FilesTab (from artifact.update type: "file" events) */
   deepResearchFiles: DeepResearchFile[]
   /** Grid response cards attached to the final deep-research report */
-  deepResearchCards: GridCard[]
+  deepResearchCards: (GridCard | undefined)[]
   /** Whether the full stream data (artifacts, tool calls, etc.) has been loaded for current job */
   deepResearchStreamLoaded: boolean
   /** Live stream is open but has gone quiet (no events for a while) — UX-11a */
@@ -1091,7 +1096,7 @@ export interface ChatActions {
   addAgentResponse: (
     content: string,
     showViewReport?: boolean,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[],
     transparency?: AnswerTransparency
@@ -1106,7 +1111,7 @@ export interface ChatActions {
    */
   appendAgentResponseDelta: (
     content: string,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[]
   ) => void
@@ -1120,7 +1125,7 @@ export interface ChatActions {
    */
   finalizeAgentResponse: (
     content: string,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[],
     transparency?: AnswerTransparency
@@ -1155,7 +1160,7 @@ export interface ChatActions {
     content: string,
     showViewReport: boolean,
     meta: Partial<ChatMessage>,
-    cards?: GridCard[]
+    cards?: (GridCard | undefined)[]
   ) => string
   /** Patch a specific message in a conversation */
   patchConversationMessage: (

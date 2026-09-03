@@ -50,8 +50,13 @@ import type { SurfacedDocument } from '@/features/documents/hooks/use-surfaced-d
 import { FadeIn } from '@/components/motion'
 
 interface GridCardsProps {
-  /** Parsed grid cards to render. */
-  cards: GridCard[]
+  /**
+   * Parsed grid cards to render, in wire order. `undefined` holes are cards
+   * `validateGridCards` rejected: they hold their index so `[[card:N]]`
+   * markers and persisted `cardKey` decisions after them stay bound, and they
+   * render nothing.
+   */
+  cards: (GridCard | undefined)[]
   /** Optional project ID for patch card API calls. */
   projectId?: string | null
   /**

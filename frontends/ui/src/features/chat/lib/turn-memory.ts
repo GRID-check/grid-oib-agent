@@ -77,7 +77,7 @@ interface TurnMemoryInput {
   /** Post-answer stage output on this message. */
   stages?: MessageStages
   /** The cards this answer carried, in the order they were emitted. */
-  cards?: GridCard[]
+  cards?: (GridCard | undefined)[]
   /** The reader's answer to each interactive card, keyed by `cardKey`. */
   cardInteractions?: CardInteractions
 }
@@ -94,7 +94,9 @@ export function turnMemoryItems({ stages, cards, cardInteractions }: TurnMemoryI
   const items: TurnMemoryItem[] = []
 
   for (const [index, card] of (cards ?? []).entries()) {
-    if (card.type !== 'memory_proposal') continue
+    // A hole is a card validation rejected (`validateGridCards` keeps wire
+    // positions): nothing to attribute a memory write to.
+    if (!card || card.type !== 'memory_proposal') continue
     const key = cardKey(card, index)
     if (!SAVED.has(cardInteractions?.[key]?.decision ?? '')) continue
     items.push({ id: key, kind: card.kind, content: card.content, provenance: 'inTurn' })

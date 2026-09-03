@@ -11,7 +11,11 @@
  * because the agent counts its own emissions from one). Cards gained no id
  * field for this: identity is already positional everywhere else — `cardKey`,
  * `reconcileCardInteractions` and the persisted decisions all key on the index
- * — and a second identity would be a second thing to keep in sync.
+ * — and a second identity would be a second thing to keep in sync. Positions
+ * stay meaningful because `validateGridCards` never compacts the array: a card
+ * that fails validation leaves an `undefined` hole at its wire index, so a
+ * marker after the hole still names the card it was written for, and a marker
+ * pointing AT the hole renders nothing.
  *
  * Resolved on the mdast for the reason `citation-markers` spells out at length:
  * by the time remark hands over a `text` node it has already decided what is

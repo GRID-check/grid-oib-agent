@@ -185,20 +185,20 @@ export type MessagesSlice = {
   addAgentResponse: (
     content: string,
     showViewReport?: boolean,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[],
     transparency?: AnswerTransparency
   ) => void
   appendAgentResponseDelta: (
     content: string,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[]
   ) => void
   finalizeAgentResponse: (
     content: string,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[],
     transparency?: AnswerTransparency
@@ -230,7 +230,7 @@ export type MessagesSlice = {
     content: string,
     showViewReport: boolean,
     meta: Partial<ChatMessage>,
-    cards?: GridCard[]
+    cards?: (GridCard | undefined)[]
   ) => string
   patchConversationMessage: (
     conversationId: string,
@@ -613,7 +613,7 @@ const buildAgentResponseMessage = (
   content: string,
   opts: {
     showViewReport?: boolean
-    cards?: GridCard[]
+    cards?: (GridCard | undefined)[]
     answerConfidence?: 'low' | 'medium' | 'high'
     citations?: CitationSource[]
     isStreaming?: boolean
@@ -718,7 +718,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
   // synchronously so `append` then a synchronous read still observes the text.
   let pendingDeltaText = ''
   let pendingDeltaMeta: {
-    cards?: GridCard[]
+    cards?: (GridCard | undefined)[]
     answerConfidence?: 'low' | 'medium' | 'high'
     citations?: CitationSource[]
   } = {}
@@ -1386,7 +1386,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
   addAgentResponse: (
     content: string,
     showViewReport?: boolean,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[],
     transparency?: AnswerTransparency
@@ -1440,7 +1440,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
   appendAgentResponseDelta: (
     content: string,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[]
   ) => {
@@ -1501,7 +1501,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
   finalizeAgentResponse: (
     content: string,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[],
     transparency?: AnswerTransparency
@@ -1741,7 +1741,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     content: string,
     showViewReport: boolean,
     meta: Partial<ChatMessage>,
-    cards?: GridCard[]
+    cards?: (GridCard | undefined)[]
   ): string => {
     const { currentConversation, conversations } = get()
     if (!currentConversation) return ''

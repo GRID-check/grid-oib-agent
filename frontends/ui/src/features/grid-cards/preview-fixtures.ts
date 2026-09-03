@@ -770,7 +770,7 @@ const RAW_FIXTURES: CardInput[] = [
  * card shape the agent could never emit.
  */
 export const CARD_PREVIEW_FIXTURES: Partial<Record<GridCard['type'], GridCard>> = Object.fromEntries(
-  validateGridCards(RAW_FIXTURES).map((card) => [card.type, card])
+  validateGridCards(RAW_FIXTURES).flatMap((card) => (card ? [[card.type, card] as const] : []))
 )
 
 /** The sample card for a type, or `undefined` when the gallery cannot preview it. */

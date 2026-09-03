@@ -45,7 +45,7 @@ export type DeepResearchSlice = {
   deepResearchAgents: DeepResearchAgent[]
   deepResearchToolCalls: DeepResearchToolCall[]
   deepResearchFiles: DeepResearchFile[]
-  deepResearchCards: GridCard[]
+  deepResearchCards: (GridCard | undefined)[]
   deepResearchStreamLoaded: boolean
   /** No live SSE events for a while though the stream is still open (UX-11a). */
   isDeepResearchStalled: boolean
@@ -238,7 +238,7 @@ export const initialDeepResearchState = {
   deepResearchAgents: [] as DeepResearchAgent[],
   deepResearchToolCalls: [] as DeepResearchToolCall[],
   deepResearchFiles: [] as DeepResearchFile[],
-  deepResearchCards: [] as GridCard[],
+  deepResearchCards: [] as (GridCard | undefined)[],
   deepResearchStreamLoaded: false,
   isDeepResearchStalled: false,
   deepResearchConnectionLost: false,
