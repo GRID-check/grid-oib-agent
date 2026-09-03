@@ -23,7 +23,6 @@
 
 import { type FC, useState } from 'react'
 import { Scale, ExternalLink, FileText } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
@@ -77,7 +76,7 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
   const tint = accentForLane(lane, 'law')
   const accentClass = tint === 'oib' ? 'border-l-source-oib/40' : 'border-l-source-law/40'
 
-  // The badge that keeps the accent from travelling alone (grid-design-language
+  // The words that keep the accent from travelling alone (grid-design-language
   // §"Provenance signal system"): colour separates OIB from RIS, this says which
   // in words. Only ever rendered off a lane the card actually carries — a tier
   // guessed from the law name would be a provenance claim nothing backs.
@@ -98,35 +97,38 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
   return (
     <div
       className={cn(
-        'animate-in fade-in-0 slide-in-from-bottom-1 flex flex-col gap-3 border-l-2 pl-4',
+        'animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance motion-reduce:animate-none flex flex-col gap-3 border-l-2 pl-4',
         accentClass
       )}
     >
       {/* Eyebrow — marks this as a citation, not a message */}
       <SectionLabel icon={Scale}>{t('cards.legalBasis')}</SectionLabel>
 
-      {/* Header: law/Richtlinie + Ausgabe + § / article references */}
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="text-sm font-semibold text-foreground">{law}</p>
-        {authority && (
-          <Badge variant="outline" className="text-xs font-medium" title={t('cards.authority', { tag: authority })}>
-            {authority}
-          </Badge>
+      {/* Header: law/Richtlinie + Ausgabe on the left, article/§ as marginalia
+          in a fixed right column at 11px mono — the way a statute prints its §
+          in the margin (charter §B1). Every other card puts metadata inline;
+          this one puts it in a margin, and that is the difference seen before
+          a word is read. The authority tier stays beside the law as plain
+          text — the `title` keeps the "Rechtsquelle: …" wording for AT. */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <p className="text-sm font-semibold text-foreground">{law}</p>
+          {authority && (
+            <span className="text-sm font-semibold text-muted-foreground" title={t('cards.authority', { tag: authority })}>
+              {authority}
+            </span>
+          )}
+          {/* The Ausgabe is what makes the citation checkable — „OIB-Richtlinie 2“
+              names a document, „Ausgabe Mai 2023“ names the one that was read.
+              Set beside the identifiers exactly as `NormRefFooter` sets it. */}
+          {edition && <span className="text-xs text-muted-foreground">{edition}</span>}
+        </div>
+        {(article || section) && (
+          <div className="card-meta flex w-[72px] shrink-0 flex-col items-end gap-0.5 font-mono text-muted-foreground">
+            {article && <span>Art. {article}</span>}
+            {section && <span>§ {section}</span>}
+          </div>
         )}
-        {article && (
-          <Badge variant="outline" className="font-mono text-xs font-normal">
-            Art. {article}
-          </Badge>
-        )}
-        {section && (
-          <Badge variant="outline" className="font-mono text-xs font-normal">
-            § {section}
-          </Badge>
-        )}
-        {/* The Ausgabe is what makes the citation checkable — „OIB-Richtlinie 2“
-            names a document, „Ausgabe Mai 2023“ names the one that was read.
-            Set beside the identifiers exactly as `NormRefFooter` sets it. */}
-        {edition && <span className="text-xs text-muted-foreground">{edition}</span>}
       </div>
 
       {/* Cited excerpt — a real blockquote at a readable measure */}

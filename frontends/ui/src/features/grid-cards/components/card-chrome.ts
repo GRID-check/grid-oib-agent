@@ -20,3 +20,36 @@
  * exactly once.
  */
 export const CARD_SHELL = 'border-transparent bg-muted/40 shadow-none'
+
+/**
+ * The opened disclosure inside a card's expandable list — the legal form of
+ * "no card inside a card" (charter §A4): a dashed outline on a muted ground,
+ * on the same surface.
+ *
+ * Positional offsets stay with the caller: list rows that hang off a rail
+ * grid (`deadline_timeline`, `condition_tree`, `process_map`) use this as-is,
+ * while rows carrying their own icon column (`change_impact`,
+ * `document_checklist`) add `ml-6` to sit under the row's text. The tinted
+ * ACTIVE branch panels in `condition_tree` / `process_map` are deliberately
+ * NOT this — their chrome differs in kind (solid tinted vs dashed muted), and
+ * collapsing that distinction would lose the marking the screenshot-safety of
+ * those cards rests on.
+ *
+ * PascalCase by intent: this is the disclosure *panel* primitive, named for
+ * what it is rather than for the constant convention around it.
+ */
+export const CardDisclosurePanel =
+  'mt-1.5 flex flex-col gap-2 rounded-md border border-dashed bg-muted/30 px-3 py-2.5'
+
+/**
+ * The law-citation notice row inside an opened disclosure — the branch-scale
+ * echo of `NormRefFooter` (Scale glyph + document + § + edition) on the
+ * source-law tint.
+ *
+ * Surface only, no layout: the four single-row sites compose it with
+ * `flex flex-wrap items-center gap-x-2 gap-y-1`, while `condition_tree`'s
+ * branch reference (which also carries an excerpt blockquote) composes it
+ * with `flex flex-col gap-1.5`. One material, two stackings — the tint stays
+ * identical either way.
+ */
+export const CARD_NOTICE_LAW = 'rounded-md bg-source-law-tint px-3 py-2 text-xs text-source-law-text'

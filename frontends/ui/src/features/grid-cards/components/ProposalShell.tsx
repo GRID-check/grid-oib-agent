@@ -2,7 +2,7 @@
 
 import { type ReactNode } from 'react'
 import { Card } from '@/components/ui/card'
-import { motion, springGentle } from '@/components/motion'
+import { motion, motionEntrance } from '@/components/motion'
 import { cn } from '@/lib/utils'
 import { CARD_SHELL } from './card-chrome'
 
@@ -29,7 +29,8 @@ const TONE_CLASS: Record<ProposalTone, string> = {
 
 /**
  * The shared shell for user-confirmed proposal cards (`project_profile_patch`,
- * `memory_proposal`): a left-accented card that gently springs in, whose accent
+ * `memory_proposal`): a left-accented card that eases in on the entrance curve,
+ * whose accent
  * colour tracks the proposal's lifecycle — ink while pending, green once
  * accepted, muted once dismissed (see TONE_CLASS above for why pending is ink
  * and not amber). Both cards used to hand-roll this identical `motion.div` +
@@ -46,7 +47,7 @@ export function ProposalShell({
   children: ReactNode
 }) {
   return (
-    <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={springGentle}>
+    <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={motionEntrance}>
       <Card className={cn(CARD_SHELL, 'border-l-2 p-5', TONE_CLASS[tone], className)}>{children}</Card>
     </motion.div>
   )

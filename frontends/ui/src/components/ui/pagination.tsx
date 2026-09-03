@@ -57,7 +57,7 @@ export function Pagination({
           disabled={offset === 0}
           onClick={() => onOffsetChange(Math.max(0, offset - pageSize))}
         >
-          <ChevronLeft className="size-3.5" aria-hidden />
+          <ChevronLeft className="size-4" aria-hidden />
           {previousLabel}
         </Button>
         <Button
@@ -67,7 +67,7 @@ export function Pagination({
           onClick={() => onOffsetChange(offset + pageSize)}
         >
           {nextLabel}
-          <ChevronRight className="size-3.5" aria-hidden />
+          <ChevronRight className="size-4" aria-hidden />
         </Button>
       </div>
     </div>

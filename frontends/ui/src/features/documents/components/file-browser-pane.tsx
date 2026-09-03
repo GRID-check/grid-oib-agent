@@ -207,12 +207,12 @@ export function FileBrowserPane({
     // going to be there.
     return view === 'list' ? (
       <div className="space-y-3 p-4">
-        <Skeleton className="h-9 w-full" />
+        <Skeleton className="h-9 w-full rounded-lg" />
         <FileListSkeleton />
       </div>
     ) : (
       <div className="space-y-3 p-4">
-        <Skeleton className="h-9 w-full" />
+        <Skeleton className="h-9 w-full rounded-lg" />
         <FileGrid>
           {Array.from({ length: 6 }).map((_, i) => (
             <FileCardSkeleton key={i} />

@@ -92,7 +92,7 @@ export const ViewerIconButtonBase = forwardRef<HTMLButtonElement, ViewerIconButt
         variant={active ? 'default' : 'ghost'}
         size="icon"
         className={cn(
-          'size-9 rounded-xl',
+          'size-9 rounded-md',
           // An adornment makes the control wider than square; `icon` is a
           // fixed size, so the width has to be released explicitly.
           adornment && 'w-auto gap-1 px-2',

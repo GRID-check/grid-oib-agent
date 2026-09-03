@@ -112,7 +112,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
           {isExpanded && details && (
             <pre
               id={detailsId}
-              className="text-error bg-surface-raised mt-2 w-full whitespace-pre-wrap rounded p-2 font-mono text-xs"
+              className="text-error bg-surface-raised mt-2 max-h-48 w-full overflow-auto whitespace-pre-wrap rounded p-2 font-mono text-xs"
             >
               {details}
             </pre>

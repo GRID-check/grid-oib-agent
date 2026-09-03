@@ -29,7 +29,7 @@ import { FadeIn } from '@/components/motion'
 export const AnatomyMasthead: FC<{ verdict?: GridCard; summary?: string }> = ({ verdict, summary }) => {
   if (!verdict && !summary) return null
   return (
-    <FadeIn distance={6}>
+    <FadeIn distance={4}>
       <header className="flex flex-col gap-3 border-b border-border/70 pb-4">
         {verdict && verdict.type === 'verdict_header' && (
           <VerdictHeaderCard
@@ -54,14 +54,14 @@ export const AnatomyMasthead: FC<{ verdict?: GridCard; summary?: string }> = ({ 
 export const AnatomyBlock: FC<{ card: GridCard }> = ({ card }) => {
   if (card.type === 'callout') {
     return (
-      <FadeIn distance={6}>
+      <FadeIn distance={4}>
         <CalloutCard flat kind={card.kind} text={card.text} title={card.title} detail={card.detail} />
       </FadeIn>
     )
   }
   if (card.type === 'key_takeaways') {
     return (
-      <FadeIn distance={6}>
+      <FadeIn distance={4}>
         <KeyTakeawaysCard flat title={card.title} items={card.items ?? []} />
       </FadeIn>
     )

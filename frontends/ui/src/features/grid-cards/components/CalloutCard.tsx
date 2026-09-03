@@ -31,6 +31,7 @@ import { useState, type FC } from 'react'
 import { CalendarClock, ChevronDown, CircleAlert, Info, Lightbulb, type LucideIcon } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { StatCardIcon, type StatCardIconTone } from '@/components/ui/stat-card'
 import { useTranslations, type Translator } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { CalloutKind } from '../schematics/types'
@@ -56,10 +57,10 @@ interface CalloutTone {
   /** The kind in words — the carrier of the signal; the tint only reinforces it. */
   label: (t: Translator) => string
   icon: LucideIcon
-  /** Ink for the icon and the eyebrow. */
+  /** Ink for the eyebrow. */
   ink: string
-  /** The icon well behind that ink. */
-  well: string
+  /** The well behind the icon — the shared `StatCardIcon` tint pair. */
+  iconTone: StatCardIconTone
   /** The 3px accent edge. */
   edge: string
 }
@@ -69,28 +70,28 @@ const TONES: Record<CalloutKind, CalloutTone> = {
     label: (t) => t('cards.callout.hinweis'),
     icon: Info,
     ink: 'text-info',
-    well: 'bg-info-subtle',
+    iconTone: 'info',
     edge: 'bg-info',
   },
   achtung: {
     label: (t) => t('cards.callout.achtung'),
     icon: CircleAlert,
     ink: 'text-error',
-    well: 'bg-danger-subtle',
+    iconTone: 'destructive',
     edge: 'bg-danger',
   },
   frist: {
     label: (t) => t('cards.callout.frist'),
     icon: CalendarClock,
     ink: 'text-warning',
-    well: 'bg-warning-subtle',
+    iconTone: 'warning',
     edge: 'bg-warning',
   },
   tipp: {
     label: (t) => t('cards.callout.tipp'),
     icon: Lightbulb,
     ink: 'text-success',
-    well: 'bg-success-subtle',
+    iconTone: 'success',
     edge: 'bg-success',
   },
 }
@@ -106,12 +107,7 @@ export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail, f
 
   const body = (
     <div className="flex items-start gap-3">
-        <span
-          aria-hidden="true"
-          className={cn('mt-px flex size-7 shrink-0 items-center justify-center rounded-md', tone.well, tone.ink)}
-        >
-          <Icon className="size-4" />
-        </span>
+        <StatCardIcon icon={Icon} tone={tone.iconTone} size="sm" className="mt-px" />
 
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -153,7 +149,7 @@ export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail, f
                 />
               </CollapsibleTrigger>
 
-              <CollapsibleContent className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
+              <CollapsibleContent>
                 <p className="card-caption mt-1.5 border-l-2 border-border pl-3 text-muted-foreground">
                   {detail}
                 </p>

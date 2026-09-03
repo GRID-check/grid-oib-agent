@@ -124,6 +124,7 @@ import '@xyflow/react/dist/style.css'
 import type { Translator } from '@/i18n'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { motionBase, staggerMaxSteps, staggerStepSeconds } from '@/components/motion'
 import { useLayoutStore } from '@/features/layout/store'
 import { TechnicalSteps } from './TechnicalSteps'
 import type { ThinkingStep, CitationSource } from '../../types'
@@ -162,13 +163,17 @@ const CENTRE_TOP: HandleSpec = { id: 'c-top', left: '50%' }
 const CENTRE_OUT: HandleSpec = { id: 'out', left: '50%' }
 
 /**
- * The card entrance, in ms. Kept in code because `animatedRef` has to know when
- * the animation it started is over, and the animation itself is pure CSS
- * (`duration-base` plus an inline per-card delay) — so this constant must stay
- * equal to `--motion-base`.
+ * The card entrance, in ms. There is deliberately no literal duration here:
+ * the animation itself is pure CSS (`duration-base` plus an inline per-card
+ * delay in the column node below), so both truths live in the kit
+ * (`components/motion` — `motionBase` is the JS half of `--motion-base`,
+ * `staggerStepSeconds`/`staggerMaxSteps` the cascade vocabulary).
+ * `animatedRef` has to know when the animation it started is over, so the
+ * settle window and the per-slot delay below are DERIVED from those kit
+ * values instead of restating them — one truth, not two.
  */
-const ENTER_MS = 240
-const ENTER_STAGGER_MS = 60
+const ENTER_MS = Math.round((motionBase.duration as number) * 1000)
+const ENTER_STAGGER_MS = Math.round(staggerStepSeconds * 1000)
 
 const Eyebrow: FC<{ children: React.ReactNode }> = ({ children }) => (
   <SectionLabel as="div">{children}</SectionLabel>
@@ -314,7 +319,13 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
               }
               style={
                 entering
-                  ? { animationDelay: `${slot * ENTER_STAGGER_MS}ms`, animationFillMode: 'backwards' }
+                  ? {
+                      // Capped at `staggerMaxSteps`: the cascade is a reading
+                      // cue, not a queue — slots past the cap start together
+                      // with the last capped one (see the kit's stagger docs).
+                      animationDelay: `${Math.min(slot, staggerMaxSteps) * ENTER_STAGGER_MS}ms`,
+                      animationFillMode: 'backwards',
+                    }
                   : undefined
               }
             >
@@ -1184,7 +1195,8 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
   }, [cards, entered])
   useEffect(() => {
     if (enterOrder.size === 0) return
-    const settle = Math.max(...enterOrder.values()) * ENTER_STAGGER_MS + ENTER_MS
+    const settle =
+      Math.min(Math.max(...enterOrder.values()), staggerMaxSteps) * ENTER_STAGGER_MS + ENTER_MS
     const timer = setTimeout(() => {
       for (const id of enterOrder.keys()) animatedRef.current.add(id)
       setEntered((n) => n + 1)

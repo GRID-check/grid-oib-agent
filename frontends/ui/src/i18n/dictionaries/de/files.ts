@@ -304,7 +304,7 @@ export const files: typeof en.files = {
   rename: {
     title: 'Dokument umbenennen',
     description:
-      'Ändert den Namen, der in Grid überall angezeigt wird — auch in Zitaten. Die Datei selbst und alles daraus Indexierte bleiben unverändert.',
+      'Ändert den Namen, der in Piloti überall angezeigt wird — auch in Zitaten. Die Datei selbst und alles daraus Indexierte bleiben unverändert.',
     label: 'Name',
     hint: 'Die Dateiendung bleibt erhalten.',
     save: 'Umbenennen',

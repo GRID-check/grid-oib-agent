@@ -29,6 +29,9 @@ export const research = {
       'Sign in to unlock project-scoped OIB research, document reading, and member access controls.',
     signInSso: 'Sign in with SSO',
     welcomeTitle: 'How can Piloti help with your project?',
+    capabilityLine:
+      'Backs every answer with the OIB Richtlinie and page — or says so when none exists.',
+    startersAria: 'Example questions',
     usePrompt: 'Use suggestion: {prompt}',
     prompt1: 'Compare OIB 2 fire resistance duties across building classes.',
     prompt2: 'Summarize accessibility requirements for a public retrofit.',

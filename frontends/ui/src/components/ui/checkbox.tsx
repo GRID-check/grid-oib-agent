@@ -17,7 +17,7 @@ const Checkbox = React.forwardRef<
     className={cn(
       // 16px is the right SIZE for a checkbox and a hopeless touch target, so
       // the box keeps its size and `touch-target` widens what a tap resolves to.
-      'peer border-input dark:bg-input-dark data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground data-[state=checked]:border-primary size-4 shrink-0 rounded-sm border outline-none transition-colors duration-snap ease-out motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-50 touch-target',
+      'peer border-input dark:bg-input-background data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground data-[state=checked]:border-primary size-4 shrink-0 rounded-sm border outline-none transition-colors duration-snap ease-out motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-50 touch-target',
       // `dark:bg-input-dark` and `data-[state=checked]:bg-primary` have equal
       // specificity, and the dark variant is emitted last — so in dark mode a
       // CHECKED box kept the unchecked fill and drew its dark tick on it,

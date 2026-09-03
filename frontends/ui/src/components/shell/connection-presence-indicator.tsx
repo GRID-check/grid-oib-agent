@@ -73,7 +73,11 @@ export function ConnectionPresenceIndicator({
         >
           <span className="relative flex size-2 shrink-0" aria-hidden>
             {presence === 'reconnecting' && (
-              // Soft radar pulse; removed entirely under reduced-motion.
+              // Intentional `animate-ping`, not the ambient shimmer loop: a
+              // reconnect is an EVENT that must catch the eye once and then
+              // resolve (to the still dot or to offline), never a background
+              // state to breathe at `--motion-ambient`. Removed entirely under
+              // reduced-motion.
               <span
                 className={cn(
                   'absolute inline-flex size-full rounded-full opacity-60',

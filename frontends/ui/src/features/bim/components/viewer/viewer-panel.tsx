@@ -14,10 +14,69 @@
  */
 
 import { X } from 'lucide-react'
-import { type ReactNode } from 'react'
+import { type ComponentProps, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { ViewerSurface } from './viewer-surface'
+
+/**
+ * The floating section pattern: one sticky solid header bar plus a body, the
+ * shape the rail's groups and any future floating group share so a new
+ * section cannot introduce a fifth kind of list header.
+ *
+ * The header is sticky with a SOLID `bg-card` fill (never the surface's own
+ * translucent blur — a `backdrop-filter` nested inside the mask that draws a
+ * scroll fade has no backdrop to sample, and Chromium paints the undefined
+ * result as a solid bar across the heading).
+ */
+export function ViewerSectionHeader({ className, ...props }: ComponentProps<'div'>): JSX.Element {
+  return (
+    <div
+      className={cn('sticky top-0 z-10 flex items-center gap-2 bg-card px-3 py-2.5', className)}
+      {...props}
+    />
+  )
+}
+
+/** The section body: the panel/section scale padding, nothing else. */
+export function ViewerSectionBody({ className, ...props }: ComponentProps<'div'>): JSX.Element {
+  return <div className={cn('p-3', className)} {...props} />
+}
+
+export interface ViewerSectionProps extends Omit<ComponentProps<'section'>, 'title'> {
+  /** The section's heading — visible, and the group's accessible name. */
+  label: string
+  /** A control belonging to the heading row, e.g. "show all levels". */
+  action?: ReactNode
+  children: ReactNode
+  /** Overrides the `p-3` body (the rail's rows keep their own tight inset). */
+  bodyClassName?: string
+}
+
+/**
+ * One titled group: sticky header over a padded body. The rail's sections
+ * render through this (with their row inset); the panel composes the header
+ * and body atoms directly, since its heading carries title + subtitle + close
+ * rather than label + action.
+ */
+export function ViewerSection({
+  label,
+  action,
+  children,
+  bodyClassName,
+  className,
+  ...rest
+}: ViewerSectionProps): JSX.Element {
+  return (
+    <section aria-label={label} className={cn('shrink-0 border-b border-border last:border-b-0', className)} {...rest}>
+      <ViewerSectionHeader className="justify-between">
+        <h3 className="text-xs font-semibold tracking-wide text-muted-foreground">{label}</h3>
+        {action}
+      </ViewerSectionHeader>
+      <ViewerSectionBody className={bodyClassName}>{children}</ViewerSectionBody>
+    </section>
+  )
+}
 
 export interface ViewerPanelProps {
   title: string
@@ -54,7 +113,7 @@ export function ViewerPanel({
         className
       )}
     >
-      <div className="flex items-start gap-2 border-b border-border p-3">
+      <ViewerSectionHeader className="items-start border-b border-border">
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-sm font-semibold text-foreground" title={title}>
             {title}
@@ -65,14 +124,14 @@ export function ViewerPanel({
           type="button"
           variant="ghost"
           size="icon"
-          className="-mt-1 -mr-1 size-7 shrink-0 rounded-lg"
+          className="-mt-1 -mr-1 size-7 shrink-0 rounded-md"
           onClick={onClose}
           aria-label={closeLabel}
         >
           <X className="size-4" aria-hidden="true" />
         </Button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">{children}</div>
+      </ViewerSectionHeader>
+      <ViewerSectionBody className="min-h-0 flex-1 overflow-y-auto">{children}</ViewerSectionBody>
       {/* Footer keeps the panel scale (`p-3` like header and body) — a tighter
           `p-2` here was a second padding hiding in the same card. */}
       {footer && <div className="border-t border-border p-3">{footer}</div>}

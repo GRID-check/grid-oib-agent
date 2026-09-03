@@ -20,7 +20,7 @@
  *     turns the gate skips, and reserving the minimum still jumps.
  *   • No treatment — content popping in at 2–6s is the thing being avoided.
  *   • Reserve NOTHING, append below the last element, enter with opacity and a
- *     6px rise, and never reflow anything above. ← this one.
+ *     4px rise, and never reflow anything above. ← this one.
  *
  * The third only works because the rail is the last element in the column, so
  * growing it moves nothing already read: the answer card, its provenance footer
@@ -34,8 +34,10 @@
  * is refused outright. A rail that were admitted and then hidden here would pop
  * in later, which is the defect itself.
  *
- * `FadeIn distance={6}` is the same entrance every card already uses, and
- * reduced motion is handled globally by `<MotionConfig reducedMotion="user">`.
+ * `FadeIn distance={4}` is the standard 4px rise the transcript uses
+ * (AnswerAnatomy included), and reduced motion is handled globally by
+ * `<MotionConfig reducedMotion="user">`. `layout` lets a late-arriving rail
+ * settle without reflowing what is already read.
  *
  * ── What it must not read as ─────────────────────────────────────────────────
  *
@@ -61,7 +63,7 @@ export const FollowUpsRail: FC<FollowUpsRailProps> = ({ items }) => {
   if (usableFollowUps(items).length === 0) return null
 
   return (
-    <FadeIn distance={6} data-testid="follow-ups-rail">
+    <FadeIn distance={4} layout data-testid="follow-ups-rail">
       {/* No `mt-5`: inside the message column the parent's `gap-4` is the air,
           and a second margin would put the rail further from its answer than the
           answer is from the question. */}

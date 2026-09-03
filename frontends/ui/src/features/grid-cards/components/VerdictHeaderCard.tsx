@@ -128,7 +128,7 @@ export const VerdictHeaderCard: FC<VerdictHeaderCardProps> = ({
               <span
                 key={segment}
                 className={cn(
-                  'size-[5px] rounded-[1px]',
+                  'size-[5px] rounded-full',
                   segment <= conf.level ? 'bg-foreground' : 'bg-foreground/20',
                 )}
               />

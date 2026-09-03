@@ -9,7 +9,7 @@ import { getTranslations } from '@/i18n/server'
  *
  * Both cards mirror `Card` (`rounded-lg border`, header/content `px-6`,
  * `py-6` rhythm): the overview card's `sm:grid-cols-2` fact grid, and the
- * settings card's field rows (`h-10 rounded-xl` controls, the `Input` /
+ * settings card's field rows (`h-10 rounded-lg` controls, the `Input` /
  * `Select` box) with the save action. All heights are fixed — nothing sizes
  * to content, which is what keeps the fallback from collapsing and jumping.
  */
@@ -53,7 +53,7 @@ export default async function OrganizationLoading(): Promise<JSX.Element> {
             {Array.from({ length: 2 }).map((_, i) => (
               <div key={i}>
                 <Skeleton className="h-4 w-32" />
-                <Skeleton className="mt-1.5 h-10 w-full rounded-xl" />
+                <Skeleton className="mt-1.5 h-10 w-full rounded-lg" />
               </div>
             ))}
             <Skeleton className="h-9 w-28 rounded-lg" />

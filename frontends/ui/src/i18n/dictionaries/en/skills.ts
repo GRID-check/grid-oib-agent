@@ -147,7 +147,7 @@ export const skills = {
       applied: 'Document applied.',
       ready: 'The document is valid. “Apply” writes it into the fields above.',
       unchanged: 'Unchanged — identical to the fields above.',
-      ignored: 'GRID cannot store these fields and drops them on apply: {keys}.',
+      ignored: 'Piloti cannot store these fields and drops them on apply: {keys}.',
       errors: {
         'missing-frontmatter':
           'The document does not start with a “---” block. A SKILL.md always opens with YAML frontmatter.',

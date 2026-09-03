@@ -39,8 +39,8 @@ const toggleVariants = cva(
       // every height assertion and is still too narrow to hit, in a row where the
       // chip beside it is three times the width and hits fine.
       size: {
-        default: 'h-9 px-3 text-[13px] pointer-coarse:h-11 pointer-coarse:min-w-11',
-        sm: 'h-8 px-3 text-[12.5px] pointer-coarse:h-11 pointer-coarse:min-w-11',
+        default: 'h-9 px-3 text-sm pointer-coarse:h-11 pointer-coarse:min-w-11',
+        sm: 'h-8 px-3 text-xs pointer-coarse:h-11 pointer-coarse:min-w-11',
         lg: 'h-10 px-3.5 pointer-coarse:h-11 pointer-coarse:min-w-11',
         // Icon sizes are the glyph's own square and are NOT part of that
         // remap — they pair with `Button size="icon"` by area, not by height.

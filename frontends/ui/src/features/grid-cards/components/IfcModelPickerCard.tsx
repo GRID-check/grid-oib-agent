@@ -21,6 +21,7 @@
 import { useMemo } from 'react'
 import Link from 'next/link'
 import { ArrowRight, Boxes } from 'lucide-react'
+import { EmptyState } from '@/components/ui/empty-state'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
@@ -54,10 +55,10 @@ export function IfcModelPickerCard({
   // "genuinely none".
   if (models === null && isLoading) {
     return (
-      <section className="rounded-xl border bg-card p-4" aria-label={title}>
+      <section className="rounded-lg border bg-card p-5" aria-label={title}>
         <PickerHeader title={title} />
         <div className="flex items-center justify-center rounded-lg border border-dashed p-6">
-          <Spinner className="size-4" />
+          <Spinner size="sm" />
         </div>
       </section>
     )
@@ -67,11 +68,9 @@ export function IfcModelPickerCard({
   // "Could not look" is not "the project has no models", so say which it is.
   if (error !== null) {
     return (
-      <section className="rounded-xl border bg-card p-4" aria-label={title}>
+      <section className="rounded-lg border bg-card p-5" aria-label={title}>
         <PickerHeader title={title} />
-        <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-          {t('modelPicker.failed')}
-        </p>
+        <EmptyState title={t('modelPicker.failed')} />
       </section>
     )
   }
@@ -82,7 +81,7 @@ export function IfcModelPickerCard({
   if (!projectId || ready.length === 0) return null
 
   return (
-    <section className="rounded-xl border bg-card p-4" aria-label={title}>
+    <section className="rounded-lg border bg-card p-5" aria-label={title}>
       <PickerHeader title={title} />
       <ul className="grid gap-2 sm:grid-cols-2">
         {ready.map((model) => {

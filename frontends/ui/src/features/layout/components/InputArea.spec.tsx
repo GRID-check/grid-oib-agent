@@ -572,13 +572,17 @@ describe('InputArea', () => {
     mockDeepResearchOwnerConversationId = 'session-1'
     render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
 
-    // Input disabled with "Please wait..." placeholder (isBusy is true)
-    expect(screen.getByPlaceholderText('Please wait...')).toBeInTheDocument()
-    expect(screen.getByRole('textbox')).toBeDisabled()
-    // Send button shows "Research in progress" tooltip via isResearchSessionInProgress
+    // The research lock reuses its helper sentence as the placeholder rather
+    // than a third wording — no "Please wait..." here.
     expect(
-      screen.getByRole('button', { name: /research in progress - please wait/i })
+      screen.getByPlaceholderText(/research is currently in progress/i)
     ).toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toBeDisabled()
+    // Locked send: a disabled button carrying the lock (no popover on a
+    // control that cannot act), plus the helper line under the composer.
+    const send = screen.getByRole('button', { name: /research in progress - please wait/i })
+    expect(send).toBeDisabled()
+    expect(screen.getByTestId('composer-research-hint')).toBeInTheDocument()
   })
 
   test('renders attach files button', () => {
@@ -940,12 +944,13 @@ describe('InputArea', () => {
 
     render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
 
-    // Input disabled with "Please wait..." placeholder (isBusy is true)
-    expect(screen.getByPlaceholderText('Please wait...')).toBeInTheDocument()
-    // Send button shows research in progress tooltip
+    // The research lock reuses its helper sentence as the placeholder.
     expect(
-      screen.getByRole('button', { name: /research in progress - please wait/i })
+      screen.getByPlaceholderText(/research is currently in progress/i)
     ).toBeInTheDocument()
+    // Locked send is a disabled button (no popover), named by the lock.
+    const send = screen.getByRole('button', { name: /research in progress - please wait/i })
+    expect(send).toBeDisabled()
   })
 
   test('does not allow sending when session is busy', () => {
@@ -1280,15 +1285,20 @@ describe('InputArea', () => {
       expect(mockSetDeepResearchIntent).toHaveBeenCalledWith(true)
     })
 
-    test('deep research pill shows the honest auto-escalation hint when on', () => {
+    test('deep research pill keeps the auto-escalation hint as its title when on', () => {
       mockDeepResearchIntent = true
 
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 
-      expect(
-        screen.getByRole('button', { name: /deep research preference/i })
-      ).toHaveAttribute('aria-pressed', 'true')
-      expect(screen.getByText(/escalates to deep research automatically/i)).toBeInTheDocument()
+      const pill = screen.getByRole('button', { name: /deep research preference/i })
+      expect(pill).toHaveAttribute('aria-pressed', 'true')
+      // The preference echo lives on the pill's title, not as a permanent
+      // line under the composer.
+      expect(pill).toHaveAttribute(
+        'title',
+        expect.stringMatching(/escalates to deep research automatically/i)
+      )
+      expect(screen.queryByText(/escalates to deep research automatically/i)).not.toBeInTheDocument()
     })
 
     test('scope chip shows the project name and a disabled "All projects" option', async () => {

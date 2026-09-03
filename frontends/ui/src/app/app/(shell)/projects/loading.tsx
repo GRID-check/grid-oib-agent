@@ -31,7 +31,7 @@ export default async function ProjectsLoading(): Promise<JSX.Element> {
       <header className="flex min-h-9 flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
         <Skeleton className="h-7 w-40" />
         <div className="flex w-full items-center gap-2.5 sm:w-auto">
-          <Skeleton className="h-9 w-full rounded-xl sm:w-64" />
+          <Skeleton className="h-9 w-full rounded-lg sm:w-64" />
           <Skeleton className="h-9 w-36 shrink-0 rounded-lg" />
         </div>
       </header>
@@ -48,7 +48,7 @@ export default async function ProjectsLoading(): Promise<JSX.Element> {
               // ~114px even before the blocks paint.
               <div
                 key={i}
-                className="flex min-h-28 flex-col overflow-hidden rounded-xl border border-border bg-muted/50"
+                className="flex min-h-28 flex-col overflow-hidden rounded-lg border border-border bg-muted/50"
               >
                 <div className="rounded-b-lg bg-card px-4 pb-3 pt-3.5 shadow-xs">
                   <div className="flex items-center justify-between gap-2.5">

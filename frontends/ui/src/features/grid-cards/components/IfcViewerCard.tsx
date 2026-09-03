@@ -173,7 +173,7 @@ export function IfcViewerCard({
 
       {modelsLoading && models === null ? (
         <div className="flex items-center justify-center rounded-lg border border-dashed p-6">
-          <Spinner className="size-4" />
+          <Spinner size="sm" />
         </div>
       ) : modelsError !== null ? (
         <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">

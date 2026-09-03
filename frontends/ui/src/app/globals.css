@@ -1044,3 +1044,86 @@ body {
   background-size: 220% 100%;
   animation: grid-skeleton-shimmer var(--motion-ambient) var(--ease-cycle) infinite;
 }
+
+/* =============================================================================
+   Stream A motion kit — collapsible body + sonner toast entrances.
+   APPENDED block; nothing above this line was touched.
+   ============================================================================= */
+
+/* The collapsible body's open/close pair, owned by `components/ui/collapsible.tsx`.
+   Opacity-only keyframes (see that file for why grid-rows transitions cannot
+   work here: Radix Presence suspends unmount for animations, never for
+   transitions, and several consumers lay multi-child flex/padded content
+   directly on the node a grid transition would need to own).
+   Unlayered AND after the tw-animate-css import on purpose: several consumers
+   carry their own ad-hoc `animate-in fade-in-0` (also unlayered), and the
+   shorthand conflict has to resolve to exactly one `animation` — the
+   higher-specificity `[data-slot][data-state]` rule below, so every instance
+   opens and closes the same way. Transform/opacity only, no travel. */
+@keyframes collapsible-open {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes collapsible-closed {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+[data-slot='collapsible-content'][data-state='open'] {
+  animation: collapsible-open var(--motion-base) var(--ease-entrance);
+}
+
+[data-slot='collapsible-content'][data-state='closed'] {
+  animation: collapsible-closed var(--motion-quick) var(--ease-exit);
+}
+
+/* Sonner toasts (`components/ui/sonner.tsx`). Sonner's own styles.css is NOT
+   imported — toasts are positioned by sonner's inline styles and skinned by
+   our classNames — so without these rules toasts appear instantly. The enter
+   runs when sonner flips `data-mounted`, the leave when it flips
+   `data-removed` (sonner keeps dismissed toasts mounted through the exit).
+   Max 8px of travel, transform/opacity only; the leave fades in place. */
+@keyframes sonner-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sonner-toast-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+[data-sonner-toast][data-mounted='true'] {
+  animation: sonner-toast-in var(--motion-base) var(--ease-entrance);
+}
+
+/* After the enter rule: a toast that is both mounted and removed plays the leave. */
+[data-sonner-toast][data-removed='true'] {
+  animation: sonner-toast-out var(--motion-quick) var(--ease-exit);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot='collapsible-content'],
+  [data-sonner-toast] {
+    animation: none !important;
+  }
+}
