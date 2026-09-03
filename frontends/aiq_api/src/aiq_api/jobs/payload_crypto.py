@@ -12,6 +12,18 @@ a KEK the payload is stored as plaintext JSON (dev/compat) with a one-time
 warning, so single-node/dev keeps working. Set the KEK in any multi-node or
 production deployment.
 
+Read path is fail-closed: when a KEK is configured, ``deserialize`` accepts
+*only* ``enc:`` payloads and rejects ``json:``/raw-JSON rows with
+``PayloadKeyError``. Otherwise a DB-write attacker could insert a plaintext row
+carrying a forged auth token/usage context and the worker would execute it.
+The write path keeps its plaintext fallback for dev (no KEK, single node).
+
+Migration path for enabling the KEK on an existing deployment: queue rows are
+transient dispatch state (deleted on completion), so drain before setting the
+KEK — stop submitters, let workers empty ``research_job_queue``, then set the
+KEK and restart. Any plaintext row still present afterwards is rejected, never
+executed, and ages out through the normal claim-retry/reap path.
+
 Longer term, minting a short-lived, narrowly-scoped job token at submit (instead
 of forwarding the user's token) would remove the credential from the payload
 entirely; encryption-at-rest is the proportionate fix until then.
@@ -73,7 +85,9 @@ def serialize(payload: dict[str, Any]) -> str:
 
 def deserialize(stored: str) -> dict[str, Any]:
     """Inverse of :func:`serialize`. Handles encrypted, wrapped-plaintext, and
-    legacy raw-JSON forms."""
+    legacy raw-JSON forms — except when a KEK is configured, where only
+    encrypted (``enc:``) payloads are accepted and anything else is rejected
+    (fail closed; see module docstring)."""
     if stored.startswith(_ENC_PREFIX):
         kek = _kek()
         if kek is None:
@@ -84,7 +98,13 @@ def deserialize(stored: str) -> dict[str, Any]:
         nonce, ciphertext = blob[:12], blob[12:]
         data = AESGCM(kek).decrypt(nonce, ciphertext, None)
         return json.loads(data)
+    if _kek() is not None:
+        # KEK configured: a plaintext row is either pre-KEK legacy (drain before
+        # enabling the KEK) or forged by a DB-write attacker — either way it
+        # must never be executed.
+        raise PayloadKeyError("payload is not encrypted but GRID_JOB_PAYLOAD_KEK is set; refusing plaintext")
     if stored.startswith(_PLAIN_PREFIX):
         return json.loads(base64.b64decode(stored[len(_PLAIN_PREFIX) :]))
     # Back-compat: a raw JSON object written before this wrapper existed.
+    # Dev/no-KEK only — unreachable when a KEK is set (rejected above).
     return json.loads(stored)
