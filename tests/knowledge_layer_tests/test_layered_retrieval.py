@@ -265,6 +265,76 @@ class TestMergeResults:
         assert merged.backend == "foundational_rag"
 
 
+class TestMergeEmbeddingMismatch:
+    """A fingerprint mismatch must surface, never read as a genuine miss.
+
+    Regression: a wrong AIQ_EMBED_MODEL/AIQ_EMBED_BASE_URL raised RuntimeError
+    in ``_get_index``, ``_retrieve_sync`` converted it to ``success=False``,
+    and ``_merge_results`` skipped the layer and returned ``success=True`` —
+    total base-corpus loss read as fewer sources.
+    """
+
+    def _mismatch(self, collection: str = "oib_knowledge"):
+        return _result(
+            [],
+            success=False,
+            error=(
+                f"Retrieval failed: Collection '{collection}' embedding mismatch: "
+                "collection was written with 'model-a' (fingerprint aaaa), but this "
+                "process is configured for 'model-b' at 'https://host' (fingerprint "
+                "bbbb). Stored and query vectors are from different spaces."
+            ),
+        )
+
+    def test_total_mismatch_is_an_error_not_a_miss(self):
+        merged = _merge_results([self._mismatch()], query="q", top_k=5, backend_name="llamaindex")
+        assert merged.success is False
+        assert merged.chunks == []
+        assert "embedding mismatch" in (merged.error_message or "").lower()
+
+    def test_mismatch_exception_layer_is_an_error(self):
+        merged = _merge_results(
+            [RuntimeError("Collection 'oib_knowledge' embedding mismatch: stale vectors")],
+            query="q",
+            top_k=5,
+            backend_name="llamaindex",
+        )
+        assert merged.success is False
+        assert merged.chunks == []
+
+    def test_partial_mismatch_is_degraded_not_silent(self):
+        ok = _result([_chunk(0.6)])
+        merged = _merge_results([self._mismatch(), ok], query="q", top_k=5, backend_name="llamaindex")
+        assert merged.success is True
+        assert [c.score for c in merged.chunks] == [0.6]
+        assert merged.error_message
+        assert "mismatch" in merged.error_message.lower()
+
+    def test_routine_not_found_stays_quiet_success(self):
+        failed = _result([], success=False, error="Collection 's_abc' not found")
+        merged = _merge_results([failed], query="q", top_k=5, backend_name="llamaindex")
+        assert merged.success is True
+        assert merged.error_message is None
+        assert merged.chunks == []
+
+    def test_total_mismatch_formats_as_failure(self):
+        from sources.knowledge_layer.src.register import _format_results
+
+        merged = _merge_results([self._mismatch()], query="q", top_k=5, backend_name="llamaindex")
+        text = _format_results(merged, "q")
+        assert "failed" in text.lower()
+        assert "embedding mismatch" in text.lower()
+
+    def test_partial_mismatch_formats_with_warning_banner(self):
+        from sources.knowledge_layer.src.register import _format_results
+
+        ok = _result([_chunk(0.6)])
+        merged = _merge_results([self._mismatch(), ok], query="q", top_k=5, backend_name="llamaindex")
+        text = _format_results(merged, "q")
+        assert "warning" in text.lower()
+        assert "content 0.6" in text
+
+
 # =============================================================================
 # Per-document diversity cap
 # =============================================================================

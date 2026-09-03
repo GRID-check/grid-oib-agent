@@ -40,6 +40,25 @@ _MAX_CHUNKS_PER_DOC = 2
 # survivors.
 _AGENT_FILTER_OVERFETCH = 3
 
+# Substring identifying an embedding-fingerprint mismatch in a layer failure.
+# Produced by ``embed_fingerprint_mismatch`` in the llamaindex adapter (which
+# reports a same-dimension model swap as "embedding mismatch: ...") and
+# preserved verbatim in ``RetrievalResult.error_message`` by ``_retrieve_sync``
+# ("Retrieval failed: Collection '...' embedding mismatch: ..."). A mismatch
+# means the stored and query vectors live in different spaces, so the affected
+# collection contributed nothing — total base-corpus loss when it is the only
+# layer. Unlike a missing session collection (routine, stays quiet) this is a
+# configuration fault and must surface as degraded/error, never as a miss.
+_EMBEDDING_MISMATCH_MARKER = "embedding mismatch"
+
+
+def _is_embedding_mismatch(value: object) -> bool:
+    """True when a layer failure reports a fingerprint mismatch, not a routine miss."""
+    if isinstance(value, BaseException):
+        value = str(value)
+    return isinstance(value, str) and _EMBEDDING_MISMATCH_MARKER in value.lower()
+
+
 # Agent-facing contract. Distinct from ``surface_documents`` (show a file).
 # Anthropic: descriptions are the prompt — say when to call, when not to,
 # how to name parameters, and what a miss means. Do not chain this tool
@@ -643,7 +662,16 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
 
     Failed layers (``success=False``, e.g. a brand-new session whose collection
     does not exist yet) and raised exceptions are treated as empty contributions
-    and skipped. This never raises.
+    and skipped — EXCEPT an embedding-fingerprint mismatch (see
+    ``_EMBEDDING_MISMATCH_MARKER``), which is a configuration fault, not a miss:
+    a wrong ``AIQ_EMBED_MODEL``/``AIQ_EMBED_BASE_URL`` silently drops the whole
+    base corpus while the surviving layers still answer. A mismatch therefore
+    rides along on the merged result instead of being skipped quietly: no
+    surviving channel means ``success=False`` with the mismatch detail (an
+    error the caller cannot mistake for "nothing matched"); surviving channels
+    mean ``success=True`` with ``error_message`` set (a degraded signal — real
+    chunks, but from an incomplete corpus). A missing collection stays routine:
+    ``success=True`` with no ``error_message``. This never raises.
 
     Args:
         results: List of RetrievalResult objects or Exceptions (from asyncio.gather),
@@ -654,15 +682,23 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
         max_per_document: Diversity cap per distinct document on the first pass.
 
     Returns:
-        A synthetic RetrievalResult with success=True and the merged top-k chunks.
+        A synthetic RetrievalResult with the merged top-k chunks: ``success=False``
+        when mismatches left no surviving channel, ``success=True`` with
+        ``error_message`` set when mismatches dropped some channels but others
+        survived (degraded), and a plain ``success=True`` otherwise.
     """
     from aiq_agent.knowledge.schema import RetrievalResult
 
     channels: list[list] = []
     backend = backend_name
+    mismatch_errors: list[str] = []
     for result in results:
         if isinstance(result, Exception):
-            logger.debug("Knowledge layer raised, skipping: %s", result)
+            if _is_embedding_mismatch(result):
+                mismatch_errors.append(str(result)[:500])
+                logger.error("Knowledge layer embedding mismatch, skipping: %s", result)
+            else:
+                logger.debug("Knowledge layer raised, skipping: %s", result)
             continue
         if not getattr(result, "success", False):
             # A missing collection is routine — every new conversation's session
@@ -673,7 +709,11 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
             # failed to translate all produced a confident answer built on an empty
             # knowledge layer with nothing above DEBUG to say so.
             message = getattr(result, "error_message", None) or ""
-            if "not found" in message.lower():
+            if _is_embedding_mismatch(message):
+                if message not in mismatch_errors:
+                    mismatch_errors.append(message)
+                logger.error("Knowledge layer embedding mismatch, skipping: %s", message)
+            elif "not found" in message.lower():
                 logger.debug("Knowledge layer absent, skipping: %s", message)
             else:
                 logger.warning("Knowledge layer failed, skipping: %s", message)
@@ -717,6 +757,30 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
         merged_chunks = matching if matching else merged_chunks
 
     merged_top_k = _apply_diversity_cap(merged_chunks, top_k, max_per_document)
+
+    if mismatch_errors:
+        # De-duplicated: the requery fan-out retries each collection per
+        # alternative query, so one broken corpus reports once per query.
+        unique = list(dict.fromkeys(mismatch_errors))
+        detail = "; ".join(unique)
+        if not channels:
+            # Total loss: every layer dropped out on a fingerprint mismatch.
+            # success=False so the caller renders a failure, never a miss.
+            return RetrievalResult(success=False, chunks=[], query=query, backend=backend, error_message=detail)
+        # Partial loss: the chunks below are real, but the corpus behind them is
+        # incomplete. success=True carries them; error_message carries the
+        # degraded signal `_format_results` renders as a WARNING banner.
+        return RetrievalResult(
+            success=True,
+            chunks=merged_top_k,
+            query=query,
+            backend=backend,
+            error_message=(
+                f"Degraded retrieval: {len(unique)} collection(s) skipped "
+                f"due to embedding mismatch ({detail}). Results cover only the "
+                "remaining collections and are incomplete."
+            ),
+        )
 
     return RetrievalResult(success=True, chunks=merged_top_k, query=query, backend=backend)
 
@@ -1192,8 +1256,14 @@ def _format_results(retrieval_result, query: str) -> str:
         error_msg = retrieval_result.error_message or "Unknown error"
         return f"Knowledge retrieval failed: {error_msg}\n\nQuery: '{query}'"
 
+    # Degraded partial retrieval (e.g. the base corpus dropped out on an
+    # embedding-fingerprint mismatch while other layers survived): the chunks
+    # below are real, but they are NOT the full corpus. Without this banner the
+    # LLM reads a partial answer as a complete one.
+    degraded_banner = f"WARNING: {retrieval_result.error_message}\n\n" if retrieval_result.error_message else ""
+
     if not retrieval_result.chunks:
-        return f"No relevant documents found for query: '{query}'"
+        return f"{degraded_banner}No relevant documents found for query: '{query}'"
 
     lines = [f"Found {len(retrieval_result.chunks)} relevant document(s):\n"]
 
@@ -1308,7 +1378,7 @@ def _format_results(retrieval_result, query: str) -> str:
     lines.append(_trace_lanes_json(retrieval_result.chunks, resolved, resolved_titles))
     lines.append("")
 
-    return "\n".join(lines)
+    return degraded_banner + "\n".join(lines)
 
 
 @register_function(config_type=KnowledgeRetrievalConfig)
@@ -1756,7 +1826,13 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
 
             # After the floor, not before: the floor is the only thing that can empty a
             # non-empty result set, and this message is the vocabulary for saying so.
+            # A failed or degraded merge is NOT a miss: total fingerprint loss comes
+            # back as success=False, partial loss as error_message set — both must
+            # reach `_format_results`, which renders the failure/warning, rather
+            # than the retry-hint below, which would read as "nothing matched".
             if not merged.chunks:
+                if not merged.success or getattr(merged, "error_message", None):
+                    return _format_results(merged, query)
                 return _empty_search_message(
                     query,
                     file_name=file_name,
