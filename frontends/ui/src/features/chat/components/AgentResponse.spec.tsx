@@ -108,16 +108,20 @@ describe('AgentResponse', () => {
     expect(screen.queryByTestId('markdown')).not.toBeInTheDocument()
   })
 
-  test('displays timestamp when provided', () => {
+  test('displays timestamp when provided', async () => {
+    const user = userEvent.setup()
     const timestamp = new Date('2024-01-15T14:30:00')
 
     render(<AgentResponse content="Response" timestamp={timestamp} />)
+    await user.click(screen.getByTestId('answer-details-trigger'))
 
     expect(screen.getByText(/\d{1,2}:\d{2}/)).toBeInTheDocument()
   })
 
-  test('handles ISO string timestamp', () => {
+  test('handles ISO string timestamp', async () => {
+    const user = userEvent.setup()
     render(<AgentResponse content="Response" timestamp="2024-01-15T14:30:00Z" />)
+    await user.click(screen.getByTestId('answer-details-trigger'))
 
     expect(screen.getByText(/\d{1,2}:\d{2}/)).toBeInTheDocument()
   })

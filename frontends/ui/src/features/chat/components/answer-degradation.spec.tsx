@@ -26,6 +26,7 @@
  */
 
 import { render, screen } from '@/test-utils'
+import userEvent from '@testing-library/user-event'
 import { de, en } from '@/i18n/dictionaries'
 import { createTranslator } from '@/i18n/translate'
 import { vi, describe, test, expect } from 'vitest'
@@ -107,11 +108,21 @@ const footerNotes = (): string[] =>
     (element) => element.textContent ?? ''
   )
 
+/**
+ * The transparency lines live behind the answer-details disclosure — open it
+ * before asserting on note content. Absence assertions need no opening: a
+ * note that renders null is absent open or closed.
+ */
+const openAnswerDetails = async (): Promise<void> => {
+  await userEvent.setup().click(screen.getByTestId('answer-details-trigger'))
+}
+
 describe.each(['default', 'inline'] as const)('the %s answer variant', (variant) => {
-  test('names WHY the search stopped, on the line that says it stopped', () => {
+  test('names WHY the search stopped, on the line that says it stopped', async () => {
     render(
       <AgentResponse content={CITED} variant={variant} researchTruncated truncationReason="wall_clock" />
     )
+    await openAnswerDetails()
 
     // One line, not two: "it ran out of time" is the first sentence finished,
     // not a second statement competing with it.
@@ -120,22 +131,24 @@ describe.each(['default', 'inline'] as const)('the %s answer variant', (variant)
     expect(screen.queryByText('wall_clock')).not.toBeInTheDocument()
   })
 
-  test('the step ceiling and the clock are told apart', () => {
+  test('the step ceiling and the clock are told apart', async () => {
     render(
       <AgentResponse content={CITED} variant={variant} researchTruncated truncationReason="step_limit" />
     )
+    await openAnswerDetails()
 
     expect(screen.getByText(`${copy.truncated} (${copy.stepLimit})`)).toBeInTheDocument()
     expect(copy.stepLimit).not.toBe(copy.wallClock)
   })
 
-  test('a cause this build has no words for leaves the sentence exactly as it was', () => {
+  test('a cause this build has no words for leaves the sentence exactly as it was', async () => {
     // The producer adds tokens on its own release train. An unmapped one must
     // not reach the reader as an identifier, and must not cost them the fact
     // that the search stopped early — which is the part they can act on.
     render(
       <AgentResponse content={CITED} variant={variant} researchTruncated truncationReason="tool_budget" />
     )
+    await openAnswerDetails()
 
     expect(screen.getByText(copy.truncated)).toBeInTheDocument()
     expect(screen.queryByText('tool_budget')).not.toBeInTheDocument()
@@ -148,7 +161,7 @@ describe.each(['default', 'inline'] as const)('the %s answer variant', (variant)
     expect(footerNotes()).toHaveLength(0)
   })
 
-  test("each degradation gets its own line, in the reader's nouns", () => {
+  test("each degradation gets its own line, in the reader's nouns", async () => {
     render(
       <AgentResponse
         content={CITED}
@@ -157,6 +170,7 @@ describe.each(['default', 'inline'] as const)('the %s answer variant', (variant)
         degradedReasons={['no_report_file', 'no_valid_citations']}
       />
     )
+    await openAnswerDetails()
 
     // Two lines, not one joined sentence: they ask the reader for different
     // things — where the record is, versus what to check before relying on it.
@@ -164,7 +178,7 @@ describe.each(['default', 'inline'] as const)('the %s answer variant', (variant)
     expect(screen.getByText(copy.noCitations)).toHaveAttribute('role', 'note')
   })
 
-  test('an unknown degradation is dropped without taking the known ones with it', () => {
+  test('an unknown degradation is dropped without taking the known ones with it', async () => {
     render(
       <AgentResponse
         content={CITED}
@@ -173,6 +187,7 @@ describe.each(['default', 'inline'] as const)('the %s answer variant', (variant)
         degradedReasons={['no_report_file', 'quantum_flux']}
       />
     )
+    await openAnswerDetails()
 
     expect(screen.getByText(copy.noReport)).toBeInTheDocument()
     expect(screen.queryByText('quantum_flux')).not.toBeInTheDocument()
@@ -192,7 +207,7 @@ describe.each(['default', 'inline'] as const)('the %s answer variant', (variant)
     expect(footerNotes()).toHaveLength(0)
   })
 
-  test('the same degradation named twice is one line', () => {
+  test('the same degradation named twice is one line', async () => {
     render(
       <AgentResponse
         content={CITED}
@@ -200,19 +215,21 @@ describe.each(['default', 'inline'] as const)('the %s answer variant', (variant)
         degradedReasons={['no_valid_citations', 'no_valid_citations']}
       />
     )
+    await openAnswerDetails()
 
     expect(screen.getAllByText(copy.noCitations)).toHaveLength(1)
   })
 })
 
 describe('the citation-verification reasons reach the reader as words', () => {
-  test('a verification token never appears as itself', () => {
+  test('a verification token never appears as itself', async () => {
     render(
       <AgentResponse
         content={CITED}
         citationsRemoved={{ count: 1, reasons: ['url_not_in_registry'] }}
       />
     )
+    await openAnswerDetails()
 
     // The count is the fact and rides the visible line; the reasons hang off
     // the tooltip. Neither may carry `url_not_in_registry` to an architect.
@@ -225,10 +242,11 @@ describe('the citation-verification reasons reach the reader as words', () => {
     expect(copy.removedUrl.length).toBeGreaterThan(10)
   })
 
-  test('when no reason can be worded, the count still stands — without a tooltip to open', () => {
+  test('when no reason can be worded, the count still stands — without a tooltip to open', async () => {
     render(
       <AgentResponse content={CITED} citationsRemoved={{ count: 2, reasons: ['brand_new_reason'] }} />
     )
+    await openAnswerDetails()
 
     const label = t('answerSources.citationsRemoved', { count: 2 })
     expect(screen.getByText(label)).toHaveAttribute('role', 'note')
@@ -291,7 +309,7 @@ describe('a reopened thread shows what the live turn showed', () => {
   const storedProvenance = (metadata: Record<string, unknown>): MessageProvenance =>
     (normalizeAgentAnswerMetadata(metadata)?.provenance ?? {}) as MessageProvenance
 
-  test('the persisted row decodes into the same answer the socket rendered', () => {
+  test('the persisted row decodes into the same answer the socket rendered', async () => {
     const live = render(
       <AgentResponse
         content={CITED}
@@ -301,6 +319,7 @@ describe('a reopened thread shows what the live turn showed', () => {
         citationsRemoved={{ count: 2, reasons: ['url_not_in_registry'] }}
       />
     )
+    await openAnswerDetails()
     const fromTheSocket = footerNotes()
     live.unmount()
 
@@ -314,6 +333,7 @@ describe('a reopened thread shows what the live turn showed', () => {
         citationsRemoved={stored.citationsRemoved}
       />
     )
+    await openAnswerDetails()
 
     expect(footerNotes()).toEqual(fromTheSocket)
     expect(fromTheSocket).toContain(`${copy.truncated} (${copy.wallClock})`)
@@ -342,7 +362,7 @@ describe('a reopened thread shows what the live turn showed', () => {
     expect(footerNotes()).toHaveLength(0)
   })
 
-  test('a token the row carries but this build cannot word costs the reader nothing else', () => {
+  test('a token the row carries but this build cannot word costs the reader nothing else', async () => {
     const stored = storedProvenance({
       research_truncated: true,
       truncation_reason: 'tool_budget',
@@ -357,6 +377,7 @@ describe('a reopened thread shows what the live turn showed', () => {
         degradedReasons={stored.degradedReasons}
       />
     )
+    await openAnswerDetails()
 
     expect(screen.getByText(copy.truncated)).toBeInTheDocument()
     expect(screen.getByText(copy.noReport)).toBeInTheDocument()

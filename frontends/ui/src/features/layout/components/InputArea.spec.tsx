@@ -804,7 +804,9 @@ describe('InputArea', () => {
     render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
 
     expect(
-      screen.getByPlaceholderText('Research completed. Create a new session for further questions.')
+      screen.getByPlaceholderText(
+        'Research completed. For further questions or reports, please create a new session.'
+      )
     ).toBeInTheDocument()
     expect(screen.getByRole('textbox')).toBeDisabled()
   })

@@ -96,6 +96,8 @@ describe.each(['default', 'inline'] as const)('the %s answer variant', (variant)
       />
     )
 
+    // The skills record lives inside the answer-details disclosure now.
+    await user.click(screen.getByTestId('answer-details-trigger'))
     await user.click(screen.getByTestId('skills-used-trigger'))
     const panel = await screen.findByTestId('skills-used-panel')
     // The record names everything that ran — hidden is never concealed.
@@ -119,6 +121,7 @@ describe.each(['default', 'inline'] as const)('the %s answer variant', (variant)
       />
     )
 
+    await user.click(screen.getByTestId('answer-details-trigger'))
     await user.click(screen.getByTestId('skills-used-trigger'))
     const hiddenRow = await screen.findByTestId('skills-used-hidden-row')
     // Presence never changes; emphasis does. A `showReasoning` that stops being

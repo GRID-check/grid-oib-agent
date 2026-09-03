@@ -216,7 +216,7 @@ describe('ArchivLibraryPane — empty and loading states', () => {
     expect(bands).toHaveLength(3)
     expect(bands[0].querySelectorAll('[data-slot="skeleton"]')).toHaveLength(1)
     expect(bands[1].querySelectorAll('[data-slot="skeleton"]')).toHaveLength(4)
-    expect(bands[2].querySelectorAll('.rounded-xl.border')).toHaveLength(8)
+    expect(bands[2].querySelectorAll('.rounded-lg.border')).toHaveLength(8)
   })
 })
 
