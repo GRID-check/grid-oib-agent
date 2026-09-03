@@ -64,12 +64,33 @@
           "key": "fixes",
           "notes": [
             {
+              "en": "Deep research answers are now marked as preliminary when the research time runs out, instead of reading like fully verified results.",
+              "de": "Deep research answers are now marked as preliminary when the research time runs out, instead of reading like fully verified results."
+            },
+            {
+              "en": "Answers no longer show source references that were removed during safety checks, and interactive answer cards stay in place even when one card cannot be displayed.",
+              "de": "Answers no longer show source references that were removed during safety checks, and interactive answer cards stay in place even when one card cannot be displayed."
+            },
+            {
+              "en": "Long research jobs no longer write stray or duplicate messages into the chat when they are retried or time out in the background.",
+              "de": "Long research jobs no longer write stray or duplicate messages into the chat when they are retried or time out in the background."
+            },
+            {
               "en": "Loading placeholders no longer jump when content arrives, file states and error messages are readable instead of technical, failed operations stay visible longer, and the whole interface shares one consistent shape language in light and dark mode.",
               "de": "Loading placeholders no longer jump when content arrives, file states and error messages are readable instead of technical, failed operations stay visible longer, and the whole interface shares one consistent shape language in light and dark mode."
             },
             {
               "en": "Loading views no longer jump when the real content arrives, error messages are clearly visible as errors, and status chips, search fields and viewer panels render consistently in light and dark mode.",
               "de": "Loading views no longer jump when the real content arrives, error messages are clearly visible as errors, and status chips, search fields and viewer panels render consistently in light and dark mode."
+            }
+          ]
+        },
+        {
+          "key": "security",
+          "notes": [
+            {
+              "en": "Research jobs now refuse forged work orders when payload encryption is configured, instead of accepting them.",
+              "de": "Research jobs now refuse forged work orders when payload encryption is configured, instead of accepting them."
             }
           ]
         }
