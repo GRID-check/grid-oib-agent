@@ -1,6 +1,6 @@
 <div align="center">
 
-# Grid
+# PILOTI
 
 ### AI Compliance Assistant for Austrian Building Regulations
 
