@@ -42,6 +42,14 @@
           "key": "fixes",
           "notes": [
             {
+              "en": "Rating an answer as not helpful no longer pulls the footer under it out of shape. The question about what went wrong, the four reasons and the note field now open on their own line, aligned with the answer above them, while the copy and export buttons stay on the line they were on.",
+              "de": "Rating an answer as not helpful no longer pulls the footer under it out of shape. The question about what went wrong, the four reasons and the note field now open on their own line, aligned with the answer above them, while the copy and export buttons stay on the line they were on."
+            },
+            {
+              "en": "Every finished answer can now be copied. An answer that cites no source — a clarifying question, a short conversational reply — offered only the Word download before, so there was no way to take a sentence from it into an e-mail.",
+              "de": "Every finished answer can now be copied. An answer that cites no source — a clarifying question, a short conversational reply — offered only the Word download before, so there was no way to take a sentence from it into an e-mail."
+            },
+            {
               "en": "Keyword matching now ignores words that appear in nearly every document, so a search no longer spends part of its results on a term that matches everything. Answers cite more of the documents that actually differ on the question, and searches that used to run an extra pointless lookup return a little sooner.",
               "de": "Keyword matching now ignores words that appear in nearly every document, so a search no longer spends part of its results on a term that matches everything. Answers cite more of the documents that actually differ on the question, and searches that used to run an extra pointless lookup return a little sooner."
             },
