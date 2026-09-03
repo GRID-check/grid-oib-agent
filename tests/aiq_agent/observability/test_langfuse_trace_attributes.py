@@ -287,3 +287,122 @@ class TestToolContributions:
             conversation_id=None,
             contributed=None,
         ) == {USER_ID_ATTRIBUTE: "user_123"}
+
+
+class TestContributionIsolation:
+    """A reused worker must not hand job N's tags to job N+1, across tenants.
+
+    Dask reuses processes: without a per-job bind/reset in ``finally`` (see
+    ``DeepResearcherAgent.run``) the ContextVar still holds job N's dict when
+    job N+1 starts. And without copy-on-write, ``asyncio.create_task`` snapshots
+    the var's OBJECT reference, so a later in-place ``update``/``append`` rewrites
+    an already-snapshotted export task and a concurrent researcher's writes.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clean(self):
+        from aiq_agent.observability.langfuse_trace_attributes import reset_contributions
+
+        reset_contributions()
+        yield
+        reset_contributions()
+
+    def test_next_job_starts_clean_after_previous_job_contributed(self):
+        # Job N on a reused worker contributes, then its `finally` restores.
+        from aiq_agent.observability.langfuse_trace_attributes import add_trace_tag
+        from aiq_agent.observability.langfuse_trace_attributes import begin_trace_contributions
+        from aiq_agent.observability.langfuse_trace_attributes import end_trace_contributions
+        from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
+        from aiq_agent.observability.langfuse_trace_attributes import snapshot_contributions
+
+        job_n = begin_trace_contributions()
+        try:
+            record_trace_metadata(ifc_op="compliance", ifc_model="haus.ifc")
+            add_trace_tag("feature:ifc")
+            assert snapshot_contributions()["tags"] == ["feature:ifc"]
+        finally:
+            end_trace_contributions(job_n)
+
+        # Job N+1 on the SAME process/context starts fresh — no org tag bleed
+        # into another tenant's traces.
+        job_n_plus_1 = begin_trace_contributions()
+        try:
+            fresh = snapshot_contributions()
+            assert fresh == {"metadata": {}, "tags": []}
+            attributes = langfuse_attributes_for(
+                user_id=None,
+                organization_id=None,
+                project_id=None,
+                conversation_id=None,
+                contributed=fresh,
+            )
+            assert TAGS_ATTRIBUTE not in attributes
+            assert "langfuse.trace.metadata.ifc_op" not in attributes
+        finally:
+            end_trace_contributions(job_n_plus_1)
+
+    async def test_concurrent_researchers_do_not_cross_contaminate(self):
+        import asyncio
+
+        from aiq_agent.observability.langfuse_trace_attributes import add_trace_tag
+        from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
+        from aiq_agent.observability.langfuse_trace_attributes import snapshot_contributions
+
+        # Parent contributes first so both children inherit the SAME dict object.
+        # With in-place mutation both appends land in that shared object.
+        record_trace_metadata(ifc_op="base")
+
+        async def worker_a():
+            add_trace_tag("job:a")
+            await asyncio.sleep(0.05)
+            record_trace_metadata(ifc_detail="a")
+            return snapshot_contributions()
+
+        async def worker_b():
+            add_trace_tag("job:b")
+            await asyncio.sleep(0.01)
+            return snapshot_contributions()
+
+        result_a, result_b = await asyncio.gather(worker_a(), worker_b())
+
+        assert "job:b" not in result_a["tags"]
+        assert "job:a" not in result_b["tags"]
+        assert result_a["metadata"].get("ifc_op") == "base"
+        assert result_b["metadata"].get("ifc_op") == "base"
+
+    async def test_export_task_snapshot_is_frozen_against_later_writes(self):
+        import asyncio
+
+        from aiq_agent.observability.langfuse_trace_attributes import add_trace_tag
+        from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
+        from aiq_agent.observability.langfuse_trace_attributes import snapshot_contributions
+
+        record_trace_metadata(ifc_op="early")
+
+        async def export_reader():
+            await asyncio.sleep(0.05)
+            return snapshot_contributions()
+
+        # `create_task` snapshots the context NOW (span END); the tool's later
+        # writes must not rewrite that snapshot.
+        task = asyncio.create_task(export_reader())
+        record_trace_metadata(ifc_op="late")
+        add_trace_tag("feature:ifc")
+
+        exported = await task
+        assert exported["metadata"].get("ifc_op") == "early"
+        assert "feature:ifc" not in exported["tags"]
+
+    def test_snapshot_holds_no_live_reference(self):
+        from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
+        from aiq_agent.observability.langfuse_trace_attributes import snapshot_contributions
+
+        record_trace_metadata(ifc_op="early")
+        snap = snapshot_contributions()
+        assert snap is not None
+        snap["metadata"]["ifc_op"] = "rewritten"
+        snap["tags"].append("feature:ifc")
+
+        fresh = snapshot_contributions()
+        assert fresh["metadata"].get("ifc_op") == "early"
+        assert "feature:ifc" not in fresh["tags"]
