@@ -16,7 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 SHALLOW_TEMPLATE = REPO_ROOT / "src" / "aiq_agent" / "agents" / "shallow_researcher" / "prompts" / "researcher.j2"
 DEEP_TEMPLATE = REPO_ROOT / "src" / "aiq_agent" / "agents" / "deep_researcher" / "prompts" / "researcher.j2"
 
-_HEADING = "## Normenregister (verifizierte Normen — Rang und Rolle sind annotiert)"
+_HEADING = "## Normenregister (verifizierte Normen, Rang und Rolle annotiert)"
 
 _REGISTRY = {
     "version": 1,
