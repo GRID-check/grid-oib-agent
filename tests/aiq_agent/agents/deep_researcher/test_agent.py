@@ -1991,6 +1991,57 @@ class TestDeepResearchCutoffSalvage:
             with pytest.raises(GraphRecursionError):
                 await agent.run(state)
 
+    @pytest.mark.asyncio
+    async def test_run_budget_cutoff_salvages_the_partial_report(self, mock_llm_provider, real_tool):
+        """Backlog item 2 ratchet: a token-budget abort salvages once, marked — never loops.
+
+        The batch tool re-raises ``RunBudgetExceededError`` and the middleware
+        propagates it, so the graph aborts here (no orchestrator resubmission
+        loop to the wall clock). The partial report still ships, but under its
+        own ``run_budget`` token — never silently, never as verified.
+        """
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+        from aiq_agent.common.budget_guard import RunBudgetExceededError
+
+        mock_agent = streaming_graph_mock(
+            self._partial_state(self.PARTIAL_REPORT),
+            error=RunBudgetExceededError(ceiling=1000, used=1500),
+        )
+
+        with (
+            patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent),
+            patch("aiq_agent.agents.deep_researcher.agent.emit_deep_research_cutoff") as emit,
+        ):
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Test query")])
+            with seeded_session_registry(SourceEntry(url="https://example.com")):
+                result = await agent.run(state)
+
+        assert result.research_truncated is True
+        assert result.truncation_reason == "run_budget"
+
+        answer = result.messages[-1].content
+        assert answer.startswith("> **Hinweis:**")
+        assert "Recherche-Budgets" in answer
+        assert "Zwischenstand" in answer
+
+        assert emit.call_args.kwargs["reason"] == "run_budget"
+        assert emit.call_args.kwargs["salvaged"] is True
+
+    @pytest.mark.asyncio
+    async def test_run_budget_cutoff_without_partial_state_raises(self, mock_llm_provider, real_tool):
+        """A budget abort with nothing streamed has nothing to salvage — fail loudly."""
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+        from aiq_agent.common.budget_guard import RunBudgetExceededError
+
+        mock_agent = streaming_graph_mock(error=RunBudgetExceededError(ceiling=1000, used=1500))
+
+        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent):
+            agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+            state = DeepResearchAgentState(messages=[HumanMessage(content="Test query")])
+            with pytest.raises(RunBudgetExceededError):
+                await agent.run(state)
+
 
 class TestPerRunIsolation:
     """Per-run construction (ADR-0018): no run can observe another run's state."""
@@ -2540,6 +2591,108 @@ class TestDeepResearcherCitationVerification:
         assert result.citations_removed is None
 
 
+class TestApplyRenumberingDropsSanitizeDeaths:
+    """sanitize_report deletions must drop wire chips fail-closed.
+
+    Cause: sanitize_report deleted shortened/unsafe/truncated source lines and
+    stripped their orphaned [N] from the prose, but returned only renumber_map.
+    The wire only remapped via that map (``.get(n, n)``), so a dead number kept
+    its trusted clickable chip at a URL the reader no longer sees.
+    Ratchet: deaths are returned and dropped; a number absent from a non-empty
+    map is dead too.
+    """
+
+    def test_shortened_death_drops_chip_and_remaps_survivor(self):
+        from aiq_agent.agents.deep_researcher.agent import _apply_renumbering
+        from aiq_agent.common.citation_verification import sanitize_report
+
+        report = (
+            "Good [1]. Short [2]. Also good [3].\n\n"
+            "## Sources\n"
+            "[1] Good: https://example.com/good\n"
+            "[2] Short: https://bit.ly/abc123\n"
+            "[3] Also good: https://example.com/other"
+        )
+        sanitization = sanitize_report(report)
+        assert sanitization.removed_citation_numbers == {2}
+        assert "bit.ly" not in sanitization.sanitized_report
+        assert "[3]" not in sanitization.sanitized_report
+
+        wire_sources = [
+            {"number": 1, "url": "https://example.com/good"},
+            {"number": 2, "url": "https://bit.ly/abc123"},
+            {"number": 3, "url": "https://example.com/other"},
+        ]
+        _apply_renumbering(wire_sources, sanitization.renumber_map, sanitization.removed_citation_numbers)
+        urls = [s["url"] for s in wire_sources]
+        assert "https://bit.ly/abc123" not in urls
+        assert urls == ["https://example.com/good", "https://example.com/other"]
+        # Survivor old [3] follows the prose to new [2].
+        assert [s["number"] for s in wire_sources] == [1, 2]
+
+    def test_unsafe_death_drops_chip_prose_has_no_orphan(self):
+        from aiq_agent.agents.deep_researcher.agent import _apply_renumbering
+        from aiq_agent.common.citation_verification import sanitize_report
+
+        report = (
+            "Good [1]. Evil [2].\n\n"
+            "## Sources\n"
+            "[1] Good: https://example.com/good\n"
+            "[2] Evil: https://192.168.1.1/malware"
+        )
+        sanitization = sanitize_report(report)
+        assert sanitization.removed_citation_numbers == {2}
+        assert "192.168.1.1" not in sanitization.sanitized_report
+        assert "[2]" not in sanitization.sanitized_report
+
+        wire_sources = [
+            {"number": 1, "url": "https://example.com/good"},
+            {"number": 2, "url": "https://192.168.1.1/malware"},
+        ]
+        _apply_renumbering(wire_sources, sanitization.renumber_map, sanitization.removed_citation_numbers)
+        assert [s["url"] for s in wire_sources] == ["https://example.com/good"]
+
+    def test_number_absent_from_map_is_dropped_even_without_explicit_death(self):
+        """Fail-closed when a future sanitizer rule forgets to report a death."""
+        from aiq_agent.agents.deep_researcher.agent import _apply_renumbering
+
+        wire_sources = [
+            {"number": 1, "url": "https://example.com/good"},
+            {"number": 2, "url": "https://example.com/gone"},
+        ]
+        _apply_renumbering(wire_sources, {1: 1}, set())
+        assert [s["url"] for s in wire_sources] == ["https://example.com/good"]
+
+    def test_verify_then_sanitize_end_to_end_drops_shortened_chip(self):
+        """Full path the agent runs: verify keeps, sanitize deletes, wire drops."""
+        from aiq_agent.agents.deep_researcher.agent import _apply_renumbering
+        from aiq_agent.agents.deep_researcher.agent import _cited_sources_to_wire
+        from aiq_agent.common.citation_verification import SourceRegistry
+        from aiq_agent.common.citation_verification import sanitize_report
+        from aiq_agent.common.citation_verification import verify_citations
+
+        registry = SourceRegistry()
+        registry.add(SourceEntry(url="https://example.com/good", source_type="web_search"))
+        registry.add(SourceEntry(url="https://bit.ly/abc123", source_type="web_search"))
+
+        report = (
+            "Good [1]. Short [2].\n\n## Sources\n[1] Good: https://example.com/good\n[2] Short: https://bit.ly/abc123"
+        )
+        verification = verify_citations(report, registry)
+        # Both are real captured sources, so verification keeps both...
+        assert len(verification.valid_citations) == 2
+        wire_sources = _cited_sources_to_wire(registry, list(verification.valid_citations))
+        assert len(wire_sources) == 2
+
+        # ...but sanitize deletes the shortener line as untrusted.
+        sanitization = sanitize_report(verification.verified_report)
+        assert sanitization.removed_citation_numbers == {2}
+        _apply_renumbering(wire_sources, sanitization.renumber_map, sanitization.removed_citation_numbers)
+        assert [s["url"] for s in wire_sources] == ["https://example.com/good"]
+        assert "bit.ly" not in sanitization.sanitized_report
+        assert "[2]" not in sanitization.sanitized_report
+
+
 class TestDeepResearcherQuoteVerification:
     """Deep researcher annotates fabricated quotes inline."""
 
@@ -2876,6 +3029,27 @@ class TestDeepReportConfidence:
 
         assert result.answer_confidence == "medium"
         assert result.answer_confidence_capped_reason == "quote_unverified"
+
+    @pytest.mark.asyncio
+    async def test_fabricated_quote_marks_the_answer_degraded(self, mock_llm_provider, real_tool):
+        """Backlog item 2 ratchet: an unverified quote never ships as verified.
+
+        The quote is still annotated inline (fail-open), but the answer carries
+        the degraded signal — state, banner, and honesty line — so a salvaged
+        report cannot launder a fabricated quotation into a verified answer.
+        """
+        body = (
+            'Laut Richtlinie gilt „Treppen muessen eine Loeschanlage haben" [1].\n\n## Sources\n[1] OIB-330.pdf, p.12'
+        )
+        result = await self._run(mock_llm_provider, real_tool, self._report("[CONFIDENCE:high]", body=body))
+
+        assert result.degraded_reasons is not None
+        assert "unverified_quotes" in result.degraded_reasons
+        answer = result.messages[-1].content
+        assert answer.startswith("> **Hinweis:**")
+        assert "eingeschränkt belastbar" in answer
+        # The quote itself still ships, annotated — never stripped, never clean.
+        assert "[nicht wörtlich in der Quelle belegt]" in answer
 
     @pytest.mark.asyncio
     async def test_citation_health_ledger_records_the_cap_and_no_fallback(self, mock_llm_provider, real_tool):

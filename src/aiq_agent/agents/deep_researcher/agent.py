@@ -23,6 +23,7 @@ from aiq_agent.agents.shallow_researcher.markers import surface_answer_confidenc
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import citation_events
 from aiq_agent.common import load_prompt
+from aiq_agent.common.budget_guard import RunBudgetExceededError
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import annotate_unverified_quotes
 from aiq_agent.common.citation_verification import get_session_registry
@@ -34,11 +35,14 @@ from aiq_agent.common.citation_verification import source_label
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
 from aiq_agent.common.citation_verification import verify_quoted_spans
+from aiq_agent.common.cost_tracking import BudgetExceededError
+from aiq_agent.common.turn_status import CUTOFF_RUN_BUDGET
 from aiq_agent.common.turn_status import CUTOFF_STEP_LIMIT
 from aiq_agent.common.turn_status import CUTOFF_UPSTREAM_TIMEOUT
 from aiq_agent.common.turn_status import CUTOFF_WALL_CLOCK
 from aiq_agent.common.turn_status import DEGRADED_NO_REPORT_FILE
 from aiq_agent.common.turn_status import DEGRADED_NO_VALID_CITATIONS
+from aiq_agent.common.turn_status import DEGRADED_UNVERIFIED_QUOTES
 from aiq_agent.common.turn_status import emit_answer_degraded
 from aiq_agent.common.turn_status import emit_deep_research_cutoff
 
@@ -157,6 +161,7 @@ _CUTOFF_CAUSE_CLAUSES = {
     CUTOFF_WALL_CLOCK: "wegen des erreichten Zeitlimits",
     CUTOFF_STEP_LIMIT: "wegen des erreichten Schritt-Limits",
     CUTOFF_UPSTREAM_TIMEOUT: "weil eine angefragte Quelle nicht rechtzeitig geantwortet hat",
+    CUTOFF_RUN_BUDGET: "wegen des erreichten Recherche-Budgets",
 }
 
 
@@ -292,7 +297,11 @@ def _cited_sources_to_wire(registry: Any, valid_citations: list[dict[str, Any]])
     return wire_sources
 
 
-def _apply_renumbering(wire_sources: list[dict[str, Any]], renumber_map: dict[int, int] | None) -> None:
+def _apply_renumbering(
+    wire_sources: list[dict[str, Any]],
+    renumber_map: dict[int, int] | None,
+    removed_numbers: set[int] | frozenset[int] | list[int] | tuple[int, ...] | dict[int, Any] | None = None,
+) -> None:
     """Re-label the wire sources with the numbers the READER will see.
 
     ``sanitize_report`` closes the gaps that ``verify_citations``' removals left
@@ -300,7 +309,49 @@ def _apply_renumbering(wire_sources: list[dict[str, Any]], renumber_map: dict[in
     stale by the time the report ships. Without this remap a chip is labelled
     ``[3]`` while the prose pointing at it now says ``[2]``, and the inline
     marker's anchor scrolls to a row that does not exist.
+
+    Fail-closed on sanitize deaths: ``sanitize_report`` also DELETES source
+    lines with shortened / truncated / unsafe URLs and strips their orphaned
+    ``[N]`` markers from the prose. Those numbers arrive via
+    ``removed_numbers`` (the pre-renumber originals) and their chips are
+    dropped here — never remapped, never shipped as trusted/clickable at a
+    URL the reader no longer sees. A wire number absent from a non-empty
+    ``renumber_map`` is likewise dead (its line is gone) and is dropped too,
+    so a future sanitizer rule that forgets to report a death still cannot
+    leave a trusted chip at a removed URL.
     """
+    # Defensive: tests mock sanitize_report with a MagicMock whose
+    # renumber_map/removed numbers are auto-created mocks, not containers.
+    if not isinstance(renumber_map, dict):
+        renumber_map = {}
+    if isinstance(removed_numbers, dict):
+        dead: set[int] = {n for n in removed_numbers.keys() if isinstance(n, int)}
+    elif isinstance(removed_numbers, (set, frozenset, list, tuple)):
+        dead = {n for n in removed_numbers if isinstance(n, int)}
+    else:
+        dead = set()
+
+    if dead or renumber_map:
+        kept: list[dict[str, Any]] = []
+        dropped = 0
+        for source in wire_sources:
+            number = source.get("number")
+            if isinstance(number, int):
+                if number in dead:
+                    dropped += 1
+                    continue
+                if renumber_map and number not in renumber_map:
+                    dropped += 1
+                    continue
+            kept.append(source)
+        if dropped:
+            logger.info(
+                "Dropping %d wire source(s) whose citations sanitize_report removed: dead=%s",
+                dropped,
+                sorted(dead),
+            )
+            wire_sources[:] = kept
+
     if not renumber_map:
         return
     for source in wire_sources:
@@ -669,6 +720,17 @@ class DeepResearcherAgent:
         if get_session_registry() is None:
             registry_token = set_session_registry(source_registry_middleware.active_registry())
 
+        # Fresh Langfuse trace contributions for THIS job. A Dask worker process
+        # is reused across jobs and tenants, so without a per-job binding job N's
+        # `feature:ifc` tag and `ifc_*` metadata would still be bound when job N+1
+        # starts and would be stamped onto another tenant's traces. Unconditional:
+        # even a job that never touches a model must not inherit the last one
+        # that did. Reset in `finally` below, beside the session registry.
+        from aiq_agent.observability.langfuse_trace_attributes import begin_trace_contributions
+        from aiq_agent.observability.langfuse_trace_attributes import end_trace_contributions
+
+        contributions_token = begin_trace_contributions()
+
         try:
             invoke_config: dict[str, Any] = {}
             if callbacks:
@@ -806,6 +868,23 @@ class DeepResearcherAgent:
                     original=exc,
                     cause=exc,
                 )
+            except (RunBudgetExceededError, BudgetExceededError) as exc:
+                # The run exhausted its completion-token ceiling or a USD budget
+                # mid-batch. The batch tool re-raises (never a resubmittable
+                # ToolMessage) and the middleware propagates, so the graph aborts
+                # here instead of looping to the wall clock. Salvage what the run
+                # had produced, marked — the same contract as the clock/steps,
+                # counted apart so a sizing signal never reads as a slow run.
+                return self._finalize_cutoff(
+                    last_state,
+                    cutoff_reason=CUTOFF_RUN_BUDGET,
+                    elapsed_seconds=time.monotonic() - started,
+                    source_registry_middleware=source_registry_middleware,
+                    callbacks=callbacks,
+                    skill_runtime=skill_runtime,
+                    original=exc,
+                    cause=exc,
+                )
 
             return self._finalize(
                 result,
@@ -823,9 +902,12 @@ class DeepResearcherAgent:
             # Leaking this one would hand the NEXT job on the same worker a
             # registry full of a previous question's sources, and it would look
             # like a run that cited things it never retrieved. Reset whether the
-            # run returned, was cut off, or raised.
+            # run returned, was cut off, or raised. Same for the trace
+            # contributions: without it job N's IFC tags/metadata bleed into job
+            # N+1's traces across tenants on a reused Dask worker.
             if registry_token is not None:
                 reset_session_registry(registry_token)
+            end_trace_contributions(contributions_token)
 
     def _finalize_cutoff(
         self,
@@ -1088,6 +1170,12 @@ class DeepResearcherAgent:
                     "Citation verification: %d quoted span(s) not verbatim in any retrieved passage; annotated inline",
                     len(unverified_quotes),
                 )
+                # An annotated quote still ships, so it must ship MARKED: without
+                # this the salvaged report reads exactly like a verified one.
+                # Shared by the normal and salvage paths (_finalize_cutoff calls
+                # through here), so a budget cut-off can never launder an
+                # unverified quote into a verified answer.
+                degraded_reasons.append(DEGRADED_UNVERIFIED_QUOTES)
             if not verification.valid_citations:
                 logger.warning(
                     "Citation verification found no valid citations in writer-agent output; "
@@ -1176,8 +1264,14 @@ class DeepResearcherAgent:
         sanitization = sanitize_report(final_message)
         final_message = sanitization.sanitized_report
         # Sanitisation renumbers the surviving ``[N]`` markers, so the chips have
-        # to follow the prose or they point at rows that no longer exist.
-        _apply_renumbering(wire_sources, sanitization.renumber_map)
+        # to follow the prose or they point at rows that no longer exist — and
+        # it DELETES shortened/unsafe/truncated source lines, whose chips must
+        # be dropped fail-closed (never a trusted chip at a removed URL).
+        _apply_renumbering(
+            wire_sources,
+            sanitization.renumber_map,
+            getattr(sanitization, "removed_citation_numbers", None),
+        )
         if wire_sources:
             # Absent, never empty: a run that cited nothing resolvable says so by
             # carrying no field, exactly like ``degraded_reasons`` below — a
