@@ -140,6 +140,27 @@ class TestGating:
     def test_a_single_takeaway_is_a_sentence_not_a_block(self):
         assert self._gate({"takeaways": _TAKEAWAYS[:1]}, prose_chars=1_000) is None
 
+    def test_a_detail_that_restates_its_claim_is_dropped(self):
+        # A row with a `detail` is a button; one that opens onto its own claim
+        # teaches the reader the chevrons are decorative. Blank and verbatim are
+        # the two forms of that a gate can judge without guessing at quality.
+        payload = self._gate(
+            {
+                "takeaways": [
+                    {"text": "Tragende Bauteile mindestens REI 60", "detail": " tragende bauteile mindestens REI 60 "},
+                    {"text": "Maßgeblich ist das Fluchtniveau", "detail": "   "},
+                ]
+            },
+            prose_chars=1_000,
+        )
+        assert payload is not None
+        assert all("detail" not in item for item in payload["takeaways"])
+
+    def test_a_detail_that_adds_something_survives(self):
+        payload = self._gate({"takeaways": _TAKEAWAYS}, prose_chars=1_000)
+        assert payload is not None
+        assert payload["takeaways"][1]["detail"] == "In Kellergeschossen gilt REI 90."
+
     def test_takeaways_are_capped_at_five(self):
         many = [{"text": f"Punkt {i}"} for i in range(8)]
         payload = self._gate({"takeaways": many}, prose_chars=1_000)

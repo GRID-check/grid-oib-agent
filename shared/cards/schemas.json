@@ -2983,7 +2983,7 @@
             }
           ],
           "default": null,
-          "description": "Relevant article or paragraph number",
+          "description": "The article or point NUMBER alone, as the document prints it: '3.1.1', '87', '8 bis 10', 'Art. 5 Abs. 2'. It is set in the card's MARGIN, the way a statute prints its \u00a7 beside the text, so it must be an identifier and not a sentence \u2014 'Punkte 8 bis 10 der OIB-Richtlinie 2' names the Richtlinie a second time and does not fit a margin; write '8 bis 10' here and let `summary` say what those Punkte require. Roughly 20 characters is the whole budget. Omit it when the passage carries no number.",
           "title": "Article"
         },
         "edition": {
@@ -3045,7 +3045,7 @@
             }
           ],
           "default": null,
-          "description": "Relevant section or chapter",
+          "description": "The section, table or annex LABEL alone: 'Tabelle 1a', 'Abs. 4', 'Anhang B', 'Pkt. 2.1'. Set in the same margin as `article`, under the same budget, so it is a label and never a heading or a description of what the section regulates \u2014 'Anwendungsbereiche der erg\u00e4nzenden Richtlinien' is a summary of the passage, and belongs in `summary`. Omit it when the passage carries no such label.",
           "title": "Section"
         },
         "summary": {
