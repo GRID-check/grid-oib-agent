@@ -32,6 +32,28 @@
   },
   "releases": [
     {
+      "id": "2026-09-04",
+      "kind": "date",
+      "version": null,
+      "date": "2026-09-04",
+      "summary": null,
+      "sections": [
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Keyword matching now ignores words that appear in nearly every document, so a search no longer spends part of its results on a term that matches everything. Answers cite more of the documents that actually differ on the question, and searches that used to run an extra pointless lookup return a little sooner.",
+              "de": "Keyword matching now ignores words that appear in nearly every document, so a search no longer spends part of its results on a term that matches everything. Answers cite more of the documents that actually differ on the question, and searches that used to run an extra pointless lookup return a little sooner."
+            },
+            {
+              "en": "A standard or product code typed in lowercase now matches the documents that write it in capitals, so a question about a specific code finds the same sources whichever way it is typed.",
+              "de": "A standard or product code typed in lowercase now matches the documents that write it in capitals, so a question about a specific code finds the same sources whichever way it is typed."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-09-03",
       "kind": "date",
       "version": null,
@@ -73,10 +95,6 @@
             {
               "en": "Eine Deep Research in einem Projekt, dessen Beschreibung deutsche Anführungszeichen oder Gedankenstriche enthält, brach sofort nach dem Start ab — der Bericht schlug fehl und die Seitenleiste blieb leer. Solche Projekte lassen sich jetzt ohne Abbruch recherchieren.",
               "de": "Eine Deep Research in einem Projekt, dessen Beschreibung deutsche Anführungszeichen oder Gedankenstriche enthält, brach sofort nach dem Start ab — der Bericht schlug fehl und die Seitenleiste blieb leer. Solche Projekte lassen sich jetzt ohne Abbruch recherchieren."
-            },
-            {
-              "en": "Broad overview questions about a building guideline now find the same documents as the precise technical terms. A question asked in everyday wording no longer comes back with too few sources when the official documents spell the key terms differently.",
-              "de": "Broad overview questions about a building guideline now find the same documents as the precise technical terms. A question asked in everyday wording no longer comes back with too few sources when the official documents spell the key terms differently."
             },
             {
               "en": "Filtering the file browser no longer blanks the listing when files match; the empty notice only appears when the filter truly emptied it.",
