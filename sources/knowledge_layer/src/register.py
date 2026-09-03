@@ -1252,15 +1252,18 @@ def _format_results(retrieval_result, query: str) -> str:
     what to use in its References section.
     """
     # Check for retrieval errors and surface them to the agent
+    # getattr: callers pass duck-typed result-likes (e.g. SimpleNamespace in
+    # tests) that may not carry the optional error_message field.
     if not retrieval_result.success:
-        error_msg = retrieval_result.error_message or "Unknown error"
+        error_msg = getattr(retrieval_result, "error_message", None) or "Unknown error"
         return f"Knowledge retrieval failed: {error_msg}\n\nQuery: '{query}'"
 
     # Degraded partial retrieval (e.g. the base corpus dropped out on an
     # embedding-fingerprint mismatch while other layers survived): the chunks
     # below are real, but they are NOT the full corpus. Without this banner the
     # LLM reads a partial answer as a complete one.
-    degraded_banner = f"WARNING: {retrieval_result.error_message}\n\n" if retrieval_result.error_message else ""
+    degraded_detail = getattr(retrieval_result, "error_message", None)
+    degraded_banner = f"WARNING: {degraded_detail}\n\n" if degraded_detail else ""
 
     if not retrieval_result.chunks:
         return f"{degraded_banner}No relevant documents found for query: '{query}'"
