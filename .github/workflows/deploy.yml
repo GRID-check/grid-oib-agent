@@ -155,11 +155,34 @@ jobs:
                   // it red as a matter of routine is how a real deploy failure
                   // stops being noticed.
                   if (run.conclusion === "cancelled") {
-                    core.notice(
-                      `${name} for ${sha} was cancelled — this commit was superseded before its ` +
-                      `checks finished, so there is nothing to deploy. Skipping.`
+                    // Cancelled means SUPERSEDED only when a newer commit exists
+                    // on the branch. On the tip nothing superseded it — a person
+                    // cancelled it, usually because a job was slow — and standing
+                    // down silently there STRANDS THE BRANCH: nothing re-runs a
+                    // cancelled workflow on its own, so the tip keeps a cancelled
+                    // check forever and every later dispatch takes this same path
+                    // and deploys nothing, reporting success each time. That is
+                    // the failure this branch exists to tell apart, and it cost
+                    // an evening of dispatching into a green no-op.
+                    const branch = context.payload.workflow_run?.head_branch || context.ref.replace("refs/heads/", "");
+                    const tip = (await github.rest.repos.getBranch({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      branch,
+                    })).data.commit.sha;
+                    if (tip !== sha) {
+                      core.notice(
+                        `${name} for ${sha} was cancelled — this commit was superseded before its ` +
+                        `checks finished, so there is nothing to deploy. Skipping.`
+                      );
+                      core.setOutput("proceed", "false");
+                      return;
+                    }
+                    core.setFailed(
+                      `${name} for ${sha} was cancelled, and ${sha} is the tip of ${branch} — nothing ` +
+                      `superseded it, so this is a cancelled check rather than a superseded commit. ` +
+                      `Re-run the ${name} workflow for this commit, then dispatch the deploy again.`
                     );
-                    core.setOutput("proceed", "false");
                     return;
                   }
                   if (run.conclusion !== "success") {

@@ -1,0 +1,129 @@
+# Which paths belong to which part of the system — the ONE definition, read by
+# every workflow that decides what to run.
+#
+# `dorny/paths-filter` takes a file path as well as an inline block, and that is
+# the whole reason this file exists: the list used to live inside ci.yml, so a
+# second workflow wanting the same answer had to copy it. Docker Build did not
+# copy it, and ran with no filter at all — a README-only PR built the backend,
+# frontend and web images for four minutes (run 1008). The alternative to no
+# filter was a second copy, and a copy of a rule like this drifts silently,
+# because each copy stays locally correct while they disagree.
+#
+# Two families, because "what to TEST" and "what to BUILD INTO AN IMAGE" are
+# different questions about the same change:
+#
+#   backend / frontend / web / infra / retrieval
+#       The test-and-lint scope. Deliberately WIDE: they include the harnesses,
+#       the Taskfile that defines the commands, and the composite actions, so a
+#       change to how a job runs cannot merge without that job running.
+#
+#   *_image
+#       What actually goes INTO each image: its Dockerfile, its build context
+#       and its lockfile. Deliberately NARROW — a test file is not in the image
+#       and cannot break the build — and NOT derived from the test filters,
+#       because the two answer differently on purpose. Their one shared rule is
+#       that both watch this file.
+#
+# Adding a path: put it in the family it belongs to, and say why if the reason
+# is not obvious from the path. Every line below that carries a comment was
+# somebody's merged-and-untested change.
+
+# Every filter also watches the shared tooling each job depends on:
+# the root Taskfile (which defines the commands the jobs run) and the
+# composite setup actions. Otherwise a change to `fe:verify`,
+# `infra:types` or a setup action merges without its job running.
+backend:
+  - 'src/**'
+  - 'frontends/aiq_api/**'
+  - 'sources/**'
+  - 'tests/**'
+  - 'ci/**'
+  - 'configs/**'
+  # `scripts/release_notes.py` is covered by tests/test_release_notes.py;
+  # without this a change to it merges without those tests running.
+  - 'scripts/**'
+  - 'releasenotes/**'
+  - 'pyproject.toml'
+  - 'uv.lock'
+  - 'Taskfile.yml'
+  - '.github/workflows/ci.yml'
+  - '.github/filters.yml'
+  - '.github/actions/**'
+# The retrieval regression gate: everything that decides how a
+# Punkt is cut, located or excluded, plus the harness and corpus.
+retrieval:
+  - 'sources/knowledge_layer/**'
+  - 'src/aiq_agent/common/german_text.py'
+  - 'src/aiq_agent/common/legal_terms.py'
+  - 'frontends/benchmarks/oib_retrieval/**'
+  - 'data/oib/**'
+  - 'Taskfile.yml'
+  - '.github/workflows/ci.yml'
+  - '.github/filters.yml'
+frontend:
+  - 'frontends/ui/**'
+  # The BFF's model-config tests read the workflow config (the agent
+  # groups it seeds are derived from `llms:`), so a PR touching only
+  # `configs/` must still run them — otherwise a drift between the
+  # two lands green because no frontend job ran at all.
+  - 'configs/**'
+  - 'Taskfile.yml'
+  - '.github/workflows/ci.yml'
+  - '.github/filters.yml'
+  - '.github/actions/**'
+  # `scripts/rls-test-db.sh` IS the tenant-isolation gate. Without
+  # this line a change to it leaves `frontend` false, the gate job
+  # is skipped, and `ci-ok` counts skipped as passed — so a broken
+  # row-level-security harness merges unverified.
+  - 'scripts/**'
+  # The card schema is generated from these two into the Zod module
+  # the UI validates with, and `task fe:cards:check` is the only gate
+  # that sees the Zod half (repo-lint has no node_modules). Without
+  # these lines a models-only PR skips this job and ships a stale
+  # `generated.ts`, which type-checks.
+  - 'src/aiq_agent/cards/models.py'
+  - 'shared/cards/schemas.json'
+web:
+  - 'frontends/web/**'
+  - 'Taskfile.yml'
+  - '.github/workflows/ci.yml'
+  - '.github/filters.yml'
+  - '.github/actions/**'
+infra:
+  - 'deploy/**'
+  - 'Taskfile.yml'
+  - '.github/workflows/ci.yml'
+  - '.github/filters.yml'
+  - '.github/actions/**'
+
+# ── Image build scopes ───────────────────────────────────────────────────────
+# The three images Docker Build compiles on a PR. Each watches its Dockerfile,
+# its build context and its dependency manifests — and this file, plus the
+# workflow itself, so a change to how the image is built always rebuilds it.
+
+backend_image:
+  - 'deploy/Dockerfile'
+  - 'src/**'
+  - 'frontends/aiq_api/**'
+  - 'sources/**'
+  - 'configs/**'
+  - 'pyproject.toml'
+  - 'uv.lock'
+  - '.dockerignore'
+  - '.github/workflows/docker-build.yml'
+  - '.github/filters.yml'
+
+frontend_image:
+  - 'frontends/ui/**'
+  # The UI image bakes the generated card Zod module, which is generated FROM
+  # the Python model and the shared schema. A change to either ships a stale
+  # module into the image otherwise.
+  - 'src/aiq_agent/cards/models.py'
+  - 'shared/cards/schemas.json'
+  - '.github/workflows/docker-build.yml'
+  - '.github/filters.yml'
+
+web_image:
+  - 'frontends/web/**'
+  - '.github/workflows/docker-build.yml'
+  - '.github/filters.yml'

@@ -154,6 +154,20 @@ jobs:
         with:
           node-version: "22"
       - uses: ./.github/actions/setup-bun
+      # NEITHER audit installs anything. Both read the LOCKFILE — that is what a
+      # dependency audit is — and the installs that used to sit here were the
+      # slowest thing in this workflow by a wide margin, for a tree neither
+      # command opens:
+      #
+      #   bun install --frozen-lockfile  4m37s  |  npm ci --ignore-scripts  2m46s
+      #
+      # (run 33812594801, the one whose 16 minutes stranded a staging deploy —
+      # a cancelled Security run reads to deploy.yml's gate as "superseded",
+      # so cancelling this job out of impatience silently blocks the release.)
+      # Registry variance is the whole risk here: those two steps have no upper
+      # bound, and on a bad afternoon they were 3-4x the numbers above. The way
+      # to not pay it is to not talk to the registry.
+      #
       # Informational for the same reason as pip-audit above: Phase 1 keeps both
       # audits advisory (docs/compliance/external-dependencies.md §C) so a new
       # transitive advisory does not block unrelated merges. Promote both together
@@ -161,17 +175,18 @@ jobs:
       - name: Dependency audit (frontend)
         continue-on-error: true
         working-directory: frontends/ui
-        run: |
-          bun install --frozen-lockfile --ignore-scripts
-          bun audit --audit-level=high || true
+        # `bun audit` resolves bun.lock against the registry's advisory API; it
+        # needs no node_modules and says so by working in a directory holding
+        # nothing but package.json and bun.lock.
+        run: bun audit --audit-level=high || true
       # The Astro microservice (frontends/web) installs with npm, so its
-      # lockfile needs npm audit rather than bun audit.
+      # lockfile needs npm audit rather than bun audit. `--package-lock-only`
+      # is npm's own name for the same idea: audit package-lock.json where it
+      # lies, install nothing. Verified to report the identical advisory set.
       - name: Dependency audit (web)
         continue-on-error: true
         working-directory: frontends/web
-        run: |
-          npm ci --ignore-scripts
-          npm audit --audit-level=high || true
+        run: npm audit --package-lock-only --audit-level=high || true
 
   secret-scan:
     name: Secret scan (gitleaks)
