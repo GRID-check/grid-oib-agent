@@ -64,7 +64,7 @@ const TableHead = React.forwardRef<HTMLTableCellElement, React.ThHTMLAttributes<
       ref={ref}
       className={cn(
         // Recessive header: the data is the content, the header is the label.
-        'h-9 px-3 text-left align-middle text-xs font-medium uppercase tracking-wide text-muted-foreground [&:has([role=checkbox])]:w-10 [&:has([role=checkbox])]:pr-0',
+        'h-9 px-3 text-left align-middle text-xs font-medium uppercase tracking-wider text-muted-foreground [&:has([role=checkbox])]:w-10 [&:has([role=checkbox])]:pr-0',
         className,
       )}
       {...props}

@@ -75,7 +75,7 @@ export const archiv = {
   rename: {
     title: 'Rename document',
     description:
-      'Changes the name shown everywhere in Grid, including on citations. The file itself and everything indexed from it stay as they are.',
+      'Changes the name shown everywhere in Piloti, including on citations. The file itself and everything indexed from it stay as they are.',
     label: 'Name',
     hint: 'The file extension stays as it is.',
     save: 'Rename',

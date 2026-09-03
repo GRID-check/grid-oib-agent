@@ -104,7 +104,7 @@ export const SkillRawDocumentSection: FC<SkillRawDocumentSectionProps> = ({
         />
       </CollapsibleTrigger>
 
-      <CollapsibleContent className="border-border animate-in fade-in-0 border-t px-4 py-3 duration-base ease-out motion-reduce:animate-none">
+      <CollapsibleContent className="border-border border-t px-4 py-3 duration-base ease-out motion-reduce:animate-none">
         <Field>
           <FieldLabel htmlFor="skill-raw-document">{t('editor.raw.documentLabel')}</FieldLabel>
           <Textarea

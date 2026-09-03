@@ -156,11 +156,11 @@ export function ArchivLibraryPane({
     return (
       <div className="flex h-full flex-col" aria-busy="true">
         <div className="border-b px-4 py-2.5">
-          <Skeleton className="h-9 min-h-9 w-full" />
+          <Skeleton className="h-9 min-h-9 w-full rounded-lg" />
         </div>
         <div className="flex min-h-12 gap-1.5 border-b px-4 py-2">
           {['all', 'one', 'two', 'three'].map((key) => (
-            <Skeleton key={key} className="h-8 w-20 shrink-0 rounded-lg" />
+            <Skeleton key={key} className="h-6 w-20 shrink-0 rounded-md" />
           ))}
         </div>
         <div className="p-4">

@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
-import { motion, springGentle } from '@/components/motion'
+import { motion, springDrawer } from '@/components/motion'
 import { useIsCurrentSessionBusy } from '@/features/chat'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatBytes } from '@/lib/format'
@@ -271,7 +271,7 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
       // Deleting state dims the card (was `opacity-50`; motion owns inline opacity now)
       animate={{ opacity: isDeleting ? 0.5 : 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.97 }}
-      transition={springGentle}
+      transition={springDrawer}
     >
       <div className="flex min-w-0 flex-1 items-center gap-3">
         {canOpen ? (

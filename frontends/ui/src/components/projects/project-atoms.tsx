@@ -73,7 +73,7 @@ export function ProjectOpenLink({
         // whole card, and an offset ring would be sliced off by the card's own
         // `overflow-hidden` — this is the documented inset exception at the
         // documented `/60` alpha, not the old `/50` third recipe.
-        'after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring/60',
+        'after:absolute after:inset-0 after:rounded-lg focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring/60',
         className,
       )}
     >

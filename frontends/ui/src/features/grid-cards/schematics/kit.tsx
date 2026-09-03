@@ -718,7 +718,7 @@ export const SchematicCard: FC<SchematicCardProps> = ({
 }) => {
   const t = useTranslations('chat')
   return (
-    <Card className={cn(CARD_SHELL, 'animate-in fade-in-0 slide-in-from-bottom-1 gap-3 p-5')}>
+    <Card className={cn(CARD_SHELL, 'animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance motion-reduce:animate-none gap-3 p-5')}>
       <div className="flex items-center justify-between gap-2">
         <div className="card-eyebrow flex items-center gap-1.5 text-muted-foreground">
           <Icon className="size-3.5" aria-hidden="true" />

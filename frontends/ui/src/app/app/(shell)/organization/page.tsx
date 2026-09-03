@@ -10,9 +10,8 @@
  *
  * Both reads are best-effort on purpose: a WorkOS outage or a Grid-DB hiccup
  * must degrade one card into a dash or a "could not load" note, never take down
- * the section. Everything here is admin-only; a plain member still lands on
- * their organization's identifier plus a pointer at who can change the rest,
- * rather than on a blank page.
+ * the section. Everything here is admin-only; a plain member sees no identifier
+ * at all, only a pointer at who can change the rest, rather than a blank page.
  */
 
 import { Building2, Globe, Mail, ShieldAlert, Users } from 'lucide-react'
@@ -37,9 +36,9 @@ export default async function OrganizationOverviewPage(): Promise<JSX.Element> {
 
     const admin = isOrgAdmin(session)
 
-    // Non-admins get the one fact that is theirs by definition — the id of the
-    // organization their own session is scoped to — and the admin-access note.
-    // No org-scoped read happens for them, so nothing new is exposed.
+    // Non-admins see no identifier: the raw organization id is an internal
+    // handle, not a display name, so it stays out of the member view. No
+    // org-scoped read happens for them either, so nothing new is exposed.
     if (!admin) {
       return (
         <div className="flex flex-col gap-6">
@@ -47,24 +46,6 @@ export default async function OrganizationOverviewPage(): Promise<JSX.Element> {
             title={t('sections.overview.title')}
             subtitle={t('sections.overview.subtitle')}
           />
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Building2 className="size-4 text-muted-foreground" aria-hidden />
-                {t('overview.title')}
-              </CardTitle>
-              <CardDescription>{t('overview.description')}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <dl>
-                <dt>
-                  <SectionLabel>{t('overview.id')}</SectionLabel>
-                </dt>
-                <dd className="mt-1 truncate font-mono text-sm">{session.organizationId}</dd>
-              </dl>
-            </CardContent>
-          </Card>
 
           <Card>
             <CardHeader>
@@ -128,7 +109,9 @@ export default async function OrganizationOverviewPage(): Promise<JSX.Element> {
                 <dt>
                   <SectionLabel>{t('overview.id')}</SectionLabel>
                 </dt>
-                <dd className="mt-1 truncate font-mono text-sm">{session.organizationId}</dd>
+                <dd className="mt-1 truncate font-mono text-sm" title={session.organizationId}>
+                  {session.organizationId}
+                </dd>
               </div>
               <div>
                 <dt>

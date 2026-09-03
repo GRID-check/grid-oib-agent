@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 const spinnerSizeMap = {
   xs: 'size-3.5',
   sm: 'size-4',
-  default: 'size-6',
+  default: 'size-4 lg:size-6',
   lg: 'size-8',
 } as const
 

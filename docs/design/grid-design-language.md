@@ -134,7 +134,8 @@ The ramp targets the dummy's 9.5–24px scale: **20px page titles**, **23px hero
 - **Page container:** `mx-auto w-full max-w-5xl px-4 py-8 md:px-8` (content pages). Chat/full-bleed surfaces are exceptions.
 - **Vertical section gap:** `space-y-8` between major sections; `space-y-4` within a section; `gap-3` in tight lists.
 - **Card padding:** `p-6` for feature cards, `p-5` for stat cards, `px-4 py-3` for list rows.
-- **Radius:** cards `rounded-lg` (var --radius, 12px — inside the dummy's 7–14px range), inputs/buttons follow shadcn defaults, pills/badges `rounded-md`.
+- **Radius ladder:** controls `rounded-md` (8px — buttons, fields, badges, chips, tooltips, inner panels, selection bars), cards `rounded-lg` (12px, `--radius`), floating panels `rounded-xl` (16px — dialogs, popovers, select content). Radius is paint: a radius-only change moves no layout box.
+- **Glyph sizes:** the glyph sits two steps below its well — `size-3.5` in badges/chips, `size-4` free-floating UI glyphs (pagination chevrons, dialog close, `size-9` wells), `size-3.5` in `size-7` wells, `size-5` in the empty-state/confirm discs. A new well picks the glyph its size already owns; it does not invent one.
 - **Borders:** hairline `border` (border-border — alpha ink, composites on any surface). Prefer a single border + `bg-card` over nested boxes. Use `divide-y` for list groups inside one bordered container. Depth = surface step + layered soft shadow (`shadow-xs/sm/md/lg` are bound to `--elevation-*`), never a heavy border.
 
 ## Touch
@@ -281,7 +282,7 @@ The Archiv and the Postfach are NOT this case since the org-nav redesign: they r
 
 Tabbed shells (Organisation, Platform) are **one place**, not a stack of submenus. Switching Models → Knowledge `replace`s the URL and collapses those siblings on the trail, so Back leaves the shell and returns to the project — it does not walk the previous settings tab. Project sections stay a real stack: Files → Chat is a step.
 
-**Stat** — `rounded-lg border bg-card p-5`, number in `text-2xl font-semibold tabular-nums`, label in `text-sm text-muted-foreground` below.
+**Stat** — `rounded-lg border bg-card p-5 shadow-xs`, number in `text-2xl font-semibold tabular-nums`, label in `text-sm text-muted-foreground` below. A leading icon sits in a `StatCardIcon` well (`components/ui/stat-card.tsx`: the chip tint pairs plus the office provenance tint, `size-9`/`size-7`). Stat vs charter Figure (§A2): a Stat is a dashboard tile whose number *is* the content; a Figure is the one emphasized answer *inside* an evidence card. A tile never carries a Figure, a card never carries a Stat.
 
 **Search** — `SearchField` (`components/ui/search-field.tsx`) is the one magnifier + input + clear control. Archiv composes it inside `FileSearchBar` (sticky band, run button, result banner). Files composes the bare `FileSearchField` in the page header instead — no sticky band, no run button (Enter alone commits the semantic search), no banner (the results are the report); `useFileSearch` owns the two-mode query state one level above both the field and `FileBrowserPane`. Admin lists compose `SearchField` inside `DataToolbar`. Do not hand-roll another `relative` + `Search` icon + `Input`.
 
@@ -305,7 +306,7 @@ surface that already has a border.
                   border bg-card text-muted-foreground/70 shadow-sm">
     <Icon className="size-5" aria-hidden />
   </div>
-  <p className="text-balance text-[15px] font-semibold tracking-tight text-foreground">{title}</p>
+  <p className="text-balance text-sm font-semibold tracking-tight text-foreground">{title}</p>
   <p className="mt-1.5 max-w-sm text-pretty text-sm leading-relaxed text-muted-foreground">{whyAndWhatToDo}</p>
   <div className="mt-5">{primaryAction}</div>
 </div>

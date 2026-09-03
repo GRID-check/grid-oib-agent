@@ -12,6 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Chip } from '@/components/ui/chip'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { EmptyState } from '@/components/ui/empty-state'
 import { FieldError } from '@/components/ui/field'
@@ -26,6 +27,7 @@ import {
   ItemTitle,
 } from '@/components/ui/item'
 import { SearchField } from '@/components/ui/search-field'
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import {
   Select,
   SelectContent,
@@ -92,12 +94,13 @@ const searchSchema = z.object({
   query: z.string(),
 })
 
-/** Square with a slight radius to match the WorkOS members widget. */
+/** Identity disc for a roster row or suggestion. The Avatar primitive's own
+ * geometry stands — no radius or size overrides here. */
 function MemberAvatar({ member, className }: { member: Member; className?: string }): JSX.Element {
   return (
-    <Avatar className={cn('rounded-md', className)}>
+    <Avatar className={className}>
       {member.profilePictureUrl && <AvatarImage src={member.profilePictureUrl} alt="" />}
-      <AvatarFallback className="rounded-md text-xs font-semibold">
+      <AvatarFallback className="text-xs font-semibold">
         {initials(member.name)}
       </AvatarFallback>
     </Avatar>
@@ -208,54 +211,66 @@ function MemberSuggestField({
 
   return (
     <FieldShell label={label} htmlFor={field.name} errors={errors} className={containerClassName}>
-      <div className="relative">
-        <Input
-          id={field.name}
-          name={field.name}
-          type="text"
-          role="combobox"
-          autoComplete="off"
-          aria-expanded={open}
-          aria-controls={listboxId}
-          aria-autocomplete="list"
-          aria-activedescendant={open && suggestions[active] ? optionId(active) : undefined}
-          aria-invalid={errors.length > 0 || undefined}
-          placeholder={placeholder}
-          value={field.state.value ?? ''}
-          onChange={(event) => {
-            field.handleChange(event.target.value)
-            setOpen(true)
-            setHighlight(0)
-          }}
-          onFocus={() => setOpen(true)}
-          onBlur={() => {
-            field.handleBlur()
-            setOpen(false)
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'ArrowDown') {
-              event.preventDefault()
+      {/* The suggestion list is the shared floating `PopoverContent` anchored
+          to the field, not a hand-rolled absolute panel: same floating
+          chrome, same outside-click/Escape contract. Keyboard behaviour is
+          ported unchanged (ArrowUp/Down move, Enter picks, Escape closes) and
+          rows grow to the touch floor on a coarse pointer. */}
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverAnchor asChild>
+          <Input
+            id={field.name}
+            name={field.name}
+            type="text"
+            role="combobox"
+            autoComplete="off"
+            aria-expanded={open}
+            aria-controls={listboxId}
+            aria-autocomplete="list"
+            aria-activedescendant={open && suggestions[active] ? optionId(active) : undefined}
+            aria-invalid={errors.length > 0 || undefined}
+            placeholder={placeholder}
+            value={field.state.value ?? ''}
+            onChange={(event) => {
+              field.handleChange(event.target.value)
               setOpen(true)
-              setHighlight((value) => Math.min(value + 1, suggestions.length - 1))
-            } else if (event.key === 'ArrowUp') {
-              event.preventDefault()
-              setHighlight((value) => Math.max(value - 1, 0))
-            } else if (event.key === 'Enter') {
-              if (open && suggestions[active]) {
-                event.preventDefault()
-                pick(suggestions[active])
-              }
-            } else if (event.key === 'Escape') {
+              setHighlight(0)
+            }}
+            onFocus={() => setOpen(true)}
+            onBlur={() => {
+              field.handleBlur()
               setOpen(false)
-            }
-          }}
-        />
-        {open && (
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown') {
+                event.preventDefault()
+                setOpen(true)
+                setHighlight((value) => Math.min(value + 1, suggestions.length - 1))
+              } else if (event.key === 'ArrowUp') {
+                event.preventDefault()
+                setHighlight((value) => Math.max(value - 1, 0))
+              } else if (event.key === 'Enter') {
+                if (open && suggestions[active]) {
+                  event.preventDefault()
+                  pick(suggestions[active])
+                }
+              } else if (event.key === 'Escape') {
+                setOpen(false)
+              }
+            }}
+          />
+        </PopoverAnchor>
+        <PopoverContent
+          align="start"
+          sideOffset={4}
+          className="max-h-72 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-1"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          onCloseAutoFocus={(event) => event.preventDefault()}
+        >
           <div
             id={listboxId}
             role="listbox"
             aria-label={t('invite.suggestionsAria')}
-            className="bg-popover absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-y-auto rounded-xl border shadow-md"
           >
             {suggestions.length === 0 ? (
               <p className="text-muted-foreground px-3 py-2.5 text-sm">
@@ -276,7 +291,7 @@ function MemberSuggestField({
                   }}
                   onMouseEnter={() => setHighlight(index)}
                   className={cn(
-                    'duration-snap flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors ease-out motion-reduce:transition-none',
+                    'duration-snap flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 transition-colors ease-out pointer-coarse:min-h-11 motion-reduce:transition-none',
                     index === active && 'bg-accent'
                   )}
                 >
@@ -292,8 +307,8 @@ function MemberSuggestField({
               ))
             )}
           </div>
-        )}
-      </div>
+        </PopoverContent>
+      </Popover>
     </FieldShell>
   )
 }
@@ -512,7 +527,7 @@ export function ProjectMembersForm({
       <Card>
         <CardContent className="flex flex-col gap-3">
           {[0, 1, 2].map((item) => (
-            <Skeleton key={item} className="h-14 rounded-xl" />
+            <Skeleton key={item} className="h-[68px] rounded-lg" />
           ))}
         </CardContent>
       </Card>
@@ -657,7 +672,7 @@ export function ProjectMembersForm({
                 }
               />
             ) : (
-              <ItemList className="rounded-none border-0">
+              <ItemList>
                 {filteredMembers.map((member) => {
                   const isUpdating = updatingId === member.organizationMembershipId
                   const isSelf =
@@ -668,7 +683,7 @@ export function ProjectMembersForm({
                       key={member.organizationMembershipId}
                       className="flex-col items-stretch sm:flex-row sm:items-center"
                     >
-                      <ItemMedia className="size-9">
+                      <ItemMedia>
                         <MemberAvatar member={member} className="size-9" />
                       </ItemMedia>
                       <ItemContent>
@@ -687,7 +702,7 @@ export function ProjectMembersForm({
                           <>
                             <span
                               className={cn(
-                                'text-muted-foreground duration-snap text-xs uppercase tracking-widest transition-opacity ease-out motion-reduce:transition-none',
+                                'card-eyebrow text-muted-foreground duration-snap transition-opacity ease-out motion-reduce:transition-none',
                                 !isUpdating && 'invisible'
                               )}
                               aria-hidden={!isUpdating}
@@ -732,9 +747,9 @@ export function ProjectMembersForm({
                             </Select>
                           </>
                         ) : member.role ? (
-                          <Badge variant="secondary" className="shrink-0">
+                          <Chip variant="muted" className="shrink-0">
                             {roleLabel(member.role)}
-                          </Badge>
+                          </Chip>
                         ) : (
                           <span className="text-muted-foreground shrink-0 text-xs">
                             {t('roster.noAccess')}

@@ -627,6 +627,13 @@ export const chat: typeof en.chat = {
     loadingLabel: 'Wird geladen',
     errorTitle: 'Fehler: {message}',
   },
+  // Die einzelne Aufklappung in der Antwortfußzeile für alles hinter der
+  // Quellenzeile und den Kopieraktionen (Konfidenz, Merknotiz, Skills,
+  // Prüfhinweise, Bewertung, Zeitstempel).
+  answerDetails: {
+    trigger: 'Antwortdetails',
+    triggerAria: 'Details zu dieser Antwort anzeigen',
+  },
   profilePatchCard: {
     accept: 'Übernehmen',
     applying: 'Wird übernommen …',

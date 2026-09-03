@@ -147,7 +147,7 @@ export const skills: typeof en.skills = {
       ready: 'Das Dokument ist gültig. „Übernehmen“ schreibt es in die Felder oben.',
       unchanged: 'Unverändert – identisch mit den Feldern oben.',
       ignored:
-        'Diese Felder kann GRID nicht speichern und lässt sie beim Übernehmen weg: {keys}.',
+        'Diese Felder kann Piloti nicht speichern und lässt sie beim Übernehmen weg: {keys}.',
       errors: {
         'missing-frontmatter':
           'Das Dokument beginnt nicht mit einem „---“-Block. Ein SKILL.md startet immer mit YAML-Frontmatter.',

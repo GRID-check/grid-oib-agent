@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { z } from 'zod'
 import { useAppForm } from '@/components/form'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { SectionLabel } from '@/components/ui/section-label'
 import { createProject } from '@/app/app/(shell)/projects/actions'
 import { useTranslations } from '@/i18n'
 
@@ -74,9 +75,7 @@ export function CreateProjectForm(): JSX.Element {
             </form.AppField>
 
             <div className="flex flex-col gap-2">
-              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                {t('form.templateLabel')}
-              </span>
+              <SectionLabel>{t('form.templateLabel')}</SectionLabel>
               <div className="flex flex-wrap gap-2">
                 {TEMPLATE_KEYS.map((key) => {
                   const label = t(`form.templates.${key}.label`)

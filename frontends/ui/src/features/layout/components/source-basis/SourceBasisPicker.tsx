@@ -151,9 +151,9 @@ export const SourceBasisPicker: FC = () => {
       <div className="scroll-fade-bottom min-h-0 flex-1 space-y-4 overflow-y-auto pb-1">
         {dataSourcesLoading ? (
           <div className="space-y-2" aria-busy="true" aria-label={t('dataSources.loading')}>
-            <Skeleton className="h-14 w-full" />
-            <Skeleton className="h-14 w-full" />
-            <Skeleton className="h-14 w-full" />
+            <Skeleton className="h-14 w-full rounded-lg" />
+            <Skeleton className="h-14 w-full rounded-lg" />
+            <Skeleton className="h-14 w-full rounded-lg" />
           </div>
         ) : dataSourcesError ? (
           <Alert variant="destructive">

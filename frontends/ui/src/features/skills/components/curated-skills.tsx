@@ -158,7 +158,7 @@ export function CuratedSkills({
                     </Button>
                   </CollapsibleTrigger>
                 </div>
-                <CollapsibleContent className="animate-in fade-in-0 pt-2 duration-base ease-out motion-reduce:animate-none">
+                <CollapsibleContent className="pt-2 duration-base ease-out motion-reduce:animate-none">
                   <pre className="bg-muted text-foreground max-h-64 overflow-auto whitespace-pre-wrap rounded-lg p-3 font-mono text-xs leading-relaxed">
                     {skill.body}
                   </pre>

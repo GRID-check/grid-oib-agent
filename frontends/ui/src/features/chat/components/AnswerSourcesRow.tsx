@@ -143,7 +143,7 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
       aria-label={t('answerSources.ariaLabel')}
     >
       <SectionLabel>{t('answerSources.label')}</SectionLabel>
-      {shown.map((doc, docIndex) => {
+      {shown.map((doc) => {
         const numbers = citationNumbers(doc)
         // The chip the reader just asked about, from an inline [N] or a shared
         // link. Marking it is what turns "the page scrolled" into "THIS is the
@@ -161,22 +161,23 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
             // around a rounded rectangle — round on square, the shape of two
             // elements disagreeing rather than one element being marked.
             'inline-flex max-w-full scroll-mt-6 rounded-md',
-            // Staggered entrance: the chips cascade in after the answer body
-            // (which has its own fade/slide) instead of popping in as one
-            // block. `animation-fill-mode: backwards` keeps a chip hidden
-            // until its delay elapses — without it every chip flashes visible
-            // first and animates after. A FOCUSED chip skips the entrance: it
+            // Single fade for the whole row after the answer body (which has
+            // its own fade/slide) instead of a per-chip cascade: the stagger
+            // held late chips invisible behind `backwards` fill for up to
+            // ~200ms to communicate an ordering nobody was counting, and every
+            // chip flashing in sequence drew the eye down the row instead of
+            // to the prose. A FOCUSED chip skips the entrance: it
             // belongs to an already-rendered message the reader jumped to, and
             // a delay there would stall the citation pulse that must fire now.
             !isFocused &&
               'animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance [animation-fill-mode:backwards] motion-reduce:animate-none',
             isFocused && 'animate-citation-pulse motion-reduce:animate-none'
           )}
-          style={{
-            ...(isFocused
+          style={
+            isFocused
               ? ({ ['--citation-pulse' as string]: `var(--source-${doc.tint})` } as CSSProperties)
-              : { animationDelay: `${Math.min(docIndex, 5) * 40}ms` }),
-          }}
+              : undefined
+          }
         >
           {/* One anchor per [N] this document carries, all resolving to this
               chip. A document cited as [2] and [7] is one chip that both

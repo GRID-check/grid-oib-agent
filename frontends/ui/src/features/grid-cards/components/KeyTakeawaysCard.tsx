@@ -142,7 +142,7 @@ const TakeawayRow: FC<{ item: KeyTakeawayData; index: number }> = ({ item, index
         />
       </CollapsibleTrigger>
 
-      <CollapsibleContent className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
+      <CollapsibleContent>
         {/* Indented to the takeaway's own text column and hung off a rule, so
             the detail reads as belonging to the row above rather than as a
             fifth takeaway. */}

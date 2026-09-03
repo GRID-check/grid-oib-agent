@@ -21,6 +21,7 @@
 import { type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import { ViewerSurface } from './viewer-surface'
+import { ViewerSectionHeader } from './viewer-panel'
 
 export interface ViewerRailProps {
   children: ReactNode
@@ -70,16 +71,7 @@ export interface ViewerRailSectionProps {
 export function ViewerRailSection({ label, action, children }: ViewerRailSectionProps): JSX.Element {
   return (
     <section aria-label={label} className="border-border shrink-0 border-b last:border-b-0">
-      {/*
-        Sticky, so scrolling a forty-storey list never leaves the reader
-        looking at rows with no idea whether they are models or levels.
-        Deliberately a SOLID fill and not the card's own translucent blur: a
-        `backdrop-filter` nested inside the mask that draws the rail's scroll
-        fade has no backdrop to sample, and Chromium paints the undefined
-        result — on a phone it came out as a solid red bar across the heading.
-        The rail is already blurred; a second blur inside it buys nothing.
-      */}
-      <div className="bg-card sticky top-0 z-10 flex items-center justify-between gap-2 px-3 pt-2.5 pb-1">
+      <ViewerSectionHeader className="justify-between">
         {/*
           Sentence case, not uppercase. Shouted micro-labels are a habit from
           dashboards, and this rail is a list of buildings and floors — the
@@ -88,7 +80,7 @@ export function ViewerRailSection({ label, action, children }: ViewerRailSection
         */}
         <h3 className="text-muted-foreground text-xs font-semibold tracking-wide">{label}</h3>
         {action}
-      </div>
+      </ViewerSectionHeader>
       <div className="px-1.5 pb-2">{children}</div>
     </section>
   )
@@ -140,7 +132,7 @@ export function ViewerRailItem({
       title={label}
       data-testid={rest['data-testid']}
       className={cn(
-        'flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-sm font-medium',
+        'flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm font-medium',
         // Weight is stable: toggling `font-medium` on the selected row reflows
         // the truncated name. Colour + fill already say which row is on.
         'transition-colors duration-quick ease-out',
@@ -150,9 +142,13 @@ export function ViewerRailItem({
         // `touch-target.spec.ts`. A level list on a forty-storey model is
         // exactly where a mis-tap costs the reader the wrong isolation.
         'pointer-coarse:min-h-11 pointer-coarse:py-2.5',
-        // Hover sits one step BELOW selected on the surface ladder (`muted` <
-        // `accent`), which is what keeps them distinguishable without an alpha.
-        selected ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+        // Hover sits BELOW selected on the surface ladder, which is what keeps
+        // them distinguishable without an alpha: the selected row is the solid
+        // card surface with the tab shadow (the Tabs HERE-semantics), hover is
+        // the muted wash. Colour carries provenance here — blue means
+        // Rechtsquelle — so a coloured "selected" row would be making a claim
+        // about where the model came from.
+        selected ? 'bg-card text-foreground shadow-xs' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
         disabled && 'pointer-events-none opacity-50'
       )}
     >

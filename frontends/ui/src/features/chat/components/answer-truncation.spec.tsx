@@ -14,6 +14,7 @@
  */
 
 import { render, screen } from '@/test-utils'
+import userEvent from '@testing-library/user-event'
 import { de, en } from '@/i18n/dictionaries'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { AgentResponse } from './AgentResponse'
@@ -93,8 +94,9 @@ const copy = {
 const CITED = 'Die Antwort [1].\n\n## Quellen\n[1] OIB-Richtlinie 3 — https://example.org/oib3'
 
 describe.each(['default', 'inline'] as const)('the %s answer variant', (variant) => {
-  test('a turn that was cut off says so, under the sources', () => {
+  test('a turn that was cut off says so, under the sources', async () => {
     render(<AgentResponse content={CITED} variant={variant} researchTruncated />)
+    await userEvent.setup().click(screen.getByTestId('answer-details-trigger'))
 
     const note = screen.getByText(copy.truncated)
     expect(note).toBeInTheDocument()
@@ -102,8 +104,9 @@ describe.each(['default', 'inline'] as const)('the %s answer variant', (variant)
     expect(note).toHaveAttribute('role', 'note')
   })
 
-  test('a turn that found nothing gets the sentence that is true of it', () => {
+  test('a turn that found nothing gets the sentence that is true of it', async () => {
     render(<AgentResponse content="Dazu habe ich nichts gefunden." variant={variant} researchTruncated />)
+    await userEvent.setup().click(screen.getByTestId('answer-details-trigger'))
 
     // The gap row above already says the answer cites nothing; promising "the
     // evidence gathered up to that point" beside it would contradict it.

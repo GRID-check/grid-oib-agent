@@ -60,8 +60,11 @@ export function DataToolbar({
 }: DataToolbarProps): JSX.Element {
   if (selectedCount > 0 && selectionLabel) {
     return (
+      // The selection bar is an Item-row treatment, not card chrome: the
+      // list's own row geometry (`px-4 py-3`) with the row-hover fill, so it
+      // reads as the list's own state rather than a card laid over it.
       <div
-        className={cn('flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2', className)}
+        className={cn('flex flex-wrap items-center gap-2 rounded-md bg-accent/40 px-4 py-3', className)}
         data-testid="data-toolbar-selection"
       >
         <p className="text-sm font-medium tabular-nums">{selectionLabel(selectedCount)}</p>

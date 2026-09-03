@@ -12,7 +12,7 @@
 import { useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { FileText, X } from 'lucide-react'
-import { AnimatePresence, motion, easeQuiet } from '@/components/motion'
+import { AnimatePresence, motion, motionEntrance } from '@/components/motion'
 import { useTranslations } from '@/i18n'
 import { sourceBase, sourceTint } from '@/lib/ui/source-tint'
 import type { ComposerSubject } from '@/features/chat/types'
@@ -112,12 +112,16 @@ export function ComposerSubjectBar({
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 4 }}
-          transition={easeQuiet}
+          transition={motionEntrance}
           className="mb-2 flex items-start gap-2.5 rounded-lg border px-2.5 py-2"
           style={sourceTint('project')}
         >
           <span
-            className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-card"
+            // Plain classes standing in for `StatCardIcon` (dense + bordered):
+            // that atom has not landed on this branch yet, and this well
+            // already carries its spec — size-7, rounded-lg, bordered card
+            // ground with the shelf tint as ink.
+            className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg border bg-card"
             aria-hidden
           >
             <FileText className="size-3.5" style={{ color: sourceBase('project') }} />

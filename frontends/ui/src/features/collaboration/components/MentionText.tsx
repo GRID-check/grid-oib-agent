@@ -32,7 +32,7 @@ import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { useHoverPopover } from '@/hooks/use-hover-popover'
 import { useTranslations } from '@/i18n'
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
-import { motion, springSnappy } from '@/components/motion'
+import { motion, springPress } from '@/components/motion'
 import { cn } from '@/lib/utils'
 import { useMentionPerson } from '../context/mention-people'
 import { splitMentionSegments, type DraftMention } from '../lib/mention-text'
@@ -130,7 +130,7 @@ function MentionPill({
   return (
     <Popover open={peek.open} onOpenChange={peek.onOpenChange}>
       <PopoverAnchor asChild>
-        {/* A press gives way slightly — `springSnappy` is the kit's vocabulary for
+        {/* A press gives way slightly — `springPress` is the kit's vocabulary for
             anything the user physically touches, and it is the only motion a pill
             gets. Nothing on mount: these render inline in prose, and a message
             whose mentions animate in draws the eye away from the sentence. Scale
@@ -142,7 +142,7 @@ function MentionPill({
           data-mention-me={isMe ? 'true' : 'false'}
           data-mention-interactive="true"
           whileTap={{ scale: 0.96 }}
-          transition={springSnappy}
+          transition={springPress}
           {...peek.triggerProps}
           className={pillClasses(isMe, resolved.isAgent, true)}
           aria-label={label}

@@ -36,6 +36,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
+import { motion, springGlide } from '@/components/motion'
 
 /**
  * Section order = reading order: the organization itself, then the people in
@@ -93,12 +94,25 @@ export function OrganizationNav({ sections }: OrganizationNavProps): JSX.Element
                 replace
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
+                  // `duration-quick ease-out`: this strip previously ran
+                  // `transition-colors` with no duration at all. `relative
+                  // isolate` + pill `-z-10` is the app-sidebar rail pattern:
+                  // the active surface glides on `springGlide` below the ink.
+                  'relative isolate inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors duration-quick ease-out focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
                   active
-                    ? 'bg-secondary font-medium text-secondary-foreground'
+                    ? 'font-medium text-secondary-foreground'
                     : 'text-muted-foreground hover:bg-accent',
                 )}
               >
+                {active && (
+                  <motion.span
+                    layoutId="org-nav-pill"
+                    aria-hidden
+                    data-slot="org-nav-pill"
+                    className="absolute inset-0 -z-10 rounded-[inherit] bg-secondary"
+                    transition={springGlide}
+                  />
+                )}
                 <Icon className="size-4 shrink-0" aria-hidden />
                 {t(`nav.${key}`)}
               </Link>
@@ -118,12 +132,24 @@ export function OrganizationNav({ sections }: OrganizationNavProps): JSX.Element
                 replace
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
+                  // Same glide pill as the mobile strip above (one family, one
+                  // `layoutId`) and the same `duration-quick ease-out` ink
+                  // tween — mirroring the app-sidebar rail.
+                  'relative isolate flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors duration-quick ease-out focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
                   active
-                    ? 'bg-secondary font-medium text-secondary-foreground'
+                    ? 'font-medium text-secondary-foreground'
                     : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                 )}
               >
+                {active && (
+                  <motion.span
+                    layoutId="org-nav-pill"
+                    aria-hidden
+                    data-slot="org-nav-pill"
+                    className="absolute inset-0 -z-10 rounded-[inherit] bg-secondary"
+                    transition={springGlide}
+                  />
+                )}
                 <Icon className="size-4 shrink-0" aria-hidden />
                 {t(`nav.${key}`)}
               </Link>

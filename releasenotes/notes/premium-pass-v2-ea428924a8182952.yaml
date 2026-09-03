@@ -1,0 +1,28 @@
+---
+# One entry per user-visible change. This text is PUBLISHED, in English and in
+# German machine translation, to https://piloti.at/changelog — write it for the
+# architect using Piloti, not for the reviewer of your diff.
+#
+#   - Plain sentences. No RST directives, no code blocks, no issue numbers, no
+#     file paths, no internal component names.
+#   - Say what the reader can now do, or what stopped going wrong for them.
+#   - Two sentences is usually the right length. `task release:lint` enforces
+#     the mechanical half of this.
+#
+# Delete every section you do not need — an empty one fails the lint.
+features:
+  - >
+    New conversations now open with three example questions that fill the
+    composer for you to review and send, so the first question is one click away.
+improvements:
+  - >
+    Answers scan cleaner: sources and copy actions stay visible while
+    confidence, notes and feedback live behind one details line. Tabs, view
+    switchers and navigation now glide an active pill instead of snapping, and
+    sections unfold smoothly instead of jumping open.
+fixes:
+  - >
+    Loading placeholders no longer jump when content arrives, file states and
+    error messages are readable instead of technical, failed operations stay
+    visible longer, and the whole interface shares one consistent shape
+    language in light and dark mode.

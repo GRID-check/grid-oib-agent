@@ -50,7 +50,7 @@ export function ViewerLegend({ entries, className }: ViewerLegendProps): JSX.Ele
           // stay coloured on the model.
           key={`${entry.status}-${position}`}
         >
-          <ViewerSurface className="flex items-center gap-1.5 px-2 py-1 text-xs">
+          <ViewerSurface className="flex items-center gap-1.5 rounded-full px-2 py-1 text-xs">
             <span
               aria-hidden="true"
               className="size-2.5 rounded-full"

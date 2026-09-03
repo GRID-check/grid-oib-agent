@@ -36,12 +36,12 @@ export const UnresolvedCard: FC<{ entry: ResolvedSurfacedDocument; projectId?: s
       data-testid="document-grid-unresolved"
       className="group flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-dashed bg-muted/40 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
     >
-      <div className="w-full flex-1 overflow-hidden rounded-b-[10px] bg-card/60 shadow-2xs">
+      <div className="w-full flex-1 overflow-hidden rounded-b-lg bg-card/60 shadow-2xs">
         <div className="flex h-[124px] w-full items-center justify-center border-b bg-card/40 text-muted-foreground/45">
           <FileSearch className="size-7" aria-hidden />
         </div>
         <div className="px-3.5 pb-3 pt-[11px]">
-          <p className="truncate text-[12.5px] font-medium text-foreground/80" title={entry.surfaced.file_name}>
+          <p className="truncate text-xs font-medium text-foreground/80" title={entry.surfaced.file_name}>
             {entry.surfaced.file_name}
           </p>
           <p className="mt-1 line-clamp-2 text-[11px] leading-[1.45] text-muted-foreground">
@@ -66,11 +66,11 @@ export const ResolveErrorState: FC<{ onRetry: () => void }> = ({ onRetry }) => {
       className="flex flex-col items-center gap-3 rounded-xl border border-dashed bg-muted/30 px-4 py-8 text-center"
     >
       <CloudAlert className="size-7 text-muted-foreground/50" aria-hidden />
-      <p className="text-[12.5px] text-muted-foreground">{t('documentGrid.loadError')}</p>
+      <p className="text-xs text-muted-foreground">{t('documentGrid.loadError')}</p>
       <button
         type="button"
         onClick={onRetry}
-        className="inline-flex items-center gap-1.5 rounded-lg border bg-background px-3 py-1.5 text-[12px] font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="inline-flex items-center gap-1.5 rounded-lg border bg-background px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         <RotateCcw className="size-3.5" aria-hidden />
         {t('documentGrid.retry')}

@@ -8,8 +8,8 @@
 
 'use client'
 
-import { type FC, memo, useCallback, useId, useMemo } from 'react'
-import { Check, ChevronRight, MessageCircle } from 'lucide-react'
+import { type FC, memo, useCallback, useId, useMemo, useState } from 'react'
+import { Check, ChevronDown, ChevronRight, MessageCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Spinner } from '@/components/ui/spinner'
@@ -42,6 +42,7 @@ import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   answerDocuments,
   answerSourceAnchorPrefix,
@@ -53,11 +54,11 @@ import { DiagramFilingProvider } from '@/features/diagrams/diagram-filing-contex
 import { SkillsUsedDisclosure } from '@/features/skills/components/SkillsUsedDisclosure'
 import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
-import { turnMemoryItems } from '../lib/turn-memory'
+import { turnMemoryItems, type TurnMemoryItem } from '../lib/turn-memory'
 import { answerMetaToAnatomy } from '../lib/answer-meta-cards'
 import { AnatomyBlock, AnatomyMasthead } from './AnswerAnatomy'
 import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
-import { ConfidenceChip } from './ConfidenceChip'
+import { ConfidenceChip, type AnswerConfidence } from './ConfidenceChip'
 import { AnswerFeedback } from './AnswerFeedback'
 import { AnswerActions } from './AnswerActions'
 
@@ -468,6 +469,103 @@ const AnswerDegradedNote: FC<{ degradedReasons?: string[] }> = ({ degradedReason
 }
 
 /**
+ * The single disclosure in the answer footer.
+ *
+ * The footer keeps verdict, body, the "Belegt durch" sources row and the copy
+ * actions visible; everything else the turn carries — confidence, the memory
+ * note, the skills that shaped the answer, the verification notes, the
+ * full feedback row and the timestamp — lives behind ONE muted text-xs trigger
+ * line. `SkillsUsedDisclosure` is MOVED here, not duplicated: it renders null
+ * on a turn that activated nothing, like every other item inside.
+ */
+const AnswerDetails: FC<{
+  hasConfidence: boolean
+  answerConfidence?: AnswerConfidence
+  answerConfidenceCappedReason?: AnswerConfidenceCappedReason
+  answerConfidenceReason?: string
+  memoryItems: TurnMemoryItem[]
+  skillsActivated?: string[]
+  skillsHidden?: string[]
+  showReasoning?: boolean
+  researchTruncated?: true
+  truncationReason?: string
+  degradedReasons?: string[]
+  citationsRemoved?: { count: number; reasons: string[] }
+  hasAnswerSources: boolean
+  hasFeedback: boolean
+  messageId?: string
+  conversationId?: string | null
+  timestamp?: Date | string
+}> = ({
+  hasConfidence,
+  answerConfidence,
+  answerConfidenceCappedReason,
+  answerConfidenceReason,
+  memoryItems,
+  skillsActivated,
+  skillsHidden,
+  showReasoning,
+  researchTruncated,
+  truncationReason,
+  degradedReasons,
+  citationsRemoved,
+  hasAnswerSources,
+  hasFeedback,
+  messageId,
+  conversationId,
+  timestamp,
+}) => {
+  const t = useTranslations('chat')
+  // Without the locale `formatTime` uses the RUNTIME default, so a German user on
+  // an en-US browser got "03:35 PM" beside cards that all say "15:35".
+  const { locale } = useLocale()
+  const [open, setOpen] = useState(false)
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="flex w-full flex-col">
+      <CollapsibleTrigger
+        className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 touch-target flex items-center gap-1.5 self-start rounded-md text-xs leading-relaxed transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2"
+        aria-label={t('answerDetails.triggerAria')}
+        data-testid="answer-details-trigger"
+      >
+        <span>{t('answerDetails.trigger')}</span>
+        <ChevronDown
+          className={`size-3 shrink-0 transition-transform duration-quick ease-out motion-reduce:transition-none${open ? ' rotate-180' : ''}`}
+          aria-hidden="true"
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-1.5">
+        <div className="flex flex-col gap-2">
+          {hasConfidence && (
+            <ConfidenceChip
+              confidence={answerConfidence}
+              cappedReason={answerConfidenceCappedReason}
+              reason={answerConfidenceReason}
+            />
+          )}
+          <MemoryNotedChip items={memoryItems} />
+          <SkillsUsedDisclosure
+            skillsActivated={skillsActivated}
+            hiddenSkills={skillsHidden}
+            showReasoning={showReasoning}
+          />
+          <ResearchTruncatedNote
+            researchTruncated={researchTruncated}
+            truncationReason={truncationReason}
+            hasSources={hasAnswerSources}
+          />
+          <AnswerDegradedNote degradedReasons={degradedReasons} />
+          <CitationsRemovedNote citationsRemoved={citationsRemoved} />
+          {hasFeedback && messageId && (
+            <AnswerFeedback messageId={messageId} conversationId={conversationId} />
+          )}
+          {timestamp && <span className="text-subtle text-xs">{formatTime(timestamp, locale)}</span>}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+/**
  * Agent response bubble component for completed responses
  */
 const AgentResponseComponent: FC<AgentResponseProps> = ({
@@ -501,9 +599,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   routingDecision,
 }) => {
   const t = useTranslations('chat')
-  // Without the locale `formatTime` uses the RUNTIME default, so a German user on
-  // an en-US browser got "03:35 PM" beside cards that all say "15:35".
-  const { locale } = useLocale()
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
   const setResearchPanelTab = useLayoutStore((s) => s.setResearchPanelTab)
   const projectId = useChatStore((s) => s.projectId)
@@ -729,6 +824,18 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // height so the footer does not jump when they land. An idle answer with
   // nothing to hold still omits the row (no empty band).
   const reserveMetaRow = hasMetaRow || stillArriving
+  // What the single footer disclosure would actually hold. The copy actions
+  // stay visible beside its trigger, so a bare answer (copyable and nothing
+  // else) shows the action and no empty trigger line.
+  const hasDetailsContent =
+    hasConfidence ||
+    hasFeedback ||
+    Boolean(timestamp) ||
+    memoryItems.length > 0 ||
+    (skillsActivated?.length ?? 0) > 0 ||
+    Boolean(researchTruncated) ||
+    (degradedReasons?.length ?? 0) > 0 ||
+    (citationsRemoved?.count ?? 0) > 0
 
   /**
    * Where a diagram inside this answer may be filed — or nothing at all.
@@ -849,20 +956,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           routingDecision={routingDecision}
           isStreaming={stillArriving}
         />
-        <ResearchTruncatedNote
-          researchTruncated={researchTruncated}
-          truncationReason={truncationReason}
-          hasSources={hasAnswerSources}
-        />
-        <AnswerDegradedNote degradedReasons={degradedReasons} />
-        <CitationsRemovedNote citationsRemoved={citationsRemoved} />
-        <SkillsUsedDisclosure
-          skillsActivated={skillsActivated}
-          hiddenSkills={skillsHidden}
-          showReasoning={showReasoning}
-        />
 
-        {/* Footer chips: self-assessed confidence + what Piloti recorded this turn */}
         {/* No copy actions here, deliberately. This variant is the box-less
             rendering used INSIDE another container (the thinking process, the
             dev turn surfaces) — it has no consolidated meta row, so the buttons
@@ -871,27 +965,37 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             answer in the thread: ChatArea always uses the default variant, so
             every answer a reader would paste has its buttons on its own card.
             If that changes, <AnswerActions /> drops into the row below. */}
-        <div className="flex flex-wrap items-center gap-2">
-          {showConfidenceChip && (
-            <ConfidenceChip
-              confidence={answerConfidence}
-              cappedReason={answerConfidenceCappedReason}
-              reason={answerConfidenceReason}
-            />
-          )}
-          <MemoryNotedChip items={memoryItems} />
-        </div>
-
-        {/* Per-answer thumbs feedback (WS-7, `answer-feedback` flag) */}
-        {showAnswerFeedback && messageId && (
-          <AnswerFeedback messageId={messageId} conversationId={conversationId} className="mt-0.5" />
-        )}
-
-        {/* Timestamp outside content, right-aligned */}
-        {timestamp && (
-          <span className="text-subtle mr-3 mt-1 self-end text-xs">
-            {formatTime(timestamp, locale)}
-          </span>
+        {reserveMetaRow && (
+          <div
+            className={
+              hasMetaRow
+                ? 'animate-in fade-in-0 flex min-h-6 flex-col gap-1.5 duration-quick ease-out motion-reduce:animate-none'
+                : 'min-h-6'
+            }
+            aria-hidden={hasMetaRow ? undefined : true}
+          >
+            {hasDetailsContent && (
+              <AnswerDetails
+                hasConfidence={hasConfidence}
+                answerConfidence={answerConfidence}
+                answerConfidenceCappedReason={answerConfidenceCappedReason}
+                answerConfidenceReason={answerConfidenceReason}
+                memoryItems={memoryItems}
+                skillsActivated={skillsActivated}
+                skillsHidden={skillsHidden}
+                showReasoning={showReasoning}
+                researchTruncated={researchTruncated}
+                truncationReason={truncationReason}
+                degradedReasons={degradedReasons}
+                citationsRemoved={citationsRemoved}
+                hasAnswerSources={hasAnswerSources}
+                hasFeedback={hasFeedback}
+                messageId={messageId}
+                conversationId={conversationId}
+                timestamp={timestamp}
+              />
+            )}
+          </div>
         )}
       </div>
       </AnswerCitations>
@@ -1027,15 +1131,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         </div>
 
         {/* Provenance footer — ONE tinted zone under the body's hairline that
-            holds two things: the sources block, then a single meta row with
-            the confidence + memory pills left and the thumbs feedback +
-            timestamp right. This replaces the old stack of three separated
-            bands (sources row, chip row, divided feedback row) plus a
-            timestamp floating outside the card — same information, one
-            hairline, no band-on-band clutter. The sources row must not draw
-            its own divider here (the body hairline already separates), so it
-            takes withDivider={false}. On a phone the meta row reflows rather
-            than growing a second band: the acting half travels as one piece. */}
+            holds the sources block, the copy actions, and a single disclosure
+            for everything else (confidence, memory note, skills used,
+            verification notes, feedback, timestamp). The sources row must not
+            draw its own divider here (the body hairline already separates), so
+            it takes withDivider={false}. */}
         <div className="flex flex-col gap-2.5 px-[22px] pb-[14px] pt-3">
           <AnswerSourcesRow
             documents={documents}
@@ -1044,74 +1144,49 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             isStreaming={stillArriving}
             withDivider={false}
           />
-          <ResearchTruncatedNote
-            researchTruncated={researchTruncated}
-            truncationReason={truncationReason}
-            hasSources={hasAnswerSources}
-          />
-          <AnswerDegradedNote degradedReasons={degradedReasons} />
-          <CitationsRemovedNote citationsRemoved={citationsRemoved} />
-          <SkillsUsedDisclosure
-          skillsActivated={skillsActivated}
-          hiddenSkills={skillsHidden}
-          showReasoning={showReasoning}
-        />
           {reserveMetaRow && (
             <div
               className={
                 hasMetaRow
-                  ? 'animate-in fade-in-0 flex min-h-6 flex-wrap items-center gap-2 duration-quick ease-out [animation-delay:120ms] [animation-fill-mode:backwards] motion-reduce:animate-none'
+                  ? 'animate-in fade-in-0 flex min-h-6 flex-wrap items-center gap-2 duration-quick ease-out motion-reduce:animate-none'
                   : 'min-h-6'
               }
               aria-hidden={hasMetaRow ? undefined : true}
             >
-              {hasConfidence && (
-                <ConfidenceChip
-                  confidence={answerConfidence}
-                  cappedReason={answerConfidenceCappedReason}
-                  reason={answerConfidenceReason}
+              {/* Copy the answer out — markdown, with or without its sources
+                  written out. Before the disclosure: "take this with you" is
+                  what the reader wants first; the details are the afterthought. */}
+              {hasAnswerActions && (
+                <AnswerActions
+                  content={content}
+                  body={body}
+                  documents={documents}
+                  conversationId={conversationId}
+                  messageId={messageId}
                 />
               )}
-              <MemoryNotedChip items={memoryItems} />
               {hasMetaRow && <span className="flex-1" aria-hidden="true" />}
-              {/* The acting half of the row — copy, thumbs, time — as ONE flex
-                  item below `sm`, so the row can only ever break between the
-                  pills and this cluster, never inside it.
-
-                  These used to be three loose items in a wrapping row, and at
-                  phone width the break landed between the copy buttons and the
-                  thumbs: two controls drawn in deliberately identical language
-                  (24px ghost glyph, muted at rest, `touch-target`) ended up on
-                  different lines, reading as two unrelated affordances instead
-                  of one footnote strip. `w-full` also right-aligns the cluster
-                  on its own line, so the actions keep the corner they occupy on
-                  a desktop.
-
-                  A second ROW is not the fix: the footer is deliberately one
-                  tinted zone under a single hairline, and giving the actions a
-                  band of their own puts back the band-on-band stack this footer
-                  was consolidated to remove. This is the same row, reflowed.
-                  Above `sm` the wrapper is `display: contents` — not a box at
-                  all — so the layout there, including the way an open feedback
-                  disclosure claims the row's full width, is untouched. */}
-              <div className="contents max-sm:flex max-sm:w-full max-sm:flex-nowrap max-sm:items-center max-sm:justify-end max-sm:gap-2">
-                {/* Copy the answer out — markdown, with or without its sources
-                    written out. Before the thumbs: "take this with you" is what
-                    the reader wants first; rating it is the afterthought. */}
-                {hasAnswerActions && (
-                  <AnswerActions
-                    content={content}
-                    body={body}
-                    documents={documents}
-                    conversationId={conversationId}
-                    messageId={messageId}
-                  />
-                )}
-                {hasFeedback && messageId && (
-                  <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
-                )}
-                {timestamp && <span className="text-subtle text-xs">{formatTime(timestamp, locale)}</span>}
-              </div>
+              {hasDetailsContent && (
+                <AnswerDetails
+                  hasConfidence={hasConfidence}
+                  answerConfidence={answerConfidence}
+                  answerConfidenceCappedReason={answerConfidenceCappedReason}
+                  answerConfidenceReason={answerConfidenceReason}
+                  memoryItems={memoryItems}
+                  skillsActivated={skillsActivated}
+                  skillsHidden={skillsHidden}
+                  showReasoning={showReasoning}
+                  researchTruncated={researchTruncated}
+                  truncationReason={truncationReason}
+                  degradedReasons={degradedReasons}
+                  citationsRemoved={citationsRemoved}
+                  hasAnswerSources={hasAnswerSources}
+                  hasFeedback={hasFeedback}
+                  messageId={messageId}
+                  conversationId={conversationId}
+                  timestamp={timestamp}
+                />
+              )}
             </div>
           )}
         </div>

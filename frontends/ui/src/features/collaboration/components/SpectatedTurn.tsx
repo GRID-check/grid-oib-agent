@@ -72,7 +72,7 @@ export const SpectatedTurn: FC<SpectatedTurnProps> = ({ turn, label, className }
             // The shimmer says "still working". It stops the moment the terminal
             // frame lands, so the last second before the persisted answer swaps in
             // does not look like a stall.
-            !turn.done && 'animate-text-shimmer'
+            !turn.done && 'animate-text-shimmer motion-reduce:animate-none'
           )}
         >
           {label}
@@ -109,7 +109,7 @@ export const SpectatedTurn: FC<SpectatedTurnProps> = ({ turn, label, className }
           than as a finished — and oddly truncated — answer. */}
           {!turn.done && (
             <span
-              className="bg-foreground/70 ml-0.5 inline-block h-3.5 w-[2px] animate-pulse align-text-bottom"
+              className="bg-foreground/70 ml-0.5 inline-block h-3.5 w-[2px] animate-pulse align-text-bottom motion-reduce:animate-none"
               aria-hidden="true"
             />
           )}

@@ -16,7 +16,7 @@ import { useDocumentsStore } from '../store'
 import { useIsCurrentSessionBusy } from '@/features/chat'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { ACCEPTED_FILE_TYPES, MAX_FILE_SIZE } from '../'
-import { AnimatePresence, motion, springGentle, springSnappy } from '@/components/motion'
+import { AnimatePresence, motion, springDrawer, springPress } from '@/components/motion'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 
@@ -133,7 +133,7 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
       <motion.div
         {...dragHandlers}
         animate={{ scale: isDragging ? 1.01 : 1 }}
-        transition={springSnappy}
+        transition={springPress}
         role="button"
         tabIndex={uploadDisabled ? -1 : 0}
         aria-disabled={uploadDisabled}
@@ -184,7 +184,7 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.97 }}
-              transition={springGentle}
+              transition={springDrawer}
               className="flex items-center gap-3 rounded-xl border bg-card px-3 py-2 shadow-xs"
             >
               <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden />

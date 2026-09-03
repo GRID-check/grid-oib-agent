@@ -23,6 +23,7 @@ import {
   useMemo,
   type ClipboardEvent,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react'
 import {
   ArrowUp,
@@ -48,7 +49,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { AnimatePresence, motion, easeQuiet, motionQuick, motionEntrance, springPress } from '@/components/motion'
+import { AnimatePresence, motion, motionQuick, motionEntrance, springPress } from '@/components/motion'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
 import { resolveAddressee, sendMessageOptions } from '@/features/collaboration/lib/composer-routing'
@@ -777,10 +778,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // Dynamic placeholder based on state
   // Note: isResponseMode is checked before isBusy because the user needs to
   // see the response prompt even when the session is "busy" due to HITL.
+  // The research locks reuse their helper sentence here rather than carrying
+  // a third wording for the same fact.
   const getPlaceholder = (): string => {
     if (!isAuthenticated) return t('inputArea.signInToStart')
-    if (isResearchSessionSuccessful) return t('inputArea.researchCompletedNewSession')
+    if (isResearchSessionSuccessful) return t('inputArea.researchCompletedPopover')
     if (isResponseMode) return t('inputArea.typeResponse')
+    if (isResearchSessionInProgress) return t('inputArea.researchInProgressPopover')
     if (isBusy) return t('inputArea.pleaseWait')
     if (isResearchSessionFailed) return t('inputArea.researchFailedFollowUp')
     if (composerSubject) {
@@ -1391,6 +1395,119 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // search does not exist yet — spec §2.3, honest disabled option).
   const scopeLabel = projectName || tChat('composer.scopeFallback')
 
+  // Single composer hint slot: exactly one helper line below the control row —
+  // the first applicable in priority order (viewer > no-project-chat > busy >
+  // mention > awaiting > research lock). Same strings and conditions as the
+  // stacked lines this replaces. The Deep-Research intent echo is gone from
+  // here on purpose: the pill's own title already says it, so a line would
+  // state the preference twice.
+  let composerHint: ReactNode = null
+  if (canCollaborate && isViewerInSharedThread) {
+    // Read-only participant: the composer is disabled on the same fact, and
+    // this line is why.
+    composerHint = (
+      <p
+        data-testid="composer-viewer-hint"
+        className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+        role="note"
+      >
+        <Eye className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
+        <span>{tCollab('thread.viewerNotice')}</span>
+      </p>
+    )
+  } else if (cannotChatInProject) {
+    // No `project:chat` in this project: the composer is dead on the same
+    // fact, and this is why. Deliberately NOT behind `canCollaborate` —
+    // this is a project permission, not a sharing one, so a tenant with
+    // collaboration off must still get the explanation.
+    composerHint = (
+      <p
+        data-testid="composer-project-chat-hint"
+        className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+        role="note"
+      >
+        <Eye className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
+        <span>{tChat('composer.noProjectChatPermission')}</span>
+      </p>
+    )
+  } else if (canCollaborate && otherPersonsTurnName) {
+    // Piloti is mid-answer for SOMEBODY ELSE (spec CC-13). The composer is
+    // locked on the same fact (`otherPersonsTurnName` disables it above), and
+    // without a line here that lock is unexplained — a colleague sees a dead
+    // input and no reason for it. Only when the turn belongs to someone else:
+    // the asker has their own typing indicator and Herleitung, so telling them
+    // "Piloti is answering your question" would be noise.
+    composerHint = (
+      <p
+        data-testid="composer-busy-hint"
+        className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+        role="note"
+      >
+        <span>{tCollab('thread.composerBusy', { name: otherPersonsTurnName })}</span>
+      </p>
+    )
+  } else if (taggedHumans.length > 0 && !agentTagged) {
+    // The hand-off, said out loud BEFORE sending (spec MN-7/MN-8): once a
+    // person is tagged the agent will stay quiet, and the user has to know
+    // that while they can still change their mind. Suppressed when `@Piloti`
+    // is tagged too — then the agent DOES answer (MN-1) and this sentence
+    // would be false; the addressee line above names both.
+    composerHint = (
+      <p
+        data-testid="composer-mention-hint"
+        className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+        role="note"
+      >
+        <AtSign className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
+        <span>
+          {/* German inflects the verb, so joining names into the singular
+              string produced "Anna Berger, Tobias Kern WIRD gefragt" — wrong
+              grammar in the primary product language. This i18n layer has no
+              plural rules, hence two keys. */}
+          {taggedHumans.length === 1
+            ? tCollab('mentions.composerHint', { name: taggedHumans[0]!.display })
+            : tCollab('mentions.composerHintMany', {
+                names: taggedHumans.map((mention) => mention.display).join(', '),
+              })}
+        </span>
+      </p>
+    )
+  } else if (canCollaborate && threadAwaitsHuman && activeMentions.length === 0) {
+    // The way BACK, exactly where it is needed: while the thread waits on a
+    // person, a plain message is a remark, so the composer says how to reach
+    // Piloti instead of leaving that to be discovered.
+    composerHint = (
+      <p
+        data-testid="composer-agent-hint"
+        className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+        role="note"
+      >
+        <span>{tCollab('mentions.addressee.agentHint')}</span>
+      </p>
+    )
+  } else if (isResearchSessionInProgress && !isResponseMode) {
+    // The lock explanation for the disabled send above: the in-progress
+    // research holds the composer, and this line is why.
+    composerHint = (
+      <p
+        data-testid="composer-research-hint"
+        className="text-muted-foreground mt-2 text-xs leading-relaxed"
+        role="note"
+      >
+        {t('inputArea.researchInProgressPopover')}
+      </p>
+    )
+  } else if (isResearchSessionSuccessful && !isResponseMode) {
+    // Post-research helper line — the explanation that used to live in the
+    // (no-op) send popover, now always visible next to the "Neue Sitzung
+    // starten" action so the completed-report lock is understandable.
+    composerHint = (
+      <p className="text-muted-foreground mt-2 text-xs leading-relaxed" role="note">
+        {t('inputArea.researchCompletedPopover')}
+      </p>
+    )
+  }
+
   return (
     // Narrower than the message column (max-w-5xl in ChatArea/ChatToolbar) on
     // purpose: an identical width read as the transcript's own last row
@@ -1659,7 +1776,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 2 }}
-                  transition={easeQuiet}
+                  transition={motionEntrance}
                 >
                   <InvokedSkillChip
                     name={slash.invokedSkill.name}
@@ -1678,7 +1795,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 4 }}
-                  transition={easeQuiet}
+                  transition={motionEntrance}
                 >
                   <Alert variant="destructive" className="mt-2">
                     <AlertDescription className="flex w-full items-start justify-between gap-2">
@@ -1954,21 +2071,18 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     </Button>
                   </motion.div>
                 ) : isResearchSessionInProgress && !isResponseMode ? (
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        size="icon"
-                        className="size-9 rounded-lg shadow-md"
-                        aria-label={t('inputArea.researchInProgressAria')}
-                        title={t('inputArea.researchInProgress')}
-                      >
-                        <ArrowUp className="size-4" aria-hidden="true" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent side="top" align="end" className="w-auto max-w-xs p-3">
-                      <p className="text-sm">{t('inputArea.researchInProgressPopover')}</p>
-                    </PopoverContent>
-                  </Popover>
+                  // Locked while research runs: a disabled send plus the helper
+                  // line below the composer (the single hint slot) carry the
+                  // lock — no popover to open on a control that cannot act.
+                  <Button
+                    size="icon"
+                    className="size-9 rounded-lg shadow-md"
+                    disabled
+                    aria-label={t('inputArea.researchInProgressAria')}
+                    title={t('inputArea.researchInProgress')}
+                  >
+                    <ArrowUp className="size-4" aria-hidden="true" />
+                  </Button>
                 ) : isStreaming && !isResponseMode ? (
                   // Stop button (C1): while a shallow-thinking turn streams, replace
                   // the disabled send button with a stop control that cancels the
@@ -2055,105 +2169,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               </div>
             </div>
 
-            {/* The hand-off, said out loud BEFORE sending (spec MN-7/MN-8): once a
-            person is tagged the agent will stay quiet, and the user has to know
-            that while they can still change their mind. Suppressed when `@Piloti`
-            is tagged too — then the agent DOES answer (MN-1) and this sentence
-            would be false; the addressee line above names both. */}
-            {taggedHumans.length > 0 && !agentTagged && (
-              <p
-                data-testid="composer-mention-hint"
-                className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
-                role="note"
-              >
-                <AtSign className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
-                <span>
-                  {/* German inflects the verb, so joining names into the singular
-                  string produced "Anna Berger, Tobias Kern WIRD gefragt" — wrong
-                  grammar in the primary product language. This i18n layer has no
-                  plural rules, hence two keys. */}
-                  {taggedHumans.length === 1
-                    ? tCollab('mentions.composerHint', { name: taggedHumans[0]!.display })
-                    : tCollab('mentions.composerHintMany', {
-                        names: taggedHumans.map((mention) => mention.display).join(', '),
-                      })}
-                </span>
-              </p>
-            )}
-
-            {/* The way BACK, exactly where it is needed: while the thread waits on a
-            person, a plain message is a remark, so the composer says how to reach
-            Piloti instead of leaving that to be discovered. */}
-            {canCollaborate && threadAwaitsHuman && activeMentions.length === 0 && (
-              <p
-                data-testid="composer-agent-hint"
-                className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
-                role="note"
-              >
-                <span>{tCollab('mentions.addressee.agentHint')}</span>
-              </p>
-            )}
-
-            {/* Piloti is mid-answer for SOMEBODY ELSE (spec CC-13). The composer is
-            locked on the same fact (`otherPersonsTurnName` disables it above), and
-            without a line here that lock is unexplained — a colleague sees a dead
-            input and no reason for it. Only when the turn belongs to someone else:
-            the asker has their own typing indicator and Herleitung, so telling them
-            "Piloti is answering your question" would be noise. */}
-            {canCollaborate && otherPersonsTurnName && (
-              <p
-                data-testid="composer-busy-hint"
-                className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
-                role="note"
-              >
-                <span>{tCollab('thread.composerBusy', { name: otherPersonsTurnName })}</span>
-              </p>
-            )}
-
-            {/* No `project:chat` in this project: the composer is dead on the same
-            fact, and this is why. Deliberately NOT behind `canCollaborate` —
-            this is a project permission, not a sharing one, so a tenant with
-            collaboration off must still get the explanation. */}
-            {cannotChatInProject && (
-              <p
-                data-testid="composer-project-chat-hint"
-                className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
-                role="note"
-              >
-                <Eye className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
-                <span>{tChat('composer.noProjectChatPermission')}</span>
-              </p>
-            )}
-
-            {/* Read-only participant: the composer is disabled on the same fact, and
-            this line is why. */}
-            {canCollaborate && isViewerInSharedThread && (
-              <p
-                data-testid="composer-viewer-hint"
-                className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
-                role="note"
-              >
-                <Eye className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
-                <span>{tCollab('thread.viewerNotice')}</span>
-              </p>
-            )}
-
-            {/* Honest Deep-Research hint: the pill records intent; escalation
-            stays automatic. Never promises a forced deep-research run. */}
-            {deepResearchIntent && (
-              <p className="text-muted-foreground mt-2 text-xs leading-relaxed" role="note">
-                {tChat('composer.deepResearchHint')}
-              </p>
-            )}
-
-            {/* Post-research helper line — the explanation that used to live in the
-            (no-op) send popover, now always visible next to the "Neue Sitzung
-            starten" action so the completed-report lock is understandable. */}
-            {isResearchSessionSuccessful && !isResponseMode && (
-              <p className="text-muted-foreground mt-2 text-xs leading-relaxed" role="note">
-                {t('inputArea.researchCompletedPopover')}
-              </p>
-            )}
+            {/* Single hint slot: the first applicable helper line, announced
+                politely. The Deep-Research intent echo was deleted — the pill's
+                title carries it — so an armed pill shows no line at all. */}
+            <div aria-live="polite">{composerHint}</div>
           </div>
         </PopoverAnchor>
 

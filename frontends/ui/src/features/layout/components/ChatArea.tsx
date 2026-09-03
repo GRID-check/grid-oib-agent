@@ -24,6 +24,8 @@ import {
 import { ArrowDown, FileText, Lock } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
+import { Chip } from '@/components/ui/chip'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   useChatStore,
   AgentPrompt,
@@ -653,12 +655,6 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     [retryLastUserMessage, dismissErrorCard]
   )
 
-  // TODO: Implement file retry/cancel/delete handlers when file upload is added
-  // For now, these are placeholders
-  const handleFileRetry = useCallback((_messageId: string) => {
-    // Will be implemented with file upload feature
-  }, [])
-
   // Latency-gap typing indicator, shown at the bottom of the thread while
   // streaming and nothing has come back yet — two distinct gaps, both silent
   // without this:
@@ -861,7 +857,6 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                         message={message}
                         conversationId={currentConversation?.id}
                         onPromptRespond={handlePromptRespond}
-                        onFileRetry={handleFileRetry}
                         onErrorDismiss={dismissErrorCard}
                         onErrorRetry={handleErrorRetry}
                         showConfidenceChip={showConfidenceChip}
@@ -1076,9 +1071,6 @@ interface MessageRendererProps {
   /** Id of the conversation these messages belong to (for the memory chip). */
   conversationId?: string | null
   onPromptRespond: (promptId: string, response: string) => void
-  onFileRetry?: (messageId: string) => void
-  onFileCancel?: (messageId: string) => void
-  onFileDelete?: (messageId: string) => void
   onErrorDismiss?: (messageId: string) => void
   /** Resend the last user message + dismiss this error card (retry affordance). */
   onErrorRetry?: (messageId: string) => void
@@ -1105,9 +1097,6 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
   message,
   conversationId,
   onPromptRespond,
-  onFileRetry: _onFileRetry,
-  onFileCancel: _onFileCancel,
-  onFileDelete: _onFileDelete,
   onErrorDismiss,
   onErrorRetry,
   showConfidenceChip = true,
@@ -1118,6 +1107,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
   currentUserId,
   promptAddresseeName,
 }) => {
+  const tFileStatus = useTranslations('research')
   const messageType = message.messageType || (message.role === 'user' ? 'user' : 'assistant')
 
   switch (messageType) {
@@ -1198,11 +1188,25 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
       )
 
     case 'file':
-      // TODO: FileCard was removed in refactor - file display handled by FileSourceCard in panel
-      // File operation messages show upload/ingest status
+      // File operation messages show upload/ingest status. The wire status is
+      // never shown raw: anything this build cannot word falls back to
+      // "Available" rather than leaking `success`/`deleted` into the thread.
       if (!message.fileData) {
         return null
       }
+      // FileCard was removed in an earlier refactor — file display is handled
+      // by FileSourceCard in the panel; the thread keeps this status line.
+      const fileStatus = message.fileData.fileStatus
+      const fileStatusLabel =
+        fileStatus === 'uploading'
+          ? tFileStatus('fileSourceCard.statusUploading')
+          : fileStatus === 'ingesting'
+            ? tFileStatus('fileSourceCard.statusIngesting')
+            : fileStatus === 'success'
+              ? tFileStatus('fileSourceCard.statusAvailable')
+              : fileStatus === 'error'
+                ? tFileStatus('fileSourceCard.statusError')
+                : tFileStatus('fileSourceCard.statusAvailable')
       return (
         <div
           className="bg-muted shadow-xs flex items-center gap-2 rounded-xl px-4 py-2"
@@ -1210,7 +1214,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
         >
           <FileText className="text-muted-foreground size-4" aria-hidden="true" />
           <span className="text-muted-foreground text-sm">
-            {message.fileData.fileName} ({message.fileData.fileStatus})
+            {message.fileData.fileName} ({fileStatusLabel})
           </span>
         </div>
       )
@@ -1293,8 +1297,7 @@ const areMessageRendererPropsEqual = (
   prev.author?.isYou === next.author?.isYou &&
   prev.onPromptRespond === next.onPromptRespond &&
   prev.onErrorDismiss === next.onErrorDismiss &&
-  prev.onErrorRetry === next.onErrorRetry &&
-  prev.onFileRetry === next.onFileRetry
+  prev.onErrorRetry === next.onErrorRetry
 
 const MessageRenderer = memo(MessageRendererComponent, areMessageRendererPropsEqual)
 MessageRenderer.displayName = 'MessageRenderer'
@@ -1438,15 +1441,20 @@ const MessageListSkeleton: FC = () => {
     >
       {/* user bubble (right) */}
       <div className="flex justify-end">
-        <div className="bg-muted h-10 w-1/2 animate-pulse rounded-2xl" />
+        <Skeleton className="h-10 w-1/2 rounded-lg" />
       </div>
-      {/* assistant bubble (left, taller) */}
+      {/* assistant answer card (left): a tab-width bar and a footer line around
+          the body, mirroring the answer card's shape rather than a bare slab */}
       <div className="flex justify-start">
-        <div className="bg-muted h-24 w-4/5 animate-pulse rounded-2xl" />
+        <div className="flex w-4/5 flex-col gap-2">
+          <Skeleton className="h-4 w-20 rounded-lg" />
+          <Skeleton className="h-24 w-full rounded-lg" />
+          <Skeleton className="h-3 w-1/3 rounded-lg" />
+        </div>
       </div>
       {/* user bubble (right) */}
       <div className="flex justify-end">
-        <div className="bg-muted h-10 w-1/3 animate-pulse rounded-2xl" />
+        <Skeleton className="h-10 w-1/3 rounded-lg" />
       </div>
     </div>
   )
@@ -1485,6 +1493,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
   const tChat = useTranslations('chat')
   const { user } = useAuth()
   const composerSubject = useChatStore((s) => s.composerSubject)
+  const setStarterPrefill = useChatStore((s) => s.setComposerPrefill)
   const tFiles = useTranslations('files')
 
   if (!isAuthenticated) {
@@ -1529,6 +1538,33 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
       <h1 className="text-foreground text-center text-[23px] font-semibold tracking-tight">
         {heading}
       </h1>
+
+      {/* What the product promises about every answer, in one line. */}
+      <p className="text-muted-foreground mt-2 max-w-md text-center text-sm leading-relaxed">
+        {t('chatArea.capabilityLine')}
+      </p>
+
+      {/* Three starters, reusing the research prompts verbatim. A click fills
+          the composer via the prefill path and nothing else — it never sends,
+          so the reader reviews and edits before anything goes out. */}
+      <div
+        role="group"
+        aria-label={t('chatArea.startersAria')}
+        className="mt-4 flex max-w-lg flex-wrap items-center justify-center gap-2"
+      >
+        {[t('chatArea.prompt1'), t('chatArea.prompt2'), t('chatArea.prompt3')].map((prompt) => (
+          <Chip key={prompt} asChild variant="outline" size="md" interactive>
+            <button
+              type="button"
+              title={prompt}
+              aria-label={t('chatArea.usePrompt', { prompt })}
+              onClick={() => setStarterPrefill(prompt)}
+            >
+              <span className="max-w-64 truncate">{prompt}</span>
+            </button>
+          </Chip>
+        ))}
+      </div>
 
       {/* The chat is about one file: say which. This is the only line left under
           the greeting — the generic "answers cite their sources" subtitle was

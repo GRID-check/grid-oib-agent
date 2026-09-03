@@ -358,7 +358,9 @@ function JobCard({
               </Button>
             </CollapsibleTrigger>
           </div>
-          <CollapsibleContent className="animate-in fade-in-0 pt-1 duration-base ease-out motion-reduce:animate-none">
+          {/* Height comes from the Collapsible primitive — no entrance fade
+              here, which would double-animate against it. */}
+          <CollapsibleContent className="pt-1 duration-base ease-out motion-reduce:animate-none">
             {historyOpen && (
               <JobRunHistory
                 key={historyToken}
@@ -424,10 +426,24 @@ export function JobList({
     // is worth reading.
     <section className="mx-auto w-full max-w-[1800px]" aria-label={t('list.heading')}>
       {jobs === null && !error && (
-        <div className={GRID_CLASS} data-testid="jobs-loading">
-          <Skeleton className="h-52 w-full rounded-2xl" />
-          <Skeleton className="h-52 w-full rounded-2xl" />
-          <Skeleton className="h-52 w-full rounded-2xl" />
+        // Structured card skeletons: each mirrors the card's own header row
+        // (title + switch), two text rows and the action row, so the loading
+        // state reads as jobs rather than slabs.
+        <div className={GRID_CLASS} data-testid="jobs-loading" aria-hidden="true">
+          {[0, 1, 2].map((item) => (
+            <div key={item} className="flex h-52 flex-col gap-3 rounded-xl border bg-card p-4">
+              <div className="flex items-start justify-between gap-4">
+                <Skeleton className="h-4 w-2/5" />
+                <Skeleton className="size-6 shrink-0 rounded-full" />
+              </div>
+              <Skeleton className="h-3.5 w-full" />
+              <Skeleton className="h-3.5 w-4/5" />
+              <div className="mt-auto flex gap-2">
+                <Skeleton className="h-8 w-24 rounded-md" />
+                <Skeleton className="h-8 w-20 rounded-md" />
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

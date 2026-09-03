@@ -160,7 +160,7 @@ const StepRow: FC<{
         <span className="flex min-w-0 flex-col items-start">
           <span
             className={cn(
-              'whitespace-nowrap font-mono text-[15px] font-semibold tabular-nums',
+              'whitespace-nowrap font-mono card-figure-24',
               tint ? undefined : 'text-foreground'
             )}
             style={tint ? { color: tint } : undefined}
@@ -294,7 +294,7 @@ export const CalculationCard: FC<CalculationCardProps> = ({ title, steps, limit,
             />
           </CollapsibleTrigger>
 
-          <CollapsibleContent className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
+          <CollapsibleContent>
             <div className="mt-1.5 flex flex-col gap-1.5 border-l-2 border-border pl-3">
               {documented.map((operand, index) => {
                 const unit = operand.unit ?? ''

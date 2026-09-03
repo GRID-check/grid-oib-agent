@@ -14,7 +14,7 @@
 import { type FC, useMemo, useState, useEffect, useRef } from 'react'
 import { ChevronDown, CheckCircle2, AlertTriangle, Clock } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { motion, AnimatePresence, motionQuick } from '@/components/motion'
+import { motion, AnimatePresence, motionBase, motionQuick } from '@/components/motion'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
@@ -105,18 +105,47 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
 }) => {
   const t = useTranslations('chat')
 
-  // Controlled open state. Seeded from the turn-driven `autoOpen` (or the
-  // uncontrolled `defaultOpen` fallback), then re-driven whenever `autoOpen`
-  // flips — so a turn expands live and collapses on completion — while still
-  // honouring a manual toggle in between.
+  // Controlled open state with pinning. Seeded from the turn-driven `autoOpen`
+  // (or the uncontrolled `defaultOpen` fallback), then re-driven ONLY on the
+  // terms below — so a turn expands live and a reader's explicit toggle is
+  // never stomped by a later turn transition:
+  // - live→done (`autoOpen` true→false) auto-collapses ONLY a panel the turn
+  //   itself opened (`autoOpenedRef`) that the reader never touched
+  //   (`userToggledRef`). A hand-toggled panel stays exactly as left.
+  // - `isWaiting` / `isInterrupted` always drive OPEN (the HITL choice and the
+  //   recovery notice live inside) and then stop driving: a wait that ends
+  //   does not re-collapse, closing again is an explicit act.
   const [open, setOpen] = useState<boolean>(autoOpen ?? defaultOpen)
   const prevAutoOpen = useRef<boolean | undefined>(autoOpen)
+  const userToggledRef = useRef(false)
+  const autoOpenedRef = useRef(autoOpen ?? defaultOpen)
   useEffect(() => {
-    if (autoOpen !== undefined && autoOpen !== prevAutoOpen.current) {
-      prevAutoOpen.current = autoOpen
-      setOpen(autoOpen)
+    if (autoOpen === undefined || autoOpen === prevAutoOpen.current) return
+    const wasLive = prevAutoOpen.current
+    prevAutoOpen.current = autoOpen
+    if (autoOpen) {
+      setOpen(true)
+      autoOpenedRef.current = true
+    } else if (wasLive) {
+      if (!userToggledRef.current && autoOpenedRef.current) setOpen(false)
+      autoOpenedRef.current = false
     }
   }, [autoOpen])
+
+  const prevWaitingRef = useRef(isWaiting)
+  const prevInterruptedRef = useRef(isInterrupted)
+  useEffect(() => {
+    const waitingStarted = isWaiting && !prevWaitingRef.current
+    const interruptedStarted = isInterrupted && !prevInterruptedRef.current
+    prevWaitingRef.current = isWaiting
+    prevInterruptedRef.current = isInterrupted
+    if (waitingStarted || interruptedStarted) setOpen(true)
+  }, [isWaiting, isInterrupted])
+
+  const handleOpenChange = (next: boolean) => {
+    userToggledRef.current = true
+    setOpen(next)
+  }
 
   const sourceCards = useMemo(
     () => buildCitationModel({ traceLanes: deriveTraceLanes(steps), citations }),
@@ -186,7 +215,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
 
   return (
     <div className="animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-2xl bg-muted shadow-xs duration-base ease-entrance motion-reduce:animate-none">
-      <Collapsible open={open} onOpenChange={setOpen}>
+      <Collapsible open={open} onOpenChange={handleOpenChange}>
         <CollapsibleTrigger asChild>
           {/* No aria-label on the trigger: it would OVERRIDE the visible
               content, hiding exactly what a non-sighted reader needs — the
@@ -285,18 +314,23 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
           </button>
         </CollapsibleTrigger>
 
-        {/* Expanded content — opacity only (no height tween). The reserved
-            min-h-12 header is the chrome; the body mounts/unmounts. The basis
-            footer lives INSIDE here so the collapsed turn is just the one-line
-            summary and never bulks the thread before the answer. */}
+        {/* Expanded content — height 0↔auto plus opacity, so the panel grows
+            out of the header instead of fading in over a height cliff (the
+            reserved min-h-12 header is the chrome; the body mounts/unmounts).
+            Base duration in, one step shorter out, `overflow-hidden` so the
+            collapse clips; `initial={false}` so a panel that mounts already
+            open does not animate. A user-initiated expand, so height motion is
+            the honest instrument here. The basis footer lives INSIDE here so
+            the collapsed turn is just the one-line summary and never bulks the
+            thread before the answer. */}
         <AnimatePresence initial={false}>
           {open && (
             <motion.div
               key="herleitung-content"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={motionQuick}
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1, transition: motionBase }}
+              exit={{ height: 0, opacity: 0, transition: motionQuick }}
+              className="overflow-hidden"
             >
               <div className="border-base border-t px-2 pb-3 pt-3 sm:px-4">
                 <ReasoningFlow
