@@ -347,6 +347,16 @@ tasks:
       # via be:test:ci); this task is the human entry point to the same numbers.
       - '{{.PY}} -m oib_retrieval_eval.overview'
 
+  be:eval:record-vector:
+    desc: Re-record the vector channel for the overview golden set (needs the embeddings key; writes a fixture CI then reads offline)
+    env:
+      PYTHONPATH: src:frontends/benchmarks/oib_retrieval/src:sources/knowledge_layer/src
+    cmds:
+      # The recording is the only part of that harness that needs a model and a
+      # key. It is committed so `be:eval:overview` and CI stay offline; re-run
+      # this when AIQ_EMBED_MODEL, data/oib or the golden questions change.
+      - '{{.PY}} -m oib_retrieval_eval.record_vector'
+
   be:eval:turn-shapes:
     desc: ADR-0052 turn-shape eval against the live shallow model (needs OPENROUTER_API_KEY; skips without it)
     cmds:

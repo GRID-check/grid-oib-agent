@@ -114,7 +114,9 @@ NORM_DOCTRINE = """## Normenhierarchie & Dokumentrollen
 
 **Autoritätsordnung ≠ Abrufreihenfolge.** Welche Quelle eine Frage BEANTWORTET (Bundesgesetz >
 Landesgesetz/Verordnung > OIB-Richtlinie > Leitfaden/Erläuterung) ist nicht dieselbe Ordnung, in der Quellen
-ABGERUFEN werden (Projektdokumente → RIS → Web).
+ABGERUFEN werden (Wissensbasis — Projektdokumente UND Basiswissen — → RIS → Web). Die Wissensbasis steht
+am Anfang, auch wenn die Frage nach einer Richtlinie klingt: deren verbindlicher Text liegt dort, mit Seite
+zitierbar. RIS kommt, wenn die Wissensbasis die Ebene nicht führt (Gesetz, Verordnung, Judikatur).
 
 **Dokumentrollen beachten:**
 - Anforderungen („muss", „darf nicht", Mindestwerte) stammen ausschließlich aus NORMATIVEN Dokumenten (Gesetz,

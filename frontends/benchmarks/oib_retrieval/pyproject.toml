@@ -27,5 +27,14 @@ dense = [
     "sentence-transformers>=5.0.0",
 ]
 
+# `oib_retrieval_eval.record_vector` only. It calls the production embedding API
+# and reads the corpus PDFs, so it needs a key and a network and never runs in
+# CI; the fixture it writes is what CI reads. An extra for the same reason
+# `dense` is one: the default install must stay small enough to be the CI path.
+record = [
+    "httpx>=0.27",
+    "pdfplumber>=0.11",
+]
+
 [project.entry-points."nat.plugins"]
 oib_retrieval_eval = "oib_retrieval_eval.register"

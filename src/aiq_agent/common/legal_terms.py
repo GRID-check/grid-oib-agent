@@ -108,6 +108,15 @@ def _is_casefold_identifier(token: str, following: str) -> bool:
     lottery, nothing else. Deliberately NOT covered: hyphenated lowercase compounds
     (``fluchtweg-breite``) — indistinguishable from prose by shape, and each would burn
     one of the ``max_terms`` slots on a dead uppercase term.
+
+    A TERM IS NOT A HIT. This module decides what is identifier-SHAPED. It cannot know
+    what is SELECTIVE, because selectivity belongs to the collection being searched and
+    not to the string: ``oib 2`` emits a bare ``OIB`` here, which on one corpus names a
+    handful of documents and on another names all of them. The retriever measures each
+    term against the live collection and drops what cannot filter
+    (``knowledge_layer.llamaindex.hybrid.selective_terms``). Adding a shape here widens
+    what CAN be searched; it never claims the search will find anything, and a non-empty
+    return is not retrieval.
     """
     has_alpha = any(char.isalpha() for char in token)
     if has_alpha and any(char.isdigit() for char in token):
@@ -126,7 +135,8 @@ def extract_exact_terms(query: str, *, max_terms: int = 3) -> list[str]:
     - ALLCAPS tokens of length >= 3 (``OIB``, ``ÖNORM``), edge punctuation stripped;
     - case-insensitive identifier shapes of length >= 3 (``oib 2`` -> ``OIB``,
       ``b1800`` -> ``B1800``), emitted uppercased — see :func:`_is_casefold_identifier`
-      for the shape gate that keeps German function words out.
+      for the shape gate that keeps German function words out, and for why a term
+      returned here is a candidate the retriever still prices, not a hit.
 
     The result is deduplicated, ordered by first appearance, and capped at ``max_terms``.
     ``max_terms <= 0`` yields an empty list.

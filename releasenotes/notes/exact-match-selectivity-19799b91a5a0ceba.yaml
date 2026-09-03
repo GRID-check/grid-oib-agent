@@ -12,6 +12,8 @@
 # Delete every section you do not need — an empty one fails the lint.
 fixes:
   - >
-    A standard or product code typed in lowercase now matches the documents
-    that write it in capitals, so a question about a specific code finds the
-    same sources whichever way it is typed.
+    Keyword matching now ignores words that appear in nearly every document,
+    so a search no longer spends part of its results on a term that matches
+    everything. Answers cite more of the documents that actually differ on the
+    question, and searches that used to run an extra pointless lookup return a
+    little sooner.
