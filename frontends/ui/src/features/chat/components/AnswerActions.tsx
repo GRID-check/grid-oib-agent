@@ -3,16 +3,13 @@
 /**
  * AnswerActions — getting the answer out of Piloti.
  *
- * The user's own question has had a copy button since the beginning; the ANSWER
- * — the thing that goes into a Prüfvermerk, a mail, an Einreichung — had none,
- * so the only way out was a mouse drag that lost the `[N]` numbering and the
- * structure on the way. These two buttons are that way out.
+ * Two ways out, and only two:
  *
- *   ⧉  Antwort kopieren                 → the markdown the answer was written in
- *   ❞  Antwort mit Quellenangaben       → the same prose, sources written out
+ *   ❞  Antwort mit Quellenangaben       → the prose with its sources written
+ *                                        out (clipboard, rich + markdown)
  *   ⤓  Als Word-Dokument               → the export route's .docx, cards and all
  *
- * The copy buttons put the answer on the clipboard in two flavors at once
+ * The copy puts the answer on the clipboard in two flavors at once
  * (`clipboard-rich`): rendered HTML, so Word, Outlook and Notion paste real
  * tables and emphasis, and the markdown source as the plain-text fallback. The
  * internal `[[card:N]]` placement markers are stripped — they mean nothing
@@ -20,23 +17,24 @@
  * carries what no clipboard copy can: the question, the resolved citations,
  * the cards as tables and the confidence note.
  *
- * The second button is only rendered when the turn actually resolved sources. A
+ * The copy button is only rendered when the turn actually resolved sources. A
  * button that would copy an empty "Quellen" heading is a dead button, and this
- * row is not the place to promise provenance an answer does not have.
+ * row is not the place to promise provenance an answer does not have. When a
+ * turn has neither sources nor an exportable message (a local-only, uncited
+ * answer), a plain copy stands in — so the row never goes silent on a turn
+ * that can still be taken along.
  *
  * ── Weight ───────────────────────────────────────────────────────────────────
- * This sits in the answer's merged meta row, beside the feedback thumbs, so it
+ * This sits in the answer's meta row, beside the feedback thumbs, so it
  * borrows their language exactly: 24px ghost icon buttons, muted ink at rest,
  * full contrast on hover/focus, no band and no divider of its own. Confirmation
  * is the Check-swap `CopyCitation` already uses — no toast on success, and the
  * error path is that component's `toast.error`, not a new mechanism.
  *
- * Each glyph carries a tooltip with the same words as its `aria-label`. Three
- * unlabelled 14px icons in a row read as one control with three states, and
- * the two copy actions in particular used to be two clipboard glyphs a reader
- * could only tell apart by hovering and reading the screen-reader name — which
- * a sighted reader never sees. The quote mark on the second is the difference
- * made visible: the sources come along.
+ * Each glyph carries a tooltip with the same words as its `aria-label`. Two
+ * unlabelled 14px icons in a row read as one control with two states, so the
+ * quote mark on the first is the difference made visible: the sources come
+ * along.
  */
 
 import { useCallback, useState, type FC } from 'react'
@@ -86,7 +84,7 @@ export interface AnswerActionsProps {
 }
 
 /** Which button is currently showing its Check. */
-type Copied = 'answer' | 'withSources' | null
+type Copied = 'plain' | 'withSources' | null
 
 /**
  * The buttons. Same 24px glyph, muted ink and `touch-target` as the feedback
@@ -164,7 +162,7 @@ export const AnswerActions: FC<AnswerActionsProps> = ({
   }, [conversationId, messageId, exporting, t])
 
   const handleCopyAnswer = useCallback((): void => {
-    void copy(answerMarkdown(content), 'answer')
+    void copy(answerMarkdown(content), 'plain')
   }, [copy, content])
 
   const handleCopyWithSources = useCallback((): void => {
@@ -180,42 +178,48 @@ export const AnswerActions: FC<AnswerActionsProps> = ({
   }, [copy, body, documents, t])
 
   const withSources = hasCopyableSources(documents)
-  const copyLabel = copied === 'answer' ? t('answerActions.copied') : t('answerActions.copy')
+  const canExport = Boolean(conversationId && messageId)
+  // A turn with neither sources nor an export still gets the plain copy —
+  // the fallback keeps the row from going silent, never from overpromising.
+  const showPlainCopy = !withSources && !canExport
+  const copyLabel = copied === 'plain' ? t('answerActions.copied') : t('answerActions.copy')
   const copyWithSourcesLabel =
     copied === 'withSources' ? t('answerActions.copied') : t('answerActions.copyWithSources')
   const downloadLabel = t('answerActions.downloadDocx')
 
   return (
     <div className={cn('flex items-center gap-0.5', className)}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={handleCopyAnswer}
-            aria-label={copyLabel}
-            className={actionButton}
-          >
-            <AnimatePresence mode="popLayout" initial={false}>
-              <motion.span
-                key={copied === 'answer' ? 'check' : 'copy'}
-                initial={{ opacity: 0, scale: 0.6 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.6 }}
-                transition={springSnap}
-                className="inline-flex"
-                aria-hidden="true"
-              >
-                {copied === 'answer' ? (
-                  <Check className="size-3.5" aria-hidden="true" />
-                ) : (
-                  <Copy className="size-3.5" aria-hidden="true" />
-                )}
-              </motion.span>
-            </AnimatePresence>
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>{copyLabel}</TooltipContent>
-      </Tooltip>
+      {showPlainCopy && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={handleCopyAnswer}
+              aria-label={copyLabel}
+              className={actionButton}
+            >
+              <AnimatePresence mode="popLayout" initial={false}>
+                <motion.span
+                  key={copied === 'plain' ? 'check' : 'copy'}
+                  initial={{ opacity: 0, scale: 0.6 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.6 }}
+                  transition={springSnap}
+                  className="inline-flex"
+                  aria-hidden="true"
+                >
+                  {copied === 'plain' ? (
+                    <Check className="size-3.5" aria-hidden="true" />
+                  ) : (
+                    <Copy className="size-3.5" aria-hidden="true" />
+                  )}
+                </motion.span>
+              </AnimatePresence>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{copyLabel}</TooltipContent>
+        </Tooltip>
+      )}
       {withSources && (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -247,7 +251,7 @@ export const AnswerActions: FC<AnswerActionsProps> = ({
           <TooltipContent>{copyWithSourcesLabel}</TooltipContent>
         </Tooltip>
       )}
-      {conversationId && messageId && (
+      {canExport && (
         <Tooltip>
           <TooltipTrigger asChild>
             <button

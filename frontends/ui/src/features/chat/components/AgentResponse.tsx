@@ -471,12 +471,14 @@ const AnswerDegradedNote: FC<{ degradedReasons?: string[] }> = ({ degradedReason
 /**
  * The single disclosure in the answer footer.
  *
- * The footer keeps verdict, body, the "Belegt durch" sources row and the copy
- * actions visible; everything else the turn carries — confidence, the memory
- * note, the skills that shaped the answer, the verification notes, the
- * full feedback row and the timestamp — lives behind ONE muted text-xs trigger
- * line. `SkillsUsedDisclosure` is MOVED here, not duplicated: it renders null
- * on a turn that activated nothing, like every other item inside.
+ * The footer keeps verdict, body, the "Belegt durch" sources row, the copy
+ * actions and the feedback thumbs visible; everything else the turn carries
+ * — confidence, the memory note, the skills that shaped the answer, the
+ * verification notes and the timestamp — lives behind ONE muted text-xs
+ * trigger line. `SkillsUsedDisclosure` is MOVED here, not duplicated: it
+ * renders null on a turn that activated nothing, like every other item
+ * inside. Feedback stays out on purpose: rating the answer must not cost a
+ * click first.
  */
 const AnswerDetails: FC<{
   hasConfidence: boolean
@@ -492,9 +494,6 @@ const AnswerDetails: FC<{
   degradedReasons?: string[]
   citationsRemoved?: { count: number; reasons: string[] }
   hasAnswerSources: boolean
-  hasFeedback: boolean
-  messageId?: string
-  conversationId?: string | null
   timestamp?: Date | string
 }> = ({
   hasConfidence,
@@ -510,9 +509,6 @@ const AnswerDetails: FC<{
   degradedReasons,
   citationsRemoved,
   hasAnswerSources,
-  hasFeedback,
-  messageId,
-  conversationId,
   timestamp,
 }) => {
   const t = useTranslations('chat')
@@ -555,9 +551,6 @@ const AnswerDetails: FC<{
           />
           <AnswerDegradedNote degradedReasons={degradedReasons} />
           <CitationsRemovedNote citationsRemoved={citationsRemoved} />
-          {hasFeedback && messageId && (
-            <AnswerFeedback messageId={messageId} conversationId={conversationId} />
-          )}
           {timestamp && <span className="text-subtle text-xs">{formatTime(timestamp, locale)}</span>}
         </div>
       </CollapsibleContent>
@@ -825,11 +818,10 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // nothing to hold still omits the row (no empty band).
   const reserveMetaRow = hasMetaRow || stillArriving
   // What the single footer disclosure would actually hold. The copy actions
-  // stay visible beside its trigger, so a bare answer (copyable and nothing
-  // else) shows the action and no empty trigger line.
+  // and the feedback stay visible beside its trigger, so a bare answer shows
+  // the action and no empty trigger line.
   const hasDetailsContent =
     hasConfidence ||
-    hasFeedback ||
     Boolean(timestamp) ||
     memoryItems.length > 0 ||
     (skillsActivated?.length ?? 0) > 0 ||
@@ -989,11 +981,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 degradedReasons={degradedReasons}
                 citationsRemoved={citationsRemoved}
                 hasAnswerSources={hasAnswerSources}
-                hasFeedback={hasFeedback}
-                messageId={messageId}
-                conversationId={conversationId}
                 timestamp={timestamp}
               />
+            )}
+            {hasFeedback && messageId && (
+              <AnswerFeedback messageId={messageId} conversationId={conversationId} />
             )}
           </div>
         )}
@@ -1166,6 +1158,9 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 />
               )}
               {hasMetaRow && <span className="flex-1" aria-hidden="true" />}
+              {hasFeedback && messageId && (
+                <AnswerFeedback messageId={messageId} conversationId={conversationId} />
+              )}
               {hasDetailsContent && (
                 <AnswerDetails
                   hasConfidence={hasConfidence}
@@ -1181,9 +1176,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   degradedReasons={degradedReasons}
                   citationsRemoved={citationsRemoved}
                   hasAnswerSources={hasAnswerSources}
-                  hasFeedback={hasFeedback}
-                  messageId={messageId}
-                  conversationId={conversationId}
                   timestamp={timestamp}
                 />
               )}
