@@ -774,6 +774,20 @@ async def _create_llm_provider(builder: Any, fn_config: Any) -> tuple[Any, Any]:
     return provider, default_llm
 
 
+def _b64url_encode_text(value: str) -> str:
+    """Encode free text for a worker request header (base64url, no padding).
+
+    Starlette ``Headers`` encode values as latin-1, so any raw project text
+    with German quotes („U+201E), em-dashes or newlines throws
+    ``UnicodeEncodeError`` at injection time — killing the job before the agent
+    starts. The header contract on the read side
+    (``aiq_agent.project_context._read_encoded_header``) is base64url with a
+    raw fallback, so every multi-line/free-text header on this path goes
+    through here.
+    """
+    return base64.urlsafe_b64encode(value.encode()).rstrip(b"=").decode()
+
+
 def _inject_worker_headers(context_state: Any, headers: dict[str, str]) -> None:
     """Layer ``headers`` onto the worker's request metadata.
 
@@ -1105,7 +1119,7 @@ async def run_agent_job(
             # requests do: Context.get().metadata.headers.get("x-grid-collection-scope")
             if collection_scope is not None:
                 request_attrs = context_state.metadata.get()
-                encoded = base64.urlsafe_b64encode(json.dumps(collection_scope).encode()).rstrip(b"=").decode()
+                encoded = _b64url_encode_text(json.dumps(collection_scope))
                 existing_headers = dict(request_attrs.headers) if request_attrs and request_attrs.headers else {}
                 request_attrs._request.headers = Headers(
                     headers={**existing_headers, "x-grid-collection-scope": encoded}
@@ -1135,10 +1149,17 @@ async def run_agent_job(
 
                 normalized = normalize_project_context(project_context)
                 if normalized:
+                    # Base64url, like every other multi-line header on this path
+                    # (collection scope above, model overrides below): the header
+                    # contract is base64url (`project_context.text_field`), and a
+                    # raw German „quote or em-dash makes Starlette's latin-1
+                    # header encoding throw UnicodeEncodeError before the agent
+                    # ever starts — an instant job failure with zero events.
+                    encoded = _b64url_encode_text(normalized)
                     request_attrs = context_state.metadata.get()
                     existing_headers = dict(request_attrs.headers) if request_attrs and request_attrs.headers else {}
                     request_attrs._request.headers = Headers(
-                        headers={**existing_headers, "x-grid-project-context": normalized}
+                        headers={**existing_headers, "x-grid-project-context": encoded}
                     )
                     context_state.metadata.set(request_attrs)
 
@@ -1149,7 +1170,7 @@ async def run_agent_job(
                 from aiq_agent.common import MODEL_OVERRIDES_HEADER
 
                 request_attrs = context_state.metadata.get()
-                encoded = base64.urlsafe_b64encode(json.dumps(model_overrides).encode()).rstrip(b"=").decode()
+                encoded = _b64url_encode_text(json.dumps(model_overrides))
                 existing_headers = dict(request_attrs.headers) if request_attrs and request_attrs.headers else {}
                 request_attrs._request.headers = Headers(headers={**existing_headers, MODEL_OVERRIDES_HEADER: encoded})
                 context_state.metadata.set(request_attrs)
@@ -1194,7 +1215,7 @@ async def run_agent_job(
             if memory_digest:
                 _inject_worker_headers(
                     context_state,
-                    {PROJECT_MEMORY_HEADER: base64.urlsafe_b64encode(memory_digest.encode()).rstrip(b"=").decode()},
+                    {PROJECT_MEMORY_HEADER: _b64url_encode_text(memory_digest)},
                 )
             # The agent state gets what a chat turn gets: profile and memory,
             # composed the way `get_project_context_from_context()` composes them.
