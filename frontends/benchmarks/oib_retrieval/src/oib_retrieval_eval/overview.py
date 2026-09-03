@@ -51,6 +51,31 @@ channels and score high — except literal filenames, which neither deterministi
 channel can serve (lowercase, corpus-identity lexemes plus digits) and which
 honestly score ~0 until a filename-aware lookup exists. See
 ``tests/benchmarks/test_oib_overview_recall.py`` for the pinned numbers.
+
+HYDE (backlog item 14) — WHAT THE ON-MODE MEASURES, AND WHAT IT CANNOT
+----------------------------------------------------------------------
+``run(..., hyde_drafter=...)`` fuses a draft channel beside the original one:
+for a query where the production gate fires
+(``aiq_agent.common.hyde.should_draft``, shape-only, no vocabulary), the
+drafter's passage is ranked through the SAME deterministic halves a
+production ``retrieve(draft)`` would run — exact terms extracted from the
+draft plus sparse search on the draft — and fused with the original channels
+via the production ``fuse_with_ranks`` (original channels first, so the
+question as asked keeps the tie-break seat, exactly like the cross-collection
+merge). There is deliberately no reranker offline: recall@k over the fused
+pool is the recall-side claim only.
+
+What it cannot measure is the dense half: production embeds the draft with
+the document pipeline's model and retrieves on draft similarity, and this
+harness has no vector arm by design (see above). A draft's lift through
+embedding similarity is invisible here; only its lift through the
+deterministic channels registers. The honest on/off comparison therefore
+needs RECORDED drafts — passages generated once by the real draft model with
+the production prompt, stored as a fixture, and replayed deterministically —
+never hand-written passages (hand-writing the draft from the expected files
+is label leakage, the overfit trap ``query_expansion`` documents for its own
+glossary). With no drafter (or a drafter that returns nothing) the on-mode is
+byte-identical to the baseline: that identity IS the fail-open assertion.
 """
 
 from __future__ import annotations
@@ -58,6 +83,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import field
 from pathlib import Path
@@ -292,6 +318,7 @@ class QueryResult:
     recall: float
     mrr: float
     missing: tuple[str, ...]
+    hyde_fired: bool = False
 
 
 @dataclass
@@ -446,6 +473,24 @@ def sparse_terms_for(index, query: str) -> list[str]:
     return selected_terms(index, query)
 
 
+def exact_files_for(terms: list[str], docs: list[FixtureDoc]) -> list[str]:
+    """Files whose name or text contains any of ``terms`` (offline $contains mirror)."""
+    if not terms:
+        return []
+    return [doc.file_name for doc in docs if any(term in f"{doc.file_name}\n{doc.text}" for term in terms)]
+
+
+def sparse_files_for(index, query: str, *, depth: int = RETRIEVE_DEPTH) -> list[str]:
+    """Files the sparse channel ranks for ``query``, deduplicated, index order."""
+    from oib_retrieval_eval.lexical import search
+
+    ranked: list[str] = []
+    for chunk in search(index, query, depth):
+        if chunk.file_name not in ranked:
+            ranked.append(chunk.file_name)
+    return ranked
+
+
 def rank_files(query: str, docs: list[FixtureDoc], index, *, depth: int = RETRIEVE_DEPTH) -> list[str]:
     """Ranked file names for one query: exact matches, then sparse matches.
 
@@ -456,21 +501,58 @@ def rank_files(query: str, docs: list[FixtureDoc], index, *, depth: int = RETRIE
     over that empty ranking is 0.0 — the honest lower bound (production would
     fill top_k with generic neighbours and hedge; see the module docstring).
     """
-    from oib_retrieval_eval.lexical import search
+    exact = exact_files_for(exact_terms_for(query), docs)
+    exclude = set(exact)
+    return exact + [name for name in sparse_files_for(index, query, depth=depth) if name not in exclude]
 
-    terms = exact_terms_for(query)
-    exact: list[str] = []
-    if terms:
-        for doc in docs:
-            haystack = f"{doc.file_name}\n{doc.text}"
-            if any(term in haystack for term in terms):
-                exact.append(doc.file_name)
 
-    sparse: list[str] = []
-    for chunk in search(index, query, depth):
-        if chunk.file_name not in exact and chunk.file_name not in sparse:
-            sparse.append(chunk.file_name)
-    return exact + sparse
+def fuse_file_channels(channels: list[list[str]]) -> list[str]:
+    """RRF-fuse file-rank lists through the production fusion helper.
+
+    Channel order is the tie-break seat: the original query's channels come
+    first, a HyDE draft's channels after — the same convention as the
+    cross-collection merge in ``knowledge_layer.register``. Identity is the
+    filename; a file every channel agrees on rises, one only the draft found
+    enters.
+    """
+    from types import SimpleNamespace
+
+    from knowledge_layer.llamaindex.hybrid import fuse_with_ranks
+
+    doubles = [[SimpleNamespace(chunk_id=name) for name in channel] for channel in channels]
+    return [chunk.chunk_id for chunk, _, _ in fuse_with_ranks(doubles)]
+
+
+def rank_files_with_hyde(
+    query: str, draft: str, docs: list[FixtureDoc], index, *, depth: int = RETRIEVE_DEPTH
+) -> list[str]:
+    """Ranked files with a HyDE draft fused as one extra RRF channel.
+
+    The draft runs through the deterministic halves a production
+    ``retrieve(draft)`` would run — exact terms extracted from the draft plus
+    sparse search on the draft — fused with the original query's channels.
+    The draft's dense half (draft-similarity retrieval) has no offline mirror
+    and is not claimed here; see the module docstring.
+    """
+    return fuse_file_channels(
+        [
+            exact_files_for(exact_terms_for(query), docs),
+            sparse_files_for(index, query, depth=depth),
+            exact_files_for(exact_terms_for(draft), docs),
+            sparse_files_for(index, draft, depth=depth),
+        ]
+    )
+
+
+def hyde_fires(query: str) -> bool:
+    """Whether the production HyDE gate would draft for ``query`` (switch on).
+
+    The production shape gate, imported — never reimplemented — so a change
+    to the gating moves these numbers.
+    """
+    from aiq_agent.common.hyde import should_draft
+
+    return should_draft(query, enabled=True)
 
 
 def apply_production_filter(ranked: list[str]) -> list[str]:
@@ -484,8 +566,19 @@ def run(
     docs: list[FixtureDoc] | None = None,
     *,
     k: int | None = None,
+    hyde_drafter: Callable[[GoldenEntry], str | None] | None = None,
 ) -> Report:
-    """Retrieve every golden question through the deterministic channels."""
+    """Retrieve every golden question through the deterministic channels.
+
+    Args:
+        hyde_drafter: Optional ``entry -> draft passage`` callback enabling the
+            HyDE on-mode: for entries where the production gate fires, the
+            draft is ranked through the draft channels and fused beside the
+            original ones (see :func:`rank_files_with_hyde`). ``None`` (or a
+            callback returning nothing/raising) is the baseline — the ranking
+            is then byte-identical to the off-mode, which is the fail-open
+            assertion. Drafts are never echoed into the report.
+    """
     from oib_retrieval_eval.metrics import mean
     from oib_retrieval_eval.metrics import mrr
     from oib_retrieval_eval.metrics import recall_at_k
@@ -500,7 +593,19 @@ def run(
     for entry in entries:
         exact = tuple(exact_terms_for(entry.question))
         sparse = tuple(sparse_terms_for(index, entry.question))
-        ranked = tuple(apply_production_filter(rank_files(entry.question, docs, index)))
+        hyde_fired = False
+        if hyde_drafter is not None and hyde_fires(entry.question):
+            try:
+                draft = hyde_drafter(entry)
+            except Exception:
+                draft = None
+            if draft and draft.strip():
+                ranked = tuple(apply_production_filter(rank_files_with_hyde(entry.question, draft, docs, index)))
+                hyde_fired = True
+            else:
+                ranked = tuple(apply_production_filter(rank_files(entry.question, docs, index)))
+        else:
+            ranked = tuple(apply_production_filter(rank_files(entry.question, docs, index)))
         expected = set(entry.expected)
         results.append(
             QueryResult(
@@ -511,6 +616,7 @@ def run(
                 recall=recall_at_k(list(ranked), expected, cutoff),
                 mrr=mrr(list(ranked), expected),
                 missing=tuple(f for f in entry.expected if f not in list(ranked)[:cutoff]),
+                hyde_fired=hyde_fired,
             )
         )
 
@@ -546,6 +652,7 @@ def format_report(report: Report) -> str:
     lines += [
         "",
         "empty = share of queries with no firing channel (ranked nothing).",
+        f"hyde drafts fused: {sum(1 for result in report.results if result.hyde_fired)}/{len(report.results)}.",
         "",
         "per-query (expected vs got; missing = expected files outside the ranking):",
     ]
@@ -558,7 +665,8 @@ def format_report(report: Report) -> str:
             f"[{result.entry.cohort:<10}] {result.entry.id}: "
             f"recall@{report.k}={result.recall:.2f} mrr={result.mrr:.3f} "
             f"first_hit={first_hit if first_hit is not None else '-'} "
-            f"exact={list(result.exact_terms)!r} sparse={list(result.sparse_terms)!r}"
+            f"exact={list(result.exact_terms)!r} sparse={list(result.sparse_terms)!r} "
+            f"hyde={1 if result.hyde_fired else 0}"
         )
         lines.append(f"  expected: {list(result.entry.expected)}")
         lines.append(f"  got     : {list(result.ranked[:8])}{' …' if len(result.ranked) > 8 else ''}")
