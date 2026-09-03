@@ -76,6 +76,10 @@
               "de": "Long research jobs no longer write stray or duplicate messages into the chat when they are retried or time out in the background."
             },
             {
+              "en": "Eine Deep Research in einem Projekt, dessen Beschreibung deutsche Anführungszeichen oder Gedankenstriche enthält, brach sofort nach dem Start ab — der Bericht schlug fehl und die Seitenleiste blieb leer. Solche Projekte lassen sich jetzt ohne Abbruch recherchieren.",
+              "de": "Eine Deep Research in einem Projekt, dessen Beschreibung deutsche Anführungszeichen oder Gedankenstriche enthält, brach sofort nach dem Start ab — der Bericht schlug fehl und die Seitenleiste blieb leer. Solche Projekte lassen sich jetzt ohne Abbruch recherchieren."
+            },
+            {
               "en": "Loading placeholders no longer jump when content arrives, file states and error messages are readable instead of technical, failed operations stay visible longer, and the whole interface shares one consistent shape language in light and dark mode.",
               "de": "Loading placeholders no longer jump when content arrives, file states and error messages are readable instead of technical, failed operations stay visible longer, and the whole interface shares one consistent shape language in light and dark mode."
             },
