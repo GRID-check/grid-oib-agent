@@ -48,6 +48,10 @@
             {
               "en": "The interface feels calmer and more responsive: buttons answer every press with a subtle dip, copying an answer pops a check mark, and loading placeholders shimmer instead of flashing grey.",
               "de": "The interface feels calmer and more responsive: buttons answer every press with a subtle dip, copying an answer pops a check mark, and loading placeholders shimmer instead of flashing grey."
+            },
+            {
+              "en": "„Das Wichtigste“ am Ende einer Antwort trägt jetzt in jeder Zeile das, was man mitschreibt — die Zahl, die Klasse, die Frist —, statt nur zu benennen, worum es in der Zeile ginge. Aufgeklappt steht dahinter die Fundstelle, die Herleitung oder der Fall, in dem die Aussage nicht gilt; wo es dazu nichts zu sagen gibt, lässt sich die Zeile gar nicht mehr aufklappen.",
+              "de": "„Das Wichtigste“ am Ende einer Antwort trägt jetzt in jeder Zeile das, was man mitschreibt — die Zahl, die Klasse, die Frist —, statt nur zu benennen, worum es in der Zeile ginge. Aufgeklappt steht dahinter die Fundstelle, die Herleitung oder der Fall, in dem die Aussage nicht gilt; wo es dazu nichts zu sagen gibt, lässt sich die Zeile gar nicht mehr aufklappen."
             }
           ]
         },
@@ -85,6 +89,10 @@
             {
               "en": "Loading views no longer jump when the real content arrives, error messages are clearly visible as errors, and status chips, search fields and viewer panels render consistently in light and dark mode.",
               "de": "Loading views no longer jump when the real content arrives, error messages are clearly visible as errors, and status chips, search fields and viewer panels render consistently in light and dark mode."
+            },
+            {
+              "en": "In der Rechtsgrundlage stand die Fundstelle bisher immer in der schmalen Randspalte — auch als ganzer Satz. „Punkte 8 bis 10 der OIB-Richtlinie 2“ brach dort auf sieben Zeilen um und war höher als die Karte daneben. Eine kurze Fundstelle steht weiterhin am Rand, eine lange jetzt in der Zeile neben der Richtlinie.",
+              "de": "In der Rechtsgrundlage stand die Fundstelle bisher immer in der schmalen Randspalte — auch als ganzer Satz. „Punkte 8 bis 10 der OIB-Richtlinie 2“ brach dort auf sieben Zeilen um und war höher als die Karte daneben. Eine kurze Fundstelle steht weiterhin am Rand, eine lange jetzt in der Zeile neben der Richtlinie."
             }
           ]
         },
