@@ -5,34 +5,28 @@ three cohorts (overview / exact-id / paraphrase), scored as recall@16
 (k = production top_k) + MRR against a deterministic in-memory fixture corpus.
 Offline, no network, no Chroma, no embedder, no PDF, no key — seconds in CI.
 
-BASELINE (recorded 2026-09-03; overview re-recorded after the item-13 correction):
+BASELINE (recorded 2026-09-03):
 
-| cohort     | recall@16 | mrr   | empty |
-|------------|-----------|-------|-------|
-| overview   | 0.150     | 0.200 | 0.80  |
-| exact-id   | 0.700     | 0.367 | 0.20  |
-| paraphrase | 1.000     | 0.553 | 0.00  |
+| cohort     | recall@16 | mrr   | empty | vector@16 |
+|------------|-----------|-------|-------|-----------|
+| overview   | 0.150     | 0.200 | 0.80  | 0.933     |
+| exact-id   | 0.700     | 0.367 | 0.20  | 1.000     |
+| paraphrase | 1.000     | 0.553 | 0.00  | 1.000     |
 
-"empty" = share of queries with no firing deterministic channel. The overview
-cohort is the known-bad one (item 11): 8 of its 10 queries rank nothing, and
-only the two content-noun queries ("Wohngebäude", "Begriffsbestimmung") score,
-via sparse. That is the honest state and no shipped change has moved it.
+The first three columns are the DETERMINISTIC channels; "empty" is the share of
+queries where neither fired. ``vector@16`` is the recorded vector channel alone.
 
-Item 13 briefly appeared to move it to 0.583. It did not. Casefolding let
-"oib N" emit the bare term ``OIB``, which is on 34 of these 39 fixture files
-and 92.3% of real corpus pages — in production a ``$contains`` filter that
-removes almost nothing, and offline an unranked dump of the corpus in filename
-order. All six "oib N" questions got ONE identical ranking; the 0.583 was
-where their labels happened to sit in it, and it moved to 0.750 under nothing
-but a reordering of the fixture. The retriever now prices exact terms against
-the live collection with the DF ceiling the sparse channel has always had
-(``knowledge_layer.llamaindex.hybrid.selective_terms``), this harness mirrors
-that rule, and the number went back to the 0.150 it never really left.
+Read the two sides together or the table lies. Eight of the ten overview
+queries reach no deterministic channel, which reads as a broken cohort and is
+not one: the vector channel answers them, and answered them all along. The
+deterministic columns describe the two channels that barely participate here.
 
-A real lift here has to come from a channel that can tell "oib 2" from
-"oib 6" — item 14, or the filename/designation-aware lookup the harness
-module docstring names. When one lands this test goes red on purpose: raise
-the floors and re-record the table.
+That gap is why this file asserts a CEILING on overview ``recall@16`` and why
+``test_the_oib_n_questions_must_not_share_one_ranking`` exists. The harness
+module docstring records what it cost to learn.
+
+A lift on the deterministic side is therefore a claim, not a pass. It has to
+beat 0.933, and it has to answer six sibling questions differently.
 
 Import fallback as in the sibling benchmark tests: the suite is importable via
 ``pip install -e frontends/benchmarks/oib_retrieval``, otherwise the src tree
@@ -257,14 +251,12 @@ def test_overview_cohort_is_still_the_unsolved_cohort(report):
 
 
 def test_the_exemplar_overview_query_still_does_not_retrieve(report):
-    """The item-11 exemplar ("was weißt du über die oib 2") ranks nothing.
+    """The item-11 exemplar ("was weißt du über die oib 2") ranks nothing here.
 
-    It scored 1.00 for one release on the strength of a term that matched 34
-    of 39 files: the six "oib N" questions shared one identical ranking, so
-    the exemplar's six RL-2 labels sat inside a list that RL-6's labels sat
-    outside of, and nothing about the retrieval distinguished them. Lift this
-    with a channel that separates "oib 2" from "oib 6" and the assert flips
-    for a reason worth recording."""
+    It reads worse than it is. The vector channel retrieves this question at
+    0.83; what ranks nothing is the pair of deterministic channels. The one
+    release where this assert said 1.00 instead is the artefact the harness
+    module docstring records."""
     by_id = {result.entry.id: result for result in report.results}
     assert by_id["ov-rl2"].recall == 0.0, _diff(report)
     assert by_id["ov-rl2"].ranked == ()
@@ -317,16 +309,15 @@ def test_the_vector_channel_is_recorded(report):
 def test_the_vector_channel_is_what_answers_the_overview_cohort(report):
     """The fact that reframes every number above it.
 
-    Measured with the production embedder over the real corpus, the vector
-    channel answers the broad cohort the deterministic channels cannot touch.
-    The gap is the point: a change that moves `recall` on this cohort is moving
-    the weak channels, and claiming a retrieval win from it requires showing it
-    beats what the product already does without them.
+    The vector channel answers the broad cohort the deterministic ones cannot
+    touch, measured with the production embedder over the real corpus. So a
+    change that moves `recall` here moves the weak channels, and calling that a
+    retrieval win means beating what the product already does without them.
 
-    Both bounds are asserted. If the vector floor drops, retrieval genuinely
-    regressed and this is the first place it shows. If the deterministic
-    ceiling rises, read `test_the_oib_n_questions_must_not_share_one_ranking`
-    before believing it."""
+    Both bounds are asserted. A dropped vector floor is a real regression and
+    shows here first. A risen deterministic ceiling wants
+    `test_the_oib_n_questions_must_not_share_one_ranking` read before it is
+    believed."""
     scores = _cohort(report, "overview")
     assert scores.vector_recall >= 0.85, _diff(report)
     assert scores.recall <= 0.20, _diff(report)
@@ -334,18 +325,16 @@ def test_the_vector_channel_is_what_answers_the_overview_cohort(report):
 
 
 def test_the_oib_n_questions_must_not_share_one_ranking(report):
-    """The guard recall cannot provide, and the one this harness lacked.
+    """Six questions naming six guidelines are six retrievals, so six rankings.
 
-    Six questions naming six different guidelines are six different retrievals.
-    When they share ONE ranking, whatever produced it did not search — it
-    returned the corpus — and the cohort recall is only where each question's
-    labels happened to fall in that fixed list. That is not hypothetical: it is
-    exactly what shipped when casefolding sent a term matching 34 of 39 files
-    into the exact channel, and recall alone read it as 0.150 -> 0.583.
+    When they share ONE, whatever produced it returned the corpus instead of
+    searching it, and the cohort recall is only where each question's labels
+    fell in that fixed list. Recall cannot see the difference. This can, and
+    the harness module docstring records the release that needed it.
 
-    Vacuous today on the deterministic side, because those channels rank
-    nothing here — and live the moment one of them fires on this cohort, which
-    is precisely when it is needed."""
+    Vacuous today on the deterministic side, since those channels rank nothing
+    here. It goes live the moment one of them fires, which is exactly when it
+    is needed."""
     siblings = [r for r in report.results if r.entry.id.startswith("ov-rl")]
     assert len(siblings) >= 5, "the sibling set is what makes this test work"
 

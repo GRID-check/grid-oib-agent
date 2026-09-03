@@ -4248,25 +4248,26 @@ class LlamaIndexRetriever(BaseRetriever):
     def _selective_exact_terms(self, collection, collection_name: str, terms: list[str]) -> list[str]:
         """Keep the exact terms whose document frequency leaves them worth retrieving.
 
-        One id-only ``collection.get`` per term measures the term against the LIVE
-        collection -- "OIB is noise" is a property of this corpus, not of German, so it
-        is measured, never listed (``german_text``'s module docstring states the rule
-        this follows). For the ubiquitous term this REPLACES the vector query that used
-        to run, so the common case gets cheaper rather than dearer.
+        One id-only ``collection.get`` per term measures it against the LIVE collection.
+        "OIB is noise" is a property of this corpus rather than of German, so the
+        frequency is measured and never listed (``german_text``'s module docstring
+        states the rule this follows). For the ubiquitous term the measurement REPLACES
+        the vector query that used to run, so the common case gets cheaper.
 
-        Cached per ``(collection, chunk count, term)``: the term set is tiny and stable
-        while the corpus is, and a changed count invalidates it. An in-place edit that
-        leaves the count identical keeps the old frequency, which is acceptable for a
-        noise heuristic and is why nothing downstream treats this as a correctness gate.
+        The cache key is ``(collection, chunk count, term)``. The term set is tiny and
+        stays stable while the corpus does, and a changed count invalidates it. An
+        in-place edit leaving the count identical keeps the old frequency. That is
+        acceptable for a noise heuristic, and it is why nothing downstream treats this
+        as a correctness gate.
 
-        Deliberately unlocked, unlike the caches beside it: those keep an ordering list
-        that a race would corrupt, while the worst a race here can cost is measuring one
-        term twice. A lock would have to be held across a Chroma round trip, which would
-        serialise the per-collection fan-out this retriever exists to run in parallel.
+        It runs unlocked, unlike the caches beside it. Those keep an ordering list a
+        race would corrupt; the worst a race costs here is measuring one term twice.
+        Locking would hold the lock across a Chroma round trip and serialise the
+        per-collection fan-out this retriever exists to run in parallel.
 
-        Fails OPEN: if the frequency cannot be measured the term is kept, so a Chroma
-        that cannot answer ``get`` degrades to the previous behaviour rather than to no
-        lexical channel at all.
+        Fails OPEN. An unmeasurable frequency keeps the term, so a Chroma that cannot
+        answer ``get`` degrades to the previous behaviour instead of to no lexical
+        channel at all.
         """
         from .hybrid import selective_terms
 

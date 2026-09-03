@@ -109,15 +109,14 @@ def _is_casefold_identifier(token: str, following: str) -> bool:
     (``fluchtweg-breite``) — indistinguishable from prose by shape, and each would burn
     one of the ``max_terms`` slots on a dead uppercase term.
 
-    A TERM IS NOT A HIT. This module decides what is identifier-SHAPED; it does not and
-    cannot know what is SELECTIVE, because that is a property of the collection being
-    searched, not of the string. ``oib 2`` emits a bare ``OIB`` here, and on the OIB
-    corpus ``OIB`` is on 92.3% of pages — so the retriever measures every term against
-    the live collection and drops the ones above its document-frequency ceiling
-    (``knowledge_layer.llamaindex.hybrid.selective_terms``, the rule
-    ``aiq_agent.common.german_text`` has always applied on the sparse side). Adding a
-    shape here therefore widens what CAN be searched; it never asserts that the search
-    will find anything, and no caller may read a non-empty return as retrieval.
+    A TERM IS NOT A HIT. This module decides what is identifier-SHAPED. It cannot know
+    what is SELECTIVE, because selectivity belongs to the collection being searched and
+    not to the string: ``oib 2`` emits a bare ``OIB`` here, which on one corpus names a
+    handful of documents and on another names all of them. The retriever measures each
+    term against the live collection and drops what cannot filter
+    (``knowledge_layer.llamaindex.hybrid.selective_terms``). Adding a shape here widens
+    what CAN be searched; it never claims the search will find anything, and a non-empty
+    return is not retrieval.
     """
     has_alpha = any(char.isalpha() for char in token)
     if has_alpha and any(char.isdigit() for char in token):

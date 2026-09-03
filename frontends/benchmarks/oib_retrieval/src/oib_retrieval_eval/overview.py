@@ -65,39 +65,34 @@ them: this arm is measured on the real corpus and those are measured on the
 synthetic mirror, so a fused number would average two corpora and mean nothing.
 Read the two columns as answers to "which channel actually serves this cohort".
 
-WHY THAT COLUMN EXISTS: the harness shipped scoring two channels of three, and
-a change that widened the exact channel to 92% of the corpus read as overview
-0.150 -> 0.583 — a 4x "win" on channels that contribute almost nothing here,
-while the channel that does the work was not on the page. The vector column and
-``_distinguishability_line`` are the two guards against a repeat.
+EXPECTED BASELINE (recorded 2026-09-03)
+---------------------------------------
+Overview queries reach neither deterministic channel. The sparse survivors die
+at the DF ceiling, and the exact term casefolding extracts from "oib N" is the
+bare ``OIB``, which dies at the same ceiling on the exact side. The vector
+channel answers them anyway, and answers the literal-filename questions too,
+because the filename is in the embedded text. ``tests/benchmarks/
+test_oib_overview_recall.py`` holds the pinned numbers.
 
-EXPECTED BASELINE (recorded 2026-09-03; overview re-recorded after item 13)
----------------------------------------------------------------------
-Overview queries reach NEITHER deterministic channel: the sparse survivors die
-at the DF ceiling / digit-only rule, and the exact term casefolding extracts
-from "oib N" is the bare ``OIB``, which dies at the same ceiling on the exact
-side. Exact-id and paraphrase queries fire one or both channels and score high
-— except literal filenames, which neither deterministic channel can serve
-(lowercase, corpus-identity lexemes plus digits) and which honestly score ~0
-until a filename-aware lookup exists. See
-``tests/benchmarks/test_oib_overview_recall.py`` for the pinned numbers.
+THE ARTEFACT THIS HARNESS PRODUCED, AND THE TWO GUARDS AGAINST A REPEAT
+-----------------------------------------------------------------------
+Scoring two channels of three, it once read a regression as a 4x win: a change
+that widened the exact channel to a term matching most of the corpus (see
+``knowledge_layer.llamaindex.hybrid.selective_terms`` for the measurement) took
+overview from 0.150 to 0.583. Nothing was retrieved. All six "oib N" questions
+produced ONE ranking, the corpus in filename order, and each score was only
+where that question's labels fell in it. Reversing the fixture order moved the
+cohort to 0.750 with no code change at all.
 
-THE FAILURE MODE THIS HARNESS HAD, AND WHY THE CEILING IS MIRRORED
--------------------------------------------------------------------
-Item 13 first read as overview 0.150 -> 0.583. It was an artefact, and it is
-the artefact any recall-only instrument invites: the bare ``OIB`` term is on
-34 of these 39 files (92.3% of real corpus pages), so all six "oib N"
-questions produced ONE identical ranking — the corpus in filename order — and
-each question's score was just where its labels happened to fall in it.
-Reversing the fixture order moved the cohort to 0.750 with no code change.
+Recall cannot see that, so two things guard it:
 
-Two rules follow, for anything measured here later:
+* the vector column, so the channel that does the work is on the page and a
+  deterministic "lift" has to be argued against it;
+* ``_distinguishability_line``, because distinct questions that share one
+  ranking were answered with the corpus rather than a search.
 
-* mirror the production GATE, not just the production matcher. A channel that
-  fires is not a channel that retrieves, and recall cannot tell the two apart;
-* when a change lifts a cohort, check that the rankings it lifted are
-  DIFFERENT from each other. Identical rankings across distinct questions mean
-  the corpus was returned, not searched.
+Mirror the production GATE and not only its matcher. A channel that fires is
+not a channel that retrieves.
 
 HYDE (backlog item 14) — WHAT THE ON-MODE MEASURES, AND WHAT IT CANNOT
 ----------------------------------------------------------------------
@@ -535,16 +530,12 @@ def exact_files_for(terms: list[str], docs: list[FixtureDoc]) -> list[str]:
 
     Two production halves, both imported rather than restated: the substring test is
     the case-sensitive byte match Chroma's ``where_document`` runs, and the document
-    frequency ceiling is ``knowledge_layer.llamaindex.hybrid.selective_terms`` — the
+    frequency ceiling is ``knowledge_layer.llamaindex.hybrid.selective_terms``, the
     same rule and constants the retriever applies before it spends a pass on a term.
 
-    Without that second half this mirror scored a term like a bare ``OIB`` (34 of the
-    39 fixture files here, 92.3% of real corpus pages) as if it retrieved something,
-    when in production it is a filter that removes almost nothing: every ``oib N``
-    question got ONE identical ranking — the corpus in filename order — and the cohort
-    recall that came out was a function of where the labels happened to sit in it, not
-    of retrieval. Mirroring the ceiling is what makes the number mean the same thing
-    on both sides.
+    The ceiling half is what keeps this a mirror. Without it a term the retriever
+    would never search on still scores here, and the module docstring records what
+    that cost.
     """
     if not terms:
         return []

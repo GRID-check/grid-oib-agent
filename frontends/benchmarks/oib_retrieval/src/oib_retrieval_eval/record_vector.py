@@ -2,39 +2,39 @@
 
 WHY THIS EXISTS
 ---------------
-The golden harness scored two of production's three retrieval channels — the
-exact ``$contains`` pass and the German sparse index — and left the vector
-channel out because it needs a model, a key and the corpus. That omission is
-not a detail. Measured with the production embedder over the real corpus, the
-vector channel alone answers the overview cohort at recall@16 0.933 while the
-two deterministic channels together manage 0.150. A harness reporting only the
-0.150 makes any movement in the deterministic channels look like the whole
-story, and it once made a change that widened a channel to 92% of the corpus
-read as a 4x improvement.
+The golden harness scored two of production's three retrieval channels, the
+exact ``$contains`` pass and the German sparse index, and left the vector
+channel out because that one needs a model, a key and the corpus. The omission
+was not a detail. Measured with the production embedder over the real corpus,
+the vector channel alone answers the overview cohort at recall@16 0.933 while
+the two deterministic channels together manage 0.150. A harness printing only
+the 0.150 makes any movement in the weak channels look like the whole story,
+and once let a regression read as a 4x win (``overview``'s module docstring).
 
-So the vector channel is RECORDED: embedded once here, against the real
-``data/oib`` corpus with the production model, and written to a fixture the
-offline harness reads. CI stays offline, deterministic and key-free; the
+So the channel is RECORDED. It is embedded once here against the real
+``data/oib`` corpus with the production model and written to a fixture the
+offline harness reads. CI stays offline, deterministic and key-free, and the
 number is a measurement rather than a model of one.
 
 WHAT IS RECORDED, AND WHAT THAT COSTS
 -------------------------------------
 Per golden question, the file-level ranking over the corpus plus each file's
-best chunk score — not the vectors. 30 questions x 39 files is a fixture a
-human can read and diff; 3072-dimensional vectors for every chunk are 15 MB
-nobody would review. The cost is that the recording cannot be re-derived from
-the fixture: change the embedder, the chunking or the corpus and this file is
-stale, which is why it carries the model name and the corpus fingerprint it
-was made with, and the golden test pins that model against the deployed one
-(``deploy/compose/docker-compose.coolify.yaml``) so a stale fixture fails CI
-rather than quietly scoring the wrong embedder.
+best chunk score. Not the vectors. 30 questions by 39 files is a fixture a
+human can read and diff, where 3072 dimensions for every chunk are 15 MB
+nobody would review.
 
-The chunks here are sampled PAGES, not production's chunks: page text carrying
-the same ``MetadataMode.EMBED`` header production embeds (the filename is in
-that header on purpose — ``EMBED_EXCLUDED_METADATA_KEYS`` keeps ``file_name``
-because "those are what users actually ask by"). File-level recall is stable
-under that difference in a way chunk-level recall would not be, which is why
-this records files and the golden set labels files.
+The cost is that the fixture cannot be re-derived from itself. Change the
+embedder, the chunking or the corpus and it is stale, so it carries the model
+name and a corpus fingerprint, and the golden test pins that model against the
+deployed one (``deploy/compose/docker-compose.coolify.yaml``). A stale fixture
+then fails CI instead of quietly scoring the wrong embedder.
+
+The chunks here are sampled PAGES rather than production's chunks: page text
+under the same ``MetadataMode.EMBED`` header production embeds. That header
+carries the filename on purpose, since ``EMBED_EXCLUDED_METADATA_KEYS`` keeps
+``file_name`` because "those are what users actually ask by". File-level recall
+survives the difference where chunk-level recall would not, which is why this
+records files and the golden set labels files.
 
 USAGE
 -----

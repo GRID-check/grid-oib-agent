@@ -128,22 +128,24 @@ def selective_terms(
 ) -> list[str]:
     """Drop the exact terms whose document frequency is too high to filter anything.
 
-    The ``$contains`` channel is a FILTER over the dense ranking, so its worth is
-    entirely its selectivity: a term present in nearly every chunk returns the vector
-    channel back, and RRF then counts that same dense ranking twice — every chunk the
-    dense channel already found scores ``2/(k+rank+1)`` while a chunk only the German
-    sparse channel found still scores ``1/(k+rank+1)``. The lexical evidence loses to
-    an echo. Measured on this corpus, a bare ``OIB`` is on 92.3% of pages and 39 of 39
-    documents, so it is exactly that echo (``german_text``'s module docstring records
-    the same finding at chunk level: 467 of 490, 95.3%).
+    The ``$contains`` channel FILTERS the dense ranking, so selectivity is the whole
+    of its worth. A term present in nearly every chunk filters nothing and hands the
+    vector channel straight back, and RRF then counts that one dense ranking twice.
+    Every chunk the dense channel already found scores ``2/(k+rank+1)``; a chunk only
+    the German sparse channel found still scores ``1/(k+rank+1)``. The lexical evidence
+    loses to an ECHO of its rival, and it loses however strong it is, because rank is
+    all RRF sees.
 
-    That channel had no ceiling while the German sparse channel it sits beside has had
-    one since it was built (``german_text.select_terms`` rule 2, same constants, same
-    reason). This is that rule, applied where the terms are literal substrings rather
-    than lexemes: drop a term that matches nothing (a wasted round trip) and drop a term
-    that matches more than ``df_ceiling_ratio`` of the collection (a wasted round trip
-    that also skews the fusion). An EMPTY result is a correct, expected outcome and
-    means "no usable exact signal" — the caller degrades to the other channels.
+    A bare ``OIB`` is that echo. It is on 92.3% of pages of this corpus and in 39 of
+    its 39 documents (``german_text``'s module docstring records the same finding at
+    chunk level, 467 of 490).
+
+    The German sparse channel has priced that since it was built and this channel never
+    did. So this is ``german_text.select_terms`` rule 2, same constants and same reason,
+    applied to literal substrings instead of lexemes. A term matching nothing costs a
+    round trip and goes. A term above ``df_ceiling_ratio`` costs a round trip AND skews
+    the fusion, so it goes too. Returning nothing is a correct and expected outcome; the
+    caller then runs on the other channels.
 
     The ceiling is only applied once the collection is big enough for a ratio to mean
     anything (``min_total``), because in a six-chunk project collection every real term

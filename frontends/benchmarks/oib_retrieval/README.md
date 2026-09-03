@@ -142,14 +142,14 @@ lookup exists" gap: the filename is in the embedded text on purpose
 actually ask by"), so the vector channel already serves them.
 
 Two guards exist because recall alone could not catch what happened here. A
-change once widened the exact channel to a term matching 92% of the corpus and
-read as overview 0.150 → 0.583; the six "oib N" questions had produced ONE
-identical ranking, and the "lift" was only where each question's labels fell in
-it — reordering the fixture moved it to 0.750.
+change once widened the exact channel to a term matching most of the corpus and
+read as overview 0.150 → 0.583. The six "oib N" questions had produced ONE
+ranking between them, so the "lift" was only where each question's labels fell
+in it, and reordering the fixture moved it to 0.750.
 
-* the **overview `recall@k` assert is a ceiling, not a floor** — a lift there is
-  a claim that must be argued, not a pass;
-* **distinguishability** — the six "oib N" questions must not share one ranking.
+* the overview `recall@k` assert is a **ceiling**, not a floor. A lift there is
+  a claim to be argued, not a pass.
+* **distinguishability**: the six "oib N" questions must not share one ranking.
   One ranking for many questions means the corpus was returned, not searched.
 
 Re-record the vector fixture when the embedding model, the corpus or the
