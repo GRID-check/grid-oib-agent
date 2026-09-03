@@ -23,6 +23,7 @@ from aiq_api.jobs.runner import _GRAPH_RECURSION_ERROR_MSG
 from aiq_api.jobs.runner import _WALL_CLOCK_TIMEOUT_MSG
 from aiq_api.jobs.runner import JOB_DEGRADED_EVENT_TYPE
 from aiq_api.jobs.runner import CancellationMonitor
+from aiq_api.jobs.runner import _b64url_encode_text
 from aiq_api.jobs.runner import _build_job_output
 from aiq_api.jobs.runner import _create_agent_instance
 from aiq_api.jobs.runner import _extract_answer_transparency
@@ -899,3 +900,34 @@ class TestTransparencyReachesBothSurfaces:
             )
 
         assert post.await_args_list[-1].kwargs["text"] == "# Report"
+
+
+class TestWorkerHeaderTextEncoding:
+    """Free-text worker headers must survive Starlette's latin-1 encoding.
+
+    Regression: the project context was injected raw into the worker's request
+    headers, so a German „quote (U+201E) in the project profile killed every
+    async job for that project with UnicodeEncodeError — before the agent
+    emitted a single event, which is why the research panel stayed empty.
+    """
+
+    GERMAN_CONTEXT = "Projekt: Holzbau Wien\nNotiz: Der Nachweis „GK 5 — Fluchtniveau 12 m“ fehlt noch."
+
+    def test_raw_german_text_is_not_header_safe(self) -> None:
+        """Pins the constraint: Starlette Headers accept latin-1 only."""
+        from starlette.datastructures import Headers
+
+        with pytest.raises(UnicodeEncodeError):
+            Headers(headers={"x-grid-project-context": self.GERMAN_CONTEXT})
+
+    def test_encoded_text_is_header_safe_and_round_trips(self) -> None:
+        """The runner's encoding reaches the reader with the text intact."""
+        from starlette.datastructures import Headers
+
+        from aiq_agent.project_context import GridRequestContext
+
+        encoded = _b64url_encode_text(self.GERMAN_CONTEXT)
+        assert encoded.isascii()
+        headers = Headers(headers={"x-grid-project-context": encoded})
+        ctx = GridRequestContext.from_headers(dict(headers))
+        assert ctx.project_context == self.GERMAN_CONTEXT

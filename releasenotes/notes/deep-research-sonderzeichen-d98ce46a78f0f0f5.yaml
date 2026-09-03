@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Eine Deep Research in einem Projekt, dessen Beschreibung deutsche
+    Anführungszeichen oder Gedankenstriche enthält, brach sofort nach dem Start
+    ab — der Bericht schlug fehl und die Seitenleiste blieb leer. Solche
+    Projekte lassen sich jetzt ohne Abbruch recherchieren.
