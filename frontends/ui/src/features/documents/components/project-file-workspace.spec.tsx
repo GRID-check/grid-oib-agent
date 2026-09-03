@@ -901,6 +901,83 @@ describe('ProjectFileWorkspace — the Von Piloti filter', () => {
 })
 
 /**
+ * AN ACTIVE FILTER MUST NOT BLANK THE FILES IT MATCHED.
+ *
+ * `filterEmptyNotice` is rendered by `FileBrowserPane` before every other
+ * branch, so the workspace may only hand one over when the level is actually
+ * empty: the memo used to answer filter state alone, and turning on any filter
+ * — even one matching everything on screen — replaced the whole listing with
+ * the "filter emptied it" panel.
+ */
+describe('ProjectFileWorkspace — a filter keeps what it matches', () => {
+  const DOCUMENTS = [
+    {
+      id: 'doc-photo',
+      filename: 'foto.jpg',
+      fileSize: 1024,
+      contentType: 'image/jpeg',
+      status: 'ready',
+      folderId: null,
+      createdAt: '2026-01-01T00:00:00Z',
+      errorMessage: null,
+    },
+    {
+      id: 'doc-report',
+      filename: 'bericht.pdf',
+      fileSize: 2048,
+      contentType: 'application/pdf',
+      status: 'ready',
+      folderId: null,
+      createdAt: '2026-01-02T00:00:00Z',
+      errorMessage: null,
+    },
+  ]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    resetPreviewStore()
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.get('/api/documents', () => HttpResponse.json({ documents: DOCUMENTS })),
+    )
+  })
+
+  const openMenu = async () => {
+    await userEvent.click(screen.getByTestId('file-filter-menu-trigger'))
+  }
+
+  it('keeps listing the files a kind filter matches, instead of the empty-filter panel', async () => {
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    await findFileButton(/foto\.jpg/i)
+    await openMenu()
+    await userEvent.click(await screen.findByLabelText('Photo'))
+
+    // The filter applied (the PDF is a document, not a photo) — and what it
+    // matched is still on screen rather than replaced by the notice.
+    expect(await findFileButton(/foto\.jpg/i)).toBeInTheDocument()
+    expect(screen.queryByText('bericht.pdf')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /clear filters/i })).not.toBeInTheDocument()
+  })
+
+  it('says a filter emptied the level only when the level really is empty, and clearing restores it', async () => {
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    await findFileButton(/foto\.jpg/i)
+    await openMenu()
+    await userEvent.click(await screen.findByLabelText('3D model (IFC)'))
+    await userEvent.keyboard('{Escape}')
+
+    expect(screen.queryByText('foto.jpg')).not.toBeInTheDocument()
+    expect(screen.queryByText('bericht.pdf')).not.toBeInTheDocument()
+    const clear = await screen.findByRole('button', { name: /clear filters/i })
+    await userEvent.click(clear)
+
+    expect(await findFileButton(/foto\.jpg/i)).toBeInTheDocument()
+    expect(await findFileButton(/bericht\.pdf/i)).toBeInTheDocument()
+  })
+})
+
+/**
  * THE FOLDER IS PART OF THE ADDRESS.
  *
  * It was `useState`, which made the folder tree the one part of this page the

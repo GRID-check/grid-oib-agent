@@ -24,7 +24,6 @@ import {
 import { ArrowDown, FileText, Lock } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
-import { Chip } from '@/components/ui/chip'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   useChatStore,
@@ -1493,7 +1492,6 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
   const tChat = useTranslations('chat')
   const { user } = useAuth()
   const composerSubject = useChatStore((s) => s.composerSubject)
-  const setStarterPrefill = useChatStore((s) => s.setComposerPrefill)
   const tFiles = useTranslations('files')
 
   if (!isAuthenticated) {
@@ -1534,44 +1532,17 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
       style={{ paddingBottom: `var(--welcome-offset, ${WELCOME_OFFSET_FALLBACK})` }}
     >
       {/* Hero greeting — the one larger moment in the app, and the only place
-          the ramp's 23px step is used (design language, "Type ramp"). */}
+          the ramp's 23px step is used (design language, "Type ramp"). The
+          project-grounded starters live in their own plan (categorized,
+          backend-driven) — until they land, the canvas stays quiet rather
+          than showing static examples. */}
       <h1 className="text-foreground text-center text-[23px] font-semibold tracking-tight">
         {heading}
       </h1>
 
-      {/* What the product promises about every answer, in one line. */}
-      <p className="text-muted-foreground mt-2 max-w-md text-center text-sm leading-relaxed">
-        {t('chatArea.capabilityLine')}
-      </p>
-
-      {/* Three starters, reusing the research prompts verbatim. A click fills
-          the composer via the prefill path and nothing else — it never sends,
-          so the reader reviews and edits before anything goes out. */}
-      <div
-        role="group"
-        aria-label={t('chatArea.startersAria')}
-        className="mt-4 flex max-w-lg flex-wrap items-center justify-center gap-2"
-      >
-        {[t('chatArea.prompt1'), t('chatArea.prompt2'), t('chatArea.prompt3')].map((prompt) => (
-          <Chip key={prompt} asChild variant="outline" size="md" interactive>
-            <button
-              type="button"
-              title={prompt}
-              aria-label={t('chatArea.usePrompt', { prompt })}
-              onClick={() => setStarterPrefill(prompt)}
-            >
-              <span className="max-w-64 truncate">{prompt}</span>
-            </button>
-          </Chip>
-        ))}
-      </div>
-
-      {/* The chat is about one file: say which. This is the only line left under
-          the greeting — the generic "answers cite their sources" subtitle was
-          removed, because it explained the product to someone who has already
-          bought it, every single time they opened a thread. A named file is a
-          different thing: it is the state of THIS canvas, and it is not
-          recoverable from anything else on screen. */}
+      {/* The chat is about one file: say which. A named file is the state of
+          THIS canvas, and it is not recoverable from anything else on
+          screen. */}
       {composerSubject && (
         <p className="text-muted-foreground mt-2 max-w-md text-center text-sm leading-relaxed">
           {tFiles('assignment.welcomeAbout', {
