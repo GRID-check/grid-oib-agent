@@ -13,6 +13,10 @@
  *   ┌ Noch etwas? ────────┐              ← disclosed once a reason is chosen
  *   └─────────────────────┘  [Hinweis senden]
  *
+ * Two placements, one shape: standalone it is that block; `compact` hands the
+ * row and the disclosure to the answer's meta row as two items, so the row keeps
+ * its 24px line and the disclosure still opens under it at the same left edge.
+ *
  * The vote is the whole transaction: `useAnswerFeedback` persists it the moment
  * a thumb is pressed, so the confirmation is the truth about what happened and
  * is stated once, on the vote's own line. The reason and the note are a
@@ -66,11 +70,19 @@ export interface AnswerFeedbackProps {
   /** Conversation the answer belongs to (hydration scope); null-safe. */
   conversationId?: string | null
   /**
-   * `compact` renders the row inside the answer's merged meta row (next to
-   * confidence and the timestamp) rather than as its own block. The resting row
-   * is identical either way — the only difference is that an OPEN disclosure
-   * claims the full width of the meta row, so its left edge lines up with the
-   * answer's instead of floating at the row's right end.
+   * `compact` renders this inside the answer's merged meta row (beside the copy
+   * actions and the details trigger) rather than as its own block.
+   *
+   * The difference is structural, not cosmetic: compact returns the resting row
+   * and the disclosure as TWO siblings of that row rather than one nested block,
+   * so the row itself lays them out. The resting row stays a 24px line beside
+   * the copy actions, and the disclosure — `w-full`, so it can share a line with
+   * nothing — takes the next line on its own, its left edge on the answer's.
+   *
+   * One box holding both is what the meta row cannot lay out: `items-center`
+   * centres a 24px icon group against a 180px form, so the copy actions floated
+   * mid-height in the footer's empty left half while the reason chips and the
+   * note hung off the row's right end.
    */
   compact?: boolean
   className?: string
@@ -141,141 +153,164 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
     [comment, setFeedback, reason],
   )
 
-  return (
+  /* The footnote itself. `min-h-6` is reserved so the confirmation swapping in
+     for the question cannot move anything below it. In the meta row this is the
+     item that sits beside the copy actions, so it stays exactly one 24px line
+     however much the disclosure under it holds. */
+  const restingRow = (
     <div
       className={cn(
-        'group/feedback flex flex-col gap-2 text-xs',
-        // In the meta row an open disclosure takes its own full-width line, so
-        // the whole block shares one left edge with the answer above it.
-        compact && verdict === 'down' && 'w-full',
-        className,
+        'group/feedback flex min-h-6 flex-wrap items-center gap-x-2 gap-y-1 text-xs',
+        compact && className,
       )}
     >
-      {/* The footnote itself. `min-h-6` is reserved so the confirmation swapping
-          in for the question cannot move anything below it. */}
-      <div className="flex min-h-6 flex-wrap items-center gap-x-2 gap-y-1">
-        {verdict === null && (
-          <span className="text-[11px] text-muted-foreground/80 transition-colors duration-quick ease-out group-hover/feedback:text-muted-foreground motion-reduce:transition-none">
-            {t('feedback.question')}
-          </span>
-        )}
-        <div className="flex items-center gap-1">
-          <motion.button
-            type="button"
-            onClick={handleUp}
-            aria-pressed={verdict === 'up'}
-            aria-label={t('feedback.helpfulAria')}
-            whileTap={{ scale: 0.88 }}
-            transition={springPress}
-            className={cn(thumbBase, verdict === 'up' && thumbSelected)}
-          >
-            <ThumbsUp className="size-3.5" aria-hidden="true" />
-          </motion.button>
-          <motion.button
-            type="button"
-            onClick={handleDown}
-            aria-pressed={verdict === 'down'}
-            aria-label={t('feedback.notHelpfulAria')}
-            whileTap={{ scale: 0.88 }}
-            transition={springPress}
-            className={cn(thumbBase, verdict === 'down' && thumbSelected)}
-          >
-            <ThumbsDown className="size-3.5" aria-hidden="true" />
-          </motion.button>
-        </div>
-        {/* What the vote alone commits, stated once, on the vote's own line. */}
-        <p role="status" className="flex items-center gap-1 text-[11px] text-muted-foreground">
-          {verdict !== null && (
-            <>
-              {/* Only the mark moves; the sentence is legible from frame one. */}
-              <motion.span
-                initial={{ opacity: 0, scale: 0.6 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={springSnap}
-                className="inline-flex"
-                aria-hidden="true"
-              >
-                <Check className="size-3" />
-              </motion.span>
-              {/* What the press COMMITTED, not gratitude. The vote is persisted
-                  on the press, so this line is the receipt for it — while the
-                  reason and the note below are a second, optional act. Thanking
-                  here read as if the exchange were over, directly under an open
-                  "Was war das Problem?". */}
-              {t('feedback.voteRecorded')}
-            </>
-          )}
-        </p>
-      </div>
-
-      {verdict === 'down' && (
-        <div className="flex w-full max-w-md flex-col gap-2 animate-in fade-in-0 slide-in-from-top-1 duration-base ease-entrance motion-reduce:animate-none">
-          <p id={promptId} className="text-[11px] text-muted-foreground">
-            {t('feedback.reasonPrompt')}
-          </p>
-          {/* Exclusive choice, structurally: Radix renders a radiogroup with
-              roving-focus arrow keys, so the chips are one tab stop. */}
-          <ToggleGroup
-            type="single"
-            value={reason ?? ''}
-            onValueChange={handleReason}
-            variant="outline"
-            size="sm"
-            aria-labelledby={promptId}
-            className="gap-1.5"
-          >
-            {REASONS.map((key) => (
-              <ToggleGroupItem
-                key={key}
-                value={key}
-                // Selected is the SAME language as the selected thumb: ink fill,
-                // no chroma, unmistakable at a glance in a row of four.
-                className="h-7 px-2.5 text-xs data-[state=on]:border-transparent data-[state=on]:bg-foreground data-[state=on]:text-background data-[state=on]:shadow-2xs"
-              >
-                {t(`feedback.reasons.${key}`)}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-
-          {showNote && (
-            <form
-              className="animate-in fade-in-0 slide-in-from-top-1 duration-base ease-entrance motion-reduce:animate-none"
-              onSubmit={handleCommentSubmit}
-            >
-              <Field className="gap-1.5">
-                <FieldLabel htmlFor={commentId} className="text-[11px] font-normal text-muted-foreground">
-                  {t('feedback.commentLabel')}
-                </FieldLabel>
-                <Textarea
-                  id={commentId}
-                  value={comment}
-                  onChange={(event) => setComment(event.target.value)}
-                  placeholder={t('feedback.commentPlaceholder')}
-                  rows={2}
-                  maxLength={2000}
-                  // 12px because a footnote about an answer must not out-weigh
-                  // the answer. The `md:text-xs` that used to sit here was
-                  // beating Textarea's `md:text-sm`; that override is now
-                  // `pointer-coarse:text-base`, which this deliberately does NOT
-                  // undo — a field this small still zooms iOS on focus, and a
-                  // comment box is exactly where somebody is typing prose.
-                  className="min-h-14 resize-none rounded-lg py-2 text-xs"
-                />
-                {/* Full ink when it will do something, 40% when it will not:
-                    the difference is a contrast jump, not grey vs. grey. */}
-                <Button
-                  type="submit"
-                  size="sm"
-                  className="h-7 w-fit px-3 text-xs disabled:opacity-40"
-                  disabled={comment.trim() === ''}
-                >
-                  {t('feedback.commentSubmit')}
-                </Button>
-              </Field>
-            </form>
-          )}
-        </div>
+      {verdict === null && (
+        <span className="text-[11px] text-muted-foreground/80 transition-colors duration-quick ease-out group-hover/feedback:text-muted-foreground motion-reduce:transition-none">
+          {t('feedback.question')}
+        </span>
       )}
+      <div className="flex items-center gap-1">
+        <motion.button
+          type="button"
+          onClick={handleUp}
+          aria-pressed={verdict === 'up'}
+          aria-label={t('feedback.helpfulAria')}
+          whileTap={{ scale: 0.88 }}
+          transition={springPress}
+          className={cn(thumbBase, verdict === 'up' && thumbSelected)}
+        >
+          <ThumbsUp className="size-3.5" aria-hidden="true" />
+        </motion.button>
+        <motion.button
+          type="button"
+          onClick={handleDown}
+          aria-pressed={verdict === 'down'}
+          aria-label={t('feedback.notHelpfulAria')}
+          whileTap={{ scale: 0.88 }}
+          transition={springPress}
+          className={cn(thumbBase, verdict === 'down' && thumbSelected)}
+        >
+          <ThumbsDown className="size-3.5" aria-hidden="true" />
+        </motion.button>
+      </div>
+      {/* What the vote alone commits, stated once, on the vote's own line. */}
+      <p role="status" className="flex items-center gap-1 text-[11px] text-muted-foreground">
+        {verdict !== null && (
+          <>
+            {/* Only the mark moves; the sentence is legible from frame one. */}
+            <motion.span
+              initial={{ opacity: 0, scale: 0.6 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={springSnap}
+              className="inline-flex"
+              aria-hidden="true"
+            >
+              <Check className="size-3" />
+            </motion.span>
+            {/* What the press COMMITTED, not gratitude. The vote is persisted
+                on the press, so this line is the receipt for it — while the
+                reason and the note below are a second, optional act. Thanking
+                here read as if the exchange were over, directly under an open
+                "Was war das Problem?". */}
+            {t('feedback.voteRecorded')}
+          </>
+        )}
+      </p>
+    </div>
+  )
+
+  /* The second, optional act — one item, `w-full` in both placements. As a block
+     that is simply the next line of the column; in the meta row a full-width
+     item can share a line with nothing, so it takes the next one, its left edge
+     on the answer's rather than hanging off the row's right end. `max-w-md`
+     bounds the CONTENT rather than the item, so the full width that claims the
+     line survives it. */
+  const disclosure = verdict === 'down' && (
+    <div className="w-full animate-in fade-in-0 slide-in-from-top-1 duration-base ease-entrance motion-reduce:animate-none">
+      <div className="flex max-w-md flex-col gap-2 text-xs">
+        <p id={promptId} className="text-[11px] text-muted-foreground">
+          {t('feedback.reasonPrompt')}
+        </p>
+        {/* Exclusive choice, structurally: Radix renders a radiogroup with
+            roving-focus arrow keys, so the chips are one tab stop. */}
+        <ToggleGroup
+          type="single"
+          value={reason ?? ''}
+          onValueChange={handleReason}
+          variant="outline"
+          size="sm"
+          aria-labelledby={promptId}
+          className="gap-1.5"
+        >
+          {REASONS.map((key) => (
+            <ToggleGroupItem
+              key={key}
+              value={key}
+              // Selected is the SAME language as the selected thumb: ink fill,
+              // no chroma, unmistakable at a glance in a row of four.
+              className="h-7 px-2.5 text-xs data-[state=on]:border-transparent data-[state=on]:bg-foreground data-[state=on]:text-background data-[state=on]:shadow-2xs"
+            >
+              {t(`feedback.reasons.${key}`)}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+
+        {showNote && (
+          <form
+            className="animate-in fade-in-0 slide-in-from-top-1 duration-base ease-entrance motion-reduce:animate-none"
+            onSubmit={handleCommentSubmit}
+          >
+            <Field className="gap-1.5">
+              <FieldLabel htmlFor={commentId} className="text-[11px] font-normal text-muted-foreground">
+                {t('feedback.commentLabel')}
+              </FieldLabel>
+              <Textarea
+                id={commentId}
+                value={comment}
+                onChange={(event) => setComment(event.target.value)}
+                placeholder={t('feedback.commentPlaceholder')}
+                rows={2}
+                maxLength={2000}
+                // 12px because a footnote about an answer must not out-weigh
+                // the answer. The `md:text-xs` that used to sit here was
+                // beating Textarea's `md:text-sm`; that override is now
+                // `pointer-coarse:text-base`, which this deliberately does NOT
+                // undo — a field this small still zooms iOS on focus, and a
+                // comment box is exactly where somebody is typing prose.
+                className="min-h-14 resize-none rounded-lg py-2 text-xs"
+              />
+              {/* Full ink when it will do something, 40% when it will not:
+                  the difference is a contrast jump, not grey vs. grey. */}
+              <Button
+                type="submit"
+                size="sm"
+                className="h-7 w-fit px-3 text-xs disabled:opacity-40"
+                disabled={comment.trim() === ''}
+              >
+                {t('feedback.commentSubmit')}
+              </Button>
+            </Field>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+
+  // Compact: two siblings, laid out by the meta row that owns them. Standalone:
+  // one block that stacks them itself.
+  if (compact) {
+    return (
+      <>
+        {restingRow}
+        {disclosure}
+      </>
+    )
+  }
+
+  return (
+    <div className={cn('flex flex-col gap-2', className)}>
+      {restingRow}
+      {disclosure}
     </div>
   )
 }

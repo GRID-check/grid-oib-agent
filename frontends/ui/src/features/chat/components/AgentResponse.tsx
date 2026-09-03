@@ -1160,8 +1160,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 />
               )}
               {hasMetaRow && <span className="flex-1" aria-hidden="true" />}
+              {/* `compact`: the thumbs stay on this line and their disclosure
+                  takes the next one full-width, rather than one tall box the
+                  row would centre the copy actions against. */}
               {hasFeedback && messageId && (
-                <AnswerFeedback messageId={messageId} conversationId={conversationId} />
+                <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
               )}
               {hasDetailsContent && (
                 <AnswerDetails

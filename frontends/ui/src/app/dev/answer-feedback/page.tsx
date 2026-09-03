@@ -211,7 +211,6 @@ const TURN_STATES: Record<string, { messageId: string; verdict: string; reason: 
       comment: 'Zitiert OIB-Richtlinie 2 statt 4.',
     },
   ],
-  'af-inline': [],
 }
 
 if (typeof window !== 'undefined') {
@@ -332,27 +331,24 @@ export default function AnswerFeedbackPreviewPage() {
               </div>
             ))}
 
-            {/* The placement that actually ships: `compact`, inside the answer's
-                merged meta row (confidence · spacer · thumbs · timestamp). */}
+            {/* The `compact` placement is NOT rebuilt here. A hand-built meta
+                row is a fork of the answer footer, and this one had already
+                drifted from it — it carried a confidence chip and a timestamp
+                the footer has since moved behind „Antwortdetails", and it never
+                carried the copy actions at all. So it showed the resting row
+                on a row that no longer exists, and the open disclosure — the
+                state that actually broke the footer's layout — was never on it.
+                The real thing, in the real card, is one route away. */}
             <div className="flex flex-col gap-2 rounded-lg border bg-card p-4">
               <p className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
                 Kompakt — in der Meta-Zeile der Antwort
               </p>
-              <div className="rounded-lg border bg-background px-4 py-3">
-                <p className="text-sm leading-relaxed text-foreground">
-                  Für Gebäudeklasse 4 beträgt die maximale Fluchtweglänge 40 m.
-                </p>
-                <div className="mt-2.5 flex min-h-6 flex-wrap items-center gap-2">
-                  <span className="inline-flex h-6 items-center rounded-md bg-muted px-2 text-[11px] text-muted-foreground">
-                    Sichere Antwort
-                  </span>
-                  <span className="flex-1" aria-hidden="true" />
-                  <AnswerFeedback compact messageId="af-msg" conversationId="af-inline" />
-                  <span className="text-[11px] text-muted-foreground">09:41</span>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Gleiche Ruhe-Zeile, gleiche Höhe wie der Rest der Meta-Zeile.
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Die Fußnote in der echten Antwort-Fußzeile, in Ruhe und offen:{' '}
+                <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
+                  /dev/chat-turn?variant=feedback-open
+                </code>
+                . Hier steht die Komponente für sich — die Zeile, die sie tragen muss, steht dort.
               </p>
             </div>
           </div>

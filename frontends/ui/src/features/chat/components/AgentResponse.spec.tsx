@@ -470,6 +470,49 @@ describe('AgentResponse', () => {
       expect(screen.getByText(/^\d{1,2}:\d{2}/)).toBeInTheDocument()
     })
 
+    test('a down-vote opens its disclosure as the meta row\'s own next line', async () => {
+      // The layout defect this holds: the row is `items-center`, so one box
+      // holding both the thumbs and their open form made the row as tall as the
+      // form and centred the copy actions against it — two icons floating in
+      // the middle of an otherwise empty left half, with the reason chips and
+      // the note hanging off the row's right end. The row and the disclosure are
+      // therefore two ITEMS of the meta row, not one nested block.
+      const user = userEvent.setup()
+      // The vote is persisted optimistically and reverted when the write fails,
+      // so the disclosure only stays open if the POST resolves.
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ feedback: [] }) })
+      )
+      try {
+        render(
+          <AgentResponse
+            content="Answer"
+            messageId="m1"
+            conversationId="conv-1"
+            citations={citations}
+          />
+        )
+
+        const thumb = screen.getByRole('button', { name: 'Mark this answer as not helpful' })
+        await user.click(thumb)
+
+        const metaRow = screen
+          .getByRole('button', { name: 'Copy answer with full source references' })
+          .closest('.min-h-6')
+        const disclosure = (await screen.findByText('What was the problem?')).closest('.w-full')
+
+        // Both hang off the meta row itself, so the row lays them out on two
+        // lines instead of centring its short items against a tall one.
+        expect(disclosure?.parentElement).toBe(metaRow)
+        expect(thumb.closest('.min-h-6')?.parentElement).toBe(metaRow)
+        // The thumbs keep their own 24px line — the form is not inside it.
+        expect(disclosure).not.toContainElement(thumb)
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
     test('the export actions, the thumbs and the details trigger share the wrapping meta row', () => {
       render(
         <AgentResponse
