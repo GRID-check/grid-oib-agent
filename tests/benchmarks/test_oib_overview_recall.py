@@ -291,6 +291,77 @@ def test_paraphrase_cohort_recall_has_a_floor(report):
     assert scores.mrr >= 0.45, _diff(report)
 
 
+# ---------------------------------------------------------------------------
+# The vector channel: recorded, and the reason the numbers above are not the
+# product's retrieval quality.
+# ---------------------------------------------------------------------------
+
+
+def test_the_vector_channel_is_recorded(report):
+    """The recording must exist, and must be of the model production runs.
+
+    Without it this harness scores two of three channels and the cohort table
+    reads as retrieval quality when it is not. A deleted or stale fixture
+    fails here rather than quietly removing the only channel that answers the
+    overview cohort."""
+    recorded = overview.load_recorded_vector()
+    assert recorded, "vector fixture missing — re-record with `task be:eval:record-vector`"
+    assert recorded["model"] == "openai/text-embedding-3-large", (
+        f"recorded with {recorded['model']!r}, which is not the deployed embedding model "
+        "(deploy/compose/docker-compose.coolify.yaml) — re-record"
+    )
+    assert len(recorded["rankings"]) == len(report.results)
+    assert recorded["corpus_fingerprint"]
+
+
+def test_the_vector_channel_is_what_answers_the_overview_cohort(report):
+    """The fact that reframes every number above it.
+
+    Measured with the production embedder over the real corpus, the vector
+    channel answers the broad cohort the deterministic channels cannot touch.
+    The gap is the point: a change that moves `recall` on this cohort is moving
+    the weak channels, and claiming a retrieval win from it requires showing it
+    beats what the product already does without them.
+
+    Both bounds are asserted. If the vector floor drops, retrieval genuinely
+    regressed and this is the first place it shows. If the deterministic
+    ceiling rises, read `test_the_oib_n_questions_must_not_share_one_ranking`
+    before believing it."""
+    scores = _cohort(report, "overview")
+    assert scores.vector_recall >= 0.85, _diff(report)
+    assert scores.recall <= 0.20, _diff(report)
+    assert _cohort(report, "all").vector_recall >= 0.90, _diff(report)
+
+
+def test_the_oib_n_questions_must_not_share_one_ranking(report):
+    """The guard recall cannot provide, and the one this harness lacked.
+
+    Six questions naming six different guidelines are six different retrievals.
+    When they share ONE ranking, whatever produced it did not search — it
+    returned the corpus — and the cohort recall is only where each question's
+    labels happened to fall in that fixed list. That is not hypothetical: it is
+    exactly what shipped when casefolding sent a term matching 34 of 39 files
+    into the exact channel, and recall alone read it as 0.150 -> 0.583.
+
+    Vacuous today on the deterministic side, because those channels rank
+    nothing here — and live the moment one of them fires on this cohort, which
+    is precisely when it is needed."""
+    siblings = [r for r in report.results if r.entry.id.startswith("ov-rl")]
+    assert len(siblings) >= 5, "the sibling set is what makes this test work"
+
+    ranked = [r.ranked for r in siblings if r.ranked]
+    if len(ranked) > 1:
+        assert len(set(ranked)) > 1, (
+            "every 'oib N' question produced the SAME deterministic ranking — the channel "
+            "returned the corpus rather than searching it" + _diff(report)
+        )
+
+    vector = [r.vector_ranked for r in siblings if r.vector_ranked]
+    assert len(set(vector)) == len(vector), (
+        "the vector channel returned identical rankings for different guidelines" + _diff(report)
+    )
+
+
 def test_overview_is_the_weakest_cohort(report):
     """Ordering, not absolute values: whichever retrieval change lands next,
     the broad cohort must not silently overtake the precise ones (that would

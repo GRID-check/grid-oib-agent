@@ -109,22 +109,52 @@ the dense A/B, is the load-bearing evidence for the chunking change.
 ### The overview golden set (broad queries)
 
 `fixtures/oib_golden_overview.json` — 30 German entries in three cohorts: `overview`
-(10 broad "was weißt du über die oib N" questions with no usable lexical signal —
-the vector-only failure class), `exact-id` (10 §-refs, RL designations, filenames),
-`paraphrase` (10 everyday wordings of the same intents). Labels are corpus FILES
-(real `data/oib` names), scored as recall@16 (production `top_k`) + MRR by
-`src/oib_retrieval_eval/overview.py` against a deterministic in-memory fixture
-corpus through the production exact + sparse channels (no fill — see that
-module's docstring for what is and is not measured). CI runs it as
+(10 broad "was weißt du über die oib N" questions carrying no usable lexical
+signal), `exact-id` (10 §-refs, RL designations, filenames), `paraphrase`
+(10 everyday wordings of the same intents). Labels are corpus FILES (real
+`data/oib` names), scored as recall@16 (production `top_k`) + MRR by
+`src/oib_retrieval_eval/overview.py`. CI runs it as
 `tests/benchmarks/test_oib_overview_recall.py`; humans run `task be:eval:overview`.
 
-Baseline (2026-09-03; overview re-recorded after item 13, the casefold
-identifier): overview recall 0.583 / MRR 0.389 / empty 0.10 (9/10 queries rank
-something — only the bare "oib-richtlinien" question with no number stays
-silent), exact-id 0.700 (filenames + the bare short-form §-ref score 0),
-paraphrase 1.000. The overview floors in the test are the ratchet retrieval
-changes ship against: a fix that lifts overview recall further turns them
-red — raise them then.
+**Two columns, and reading the wrong one is how a regression shipped.**
+`recall@k` scores the deterministic channels (exact `$contains` + German sparse)
+against a synthetic in-memory fixture corpus. `vector@k` scores the vector
+channel, RECORDED by `task be:eval:record-vector` — real `data/oib` pages and
+the golden questions embedded with production's `openai/text-embedding-3-large`,
+written to `fixtures/vector_channel_recorded.json` so CI stays offline. They are
+reported side by side and never fused: one is measured on the real corpus, the
+other on the synthetic mirror.
+
+Baseline (2026-09-03):
+
+| cohort | `recall@k` (deterministic) | `vector@k` (recorded) |
+|---|---|---|
+| overview | 0.150 | **0.933** |
+| exact-id | 0.700 | **1.000** |
+| paraphrase | 1.000 | **1.000** |
+
+The overview cohort is unserved *by the deterministic channels* and answered by
+the vector channel. It is **not** a "vector-only failure class" — that was an
+assumption, and when it was finally measured it turned out to be backwards. The
+same measurement retires the "literal filenames score ~0 until a filename-aware
+lookup exists" gap: the filename is in the embedded text on purpose
+(`EMBED_EXCLUDED_METADATA_KEYS` keeps `file_name` because "those are what users
+actually ask by"), so the vector channel already serves them.
+
+Two guards exist because recall alone could not catch what happened here. A
+change once widened the exact channel to a term matching 92% of the corpus and
+read as overview 0.150 → 0.583; the six "oib N" questions had produced ONE
+identical ranking, and the "lift" was only where each question's labels fell in
+it — reordering the fixture moved it to 0.750.
+
+* the **overview `recall@k` assert is a ceiling, not a floor** — a lift there is
+  a claim that must be argued, not a pass;
+* **distinguishability** — the six "oib N" questions must not share one ranking.
+  One ranking for many questions means the corpus was returned, not searched.
+
+Re-record the vector fixture when the embedding model, the corpus or the
+questions change. The golden test pins the recorded model against the deployed
+one, so a stale fixture fails CI rather than scoring the wrong embedder.
 
 Item 14 (HyDE-as-channel, experiment, default off) is measured here as
 `overview.run(..., hyde_drafter=...)`: for the identifier-free queries the

@@ -28,13 +28,18 @@ change to the stemmer, the ceiling or term extraction moves these numbers.
 
 WHAT IT DOES NOT MEASURE (read before citing a number)
 ------------------------------------------------------
-* The vector channel is NOT simulated. The ranking per query is exact matches
-  (corpus order) followed by sparse matches (index order), deduplicated — and
-  nothing else. There is deliberately no fill-to-top-k with generic neighbours:
-  production fills ``top_k`` (floor off by design), but filling appends BELOW
-  the signal ranking, so recall over the signal ranking is the lower bound a
-  fix must lift. A query with no channel firing scores recall 0.0 here; in
-  production the same query gets sixteen generic neighbours and a hedge.
+* The deterministic ranking per query is exact matches (corpus order) followed
+  by sparse matches (index order), deduplicated — and nothing else. There is
+  deliberately no fill-to-top-k with generic neighbours: production fills
+  ``top_k`` (floor off by design), but filling appends BELOW the signal
+  ranking. A query with no deterministic channel firing scores recall 0.0 in
+  the ``recall@k`` column.
+
+  That column is NOT this product's retrieval quality, and reading it as such
+  is the mistake this harness invited for one release. The vector channel is
+  measured too — recorded, not simulated (``vector@k``, see below) — and on the
+  overview cohort it scores 0.933 where the deterministic channels score
+  0.150. A query that "ranks nothing" here is usually answered in production.
 * Order beyond channel membership is modelling, not production: production
   fuses via reciprocal rank fusion, this harness concatenates exact-first.
   Recall is order-invariant while the union fits in k (it always does here);
@@ -44,6 +49,27 @@ WHAT IT DOES NOT MEASURE (read before citing a number)
   designation and discriminative vocabulary (see ``FIXTURE_TEXTS``). They are
   NOT the corpus: absolute values are about channel activation, and the
   before/after deltas are what this set is for.
+
+THE VECTOR CHANNEL (``vector@k``) — RECORDED, REPORTED, NEVER FUSED
+-------------------------------------------------------------------
+``oib_retrieval_eval.record_vector`` embeds the REAL ``data/oib`` pages and the
+golden questions with the production embedding model and writes the file-level
+ranking per question to ``fixtures/vector_channel_recorded.json``. The harness
+reads that fixture, so CI stays offline and key-free while the number is a
+measurement rather than a model of one. Re-record when the model, the corpus or
+the questions change; the golden test pins the recorded model against the
+deployed one so a stale fixture fails rather than misleads.
+
+It is reported BESIDE the deterministic columns and deliberately not fused into
+them: this arm is measured on the real corpus and those are measured on the
+synthetic mirror, so a fused number would average two corpora and mean nothing.
+Read the two columns as answers to "which channel actually serves this cohort".
+
+WHY THAT COLUMN EXISTS: the harness shipped scoring two channels of three, and
+a change that widened the exact channel to 92% of the corpus read as overview
+0.150 -> 0.583 — a 4x "win" on channels that contribute almost nothing here,
+while the channel that does the work was not on the page. The vector column and
+``_distinguishability_line`` are the two guards against a repeat.
 
 EXPECTED BASELINE (recorded 2026-09-03; overview re-recorded after item 13)
 ---------------------------------------------------------------------
@@ -340,6 +366,13 @@ class QueryResult:
     mrr: float
     missing: tuple[str, ...]
     hyde_fired: bool = False
+    #: The RECORDED vector channel, reported beside the deterministic ones and
+    #: deliberately not fused with them: this arm is measured on the real
+    #: corpus and those are measured on the synthetic mirror, so a fused number
+    #: would mix two corpora. Read them as two answers to "which channel
+    #: answers this cohort", which is the question the harness got wrong.
+    vector_ranked: tuple[str, ...] = ()
+    vector_recall: float = 0.0
 
 
 @dataclass
@@ -351,6 +384,9 @@ class CohortScores:
     recall: float
     mrr: float
     empty_share: float
+    #: The recorded vector channel over the same questions — reported beside
+    #: `recall`, never merged into it. See `QueryResult.vector_ranked`.
+    vector_recall: float = 0.0
 
 
 @dataclass
@@ -522,6 +558,33 @@ def exact_files_for(terms: list[str], docs: list[FixtureDoc]) -> list[str]:
     return [doc.file_name for doc, hay in zip(docs, haystacks, strict=True) if any(term in hay for term in kept)]
 
 
+def default_vector_fixture_path() -> Path:
+    """Where the recorded vector-channel ranking lives."""
+    return Path(__file__).resolve().parents[2] / "fixtures" / "vector_channel_recorded.json"
+
+
+def load_recorded_vector(path: str | Path | None = None) -> dict:
+    """The recorded vector-channel ranking, or an empty recording when absent.
+
+    Absence is tolerated (the harness still scores the deterministic channels)
+    because the recording needs a key and the corpus, which a fresh checkout
+    may not have. It is NOT tolerated silently: the report prints "not
+    recorded" and the golden test asserts the recording is present, so a
+    deleted fixture fails CI rather than quietly removing the only channel
+    that answers the overview cohort.
+    """
+    fixture = Path(path) if path is not None else default_vector_fixture_path()
+    if not fixture.exists():
+        return {}
+    return json.loads(fixture.read_text())
+
+
+def vector_files_for(recorded: dict, entry_id: str) -> list[str]:
+    """The vector channel's file ranking for one golden question, best first."""
+    ranking = (recorded.get("rankings") or {}).get(entry_id) or []
+    return [file_name for file_name, _score in ranking]
+
+
 def sparse_files_for(index, query: str, *, depth: int = RETRIEVE_DEPTH) -> list[str]:
     """Files the sparse channel ranks for ``query``, deduplicated, index order."""
     from oib_retrieval_eval.lexical import search
@@ -630,6 +693,7 @@ def run(
     if entries is None:
         entries = load_golden(default_golden_path(), known_files=frozenset(FIXTURE_TEXTS))
     index = build_index(docs)
+    recorded_vector = load_recorded_vector()
 
     results: list[QueryResult] = []
     for entry in entries:
@@ -649,6 +713,7 @@ def run(
         else:
             ranked = tuple(apply_production_filter(rank_files(entry.question, docs, index)))
         expected = set(entry.expected)
+        vector_ranked = tuple(apply_production_filter(vector_files_for(recorded_vector, entry.id)))
         results.append(
             QueryResult(
                 entry=entry,
@@ -659,6 +724,8 @@ def run(
                 mrr=mrr(list(ranked), expected),
                 missing=tuple(f for f in entry.expected if f not in list(ranked)[:cutoff]),
                 hyde_fired=hyde_fired,
+                vector_ranked=vector_ranked,
+                vector_recall=recall_at_k(list(vector_ranked), expected, cutoff),
             )
         )
 
@@ -673,9 +740,32 @@ def run(
                 recall=mean([r.recall for r in subset]),
                 mrr=mean([r.mrr for r in subset]),
                 empty_share=(sum(1 for r in subset if not r.ranked) / len(subset)) if subset else 0.0,
+                vector_recall=mean([r.vector_recall for r in subset]),
             )
         )
     return Report(k=cutoff, results=results, cohorts=cohorts)
+
+
+def _distinguishability_line(report: Report) -> str:
+    """How many DISTINCT rankings the six "oib N" questions produced.
+
+    The single number that catches the failure recall cannot see. Six questions
+    naming six different guidelines must not share one ranking; when they do,
+    whatever scored did not search — it returned the corpus, and the cohort
+    recall is just where the labels happened to fall in it.
+    """
+    siblings = [r for r in report.results if r.entry.id.startswith("ov-rl")]
+    if not siblings:
+        return "distinguishability: no 'oib N' siblings in this set."
+    ranked = [r for r in siblings if r.ranked]
+    deterministic = f"{len({r.ranked for r in ranked})}/{len(ranked)} distinct" if ranked else "nothing ranked"
+    vector = [r for r in siblings if r.vector_ranked]
+    vector_note = f"{len({r.vector_ranked for r in vector})}/{len(vector)} distinct" if vector else "not recorded"
+    return (
+        f"distinguishability across the {len(siblings)} 'oib N' questions — "
+        f"deterministic: {deterministic}; vector: {vector_note}. "
+        "One ranking for many questions means the corpus was returned, not searched."
+    )
 
 
 def format_report(report: Report) -> str:
@@ -685,15 +775,25 @@ def format_report(report: Report) -> str:
         f"cutoff k={report.k} (production top_k); fixture: {len(FIXTURE_TEXTS)} files; "
         f"excluded per query: {len(production_excluded())}",
         "",
-        f"{'cohort':<12}{'n':>4}{'recall@k':>10}{'mrr':>8}{'empty':>8}",
+        f"{'cohort':<12}{'n':>4}{'recall@k':>10}{'mrr':>8}{'empty':>8}{'vector@k':>10}",
     ]
     for scores in report.cohorts:
         lines.append(
-            f"{scores.label:<12}{scores.n:>4}{scores.recall:>10.3f}{scores.mrr:>8.3f}{scores.empty_share:>8.2f}"
+            f"{scores.label:<12}{scores.n:>4}{scores.recall:>10.3f}{scores.mrr:>8.3f}"
+            f"{scores.empty_share:>8.2f}{scores.vector_recall:>10.3f}"
         )
+    recorded = load_recorded_vector()
     lines += [
         "",
-        "empty = share of queries with no firing channel (ranked nothing).",
+        "recall@k / mrr / empty = the DETERMINISTIC channels (exact + sparse) only.",
+        (
+            f"vector@k = the recorded vector channel alone ({recorded.get('model', 'not recorded')}), "
+            "reported beside them and never fused: it is measured on the real corpus, they are "
+            "measured on the synthetic mirror."
+        ),
+        _distinguishability_line(report),
+        "",
+        "empty = share of queries with no firing deterministic channel (ranked nothing).",
         f"hyde drafts fused: {sum(1 for result in report.results if result.hyde_fired)}/{len(report.results)}.",
         "",
         "per-query (expected vs got; missing = expected files outside the ranking):",
