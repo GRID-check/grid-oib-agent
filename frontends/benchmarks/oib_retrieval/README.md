@@ -106,6 +106,26 @@ the dense A/B, is the load-bearing evidence for the chunking change.
   by a second Austrian building-law reader. Treat absolute values as provisional; the
   before/after deltas are what this set is for.
 
+### The overview golden set (broad queries)
+
+`fixtures/oib_golden_overview.json` — 30 German entries in three cohorts: `overview`
+(10 broad "was weißt du über die oib N" questions with no usable lexical signal —
+the vector-only failure class), `exact-id` (10 §-refs, RL designations, filenames),
+`paraphrase` (10 everyday wordings of the same intents). Labels are corpus FILES
+(real `data/oib` names), scored as recall@16 (production `top_k`) + MRR by
+`src/oib_retrieval_eval/overview.py` against a deterministic in-memory fixture
+corpus through the production exact + sparse channels (no fill — see that
+module's docstring for what is and is not measured). CI runs it as
+`tests/benchmarks/test_oib_overview_recall.py`; humans run `task be:eval:overview`.
+
+Baseline (2026-09-03; overview re-recorded after item 13, the casefold
+identifier): overview recall 0.583 / MRR 0.389 / empty 0.10 (9/10 queries rank
+something — only the bare "oib-richtlinien" question with no number stays
+silent), exact-id 0.700 (filenames + the bare short-form §-ref score 0),
+paraphrase 1.000. The overview floors in the test are the ratchet retrieval
+changes ship against: a fix that lifts overview recall further turns them
+red — raise them then.
+
 ## Layout
 
 | Path | Purpose |
