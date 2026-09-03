@@ -82,6 +82,51 @@ class TestAllcapsTokens:
         assert extract_exact_terms("Die (OIB) gilt") == ["OIB"]
 
 
+class TestCaseInsensitiveIdentifiers:
+    """Backlog item 13: casefold predicate — normalization, not vocabulary."""
+
+    def test_bare_lowercase_matches_uppercase(self):
+        assert extract_exact_terms("oib 2") == extract_exact_terms("OIB 2") == ["OIB"]
+
+    def test_lowercase_in_sentence_matches_uppercase(self):
+        lower = extract_exact_terms("was weißt du über die oib 2")
+        upper = extract_exact_terms("was weißt du über die OIB 2")
+        assert lower == upper == ["OIB"]
+
+    def test_titlecase_acronym_with_number(self):
+        assert extract_exact_terms("Oib 2") == ["OIB"]
+
+    def test_lowercase_umlaut_acronym_with_number(self):
+        assert extract_exact_terms("önorm 2") == ["ÖNORM"]
+
+    def test_lowercase_code_with_digits(self):
+        assert extract_exact_terms("b1800") == extract_exact_terms("B1800") == ["B1800"]
+
+    def test_trailing_number_is_not_part_of_term(self):
+        # The number is shape evidence, not term content: the parity basis.
+        assert extract_exact_terms("OIB 2") == ["OIB"]
+
+    def test_bare_lowercase_acronym_without_shape_stays_silent(self):
+        # No identifier shape (no digits, no adjacent number) -> no term.
+        # Vocabulary-free means bare "oib" is indistinguishable from prose;
+        # only the citation shape unlocks the casefold.
+        assert extract_exact_terms("was ist oib") == []
+
+    def test_mixed_case_prose_without_shape_stays_silent(self):
+        assert extract_exact_terms("Richtlinie und Gesetz") == []
+
+
+class TestStopwordProbe:
+    """Backlog item 13 ratchet: German function words must never leak into exact terms."""
+
+    def test_sentence_probe_yields_zero_terms(self):
+        assert extract_exact_terms("was weißt du über die und der") == []
+
+    def test_bare_function_words_yield_zero_terms(self):
+        for probe in ("die der und", "was über du", "der die das", "und oder aber"):
+            assert extract_exact_terms(probe) == []
+
+
 class TestOrderingDedupAndCap:
     def test_order_of_first_appearance(self):
         assert extract_exact_terms("ABC dann § 5 dann XYZ") == ["ABC", "§ 5", "XYZ"]
