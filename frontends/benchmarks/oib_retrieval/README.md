@@ -126,6 +126,17 @@ paraphrase 1.000. The overview floors in the test are the ratchet retrieval
 changes ship against: a fix that lifts overview recall further turns them
 red — raise them then.
 
+Item 14 (HyDE-as-channel, experiment, default off) is measured here as
+`overview.run(..., hyde_drafter=...)`: for the identifier-free queries the
+draft is ranked through the draft's deterministic channels and fused beside
+the original via the production RRF. Measured 2026-09-03 with no draft model
+in the loop (fail-open): on is byte-identical to off on all three cohorts —
+no lift, no regression — so the channel stays off. A lift claim needs
+RECORDED drafts from the real draft model (never hand-written passages);
+`tests/benchmarks/test_oib_hyde.py` pins the gating, the fail-open identity,
+and the fusion order. See that module's docstring for what the on-mode can
+and cannot measure (no dense arm offline).
+
 ## Layout
 
 | Path | Purpose |

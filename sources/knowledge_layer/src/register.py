@@ -224,6 +224,30 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
             "requery_llm is set. Each is one retrieval per in-scope collection."
         ),
     )
+    hyde_enabled: bool = Field(
+        default=False,
+        description=(
+            "HyDE-as-channel experiment (backlog item 14), default OFF. When true, a "
+            "query with no exact identifier shape drafts a hypothetical norm-register "
+            "passage that is retrieved and fused as one extra RRF channel beside the "
+            "original query (which always stays in the mix and is what the reranker "
+            "judges). The draft reuses the resolved rerank_llm handle — greedy, "
+            "reasoning-free, already paid for — so enabling this adds no model "
+            "plumbing and re-points no model. Draft failure/slowness degrades to the "
+            "baseline silently. Ship as default behaviour only if the golden harness "
+            "shows an overview lift with no exact-id/paraphrase regression."
+        ),
+    )
+    hyde_timeout_seconds: float = Field(
+        default=8.0,
+        ge=1.0,
+        le=30.0,
+        description=(
+            "Upper bound on the HyDE draft call. It runs beside the first retrieval "
+            "fan-out, so a fast draft costs no latency; past this it reads as no "
+            "draft and the search is the baseline."
+        ),
+    )
     # Foundational RAG (hosted RAG Blueprint) options
     rag_url: str = Field(default="http://localhost:8081/v1", description="RAG query server URL (foundational_rag only)")
     ingest_url: str = Field(
@@ -802,6 +826,24 @@ def _fuse_channels(channels: list[list]) -> list[tuple]:
         logger.warning("Cross-collection rank fusion unavailable, using collection order: %s", exc)
         flat = [chunk for channel in channels for chunk in channel if chunk is not None]
         return [(chunk, rank, 0.0) for rank, chunk in enumerate(flat)]
+
+
+async def _draft_hyde_text(hyde_llm_obj, query: str, *, enabled: bool, timeout_seconds: float) -> str | None:
+    """Draft the HyDE probe passage for ``query``; ``None`` means baseline.
+
+    The single seam between the search path and the draft model, so tests can
+    pin "identifier-shaped query → no model call" and "slow model → baseline"
+    without driving the whole search. Never raises: the gate, the import and
+    the draft call all fail open to ``None``.
+    """
+    try:
+        from aiq_agent.common.hyde import draft_passage
+        from aiq_agent.common.hyde import should_draft
+    except ImportError:
+        return None
+    if not should_draft(query, enabled=enabled and hyde_llm_obj is not None):
+        return None
+    return await draft_passage(hyde_llm_obj, query, timeout_seconds=timeout_seconds)
 
 
 def _resolve_doc_classes(chunks) -> dict[tuple[str, str], str]:
@@ -1444,6 +1486,17 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
     except Exception as e:
         logger.warning(f"Cross-encoder reranker unavailable ({type(e).__name__}: {e}); using the LLM judge")
 
+    # HyDE-as-channel (backlog item 14, experiment, default off): the draft
+    # reuses the resolved rerank handle — temperature-0, reasoning-free, the
+    # shape a hypothetical-passage probe wants — so this adds no model
+    # plumbing and re-points no model. Without that handle the channel is
+    # silently off, however the flag is set.
+    hyde_armed = bool(config.hyde_enabled and rerank_llm_obj is not None)
+    logger.info(
+        "HyDE channel: %s",
+        "armed (draft via rerank_llm)" if hyde_armed else "disabled",
+    )
+
     # Initialize summary DB with configured URL
     from aiq_agent.knowledge.factory import configure_summary_db
 
@@ -1633,10 +1686,47 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
 
         try:
             # Fan out across all layers concurrently; tolerate empty/missing layers.
-            results = await asyncio.gather(
+            # The HyDE draft (when armed) is drafted BESIDE that fan-out, so a fast
+            # draft costs no latency; a slow one reads as no draft (fail-open) and
+            # the search below is exactly the baseline. return_exceptions=True also
+            # covers the draft slot, so the probe can never break the search.
+            gathered = await asyncio.gather(
                 *(_retrieve_collection(entry) for entry in target_collections),
+                _draft_hyde_text(
+                    rerank_llm_obj,
+                    query,
+                    enabled=config.hyde_enabled,
+                    timeout_seconds=config.hyde_timeout_seconds,
+                ),
                 return_exceptions=True,
             )
+            *results, hyde_text = gathered
+            if isinstance(hyde_text, Exception) or not hyde_text:
+                hyde_text = None
+
+            hyde_results: list = []
+            if hyde_text:
+                # One extra RRF channel per collection, APPENDED after the
+                # original query's channels so the question as asked keeps the
+                # tie-break seat (same convention as the requery widening
+                # below). The draft goes through the SAME retrieve path — same
+                # embedding model and fingerprint chain, same filters, same
+                # hybrid boost — and is discarded right after: it never reaches
+                # the reranker (which judges the original query) or the
+                # formatted answer. Any fan-out failure keeps the first pool.
+                try:
+                    hyde_results = await asyncio.gather(
+                        *(_retrieve_collection(entry, hyde_text) for entry in target_collections),
+                        return_exceptions=True,
+                    )
+                    logger.info(
+                        "HyDE channel widened the pool with a %d-char draft for %r",
+                        len(hyde_text),
+                        query[:60],
+                    )
+                except Exception:  # noqa: BLE001 - the first ranking is always a valid answer
+                    logger.warning("HyDE fan-out failed; keeping the first pool", exc_info=True)
+                    hyde_results = []
 
             # Merge by cross-collection rank fusion (scores are NOT comparable across
             # collections). `results` is in `target_collections` order, which is the
@@ -1650,7 +1740,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # fill all sixteen answer slots while the tool description promised five.
             # The cap belongs on the ANSWER budget, after the reranker has had the whole
             # pool to judge (rag-system-audit-2026-08 F16), so it is applied below.
-            merged = _merge_results(results, query, candidate_k, retriever.backend_name, max_per_document=0)
+            # HyDE channels ride along EMPTY by default and appended after the
+            # originals when the probe fired, so the baseline order is untouched
+            # unless the experiment added a real channel.
+            merged = _merge_results(
+                [*results, *hyde_results], query, candidate_k, retriever.backend_name, max_per_document=0
+            )
 
             # Agentic narrowing, then trim to the effective top_k.
             # `file_name=` is a FILTER, not a preference: the agent named a
