@@ -592,6 +592,12 @@ DEEP_BUDGET_SLOT = "budget:deep"
 #: Why a deep run stopped early. Stable tokens, not prose: they are counted.
 CUTOFF_WALL_CLOCK = "wall_clock"
 CUTOFF_STEP_LIMIT = "step_limit"
+#: The per-run completion-token ceiling (``budget_guard.RunBudgetExceededError``)
+#: or a USD budget (``cost_tracking.BudgetExceededError``) aborted the run
+#: mid-batch. Salvaged like the clock/steps — the partial report still ships
+#: marked — but counted apart: a budget that fires is a sizing signal, not a
+#: slow run.
+CUTOFF_RUN_BUDGET = "run_budget"
 #: A timeout that came from BELOW — a provider or transport call that timed out
 #: and escaped the graph — rather than from this run's own budget. Salvaged the
 #: same way, counted separately: reporting a 30-second provider timeout as a
@@ -602,6 +608,11 @@ CUTOFF_UPSTREAM_TIMEOUT = "upstream_timeout"
 #: Ways a finished deep answer is weaker than a clean one. Also stable tokens.
 DEGRADED_NO_REPORT_FILE = "no_report_file"
 DEGRADED_NO_VALID_CITATIONS = "no_valid_citations"
+#: One or more quoted spans could not be verified verbatim against any retrieved
+#: passage. The quotes still ship — annotated inline — but the answer no longer
+#: ships silently: without this token a salvaged report with fabricated quotes
+#: read exactly like a verified one.
+DEGRADED_UNVERIFIED_QUOTES = "unverified_quotes"
 #: The report is whole, but the proposals the job derives from it post-hoc
 #: (Grid cards) could not be produced. Job path only: the chat path emits its
 #: cards mid-turn as a tool step, so it has nothing to derive and nothing to

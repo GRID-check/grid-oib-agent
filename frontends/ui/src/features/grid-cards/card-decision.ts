@@ -207,11 +207,14 @@ export type CardInteractions = Record<string, CardInteraction>
 /**
  * Stable identity of a card WITHIN one message.
  *
- * Cards carry no id on the wire, so identity is positional. Once a turn has
- * FINALIZED its `cards` array is never mutated again — it round-trips through
- * localStorage and `metadata.cards` unchanged — so the key means the same thing
- * for the life of the message. `GridCards` uses this same value as its React
- * key, so a decision and the element it belongs to cannot drift apart.
+ * Cards carry no id on the wire, so identity is positional — and positions
+ * only mean something because `validateGridCards` never compacts the array: a
+ * card that fails validation leaves an `undefined` hole at its wire index
+ * rather than renumbering what follows. Once a turn has FINALIZED, its `cards`
+ * array is never mutated again — it round-trips through localStorage and
+ * `metadata.cards` unchanged — so the key means the same thing for the life
+ * of the message. `GridCards` uses this same value as its React key, so a
+ * decision and the element it belongs to cannot drift apart.
  *
  * While a turn is still STREAMING the array is replaced wholesale on each frame
  * that carries cards; `reconcileCardInteractions` re-checks every recorded
@@ -259,8 +262,8 @@ const isTimestamp = (value: unknown): value is string =>
  */
 export const reconcileCardInteractions = (
   interactions: CardInteractions | undefined,
-  previousCards: ReadonlyArray<GridCard> | undefined,
-  nextCards: ReadonlyArray<GridCard> | undefined
+  previousCards: ReadonlyArray<GridCard | undefined> | undefined,
+  nextCards: ReadonlyArray<GridCard | undefined> | undefined
 ): CardInteractions | undefined => {
   if (!interactions) return undefined
 
@@ -268,6 +271,11 @@ export const reconcileCardInteractions = (
   // them and revive exactly the mis-attribution this guards against.
   const survivors = new Set<string>()
   ;(nextCards ?? []).forEach((card, index) => {
+    // A hole is a card validation rejected: it carries no decision, and
+    // `cardKey` needs a real card — so a decision once recorded against this
+    // index is dropped rather than re-anchored. Losing a record and re-asking
+    // is recoverable, attributing it to the card beside the hole is not.
+    if (!card) return
     const previous = previousCards?.[index]
     if (previous !== undefined && JSON.stringify(previous) === JSON.stringify(card)) {
       survivors.add(cardKey(card, index))

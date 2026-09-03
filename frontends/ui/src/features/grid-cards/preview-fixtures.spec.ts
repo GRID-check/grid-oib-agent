@@ -12,7 +12,7 @@
  * the page tells a platform owner Grid cannot show something it can.
  *
  * A fixture that stops matching the schema fails here too: the exported map is
- * built by running the raw fixtures through `validateGridCards`, so a dropped
+ * built by running the raw fixtures through `validateGridCards`, so a holed
  * one is a missing key.
  */
 
@@ -36,7 +36,7 @@ describe('card preview fixtures', () => {
   })
 
   it('keeps every fixture valid against the live card union', () => {
-    // Survival IS the assertion: an invalid fixture is dropped by
+    // Survival IS the assertion: an invalid fixture is a hole after
     // validateGridCards, so it would be missing from the map entirely.
     for (const [type, card] of Object.entries(CARD_PREVIEW_FIXTURES)) {
       expect(card?.type).toBe(type)

@@ -94,6 +94,23 @@ JOB_DEGRADED_EVENT_TYPE = "job.degraded"
 # channel exists so a live listener and an operator counting cutoffs can see it.
 _DEGRADED_EVENT_FIELDS = ("research_truncated", "truncation_reason", "degraded_reasons")
 
+#: Lifecycle event a reclaimed loser emits instead of ``job.cancelled``
+#: (deep-research hardening, item 7). The ownership-loss abort arrives as a
+#: bare ``task.cancel()`` — the same delivery as a user cancel — so the loser
+#: and a real cancel are told apart by positive claim state (``_lost_claim``),
+#: never by message sniffing. Same ``job.*`` lifecycle shape as the other
+#: terminal events, stored through the same ``EventStore`` the SSE stream
+#: replays, so the stored history and the live stream agree on both
+#: ``GRID_JOB_EXECUTION`` paths. Deliberately NOT a ``job.phase`` row:
+#: ``phase_events`` owns phase progress for the progress display, and an
+#: ownership change is not a phase (frontends/aiq_api/AGENTS.md).
+JOB_OWNERSHIP_LOST_EVENT_TYPE = "job.ownership-lost"
+
+#: The only payload of the ownership-lost event. A stable reason token, never
+#: the user-cancel string and never worker hostnames (worker ids are
+#: ``hostname:pid`` — infra detail that must not stream to clients).
+_OWNERSHIP_LOST_REASON = "queue claim reclaimed by another worker"
+
 #: The request-context headers a worker supplies to the tools it runs, from
 #: the run's identity. The contract `aiq_agent.project_context.
 #: TOOL_CONTEXT_REQUIREMENTS` is checked against THIS tuple by
@@ -173,28 +190,298 @@ async def _update_status_if_not_terminal(job_store: Any, job_id: str, status: An
     worker was still running, and the runner's own success/failure write must
     not overwrite that verdict (e.g. flipping a reaped FAILURE back to SUCCESS).
 
+    This is a single conditional ``UPDATE ... WHERE status NOT IN (terminal)``
+    executed in the job store's own transaction, and the write verdict comes
+    from the statement's rowcount — not from a prior read. A separate
+    get-then-update would leave a read-then-write race: the reaper's FAILURE
+    landing between the runner's read and write was silently overwritten with
+    SUCCESS. Here the loser of the race affects zero rows and reports False,
+    so exactly one verdict wins and its payload (output/error) is never
+    partially clobbered.
+
     Returns True if the status was written, False if it was left untouched.
+    Raises ValueError if the job does not exist (matching NAT's
+    ``JobStore.update_status`` contract).
     """
+    import json as _json
+    from datetime import UTC as _UTC
+    from datetime import datetime as _datetime
+
+    from pydantic import BaseModel as _BaseModel
+    from sqlalchemy import update as _sa_update
+
+    from nat.front_ends.fastapi.async_jobs.job_store import JobInfo
     from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 
+    if not isinstance(status, JobStatus):
+        status = JobStatus(status)
+
     terminal_statuses = {JobStatus.SUCCESS.value, JobStatus.FAILURE.value, JobStatus.INTERRUPTED.value}
+
+    # NAT's JobStore.update_status honors exactly these fields; the output
+    # serialization below mirrors it so a guarded write stores byte-identical
+    # values to the unguarded one it replaces.
+    error = kwargs.get("error")
+    output_path = kwargs.get("output_path")
+    output = kwargs.get("output")
+    if isinstance(output, _BaseModel):
+        output = output.model_dump_json(round_trip=True)
+    if isinstance(output, dict | list):
+        output = _json.dumps(output)
+
+    stmt = (
+        _sa_update(JobInfo)
+        .where(JobInfo.job_id == job_id, JobInfo.status.not_in(terminal_statuses))
+        .values(
+            status=status.value,
+            error=error,
+            output_path=output_path,
+            output=output,
+            updated_at=_datetime.now(_UTC),
+        )
+    )
+    async with job_store.session() as session:
+        result = await session.execute(stmt)
+        written = (result.rowcount or 0) > 0
+
+    if written:
+        return True
+
+    # Zero rows: the job is either already terminal (the race this guards) or
+    # missing. Distinguish with one read — the write already refused, so this
+    # read cannot cause a flip either way.
+    job = await job_store.get_job(job_id)
+    if job is None:
+        raise ValueError(f"Job {job_id} not found in job store")
+
+    logger.info(
+        "Job %s already in terminal status %s; not overwriting with %s",
+        job_id,
+        job.status,
+        status,
+    )
+    return False
+
+
+async def _current_job_status(job_store: Any, job_id: str) -> str | None:
+    """Best-effort read of a job's current status; None when unreadable/missing.
+
+    Separate from :func:`_update_status_if_not_terminal` on purpose: that
+    function owns the terminal-status write (hardening item 6) and reports only
+    whether it wrote. The conversation-write gates below (item 10) need the
+    standing verdict itself — e.g. to keep a legitimate user-cancel notice
+    while skipping a loser's notice beside the winner's answer — so they read
+    it here, and only on the path where the status write did not win.
+    """
+    if job_store is None:
+        return None
     try:
         job = await job_store.get_job(job_id)
     except Exception:
-        logger.warning("Could not read current status for job %s before writing %s", job_id, status, exc_info=True)
-        job = None
+        logger.warning("Could not read current status for job %s", job_id, exc_info=True)
+        return None
+    if job is None:
+        return None
+    return getattr(job, "status", None)
 
-    if job is not None and job.status in terminal_statuses:
-        logger.info(
-            "Job %s already in terminal status %s; not overwriting with %s",
-            job_id,
-            job.status,
-            status,
-        )
+
+async def _lost_claim(db_url: str, job_id: str, claim_owner: str | None) -> bool:
+    """True only on POSITIVE ownership loss: someone else holds this job's claim.
+
+    ``claim_owner`` is the DB worker's own id (``None`` on the Dask path, which
+    has no claim table — the check is skipped and only the terminal verdict
+    gates publishing, so both ``GRID_JOB_EXECUTION`` modes behave). Anything
+    indeterminate (no row, row gone via cancel/mark_done, unreadable) is NOT a
+    loss: the terminal-verdict gate below stays the decider and fails open, the
+    same philosophy :func:`_update_status_if_not_terminal` keeps.
+    """
+    if not claim_owner:
         return False
+    from . import queue
 
-    await job_store.update_status(job_id, status, **kwargs)
-    return True
+    owner = await asyncio.to_thread(queue.claim_owner, db_url, job_id)
+    if owner is not None and owner != claim_owner:
+        logger.warning(
+            "Job %s claim now held by %s (not %s); this run lost the race",
+            job_id,
+            owner,
+            claim_owner,
+        )
+        return True
+    return False
+
+
+async def _should_write_notice(*, job_store: Any, job_id: str, verdict: str, finalized: bool) -> bool:
+    """Whether a terminal path may write its conversation notice.
+
+    The notice must agree with the standing verdict, or the thread contradicts
+    the status: a run that wrote the terminal state (``finalized``) always may;
+    otherwise only the same verdict may repeat it (a user-cancel notice after
+    the cancel route's INTERRUPTED, idempotent by deterministic message id) or
+    an unreadable/missing status (fail open — a broken read must not silence a
+    failure notice). A loser's notice beside the winner's answer, or beside a
+    reaper FAILURE it would relabel, is skipped with a log line.
+    """
+    if finalized:
+        return True
+    status = await _current_job_status(job_store, job_id)
+    if status is None or status == verdict:
+        return True
+    logger.info(
+        "Job %s already in terminal status %s; skipping %s notice (loser writes nothing user-visible)",
+        job_id,
+        status,
+        verdict,
+    )
+    return False
+
+
+async def _should_emit_cancelled_event(*, job_store: Any, job_id: str, finalized: bool) -> bool:
+    """Whether the cancel path may stream ``job.cancelled`` (hardening item 7).
+
+    Extends item 10's verdict-agreement rule (``_should_write_notice``) from
+    the thread to the lifecycle stream: the event must agree with the standing
+    verdict, or a late abort rewrites history as "cancelled by user". This run
+    wrote INTERRUPTED itself (``finalized``), or the cancel route owns the
+    verdict (standing INTERRUPTED) — both stream. An unreadable or missing
+    status fails open: a broken read must not silence the only trace of an
+    abort. A standing SUCCESS/FAILURE means the winner or the reaper owns the
+    stream, and the event is skipped with a log line. A still-RUNNING status
+    with no write of our own (``finalized`` False — the INTERRUPTED write
+    failed) also streams nothing: no verdict was recorded, and claiming a user
+    cancel would contradict the store. The ghost reaper owns the eventual
+    signal there. Notice and event therefore always agree (same truth table as
+    ``_should_write_notice`` for the interrupted verdict).
+    """
+    from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+
+    if finalized:
+        return True
+    status = await _current_job_status(job_store, job_id)
+    if status is None or status == JobStatus.INTERRUPTED.value:
+        return True
+    logger.info(
+        "Job %s already in terminal status %s; skipping job.cancelled event "
+        "(a late abort must not rewrite the standing verdict)",
+        job_id,
+        status,
+    )
+    return False
+
+
+def _emit_ownership_lost_event(*, db_url: str, event_store: Any | None, job_id: str) -> Any:
+    """Store the ``job.ownership-lost`` lifecycle event; create the store lazily.
+
+    Mirrors the lazy ``BatchingEventStore(EventStore(db_url, job_id))``
+    construction the other terminal paths use, and returns the store so the
+    caller keeps its flush semantics.
+    """
+    if event_store is None:
+        event_store = BatchingEventStore(EventStore(db_url, job_id))
+    event_store.store(
+        {
+            "type": JOB_OWNERSHIP_LOST_EVENT_TYPE,
+            "data": {"reason": _OWNERSHIP_LOST_REASON},
+        }
+    )
+    if hasattr(event_store, "flush"):
+        event_store.flush()
+    return event_store
+
+
+async def _finalize_cancelled_run(
+    *,
+    job_store: Any,
+    db_url: str,
+    job_id: str,
+    claim_owner: str | None,
+    parent_conversation_id: str | None,
+    usage_context: dict | None,
+    event_store: Any | None,
+) -> Any:
+    """Finalize a run aborted via ``asyncio.CancelledError`` (hardening item 7).
+
+    Root cause this closes: the DB worker aborts a reclaimed run with a bare
+    ``run_task.cancel()``, which is indistinguishable on delivery from the
+    ``CancellationMonitor``'s user cancel — so the handler told every abort as
+    a user cancel (INTERRUPTED "cancelled by user" + user notice +
+    ``job.cancelled``) while the new owner was still running. The two causes
+    are told apart here by positive claim state — item 10's ``_lost_claim`` —
+    never by message sniffing.
+
+    A reclaimed loser publishes nothing user-visible: no INTERRUPTED write, no
+    thread notice, no outcome notify, no ``job.cancelled``. Its only signal is
+    the truthful ``job.ownership-lost`` lifecycle event. Anything else follows
+    the pre-existing user-cancel shape, with the ``job.cancelled`` event
+    additionally gated on verdict agreement (``_should_emit_cancelled_event``)
+    so a late abort after the winner's SUCCESS or the reaper's FAILURE streams
+    nothing.
+
+    Returns the event store (created lazily when the path streams an event).
+    """
+    from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+
+    # Still-owner first (item 10): a reclaim abort must not steal the
+    # terminal write from the new owner — and must not leave an
+    # INTERRUPTED_NOTICE beside the winner's answer. The distinct
+    # ownership-lost signal itself is item 7's; this gate only ensures the
+    # loser publishes nothing.
+    lost_claim = await _lost_claim(db_url, job_id, claim_owner)
+    if lost_claim:
+        logger.warning(
+            "Job %s lost its queue claim; emitting ownership-lost only (the owning worker publishes)",
+            job_id,
+        )
+        return _emit_ownership_lost_event(db_url=db_url, event_store=event_store, job_id=job_id)
+
+    logger.info("Job %s cancelled", job_id)
+    finalized = False
+    if job_store:
+        try:
+            # Sticky terminal statuses: don't overwrite a FAILURE (reaper)
+            # or SUCCESS either — only mark still-active jobs INTERRUPTED.
+            # The "cancelled by user" error string is exact: the UI
+            # string-matches on it.
+            finalized = await _update_status_if_not_terminal(
+                job_store, job_id, JobStatus.INTERRUPTED, error="cancelled by user"
+            )
+        except (ConnectionError, TimeoutError, RuntimeError):
+            finalized = False
+
+    # Gated on verdict agreement (item 10): a user cancel (standing
+    # INTERRUPTED, or the write above) still leaves its notice — otherwise
+    # the thread stays empty. A loser cancelled after the winner's SUCCESS
+    # or the reaper's FAILURE writes nothing beside it.
+    if await _should_write_notice(
+        job_store=job_store,
+        job_id=job_id,
+        verdict=JobStatus.INTERRUPTED.value,
+        finalized=finalized,
+    ):
+        await write_job_notice(
+            conversation_id=parent_conversation_id,
+            job_id=job_id,
+            usage_context=usage_context,
+            notice=INTERRUPTED_NOTICE,
+        )
+    if finalized:
+        await notify_job_outcome(job_id=job_id, usage_context=usage_context, status="interrupted")
+
+    # The event agrees with the standing verdict too (item 7): after the
+    # winner's SUCCESS or the reaper's FAILURE a late abort must not rewrite
+    # history as "cancelled by user".
+    if await _should_emit_cancelled_event(job_store=job_store, job_id=job_id, finalized=finalized):
+        if event_store is None:
+            event_store = BatchingEventStore(EventStore(db_url, job_id))
+        event_store.store(
+            {
+                "type": "job.cancelled",
+                "data": {"reason": "cancelled by user"},
+            }
+        )
+        if hasattr(event_store, "flush"):
+            event_store.flush()
+    return event_store
 
 
 def _normalize_trace_id(trace_id: int | str | None) -> int | None:
@@ -550,6 +837,11 @@ async def run_agent_job(
     memory_reflection_enabled: bool = False,
     memory_reflection_llm: str | None = None,
     force_skills: list[str] | None = None,
+    # DB-queue claim owner (the worker's own id) for the still-owner publish
+    # gate. None on the Dask path, which has no claim table, and at submit
+    # time (unclaimed); the DB worker fills in its own id at replay. Must stay
+    # last: the Dask submit path passes these positionally.
+    claim_owner: str | None = None,
 ):
     """
     Dask task to run any registered agent with cancellation support and telemetry.
@@ -614,6 +906,10 @@ async def run_agent_job(
             where the state model declares the field — the same guarded path
             ``data_sources``/``project_context`` take (Agent Skills feature;
             the state-field consumer is added by ``src/aiq_agent``).
+        claim_owner: Optional DB-queue claim owner (worker id) for the
+            still-owner publish gate. ``None`` (Dask path, or unclaimed at
+            submit) skips the ownership check and only the terminal verdict
+            gates publishing. The DB worker fills in its own id at replay.
     """
 
     # Propagate auth token into the current async task's context so tools
@@ -1162,33 +1458,59 @@ async def run_agent_job(
                     output = _build_job_output(report, cards=cards, transparency=transparency, sources=verified_sources)
                     # Sticky terminal statuses: never flip a job the reaper or
                     # cancel route already finalized (FAILURE/INTERRUPTED) back
-                    # to SUCCESS.
-                    finalized = await _update_status_if_not_terminal(
-                        job_store, job_id, JobStatus.SUCCESS, output=output
-                    )
+                    # to SUCCESS. Still-owner on top of that: a DB worker whose
+                    # claim was reclaimed lost the race even if job_info is
+                    # still RUNNING — stealing the terminal write here would
+                    # block the new owner's SUCCESS and its thread turn below.
+                    # (Hardening item 10; the conditional write itself is item 6.)
+                    lost_claim = await _lost_claim(db_url, job_id, claim_owner)
+                    if lost_claim:
+                        logger.warning(
+                            "Job %s lost its queue claim; skipping SUCCESS write and thread publish "
+                            "(the owning worker publishes)",
+                            job_id,
+                        )
+                        finalized = False
+                    else:
+                        finalized = await _update_status_if_not_terminal(
+                            job_store, job_id, JobStatus.SUCCESS, output=output
+                        )
                     # A job with `output: 'chat'` was given a conversation when
                     # it fired; this is what puts the run INTO it, so somebody
                     # can open the thread and keep typing. Best-effort by
                     # contract: the report is already stored on the job above,
                     # and a conversation write must never unmake a good run.
-                    await write_job_turn(
-                        conversation_id=parent_conversation_id,
-                        job_id=job_id,
-                        usage_context=usage_context,
-                        prompt=input_text,
-                        answer=report,
-                        cards=cards,
-                        skills_activated=_extract_skills_activated(result),
-                        sources=verified_sources,
-                        # The same transparency dict the job output above got.
-                        # The Report panel reads that output; the thread reads
-                        # only this row, so a run cut off at the wall clock and
-                        # salvaged would otherwise reopen tomorrow as a clean
-                        # answer — the caveat surviving exactly as long as the
-                        # live panel stayed open, which is not what "persisted"
-                        # is supposed to mean.
-                        transparency=transparency,
-                    )
+                    #
+                    # Gated on owning the terminal verdict (item 10): a reaped
+                    # job finishing late, or a reclaimed loser finishing second,
+                    # must not write its answer into the thread while the
+                    # status stays FAILURE — thread, Report and status would
+                    # diverge, each telling a different story about the run.
+                    if finalized:
+                        await write_job_turn(
+                            conversation_id=parent_conversation_id,
+                            job_id=job_id,
+                            usage_context=usage_context,
+                            prompt=input_text,
+                            answer=report,
+                            cards=cards,
+                            skills_activated=_extract_skills_activated(result),
+                            sources=verified_sources,
+                            # The same transparency dict the job output above got.
+                            # The Report panel reads that output; the thread reads
+                            # only this row, so a run cut off at the wall clock and
+                            # salvaged would otherwise reopen tomorrow as a clean
+                            # answer — the caveat surviving exactly as long as the
+                            # live panel stayed open, which is not what "persisted"
+                            # is supposed to mean.
+                            transparency=transparency,
+                        )
+                    else:
+                        logger.info(
+                            "Job %s finished without a thread turn (%s); the standing verdict owns the thread",
+                            job_id,
+                            "queue claim lost" if lost_claim else "terminal status already set",
+                        )
                     # Tell the job's creator. Only when THIS run wrote the
                     # terminal status: a job the reaper already finalized was
                     # reported by nobody, and will not be reported twice here.
@@ -1200,49 +1522,27 @@ async def run_agent_job(
                             report=report,
                             cards=cards,
                         )
-                    logger.info(
-                        "Job %s completed (report: %d chars, cards: %d)",
-                        job_id,
-                        len(report),
-                        len(cards) if cards else 0,
-                    )
+                        logger.info(
+                            "Job %s completed (report: %d chars, cards: %d)",
+                            job_id,
+                            len(report),
+                            len(cards) if cards else 0,
+                        )
 
     except asyncio.CancelledError:
-        logger.info("Job %s cancelled", job_id)
-        if job_store:
-            try:
-                # Sticky terminal statuses: don't overwrite a FAILURE (reaper)
-                # or SUCCESS either — only mark still-active jobs INTERRUPTED.
-                # The "cancelled by user" error string is exact: the UI
-                # string-matches on it.
-                finalized = await _update_status_if_not_terminal(
-                    job_store, job_id, JobStatus.INTERRUPTED, error="cancelled by user"
-                )
-            except (ConnectionError, TimeoutError, RuntimeError):
-                finalized = False
-        else:
-            finalized = False
-
-        await write_job_notice(
-            conversation_id=parent_conversation_id,
+        # Item 7 owns the abort vocabulary: user cancel vs ownership loss are
+        # told apart inside _finalize_cancelled_run (positive claim state, never
+        # message sniffing). The loser emits job.ownership-lost only; a real
+        # cancel keeps its INTERRUPTED verdict, notice and job.cancelled event.
+        event_store = await _finalize_cancelled_run(
+            job_store=job_store,
+            db_url=db_url,
             job_id=job_id,
+            claim_owner=claim_owner,
+            parent_conversation_id=parent_conversation_id,
             usage_context=usage_context,
-            notice=INTERRUPTED_NOTICE,
+            event_store=event_store,
         )
-        if finalized:
-            await notify_job_outcome(job_id=job_id, usage_context=usage_context, status="interrupted")
-
-        if event_store is None:
-            event_store = BatchingEventStore(EventStore(db_url, job_id))
-
-        event_store.store(
-            {
-                "type": "job.cancelled",
-                "data": {"reason": "cancelled by user"},
-            }
-        )
-        if hasattr(event_store, "flush"):
-            event_store.flush()
 
     except Exception as e:
         # Full exception (with traceback) is logged server-side; only the
@@ -1250,20 +1550,34 @@ async def run_agent_job(
         logger.exception("Job %s failed: %s", job_id, type(e).__name__)
         safe_error = sanitize_job_error(e)
         finalized = False
-        if job_store:
+        lost_claim = await _lost_claim(db_url, job_id, claim_owner)
+        if lost_claim:
+            logger.warning(
+                "Job %s lost its queue claim; skipping FAILURE write and notice (the owning worker publishes)",
+                job_id,
+            )
+        elif job_store:
             # Sticky terminal statuses: don't clobber an INTERRUPTED/FAILURE
             # verdict written by the cancel route or the ghost-job reaper.
             finalized = await _update_status_if_not_terminal(job_store, job_id, JobStatus.FAILURE, error=safe_error)
         # The conversation was created when the job FIRED, before the outcome
         # was known. Left alone, a failed run leaves a thread somebody opens to
         # find completely empty, which reads as a broken product rather than a
-        # failed run.
-        await write_job_notice(
-            conversation_id=parent_conversation_id,
+        # failed run. Gated on verdict agreement like the cancel path (item
+        # 10): a loser's failure notice must not land beside the winner's
+        # answer, nor relabel a user cancellation.
+        if await _should_write_notice(
+            job_store=job_store,
             job_id=job_id,
-            usage_context=usage_context,
-            notice=FAILURE_NOTICE,
-        )
+            verdict=JobStatus.FAILURE.value,
+            finalized=finalized,
+        ):
+            await write_job_notice(
+                conversation_id=parent_conversation_id,
+                job_id=job_id,
+                usage_context=usage_context,
+                notice=FAILURE_NOTICE,
+            )
         if finalized:
             await notify_job_outcome(job_id=job_id, usage_context=usage_context, status="failure", error=safe_error)
 

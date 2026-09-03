@@ -2773,6 +2773,12 @@ class ReportSanitizationResult:
     # remap them or the chips end up labelled with numbers the prose no longer
     # uses. Empty when no source section was present or nothing moved.
     renumber_map: dict[int, int] = field(default_factory=dict)
+    # Original (pre-renumber) ``[N]`` numbers whose source lines this pass
+    # deleted (shortened / truncated / unsafe URLs). Callers that put
+    # ``verify_citations`` numbers on the wire MUST drop these entries
+    # fail-closed: without them a chip stays trusted/clickable at a URL the
+    # prose no longer cites. Empty when nothing was deleted.
+    removed_citation_numbers: set[int] = field(default_factory=set)
 
 
 def sanitize_report(report_text: str) -> ReportSanitizationResult:
@@ -2803,6 +2809,10 @@ def sanitize_report(report_text: str) -> ReportSanitizationResult:
     shortened_urls_removed: list[str] = []
     truncated_urls_removed: list[str] = []
     unsafe_urls_removed: list[str] = []
+    # Deaths this pass caused: pre-renumber [N] numbers whose source lines are
+    # deleted below. Returned so wire callers can drop the matching chips
+    # fail-closed instead of remapping a dead number onto a survivor.
+    sanitize_removed_numbers: set[int] = set()
 
     # Split into body and source section
     ref_match = _REFERENCE_SECTION_RE.search(report_text)
@@ -2915,12 +2925,15 @@ def sanitize_report(report_text: str) -> ReportSanitizationResult:
                 continue
 
         if lines_to_remove:
-            # Collect which [N] numbers were removed
+            # Collect which [N] numbers were removed — these are the deaths the
+            # wire must drop fail-closed (a chip at a removed URL must never
+            # stay trusted/clickable).
             removed_numbers: set[int] = set()
             for i in lines_to_remove:
                 line_m = _CITATION_LINE_RE.match(ref_lines[i])
                 if line_m:
                     removed_numbers.add(int(line_m.group(1)))
+            sanitize_removed_numbers.update(removed_numbers)
 
             cleaned_ref_lines = [line for i, line in enumerate(ref_lines) if i not in lines_to_remove]
             ref_section = "\n".join(cleaned_ref_lines)
@@ -2984,4 +2997,5 @@ def sanitize_report(report_text: str) -> ReportSanitizationResult:
         truncated_urls_removed=truncated_urls_removed,
         unsafe_urls_removed=unsafe_urls_removed,
         renumber_map=renumber_map,
+        removed_citation_numbers=sanitize_removed_numbers,
     )

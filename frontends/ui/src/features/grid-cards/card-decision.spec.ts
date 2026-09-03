@@ -94,6 +94,25 @@ describe('reconcileCardInteractions', () => {
     expect(reconcileCardInteractions(interactions, before, after)).toEqual(decided('memory_proposal-0'))
   })
 
+  it('drops a decision whose index is now a rejected-card hole', () => {
+    // `validateGridCards` keeps wire positions with `undefined` holes rather
+    // than renumbering: a hole carries no card, so nothing can be decided
+    // about it, and the decision must not slide onto a neighbour.
+    const before = [memory('REI 90')]
+    const after = [undefined]
+    expect(reconcileCardInteractions(decided('memory_proposal-0'), before, after)).toBeUndefined()
+  })
+
+  it('keeps later decisions bound when an earlier slot is a hole', () => {
+    // The middle-card-drop case: the hole holds index 1, so the proposal at
+    // index 2 is still the proposal the key was recorded against.
+    const cards = [memory('REI 90'), undefined, memory('Fluchtniveau')]
+    expect(reconcileCardInteractions(decided('memory_proposal-2'), cards, [...cards])).toEqual(
+      decided('memory_proposal-2'),
+    )
+    expect(reconcileCardInteractions(decided('memory_proposal-1'), cards, [...cards])).toBeUndefined()
+  })
+
   it('is a no-op when nothing was decided', () => {
     expect(reconcileCardInteractions(undefined, [memory('x')], [memory('x')])).toBeUndefined()
   })

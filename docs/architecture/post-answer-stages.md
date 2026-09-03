@@ -1303,10 +1303,10 @@ export (`lib/answer-export/cards.ts`, walked generically). They must keep workin
    > The post-hoc prompt falls **12,654 → 12,127** per finished report. All
    > figures are tiktoken `cl100k_base`, measured over the rendered strings.
 3. **Leave the pydantic model, the Zod schema and `FollowUpsCard.tsx` in place.**
-   `validateGridCards` drops anything that fails the union
-   (`shared/cards/schemas.ts:18-33`), so removing the member would make every old
-   thread lose its chips *and* log a warning per card. `GridCards.tsx:278-284`
-   keeps rendering stored ones.
+   `validateGridCards` leaves an `undefined` hole for anything that fails the
+   union (`shared/cards/schemas.ts`), so removing the member would make every
+   old thread lose its chips at those positions *and* log a warning per card.
+   `GridCards.tsx:278-284` keeps rendering stored ones.
 4. ~~**The export.**~~ **[as built] — done, and not by this slice.** The
    change this step described as "already in flight" landed in **PR #474**
    (`acb3c81f`), well before slice 4 started. `CARD_EXPORT` in

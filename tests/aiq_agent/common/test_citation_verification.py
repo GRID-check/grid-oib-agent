@@ -2125,6 +2125,75 @@ class TestSanitizeReportExposesRenumberMap:
         assert sanitize_report("Just prose, no sources.").renumber_map == {}
 
 
+class TestSanitizeReportExposesDeaths:
+    """sanitize_report must return the [N] numbers it deleted.
+
+    The deep researcher puts verify_citations numbers on the wire as trusted
+    clickable chips. sanitize_report deletes shortened/unsafe/truncated source
+    lines AFTER verification, so without the death set the wire keeps chips
+    at removed URLs. Fail-closed: deaths are returned, the wire drops them.
+    """
+
+    def test_shortened_url_death_is_reported_and_orphan_stripped(self):
+        report = (
+            "Good [1]. Short [2].\n\n## Sources\n[1] Good: https://example.com/good\n[2] Short: https://bit.ly/abc123"
+        )
+        result = sanitize_report(report)
+        assert result.removed_citation_numbers == {2}
+        assert result.shortened_urls_removed == ["https://bit.ly/abc123"]
+        assert "bit.ly" not in result.sanitized_report
+        # Prose has no orphan: the deleted [2] marker is stripped, survivor stays.
+        assert "[2]" not in result.sanitized_report
+        assert "[1]" in result.sanitized_report
+        assert result.renumber_map == {1: 1}
+
+    def test_unsafe_url_death_is_reported_and_orphan_stripped(self):
+        report = (
+            "Good [1]. Evil [2].\n\n"
+            "## Sources\n"
+            "[1] Good: https://example.com/good\n"
+            "[2] Evil: https://192.168.1.1/malware"
+        )
+        result = sanitize_report(report)
+        assert result.removed_citation_numbers == {2}
+        assert len(result.unsafe_urls_removed) == 1
+        assert "192.168.1.1" not in result.sanitized_report
+        assert "[2]" not in result.sanitized_report
+        assert "[1]" in result.sanitized_report
+
+    def test_truncated_url_death_is_reported(self):
+        report = "Finding [1].\n\n## Sources\n[1] Paper: https://arxiv.org/abs/1706.037..."
+        result = sanitize_report(report)
+        assert result.removed_citation_numbers == {1}
+        assert len(result.truncated_urls_removed) == 1
+        assert "[1]" not in result.sanitized_report
+
+    def test_mixed_deaths_renumber_survivor_and_report_all_deaths(self):
+        report = (
+            "A [1] B [2] C [3] D [4].\n\n"
+            "## Sources\n"
+            "[1] Good: https://example.com/good\n"
+            "[2] Short: https://bit.ly/abc\n"
+            "[3] Evil: https://10.0.0.1/x\n"
+            "[4] Also good: https://example.com/other"
+        )
+        result = sanitize_report(report)
+        assert result.removed_citation_numbers == {2, 3}
+        assert "bit.ly" not in result.sanitized_report
+        assert "10.0.0.1" not in result.sanitized_report
+        # Survivors close the gap: old [4] is now [2], no orphan [3]/[4] left.
+        assert "D [2]" in result.sanitized_report
+        assert "[3]" not in result.sanitized_report
+        assert "[4]" not in result.sanitized_report
+        assert result.renumber_map == {1: 1, 4: 2}
+
+    def test_no_deletions_reports_empty_deaths(self):
+        report = "A [1].\n\n## Sources\n[1] Good: https://example.com/good"
+        result = sanitize_report(report)
+        assert result.removed_citation_numbers == set()
+        assert result.renumber_map == {1: 1}
+
+
 class TestKnowledgeLayerFieldsAreBlockScoped:
     """Optional header fields must bind to THEIR hit, never to a later one.
 

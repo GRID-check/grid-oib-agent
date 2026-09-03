@@ -120,9 +120,11 @@ export interface AgentResponseProps {
   /**
    * Grid cards attached to this answer. Each is drawn where the answer placed
    * it with a `[[card:N]]` marker (N is 1-based over this array); the ones no
-   * marker claimed follow the prose as a block.
+   * marker claimed follow the prose as a block. Positions are identity: a
+   * rejected card leaves an `undefined` hole rather than renumbering the rest
+   * (see `validateGridCards`), and a hole renders nothing.
    */
-  cards?: GridCard[]
+  cards?: (GridCard | undefined)[]
   /**
    * Citations already collected for this answer (deep-research path). Drives
    * the "Belegt durch" chip row — renders nothing when absent (no fake chips).

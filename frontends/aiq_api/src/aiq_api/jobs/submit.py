@@ -120,6 +120,11 @@ def _build_run_agent_payload(
         "memory_reflection_enabled": memory_reflection_enabled,
         "memory_reflection_llm": memory_reflection_llm,
         "force_skills": force_skills,
+        # No owner at submit time (unclaimed): the DB worker fills in its own
+        # worker id at replay for the runner's still-owner publish gate
+        # (hardening item 10). Travels inside the encrypted payload like the
+        # rest; the Dask path leaves it None (no claim table).
+        "claim_owner": None,
     }
 
 
@@ -630,6 +635,7 @@ async def submit_agent_job(
                     memory_reflection_enabled,
                     memory_reflection_llm,
                     force_skills,
+                    None,  # claim_owner: no queue claim on the Dask path (see run_agent_job)
                 ],
             )
         await loop.run_in_executor(

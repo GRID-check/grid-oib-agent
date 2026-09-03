@@ -73,22 +73,55 @@ METADATA_PREFIX = "langfuse.trace.metadata."
 
 #: Per-turn facts a TOOL contributed, merged into the attributes below.
 #:
-#: A dict rather than repeated ``ContextVar.set`` calls so a tool can add to it
-#: from inside an awaited coroutine and have the value survive into the span's
-#: export task: ``asyncio.create_task`` snapshots the context at span END, by
-#: which point the tool has already returned.
+#: Copy-on-write: writers always ``ContextVar.set`` a NEW dict rather than
+#: mutating the one they read. ``asyncio.create_task`` snapshots the var's
+#: OBJECT reference, not the dict's contents, so an in-place ``update``/``append``
+#: after a span ended would still bleed into that span's export task — and, worse,
+#: into a concurrent job sharing the same dict object. A fresh dict per write
+#: keeps each snapshot frozen at what was known when the task was created.
+#: Per-job lifecycle (bind fresh at job start, reset in ``finally``) lives with
+#: the runner — see ``DeepResearcherAgent.run`` — the way ``cards/registry.py``
+#: and ``common/citation_verification.py`` bind per turn.
 _CONTRIBUTED: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
     "grid_langfuse_contributed", default=None
 )
 
 
-def _contributions() -> dict[str, Any]:
-    """The current turn's contribution dict, created on first write."""
+def snapshot_contributions() -> dict[str, Any] | None:
+    """A frozen copy of the current turn's contributions, or None.
+
+    Copies both levels (the metadata dict and the tags list) so the caller
+    holds no live reference: later ``record_trace_metadata``/``add_trace_tag``
+    calls replace the ContextVar value and must never rewrite this snapshot.
+    """
     current = _CONTRIBUTED.get()
     if current is None:
-        current = {"metadata": {}, "tags": []}
-        _CONTRIBUTED.set(current)
-    return current
+        return None
+    try:
+        return {
+            "metadata": dict(current.get("metadata", {})),
+            "tags": list(current.get("tags", [])),
+        }
+    except Exception:
+        logger.debug("Failed to snapshot Langfuse trace contributions", exc_info=True)
+        return None
+
+
+def begin_trace_contributions() -> contextvars.Token:
+    """Bind a fresh contribution dict for one job/turn; reset it in ``finally``.
+
+    Follows the ``cards/registry.py`` token discipline: the caller holds the
+    token and passes it to :func:`end_trace_contributions`, which restores
+    whatever was bound before. Starting fresh (rather than inheriting) is what
+    keeps a reused Dask worker process from handing job N's tags to job N+1
+    across tenants.
+    """
+    return _CONTRIBUTED.set({"metadata": {}, "tags": []})
+
+
+def end_trace_contributions(token: contextvars.Token) -> None:
+    """Restore the contribution binding saved by :func:`begin_trace_contributions`."""
+    _CONTRIBUTED.reset(token)
 
 
 def record_trace_metadata(**pairs: Any) -> None:
@@ -105,9 +138,17 @@ def record_trace_metadata(**pairs: Any) -> None:
 
     Best-effort like everything else here: a failure to record telemetry must
     never fail the turn that was producing it.
+
+    Copy-on-write: builds a NEW dict and sets it, so an export task that
+    snapshotted the previous dict keeps seeing exactly what was known when its
+    span ended.
     """
     try:
-        _contributions()["metadata"].update({key: value for key, value in pairs.items() if value is not None})
+        current = _CONTRIBUTED.get()
+        metadata = dict(current.get("metadata", {})) if current else {}
+        tags = list(current.get("tags", [])) if current else []
+        metadata.update({key: value for key, value in pairs.items() if value is not None})
+        _CONTRIBUTED.set({"metadata": metadata, "tags": tags})
     except Exception:
         logger.debug("Failed to record Langfuse trace metadata", exc_info=True)
 
@@ -118,17 +159,30 @@ def add_trace_tag(tag: str) -> None:
     Tags are Langfuse's fast filter in the trace list, which is the same reason
     the organization is written as one. "Show me the turns that touched a
     building model" is otherwise a metadata scan.
+
+    Copy-on-write like :func:`record_trace_metadata`: sets a new dict so a
+    concurrent researcher holding the previous snapshot never observes this
+    append.
     """
     try:
-        tags = _contributions()["tags"]
+        current = _CONTRIBUTED.get()
+        metadata = dict(current.get("metadata", {})) if current else {}
+        tags = list(current.get("tags", [])) if current else []
         if tag not in tags:
             tags.append(tag)
+        _CONTRIBUTED.set({"metadata": metadata, "tags": tags})
     except Exception:
         logger.debug("Failed to add a Langfuse trace tag", exc_info=True)
 
 
 def reset_contributions() -> None:
-    """Drop what this turn contributed. For tests, and for a reused context."""
+    """Drop what this turn contributed. Test-only; src/ uses the token pair.
+
+    Production code binds per job/turn via :func:`begin_trace_contributions`
+    and restores via :func:`end_trace_contributions` in ``finally``, so a
+    reused Dask worker cannot hand job N's tags to job N+1. This helper stays
+    for tests that need a blank slate without holding a token.
+    """
     _CONTRIBUTED.set(None)
 
 
@@ -196,6 +250,11 @@ def current_langfuse_attributes() -> dict[str, Any]:
     fail a turn, so every failure path returns ``{}`` and logs at DEBUG. A span
     missing its user id is a degraded trace; an exception escaping here would
     be a broken export pipeline.
+
+    Reads contributions via :func:`snapshot_contributions` so the attribute map
+    holds no live reference: a tool contributing after this call must not
+    rewrite an already-built map, and an export task holding this map must not
+    observe a concurrent researcher's later writes.
     """
     try:
         from aiq_agent.project_context import GridRequestContext
@@ -207,7 +266,7 @@ def current_langfuse_attributes() -> dict[str, Any]:
             organization_id=context.organization_id,
             project_id=context.project_id,
             conversation_id=get_conversation_id_from_context(),
-            contributed=_CONTRIBUTED.get(),
+            contributed=snapshot_contributions(),
         )
     except Exception:
         logger.debug("Failed to derive Langfuse trace attributes from context", exc_info=True)

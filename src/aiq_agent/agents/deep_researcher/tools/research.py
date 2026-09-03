@@ -19,6 +19,7 @@ from langgraph.errors import GraphRecursionError
 
 from aiq_agent.common import RunBudgetExceededError
 from aiq_agent.common import extract_json
+from aiq_agent.common.cost_tracking import BudgetExceededError
 
 from ..models import ResearchGap
 from ..models import ResearchNotes
@@ -164,7 +165,10 @@ async def _run_research_query(
                 researcher_invoke_state(query, runtime),
                 config=config,
             )
-        except RunBudgetExceededError:
+        except (RunBudgetExceededError, BudgetExceededError):
+            # Terminal: the run's token ceiling or USD budget is gone. Never
+            # wrap into a resubmittable RuntimeError — the batch layer re-raises
+            # and the middleware propagates to the salvage path.
             raise
         except GraphRecursionError:
             raise ResearcherExhaustedError(
@@ -335,7 +339,7 @@ async def _run_research_queries(
     errors: list[str] = []
     for query, raw_result in zip(queries, raw_results, strict=False):
         if isinstance(raw_result, BaseException):
-            if isinstance(raw_result, RunBudgetExceededError):
+            if isinstance(raw_result, (RunBudgetExceededError, BudgetExceededError)):
                 raise raw_result
             if isinstance(raw_result, ResearcherExhaustedError):
                 # An exhausted worker already burned its per-worker step budget;

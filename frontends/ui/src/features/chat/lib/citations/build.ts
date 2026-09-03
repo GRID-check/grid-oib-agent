@@ -39,7 +39,7 @@ export interface CitationInputs {
   /** Entries parsed out of the answer's written sources section. */
   entries?: ReportSourceEntry[]
   /** `legal_basis` cards from the shallow-answer path. */
-  cards?: GridCard[]
+  cards?: (GridCard | undefined)[]
   /** Retrieved-document fan-out from the thinking steps. */
   traceLanes?: TraceLaneCard[]
 }
@@ -271,12 +271,14 @@ const addTraceLanes = (
  */
 const addLegalBasisCards = (
   accumulator: CitationAccumulator,
-  cards: GridCard[] | undefined
+  cards: (GridCard | undefined)[] | undefined
 ): void => {
   if (!cards?.length) return
 
   for (const card of cards) {
-    if (card.type !== 'legal_basis') continue
+    // Holes are cards validation rejected (`validateGridCards` keeps wire
+    // positions): they name no law.
+    if (!card || card.type !== 'legal_basis') continue
     const label = [card.law, card.section ?? card.article ?? undefined].filter(Boolean).join(' ')
     if (!label) continue
     const isOib = !!oibDocumentKey(card.law)

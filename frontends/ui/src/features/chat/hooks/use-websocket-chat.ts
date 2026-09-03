@@ -1129,7 +1129,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         armStreamingWatchdog()
 
         // Validate grid cards carried on the response message
-        const validatedCards: GridCard[] = validateGridCards(cards)
+        const validatedCards: (GridCard | undefined)[] = validateGridCards(cards)
 
         // Queue-rejection notice (WP-A `job_admission_rejected`): the terminal
         // frame's text is NOT a research answer but a "queue full, try later"

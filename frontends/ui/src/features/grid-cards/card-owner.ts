@@ -53,7 +53,7 @@ export interface CardOwnerMessage {
   id: string
   /** The deep-research run this message belongs to, when it belongs to one. */
   deepResearchJobId?: string
-  cards?: readonly GridCard[]
+  cards?: readonly (GridCard | undefined)[]
 }
 
 /** The little of a `Conversation` this question needs. */
@@ -82,7 +82,7 @@ export interface CardOwnerSource {
 export const findCardOwnerMessageId = (
   source: CardOwnerSource,
   jobId: string | null | undefined,
-  cards: readonly GridCard[]
+  cards: readonly (GridCard | undefined)[]
 ): string | null => {
   if (!jobId || cards.length === 0) return null
 

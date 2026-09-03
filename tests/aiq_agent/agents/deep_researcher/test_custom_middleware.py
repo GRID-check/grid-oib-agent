@@ -17,7 +17,9 @@ from aiq_agent.agents.deep_researcher.custom_middleware import ToolVisibilityMid
 from aiq_agent.agents.deep_researcher.custom_middleware import is_retryable_tool_error
 from aiq_agent.agents.deep_researcher.models import ResearchNotes
 from aiq_agent.agents.deep_researcher.tools.source_registry import build_get_verified_sources_tool
+from aiq_agent.common.budget_guard import RunBudgetExceededError
 from aiq_agent.common.citation_verification import SourceEntry
+from aiq_agent.common.cost_tracking import BudgetExceededError
 from aiq_agent.common.data_source_registry import populate_from_config
 from aiq_agent.common.data_source_registry import reset_registry
 
@@ -230,6 +232,83 @@ class TestSelectiveToolRetryMiddleware:
         assert isinstance(result, ToolMessage)
         assert result.status == "error"
         assert "partial batch failure" in result.content
+
+
+class TestBudgetExhaustionIsTerminal:
+    """Backlog item 2 ratchet: budget exhaustion is terminal, never a retryable ToolMessage.
+
+    ``RunBudgetExceededError`` (token ceiling) raised inside ``run_research_batch``
+    used to fall into ``except Exception -> _handle_failure`` and return as
+    "failed after 1 attempt ... Please try again", so the orchestrator resubmitted
+    into an already-exceeded tracker until the wall clock. It must propagate so the
+    run salvages once, marked, instead of looping.
+    """
+
+    def _middleware(self, **kwargs) -> SelectiveToolRetryMiddleware:
+        return SelectiveToolRetryMiddleware(
+            max_retries=3,
+            backoff_factor=0.0,
+            initial_delay=0.0,
+            jitter=False,
+            retry_on=is_retryable_tool_error,
+            no_retry_tools={"run_research_batch"},
+            **kwargs,
+        )
+
+    def _request(self, tool_name: str):
+        request = MagicMock()
+        request.tool = SimpleNamespace(name=tool_name)
+        request.tool_call = {"name": tool_name, "id": "tc1"}
+        return request
+
+    def test_is_retryable_rejects_token_budget(self):
+        assert is_retryable_tool_error(RunBudgetExceededError(ceiling=1000, used=1500)) is False
+
+    def test_is_retryable_rejects_usd_budget(self):
+        assert is_retryable_tool_error(BudgetExceededError(scope="organization")) is False
+
+    @pytest.mark.asyncio
+    async def test_no_retry_tool_budget_propagates_without_tool_message(self):
+        """The batch path: one execution, no ToolMessage, no retry loop."""
+        middleware = self._middleware()
+        handler = AsyncMock(side_effect=RunBudgetExceededError(ceiling=1000, used=1500))
+
+        with pytest.raises(RunBudgetExceededError):
+            await middleware.awrap_tool_call(self._request("run_research_batch"), handler)
+
+        handler.assert_awaited_once()
+
+    def test_sync_no_retry_tool_budget_propagates(self):
+        middleware = self._middleware()
+        handler = MagicMock(side_effect=RunBudgetExceededError(ceiling=1000, used=1500))
+
+        with pytest.raises(RunBudgetExceededError):
+            middleware.wrap_tool_call(self._request("run_research_batch"), handler)
+
+        handler.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_regular_tool_budget_is_not_retried(self):
+        """Even off the no-retry list, a budget error must not burn retries."""
+        middleware = self._middleware()
+        handler = AsyncMock(side_effect=RunBudgetExceededError(ceiling=1000, used=1500))
+
+        with pytest.raises(RunBudgetExceededError):
+            await middleware.awrap_tool_call(self._request("web_search_tool"), handler)
+
+        handler.assert_awaited_once()
+
+    def test_handle_failure_reraises_budget_as_safety_net(self):
+        """Exhausted-retry callers of _handle_failure still cannot launder a budget error."""
+        middleware = self._middleware()
+
+        with pytest.raises(RunBudgetExceededError):
+            middleware._handle_failure(
+                "run_research_batch",
+                "tc1",
+                RunBudgetExceededError(ceiling=1000, used=1500),
+                4,
+            )
 
 
 class TestToolVisibilityMiddleware:

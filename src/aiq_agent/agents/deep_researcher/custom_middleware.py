@@ -16,9 +16,11 @@ from langgraph.errors import GraphBubbleUp
 from aiq_agent.common import get_source_id_for_tool
 from aiq_agent.common import load_prompt
 from aiq_agent.common import render_prompt_template
+from aiq_agent.common.budget_guard import RunBudgetExceededError
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+from aiq_agent.common.cost_tracking import BudgetExceededError
 from aiq_agent.common.deferred_tool_loading import tool_payload_name
 
 logger = logging.getLogger(__name__)
@@ -35,7 +37,18 @@ def is_retryable_tool_error(exc: Exception) -> bool:
     workers returning malformed ResearchNotes). Re-executing the same call
     cannot fix it — the MODEL has to change its input — so it must reach the
     model immediately instead of burning retries.
+
+    Budget exhaustion (the per-run completion-token ceiling
+    ``RunBudgetExceededError`` and the USD-denominated
+    ``cost_tracking.BudgetExceededError``) is likewise never retryable, but for
+    the opposite reason: it is TERMINAL, not model-fixable. Retrying burns the
+    very tokens that are gone — and inside ``run_research_batch`` the tracker
+    stays exceeded, so every resubmission fails again and the orchestrator loops
+    to the wall-clock cutoff. Budget errors must propagate, never become a
+    resubmittable error ToolMessage.
     """
+    if isinstance(exc, (RunBudgetExceededError, BudgetExceededError)):
+        return False
     return not isinstance(exc, ValueError)
 
 
@@ -59,6 +72,20 @@ class SelectiveToolRetryMiddleware(ToolRetryMiddleware):
     def _request_tool_name(request) -> str:
         return request.tool.name if request.tool else request.tool_call["name"]
 
+    def _handle_failure(self, tool_name: str, tool_call_id: str | None, exc: Exception, attempts_made: int):
+        """Never convert budget exhaustion into a resubmittable error ToolMessage.
+
+        The base retry loop calls this only after exhausting retries, and the
+        ``no_retry_tools`` path below calls it directly — both would otherwise
+        turn a terminal budget error into "Please try again" for the model.
+        Re-raise so the run aborts to the salvage path instead of looping to
+        the wall clock. This is the safety net regardless of caller; the
+        ``except`` clauses below re-raise first for clarity.
+        """
+        if isinstance(exc, (RunBudgetExceededError, BudgetExceededError)):
+            raise exc
+        return super()._handle_failure(tool_name, tool_call_id, exc, attempts_made)
+
     def wrap_tool_call(self, request, handler):
         """Run tools so failures reach the model as error ToolMessages, not crashes.
 
@@ -68,7 +95,9 @@ class SelectiveToolRetryMiddleware(ToolRetryMiddleware):
         ValueError signal) instead of returning it as an error ToolMessage, so
         we convert it here — the MODEL has to change its input, and it can only
         do that if the error reaches it. Control-flow signals (``GraphBubbleUp``:
-        interrupts, parent Commands) must always propagate.
+        interrupts, parent Commands) must always propagate. Budget-exhaustion
+        errors (token ceiling or USD budgets) are terminal and likewise always
+        propagate — never a retryable ToolMessage, regardless of tool.
         """
         tool_name = self._request_tool_name(request)
         try:
@@ -76,6 +105,8 @@ class SelectiveToolRetryMiddleware(ToolRetryMiddleware):
                 return handler(request)
             return super().wrap_tool_call(request, handler)
         except GraphBubbleUp:
+            raise
+        except (RunBudgetExceededError, BudgetExceededError):
             raise
         except Exception as exc:  # noqa: BLE001 - converted to an error ToolMessage for the model
             return self._handle_failure(tool_name, request.tool_call["id"], exc, 1)
@@ -88,6 +119,8 @@ class SelectiveToolRetryMiddleware(ToolRetryMiddleware):
                 return await handler(request)
             return await super().awrap_tool_call(request, handler)
         except GraphBubbleUp:
+            raise
+        except (RunBudgetExceededError, BudgetExceededError):
             raise
         except Exception as exc:  # noqa: BLE001 - converted to an error ToolMessage for the model
             return self._handle_failure(tool_name, request.tool_call["id"], exc, 1)

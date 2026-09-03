@@ -1145,6 +1145,7 @@ async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, 
     from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 
     from ..jobs.event_store import EventStore
+    from ..jobs.runner import _update_status_if_not_terminal
     from ..jobs.submit import job_execution_mode
 
     if job_execution_mode() == "db":
@@ -1161,14 +1162,26 @@ async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, 
         stale_statuses = (JobStatus.RUNNING.value, JobStatus.SUBMITTED.value)
     stale_job_ids = await loop.run_in_executor(None, _find_stale_jobs, db_url, stale_statuses)
 
+    reaped: list[str] = []
     for stale_job_id in stale_job_ids:
         logger.warning("Reaping ghost job %s (no events for %ds)", stale_job_id, GHOST_JOB_TIMEOUT_SECONDS)
         try:
-            await job_store.update_status(
+            # Conditional write: the worker may have finalized this job after
+            # it was detected as stale (a SUCCESS racing the reaper). An
+            # unconditional update_status here would flip that verdict back to
+            # FAILURE — the mirror image of the runner-overwrites-reaper race.
+            written = await _update_status_if_not_terminal(
+                job_store,
                 stale_job_id,
                 JobStatus.FAILURE,
                 error="Job timed out (no heartbeat received from worker)",
             )
+            if not written:
+                logger.info(
+                    "Ghost job %s reached a terminal status before reaping; leaving the existing verdict",
+                    stale_job_id,
+                )
+                continue
             event_store = EventStore(db_url, stale_job_id)
             event_store.store(
                 {
@@ -1185,10 +1198,11 @@ async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, 
             # and its CancellationMonitor stops it once it polls the FAILURE).
             if scheduler_address:
                 await _cancel_dask_task(scheduler_address, stale_job_id)
+            reaped.append(stale_job_id)
         except Exception as e:
             logger.warning("Failed to reap ghost job %s: %s", stale_job_id, e)
 
-    return stale_job_ids
+    return reaped
 
 
 async def _reap_ghost_jobs(job_store, db_url: str, scheduler_address: str | None = None) -> None:
