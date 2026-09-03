@@ -1,0 +1,18 @@
+---
+# One entry per user-visible change. This text is PUBLISHED, in English and in
+# German machine translation, to https://piloti.at/changelog — write it for the
+# architect using Piloti, not for the reviewer of your diff.
+#
+#   - Plain sentences. No RST directives, no code blocks, no issue numbers, no
+#     file paths, no internal component names.
+#   - Say what the reader can now do, or what stopped going wrong for them.
+#   - Two sentences is usually the right length. `task release:lint` enforces
+#     the mechanical half of this.
+#
+# Delete every section you do not need — an empty one fails the lint.
+fixes:
+  - >
+    Broad overview questions about a building guideline now find the same
+    documents as the precise technical terms. A question asked in everyday
+    wording no longer comes back with too few sources when the official
+    documents spell the key terms differently.
