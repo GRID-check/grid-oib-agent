@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FileItem } from '../components/project-file-workspace'
+import { onDocumentsChanged } from '@/lib/documents/document-changes'
 
 /**
  * One document surfaced by the backend `surface_documents` tool: a real indexed
@@ -79,6 +80,10 @@ const cacheKey = (projectId: string | null, conversationId: string | null): stri
 export const resetSurfacedDocumentsCache = (): void => {
   indexCache.clear()
 }
+
+// Same reason as the citation index: a card that names a file uploaded during
+// the conversation must resolve to it, not to nothing.
+onDocumentsChanged(resetSurfacedDocumentsCache)
 
 /**
  * Fetch one corpus' document list. `softStatuses` are fail-open (e.g. Archiv 403

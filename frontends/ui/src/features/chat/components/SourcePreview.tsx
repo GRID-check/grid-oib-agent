@@ -35,6 +35,7 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { documentFileUrl } from '@/lib/documents/urls'
+import { onDocumentsChanged } from '@/lib/documents/document-changes'
 import { startDocumentDownload } from '@/lib/documents/download'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
@@ -90,6 +91,12 @@ const indexCache = new Map<string, Promise<SourcePreviewIndex>>()
 export const resetSourcePreviewIndexCache = (): void => {
   indexCache.clear()
 }
+
+// A document uploaded DURING the conversation is one the answer can cite and
+// this index has never seen. Without this the chip offered no way in and no
+// reason until a reload — the #623 complaint, on the path its fix did not
+// reach.
+onDocumentsChanged(resetSourcePreviewIndexCache)
 
 const loadSourcePreviewIndex = (
   projectId: string | null,

@@ -26,6 +26,7 @@ import { summarizeValidation } from '../lib/validation-messages'
 import { UploadOrchestrator } from '../orchestrator'
 import type { PendingJob } from '../orchestrator'
 import { markSessionHasCollection } from '../persistence'
+import { notifyDocumentsChanged } from '@/lib/documents/document-changes'
 
 /** The durable-upload endpoints' response (`/api/documents/upload`, `/api/archiv/documents/upload`). */
 interface UploadDocumentResponse {
@@ -364,6 +365,11 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
                 // event happened to say.
                 bytesUploaded: file.size,
               })
+              // The document listings held for the page lifetime are now stale.
+              // Until this fired, a file uploaded mid-conversation was invisible
+              // to the citation resolver: the answer cited it and the chip said
+              // there was nothing to open (#623, on the path its fix missed).
+              notifyDocumentsChanged()
             } catch (err) {
               if (isAbort(err)) {
                 updateTrackedFile(tracked.id, { status: 'canceled' })
@@ -429,6 +435,8 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
                 bytesUploaded: file.size,
               })
             })
+            // Same staleness, the other upload path.
+            notifyDocumentsChanged()
           } finally {
             abortControllersRef.current.delete(batchKey)
           }
