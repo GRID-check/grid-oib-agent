@@ -2,14 +2,20 @@
 #
 # This file is intentionally data-only. Add, remove, or revise domains here
 # without changing Python source code. Source IDs must match entries in the
-# data_source_registry for the active workflow config.
+# data_source_registry for the active workflow config —
+# `test_shipped_domain_catalog_source_ids_match_domain_routing_config` asserts
+# exactly that against `configs/config_domain_routing_and_skills.yml`.
+#
+# The catalog used to route between news, prediction markets and academic
+# papers, which is what the upstream blueprint shipped. Those sources are gone;
+# these domains are the ones this product's fleet can actually serve.
 
 default_domain_id: general_research
 
 domains:
   - domain_id: general_research
     domain_name: General Research
-    description: Broad factual research, explainers, company/product research, and mixed-domain questions.
+    description: Broad factual research, explainers, and mixed-domain questions.
     preferred_source_ids:
       - knowledge_layer
       - web_search
@@ -17,31 +23,14 @@ domains:
       - web_search
     is_default: true
 
-  - domain_id: scholarly_technical
-    domain_name: Scholarly and Technical Research
-    description: Scientific, engineering, medical, benchmark, method, paper, and standards-heavy questions.
+  - domain_id: legal_regulatory
+    domain_name: Law and Regulation
+    description: >-
+      Building law, Bauordnungen, OIB-Richtlinien, ÖNORMen, and any question
+      whose answer has to be grounded in a citable Bestimmung rather than in
+      prose about one.
     preferred_source_ids:
-      - paper_search
-      - web_search
+      - ris
       - knowledge_layer
-    fallback_source_ids:
-      - web_search
-
-  - domain_id: market_forecasting
-    domain_name: Market Forecasting
-    description: Markets, probabilities, companies, commodities, crypto, elections, and forward-looking outcomes.
-    preferred_source_ids:
-      - prediction_market
-      - news_search
-      - web_search
-    fallback_source_ids:
-      - web_search
-
-  - domain_id: current_news
-    domain_name: Current News
-    description: Recent events, breaking developments, announcements, and fast-changing public facts.
-    preferred_source_ids:
-      - news_search
-      - web_search
     fallback_source_ids:
       - web_search

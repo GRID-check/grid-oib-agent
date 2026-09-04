@@ -1,8 +1,8 @@
 # Data sources: `sources/`
 
-NAT data-source packages: web search, scholarly search, prediction markets, the
-RIS legal adapter, and the knowledge layer. Each is its own uv workspace member
-with its own `pyproject.toml` and tests, installed into the shared venv.
+NAT data-source packages: Tavily web search, the RIS legal adapter, and the
+knowledge layer. Each is its own uv workspace member with its own
+`pyproject.toml` and tests, installed into the shared venv.
 
 ## Running these tests
 
@@ -21,9 +21,9 @@ of them and the second one aborts collection with "Plugin already registered
 under a different name". That is why the task runs one pytest per package.
 
 This suite went uncovered for a long time — only the `stages: [push]` pre-commit
-hook touched it, and CI's repo-lint job skips that — which is how
-`google_scholar_paper_search` came to assert a `_fetch_serper_page(offset=...)`
-signature the implementation had already replaced with `page`.
+hook touched it, and CI's repo-lint job skips that. A package here once carried
+three tests asserting a function signature the implementation had already
+changed, and they stayed green through every gate because nothing ran them.
 
 ## Obligations
 

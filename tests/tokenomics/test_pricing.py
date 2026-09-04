@@ -107,12 +107,12 @@ def test_pricing_registry_get_tool_exact_and_substring():
         {
             "models": {"m": {"input_per_1m_tokens": 1.0, "output_per_1m_tokens": 1.0}},
             "tools": {
-                "paper_search": ToolPriceConfig(cost_per_call=0.0003),
+                "scholar_search": ToolPriceConfig(cost_per_call=0.0003),
             },
         }
     )
-    assert reg.get_tool("paper_search").cost_per_call == pytest.approx(0.0003)
-    assert reg.get_tool("my_paper_search_tool").cost_per_call == pytest.approx(0.0003)
+    assert reg.get_tool("scholar_search").cost_per_call == pytest.approx(0.0003)
+    assert reg.get_tool("my_scholar_search_tool").cost_per_call == pytest.approx(0.0003)
 
 
 def test_pricing_registry_get_tool_unknown_is_zero():

@@ -23,13 +23,13 @@ def knowledge_search(query: str) -> str:
 
 
 @tool
-def duckduckgo_news_search_tool(query: str) -> str:
+def news_search_tool(query: str) -> str:
     """Search recent news."""
     return query
 
 
 @tool
-def polymarket_search_tool(query: str) -> str:
+def market_search_tool(query: str) -> str:
     """Search prediction markets."""
     return query
 
@@ -59,7 +59,7 @@ domains:
     domain_name: Scholarly and Technical Research
     description: Paper-heavy and technical questions.
     preferred_source_ids:
-      - paper_search
+      - scholar_search
       - web_search
       - knowledge_layer
     fallback_source_ids:
@@ -108,13 +108,13 @@ def _registry():
                 "id": "news_search",
                 "name": "News Search",
                 "description": "Search recent news.",
-                "tools": ["duckduckgo_news_search_tool"],
+                "tools": ["news_search_tool"],
             },
             {
                 "id": "prediction_market",
                 "name": "Prediction Markets",
                 "description": "Search prediction markets.",
-                "tools": ["polymarket_search_tool"],
+                "tools": ["market_search_tool"],
             },
         ]
     )
@@ -127,8 +127,8 @@ def test_source_catalog_groups_runtime_tools_by_configured_source(tmp_path):
         [
             web_search_tool,
             knowledge_search,
-            duckduckgo_news_search_tool,
-            polymarket_search_tool,
+            news_search_tool,
+            market_search_tool,
             helper_tool,
         ],
         domain_catalog_path=_write_domain_catalog(tmp_path),
@@ -138,8 +138,8 @@ def test_source_catalog_groups_runtime_tools_by_configured_source(tmp_path):
     assert set(sources) == {"web_search", "knowledge_layer", "news_search", "prediction_market"}
     assert sources["web_search"]["tools"][0]["name"] == "web_search_tool"
     assert sources["knowledge_layer"]["tools"][0]["name"] == "knowledge_search"
-    assert sources["news_search"]["tools"][0]["name"] == "duckduckgo_news_search_tool"
-    assert sources["prediction_market"]["tools"][0]["name"] == "polymarket_search_tool"
+    assert sources["news_search"]["tools"][0]["name"] == "news_search_tool"
+    assert sources["prediction_market"]["tools"][0]["name"] == "market_search_tool"
     assert payload["unmapped_runtime_tools"] == ["helper_tool"]
     assert payload["default_domain_id"] == "general_research"
 
@@ -149,7 +149,7 @@ def test_source_catalog_respects_explicit_source_selection(tmp_path):
         [
             web_search_tool,
             knowledge_search,
-            duckduckgo_news_search_tool,
+            news_search_tool,
         ],
         allowed_source_ids=["news_search"],
         domain_catalog_path=_write_domain_catalog(tmp_path),
@@ -166,7 +166,7 @@ def test_source_catalog_explicit_source_selection_is_case_insensitive(tmp_path):
         [
             web_search_tool,
             knowledge_search,
-            duckduckgo_news_search_tool,
+            news_search_tool,
         ],
         allowed_source_ids=["NEWS_SEARCH"],
         domain_catalog_path=_write_domain_catalog(tmp_path),
@@ -180,7 +180,7 @@ def test_source_catalog_explicit_source_selection_is_case_insensitive(tmp_path):
 
 def test_source_catalog_keeps_prediction_market_for_market_domain(tmp_path):
     payload = source_catalog_payload(
-        [web_search_tool, duckduckgo_news_search_tool, polymarket_search_tool],
+        [web_search_tool, news_search_tool, market_search_tool],
         domain_catalog_path=_write_domain_catalog(tmp_path),
     )
 
@@ -192,13 +192,13 @@ def test_source_catalog_keeps_prediction_market_for_market_domain(tmp_path):
 
 def test_source_catalog_tool_payload_is_json_serializable(tmp_path):
     payload = source_catalog_payload(
-        [web_search_tool, duckduckgo_news_search_tool],
+        [web_search_tool, news_search_tool],
         domain_catalog_path=_write_domain_catalog(tmp_path),
     )
     decoded = json.loads(json.dumps(payload))
 
     scholarly = next(domain for domain in decoded["domains"] if domain["domain_id"] == "scholarly_technical")
-    assert "paper_search" in scholarly["unavailable_source_ids"]
+    assert "scholar_search" in scholarly["unavailable_source_ids"]
     assert decoded["default_fallback_source_ids"] == ["web_search"]
 
 
@@ -207,8 +207,8 @@ def test_source_catalog_uses_default_general_research_without_domain_catalog():
         [
             web_search_tool,
             knowledge_search,
-            duckduckgo_news_search_tool,
-            polymarket_search_tool,
+            news_search_tool,
+            market_search_tool,
         ]
     )
 
@@ -230,7 +230,7 @@ def test_source_catalog_uses_default_general_research_without_domain_catalog():
 
 
 def test_source_catalog_default_general_research_uses_available_sources_only():
-    payload = source_catalog_payload([web_search_tool, duckduckgo_news_search_tool])
+    payload = source_catalog_payload([web_search_tool, news_search_tool])
 
     assert [entry["source_id"] for entry in payload["available_sources"]] == ["news_search", "web_search"]
     [general_research] = payload["domains"]
