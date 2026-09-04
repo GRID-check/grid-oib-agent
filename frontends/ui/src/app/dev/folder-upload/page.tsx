@@ -24,6 +24,15 @@
  * the other with nothing said. Neither is sent now, the pair is named, and the
  * upload button is disabled because the reader has something to fix first.
  *
+ * `?variant=known` is the half the plan used to get wrong: the same folder,
+ * against a corpus somebody has since worked on. One document was renamed here,
+ * so the plan names it — approving a replacement you cannot find in your own
+ * file list is not approval. One file matches a document under a name the
+ * SERVER would not treat as the same (case), so it is reported as already here
+ * rather than uploaded into a second copy. And one unchanged document has been
+ * re-filed in Piloti, so it is moved rather than left where it is under a
+ * dialog that promises to reproduce the tree.
+ *
  * `?variant=planning` is the seconds a large folder spends being read and
  * hashed before any of the above can be shown. It is a real state on a
  * 500-file drop and it says what it is doing, rather than leaving a bare
@@ -147,6 +156,41 @@ function collisionPlan(): FolderUploadPlan {
   })
 }
 
+/**
+ * The corpus somebody has worked on since the last sync: a rename, a re-filing,
+ * and a file whose name matches a document only in the loose sense.
+ */
+function knownPlan(): FolderUploadPlan {
+  const unchanged = pathed('Wohnbau Nord/Pläne/EG.pdf', 1_000)
+  const renamed = pathed('Wohnbau Nord/Statik/Nachweis.pdf', 2_400)
+  const otherCase = pathed('Wohnbau Nord/Pläne/DECKBLATT.pdf', 900)
+
+  return buildFolderUploadPlan({
+    files: [unchanged, renamed, otherCase],
+    folders: FOLDERS,
+    currentFolderId: null,
+    documents: [
+      // Byte-identical, and filed at the root since the last sync. Nothing to
+      // upload, and still something to do.
+      doc('EG.pdf', { fileSize: 1_000, contentHash: IDENTICAL, folderId: null }),
+      // Renamed here. The drop still says `Nachweis.pdf`; the file list says
+      // something else, and the dialog has to bridge the two.
+      doc('Nachweis.pdf', {
+        fileSize: 2_400,
+        contentHash: IDENTICAL,
+        folderId: 'f-statik',
+        displayName: 'Statischer Nachweis — Freigabe 08/26',
+      }),
+      // Same document to a person, a second row to Postgres.
+      doc('Deckblatt.pdf', { fileSize: 900, folderId: 'f-plaene' }),
+    ],
+    digests: new Map([
+      [unchanged, IDENTICAL],
+      [renamed, `sha256:${'b'.repeat(64)}`],
+    ]),
+  })
+}
+
 export default function FolderUploadPreviewPage(): JSX.Element {
   if (process.env.NODE_ENV !== 'development') {
     notFound()
@@ -159,7 +203,9 @@ export default function FolderUploadPreviewPage(): JSX.Element {
         ? firstPlan()
         : variant === 'collisions'
           ? collisionPlan()
-          : resyncPlan()
+          : variant === 'known'
+            ? knownPlan()
+            : resyncPlan()
 
   return (
     <main className="min-h-dvh bg-background px-4 py-10" data-testid="folder-upload-preview">

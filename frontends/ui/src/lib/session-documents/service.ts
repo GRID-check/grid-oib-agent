@@ -39,6 +39,7 @@ import {
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
 import { contentDigest } from '@/lib/documents/content-digest'
+import { documentNameKey } from '@/lib/documents/name-match'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
 import { findLiveDocumentByFilename, type DocumentListRow } from '@/lib/documents/repository'
 import { deleteDocumentObjects, discardSupersededObjects } from '@/lib/documents/object-cleanup'
@@ -143,9 +144,14 @@ export async function uploadSessionDocument(
   // filename regardless of shelf, so dropping a corrected file into a chat a
   // second time left the same paid-for ghost here: the first row listed and
   // downloadable, its passages already replaced by the second's.
-  const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, file.name)
+  // One Unicode form, for the same reason and through the same helper as the
+  // project shelf: this is the same table and the same unique name, so a
+  // decomposed name off a Mac would put a second row here too. See
+  // `@/lib/documents/name-match`.
+  const filename = documentNameKey(file.name)
+  const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
   const documentId = superseded?.id ?? crypto.randomUUID()
-  const storageKey = buildSessionStorageKey(session.organizationId, conversationId, documentId, file.name)
+  const storageKey = buildSessionStorageKey(session.organizationId, conversationId, documentId, filename)
 
   // Same provisioning step as the other shelves (ADR-0043): a session
   // attachment shares the tenant's bucket, because it shares the tenant's bytes.
@@ -212,7 +218,7 @@ export async function uploadSessionDocument(
       conversationId,
       folderId: null,
       createdBy: session.userId,
-      filename: file.name,
+      filename,
       storageKey,
       storageBucket,
       collectionName,
@@ -230,7 +236,7 @@ export async function uploadSessionDocument(
     organizationId: session.organizationId,
     projectId: null,
     documentId,
-    filename: file.name,
+    filename,
     storageKey,
     storageBucket,
     collectionName,
@@ -245,14 +251,14 @@ export async function uploadSessionDocument(
     targetId: documentId,
     metadata: {
       conversationId,
-      filename: file.name.slice(0, 200),
+      filename: filename.slice(0, 200),
       fileSize: file.size,
       ...(superseded ? { replaced: true } : {}),
     },
     request,
   })
 
-  return { documentId, jobId, status, filename: file.name, collectionName }
+  return { documentId, jobId, status, filename, collectionName }
 }
 
 /**

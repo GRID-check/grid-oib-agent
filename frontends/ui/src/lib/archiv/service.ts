@@ -39,6 +39,7 @@ import {
 } from '@/lib/documents/service'
 import { collectionFileRef, purgeIngestedChunks } from '@/lib/documents/collection-file-ref'
 import { contentDigest } from '@/lib/documents/content-digest'
+import { documentNameKey } from '@/lib/documents/name-match'
 import { deleteBimDerivedObjects } from '@/lib/bim/service'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
@@ -129,9 +130,14 @@ export async function uploadArchivDocument(
   // through the same helpers — see `uploadDocument`. The Archiv is not a
   // different filing system; it is the same table with `scope = 'archiv'`, so a
   // second upload of one filename left the same paid-for ghost here.
-  const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, file.name)
+  // One Unicode form, for the same reason and through the same helper as the
+  // project shelf: this is the same table and the same unique name, so a
+  // decomposed name off a Mac would put a second row here too. See
+  // `@/lib/documents/name-match`.
+  const filename = documentNameKey(file.name)
+  const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
   const documentId = superseded?.id ?? crypto.randomUUID()
-  const storageKey = buildArchivStorageKey(session.organizationId, documentId, file.name)
+  const storageKey = buildArchivStorageKey(session.organizationId, documentId, filename)
 
   // Same provisioning step as the project path (ADR-0043): the Archiv shares
   // the tenant's bucket, because it shares the tenant's bytes.
@@ -178,7 +184,7 @@ export async function uploadArchivDocument(
       scope: 'archiv',
       folderId: null,
       createdBy: session.userId,
-      filename: file.name,
+      filename,
       storageKey,
       storageBucket,
       collectionName,
@@ -196,7 +202,7 @@ export async function uploadArchivDocument(
     organizationId: session.organizationId,
     projectId: null,
     documentId,
-    filename: file.name,
+    filename,
     storageKey,
     storageBucket,
     collectionName,
@@ -209,11 +215,11 @@ export async function uploadArchivDocument(
     action: 'archiv.document.uploaded',
     targetType: 'document',
     targetId: documentId,
-    metadata: { filename: file.name.slice(0, 200), fileSize: file.size, collectionName },
+    metadata: { filename: filename.slice(0, 200), fileSize: file.size, collectionName },
     request,
   })
 
-  return { documentId, jobId, status, filename: file.name }
+  return { documentId, jobId, status, filename }
 }
 
 /**

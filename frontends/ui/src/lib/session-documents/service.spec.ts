@@ -82,6 +82,9 @@ const existing = {
   storageKey: `org/${ORG_ID}/session/${CONVERSATION_ID}/doc/doc-existing/brandschutz.pdf`,
   storageBucket: 'grid-org-org1-abc',
   fileSize: 900,
+  contentHash: null,
+  folderId: null,
+  status: 'ready',
 }
 
 beforeEach(() => {

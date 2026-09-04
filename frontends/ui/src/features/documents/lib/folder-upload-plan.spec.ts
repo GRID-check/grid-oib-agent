@@ -174,6 +174,174 @@ describe('buildFolderUploadPlan — what happens to each file', () => {
   })
 })
 
+describe('buildFolderUploadPlan — the names a document answers to', () => {
+  /*
+   * THE DEFECT THIS SUITE EXISTS FOR.
+   *
+   * macOS stores filenames decomposed. A folder matched (that comparison was
+   * already normalized) and then every file inside it came back `new`, so the
+   * one gesture this feature exists to serve — a büro re-syncing an Einreichung
+   * off the office Mac — re-uploaded the entire corpus and, because the server
+   * compared raw too, put a second copy of every document beside the first.
+   */
+  it('matches a decomposed name against the composed one already stored', () => {
+    const composed = 'Pr\u00fcfbericht.pdf'
+    const decomposed = 'Pru\u0308fbericht.pdf'
+    expect(composed).not.toBe(decomposed)
+
+    const result = plan({
+      files: [pathed(`Statik/${decomposed}`)],
+      documents: [doc({ id: 'd1', filename: composed })],
+    })
+
+    expect(result.files[0].action).toBe('update')
+    expect(result.files[0].existingId).toBe('d1')
+    expect(result.counts.new).toBe(0)
+  })
+
+  it('counts two Unicode spellings of one name inside a drop as one collision', () => {
+    const result = plan({
+      files: [pathed('A/Pr\u00fcfung.pdf'), pathed('B/Pru\u0308fung.pdf')],
+    })
+    expect(result.files.map((file) => file.action)).toEqual(['collision', 'collision'])
+  })
+
+  it('names the document a row will replace when the project calls it something else', () => {
+    const result = plan({
+      files: [pathed('Statik/Deckblatt.pdf')],
+      documents: [doc({ id: 'd1', filename: 'Deckblatt.pdf', displayName: 'Statik — Deckblatt' })],
+    })
+    expect(result.files[0].action).toBe('update')
+    expect(result.files[0].existingName).toBe('Statik — Deckblatt')
+  })
+
+  it('says nothing about the name when it is the one in the drop', () => {
+    const result = plan({
+      files: [pathed('Statik/Deckblatt.pdf')],
+      documents: [doc({ id: 'd1', filename: 'Deckblatt.pdf' })],
+    })
+    expect(result.files[0].existingName).toBeUndefined()
+  })
+
+  /*
+   * A match the SERVER would not make. Uploading it adds a second copy rather
+   * than replacing anything, so calling it an update would be a promise the
+   * upload cannot keep — and calling it new is how a project ends up holding
+   * one document twice.
+   */
+  it('reports a file that differs only in case as already here, and does not send it', () => {
+    const result = plan({
+      files: [pathed('Statik/DECKBLATT.pdf')],
+      documents: [doc({ id: 'd1', filename: 'Deckblatt.pdf' })],
+    })
+    expect(result.files[0].action).toBe('duplicate')
+    expect(result.files[0].existingName).toBe('Deckblatt.pdf')
+    expect(result.counts.uploading).toBe(0)
+    expect(filesToUpload(result, true)).toEqual([])
+  })
+
+  it('recognizes a file named after the rename somebody gave the document', () => {
+    const result = plan({
+      files: [pathed('Statik/Statikbericht 2026.pdf')],
+      documents: [doc({ id: 'd1', filename: 'sb-final-v3.pdf', displayName: 'Statikbericht 2026.pdf' })],
+    })
+    expect(result.files[0].action).toBe('duplicate')
+    expect(result.files[0].existingId).toBe('d1')
+  })
+
+  /*
+   * `origin_path` is not an alias. Its last segment is the filename the row
+   * already carries, so it can only match what the identity key matched first
+   * — and a looser key that adds nothing can still hold back a file somebody
+   * meant to upload.
+   */
+  it('does not hold back a file that merely shares a name with somebody\'s origin path', () => {
+    const result = plan({
+      files: [pathed('Statik/EG.pdf')],
+      documents: [doc({ id: 'd1', filename: 'EG (1).pdf', originPath: 'Wohnbau/Statik/EG.pdf' })],
+    })
+    expect(result.files[0].action).toBe('new')
+  })
+
+  it('prefers the real identity over a looser one', () => {
+    const result = plan({
+      files: [pathed('Statik/Bericht.pdf')],
+      documents: [
+        doc({ id: 'alias', filename: 'BERICHT.pdf' }),
+        doc({ id: 'exact', filename: 'Bericht.pdf' }),
+      ],
+    })
+    expect(result.files[0].action).toBe('update')
+    expect(result.files[0].existingId).toBe('exact')
+  })
+})
+
+describe('buildFolderUploadPlan — the documents that only have to move', () => {
+  /*
+   * An unchanged document sends no bytes, so nothing about the upload puts it
+   * where the tree says it belongs. Without a move of its own, "the folder
+   * structure is recreated" is false for exactly the files a re-sync is mostly
+   * made of.
+   */
+  it('moves an unchanged document that is filed somewhere else', () => {
+    const files = [pathed('Statik/EG.pdf')]
+    const result = plan({
+      files,
+      folders: [folder('f-statik', 'Statik')],
+      documents: [
+        doc({ id: 'd1', filename: 'EG.pdf', folderId: null, contentHash: 'sha256:aa' }),
+      ],
+      digests: new Map([[files[0], 'sha256:aa']]),
+    })
+    expect(result.files[0].action).toBe('unchanged')
+    expect(result.moves).toEqual([{ documentId: 'd1', targetPath: 'Statik' }])
+    expect(result.counts.moving).toBe(1)
+    expect(result.counts.uploading).toBe(0)
+  })
+
+  it('leaves an unchanged document that is already in the right folder alone', () => {
+    const files = [pathed('Statik/EG.pdf')]
+    const result = plan({
+      files,
+      folders: [folder('f-statik', 'Statik')],
+      documents: [
+        doc({ id: 'd1', filename: 'EG.pdf', folderId: 'f-statik', contentHash: 'sha256:aa' }),
+      ],
+      digests: new Map([[files[0], 'sha256:aa']]),
+    })
+    expect(result.moves).toEqual([])
+    expect(result.counts.moving).toBe(0)
+  })
+
+  /*
+   * The folder the document is moving INTO may not exist yet, and a folder that
+   * has still to be created cannot already hold it. Reading the unresolved id
+   * as "the project root" is how a re-file into a new folder went uncounted —
+   * and would have sent the document to the root instead of into the folder.
+   */
+  it('moves an unchanged document into a folder the tree has still to create', () => {
+    const files = [pathed('Neu/EG.pdf')]
+    const result = plan({
+      files,
+      folders: [],
+      documents: [doc({ id: 'd1', filename: 'EG.pdf', folderId: null, contentHash: 'sha256:aa' })],
+      digests: new Map([[files[0], 'sha256:aa']]),
+    })
+    expect(result.moves).toEqual([{ documentId: 'd1', targetPath: 'Neu' }])
+  })
+
+  it('counts a re-filed update as a re-file and not as a move — the upload does it', () => {
+    const result = plan({
+      files: [pathed('Statik/EG.pdf')],
+      folders: [folder('f-statik', 'Statik')],
+      documents: [doc({ id: 'd1', filename: 'EG.pdf', folderId: null })],
+    })
+    expect(result.counts.refiled).toBe(1)
+    expect(result.counts.moving).toBe(0)
+    expect(result.moves).toEqual([])
+  })
+})
+
 describe('buildFolderUploadPlan — the delta', () => {
   const digestA = `sha256:${'a'.repeat(64)}`
   const digestB = `sha256:${'b'.repeat(64)}`

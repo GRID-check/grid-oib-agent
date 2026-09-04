@@ -31,6 +31,8 @@ import { findProjectInOrg } from '@/lib/projects/repository'
 import { ApiError, BadRequestError, ConflictError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 import { ALLOWED_TAGS } from './tag-vocabulary'
 import { contentDigest } from './content-digest'
+import { documentStatusFacts } from './document-status'
+import { documentNameKey } from './name-match'
 import { normalizeDrawingStructured, type DrawingStructured } from './drawing-structured'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/signed-image-url'
@@ -762,9 +764,23 @@ export async function uploadDocument(
    * are the same document, and a refusal leaves the reader with the OLD file
    * and no way to say "no, this one".
    */
-  const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, file.name)
+  /*
+   * The name, in ONE Unicode form.
+   *
+   * `file.name` is whatever the operating system that produced it uses, and
+   * macOS decomposes. Normalizing here — before the probe, before the storage
+   * key and before the row — is what makes the identity above hold for a büro
+   * that drags an Einreichung off a Mac: without it the probe misses, a second
+   * row appears under a name nobody can tell apart from the first, and the
+   * ingest pipeline replaces the chunks of the one it did not create.
+   * `findLiveDocumentByFilename` still looks for both forms, because rows
+   * written before this line exist. See `./name-match`.
+   */
+  const filename = documentNameKey(file.name)
+
+  const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
   const documentId = superseded?.id ?? crypto.randomUUID()
-  const storageKey = buildStorageKey(session.organizationId, projectId, documentId, file.name, folderPath)
+  const storageKey = buildStorageKey(session.organizationId, projectId, documentId, filename, folderPath)
 
   // Create the organization's bucket if this is its first upload (ADR-0043).
   // A no-op — not even a round trip — when per-org buckets are off. Done before
@@ -788,6 +804,42 @@ export async function uploadDocument(
    * and a digest only one of them changed would classify every file as changed.
    */
   const contentHash = contentDigest(bytes)
+
+  /*
+   * THE SAME BYTES, ALREADY HERE. Nothing to do.
+   *
+   * A folder re-sync is mostly this: a büro drops the project directory again
+   * to bring three corrected drawings in, and five hundred files that have not
+   * changed come along with them. The planner already skips the ones it can
+   * prove are identical — but it can only prove it where the row carries a
+   * digest, so a corpus that predates `content_hash`, a browser without
+   * `crypto.subtle`, and every non-secure context all fall through to here.
+   *
+   * This tier has the bytes and the row, so it can answer. Answering saves the
+   * object write, the quota round trip, and — the expensive one — a full
+   * re-ingest that would churn the chunks a citation already points at, for a
+   * file that did not change.
+   *
+   * Deliberately narrow. Only when the row has actually LANDED — a failed, a
+   * still-processing and an unrecognised status must all be allowed to retry,
+   * which is why the test is the status vocabulary's own `success` and not a
+   * list of spellings written out again here — and only when it is already
+   * filed where this upload would file it, because otherwise the re-file IS the
+   * gesture and skipping would drop it.
+   *
+   * No audit event either, and that is the point rather than an omission: the
+   * trail records who brought which file into which project, and this brought
+   * nothing.
+   */
+  if (
+    superseded &&
+    superseded.contentHash === contentHash &&
+    documentStatusFacts(superseded.status)?.variant === 'success' &&
+    (superseded.folderId ?? null) === (folderId ?? null)
+  ) {
+    return { documentId, jobId: null, status: 'uploaded', filename }
+  }
+
   await s3Client.send(
     new PutObjectCommand({
       Bucket: storageBucket,
@@ -831,7 +883,7 @@ export async function uploadDocument(
       projectId,
       folderId: folderId ?? null,
       createdBy: session.userId,
-      filename: file.name,
+      filename,
       storageKey,
       // Recorded even when it IS the shared bucket, so only rows predating
       // migration 0033 rely on the NULL-means-shared convention.
@@ -849,7 +901,7 @@ export async function uploadDocument(
     organizationId: session.organizationId,
     projectId,
     documentId,
-    filename: file.name,
+    filename,
     storageKey,
     storageBucket,
     collectionName,
@@ -871,7 +923,7 @@ export async function uploadDocument(
     // id, which is the one thing the trail could no longer infer from the id.
     metadata: {
       projectId,
-      filename: file.name.slice(0, 200),
+      filename: filename.slice(0, 200),
       fileSize: file.size,
       ...(superseded ? { replaced: true } : {}),
     },
@@ -882,7 +934,7 @@ export async function uploadDocument(
     documentId,
     jobId: ingestJobId,
     status: ingestStatus,
-    filename: file.name,
+    filename,
   }
 }
 

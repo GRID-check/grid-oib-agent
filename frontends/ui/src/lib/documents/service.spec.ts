@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
 
 vi.mock('@/lib/storage/service', () => ({
   // The quota check is exercised in src/lib/storage/service.spec.ts; here it is
@@ -1554,6 +1555,9 @@ describe('re-uploading a filename this collection already holds', () => {
     storageKey: 'org/org-1/project/proj-1/doc/doc-existing/plan.pdf',
     storageBucket: 'test-bucket',
     fileSize: 900,
+    contentHash: null,
+    folderId: null,
+    status: 'ready',
   }
 
   beforeEach(() => {
@@ -1612,5 +1616,80 @@ describe('re-uploading a filename this collection already holds', () => {
     expect(result.documentId).toBe('doc-existing')
     const dispatched = mockFetch.mock.calls.some(([url]) => String(url).includes('/v1/ingest'))
     expect(dispatched).toBe(true)
+  })
+
+  /*
+   * THE FOLDER RE-SYNC.
+   *
+   * A büro drops the project directory again to bring three corrected drawings
+   * in, and five hundred unchanged files come along with them. The planner
+   * skips the ones it can prove are identical, but it can only prove it where
+   * the row already carries a digest — so a corpus older than `content_hash`, a
+   * browser without `crypto.subtle` and every non-secure context arrive here
+   * instead. This tier holds both the bytes and the row, so it can answer.
+   */
+  describe('and the bytes are the ones already stored', () => {
+    const digestOfInput = 'sha256:' + createHash('sha256').update(Buffer.from(new ArrayBuffer(8))).digest('hex')
+
+    it('writes nothing, ingests nothing, and keeps the document', async () => {
+      vi.mocked(findLiveDocumentByFilename).mockResolvedValue({
+        ...existing,
+        contentHash: digestOfInput,
+      })
+
+      const result = await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+
+      expect(result.documentId).toBe('doc-existing')
+      expect(admitReplacementOrDiscard).not.toHaveBeenCalled()
+      expect(admitOrDiscard).not.toHaveBeenCalled()
+      expect(mockFetch.mock.calls.some(([url]) => String(url).includes('/v1/ingest'))).toBe(false)
+    })
+
+    it('still re-ingests when the document has not landed — a failure must be retryable', async () => {
+      vi.mocked(findLiveDocumentByFilename).mockResolvedValue({
+        ...existing,
+        contentHash: digestOfInput,
+        status: 'failed',
+      })
+
+      await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+
+      expect(admitReplacementOrDiscard).toHaveBeenCalled()
+    })
+
+    it('still runs when the upload re-files it, because the move is the point', async () => {
+      vi.mocked(findLiveDocumentByFilename).mockResolvedValue({
+        ...existing,
+        contentHash: digestOfInput,
+        folderId: 'folder-elsewhere',
+      })
+
+      await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+
+      expect(admitReplacementOrDiscard).toHaveBeenCalled()
+    })
+  })
+
+  /*
+   * macOS decomposes the umlaut it stores; Piloti and Windows compose it. The
+   * two render identically, and a raw `=` probe misses — so a re-synced folder
+   * put a SECOND row beside every document whose name carries one, under a name
+   * nobody could tell apart from the first, while the ingest pipeline replaced
+   * the chunks of the row it had not created.
+   */
+  it('probes and stores the name in one Unicode form', async () => {
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValue(null)
+
+    const result = await uploadDocument(
+      session,
+      makeInput({ name: 'Pru\u0308fbericht.pdf' }),
+      new Request('http://x'),
+    )
+
+    expect(vi.mocked(findLiveDocumentByFilename).mock.calls.at(-1)?.[2]).toBe('Pr\u00fcfbericht.pdf')
+    expect(vi.mocked(admitOrDiscard).mock.calls.at(-1)?.[2]).toMatchObject({
+      filename: 'Pr\u00fcfbericht.pdf',
+    })
+    expect(result.filename).toBe('Pr\u00fcfbericht.pdf')
   })
 })

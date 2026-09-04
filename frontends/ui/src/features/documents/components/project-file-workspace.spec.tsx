@@ -8,6 +8,7 @@ import { ProjectFileWorkspace } from './project-file-workspace'
 import { FilePreviewHost } from './file-preview-host'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { useProjectDocuments } from '../hooks/use-project-documents'
+import type { DocumentWireRow } from '../lib/file-item'
 
 function renderWorkspace(ui: ReactElement) {
   return render(
@@ -199,7 +200,7 @@ describe('ProjectFileWorkspace', () => {
  * the files actually go.
  */
 describe('ProjectFileWorkspace — a dropped folder', () => {
-  const existing = {
+  const existing: DocumentWireRow = {
     id: 'doc-eg',
     filename: 'EG.pdf',
     displayName: null,
@@ -227,12 +228,14 @@ describe('ProjectFileWorkspace — a dropped folder', () => {
   }
 
   let ensureRequests: Array<{ parentId: string | null; paths: string[] }>
+  let moveRequests: Array<{ documentId: string; folderId: string | null }>
 
   beforeEach(() => {
     vi.clearAllMocks()
     searchParams = new URLSearchParams()
     resetPreviewStore()
     ensureRequests = []
+    moveRequests = []
     server.use(
       http.get('/api/documents', () => HttpResponse.json({ documents: [] })),
       http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
@@ -244,17 +247,31 @@ describe('ProjectFileWorkspace — a dropped folder', () => {
           folderIdByPath: Object.fromEntries(body.paths.map((path) => [path, `folder-for-${path}`])),
         })
       }),
+      http.patch('/api/documents/:id/folder', async ({ params, request }) => {
+        const body = (await request.json()) as { folderId: string | null }
+        moveRequests.push({ documentId: String(params.id), folderId: body.folderId })
+        return HttpResponse.json({ id: params.id })
+      }),
     )
   })
 
-  function renderWithCorpus() {
+  // `clearMocks` does not undo a stubbed global, and one test replaces `crypto`
+  // to give happy-dom the `subtle.digest` it does not ship.
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function renderWithCorpus(
+    files: DocumentWireRow[] = [existing],
+    folders: Array<{ id: string; parentId: string | null; name: string; path: string }> = [],
+  ) {
     return renderWorkspace(
       <ProjectFileWorkspace
         projectId="proj-1"
         projectName="Test"
         collectionName="test-coll"
-        initialFiles={[existing]}
-        initialFolders={[]}
+        initialFiles={files}
+        initialFolders={folders}
       />,
     )
   }
@@ -347,6 +364,41 @@ describe('ProjectFileWorkspace — a dropped folder', () => {
     // afterwards; the whole thing is repeatable instead.
     await waitFor(() => expect(toastError).toHaveBeenCalled())
     expect(mockUploadFiles).not.toHaveBeenCalled()
+  })
+
+  /*
+   * THE RE-SYNC, which is what this feature is for.
+   *
+   * A büro drops the project directory again. Every file in it is already here
+   * and unchanged, and one document has since been reorganised in Piloti. There
+   * is nothing to upload — and the dialog's own promise, that the folder
+   * structure is recreated, is false unless that one document moves.
+   */
+  it('moves an unchanged document the tree files somewhere else, without uploading', async () => {
+    const digest = `sha256:${'a'.repeat(64)}`
+    renderWithCorpus(
+      [{ ...existing, contentHash: digest, folderId: null }],
+      [{ id: 'folder-plaene', parentId: null, name: 'Plaene', path: 'Plaene' }],
+    )
+    // The planner hashes the plausible duplicates in the browser to find out
+    // that they are identical. happy-dom ships no `crypto.subtle`, so it is
+    // supplied here — 32 bytes of 0xaa, which is the digest above in hex.
+    vi.stubGlobal('crypto', {
+      ...globalThis.crypto,
+      subtle: { digest: async () => new Uint8Array(32).fill(0xaa).buffer },
+    })
+
+    await dropFolder([pathed('Plaene/EG.pdf')])
+
+    // Not an upload, and not "nothing to do" either.
+    const confirm = await screen.findByTestId('folder-upload-confirm')
+    await waitFor(() => expect(confirm).toBeEnabled())
+    await userEvent.click(confirm)
+
+    await waitFor(() => expect(moveRequests).toHaveLength(1))
+    // Resolved through the ensure response, exactly as the uploads are — the
+    // folder a document moves into may have been created a moment ago.
+    expect(moveRequests[0]).toEqual({ documentId: 'doc-eg', folderId: 'folder-for-Plaene' })
   })
 
   it('still takes a handful of picked files straight to the upload path', async () => {
