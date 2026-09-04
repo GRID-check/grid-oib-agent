@@ -1,0 +1,15 @@
+---
+improvements:
+  - >
+    Ein Dateiname in einer Antwort öffnet das Dokument jetzt nicht nur — Ihre
+    nächste Frage bezieht sich auch darauf. Die Eingabezeile sagt „Fragen zu …",
+    und gesucht wird in dieser Datei statt im ganzen Projekt, genauso wie beim
+    Öffnen aus den Dateien oder über eine Quellenangabe.
+  - >
+    Bisher stand das Dokument neben der Antwort, während die Eingabezeile nichts
+    davon wusste: Wer dazu fragen wollte, musste dieselbe Datei in den Dateien
+    noch einmal suchen. Das ✕ an der Leiste beendet den Bezug wieder.
+  - >
+    Bei einem Dokument, das Piloti nicht gelesen hat, wird die Datei nur
+    geöffnet. Ein Bezug darauf würde eine Suche versprechen, die es nicht gibt —
+    die Vorschau sagt schon beim Überfahren, warum.

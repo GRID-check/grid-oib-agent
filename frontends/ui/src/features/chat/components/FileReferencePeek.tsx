@@ -23,7 +23,7 @@ import { formatBytes } from '@/lib/format'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import { SectionLabel } from '@/components/ui/section-label'
 import { extChipTint, fileExtensionLabel } from '@/features/documents/document-kind'
-import { isFailedStatus, isNeverIndexed } from '@/features/documents/components/document-status'
+import { isCitable, isFailedStatus, isNeverIndexed } from '@/features/documents/components/document-status'
 import type { StoredFile } from '@/features/documents/hooks/use-surfaced-documents'
 
 export const FileReferencePeek: FC<{
@@ -99,13 +99,18 @@ export const FileReferencePeek: FC<{
 
       {/* The chip's own click already opens the document; this is the control
           for a reader who reached the panel by keyboard or by pinning it, and
-          it does exactly the same thing rather than a lesser version of it. */}
+          it does exactly the same thing rather than a lesser version of it —
+          including the half of it the label has to carry: opening a document
+          the agent can read also points the next question at it, and a document
+          it cannot read only opens. The line above has just said which of the
+          two this file is, so the button agrees with it rather than restating
+          it. */}
       <button
         type="button"
         onClick={onOpen}
         className="inline-flex items-center gap-1 self-start text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
-        {t('fileReference.open')}
+        {t(isCitable(file) ? 'fileReference.openAsk' : 'fileReference.open')}
         <ArrowUpRight className="size-3.5" aria-hidden />
       </button>
     </div>

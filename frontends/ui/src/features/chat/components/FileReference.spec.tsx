@@ -95,12 +95,62 @@ describe('FileReferenceLink', () => {
     expect(preview.context.projectId).toBe('proj-1')
   })
 
-  // Reading is not redirecting: the reader clicked a name to LOOK at the file.
-  it('does not commit the composer to the file it opened', async () => {
+  // Naming a file and asking about it are one act — the same commitment a
+  // citation's peek and a document card already make.
+  it('makes the file it opened what the composer is asking about', async () => {
     const user = userEvent.setup()
     renderReference({ href: fileReferenceHref('pd8280-2.pdf') })
     await user.click(screen.getByTestId('file-reference'))
+
+    expect(useChatStore.getState().composerSubject).toEqual({
+      resourceType: 'document',
+      resourceId: 'doc-1',
+      title: 'pd8280-2.pdf',
+      filename: 'pd8280-2.pdf',
+      shelf: 'project',
+    })
+  })
+
+  // The shelf rides along as `focus_shelf`: a Büroarchiv file must not be asked
+  // about as though it were project knowledge.
+  it('carries the shelf the file came from into the subject', async () => {
+    const user = userEvent.setup()
+    renderReference({
+      href: fileReferenceHref('pd8280-2.pdf'),
+      resolve: () => stored({ corpus: 'buero' }),
+    })
+    await user.click(screen.getByTestId('file-reference'))
+    expect(useChatStore.getState().composerSubject?.shelf).toBe('archiv')
+  })
+
+  // `stored` is the agent's own report: readable, deliberately never indexed.
+  // Binding it would promise a retrieval that cannot happen, so the document
+  // opens and the composer keeps saying whatever it already said.
+  it('opens a never-indexed file without committing the composer to it', async () => {
+    const user = userEvent.setup()
+    renderReference({
+      href: fileReferenceHref('pd8280-2.pdf'),
+      resolve: () => stored({ file: file({ status: 'stored' }) }),
+    })
+    await user.click(screen.getByTestId('file-reference'))
+
+    expect(useFilePreviewStore.getState().file?.id).toBe('doc-1')
     expect(useChatStore.getState().composerSubject).toBeNull()
+  })
+
+  it('names the whole act on the chip, and only opening when that is all it does', () => {
+    renderReference({ href: fileReferenceHref('pd8280-2.pdf') })
+    expect(screen.getByTestId('file-reference')).toHaveAccessibleName(
+      'pd8280-2.pdf öffnen und dazu fragen'
+    )
+  })
+
+  it('says only „öffnen" for a file the agent cannot read', () => {
+    renderReference({
+      href: fileReferenceHref('pd8280-2.pdf'),
+      resolve: () => stored({ file: file({ status: 'stored' }) }),
+    })
+    expect(screen.getByTestId('file-reference')).toHaveAccessibleName('Datei öffnen: pd8280-2.pdf')
   })
 
   // There is no beside on a narrow screen: FilePreviewHost refuses to peek, so
@@ -131,5 +181,27 @@ describe('FileReferenceLink', () => {
     expect(screen.getByText('Projektdateien')).toBeInTheDocument()
     expect(screen.getByText(/4 Seiten/)).toBeInTheDocument()
     expect(useFilePreviewStore.getState().file).toBeNull()
+  })
+
+  // The panel's action and the chip it hangs off do the same thing, so they
+  // have to promise the same thing — including the half that is about the
+  // composer rather than the viewer.
+  it('names the same act on the peek’s own action', async () => {
+    const user = userEvent.setup()
+    renderReference({ href: fileReferenceHref('pd8280-2.pdf') })
+    await user.tab()
+    expect(await screen.findByRole('button', { name: /Öffnen und dazu fragen/ })).toBeInTheDocument()
+  })
+
+  it('offers a never-indexed file as opening only, and says why', async () => {
+    const user = userEvent.setup()
+    renderReference({
+      href: fileReferenceHref('pd8280-2.pdf'),
+      resolve: () => stored({ file: file({ status: 'stored' }) }),
+    })
+    await user.tab()
+    expect(await screen.findByTestId('file-reference-peek')).toBeInTheDocument()
+    expect(screen.getByText(/nicht zitierfähig/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Neben der Antwort öffnen/ })).toBeInTheDocument()
   })
 })
